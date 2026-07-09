@@ -14,7 +14,24 @@ export interface AgentOverride {
 export type AgentOverrides = Record<string, AgentOverride>;
 
 const KEY = "marketer-agent-overrides";
+const PROVIDER_KEY = "marketer-workspace-provider";
 const EVENT = "marketer-agent-overrides-changed";
+
+/**
+ * The workspace's agent app, chosen explicitly during onboarding (or in
+ * settings). There is deliberately no built-in default: resolution is
+ * per-chat choice > per-agent override > workspace provider, and if none is
+ * set the UI must ask, not assume.
+ */
+export function getWorkspaceProvider(): DriverType | null {
+  const value = localStorage.getItem(PROVIDER_KEY);
+  return value === "claude" || value === "codex" ? value : null;
+}
+
+export function setWorkspaceProvider(driver: DriverType) {
+  localStorage.setItem(PROVIDER_KEY, driver);
+  window.dispatchEvent(new CustomEvent(EVENT));
+}
 
 export function getAgentOverrides(): AgentOverrides {
   try {

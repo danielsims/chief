@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Square } from "lucide-react";
 import type { AgentDefinition, DriverType } from "@marketer/agent-runtime/types";
 import { Button } from "@marketer/ui/components/button";
@@ -9,9 +9,15 @@ import {
   SelectTrigger,
 } from "@marketer/ui/components/select";
 import { useAgentChat, useRuntime } from "../../lib/runtime";
-import { getAgentOverride } from "../../lib/agent-overrides";
+import { getAgentOverride, getWorkspaceProvider } from "../../lib/agent-overrides";
 import { recordChat } from "../../lib/chat-log";
 import { PROVIDER_META } from "../../lib/providers";
+import {
+  findPendingInputRequest,
+  withoutMarkerLines,
+} from "../../lib/integration-setup";
+import { ApprovalCard } from "./approval-card";
+import { InputRequestSection } from "../integrations/input-request-section";
 import { Blocks } from "./message-blocks";
 
 // The local runtime only runs CLI-backed providers.
@@ -25,12 +31,27 @@ export function AgentChat({
   initialPrompt?: string;
 }) {
   const { status: runtimeStatus } = useRuntime();
-  // Per-chat provider. Starts from the workspace default; switching it here
-  // reopens the session on the new backend without touching the default.
-  const [driver, setDriver] = useState<DriverType>(
-    () => getAgentOverride(agent.id).driver ?? agent.driver,
+  // Per-chat provider, resolved per-agent override > workspace provider.
+  // Null means the user hasn't chosen an agent app yet — no session opens
+  // and the picker asks instead of assuming one.
+  const [driver, setDriver] = useState<DriverType | null>(
+    () => getAgentOverride(agent.id).driver ?? getWorkspaceProvider(),
   );
-  const { chat, send: sendRaw, interrupt } = useAgentChat(agent.id, driver);
+  const {
+    chat,
+    send: sendRaw,
+    interrupt,
+    respondPermission,
+    provideInput,
+    sessionReady,
+  } = useAgentChat(agent.id, driver);
+  const [answeredInputs, setAnsweredInputs] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
+  const pendingInput = useMemo(
+    () => findPendingInputRequest(chat.items, answeredInputs),
+    [chat.items, answeredInputs],
+  );
   // Every send updates the local chat log the conversations list is built from.
   const send = (text: string) => {
     recordChat(agent.id, text);
@@ -48,6 +69,8 @@ export function AgentChat({
     if (
       initialPrompt &&
       !sentInitial.current &&
+      driver &&
+      sessionReady &&
       runtimeStatus === "connected"
     ) {
       // flag is set inside the timeout so a StrictMode remount (which
@@ -59,17 +82,17 @@ export function AgentChat({
       }, 400);
       return () => clearTimeout(t);
     }
-  }, [initialPrompt, runtimeStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialPrompt, runtimeStatus, driver, sessionReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = () => {
-    if (chat.status === "running") return;
+    if (chat.status === "running" || !driver) return;
     const text = draft.trim();
     if (!text) return;
     setDraft("");
     send(text);
   };
 
-  const ActiveProviderIcon = PROVIDER_META[driver].Icon;
+  const activeMeta = driver ? PROVIDER_META[driver] : null;
 
   return (
     <div className="flex h-full flex-col">
@@ -97,7 +120,7 @@ export function AgentChat({
             </div>
           ) : (
             <div key={i} className="max-w-[90%]">
-              <Blocks blocks={item.event.content} />
+              <Blocks blocks={withoutMarkerLines(item.event.content)} />
             </div>
           ),
         )}
@@ -107,11 +130,29 @@ export function AgentChat({
             <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-foreground align-text-bottom" />
           </p>
         )}
-        {chat.status === "running" && !chat.streaming && (
-          <p className="font-mono text-xs text-muted-foreground animate-pulse">
-            working…
-          </p>
-        )}
+        {chat.approvals.map((approval) => (
+          <div key={approval.requestId} className="max-w-[90%]">
+            <ApprovalCard approval={approval} onRespond={respondPermission} />
+          </div>
+        ))}
+        {pendingInput ? (
+          <div className="max-w-[90%]">
+            <InputRequestSection
+              request={pendingInput}
+              onSubmit={(request, values) => {
+                provideInput(request, values);
+                setAnsweredInputs((s) => new Set(s).add(request.id));
+              }}
+            />
+          </div>
+        ) : null}
+        {chat.status === "running" &&
+          !chat.streaming &&
+          chat.approvals.length === 0 && (
+            <p className="font-mono text-xs text-muted-foreground animate-pulse">
+              working…
+            </p>
+          )}
         {chat.error && (
           <p className="border border-destructive/40 px-3 py-2 text-xs text-destructive">
             {chat.error}
@@ -137,14 +178,18 @@ export function AgentChat({
         <div className="flex items-center justify-between px-3 pb-2">
           <div className="flex items-center gap-3">
             <Select
-              value={driver}
+              value={driver ?? undefined}
               onValueChange={(value) => setDriver(value as DriverType)}
             >
               <SelectTrigger className="h-6 w-auto gap-1.5 border-transparent px-1 text-xs text-muted-foreground hover:text-foreground data-[state=open]:text-foreground">
-                <span className="flex items-center gap-1.5">
-                  <ActiveProviderIcon size={13} />
-                  {PROVIDER_META[driver].label}
-                </span>
+                {activeMeta ? (
+                  <span className="flex items-center gap-1.5">
+                    <activeMeta.Icon size={13} />
+                    {activeMeta.label}
+                  </span>
+                ) : (
+                  <span>Choose agent app</span>
+                )}
               </SelectTrigger>
               <SelectContent className="min-w-32">
                 {CHAT_PROVIDERS.map((value) => {

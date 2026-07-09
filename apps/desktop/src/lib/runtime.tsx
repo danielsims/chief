@@ -8,10 +8,12 @@ import {
   type ReactNode,
 } from "react";
 import type {
+  AccessMode,
   AgentDefinition,
   AgentEvent,
   ClientMessage,
   DriverType,
+  InputRequest,
   ServerMessage,
 } from "@marketer/agent-runtime/types";
 import { getAgentOverride } from "./agent-overrides";
@@ -27,13 +29,32 @@ export class RuntimeClient {
   private listeners = new Set<Listener>();
   private queue: ClientMessage[] = [];
   private closed = false;
+  private reconnectTimer: number | null = null;
+  private reconnectDelayMs = 5000;
   onStatus: (status: RuntimeStatus) => void = () => {};
 
   connect() {
+    if (
+      this.ws?.readyState === WebSocket.OPEN ||
+      this.ws?.readyState === WebSocket.CONNECTING
+    ) {
+      return;
+    }
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.closed = false;
     this.onStatus("connecting");
-    this.ws = new WebSocket(RUNTIME_URL);
+    try {
+      this.ws = new WebSocket(RUNTIME_URL);
+    } catch {
+      this.ws = null;
+      this.scheduleReconnect();
+      return;
+    }
     this.ws.onopen = () => {
+      this.reconnectDelayMs = 5000;
       this.onStatus("connected");
       for (const msg of this.queue.splice(0)) this.send(msg);
     };
@@ -46,10 +67,22 @@ export class RuntimeClient {
       }
     };
     this.ws.onclose = () => {
+      this.ws = null;
       this.onStatus("disconnected");
-      if (!this.closed) setTimeout(() => this.connect(), 2000);
+      this.scheduleReconnect();
     };
     this.ws.onerror = () => this.ws?.close();
+  }
+
+  private scheduleReconnect() {
+    if (this.closed || this.reconnectTimer !== null) return;
+    this.onStatus("disconnected");
+    const delay = this.reconnectDelayMs;
+    this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 1.5, 30000);
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, delay);
   }
 
   send(msg: ClientMessage) {
@@ -67,7 +100,12 @@ export class RuntimeClient {
 
   destroy() {
     this.closed = true;
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.ws?.close();
+    this.ws = null;
   }
 }
 
@@ -125,15 +163,28 @@ export type ChatItem =
   | { kind: "user"; text: string }
   | { kind: "assistant"; event: Extract<AgentEvent, { type: "message" }> };
 
+export interface PendingApproval {
+  requestId: string;
+  toolName: string;
+  input: unknown;
+}
+
 export interface ChatState {
   items: ChatItem[];
   streaming: string;
   status: "idle" | "running";
+  /** Tool calls waiting on the user's allow/deny decision. */
+  approvals: PendingApproval[];
   lastCostUsd?: number;
   error?: string;
 }
 
-const emptyChat: ChatState = { items: [], streaming: "", status: "idle" };
+const emptyChat: ChatState = {
+  items: [],
+  streaming: "",
+  status: "idle",
+  approvals: [],
+};
 
 /** Folds one runtime event into chat state; used for live events and for
  * replaying the buffered transcript when a chat is (re)opened. */
@@ -147,13 +198,23 @@ function reduceChat(c: ChatState, event: AgentEvent): ChatState {
           .filter((b) => b.type === "text")
           .map((b) => (b.type === "text" ? b.text : ""))
           .join("\n");
-        if (!text) return c;
-        return {
-          ...c,
-          streaming: "",
-          status: "running",
-          items: [...c.items, { kind: "user", text }],
-        };
+        if (text) {
+          return {
+            ...c,
+            streaming: "",
+            status: "running",
+            items: [...c.items, { kind: "user", text }],
+          };
+        }
+        // Tool results arrive as user-role messages; render them in the
+        // transcript as terminal output rather than dropping them.
+        if (event.content.some((b) => b.type === "tool_result")) {
+          return {
+            ...c,
+            items: [...c.items, { kind: "assistant", event }],
+          };
+        }
+        return c;
       }
       return {
         ...c,
@@ -161,11 +222,31 @@ function reduceChat(c: ChatState, event: AgentEvent): ChatState {
         items: [...c.items, { kind: "assistant", event }],
       };
     }
+    case "permission":
+      return {
+        ...c,
+        approvals: c.approvals.some((a) => a.requestId === event.requestId)
+          ? c.approvals
+          : [
+              ...c.approvals,
+              {
+                requestId: event.requestId,
+                toolName: event.toolName,
+                input: event.input,
+              },
+            ],
+      };
+    case "permissionResolved":
+      return {
+        ...c,
+        approvals: c.approvals.filter((a) => a.requestId !== event.requestId),
+      };
     case "result":
       return {
         ...c,
         streaming: "",
         status: "idle",
+        approvals: [],
         lastCostUsd: event.costUsd ?? c.lastCostUsd,
         error: event.ok ? undefined : event.error,
       };
@@ -179,30 +260,36 @@ function reduceChat(c: ChatState, event: AgentEvent): ChatState {
 }
 
 /**
- * Chat session against the local runtime. `driverOverride` is owned by the
- * chat UI (per-chat provider switcher); changing it reopens the session on
- * the new backend — the runtime stops and recreates the session when
- * openSession arrives with a different driver.
+ * Chat session against the local runtime. `driver` is resolved by the caller
+ * (per-chat choice > per-agent override > workspace provider) and is
+ * required — no session opens until one is chosen. Changing it reopens the
+ * session on the new backend.
  */
-export function useAgentChat(agentId: string | null, driverOverride?: DriverType) {
+export function useAgentChat(
+  agentId: string | null,
+  driver: DriverType | null,
+  chatIdOverride?: string,
+  access?: AccessMode,
+) {
   const { client, status: runtimeStatus } = useRuntime();
-  const chatId = agentId ? `${agentId}-main` : null;
-  const [chat, setChat] = useState<ChatState>({
-    items: [],
-    streaming: "",
-    status: "idle",
-  });
+  const chatId = agentId ? (chatIdOverride ?? `${agentId}-main`) : null;
+  const [chat, setChat] = useState<ChatState>(emptyChat);
+  // True once the runtime has confirmed the session (history replayed).
+  // Callers that auto-send a first prompt must wait for this, or the prompt
+  // races the async session open and lands on a dead chat.
+  const [sessionReady, setSessionReady] = useState(false);
 
   useEffect(() => {
-    if (!agentId || !chatId || runtimeStatus !== "connected") return;
+    if (!agentId || !chatId || !driver || runtimeStatus !== "connected") return;
     setChat(emptyChat);
-    const override = getAgentOverride(agentId);
+    setSessionReady(false);
     client.send({
       type: "openSession",
       agentId,
       chatId,
-      driver: driverOverride ?? override.driver,
-      model: override.model,
+      driver,
+      access,
+      model: getAgentOverride(agentId).model,
     });
 
     const unsub = client.subscribe((msg) => {
@@ -214,6 +301,7 @@ export function useAgentChat(agentId: string | null, driverOverride?: DriverType
         // Rebuild the transcript from the runtime's buffer — resumes chats
         // across navigation and reconnects, including mid-run streaming.
         setChat(msg.events.reduce(reduceChat, emptyChat));
+        setSessionReady(true);
         return;
       }
       if (msg.type !== "event" || msg.chatId !== chatId) return;
@@ -221,8 +309,9 @@ export function useAgentChat(agentId: string | null, driverOverride?: DriverType
     });
     return () => {
       unsub();
+      setSessionReady(false);
     };
-  }, [agentId, chatId, client, runtimeStatus, driverOverride]);
+  }, [agentId, chatId, client, runtimeStatus, driver, access]);
 
   const send = (text: string) => {
     if (!chatId || !text.trim()) return;
@@ -235,5 +324,13 @@ export function useAgentChat(agentId: string | null, driverOverride?: DriverType
     if (chatId) client.send({ type: "interrupt", chatId });
   };
 
-  return { chat, send, interrupt };
+  const respondPermission = (requestId: string, behavior: "allow" | "deny") => {
+    if (chatId) client.send({ type: "respondPermission", chatId, requestId, behavior });
+  };
+
+  const provideInput = (request: InputRequest, values: Record<string, string>) => {
+    if (chatId) client.send({ type: "provideInput", chatId, request, values });
+  };
+
+  return { chat, send, interrupt, respondPermission, provideInput, sessionReady };
 }
