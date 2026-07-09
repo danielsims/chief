@@ -71,6 +71,7 @@ type StepKey =
   | "analyticsConnect"
   | "ads"
   | "adsConnect"
+  | "adsBudget"
   | "aeo"
   | "pricing"
   | "finish";
@@ -100,6 +101,8 @@ interface OnboardingDraft {
   };
   ads: {
     integrations: IntegrationSearchResult[];
+    /** Monthly spend the agents may plan toward if the user opts in. */
+    budget: string;
   };
   aeo: {
     trackAiReferrals: boolean;
@@ -122,6 +125,7 @@ const steps: StepKey[] = [
   "analyticsConnect",
   "ads",
   "adsConnect",
+  "adsBudget",
   "aeo",
   "pricing",
   "finish",
@@ -144,6 +148,7 @@ const questions: Record<StepKey, string> = {
   analyticsConnect: "Got it. Let me set up those analytics sources for you.",
   ads: "Where do you run paid ads today?",
   adsConnect: "Got it. Let me connect those ads accounts for you.",
+  adsBudget: "No ads today. Want your agents to run them for you?",
   aeo: "One more thing. Want to know when ChatGPT, Claude or Perplexity send you customers?",
   pricing: "Choose how this workspace is billed.",
   finish: "Workspace setup is ready.",
@@ -164,6 +169,14 @@ const timeOptions = [
   "5-10 hours",
   "10-20 hours",
   "20+ hours",
+];
+
+const adsBudgetOptions = [
+  "No budget yet",
+  "$100 to $300 a month",
+  "$300 to $1,000 a month",
+  "$1,000 to $3,000 a month",
+  "$3,000+ a month",
 ];
 
 const monitoringOptions = [
@@ -356,6 +369,7 @@ function baseDraft(): OnboardingDraft {
     },
     ads: {
       integrations: [],
+      budget: adsBudgetOptions[0]!,
     },
     aeo: {
       trackAiReferrals: true,
@@ -464,6 +478,10 @@ function draftFromOrg(org: AuthOrganization, userName?: string): OnboardingDraft
     },
     ads: {
       integrations: normaliseIntegrations(ads.integrations),
+      budget:
+        typeof ads.budget === "string" && ads.budget
+          ? ads.budget
+          : adsBudgetOptions[0]!,
     },
     aeo: {
       trackAiReferrals:
@@ -521,6 +539,10 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
       },
       ads: {
         integrations: normaliseIntegrations(parsedAds?.integrations),
+        budget:
+          typeof parsedAds?.budget === "string" && parsedAds.budget
+            ? parsedAds.budget
+            : base.ads.budget,
       },
       aeo: {
         ...base.aeo,
@@ -841,6 +863,10 @@ function AnswerPreview({
       return <UserBubble>No paid ads</UserBubble>;
     }
     return <UserBubble>{selectedIntegrationNames(draft.ads.integrations)}</UserBubble>;
+  }
+
+  if (step === "adsBudget") {
+    return <UserBubble>{draft.ads.budget}</UserBubble>;
   }
 
   if (step === "aeo") {
@@ -1737,27 +1763,20 @@ function ConnectedIntegrationRow({
 
 function QueuedIntegrationRow({
   integration,
-  active,
   onRemove,
 }: {
   integration: IntegrationSearchResult;
-  active?: boolean;
   onRemove: () => void;
 }) {
   return (
-    <div
-      className={cn(
-        "flex items-center gap-3 border bg-background p-3",
-        !active && "opacity-60",
-      )}
-    >
+    <div className="flex items-center gap-3 border bg-background p-3 opacity-60">
       <IntegrationLogo integration={integration} />
       <span className="min-w-0">
         <span className="block truncate text-sm font-medium">
           {integration.name}
         </span>
         <span className="mt-0.5 block text-xs text-muted-foreground">
-          {active ? "Ready to connect" : "Up next"}
+          Up next
         </span>
       </span>
       <button
@@ -1884,14 +1903,9 @@ function IntegrationConnectQueueControl({
 
         {firstOpenIntegration ? (
           <div className="space-y-3">
-            <QueuedIntegrationRow
-              integration={firstOpenIntegration}
-              active
-              onRemove={() => onRemove(firstOpenIntegration)}
-            />
             <div className="flex items-start gap-3 border bg-background p-4">
               <IntegrationLogo integration={firstOpenIntegration} />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium">
                   {firstOpenIntegration.name}
                 </p>
@@ -1909,6 +1923,13 @@ function IntegrationConnectQueueControl({
                   </a>
                 ) : null}
               </div>
+              <button
+                type="button"
+                onClick={() => onRemove(firstOpenIntegration)}
+                className="shrink-0 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Remove
+              </button>
             </div>
 
             {localAgentSetup && provider ? (
@@ -1984,6 +2005,46 @@ function IntegrationConnectQueueControl({
       {notice ? (
         <p className="mt-4 text-xs text-muted-foreground">{notice}</p>
       ) : null}
+    </StepFrame>
+  );
+}
+
+function AdsBudgetControl({
+  budget,
+  setBudget,
+  onContinue,
+  saving,
+}: {
+  budget: string;
+  setBudget: (budget: string) => void;
+  onContinue: () => void;
+  saving: boolean;
+}) {
+  const index = Math.max(0, adsBudgetOptions.indexOf(budget));
+  return (
+    <StepFrame onContinue={onContinue} saving={saving}>
+      <p className="max-w-xl text-sm leading-6 text-muted-foreground">
+        You do not have to run ads yourself. Your agents can plan campaigns,
+        launch them and watch the spend, and nothing goes live without your
+        approval. Set a monthly budget they can plan toward.
+      </p>
+      <div className="mt-2 px-1 py-3">
+        <div className="text-center text-sm font-medium">{budget}</div>
+        <input
+          type="range"
+          min={0}
+          max={adsBudgetOptions.length - 1}
+          value={index}
+          onChange={(event) =>
+            setBudget(adsBudgetOptions[Number(event.target.value)]!)
+          }
+          className="mt-6 h-1 w-full cursor-pointer appearance-none bg-border accent-white [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-thumb]:-mt-1 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-white"
+        />
+        <div className="mt-4 flex justify-between text-xs text-muted-foreground">
+          <span>Not yet</span>
+          <span>More</span>
+        </div>
+      </div>
     </StepFrame>
   );
 }
@@ -2238,6 +2299,12 @@ export function OnboardingPage() {
     [],
   );
 
+  const setAdsBudget = useCallback((budget: string) => {
+    setDraft((current) =>
+      current ? { ...current, ads: { ...current.ads, budget } } : current,
+    );
+  }, []);
+
   const setAeo = useCallback((patch: Partial<OnboardingDraft["aeo"]>) => {
     setDraft((current) =>
       current ? { ...current, aeo: { ...current.aeo, ...patch } } : current,
@@ -2262,7 +2329,7 @@ export function OnboardingPage() {
   );
 
   const clearAdsSelection = useCallback(
-    () => {
+    (nextStep: "adsBudget" | "aeo") => {
       setNotice(null);
       setError(null);
       setDraft((current) =>
@@ -2270,7 +2337,7 @@ export function OnboardingPage() {
           ? {
               ...current,
               ads: { ...current.ads, integrations: [] },
-              step: "aeo",
+              step: nextStep,
             }
           : current,
       );
@@ -2391,6 +2458,16 @@ export function OnboardingPage() {
       if (step === "inference") persistProvider();
       if (step === "finish") {
         await completeOnboarding();
+        return;
+      }
+      if (step === "adsConnect") {
+        // The budget upsell is for people who don't run ads; connecters
+        // already have campaigns.
+        setNotice(null);
+        setError(null);
+        setDraft((current) =>
+          current ? { ...current, step: "aeo" } : current,
+        );
         return;
       }
       goNext();
@@ -2708,8 +2785,8 @@ export function OnboardingPage() {
           searchPlaceholder="Search ads tools"
           emptySelectionLabel="I don't run ads"
           skipLabel="Skip for now"
-          onEmptySelection={clearAdsSelection}
-          onSkip={clearAdsSelection}
+          onEmptySelection={() => clearAdsSelection("adsBudget")}
+          onSkip={() => clearAdsSelection("aeo")}
           onContinue={advance}
           saving={saving}
         />
@@ -2748,6 +2825,16 @@ export function OnboardingPage() {
           notice={null}
           onConnect={() => undefined}
           onSetupResult={(result) => handleSetupResult(result, "ads")}
+          onContinue={advance}
+          saving={saving}
+        />
+      );
+    }
+    if (step === "adsBudget") {
+      return (
+        <AdsBudgetControl
+          budget={draft.ads.budget}
+          setBudget={setAdsBudget}
           onContinue={advance}
           saving={saving}
         />
@@ -2810,6 +2897,7 @@ export function OnboardingPage() {
     setGoals,
     setAeo,
     setAdsIntegrations,
+    setAdsBudget,
     setAnalyticsIntegrations,
     clearAdsSelection,
     clearAnalyticsSelection,
@@ -2837,12 +2925,26 @@ export function OnboardingPage() {
       <header data-tauri-drag-region className="h-[72px] shrink-0" />
       <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-6 pb-6">
         <div className="min-h-0 flex-1 space-y-7 overflow-y-auto pr-1 pb-6">
-          {steps.slice(0, currentIndex).map((pastStep) => (
-            <div key={pastStep} className="space-y-3">
-              <AgentBubble text={questions[pastStep]} />
-              <AnswerPreview step={pastStep} draft={draft} />
-            </div>
-          ))}
+          {steps
+            .slice(0, currentIndex)
+            .filter(
+              // Steps the user never saw don't replay in the transcript.
+              (pastStep) =>
+                !(
+                  (pastStep === "analyticsConnect" &&
+                    draft.analytics.integrations.length === 0) ||
+                  (pastStep === "adsConnect" &&
+                    draft.ads.integrations.length === 0) ||
+                  (pastStep === "adsBudget" &&
+                    draft.ads.integrations.length > 0)
+                ),
+            )
+            .map((pastStep) => (
+              <div key={pastStep} className="space-y-3">
+                <AgentBubble text={questions[pastStep]} />
+                <AnswerPreview step={pastStep} draft={draft} />
+              </div>
+            ))}
           <div className="space-y-4">
             <AgentBubble text={questions[step]} current />
             <div className="w-full max-w-[720px]">{currentControl}</div>

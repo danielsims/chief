@@ -56,7 +56,8 @@ export function IntegrationSetupPanel({
   const [allowRest, setAllowRest] = useState(false);
   const feedRef = useRef<HTMLDivElement>(null);
   const startedRef = useRef(false);
-  const reportedRef = useRef(false);
+  const reportedRef = useRef<Set<string>>(new Set());
+  const nudgedForSeriesRef = useRef(false);
 
   useEffect(() => {
     if (!allowRest) return;
@@ -90,19 +91,28 @@ export function IntegrationSetupPanel({
   }, [chat.items.length, chat.streaming, chat.approvals.length, pendingInput]);
 
   useEffect(() => {
-    if (reportedRef.current) return;
     for (const item of chat.items) {
       if (item.kind !== "assistant") continue;
       for (const block of item.event.content) {
         if (block.type !== "text") continue;
         const result = parseSetupResult(block.text);
-        if (result) {
-          reportedRef.current = true;
-          onResult(result);
-          return;
+        if (!result) continue;
+        const key = JSON.stringify(result);
+        if (reportedRef.current.has(key)) continue;
+        reportedRef.current.add(key);
+        onResult(result);
+        // The live preview needs the daily series; if the agent omitted it,
+        // ask once for an updated result. The updated result flows through
+        // here again and refreshes the preview.
+        if (!result.series?.length && !nudgedForSeriesRef.current) {
+          nudgedForSeriesRef.current = true;
+          send(
+            "[auto] If this integration can report a daily metric, run the last 14 days now and emit an updated MARKETER_SETUP_RESULT line that also includes metricLabel and series.",
+          );
         }
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat.items, onResult]);
 
   const items = useMemo(
@@ -151,7 +161,7 @@ export function IntegrationSetupPanel({
         ) : null}
         {items.map((item, i) =>
           item.kind === "user" ? (
-            i === 0 ? null : (
+            i === 0 || item.text.startsWith("[auto]") ? null : (
               <div key={i} className="flex justify-end">
                 <div className="max-w-[85%] border bg-accent px-2.5 py-1.5 text-xs whitespace-pre-wrap">
                   {item.text}
