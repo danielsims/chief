@@ -119,12 +119,12 @@ function SignInContent() {
       <div className="flex flex-1 items-center justify-center px-8 pb-24">
         <div className="mx-auto flex w-full max-w-sm flex-col text-center">
           <h1 className="font-serif text-3xl leading-tight">
-            {isDesktopFlow ? "Connect desktop app" : "Sign in to Marketer"}
+            {isDesktopFlow ? "Connect the desktop app" : "Sign in to Marketer"}
           </h1>
           <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
             {isDesktopFlow
-              ? "One sign-in and you'll be sent straight back to the app."
-              : "Your marketing team, as agents. Pick up where you left off."}
+              ? "You'll be sent back to the app after signing in."
+              : "Sign in to continue to your workspace."}
           </p>
           <Button
             className="mt-12 h-11 w-full"
@@ -143,8 +143,7 @@ function SignInContent() {
             {isLoading ? "Loading…" : "Continue with Google"}
           </Button>
           <p className="mt-6 text-xs leading-relaxed text-muted-foreground/60">
-            Your account handles identity only. Your data and agents stay on
-            your own machine.
+            Your data and agents stay on your machine.
           </p>
         </div>
       </div>

@@ -67,7 +67,7 @@ export function DashboardPage() {
           <span className="text-muted-foreground">, Daniel</span>
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          An overview of your channels, campaigns and team activity.
+          An overview of your channels and agents.
         </p>
       </div>
 
@@ -100,7 +100,7 @@ export function DashboardPage() {
                 submit();
               }
             }}
-            placeholder="Ask your CMO anything…"
+            placeholder="Ask your CMO…"
             rows={1}
             className="w-full resize-none bg-transparent px-3 pt-3 text-sm leading-6 outline-none placeholder:text-muted-foreground"
           />

@@ -18,8 +18,7 @@ export function ProfileSettings() {
         <CardHeader>
           <CardTitle>Account</CardTitle>
           <CardDescription>
-            Sign in to sync agents, schedules and telemetry with your cloud
-            workspace.
+            Sign in to sync your workspace across devices.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -27,7 +26,7 @@ export function ProfileSettings() {
             <div>
               <p className="text-sm font-medium">Not signed in</p>
               <p className="text-xs text-muted-foreground">
-                Opens your browser to authenticate.
+                Sign-in opens in your browser.
               </p>
             </div>
             <Button size="sm" onClick={signIn} disabled={isSigningIn}>
@@ -44,7 +43,7 @@ export function ProfileSettings() {
       <CardHeader>
         <CardTitle>Profile</CardTitle>
         <CardDescription>
-          Your account details come from your sign-in provider.
+          Your name and email come from your sign-in provider.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -57,7 +56,7 @@ export function ProfileSettings() {
                 className="h-full w-full object-cover"
               />
             ) : (
-              <span className="font-serif text-lg">
+              <span className="translate-y-[0.055em] font-serif text-lg leading-none">
                 {(user.name || user.email).charAt(0).toUpperCase()}
               </span>
             )}
@@ -86,7 +85,7 @@ export function ProfileSettings() {
         </div>
         <div className="flex items-center justify-between border-t pt-4">
           <p className="text-xs text-muted-foreground">
-            Signing out keeps your local data on this machine.
+            Signing out keeps local data on this machine.
           </p>
           <Button variant="outline" size="sm" onClick={signOut}>
             Sign out

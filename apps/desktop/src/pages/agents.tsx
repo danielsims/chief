@@ -3,7 +3,6 @@ import type { AgentDefinition } from "@marketer/agent-runtime/types";
 import { cn } from "@marketer/ui/lib/utils";
 import { useRuntime } from "../lib/runtime";
 import { AgentChat } from "../components/chat/agent-chat";
-import { AgentIcon } from "../components/agent-icon";
 
 function AgentRow({
   agent,
@@ -18,25 +17,20 @@ function AgentRow({
     <button
       onClick={onSelect}
       className={cn(
-        "flex w-full items-start gap-3 border border-transparent p-3 text-left transition-colors hover:bg-accent",
+        "w-full border border-transparent p-3 text-left transition-colors hover:bg-accent",
         active && "border-border bg-accent",
       )}
     >
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center border bg-background text-muted-foreground">
-        <AgentIcon agentId={agent.id} size={15} />
+      <span className="block text-sm font-medium leading-tight">
+        {agent.name}
+        {agent.delegates && (
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            Orchestrator
+          </span>
+        )}
       </span>
-      <span>
-        <span className="block text-sm font-medium leading-tight">
-          {agent.name}
-          {agent.delegates && (
-            <span className="ml-2 text-[10px] uppercase tracking-wide text-muted-foreground">
-              orchestrator
-            </span>
-          )}
-        </span>
-        <span className="mt-0.5 block text-xs text-muted-foreground">
-          {agent.role}
-        </span>
+      <span className="mt-0.5 block text-xs text-muted-foreground">
+        {agent.role}
       </span>
     </button>
   );
@@ -52,9 +46,7 @@ export function AgentsPage() {
   return (
     <div className="flex h-[calc(100vh-96px)] gap-6">
       <div className="w-64 shrink-0 space-y-1 overflow-y-auto border-r pr-4 pt-6">
-        <p className="px-3 pb-2 text-[11px] uppercase tracking-wide text-muted-foreground">
-          Your team
-        </p>
+        <p className="px-3 pb-2 text-xs text-muted-foreground">Your team</p>
         {agents.map((agent) => (
           <AgentRow
             key={agent.id}
@@ -65,7 +57,7 @@ export function AgentsPage() {
         ))}
         {agents.length === 0 && (
           <p className="px-3 text-xs text-muted-foreground">
-            Waiting for agent runtime…
+            Waiting for the agent runtime…
           </p>
         )}
       </div>

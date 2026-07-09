@@ -87,14 +87,14 @@ function SuccessContent() {
             {status === "polling"
               ? "Signing you in…"
               : status === "timeout"
-                ? "That took too long"
-                : "You're in"}
+                ? "Sign-in timed out"
+                : "Signed in"}
           </h1>
           <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
             {status === "polling"
-              ? "Handing you back to the app."
+              ? "Returning you to the app."
               : status === "timeout"
-                ? "Close this tab and try signing in again from the desktop app."
+                ? "Close this tab and try again from the desktop app."
                 : "You can close this tab once the app opens."}
           </p>
           {deepLinkUrl ? (

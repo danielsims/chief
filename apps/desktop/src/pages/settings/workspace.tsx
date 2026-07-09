@@ -57,7 +57,7 @@ function LogoPreview({
       {src ? (
         <img src={src} alt={name} className="h-8 w-8 object-contain" />
       ) : (
-        <span className="font-serif text-lg">
+        <span className="translate-y-[0.055em] font-serif text-lg leading-none">
           {(name || "?").charAt(0).toUpperCase()}
         </span>
       )}
@@ -148,15 +148,14 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
       <CardHeader>
         <CardTitle>Delete workspace</CardTitle>
         <CardDescription>
-          Removes this workspace and everything scoped to it. This cannot be
-          undone.
+          Permanently delete this workspace and all of its data.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="flex items-center justify-between py-1">
           <p className="text-xs text-muted-foreground">
-            You will be switched to another workspace, or signed out if this
-            is your last one.
+            You'll be moved to another workspace, or signed out if this is
+            your last one.
           </p>
           <Button
             variant="destructive"
@@ -176,8 +175,8 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
           <DialogHeader>
             <DialogTitle>Delete {org.name}</DialogTitle>
             <DialogDescription>
-              Type the workspace name to confirm. All chats, drafts, schedules
-              and social accounts in this workspace will be deleted.
+              This deletes the workspace and all of its data. Type the
+              workspace name to confirm.
             </DialogDescription>
           </DialogHeader>
           <Input
@@ -278,15 +277,15 @@ export function WorkspaceSettings() {
         <CardHeader>
           <CardTitle>Workspace</CardTitle>
           <CardDescription>
-            One workspace per company. Name, website and logo feed your
-            agents' context.
+            The company your agents work for. They use the name and website
+            as context.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="flex items-center gap-4">
             <LogoPreview logo={org?.logo} website={website} name={name} />
             <p className="text-xs text-muted-foreground">
-              Logo defaults to your website's favicon.
+              The logo defaults to your website's favicon.
             </p>
           </div>
           <div className="space-y-1.5">
@@ -341,7 +340,7 @@ export function WorkspaceSettings() {
         <CardHeader>
           <CardTitle>Social accounts</CardTitle>
           <CardDescription>
-            Where this company lives online. No OAuth: agents draft, you post.
+            Add the social accounts your agents write for.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -355,7 +354,7 @@ export function WorkspaceSettings() {
           ))}
           {!convexReady && (
             <p className="text-xs text-muted-foreground">
-              Connecting to your cloud workspace...
+              Connecting to your workspace…
             </p>
           )}
         </CardContent>
