@@ -96,10 +96,10 @@ interface OnboardingDraft {
     keywords: string;
   };
   analytics: {
-    integration: IntegrationSearchResult | null;
+    integrations: IntegrationSearchResult[];
   };
   ads: {
-    integration: IntegrationSearchResult | null;
+    integrations: IntegrationSearchResult[];
   };
   aeo: {
     trackAiReferrals: boolean;
@@ -140,10 +140,10 @@ const questions: Record<StepKey, string> = {
   success: "What would make the next 90 days feel like this is working?",
   time: "How much time can you spend on marketing each week?",
   monitoring: "Where should your agents look for prospects and mentions?",
-  analytics: "Which analytics platform do you use today?",
-  analyticsConnect: "Got it. Let me set up that analytics source for you.",
+  analytics: "Which analytics platforms do you use today?",
+  analyticsConnect: "Got it. Let me set up those analytics sources for you.",
   ads: "Where do you run paid ads today?",
-  adsConnect: "Got it. Let me connect that ads account for you.",
+  adsConnect: "Got it. Let me connect those ads accounts for you.",
   aeo: "One more thing. Want to know when ChatGPT, Claude or Perplexity send you customers?",
   pricing: "Choose how this workspace is billed.",
   finish: "Workspace setup is ready.",
@@ -177,14 +177,6 @@ const monitoringOptions = [
   { key: "communities", label: "Communities", Icon: Globe },
 ];
 
-const noAnalyticsIntegration: IntegrationSearchResult = {
-  domain: "none",
-  name: "Not yet",
-  description: "Continue without connecting analytics for now.",
-  kinds: [],
-  url: "https://integrations.sh/?q=analytics",
-};
-
 const fallbackAnalyticsIntegrations: IntegrationSearchResult[] = [
   {
     domain: "analytics.googleapis.com",
@@ -215,14 +207,6 @@ const fallbackAnalyticsIntegrations: IntegrationSearchResult[] = [
     url: "https://integrations.sh/mixpanel.com/",
   },
 ];
-
-const noAdsIntegration: IntegrationSearchResult = {
-  domain: "none",
-  name: "No paid ads",
-  description: "Continue without connecting an ads account for now.",
-  kinds: [],
-  url: "https://integrations.sh/?q=ads",
-};
 
 const fallbackAdsIntegrations: IntegrationSearchResult[] = [
   {
@@ -368,10 +352,10 @@ function baseDraft(): OnboardingDraft {
       keywords: "",
     },
     analytics: {
-      integration: fallbackAnalyticsIntegrations[0] ?? null,
+      integrations: [],
     },
     ads: {
-      integration: fallbackAdsIntegrations[0] ?? null,
+      integrations: [],
     },
     aeo: {
       trackAiReferrals: true,
@@ -391,6 +375,21 @@ function normaliseChannels(value: unknown, fallback: string[]) {
       .filter(Boolean);
   }
   return fallback;
+}
+
+function normaliseIntegrations(value: unknown): IntegrationSearchResult[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is IntegrationSearchResult => {
+    if (!item || typeof item !== "object") return false;
+    const integration = item as Partial<IntegrationSearchResult>;
+    return (
+      typeof integration.domain === "string" &&
+      typeof integration.name === "string" &&
+      typeof integration.description === "string" &&
+      Array.isArray(integration.kinds) &&
+      typeof integration.url === "string"
+    );
+  });
 }
 
 function draftFromOrg(org: AuthOrganization, userName?: string): OnboardingDraft {
@@ -461,12 +460,10 @@ function draftFromOrg(org: AuthOrganization, userName?: string): OnboardingDraft
           : "",
     },
     analytics: {
-      ...baseDraft().analytics,
-      ...analytics,
+      integrations: normaliseIntegrations(analytics.integrations),
     },
     ads: {
-      ...baseDraft().ads,
-      ...ads,
+      integrations: normaliseIntegrations(ads.integrations),
     },
     aeo: {
       trackAiReferrals:
@@ -486,42 +483,12 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
     const parsedMonitoring = parsed.monitoring as
       Partial<OnboardingDraft["monitoring"]> | undefined;
     const parsedAnalytics = parsed.analytics as
-      | Partial<OnboardingDraft["analytics"]> & {
-          platform?: string;
-        }
+      | Partial<OnboardingDraft["analytics"]>
       | undefined;
     const parsedAds = parsed.ads as
-      | Partial<OnboardingDraft["ads"]> & {
-          platform?: string;
-        }
+      | Partial<OnboardingDraft["ads"]>
       | undefined;
     const parsedAeo = parsed.aeo as Partial<OnboardingDraft["aeo"]> | undefined;
-    const legacyPlatform =
-      parsedAnalytics?.platform === "none"
-        ? noAnalyticsIntegration
-        : parsedAnalytics?.platform === "posthog"
-          ? fallbackAnalyticsIntegrations.find(
-              (integration) => integration.domain === "posthog.com",
-            )
-          : parsedAnalytics?.platform === "plausible"
-            ? {
-                domain: "plausible.io",
-                name: "Plausible",
-                description: "Privacy-friendly web analytics.",
-                kinds: ["openapi"],
-                url: "https://integrations.sh/plausible.io/",
-              }
-            : parsedAnalytics?.platform === "google-analytics"
-              ? fallbackAnalyticsIntegrations[0]
-              : undefined;
-    const legacyAdsPlatform =
-      parsedAds?.platform === "none"
-        ? noAdsIntegration
-        : parsedAds?.platform === "google-ads"
-          ? fallbackAdsIntegrations[0]
-          : parsedAds?.platform === "meta-ads"
-            ? fallbackAdsIntegrations[1]
-            : undefined;
     return {
       ...base,
       ...parsed,
@@ -550,18 +517,10 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
         ),
       },
       analytics: {
-        ...base.analytics,
-        ...(parsedAnalytics ?? {}),
-        integration:
-          parsedAnalytics?.integration ??
-          legacyPlatform ??
-          base.analytics.integration,
+        integrations: normaliseIntegrations(parsedAnalytics?.integrations),
       },
       ads: {
-        ...base.ads,
-        ...(parsedAds ?? {}),
-        integration:
-          parsedAds?.integration ?? legacyAdsPlatform ?? base.ads.integration,
+        integrations: normaliseIntegrations(parsedAds?.integrations),
       },
       aeo: {
         ...base.aeo,
@@ -697,26 +656,47 @@ function isGoogleAnalyticsIntegration(
   );
 }
 
-function connectedAnalyticsLabel(
+function integrationProviderMatches(
   integration: IntegrationSearchResult | null | undefined,
-  connected: boolean,
+  provider: string | null | undefined,
 ) {
-  if (!integration) return "No analytics source selected";
-  if (integration.domain === "none") return "Not connected yet";
-  return connected
-    ? `${integration.name} connected`
-    : `${integration.name} selected`;
+  if (!integration || !provider) return false;
+  return (
+    provider === integration.domain ||
+    (integration.domain === "analytics.googleapis.com" &&
+      provider === "google-analytics")
+  );
 }
 
-function connectedAdsLabel(
-  integration: IntegrationSearchResult | null | undefined,
-  connected: boolean,
-) {
-  if (!integration) return "No ads account selected";
-  if (integration.domain === "none") return "No paid ads";
-  return connected
-    ? `${integration.name} connected`
-    : `${integration.name} selected`;
+function selectedIntegrationNames(integrations: IntegrationSearchResult[]) {
+  return integrations.length
+    ? integrations.map((integration) => integration.name).join(", ")
+    : null;
+}
+
+function providerIdentity(provider: string) {
+  if (provider === "google-analytics") {
+    return {
+      label: "Google Analytics",
+      logoDomain: "analytics.googleapis.com",
+    };
+  }
+
+  return {
+    label: provider,
+    logoDomain: provider,
+  };
+}
+
+function integrationFromProvider(provider: string): IntegrationSearchResult {
+  const identity = providerIdentity(provider);
+  return {
+    domain: identity.logoDomain,
+    name: identity.label,
+    description: provider,
+    kinds: [],
+    url: `https://integrations.sh/${identity.logoDomain}/`,
+  };
 }
 
 function modeLabel(draft: OnboardingDraft) {
@@ -831,18 +811,19 @@ function AnswerPreview({
   if (step === "analytics") {
     return (
       <UserBubble>
-        {draft.analytics.integration?.name ?? "Analytics selected"}
+        {selectedIntegrationNames(draft.analytics.integrations) ??
+          "No analytics yet"}
       </UserBubble>
     );
   }
 
   if (step === "analyticsConnect") {
-    if (draft.analytics.integration?.domain === "none") {
+    if (!draft.analytics.integrations.length) {
       return <UserBubble>Not connected yet</UserBubble>;
     }
     return (
       <UserBubble>
-        {connectedAnalyticsLabel(draft.analytics.integration, false)}
+        {selectedIntegrationNames(draft.analytics.integrations)}
       </UserBubble>
     );
   }
@@ -850,18 +831,16 @@ function AnswerPreview({
   if (step === "ads") {
     return (
       <UserBubble>
-        {draft.ads.integration?.name ?? "Ads source selected"}
+        {selectedIntegrationNames(draft.ads.integrations) ?? "No paid ads"}
       </UserBubble>
     );
   }
 
   if (step === "adsConnect") {
-    if (draft.ads.integration?.domain === "none") {
+    if (!draft.ads.integrations.length) {
       return <UserBubble>No paid ads</UserBubble>;
     }
-    return (
-      <UserBubble>{connectedAdsLabel(draft.ads.integration, false)}</UserBubble>
-    );
+    return <UserBubble>{selectedIntegrationNames(draft.ads.integrations)}</UserBubble>;
   }
 
   if (step === "aeo") {
@@ -1611,39 +1590,49 @@ function IntegrationCard({
   );
 }
 
-function AnalyticsControl({
+function IntegrationPickerControl({
   selected,
   setSelected,
-  onNoAnalytics,
+  fallbackIntegrations,
+  defaultSearchQuery,
+  searchPlaceholder,
+  emptySelectionLabel,
+  skipLabel,
+  onEmptySelection,
   onSkip,
   onContinue,
   saving,
 }: {
-  selected: IntegrationSearchResult | null;
-  setSelected: (integration: IntegrationSearchResult) => void;
-  onNoAnalytics: () => void;
+  selected: IntegrationSearchResult[];
+  setSelected: (integrations: IntegrationSearchResult[]) => void;
+  fallbackIntegrations: IntegrationSearchResult[];
+  defaultSearchQuery: string;
+  searchPlaceholder: string;
+  emptySelectionLabel: string;
+  skipLabel: string;
+  onEmptySelection: () => void;
   onSkip: () => void;
   onContinue: () => void;
   saving: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<IntegrationSearchResult[]>(
-    fallbackAnalyticsIntegrations,
+    fallbackIntegrations,
   );
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    const trimmed = query.trim() || "analytics";
+    const trimmed = query.trim() || defaultSearchQuery;
     setLoading(true);
     const timeout = window.setTimeout(() => {
       void searchIntegrations(trimmed)
         .then((items) => {
           if (cancelled) return;
-          setResults(items.length ? items : fallbackAnalyticsIntegrations);
+          setResults(items.length ? items : fallbackIntegrations);
         })
         .catch(() => {
-          if (!cancelled) setResults(fallbackAnalyticsIntegrations);
+          if (!cancelled) setResults(fallbackIntegrations);
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
@@ -1654,30 +1643,39 @@ function AnalyticsControl({
       cancelled = true;
       window.clearTimeout(timeout);
     };
-  }, [query]);
+  }, [defaultSearchQuery, fallbackIntegrations, query]);
 
   const options = useMemo(() => {
     const seen = new Set<string>();
-    return [...fallbackAnalyticsIntegrations, ...results].filter((integration) => {
+    return [...selected, ...fallbackIntegrations, ...results].filter((integration) => {
       if (seen.has(integration.domain)) return false;
       seen.add(integration.domain);
       return true;
     });
-  }, [results]);
+  }, [fallbackIntegrations, results, selected]);
+
+  const toggle = (integration: IntegrationSearchResult) => {
+    const exists = selected.some((item) => item.domain === integration.domain);
+    setSelected(
+      exists
+        ? selected.filter((item) => item.domain !== integration.domain)
+        : [...selected, integration],
+    );
+  };
 
   return (
     <StepFrame
       onContinue={onContinue}
       saving={saving}
-      disabled={!selected}
+      disabled={!selected.length}
       continueLabel="Continue"
       actionsLeft={
         <>
-          <Button type="button" variant="ghost" onClick={onNoAnalytics}>
-            I don’t use analytics
+          <Button type="button" variant="ghost" onClick={onEmptySelection}>
+            {emptySelectionLabel}
           </Button>
           <Button type="button" variant="ghost" onClick={onSkip}>
-            Skip for now
+            {skipLabel}
           </Button>
         </>
       }
@@ -1685,7 +1683,7 @@ function AnalyticsControl({
       <Input
         value={query}
         onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search analytics tools"
+        placeholder={searchPlaceholder}
       />
       <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
         <span>Powered by integrations.sh</span>
@@ -1696,8 +1694,8 @@ function AnalyticsControl({
           <IntegrationCard
             key={integration.domain}
             integration={integration}
-            selected={selected?.domain === integration.domain}
-            onClick={() => setSelected(integration)}
+            selected={selected.some((item) => item.domain === integration.domain)}
+            onClick={() => toggle(integration)}
           />
         ))}
       </div>
@@ -1705,106 +1703,79 @@ function AnalyticsControl({
   );
 }
 
-function AdsControl({
-  selected,
-  setSelected,
-  onNoAds,
-  onSkip,
-  onContinue,
-  saving,
+type ConnectedChannel = {
+  provider: string;
+  displayName: string;
+  category?: string;
+};
+
+function ConnectedIntegrationRow({
+  channel,
 }: {
-  selected: IntegrationSearchResult | null;
-  setSelected: (integration: IntegrationSearchResult) => void;
-  onNoAds: () => void;
-  onSkip: () => void;
-  onContinue: () => void;
-  saving: boolean;
+  channel: ConnectedChannel;
 }) {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<IntegrationSearchResult[]>(
-    fallbackAdsIntegrations,
-  );
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    const trimmed = query.trim() || "ads";
-    setLoading(true);
-    const timeout = window.setTimeout(() => {
-      void searchIntegrations(trimmed)
-        .then((items) => {
-          if (cancelled) return;
-          setResults(items.length ? items : fallbackAdsIntegrations);
-        })
-        .catch(() => {
-          if (!cancelled) setResults(fallbackAdsIntegrations);
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
-        });
-    }, 250);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [query]);
-
-  const options = useMemo(() => {
-    const seen = new Set<string>();
-    return [...fallbackAdsIntegrations, ...results].filter((integration) => {
-      if (seen.has(integration.domain)) return false;
-      seen.add(integration.domain);
-      return true;
-    });
-  }, [results]);
+  const providerIntegration = integrationFromProvider(channel.provider);
 
   return (
-    <StepFrame
-      onContinue={onContinue}
-      saving={saving}
-      disabled={!selected}
-      continueLabel="Continue"
-      actionsLeft={
-        <>
-          <Button type="button" variant="ghost" onClick={onNoAds}>
-            I don&apos;t run ads
-          </Button>
-          <Button type="button" variant="ghost" onClick={onSkip}>
-            Skip for now
-          </Button>
-        </>
-      }
-    >
-      <Input
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search ads tools"
-      />
-      <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-        <span>Powered by integrations.sh</span>
-        <span>{loading ? "Searching..." : `${options.length} options`}</span>
-      </div>
-      <div className="mt-4 grid max-h-[360px] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
-        {options.map((integration) => (
-          <IntegrationCard
-            key={integration.domain}
-            integration={integration}
-            selected={selected?.domain === integration.domain}
-            onClick={() => setSelected(integration)}
-          />
-        ))}
-      </div>
-    </StepFrame>
+    <div className="flex items-center gap-3 py-2.5">
+      <IntegrationLogo integration={providerIntegration} />
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-medium">
+          {providerIntegration.name}
+        </span>
+        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+          {channel.displayName}
+        </span>
+      </span>
+      <span className="ml-auto inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+        <CheckCircle2 size={15} className="text-emerald-500" />
+        Connected
+      </span>
+    </div>
   );
 }
 
-function AnalyticsConnectControl({
+function QueuedIntegrationRow({
   integration,
+  active,
+  onRemove,
+}: {
+  integration: IntegrationSearchResult;
+  active?: boolean;
+  onRemove: () => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 border bg-background p-3",
+        !active && "opacity-60",
+      )}
+    >
+      <IntegrationLogo integration={integration} />
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-medium">
+          {integration.name}
+        </span>
+        <span className="mt-0.5 block text-xs text-muted-foreground">
+          {active ? "Ready to connect" : "Up next"}
+        </span>
+      </span>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="ml-auto shrink-0 text-xs text-muted-foreground transition-colors hover:text-foreground"
+      >
+        Remove
+      </button>
+    </div>
+  );
+}
+
+function IntegrationConnectQueueControl({
+  category,
+  integrations,
   workspaceMode,
   provider,
-  connected,
-  displayName,
   channels,
   preview,
   onAddAnother,
@@ -1812,18 +1783,21 @@ function AnalyticsConnectControl({
   connecting,
   notice,
   onConnect,
+  onRemove,
+  connectedForIntegration,
   onSetupResult,
   onContinue,
   saving,
 }: {
-  integration: IntegrationSearchResult | null;
+  category: "analytics" | "ads";
+  integrations: IntegrationSearchResult[];
   workspaceMode: OnboardingDraft["workspaceMode"];
   provider: DriverType | null;
-  connected: boolean;
-  displayName?: string;
-  channels: Array<{ provider: string; displayName: string }> | undefined;
+  channels: ConnectedChannel[] | undefined;
   preview: SetupResult | null;
   onAddAnother: () => void;
+  onRemove: (integration: IntegrationSearchResult) => void;
+  connectedForIntegration: (integration: IntegrationSearchResult) => boolean;
   configStatus:
     | {
         configured: boolean;
@@ -1841,112 +1815,115 @@ function AnalyticsConnectControl({
   onContinue: () => void;
   saving: boolean;
 }) {
-  const connectable = Boolean(integration && integration.domain !== "none");
-  const localAgentSetup =
-    workspaceMode === "local" && connectable && provider !== null;
-  const oauthStatusText = connected
-    ? `Connected to ${displayName ?? "Google Analytics"}.`
+  const localAgentSetup = workspaceMode === "local" && provider !== null;
+  const firstOpenIntegration =
+    integrations.find((integration) => !connectedForIntegration(integration)) ??
+    null;
+  const connectedRows = integrations.flatMap((integration) =>
+    (channels ?? [])
+      .filter((channel) => integrationProviderMatches(integration, channel.provider))
+      .map((channel) => ({ integration, channel })),
+  );
+  const queuedIntegrations = firstOpenIntegration
+    ? integrations.filter(
+        (integration) =>
+          integration.domain !== firstOpenIntegration.domain &&
+          !connectedForIntegration(integration),
+      )
+    : [];
+  const allConnected = integrations.every((integration) =>
+    connectedForIntegration(integration),
+  );
+  const activePreview =
+    firstOpenIntegration && preview?.provider
+      ? integrationProviderMatches(firstOpenIntegration, String(preview.provider))
+        ? preview
+        : null
+      : null;
+  const latestPreview = preview?.series?.length ? preview : activePreview;
+  const activeIsGoogleAnalytics =
+    category === "analytics" && isGoogleAnalyticsIntegration(firstOpenIntegration);
+  const cloudGoogleAnalyticsSetup =
+    workspaceMode !== "local" && activeIsGoogleAnalytics;
+  const oauthStatusText = allConnected
+    ? "Google Analytics is connected."
     : configStatus?.configured
       ? `OAuth is ready from ${configStatus.source}.`
       : configStatus === undefined
         ? "Checking Google OAuth setup..."
         : "Google Analytics is saved as your analytics source. The cloud workspace needs Google OAuth enabled before you can connect it.";
   const canConnectGoogleAnalytics = Boolean(configStatus?.configured);
+  const mustFinishConnections = localAgentSetup;
 
   return (
     <StepFrame
       onContinue={onContinue}
       saving={saving}
-      // A chosen local integration must finish connecting before onboarding
-      // moves on; a half-connected workspace is worse than a slower step.
-      disabled={localAgentSetup && !connected}
+      disabled={mustFinishConnections && integrations.length > 0 && !allConnected}
       continueLabel={
-        !connectable ||
-        connected ||
+        !firstOpenIntegration ||
         localAgentSetup ||
-        !isGoogleAnalyticsIntegration(integration)
+        !cloudGoogleAnalyticsSetup
           ? "Continue"
           : canConnectGoogleAnalytics
             ? "Continue without connecting"
             : "Save source and continue"
       }
     >
-      {integration ? (
-        <div className="flex items-start gap-3 border bg-background p-4">
-          <IntegrationLogo integration={integration} />
-          <div className="min-w-0">
-            <p className="text-sm font-medium">{integration.name}</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {integration.description}
-            </p>
-            {integration.url ? (
-              <a
-                className="mt-2 inline-block text-xs text-muted-foreground hover:text-foreground"
-                href={integration.url}
-                target="_blank"
-                rel="noreferrer"
-              >
-                View integration facts
-              </a>
-            ) : null}
+      <div className="space-y-3">
+        {connectedRows.length ? (
+          <div className="divide-y border bg-background px-4">
+            {connectedRows.map(({ integration, channel }) => (
+              <ConnectedIntegrationRow
+                key={`${integration.domain}:${channel.provider}:${channel.displayName}`}
+                channel={channel}
+              />
+            ))}
           </div>
-        </div>
-      ) : null}
+        ) : null}
 
-      {connectable && integration ? (
-        <div className="mt-5 border-t pt-5">
-          {localAgentSetup && provider ? (
-            <div className="space-y-3">
-              {channels?.length ? (
-                <div className="divide-y border bg-background px-4">
-                  {channels.map((channel) => (
-                    <div
-                      key={channel.provider}
-                      className="flex items-center gap-3 py-2.5"
-                    >
-                      <CheckCircle2
-                        size={15}
-                        className="shrink-0 text-emerald-500"
-                      />
-                      <span className="min-w-0 truncate text-sm">
-                        {channel.displayName}
-                      </span>
-                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                        Connected
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              {connected && preview?.series?.length ? (
-                <ConnectionPreview
-                  name={preview.displayName ?? integration.name}
-                  metricLabel={preview.metricLabel}
-                  series={preview.series}
-                />
-              ) : null}
-              {!connected ? (
-                <IntegrationConnect
-                  integration={integration}
-                  driver={provider}
-                  connected={false}
-                  onResult={onSetupResult}
-                />
-              ) : (
-                <div>
-                  <Button type="button" variant="ghost" onClick={onAddAnother}>
-                    Add another source
-                  </Button>
-                </div>
-              )}
+        {firstOpenIntegration ? (
+          <div className="space-y-3">
+            <QueuedIntegrationRow
+              integration={firstOpenIntegration}
+              active
+              onRemove={() => onRemove(firstOpenIntegration)}
+            />
+            <div className="flex items-start gap-3 border bg-background p-4">
+              <IntegrationLogo integration={firstOpenIntegration} />
+              <div className="min-w-0">
+                <p className="text-sm font-medium">
+                  {firstOpenIntegration.name}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {firstOpenIntegration.description}
+                </p>
+                {firstOpenIntegration.url ? (
+                  <a
+                    className="mt-2 inline-block text-xs text-muted-foreground hover:text-foreground"
+                    href={firstOpenIntegration.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View integration facts
+                  </a>
+                ) : null}
+              </div>
             </div>
-          ) : isGoogleAnalyticsIntegration(integration) ? (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-xs leading-5 text-muted-foreground">
-                {oauthStatusText}
-              </p>
-              {!connected && canConnectGoogleAnalytics ? (
-                <div className="flex gap-2">
+
+            {localAgentSetup && provider ? (
+              <IntegrationConnect
+                integration={firstOpenIntegration}
+                driver={provider}
+                connected={false}
+                onResult={onSetupResult}
+              />
+            ) : cloudGoogleAnalyticsSetup ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {oauthStatusText}
+                </p>
+                {canConnectGoogleAnalytics ? (
                   <Button
                     type="button"
                     onClick={onConnect}
@@ -1954,133 +1931,58 @@ function AnalyticsConnectControl({
                   >
                     {connecting ? "Opening..." : "Connect"}
                   </Button>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <p className="text-xs leading-5 text-muted-foreground">
-              Saved as this workspace&apos;s analytics source.
-            </p>
-          )}
-        </div>
-      ) : null}
+                ) : null}
+              </div>
+            ) : (
+              <p className="border-t pt-4 text-xs leading-5 text-muted-foreground">
+                Saved as this workspace&apos;s {category} source.
+              </p>
+            )}
+          </div>
+        ) : null}
+
+        {queuedIntegrations.map((integration) => (
+          <QueuedIntegrationRow
+            key={integration.domain}
+            integration={integration}
+            onRemove={() => onRemove(integration)}
+          />
+        ))}
+
+        {latestPreview?.series?.length ? (
+          <ConnectionPreview
+            name={
+              latestPreview.displayName ??
+              integrations.find((integration) =>
+                integrationProviderMatches(
+                  integration,
+                  String(latestPreview.provider),
+                ),
+              )?.name ??
+              "Connected source"
+            }
+            metricLabel={latestPreview.metricLabel}
+            series={latestPreview.series}
+          />
+        ) : null}
+
+        {integrations.length > 0 && allConnected ? (
+          <div>
+            <Button type="button" variant="ghost" onClick={onAddAnother}>
+              Add another source
+            </Button>
+          </div>
+        ) : null}
+
+        {!integrations.length ? (
+          <p className="text-xs leading-5 text-muted-foreground">
+            No sources are queued.
+          </p>
+        ) : null}
+      </div>
 
       {notice ? (
         <p className="mt-4 text-xs text-muted-foreground">{notice}</p>
-      ) : null}
-    </StepFrame>
-  );
-}
-
-function AdsConnectControl({
-  integration,
-  workspaceMode,
-  provider,
-  connected,
-  channels,
-  preview,
-  onAddAnother,
-  onSetupResult,
-  onContinue,
-  saving,
-}: {
-  integration: IntegrationSearchResult | null;
-  workspaceMode: OnboardingDraft["workspaceMode"];
-  provider: DriverType | null;
-  connected: boolean;
-  channels: Array<{ provider: string; displayName: string }> | undefined;
-  preview: SetupResult | null;
-  onAddAnother: () => void;
-  onSetupResult: (result: SetupResult) => void;
-  onContinue: () => void;
-  saving: boolean;
-}) {
-  const connectable = Boolean(integration && integration.domain !== "none");
-  const localAgentSetup =
-    workspaceMode === "local" && connectable && provider !== null;
-
-  return (
-    <StepFrame
-      onContinue={onContinue}
-      saving={saving}
-      disabled={localAgentSetup && !connected}
-      continueLabel="Continue"
-    >
-      {integration ? (
-        <div className="flex items-start gap-3 border bg-background p-4">
-          <IntegrationLogo integration={integration} />
-          <div className="min-w-0">
-            <p className="text-sm font-medium">{integration.name}</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {integration.description}
-            </p>
-            {integration.url ? (
-              <a
-                className="mt-2 inline-block text-xs text-muted-foreground hover:text-foreground"
-                href={integration.url}
-                target="_blank"
-                rel="noreferrer"
-              >
-                View integration facts
-              </a>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      {connectable && integration ? (
-        <div className="mt-5 border-t pt-5">
-          {localAgentSetup && provider ? (
-            <div className="space-y-3">
-              {channels?.length ? (
-                <div className="divide-y border bg-background px-4">
-                  {channels.map((channel) => (
-                    <div
-                      key={channel.provider}
-                      className="flex items-center gap-3 py-2.5"
-                    >
-                      <CheckCircle2
-                        size={15}
-                        className="shrink-0 text-emerald-500"
-                      />
-                      <span className="min-w-0 truncate text-sm">
-                        {channel.displayName}
-                      </span>
-                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                        Connected
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              {connected && preview?.series?.length ? (
-                <ConnectionPreview
-                  name={preview.displayName ?? integration.name}
-                  metricLabel={preview.metricLabel}
-                  series={preview.series}
-                />
-              ) : null}
-              {!connected ? (
-                <IntegrationConnect
-                  integration={integration}
-                  driver={provider}
-                  connected={false}
-                  onResult={onSetupResult}
-                />
-              ) : (
-                <div>
-                  <Button type="button" variant="ghost" onClick={onAddAnother}>
-                    Add another source
-                  </Button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <p className="text-xs leading-5 text-muted-foreground">
-              Saved as this workspace&apos;s ads source.
-            </p>
-          )}
-        </div>
       ) : null}
     </StepFrame>
   );
@@ -2123,7 +2025,6 @@ function AeoControl({
     </StepFrame>
   );
 }
-
 function PricingControl({
   plan,
   setPlan,
@@ -2217,6 +2118,9 @@ export function OnboardingPage() {
   // listConnected query refreshes) and its live data preview.
   const [setupConnectedProvider, setSetupConnectedProvider] = useState<
     string | null
+  >(null);
+  const [setupConnectedCategory, setSetupConnectedCategory] = useState<
+    "analytics" | "ads" | null
   >(null);
   const [setupPreview, setSetupPreview] = useState<SetupResult | null>(null);
   const latestRef = useRef<HTMLDivElement | null>(null);
@@ -2312,22 +2216,22 @@ export function OnboardingPage() {
     [],
   );
 
-  const setAnalyticsIntegration = useCallback(
-    (integration: IntegrationSearchResult) => {
+  const setAnalyticsIntegrations = useCallback(
+    (integrations: IntegrationSearchResult[]) => {
       setDraft((current) =>
         current
-          ? { ...current, analytics: { ...current.analytics, integration } }
+          ? { ...current, analytics: { ...current.analytics, integrations } }
           : current,
       );
     },
     [],
   );
 
-  const setAdsIntegration = useCallback(
-    (integration: IntegrationSearchResult) => {
+  const setAdsIntegrations = useCallback(
+    (integrations: IntegrationSearchResult[]) => {
       setDraft((current) =>
         current
-          ? { ...current, ads: { ...current.ads, integration } }
+          ? { ...current, ads: { ...current.ads, integrations } }
           : current,
       );
     },
@@ -2340,15 +2244,15 @@ export function OnboardingPage() {
     );
   }, []);
 
-  const finishAnalyticsSelection = useCallback(
-    (integration: IntegrationSearchResult) => {
+  const clearAnalyticsSelection = useCallback(
+    () => {
       setNotice(null);
       setError(null);
       setDraft((current) =>
         current
           ? {
               ...current,
-              analytics: { ...current.analytics, integration },
+              analytics: { ...current.analytics, integrations: [] },
               step: "ads",
             }
           : current,
@@ -2357,15 +2261,15 @@ export function OnboardingPage() {
     [],
   );
 
-  const finishAdsSelection = useCallback(
-    (integration: IntegrationSearchResult) => {
+  const clearAdsSelection = useCallback(
+    () => {
       setNotice(null);
       setError(null);
       setDraft((current) =>
         current
           ? {
               ...current,
-              ads: { ...current.ads, integration },
+              ads: { ...current.ads, integrations: [] },
               step: "aeo",
             }
           : current,
@@ -2518,6 +2422,7 @@ export function OnboardingPage() {
       )
         .then(() => {
           setSetupConnectedProvider(String(result.provider));
+          setSetupConnectedCategory(category);
           setSetupPreview(result);
         })
         .catch((err) => {
@@ -2569,37 +2474,71 @@ export function OnboardingPage() {
   const currentControl = useMemo(() => {
     if (!draft) return null;
     const connectedForIntegration = (
-      integration: IntegrationSearchResult | null,
+      integration: IntegrationSearchResult,
       includeGoogleAnalyticsConnection = false,
+      category?: "analytics" | "ads",
     ) => {
-      const currentDomain = integration?.domain;
-      if (!currentDomain || currentDomain === "none") return false;
-      const matchesCurrent = (provider: string) =>
-        provider === currentDomain ||
-        (currentDomain === "analytics.googleapis.com" &&
-          provider === "google-analytics");
       return Boolean(
-        (connectedChannels ?? []).some((channel) =>
-          matchesCurrent(channel.provider),
+        (connectedChannels ?? []).some(
+          (channel) =>
+            (!category || channel.category === category) &&
+            integrationProviderMatches(integration, channel.provider),
         ) ||
-        (setupConnectedProvider && matchesCurrent(setupConnectedProvider)) ||
+        (setupConnectedProvider &&
+          (!category || setupConnectedCategory === category) &&
+          integrationProviderMatches(integration, setupConnectedProvider)) ||
         (includeGoogleAnalyticsConnection &&
-          currentDomain === "analytics.googleapis.com" &&
+          isGoogleAnalyticsIntegration(integration) &&
           connectedAnalytics),
       );
     };
-    const channelsInCategory = (category: string) =>
-      connectedChannels?.filter((channel) => channel.category === category);
+    const channelsInCategory = (category: "analytics" | "ads") => {
+      const channels: ConnectedChannel[] = (connectedChannels ?? [])
+        .filter((channel) => channel.category === category)
+        .map((channel) => ({
+          provider: channel.provider,
+          displayName: channel.displayName,
+          category: channel.category,
+        }));
+
+      if (
+        category === "analytics" &&
+        connectedAnalytics &&
+        !channels.some((channel) => channel.provider === "google-analytics")
+      ) {
+        channels.push({
+          provider: "google-analytics",
+          displayName:
+            analyticsConnection?.channel?.displayName ?? "Google Analytics",
+          category,
+        });
+      }
+
+      if (
+        setupConnectedProvider &&
+        setupConnectedCategory === category &&
+        !channels.some((channel) => channel.provider === setupConnectedProvider)
+      ) {
+        channels.push({
+          provider: setupConnectedProvider,
+          displayName:
+            setupPreview?.displayName ??
+            providerIdentity(setupConnectedProvider).label,
+          category,
+        });
+      }
+
+      return channels;
+    };
     // The live preview belongs to exactly one integration; never show one
     // source's chart under another step.
-    const previewFor = (integration: IntegrationSearchResult | null) => {
-      const domain = integration?.domain;
-      if (!domain || !setupPreview) return null;
-      const matches =
-        setupPreview.provider === domain ||
-        (domain === "analytics.googleapis.com" &&
-          setupPreview.provider === "google-analytics");
-      return matches ? setupPreview : null;
+    const previewFor = (integrations: IntegrationSearchResult[]) => {
+      if (!setupPreview) return null;
+      return integrations.some((integration) =>
+        integrationProviderMatches(integration, String(setupPreview.provider)),
+      )
+        ? setupPreview
+        : null;
     };
 
     if (step === "mode") {
@@ -2706,38 +2645,48 @@ export function OnboardingPage() {
     }
     if (step === "analytics") {
       return (
-        <AnalyticsControl
-          selected={draft.analytics.integration}
-          setSelected={setAnalyticsIntegration}
-          onNoAnalytics={() => finishAnalyticsSelection(noAnalyticsIntegration)}
-          onSkip={() => finishAnalyticsSelection(noAnalyticsIntegration)}
+        <IntegrationPickerControl
+          selected={draft.analytics.integrations}
+          setSelected={setAnalyticsIntegrations}
+          fallbackIntegrations={fallbackAnalyticsIntegrations}
+          defaultSearchQuery="analytics"
+          searchPlaceholder="Search analytics tools"
+          emptySelectionLabel={"I don't use analytics"}
+          skipLabel="Skip for now"
+          onEmptySelection={clearAnalyticsSelection}
+          onSkip={clearAnalyticsSelection}
           onContinue={advance}
           saving={saving}
         />
       );
     }
     if (step === "analyticsConnect") {
-      const connectedForCurrent = connectedForIntegration(
-        draft.analytics.integration,
-        true,
-      );
       return (
-        <AnalyticsConnectControl
-          integration={draft.analytics.integration}
+        <IntegrationConnectQueueControl
+          category="analytics"
+          integrations={draft.analytics.integrations}
           workspaceMode={draft.workspaceMode}
           provider={
             draft.provider === "claude" || draft.provider === "codex"
               ? draft.provider
               : null
           }
-          connected={connectedForCurrent}
-          displayName={analyticsConnection?.channel?.displayName}
           channels={channelsInCategory("analytics")}
-          preview={previewFor(draft.analytics.integration)}
+          preview={previewFor(draft.analytics.integrations)}
           onAddAnother={() =>
             setDraft((current) =>
               current ? { ...current, step: "analytics" } : current,
             )
+          }
+          onRemove={(integration) =>
+            setAnalyticsIntegrations(
+              draft.analytics.integrations.filter(
+                (item) => item.domain !== integration.domain,
+              ),
+            )
+          }
+          connectedForIntegration={(integration) =>
+            connectedForIntegration(integration, true, "analytics")
           }
           configStatus={analyticsConfigStatus}
           connecting={connectingAnalytics}
@@ -2751,37 +2700,53 @@ export function OnboardingPage() {
     }
     if (step === "ads") {
       return (
-        <AdsControl
-          selected={draft.ads.integration}
-          setSelected={setAdsIntegration}
-          onNoAds={() => finishAdsSelection(noAdsIntegration)}
-          onSkip={() => finishAdsSelection(noAdsIntegration)}
+        <IntegrationPickerControl
+          selected={draft.ads.integrations}
+          setSelected={setAdsIntegrations}
+          fallbackIntegrations={fallbackAdsIntegrations}
+          defaultSearchQuery="ads"
+          searchPlaceholder="Search ads tools"
+          emptySelectionLabel="I don't run ads"
+          skipLabel="Skip for now"
+          onEmptySelection={clearAdsSelection}
+          onSkip={clearAdsSelection}
           onContinue={advance}
           saving={saving}
         />
       );
     }
     if (step === "adsConnect") {
-      const connectedForCurrent = connectedForIntegration(
-        draft.ads.integration,
-      );
       return (
-        <AdsConnectControl
-          integration={draft.ads.integration}
+        <IntegrationConnectQueueControl
+          category="ads"
+          integrations={draft.ads.integrations}
           workspaceMode={draft.workspaceMode}
           provider={
             draft.provider === "claude" || draft.provider === "codex"
               ? draft.provider
               : null
           }
-          connected={connectedForCurrent}
           channels={channelsInCategory("ads")}
-          preview={previewFor(draft.ads.integration)}
+          preview={previewFor(draft.ads.integrations)}
           onAddAnother={() =>
             setDraft((current) =>
               current ? { ...current, step: "ads" } : current,
             )
           }
+          onRemove={(integration) =>
+            setAdsIntegrations(
+              draft.ads.integrations.filter(
+                (item) => item.domain !== integration.domain,
+              ),
+            )
+          }
+          connectedForIntegration={(integration) =>
+            connectedForIntegration(integration, false, "ads")
+          }
+          configStatus={undefined}
+          connecting={false}
+          notice={null}
+          onConnect={() => undefined}
           onSetupResult={(result) => handleSetupResult(result, "ads")}
           onContinue={advance}
           saving={saving}
@@ -2793,9 +2758,8 @@ export function OnboardingPage() {
         <AeoControl
           selected={draft.aeo.trackAiReferrals}
           setSelected={(trackAiReferrals) => setAeo({ trackAiReferrals })}
-          analyticsConnected={connectedForIntegration(
-            draft.analytics.integration,
-            true,
+          analyticsConnected={draft.analytics.integrations.some((integration) =>
+            connectedForIntegration(integration, true, "analytics"),
           )}
           onContinue={advance}
           saving={saving}
@@ -2837,6 +2801,7 @@ export function OnboardingPage() {
     draft,
     handleSetupResult,
     notice,
+    setupConnectedCategory,
     setupConnectedProvider,
     setupPreview,
     runtimeStatus,
@@ -2844,10 +2809,10 @@ export function OnboardingPage() {
     setField,
     setGoals,
     setAeo,
-    setAdsIntegration,
-    setAnalyticsIntegration,
-    finishAdsSelection,
-    finishAnalyticsSelection,
+    setAdsIntegrations,
+    setAnalyticsIntegrations,
+    clearAdsSelection,
+    clearAnalyticsSelection,
     setMonitoring,
     setSocial,
     socialAccounts,
