@@ -1,0 +1,124 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/newsreader";
+
+/*
+ * Marketer design tokens.
+ * Structure follows the Midday convention — warm neutrals in light mode,
+ * cool near-black in dark mode, flat square surfaces, 1px token borders,
+ * no shadows. Values are our own.
+ */
+:root {
+  --background: hsl(0 0% 100%);
+  --foreground: hsl(0 0% 7%);
+  --card: hsl(42 16% 96%);
+  --card-foreground: hsl(0 0% 7%);
+  --popover: hsl(42 16% 96%);
+  --popover-foreground: hsl(0 0% 7%);
+  --primary: hsl(240 6% 10%);
+  --primary-foreground: hsl(0 0% 98%);
+  --secondary: hsl(40 10% 90%);
+  --secondary-foreground: hsl(240 6% 10%);
+  --muted: hsl(40 10% 90%);
+  --muted-foreground: hsl(0 0% 40%);
+  --accent: hsl(40 9% 94%);
+  --accent-foreground: hsl(240 6% 10%);
+  --destructive: hsl(0 84% 60%);
+  --destructive-foreground: hsl(0 0% 98%);
+  --border: hsl(42 6% 85%);
+  --input: hsl(42 6% 85%);
+  --ring: hsl(240 6% 10%);
+
+  --chart-grid: #e6e6e6;
+  --chart-axis-text: #707070;
+  --chart-line: #000000;
+  --chart-line-secondary: #666666;
+  --chart-fill: #000000;
+  --chart-pattern-bg: #ffffff;
+  --chart-pattern-stroke: #707070;
+}
+
+.dark {
+  --background: hsl(0 0% 5%);
+  --foreground: hsl(0 0% 98%);
+  --card: hsl(0 0% 7%);
+  --card-foreground: hsl(0 0% 98%);
+  --popover: hsl(0 0% 7%);
+  --popover-foreground: hsl(0 0% 98%);
+  --primary: hsl(0 0% 98%);
+  --primary-foreground: hsl(240 6% 10%);
+  --secondary: hsl(0 0% 7%);
+  --secondary-foreground: hsl(0 0% 98%);
+  --muted: hsl(0 0% 11%);
+  --muted-foreground: hsl(0 0% 55%);
+  --accent: hsl(0 0% 11%);
+  --accent-foreground: hsl(0 0% 98%);
+  --destructive: hsl(359 100% 61%);
+  --destructive-foreground: hsl(0 0% 100%);
+  --border: hsl(0 0% 11%);
+  --input: hsl(0 0% 11%);
+  --ring: hsl(240 5% 84%);
+
+  --chart-grid: #1d1d1d;
+  --chart-axis-text: #666666;
+  --chart-line: #ffffff;
+  --chart-line-secondary: #666666;
+  --chart-fill: #ffffff;
+  --chart-pattern-bg: #0c0c0c;
+  --chart-pattern-stroke: #707070;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-sans: "Geist Variable", system-ui, sans-serif;
+  --font-serif: "Newsreader Variable", Georgia, serif;
+  --font-mono: "Geist Variable", monospace;
+
+  /* Sharp by default. */
+  --radius: 0rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
+  }
+  ::selection {
+    background: var(--foreground);
+    color: var(--background);
+  }
+}
+
+@layer base {
+  /* Tailwind v4 resets buttons to cursor: default; interactive elements
+     should read as clickable. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
