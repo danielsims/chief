@@ -5,10 +5,10 @@ import { RuntimeProvider } from "./lib/runtime";
 import { Layout } from "./components/layout";
 import { DashboardPage } from "./pages/dashboard";
 import { AgentsPage } from "./pages/agents";
+import { ConversationsPage } from "./pages/conversations";
 import { SettingsLayout } from "./pages/settings/layout";
 import { ProfileSettings } from "./pages/settings/profile";
 import { WorkspaceSettings } from "./pages/settings/workspace";
-import { AgentsSettings } from "./pages/settings/agents";
 import { SignInScreen } from "./pages/sign-in";
 import { CreateWorkspacePage } from "./pages/workspace-new";
 import { PlaceholderPage } from "./pages/placeholder";
@@ -63,6 +63,7 @@ function AuthenticatedApp() {
                 />
               }
             />
+            <Route path="conversations" element={<ConversationsPage />} />
             <Route path="agents" element={<AgentsPage />} />
             <Route path="settings" element={<SettingsLayout />}>
               <Route
@@ -71,7 +72,6 @@ function AuthenticatedApp() {
               />
               <Route path="profile" element={<ProfileSettings />} />
               <Route path="workspace" element={<WorkspaceSettings />} />
-              <Route path="agents" element={<AgentsSettings />} />
             </Route>
           </Route>
         </Routes>
