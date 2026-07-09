@@ -1,10 +1,13 @@
 import {
   query,
+  type PermissionResult,
   type Query,
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import { randomUUID } from "node:crypto";
 import { BaseDriver } from "./base.js";
+import { evaluateToolUse } from "../approvals.js";
 import type { ContentBlock, StartOptions } from "../types.js";
 
 /**
@@ -19,6 +22,10 @@ export class ClaudeDriver extends BaseDriver {
   private inputQueue: SDKUserMessage[] = [];
   private wake: (() => void) | null = null;
   private closed = false;
+  private pendingApprovals = new Map<
+    string,
+    (behavior: "allow" | "deny") => void
+  >();
 
   async start(opts: StartOptions): Promise<void> {
     this.sessionId = opts.resumeSessionId;
@@ -49,8 +56,20 @@ export class ClaudeDriver extends BaseDriver {
         model: opts.model,
         resume: this.sessionId,
         includePartialMessages: true,
-        permissionMode: "bypassPermissions",
-        allowDangerouslySkipPermissions: true,
+        // Guarded sessions route mutating tool calls through the approval
+        // policy. Full-access sessions (user-initiated setup runs) skip it so
+        // installs, browser opens and callback servers just work.
+        ...(opts.access === "full"
+          ? {
+              permissionMode: "bypassPermissions" as const,
+              allowDangerouslySkipPermissions: true,
+            }
+          : {
+              canUseTool: (
+                toolName: string,
+                toolInput: Record<string, unknown>,
+              ) => this.requestApproval(opts.cwd, toolName, toolInput),
+            }),
         systemPrompt: {
           type: "preset",
           preset: "claude_code",
@@ -151,6 +170,48 @@ export class ClaudeDriver extends BaseDriver {
         this.emitEvent({ type: "status", status: "idle" });
         break;
     }
+  }
+
+  private requestApproval(
+    cwd: string,
+    toolName: string,
+    toolInput: Record<string, unknown>,
+  ): Promise<PermissionResult> {
+    if (evaluateToolUse(toolName, toolInput, cwd) === "allow") {
+      return Promise.resolve({
+        behavior: "allow",
+        updatedInput: toolInput,
+      });
+    }
+
+    const requestId = randomUUID();
+    return new Promise<PermissionResult>((resolve) => {
+      this.pendingApprovals.set(requestId, (behavior) => {
+        resolve(
+          behavior === "allow"
+            ? { behavior: "allow", updatedInput: toolInput }
+            : {
+                behavior: "deny",
+                message: "The user declined this action.",
+              },
+        );
+      });
+      this.emitEvent({
+        type: "permission",
+        requestId,
+        toolName,
+        input: toolInput,
+      });
+      this.emitEvent({ type: "status", status: "waiting" });
+    });
+  }
+
+  override respondPermission(requestId: string, behavior: "allow" | "deny") {
+    const pending = this.pendingApprovals.get(requestId);
+    if (!pending) return;
+    this.pendingApprovals.delete(requestId);
+    pending(behavior);
+    this.emitEvent({ type: "status", status: "running" });
   }
 
   async sendPrompt(text: string): Promise<void> {

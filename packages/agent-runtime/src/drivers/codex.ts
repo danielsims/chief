@@ -77,14 +77,32 @@ export class CodexDriver extends BaseDriver {
     const threadIdOf = (res: any): string | undefined =>
       res?.thread?.id ?? res?.threadId;
 
+    // Guarded sessions: codex's "untrusted" policy auto-runs its trusted
+    // read/probe commands and asks for everything else via permission
+    // events. Full-access sessions (user-initiated setup runs) drop the
+    // sandbox entirely — workspace-write blocks Homebrew, binding OAuth
+    // callback ports and opening the browser, which breaks real setup.
+    const accessParams: Record<string, unknown> =
+      opts.access === "full"
+        ? { approvalPolicy: "never", sandbox: "danger-full-access" }
+        : { approvalPolicy: "untrusted", sandbox: "workspace-write" };
+
     if (this.threadId) {
-      const res = await this.rpc("thread/resume", { threadId: this.threadId });
+      let res: unknown;
+      try {
+        res = await this.rpc("thread/resume", {
+          threadId: this.threadId,
+          ...accessParams,
+        });
+      } catch {
+        // older/newer app-servers can reject optional fields — retry bare
+        res = await this.rpc("thread/resume", { threadId: this.threadId });
+      }
       this.threadId = threadIdOf(res) ?? this.threadId;
     } else {
       const params: Record<string, unknown> = {
         cwd: opts.cwd,
-        approvalPolicy: "on-failure",
-        sandbox: "workspace-write",
+        ...accessParams,
         ...(opts.model ? { model: opts.model } : {}),
       };
       let res: unknown;
@@ -178,15 +196,31 @@ export class CodexDriver extends BaseDriver {
         return item.text ? [{ type: "text", text: item.text }] : [];
       case "reasoning":
         return item.text ? [{ type: "thinking", thinking: item.text }] : [];
-      case "commandExecution":
-        return [
+      case "commandExecution": {
+        const id = String(item.id ?? this.rpcId++);
+        const blocks: ContentBlock[] = [
           {
             type: "tool_use",
-            id: String(item.id ?? this.rpcId++),
+            id,
             name: "bash",
             input: { command: item.command },
           },
         ];
+        // Completed executions carry their output; surface it so the UI can
+        // render a real terminal view instead of a spinner.
+        const output =
+          item.output ?? item.aggregatedOutput ?? item.aggregated_output;
+        const exitCode = item.exitCode ?? item.exit_code;
+        if (typeof output === "string" && output.trim()) {
+          blocks.push({
+            type: "tool_result",
+            tool_use_id: id,
+            content: output,
+            is_error: typeof exitCode === "number" && exitCode !== 0,
+          });
+        }
+        return blocks;
+      }
       case "fileChange":
         return [
           {
