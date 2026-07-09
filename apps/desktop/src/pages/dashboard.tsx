@@ -19,31 +19,31 @@ function greeting() {
 const widgets = [
   {
     label: "Website traffic",
-    value: "—",
+    value: "-",
     detail: "Connect Google Analytics",
     to: "/analytics",
   },
   {
     label: "Signups",
-    value: "—",
+    value: "-",
     detail: "Connect Google Analytics",
     to: "/analytics",
   },
   {
     label: "Ad spend",
-    value: "—",
+    value: "-",
     detail: "Connect Google Ads",
     to: "/analytics",
   },
   {
     label: "New prospects",
-    value: "—",
+    value: "-",
     detail: "No channels connected",
     to: "/prospects",
   },
   {
     label: "Trending posts",
-    value: "—",
+    value: "-",
     detail: "No channels connected",
     to: "/trending",
   },

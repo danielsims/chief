@@ -21,6 +21,7 @@ import { useRuntime } from "../lib/runtime";
 import {
   type AgentOverride as LocalAgentOverride,
   getAgentOverride,
+  getWorkspaceProvider,
   setAgentOverride,
 } from "../lib/agent-overrides";
 import { PROVIDER_META, type Provider } from "../lib/providers";
@@ -112,7 +113,11 @@ function InstalledAgentCard({
   const upsertOverride = useMutation(api.agents.upsertOverride);
 
   const enabled = override?.enabled ?? true;
-  const driver = (override?.driver ?? agent.driver) as Provider;
+  // Per-agent override wins; otherwise the workspace's chosen agent app.
+  // Null means neither exists yet — the select asks instead of assuming.
+  const driver = (override?.driver ?? getWorkspaceProvider() ?? null) as
+    | Provider
+    | null;
   const vercelUrl = override?.vercelUrl ?? "";
   const vercelKey = override?.vercelKey ?? "";
 
@@ -138,8 +143,7 @@ function InstalledAgentCard({
     });
   };
 
-  const meta = PROVIDER_META[driver];
-  const TriggerIcon = meta.Icon;
+  const meta = driver ? PROVIDER_META[driver] : null;
 
   return (
     <div
@@ -206,15 +210,19 @@ function InstalledAgentCard({
       <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
         <div className="flex items-center gap-2">
           <Select
-            value={driver}
+            value={driver ?? undefined}
             disabled={!ready}
             onValueChange={(value) => save({ driver: value as Provider })}
           >
             <SelectTrigger className="h-7 w-auto gap-1.5 border-transparent px-1 text-xs text-muted-foreground hover:text-foreground data-[state=open]:text-foreground">
-              <span className="flex items-center gap-1.5">
-                <TriggerIcon size={13} />
-                {meta.label}
-              </span>
+              {meta ? (
+                <span className="flex items-center gap-1.5">
+                  <meta.Icon size={13} />
+                  {meta.label}
+                </span>
+              ) : (
+                <span>Choose agent app</span>
+              )}
             </SelectTrigger>
             <SelectContent className="min-w-36">
               <SelectGroup>
@@ -234,9 +242,11 @@ function InstalledAgentCard({
               </SelectGroup>
             </SelectContent>
           </Select>
-          <span className="text-xs text-muted-foreground">
-            {meta.location}
-          </span>
+          {meta ? (
+            <span className="text-xs text-muted-foreground">
+              {meta.location}
+            </span>
+          ) : null}
         </div>
         <Link
           to={`/conversations?agent=${agent.id}`}
