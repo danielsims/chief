@@ -67,7 +67,7 @@ export function DashboardPage() {
           <span className="text-muted-foreground">, Daniel</span>
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          the numbers, the noise, and what your team is doing about it.
+          An overview of your channels, campaigns and team activity.
         </p>
       </div>
 
