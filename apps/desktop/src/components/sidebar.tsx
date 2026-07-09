@@ -14,6 +14,7 @@ import {
   TooltipTrigger,
 } from "@marketer/ui/components/tooltip";
 import { cn } from "@marketer/ui/lib/utils";
+import { WorkspaceSwitcher } from "./workspace-switcher";
 
 const items = [
   { to: "/", label: "Overview", icon: LayoutGrid },
@@ -78,6 +79,7 @@ export function Sidebar() {
         ))}
       </nav>
       <div className="flex flex-col items-center gap-2 pb-4">
+        <WorkspaceSwitcher />
         <RailItem to="/settings" label="Settings" icon={Settings} />
       </div>
     </aside>

@@ -201,6 +201,8 @@ export async function updateAuthOrganization(
 export async function createAuthOrganization(input: {
   name: string;
   slug: string;
+  /** Optional logo URL persisted on the org record (better-auth `logo` field). */
+  logo?: string;
 }): Promise<AuthOrganization> {
   const storedSession = getStoredSession();
   if (!storedSession?.token) throw new Error("Not authenticated");
