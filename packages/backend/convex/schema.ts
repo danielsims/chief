@@ -93,6 +93,8 @@ export default defineSchema({
   channel: defineTable({
     organizationId: v.string(),
     provider: v.string(), // "google-analytics" | "google-ads" | "x" | "reddit" | ...
+    /** Product surface this connection powers: "analytics" | "ads" | "social" | ... */
+    category: v.optional(v.string()),
     displayName: v.string(),
     status: v.union(
       v.literal("connected"),
@@ -101,7 +103,47 @@ export default defineSchema({
     ),
     /** Provider account/property identifier — never store tokens here. */
     externalId: v.optional(v.string()),
-  }).index("by_organization", ["organizationId"]),
+    connectedAt: v.optional(v.number()),
+    lastSyncAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+  })
+    .index("by_organization", ["organizationId"])
+    .index("by_organization_provider", ["organizationId", "provider"]),
+
+  /** In-flight OAuth authorization state for any provider's connect flow. */
+  oauthState: defineTable({
+    state: v.string(),
+    organizationId: v.string(),
+    provider: v.string(),
+    createdAt: v.number(),
+    consumedAt: v.optional(v.number()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("connected"),
+      v.literal("error"),
+    ),
+    error: v.optional(v.string()),
+  }).index("by_state", ["state"]),
+
+  /**
+   * OAuth tokens per workspace and provider, for cloud-track connections.
+   * Local-track connections keep credentials on the user's machine and never
+   * write here. externalId/externalName carry the provider's primary object
+   * (a GA4 property, an ad account, ...).
+   */
+  credential: defineTable({
+    organizationId: v.string(),
+    provider: v.string(),
+    accessToken: v.string(),
+    refreshToken: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
+    scope: v.optional(v.string()),
+    externalId: v.optional(v.string()),
+    externalName: v.optional(v.string()),
+    accountName: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_organization_provider", ["organizationId", "provider"]),
 
   draft: defineTable({
     organizationId: v.string(),
@@ -118,4 +160,38 @@ export default defineSchema({
     ),
     scheduledFor: v.optional(v.number()),
   }).index("by_organization_status", ["organizationId", "status"]),
+
+  /**
+   * Stripe billing state, scoped to the better-auth organization. The row is
+   * created lazily at Checkout/Portal time so we can reuse one Stripe customer
+   * per workspace before Stripe has emitted subscription webhooks.
+   */
+  subscription: defineTable({
+    organizationId: v.string(),
+    stripeCustomerId: v.string(),
+    stripeSubscriptionId: v.optional(v.string()),
+    status: v.union(
+      v.literal("trialing"),
+      v.literal("active"),
+      v.literal("past_due"),
+      v.literal("canceled"),
+      v.literal("incomplete"),
+    ),
+    priceId: v.optional(v.string()),
+    currentPeriodStart: v.optional(v.number()),
+    currentPeriodEnd: v.optional(v.number()),
+    trialEnd: v.optional(v.number()),
+    cancelAtPeriodEnd: v.optional(v.boolean()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_organization", ["organizationId"])
+    .index("by_stripeCustomerId", ["stripeCustomerId"])
+    .index("by_stripeSubscriptionId", ["stripeSubscriptionId"]),
+
+  stripeWebhookEvent: defineTable({
+    stripeEventId: v.string(),
+    type: v.string(),
+    processedAt: v.number(),
+  }).index("by_stripeEventId", ["stripeEventId"]),
 });
