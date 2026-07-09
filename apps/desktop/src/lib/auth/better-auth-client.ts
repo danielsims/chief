@@ -114,6 +114,29 @@ export interface AuthOrganization {
   metadata?: string | Record<string, unknown> | null;
 }
 
+function normalizeOrganizations(value: unknown): AuthOrganization[] {
+  if (Array.isArray(value)) return value as AuthOrganization[];
+  if (!value || typeof value !== "object") return [];
+
+  const record = value as Record<string, unknown>;
+  if (Array.isArray(record.organizations)) {
+    return record.organizations as AuthOrganization[];
+  }
+  if (Array.isArray(record.data)) {
+    return record.data as AuthOrganization[];
+  }
+  if (
+    record.data &&
+    typeof record.data === "object" &&
+    Array.isArray((record.data as Record<string, unknown>).organizations)
+  ) {
+    return (record.data as Record<string, unknown>)
+      .organizations as AuthOrganization[];
+  }
+
+  return [];
+}
+
 /** Parse the better-auth organization metadata field, whatever shape it has. */
 export function parseOrganizationMetadata(
   org: AuthOrganization | undefined | null,
@@ -152,8 +175,7 @@ export async function listAuthOrganizations(): Promise<AuthOrganization[]> {
       return [];
     }
 
-    const data = (await response.json()) as AuthOrganization[] | null;
-    return Array.isArray(data) ? data : [];
+    return normalizeOrganizations(await response.json());
   } catch (error) {
     console.error("[Auth] listOrganizations error:", error);
     return [];

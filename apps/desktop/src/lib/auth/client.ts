@@ -13,7 +13,7 @@
  * 8. Exchanges the code for a session token via POST /desktop/token
  */
 
-import { isTauri } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 import type { StoredSession } from "./session";
@@ -32,6 +32,13 @@ async function checkIsTauri(): Promise<boolean> {
     isTauriEnv = false;
   }
   return isTauriEnv;
+}
+
+async function activateAppWindow() {
+  if (!(await checkIsTauri())) return;
+  await invoke("activate_app_window").catch((error) => {
+    console.warn("[Auth] Failed to activate app window:", error);
+  });
 }
 
 // ─── Deep Link Listener ──────────────────────────────────────────────────
@@ -102,11 +109,13 @@ async function handleDeepLink(url: string, options: SetupOptions) {
 
   try {
     console.log("[Auth] Deep link received:", url.substring(0, 80));
+    void activateAppWindow();
 
     const parsedUrl = new URL(url);
     const directSessionToken = parsedUrl.searchParams.get("session_token");
     if (directSessionToken) {
       const session = await hydrateSessionFromToken(directSessionToken);
+      void activateAppWindow();
       onSession(session);
       return;
     }
@@ -312,7 +321,9 @@ async function exchangeRedirectToken(
       throw new Error("Invalid response from token exchange");
     }
 
-    options.onSession(await hydrateSessionFromToken(data.token));
+    const session = await hydrateSessionFromToken(data.token);
+    void activateAppWindow();
+    options.onSession(session);
     clearPkceVerifier(tokenData.state);
   } catch (error) {
     // Allow the other delivery path (poll vs deep link) to retry.

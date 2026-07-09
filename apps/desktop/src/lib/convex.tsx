@@ -16,7 +16,7 @@ import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
 import { AUTH_BASE_URL } from "./auth/better-auth-client";
 import { useAuth } from "./auth/auth-context";
 
-const CONVEX_URL =
+export const CONVEX_URL =
   (import.meta.env.VITE_CONVEX_URL as string | undefined) ??
   "https://colorful-mockingbird-638.convex.cloud";
 

@@ -123,10 +123,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     let cancelled = false;
     void validateStoredSession(token).then((result) => {
-      if (cancelled || result.status !== "invalid") return;
-      console.warn("[Auth] Stored session rejected by server — signing out");
-      clearStoredSession();
-      setStoredSessionState(null);
+      if (cancelled) return;
+      if (result.status === "invalid") {
+        console.warn("[Auth] Stored session rejected by server, signing out");
+        clearStoredSession();
+        setStoredSessionState(null);
+        return;
+      }
+      if (result.status !== "valid") return;
+
+      setStoredSessionState((current) => {
+        if (!current || current.token !== token) return current;
+        const next = {
+          ...current,
+          user: result.user,
+          organizationId: result.organizationId ?? current.organizationId,
+          lastValidated: Date.now(),
+        };
+        setStoredSession(next);
+        return next;
+      });
     });
     return () => {
       cancelled = true;
@@ -136,7 +152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ─── Actions ─────────────────────────────────────────────────────────
 
   const signIn = useCallback(async () => {
-    console.log("[Auth] signIn called — starting PKCE flow");
+    console.log("[Auth] signIn called, starting PKCE flow");
     setIsSigningIn(true);
     setAuthError(null);
     authFlowCleanupRef.current?.();
