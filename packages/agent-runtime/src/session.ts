@@ -1,7 +1,6 @@
 import { EventEmitter } from "node:events";
 import { BaseDriver } from "./drivers/base.js";
-import { ClaudeDriver } from "./drivers/claude.js";
-import { CodexDriver } from "./drivers/codex.js";
+import { createDriver } from "./drivers/index.js";
 import type { AgentDefinition, AgentEvent } from "./types.js";
 
 export class AgentSession extends EventEmitter {
@@ -16,8 +15,7 @@ export class AgentSession extends EventEmitter {
     super();
     this.agent = agent;
     this.chatId = chatId;
-    this.driver =
-      agent.driver === "codex" ? new CodexDriver() : new ClaudeDriver();
+    this.driver = createDriver(agent.driver);
 
     this.driver.on("event", (event: AgentEvent) => {
       if (event.type === "init") this.sessionId = event.sessionId;

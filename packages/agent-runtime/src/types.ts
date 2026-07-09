@@ -68,7 +68,15 @@ export interface StartOptions {
 
 export type ClientMessage =
   | { type: "listAgents" }
-  | { type: "openSession"; agentId: string; chatId: string; resumeSessionId?: string }
+  | {
+      type: "openSession";
+      agentId: string;
+      chatId: string;
+      resumeSessionId?: string;
+      /** Per-workspace overrides from settings — take precedence over the registry definition. */
+      driver?: DriverType;
+      model?: string;
+    }
   | { type: "prompt"; chatId: string; text: string }
   | { type: "interrupt"; chatId: string }
   | {

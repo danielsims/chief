@@ -53,14 +53,19 @@ export function startServer(port = PORT) {
             break;
 
           case "openSession": {
-            const agent = getAgent(msg.agentId);
-            if (!agent) {
+            const base = getAgent(msg.agentId);
+            if (!base) {
               return send({
                 type: "error",
                 message: `unknown agent: ${msg.agentId}`,
                 chatId: msg.chatId,
               });
             }
+            const agent = {
+              ...base,
+              driver: msg.driver ?? base.driver,
+              model: msg.model ?? base.model,
+            };
             const session = await manager.ensure(agent, msg.chatId);
             if (!subscriptions.has(msg.chatId)) {
               subscriptions.add(msg.chatId);

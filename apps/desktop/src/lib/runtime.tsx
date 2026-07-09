@@ -13,6 +13,11 @@ import type {
   ClientMessage,
   ServerMessage,
 } from "@marketer/agent-runtime/types";
+import {
+  getAgentOverride,
+  onAgentOverridesChange,
+  type AgentOverride,
+} from "./agent-overrides";
 
 // "localhost" (not 127.0.0.1) — macOS ATS only exempts the literal
 // localhost hostname for insecure websockets inside WKWebView.
@@ -139,11 +144,25 @@ export function useAgentChat(agentId: string | null) {
     streaming: "",
     status: "idle",
   });
+  const [override, setOverride] = useState<AgentOverride>(() =>
+    agentId ? getAgentOverride(agentId) : {},
+  );
+
+  useEffect(() => {
+    if (!agentId) return;
+    return onAgentOverridesChange(() => setOverride(getAgentOverride(agentId)));
+  }, [agentId]);
 
   useEffect(() => {
     if (!agentId || !chatId || runtimeStatus !== "connected") return;
     setChat({ items: [], streaming: "", status: "idle" });
-    client.send({ type: "openSession", agentId, chatId });
+    client.send({
+      type: "openSession",
+      agentId,
+      chatId,
+      driver: override.driver,
+      model: override.model,
+    });
 
     const unsub = client.subscribe((msg) => {
       if (msg.type === "error" && msg.chatId === chatId) {
@@ -183,7 +202,7 @@ export function useAgentChat(agentId: string | null) {
     return () => {
       unsub();
     };
-  }, [agentId, chatId, client, runtimeStatus]);
+  }, [agentId, chatId, client, runtimeStatus, override.driver, override.model]);
 
   const send = (text: string) => {
     if (!chatId || !text.trim()) return;

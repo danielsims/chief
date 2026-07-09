@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { BaseDriver } from "./base.js";
@@ -40,6 +40,13 @@ export class CodexDriver extends BaseDriver {
   async start(opts: StartOptions): Promise<void> {
     this.opts = opts;
     this.threadId = opts.resumeSessionId;
+    // Codex reads per-directory instructions from AGENTS.md (same approach
+    // as orbit): materialize the agent persona into the working dir.
+    try {
+      writeFileSync(join(opts.cwd, "AGENTS.md"), opts.instructions);
+    } catch {
+      // non-fatal
+    }
     this.proc = spawn(findCodex(), ["app-server"], {
       cwd: opts.cwd,
       stdio: ["pipe", "pipe", "pipe"],
@@ -65,19 +72,31 @@ export class CodexDriver extends BaseDriver {
     });
     this.notify("initialized", {});
 
+    // Response carries the thread object: { thread: { id, ... } } on current
+    // codex; older builds returned { threadId } — accept both.
+    const threadIdOf = (res: any): string | undefined =>
+      res?.thread?.id ?? res?.threadId;
+
     if (this.threadId) {
-      const res = (await this.rpc("thread/resume", {
-        threadId: this.threadId,
-      })) as { threadId?: string };
-      this.threadId = res?.threadId ?? this.threadId;
+      const res = await this.rpc("thread/resume", { threadId: this.threadId });
+      this.threadId = threadIdOf(res) ?? this.threadId;
     } else {
-      const res = (await this.rpc("thread/start", {
+      const params: Record<string, unknown> = {
         cwd: opts.cwd,
         approvalPolicy: "on-failure",
         sandbox: "workspace-write",
         ...(opts.model ? { model: opts.model } : {}),
-      })) as { threadId: string };
-      this.threadId = res.threadId;
+      };
+      let res: unknown;
+      try {
+        res = await this.rpc("thread/start", params);
+      } catch {
+        // older/newer app-servers can reject optional fields — retry bare
+        res = await this.rpc("thread/start", { cwd: opts.cwd });
+      }
+      const id = threadIdOf(res);
+      if (!id) throw new Error("codex thread/start returned no thread id");
+      this.threadId = id;
     }
     this.emitEvent({ type: "init", sessionId: this.threadId!, model: opts.model });
   }

@@ -9,6 +9,7 @@ const HOME = join(homedir(), ".marketer");
 interface PersistedSession {
   agentId: string;
   sessionId: string;
+  driver?: string;
 }
 
 /**
@@ -38,14 +39,26 @@ export class SessionManager {
 
   async ensure(agent: AgentDefinition, chatId: string): Promise<AgentSession> {
     const existing = this.sessions.get(chatId);
-    if (existing) return existing;
+    if (existing) {
+      // Driver switched in settings — a live session can't hop backends.
+      if (existing.agent.driver !== agent.driver) {
+        await existing.stop();
+        this.sessions.delete(chatId);
+      } else {
+        return existing;
+      }
+    }
 
     const session = new AgentSession(agent, chatId);
     this.sessions.set(chatId, session);
 
     session.on("event", (event) => {
       if (event.type === "init") {
-        this.persisted[chatId] = { agentId: agent.id, sessionId: event.sessionId };
+        this.persisted[chatId] = {
+          agentId: agent.id,
+          sessionId: event.sessionId,
+          driver: agent.driver,
+        };
         this.save();
       }
       if (event.type === "exit") {
@@ -55,7 +68,12 @@ export class SessionManager {
 
     const cwd = join(HOME, "agents", agent.id);
     mkdirSync(cwd, { recursive: true });
-    const resume = this.persisted[chatId]?.sessionId;
+    // Session ids don't transfer across backends — only resume same-driver.
+    const prev = this.persisted[chatId];
+    const resume =
+      prev && (prev.driver ?? "claude") === agent.driver
+        ? prev.sessionId
+        : undefined;
     await session.start(cwd, resume);
     return session;
   }
