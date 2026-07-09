@@ -28,7 +28,7 @@ export async function openWorkspaceCheckout(
   try {
     const successUrl = `${window.location.origin}/`;
     const cancelUrl = `${window.location.origin}/onboarding`;
-    const result = (await convex.mutation(
+    const result = (await convex.action(
       createCheckoutSession as never,
       { plan, successUrl, cancelUrl } as never,
     )) as { url?: string } | null;

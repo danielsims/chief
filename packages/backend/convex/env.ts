@@ -17,6 +17,13 @@ interface ConvexEnv {
   BASE_URL: string;
 }
 
+interface StripeCheckoutEnv {
+  STRIPE_SECRET_KEY: string;
+  STRIPE_PRICE_MONTHLY: string;
+  STRIPE_PRICE_ANNUAL: string;
+  STRIPE_TRIAL_DAYS: number;
+}
+
 const REQUIRED_VARS = [
   "AUTH_SECRET",
   "AUTH_GOOGLE_ID",
@@ -33,7 +40,7 @@ function isBundlingPhase(): boolean {
 function getEnvVar(name: string): string {
   const value = process.env[name];
   if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
+    throw new Error(`Missing ${name}`);
   }
   return value;
 }
@@ -83,4 +90,30 @@ export function convexEnv(): ConvexEnv {
   };
 
   return cachedEnv;
+}
+
+function parseTrialDays(value: string | undefined): number {
+  if (!value) return 14;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    throw new Error("Invalid STRIPE_TRIAL_DAYS: expected a positive integer");
+  }
+  return parsed;
+}
+
+export function stripeSecretKey(): string {
+  return getEnvVar("STRIPE_SECRET_KEY");
+}
+
+export function stripeWebhookSecret(): string {
+  return getEnvVar("STRIPE_WEBHOOK_SECRET");
+}
+
+export function stripeCheckoutEnv(): StripeCheckoutEnv {
+  return {
+    STRIPE_SECRET_KEY: stripeSecretKey(),
+    STRIPE_PRICE_MONTHLY: getEnvVar("STRIPE_PRICE_MONTHLY"),
+    STRIPE_PRICE_ANNUAL: getEnvVar("STRIPE_PRICE_ANNUAL"),
+    STRIPE_TRIAL_DAYS: parseTrialDays(process.env.STRIPE_TRIAL_DAYS),
+  };
 }
