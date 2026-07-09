@@ -9,8 +9,8 @@ import { SettingsLayout } from "./pages/settings/layout";
 import { ProfileSettings } from "./pages/settings/profile";
 import { WorkspaceSettings } from "./pages/settings/workspace";
 import { AgentsSettings } from "./pages/settings/agents";
-import { IntegrationsSettings } from "./pages/settings/integrations";
 import { SignInScreen } from "./pages/sign-in";
+import { CreateWorkspacePage } from "./pages/workspace-new";
 import { PlaceholderPage } from "./pages/placeholder";
 
 function AuthenticatedApp() {
@@ -24,6 +24,7 @@ function AuthenticatedApp() {
     <RuntimeProvider>
       <BrowserRouter>
         <Routes>
+          <Route path="workspaces/new" element={<CreateWorkspacePage />} />
           <Route element={<Layout />}>
             <Route index element={<DashboardPage />} />
             <Route
@@ -31,7 +32,7 @@ function AuthenticatedApp() {
               element={
                 <PlaceholderPage
                   title="Analytics"
-                  description="Website traffic, signups, SEO, CAC/LTV, funnel falloff, pulled from Google Analytics and Google Ads."
+                  description="Traffic, signups and campaign performance from Google Analytics and Google Ads."
                 />
               }
             />
@@ -40,7 +41,7 @@ function AuthenticatedApp() {
               element={
                 <PlaceholderPage
                   title="Schedule"
-                  description="Drafted content queued for publishing across your channels."
+                  description="Drafts queued for publishing across your channels."
                 />
               }
             />
@@ -49,7 +50,7 @@ function AuthenticatedApp() {
               element={
                 <PlaceholderPage
                   title="Prospects"
-                  description="People and conversations worth your attention, found by your prospector agent."
+                  description="People and conversations your prospector agent found."
                 />
               }
             />
@@ -58,7 +59,7 @@ function AuthenticatedApp() {
               element={
                 <PlaceholderPage
                   title="Trending"
-                  description="Trending posts and topics across X, Reddit and other connected channels."
+                  description="Trending posts and topics across your connected channels."
                 />
               }
             />
@@ -71,7 +72,6 @@ function AuthenticatedApp() {
               <Route path="profile" element={<ProfileSettings />} />
               <Route path="workspace" element={<WorkspaceSettings />} />
               <Route path="agents" element={<AgentsSettings />} />
-              <Route path="integrations" element={<IntegrationsSettings />} />
             </Route>
           </Route>
         </Routes>

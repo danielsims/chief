@@ -60,16 +60,13 @@ function RailItem({
 export function Sidebar() {
   return (
     <aside className="fixed inset-y-0 left-0 z-40 flex w-[70px] flex-col items-center border-r bg-background">
-      {/* Taller drag region with the wordmark pushed below the macOS
-          window controls so the logo isn't crowding the traffic lights. */}
-      <div
-        data-tauri-drag-region
-        className="titlebar-drag flex h-[92px] w-full flex-col items-center justify-end border-b pb-[24px]"
-      >
-        <span
-          data-tauri-drag-region
-          className="font-serif text-xl italic leading-none select-none"
-        >
+      {/* Taller drag strip with the wordmark pushed below the macOS window
+          controls. data-tauri-drag-region only fires when the mousedown
+          target is the element itself, so the strip stays empty and the
+          wordmark is a pointer-events-none overlay. */}
+      <div className="relative h-[92px] w-full shrink-0 border-b">
+        <div data-tauri-drag-region className="absolute inset-0" />
+        <span className="pointer-events-none absolute inset-x-0 bottom-[24px] text-center font-serif text-xl italic leading-none select-none">
           m.
         </span>
       </div>

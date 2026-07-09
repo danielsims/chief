@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import { Check, Plus } from "lucide-react";
 import {
   Popover,
@@ -10,41 +11,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@marketer/ui/components/tooltip";
-import { Button } from "@marketer/ui/components/button";
-import { Input } from "@marketer/ui/components/input";
 import { cn } from "@marketer/ui/lib/utils";
 import { useAuth } from "../lib/auth/auth-context";
 import {
-  createAuthOrganization,
   listAuthOrganizations,
   setActiveAuthOrganization,
   type AuthOrganization,
 } from "../lib/auth/better-auth-client";
-
-/**
- * Default workspace logo: the favicon of the workspace's website, via
- * Google's favicon service. Persisted to the org `logo` field on create.
- */
-function faviconUrl(website: string): string | null {
-  const trimmed = website.trim();
-  if (!trimmed) return null;
-  try {
-    const url = new URL(/^https?:\/\//.test(trimmed) ? trimmed : `https://${trimmed}`);
-    return `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=64`;
-  } catch {
-    return null;
-  }
-}
-
-function slugify(name: string): string {
-  const base = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  // Random suffix avoids collisions with slugs taken by other accounts.
-  const suffix = Math.random().toString(36).slice(2, 8);
-  return base ? `${base}-${suffix}` : suffix;
-}
 
 /**
  * Square logo-or-initial tile. Falls back to the workspace's first initial
@@ -76,92 +49,22 @@ function OrgTile({
           onError={() => setImageFailed(true)}
         />
       ) : (
-        <span className="font-serif leading-none select-none">{initial}</span>
+        /* translate-y compensates for Newsreader's tall ascender space so the
+           initial sits optically centered. Em-based so it scales with both
+           tile sizes (h-10 trigger, h-6 popover rows). */
+        <span className="translate-y-[0.055em] font-serif leading-none select-none">
+          {initial}
+        </span>
       )}
     </span>
   );
 }
 
-function CreateWorkspaceForm({ onCancel }: { onCancel: () => void }) {
-  const [name, setName] = useState("");
-  const [website, setWebsite] = useState("");
-  const [isCreating, setIsCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSubmit = useCallback(
-    async (event: React.FormEvent) => {
-      event.preventDefault();
-      const trimmed = name.trim();
-      if (!trimmed || isCreating) return;
-      setIsCreating(true);
-      setError(null);
-      try {
-        const logo = faviconUrl(website);
-        const org = await createAuthOrganization({
-          name: trimmed,
-          slug: slugify(trimmed),
-          ...(logo ? { logo } : {}),
-        });
-        await setActiveAuthOrganization(org.id);
-        // Full reload re-keys all org-scoped app state on the new workspace.
-        window.location.assign("/");
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-        setIsCreating(false);
-      }
-    },
-    [name, website, isCreating],
-  );
-
-  return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-2 p-2">
-      <Input
-        autoFocus
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        placeholder="Workspace name"
-        className="h-8 text-xs"
-        disabled={isCreating}
-      />
-      <Input
-        value={website}
-        onChange={(event) => setWebsite(event.target.value)}
-        placeholder="Website URL (optional)"
-        className="h-8 text-xs"
-        disabled={isCreating}
-      />
-      {error ? (
-        <p className="text-xs text-destructive break-words">{error}</p>
-      ) : null}
-      <div className="flex gap-2">
-        <Button
-          type="submit"
-          size="sm"
-          className="h-7 flex-1 text-xs"
-          disabled={!name.trim() || isCreating}
-        >
-          {isCreating ? "Creating..." : "Create"}
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-7 text-xs"
-          onClick={onCancel}
-          disabled={isCreating}
-        >
-          Cancel
-        </Button>
-      </div>
-    </form>
-  );
-}
-
 export function WorkspaceSwitcher() {
   const { isAuthenticated, cloudOrganizationId } = useAuth();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [organizations, setOrganizations] = useState<AuthOrganization[]>([]);
-  const [isCreating, setIsCreating] = useState(false);
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -175,10 +78,7 @@ export function WorkspaceSwitcher() {
   const handleOpenChange = useCallback(
     (next: boolean) => {
       setOpen(next);
-      if (next) {
-        setIsCreating(false);
-        refresh();
-      }
+      if (next) refresh();
     },
     [refresh],
   );
@@ -227,54 +127,51 @@ export function WorkspaceSwitcher() {
         </TooltipContent>
       </Tooltip>
       <PopoverContent side="right" align="end" sideOffset={14}>
-        {isCreating ? (
-          <CreateWorkspaceForm onCancel={() => setIsCreating(false)} />
-        ) : (
-          <div className="flex flex-col">
-            {organizations.length > 0 ? (
-              <>
-                {organizations.map((org) => {
-                  const isActive = org.id === activeOrg?.id;
-                  return (
-                    <button
-                      key={org.id}
-                      type="button"
-                      onClick={() => void handleSwitch(org)}
-                      disabled={switchingTo !== null}
-                      className={cn(
-                        "flex w-full items-center gap-2.5 px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent disabled:opacity-50",
-                        switchingTo === org.id && "opacity-50",
-                      )}
-                    >
-                      <OrgTile org={org} className="h-6 w-6 shrink-0 text-xs" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {org.name}
-                      </span>
-                      {isActive ? (
-                        <Check
-                          size={14}
-                          strokeWidth={1.75}
-                          className="shrink-0 text-muted-foreground"
-                        />
-                      ) : null}
-                    </button>
-                  );
-                })}
-                <div className="my-1 border-t" />
-              </>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => setIsCreating(true)}
-              className="flex w-full items-center gap-2.5 px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center border">
-                <Plus size={13} strokeWidth={1.75} />
-              </span>
-              Create workspace
-            </button>
-          </div>
-        )}
+        <div className="flex flex-col">
+          {organizations.length > 0 ? (
+            <>
+              {organizations.map((org) => {
+                const isActive = org.id === activeOrg?.id;
+                return (
+                  <button
+                    key={org.id}
+                    type="button"
+                    onClick={() => void handleSwitch(org)}
+                    disabled={switchingTo !== null}
+                    className={cn(
+                      "flex w-full items-center gap-2.5 px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent disabled:opacity-50",
+                      switchingTo === org.id && "opacity-50",
+                    )}
+                  >
+                    <OrgTile org={org} className="h-6 w-6 shrink-0 text-xs" />
+                    <span className="min-w-0 flex-1 truncate">{org.name}</span>
+                    {isActive ? (
+                      <Check
+                        size={14}
+                        strokeWidth={1.75}
+                        className="shrink-0 text-muted-foreground"
+                      />
+                    ) : null}
+                  </button>
+                );
+              })}
+              <div className="my-1 border-t" />
+            </>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              navigate("/workspaces/new");
+            }}
+            className="flex w-full items-center gap-2.5 px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center border">
+              <Plus size={13} strokeWidth={1.75} />
+            </span>
+            Create workspace
+          </button>
+        </div>
       </PopoverContent>
     </Popover>
   );

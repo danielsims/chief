@@ -10,11 +10,8 @@ export function SignInScreen() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
-      {/* Drag region under the macOS window controls */}
-      <header
-        data-tauri-drag-region
-        className="titlebar-drag h-[92px] shrink-0"
-      />
+      {/* Empty drag strip under the macOS window controls */}
+      <header data-tauri-drag-region className="h-[92px] shrink-0" />
 
       <main className="flex flex-1 items-center justify-center px-8 pb-[92px]">
         <div className="flex w-full max-w-xs flex-col items-center text-center">
@@ -22,13 +19,10 @@ export function SignInScreen() {
             m.
           </span>
           <h1 className="mt-12 font-serif text-3xl leading-tight">
-            Your marketing team,
-            <br />
-            reporting for duty.
+            Sign in to Marketer
           </h1>
           <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-            Sign in to connect your workspace. Your data and agents stay on
-            this machine.
+            Your agents and data stay on this machine.
           </p>
           <Button
             className="mt-12 h-11 w-full"
@@ -40,7 +34,7 @@ export function SignInScreen() {
           <p className="mt-3 h-4 text-xs text-muted-foreground/60">
             {isSigningIn
               ? "Finish signing in from the browser window."
-              : "Opens your browser to authenticate."}
+              : "Sign-in opens in your browser."}
           </p>
           {authError ? (
             <p className="mt-4 border border-destructive/40 px-3 py-2 text-xs leading-relaxed text-destructive">

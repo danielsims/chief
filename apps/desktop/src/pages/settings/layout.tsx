@@ -5,7 +5,6 @@ const sections = [
   { to: "/settings/profile", label: "Profile" },
   { to: "/settings/workspace", label: "Workspace" },
   { to: "/settings/agents", label: "Agents" },
-  { to: "/settings/integrations", label: "Integrations" },
   // Billing is intentionally absent until billing exists.
 ];
 
@@ -15,7 +14,7 @@ export function SettingsLayout() {
       <div>
         <h1 className="font-serif text-3xl">Settings</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Your profile, workspace, agents and connections.
+          Manage your account, workspace and agents.
         </p>
       </div>
       <div className="mt-8 flex gap-10">

@@ -27,11 +27,13 @@ export function Layout() {
       <div className="min-h-screen bg-background text-foreground">
         <Sidebar />
         <div className="ml-[70px] flex min-h-screen flex-col">
-          <header
-            data-tauri-drag-region
-            className="titlebar-drag flex h-12 items-center justify-end px-6"
-          >
-            <ConnectionDot />
+          {/* Empty drag strip; the status dot is a non-interactive overlay so
+              mousedown anywhere in the header hits the drag element. */}
+          <header className="relative h-12 shrink-0">
+            <div data-tauri-drag-region className="absolute inset-0" />
+            <div className="pointer-events-none absolute inset-y-0 right-6 flex items-center">
+              <ConnectionDot />
+            </div>
           </header>
           <main className="flex-1 px-8 pb-8">
             <Outlet />
