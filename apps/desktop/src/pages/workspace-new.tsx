@@ -5,14 +5,12 @@ import { Input } from "@marketer/ui/components/input";
 import {
   createAuthOrganization,
   setActiveAuthOrganization,
+  updateAuthOrganization,
 } from "../lib/auth/better-auth-client";
 import { faviconLoads } from "../components/org-logo";
 
 /**
  * Full-page workspace creation. Visually this is step one of onboarding.
- *
- * TODO(onboarding): once the onboarding flow (PRD 4) exists, submitting here
- * should hand off into it instead of reloading straight to the dashboard.
  */
 
 /**
@@ -66,10 +64,12 @@ export function CreateWorkspacePage() {
           slug: slugify(trimmed),
           ...(logo ? { logo } : {}),
         });
+        await updateAuthOrganization(org.id, {
+          metadata: { websiteUrl: website.trim() },
+        });
         await setActiveAuthOrganization(org.id);
         // Full reload re-keys all org-scoped app state on the new workspace.
-        // TODO(onboarding): hand off into the onboarding flow (PRD 4) here.
-        window.location.assign("/");
+        window.location.assign("/onboarding");
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
         setIsCreating(false);
