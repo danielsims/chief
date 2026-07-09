@@ -14,6 +14,7 @@ import {
 } from "./lib/auth/better-auth-client";
 import { Layout } from "./components/layout";
 import { DashboardPage } from "./pages/dashboard";
+import { AnalyticsPage } from "./pages/analytics";
 import { AgentsPage } from "./pages/agents";
 import { ConversationsPage } from "./pages/conversations";
 import { SettingsLayout } from "./pages/settings/layout";
@@ -40,7 +41,7 @@ function OnboardingGate({ children }: { children: ReactNode }) {
         orgs[0] ??
         null;
       if (!active) {
-        setNeedsOnboarding(false);
+        setNeedsOnboarding(true);
         return;
       }
       const metadata = parseOrganizationMetadata(active);
@@ -91,15 +92,7 @@ function AuthenticatedApp() {
             <Route path="onboarding" element={<OnboardingPage />} />
             <Route element={<Layout />}>
               <Route index element={<DashboardPage />} />
-              <Route
-                path="analytics"
-                element={
-                  <PlaceholderPage
-                    title="Analytics"
-                    description="Traffic, signups and campaign performance from Google Analytics and Google Ads."
-                  />
-                }
-              />
+              <Route path="analytics" element={<AnalyticsPage />} />
               <Route
                 path="schedule"
                 element={
