@@ -57,7 +57,6 @@ export function IntegrationSetupPanel({
   const feedRef = useRef<HTMLDivElement>(null);
   const startedRef = useRef(false);
   const reportedRef = useRef<Set<string>>(new Set());
-  const nudgedForSeriesRef = useRef(false);
 
   useEffect(() => {
     if (!allowRest) return;
@@ -101,15 +100,6 @@ export function IntegrationSetupPanel({
         if (reportedRef.current.has(key)) continue;
         reportedRef.current.add(key);
         onResult(result);
-        // The live preview needs the daily series; if the agent omitted it,
-        // ask once for an updated result. The updated result flows through
-        // here again and refreshes the preview.
-        if (!result.series?.length && !nudgedForSeriesRef.current) {
-          nudgedForSeriesRef.current = true;
-          send(
-            "[auto] If this integration can report a daily metric, run the last 14 days now and emit an updated MARKETER_SETUP_RESULT line that also includes metricLabel and series.",
-          );
-        }
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

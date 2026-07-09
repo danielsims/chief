@@ -228,7 +228,7 @@ const PROVIDER_HINTS: Record<string, string> = {
   This opens the browser for consent; say so in one line and wait for the command to exit. Never loop with waiting messages.
 - Verify: POST https://googleads.googleapis.com/v20/customers:listAccessibleCustomers with headers "Authorization: Bearer <ADC token>" and "developer-token: $MARKETER_GOOGLE_ADS_DEVELOPER_TOKEN". Check .error first. If the version is rejected, try the adjacent version numbers. A DEVELOPER_TOKEN_NOT_APPROVED style error means the token only works on test accounts yet; say that in one line and stop.
 - If the account has no accessible customers, say the user has no Google Ads account reachable from this Google login and suggest removing this source. Do not invent accounts and do not loop.
-- Result line: provider "googleads.googleapis.com", externalId the first customer id, displayName its descriptive name. Include series only if reporting is actually available.`,
+- Result line: provider "googleads.googleapis.com", externalId the first customer id, displayName its descriptive name.`,
   "analytics.googleapis.com": `Google Analytics specifics:
 - Known fact, do not rediscover it by failing: Google blocks its shared gcloud OAuth client from requesting the Analytics scope, so a plain \`gcloud auth application-default login --scopes=...\` dead-ends at "This app is blocked". The analytics-mcp server authenticates through the same Application Default Credentials, so it does not avoid this either. Never attempt the plain login; use the user's own OAuth client from the start.
 - Auth sequence:
@@ -243,7 +243,6 @@ MARKETER_INPUT_REQUEST {"id":"google-oauth-client","title":"Allow Marketer to re
   This opens the user's browser for consent and binds a localhost callback; both work here. Say the browser is opening and wait for the command to exit. Desktop clients need no redirect URI setup. Do not use --no-browser or --remote-bootstrap.
 - Keep gcloud's default config location ($HOME/.config/gcloud). Do not point CLOUDSDK_CONFIG at your working directory; other agents need these credentials later.
 - Verify by listing account summaries on the Admin API, then confirm data access with a minimal runReport (activeUsers, last 7 days) on the Data API.
-- After verification passes, ALWAYS run one more Data API report on the chosen property before emitting the result, on every path including reused credentials: metric activeUsers, dimension "date", last 14 days, ordered by date ascending. Put it in the result line as "series" (convert GA's YYYYMMDD dates to YYYY-MM-DD) with "metricLabel":"Active users". A result line without "series" is incomplete for this integration.
 - Verification discipline: every Google API response may be an error object. Check .error FIRST; never use jq patterns like .accountSummaries[]? that silently turn a 403 into an empty result. Known errors and their fixes, all yours to perform:
   - SERVICE_DISABLED / "has not been used in project": the Analytics APIs are off in the client's project. Enable them yourself with the ADC token and retry after about 15 seconds. The project number is the digits before the dash in the client id:
     token=$(gcloud auth application-default print-access-token); for svc in analyticsadmin.googleapis.com analyticsdata.googleapis.com; do curl -s -X POST "https://serviceusage.googleapis.com/v1/projects/<PROJECT_NUMBER>/services/$svc:enable" -H "Authorization: Bearer $token" -H "Content-Type: application/json" -d "{}"; done
@@ -324,5 +323,5 @@ Read surfaces[], credentials and auth, then pick the best setup path:
 
 When the connection is verified, end your final message with exactly one line:
 ${SETUP_RESULT_MARKER} {"provider":"${integration.domain}","status":"connected","displayName":"<human-readable account or workspace name>","externalId":"<primary id if the integration has one>"}
-Add provider-specific identifier fields when they will be needed for reporting later. If the integration can report a simple daily metric, also include "metricLabel":"<metric name>" and "series":[{"date":"YYYY-MM-DD","value":<n>},...] with up to 14 ascending days, so the app can show the user their live data the moment it connects. This line is machine-read; keep it valid single-line JSON.${hints ? `\n\n${hints}` : ""}`;
+Add provider-specific identifier fields when they will be needed for reporting later. This line is machine-read; keep it valid single-line JSON.${hints ? `\n\n${hints}` : ""}`;
 }

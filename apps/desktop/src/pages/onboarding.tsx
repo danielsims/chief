@@ -49,7 +49,6 @@ import {
   type SetupResult,
 } from "../lib/integration-setup";
 import { IntegrationConnect } from "../components/integrations/integration-connect";
-import { ConnectionPreview } from "../components/integrations/connection-preview";
 import {
   integrationLogoUrl,
   searchIntegrations,
@@ -173,6 +172,9 @@ const timeOptions = [
 
 const adsBudgetOptions = [
   "No budget yet",
+  "$5 to $20 a month",
+  "$20 to $50 a month",
+  "$50 to $100 a month",
   "$100 to $300 a month",
   "$300 to $1,000 a month",
   "$1,000 to $3,000 a month",
@@ -1796,7 +1798,6 @@ function IntegrationConnectQueueControl({
   workspaceMode,
   provider,
   channels,
-  preview,
   onAddAnother,
   configStatus,
   connecting,
@@ -1813,7 +1814,6 @@ function IntegrationConnectQueueControl({
   workspaceMode: OnboardingDraft["workspaceMode"];
   provider: DriverType | null;
   channels: ConnectedChannel[] | undefined;
-  preview: SetupResult | null;
   onAddAnother: () => void;
   onRemove: (integration: IntegrationSearchResult) => void;
   connectedForIntegration: (integration: IntegrationSearchResult) => boolean;
@@ -1853,13 +1853,6 @@ function IntegrationConnectQueueControl({
   const allConnected = integrations.every((integration) =>
     connectedForIntegration(integration),
   );
-  const activePreview =
-    firstOpenIntegration && preview?.provider
-      ? integrationProviderMatches(firstOpenIntegration, String(preview.provider))
-        ? preview
-        : null
-      : null;
-  const latestPreview = preview?.series?.length ? preview : activePreview;
   const activeIsGoogleAnalytics =
     category === "analytics" && isGoogleAnalyticsIntegration(firstOpenIntegration);
   const cloudGoogleAnalyticsSetup =
@@ -1970,32 +1963,6 @@ function IntegrationConnectQueueControl({
           />
         ))}
 
-        {latestPreview?.series?.length ? (
-          <ConnectionPreview
-            name={
-              latestPreview.displayName ??
-              integrations.find((integration) =>
-                integrationProviderMatches(
-                  integration,
-                  String(latestPreview.provider),
-                ),
-              )?.name ??
-              "Connected source"
-            }
-            metricLabel={latestPreview.metricLabel}
-            series={latestPreview.series}
-          />
-        ) : null}
-
-        {localAgentSetup &&
-        integrations.length > 0 &&
-        allConnected &&
-        !latestPreview?.series?.length ? (
-          <p className="animate-pulse border bg-background px-4 py-3 font-mono text-xs text-muted-foreground">
-            Pulling your first report...
-          </p>
-        ) : null}
-
         {integrations.length > 0 && allConnected ? (
           <div>
             <Button type="button" variant="ghost" onClick={onAddAnother}>
@@ -2033,9 +2000,9 @@ function AdsBudgetControl({
   return (
     <StepFrame onContinue={onContinue} saving={saving}>
       <p className="max-w-xl text-sm leading-6 text-muted-foreground">
-        You do not have to run ads yourself. Your agents can plan campaigns,
-        launch them and watch the spend, and nothing goes live without your
-        approval. Set a monthly budget they can plan toward.
+        You don't have to run ads yourself. Your agents can plan them, launch
+        them and keep an eye on the spend, and nothing goes live without your
+        OK. Roughly what could you put toward ads each month?
       </p>
       <div className="mt-2 px-1 py-3">
         <div className="text-center text-sm font-medium">{budget}</div>
@@ -2184,8 +2151,8 @@ export function OnboardingPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connectingAnalytics, setConnectingAnalytics] = useState(false);
-  // Provider id the setup agent just verified (covers the gap until the
-  // listConnected query refreshes) and its live data preview.
+  // The setup agent's latest verified result: bridges the gap until the
+  // listConnected query refreshes (provider, category, display name).
   const [setupConnectedProvider, setSetupConnectedProvider] = useState<
     string | null
   >(null);
@@ -2633,16 +2600,6 @@ export function OnboardingPage() {
 
       return channels;
     };
-    // The live preview belongs to exactly one integration; never show one
-    // source's chart under another step.
-    const previewFor = (integrations: IntegrationSearchResult[]) => {
-      if (!setupPreview) return null;
-      return integrations.some((integration) =>
-        integrationProviderMatches(integration, String(setupPreview.provider)),
-      )
-        ? setupPreview
-        : null;
-    };
 
     if (step === "mode") {
       return (
@@ -2775,7 +2732,6 @@ export function OnboardingPage() {
               : null
           }
           channels={channelsInCategory("analytics")}
-          preview={previewFor(draft.analytics.integrations)}
           onAddAnother={() =>
             setDraft((current) =>
               current ? { ...current, step: "analytics" } : current,
@@ -2830,7 +2786,6 @@ export function OnboardingPage() {
               : null
           }
           channels={channelsInCategory("ads")}
-          preview={previewFor(draft.ads.integrations)}
           onAddAnother={() =>
             setDraft((current) =>
               current ? { ...current, step: "ads" } : current,
@@ -2916,7 +2871,6 @@ export function OnboardingPage() {
     notice,
     setupConnectedCategory,
     setupConnectedProvider,
-    setupPreview,
     runtimeStatus,
     saving,
     setField,

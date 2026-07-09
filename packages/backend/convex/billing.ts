@@ -13,7 +13,7 @@ import {
   query,
   action,
 } from "./_generated/server";
-import { stripeCheckoutEnv, stripeSecretKey, stripeWebhookSecret } from "./env";
+import { stripeSecretKey, stripeTrialDays, stripeWebhookSecret } from "./env";
 import { requireOrganizationId } from "./lib/auth";
 
 type BillingStatus =
@@ -314,6 +314,56 @@ async function resolveOrganizationId(
   return null;
 }
 
+
+const PLAN_PRICES = {
+  monthly: {
+    lookupKey: "marketer_workspace_monthly_v1",
+    unitAmount: 4900,
+    interval: "month" as const,
+  },
+  annual: {
+    lookupKey: "marketer_workspace_annual_v1",
+    unitAmount: 52900,
+    interval: "year" as const,
+  },
+};
+
+/**
+ * Finds the plan's price by lookup key, creating the product and price in
+ * Stripe on first use. Pricing lives in Stripe, not in env vars.
+ */
+async function ensurePlanPrice(
+  stripe: Stripe,
+  plan: "monthly" | "annual",
+): Promise<string> {
+  const spec = PLAN_PRICES[plan];
+  const existing = await stripe.prices.list({
+    lookup_keys: [spec.lookupKey],
+    limit: 1,
+  });
+  if (existing.data[0]) return existing.data[0].id;
+
+  const products = await stripe.products.search({
+    query: 'metadata["marketerProduct"]:"workspace"',
+    limit: 1,
+  });
+  const product =
+    products.data[0] ??
+    (await stripe.products.create({
+      name: "Marketer workspace",
+      metadata: { marketerProduct: "workspace" },
+    }));
+
+  const price = await stripe.prices.create({
+    product: product.id,
+    currency: "usd",
+    unit_amount: spec.unitAmount,
+    recurring: { interval: spec.interval },
+    lookup_key: spec.lookupKey,
+  });
+  return price.id;
+}
+
 export const createCheckoutSession = action({
   args: {
     plan: v.union(v.literal("monthly"), v.literal("annual")),
@@ -322,13 +372,9 @@ export const createCheckoutSession = action({
   },
   handler: async (ctx, args): Promise<{ url: string }> => {
     const identity = await requireActionIdentity(ctx);
-    const env = stripeCheckoutEnv();
-    const stripe = getStripe(env.STRIPE_SECRET_KEY);
+    const stripe = getStripe(stripeSecretKey());
     const customerId = await ensureStripeCustomer(ctx, stripe, identity);
-    const priceId =
-      args.plan === "monthly"
-        ? env.STRIPE_PRICE_MONTHLY
-        : env.STRIPE_PRICE_ANNUAL;
+    const priceId = await ensurePlanPrice(stripe, args.plan);
 
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
@@ -341,7 +387,7 @@ export const createCheckoutSession = action({
         plan: args.plan,
       },
       subscription_data: {
-        trial_period_days: env.STRIPE_TRIAL_DAYS,
+        trial_period_days: stripeTrialDays(),
         metadata: {
           organizationId: identity.organizationId,
           plan: args.plan,

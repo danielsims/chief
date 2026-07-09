@@ -17,13 +17,6 @@ interface ConvexEnv {
   BASE_URL: string;
 }
 
-interface StripeCheckoutEnv {
-  STRIPE_SECRET_KEY: string;
-  STRIPE_PRICE_MONTHLY: string;
-  STRIPE_PRICE_ANNUAL: string;
-  STRIPE_TRIAL_DAYS: number;
-}
-
 const REQUIRED_VARS = [
   "AUTH_SECRET",
   "AUTH_GOOGLE_ID",
@@ -109,11 +102,6 @@ export function stripeWebhookSecret(): string {
   return getEnvVar("STRIPE_WEBHOOK_SECRET");
 }
 
-export function stripeCheckoutEnv(): StripeCheckoutEnv {
-  return {
-    STRIPE_SECRET_KEY: stripeSecretKey(),
-    STRIPE_PRICE_MONTHLY: getEnvVar("STRIPE_PRICE_MONTHLY"),
-    STRIPE_PRICE_ANNUAL: getEnvVar("STRIPE_PRICE_ANNUAL"),
-    STRIPE_TRIAL_DAYS: parseTrialDays(process.env.STRIPE_TRIAL_DAYS),
-  };
+export function stripeTrialDays(): number {
+  return parseTrialDays(process.env.STRIPE_TRIAL_DAYS);
 }
