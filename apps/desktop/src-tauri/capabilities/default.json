@@ -19,7 +19,8 @@
         { "url": "http://localhost:1420/**" },
         { "url": "https://accounts.google.com/**" },
         { "url": "https://*.googleusercontent.com/**" },
-        { "url": "https://oauth2.googleapis.com/**" }
+        { "url": "https://oauth2.googleapis.com/**" },
+        { "url": "https://integrations.sh/**" }
       ]
     }
   ]
