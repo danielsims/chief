@@ -1,0 +1,29 @@
+# deps
+node_modules/
+.pnp
+.pnp.js
+
+# builds
+dist/
+build/
+.next/
+out/
+.turbo/
+target/
+
+# tauri
+apps/desktop/src-tauri/gen/
+
+# env
+.env
+.env.local
+.env*.local
+
+# convex
+.convex/
+
+# misc
+.DS_Store
+*.pem
+*.log
+.vercel
