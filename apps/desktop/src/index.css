@@ -1,0 +1,12 @@
+@import "@marketer/ui/globals.css";
+@source "../../../packages/ui/src";
+
+/* macOS overlay titlebar: make the top strip draggable */
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+.titlebar-drag button,
+.titlebar-drag a,
+.titlebar-drag input {
+  -webkit-app-region: no-drag;
+}

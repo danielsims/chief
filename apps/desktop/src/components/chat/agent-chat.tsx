@@ -1,0 +1,136 @@
+import { useEffect, useRef, useState } from "react";
+import { ArrowUp, Square } from "lucide-react";
+import type { AgentDefinition } from "@marketer/agent-runtime/types";
+import { Button } from "@marketer/ui/components/button";
+import { useAgentChat, useRuntime } from "../../lib/runtime";
+import { AgentIcon } from "../agent-icon";
+import { Blocks } from "./message-blocks";
+
+export function AgentChat({
+  agent,
+  initialPrompt,
+}: {
+  agent: AgentDefinition;
+  initialPrompt?: string;
+}) {
+  const { status: runtimeStatus } = useRuntime();
+  const { chat, send, interrupt } = useAgentChat(agent.id);
+  const [draft, setDraft] = useState("");
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const sentInitial = useRef(false);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chat.items.length, chat.streaming]);
+
+  useEffect(() => {
+    if (
+      initialPrompt &&
+      !sentInitial.current &&
+      runtimeStatus === "connected"
+    ) {
+      // flag is set inside the timeout so a StrictMode remount (which
+      // cancels the timer) doesn't permanently swallow the prompt
+      const t = setTimeout(() => {
+        if (sentInitial.current) return;
+        sentInitial.current = true;
+        send(initialPrompt);
+      }, 400);
+      return () => clearTimeout(t);
+    }
+  }, [initialPrompt, runtimeStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const submit = () => {
+    if (chat.status === "running") return;
+    const text = draft.trim();
+    if (!text) return;
+    setDraft("");
+    send(text);
+  };
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex-1 space-y-6 overflow-y-auto py-6 pr-2">
+        {chat.items.length === 0 && !chat.streaming && (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+            <span className="flex h-12 w-12 items-center justify-center border text-muted-foreground">
+              <AgentIcon agentId={agent.id} size={22} />
+            </span>
+            <p className="font-serif text-2xl">{agent.name}</p>
+            <p className="max-w-md text-sm text-muted-foreground">
+              {agent.description}
+            </p>
+            {runtimeStatus !== "connected" && (
+              <p className="mt-4 border border-dashed px-3 py-2 text-xs text-muted-foreground">
+                Agent runtime not connected. Run <code>pnpm dev</code> in the
+                repo root.
+              </p>
+            )}
+          </div>
+        )}
+        {chat.items.map((item, i) =>
+          item.kind === "user" ? (
+            <div key={i} className="flex justify-end">
+              <div className="max-w-[80%] border bg-accent px-3 py-2 text-sm whitespace-pre-wrap">
+                {item.text}
+              </div>
+            </div>
+          ) : (
+            <div key={i} className="max-w-[90%]">
+              <Blocks blocks={item.event.content} />
+            </div>
+          ),
+        )}
+        {chat.streaming && (
+          <p className="max-w-[90%] whitespace-pre-wrap text-sm leading-6">
+            {chat.streaming}
+            <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-foreground align-text-bottom" />
+          </p>
+        )}
+        {chat.status === "running" && !chat.streaming && (
+          <p className="font-mono text-xs text-muted-foreground animate-pulse">
+            working…
+          </p>
+        )}
+        {chat.error && (
+          <p className="border border-destructive/40 px-3 py-2 text-xs text-destructive">
+            {chat.error}
+          </p>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      <div className="border bg-card/80 backdrop-blur-lg">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          placeholder={`Message ${agent.name}…`}
+          rows={2}
+          className="w-full resize-none bg-transparent px-3 pt-3 text-sm leading-6 outline-none placeholder:text-muted-foreground"
+        />
+        <div className="flex items-center justify-between px-3 pb-2">
+          <span className="text-[11px] text-muted-foreground">
+            {chat.lastCostUsd !== undefined
+              ? `last turn $${chat.lastCostUsd.toFixed(4)}`
+              : agent.role}
+          </span>
+          {chat.status === "running" ? (
+            <Button size="icon" variant="outline" className="h-7 w-7" onClick={interrupt}>
+              <Square size={12} />
+            </Button>
+          ) : (
+            <Button size="icon" className="h-7 w-7" onClick={submit}>
+              <ArrowUp size={14} />
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
