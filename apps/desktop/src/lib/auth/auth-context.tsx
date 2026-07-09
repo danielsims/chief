@@ -81,6 +81,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAuthError(null);
     setIsSigningIn(false);
     setIsLoading(false);
+    // A fresh sign-in always lands on the dashboard. The webview URL still
+    // holds whatever route the user signed out from (e.g. /settings), and
+    // the router would otherwise restore it when it remounts.
+    window.history.replaceState(null, "", "/");
   }, []);
 
   const failDesktopAuth = useCallback((err: unknown) => {
