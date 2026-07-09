@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
-import { AgentSession } from "./session.js";
+import { AgentSession, type SessionConfig } from "./session.js";
 import type { AgentDefinition } from "./types.js";
 
 const HOME = join(homedir(), ".marketer");
@@ -37,11 +37,18 @@ export class SessionManager {
     return this.sessions.get(chatId);
   }
 
-  async ensure(agent: AgentDefinition, chatId: string): Promise<AgentSession> {
+  async ensure(
+    agent: AgentDefinition,
+    chatId: string,
+    config: SessionConfig,
+  ): Promise<AgentSession> {
     const existing = this.sessions.get(chatId);
     if (existing) {
-      // Driver switched in settings — a live session can't hop backends.
-      if (existing.agent.driver !== agent.driver) {
+      // A live session can't hop backends or change its access level.
+      if (
+        existing.config.driver !== config.driver ||
+        existing.config.access !== config.access
+      ) {
         await existing.stop();
         this.sessions.delete(chatId);
       } else {
@@ -49,7 +56,7 @@ export class SessionManager {
       }
     }
 
-    const session = new AgentSession(agent, chatId);
+    const session = new AgentSession(agent, chatId, config);
     this.sessions.set(chatId, session);
 
     session.on("event", (event) => {
@@ -57,7 +64,7 @@ export class SessionManager {
         this.persisted[chatId] = {
           agentId: agent.id,
           sessionId: event.sessionId,
-          driver: agent.driver,
+          driver: config.driver,
         };
         this.save();
       }
@@ -71,9 +78,7 @@ export class SessionManager {
     // Session ids don't transfer across backends — only resume same-driver.
     const prev = this.persisted[chatId];
     const resume =
-      prev && (prev.driver ?? "claude") === agent.driver
-        ? prev.sessionId
-        : undefined;
+      prev && prev.driver === config.driver ? prev.sessionId : undefined;
     await session.start(cwd, resume);
     return session;
   }

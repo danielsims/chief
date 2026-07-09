@@ -1,8 +1,59 @@
 import { createServer } from "node:http";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { WebSocketServer, WebSocket } from "ws";
 import { SessionManager } from "./manager.js";
 import { defaultAgents, getAgent } from "./agents.js";
-import type { ClientMessage, ServerMessage } from "./types.js";
+import type { ClientMessage, InputRequest, ServerMessage } from "./types.js";
+
+const SECRETS_ENV_PATH = join(homedir(), ".marketer", "secrets.env");
+
+function expandHome(path: string): string {
+  return path.startsWith("~/") || path === "~"
+    ? join(homedir(), path.slice(1))
+    : path;
+}
+
+/** Upserts KEY='value' into ~/.marketer/secrets.env (created mode 600). */
+function saveEnvSecret(key: string, value: string) {
+  mkdirSync(dirname(SECRETS_ENV_PATH), { recursive: true });
+  const escaped = value.replace(/'/g, "'\\''");
+  const line = `${key}='${escaped}'`;
+  let lines: string[] = [];
+  if (existsSync(SECRETS_ENV_PATH)) {
+    lines = readFileSync(SECRETS_ENV_PATH, "utf8").split("\n").filter(Boolean);
+  }
+  const index = lines.findIndex((l) => l.startsWith(`${key}=`));
+  if (index >= 0) lines[index] = line;
+  else lines.push(line);
+  writeFileSync(SECRETS_ENV_PATH, lines.join("\n") + "\n", { mode: 0o600 });
+}
+
+/**
+ * Stores submitted values per each field's save target and returns
+ * human-readable destinations for the agent (never the values themselves).
+ */
+function storeInputValues(
+  request: InputRequest,
+  values: Record<string, string>,
+): string[] {
+  const saved: string[] = [];
+  for (const field of request.fields) {
+    const value = values[field.key];
+    if (typeof value !== "string" || value.length === 0) continue;
+    if ("file" in field.save) {
+      const path = expandHome(field.save.file);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, value, { mode: 0o600 });
+      saved.push(path);
+    } else {
+      saveEnvSecret(field.save.envKey, value);
+      saved.push(`${field.save.envKey} in ${SECRETS_ENV_PATH}`);
+    }
+  }
+  return saved;
+}
 
 const PORT = Number(process.env.MARKETER_RUNTIME_PORT ?? 4318);
 
@@ -53,20 +104,28 @@ export function startServer(port = PORT) {
             break;
 
           case "openSession": {
-            const base = getAgent(msg.agentId);
-            if (!base) {
+            const agent = getAgent(msg.agentId);
+            if (!agent) {
               return send({
                 type: "error",
                 message: `unknown agent: ${msg.agentId}`,
                 chatId: msg.chatId,
               });
             }
-            const agent = {
-              ...base,
-              driver: msg.driver ?? base.driver,
-              model: msg.model ?? base.model,
-            };
-            const session = await manager.ensure(agent, msg.chatId);
+            // The runtime never picks a provider itself — the client resolves
+            // the workspace's choice and must send it.
+            if (!msg.driver) {
+              return send({
+                type: "error",
+                message: "no provider configured for this chat",
+                chatId: msg.chatId,
+              });
+            }
+            const session = await manager.ensure(agent, msg.chatId, {
+              driver: msg.driver,
+              access: msg.access ?? "guarded",
+              model: msg.model,
+            });
             if (!subscriptions.has(msg.chatId)) {
               subscriptions.add(msg.chatId);
               const chatId = msg.chatId;
@@ -87,7 +146,7 @@ export function startServer(port = PORT) {
             if (!session) {
               return send({
                 type: "error",
-                message: "no session — send openSession first",
+                message: "No session for this chat yet. Reopen it to reconnect.",
                 chatId: msg.chatId,
               });
             }
@@ -102,6 +161,24 @@ export function startServer(port = PORT) {
           case "respondPermission":
             manager.get(msg.chatId)?.respondPermission(msg.requestId, msg.behavior);
             break;
+
+          case "provideInput": {
+            const session = manager.get(msg.chatId);
+            if (!session) {
+              return send({
+                type: "error",
+                message: "No session for this chat yet. Reopen it to reconnect.",
+                chatId: msg.chatId,
+              });
+            }
+            const saved = storeInputValues(msg.request, msg.values);
+            await session.sendPrompt(
+              saved.length > 0
+                ? `Provided: ${msg.request.title}. Saved to: ${saved.join(", ")}. Read the values from there when commands need them; never print them. Continue the setup.`
+                : `Provided: ${msg.request.title}, but no values were saved. Ask again with clearer fields if you still need them.`,
+            );
+            break;
+          }
         }
       } catch (err) {
         send({

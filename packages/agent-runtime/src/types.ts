@@ -34,6 +34,13 @@ export type AgentEvent =
       toolName: string;
       input: unknown;
     }
+  /** Emitted once a permission request has been answered, so replayed
+   * transcripts don't resurrect stale approval prompts. */
+  | {
+      type: "permissionResolved";
+      requestId: string;
+      behavior: "allow" | "deny";
+    }
   | { type: "status"; status: AgentStatus }
   | { type: "error"; message: string }
   | { type: "exit"; code: number | null };
@@ -42,6 +49,19 @@ export type AgentStatus = "idle" | "running" | "waiting" | "error";
 
 export type DriverType = "claude" | "codex";
 
+/**
+ * How much the session may do without asking. "guarded" routes mutating tool
+ * calls through the approval policy (normal chats); "full" skips approvals
+ * and sandboxing entirely (setup runs the user explicitly kicked off, where
+ * installs, browser opens and localhost callbacks must just work).
+ */
+export type AccessMode = "full" | "guarded";
+
+/**
+ * A provider-agnostic persona. Which driver/model executes it is workspace
+ * state, resolved per session at openSession time — never part of the
+ * definition.
+ */
 export interface AgentDefinition {
   id: string;
   name: string;
@@ -50,18 +70,44 @@ export interface AgentDefinition {
   description: string;
   /** System prompt appended to the driver's base prompt. */
   instructions: string;
-  driver: DriverType;
-  model?: string;
   /** The CMO orchestrator can delegate to these agent ids. */
   delegates?: string[];
-  emoji?: string;
 }
 
 export interface StartOptions {
   cwd: string;
   instructions: string;
+  access: AccessMode;
   model?: string;
   resumeSessionId?: string;
+}
+
+// ---- Structured user input (secrets/config the agent cannot obtain itself) ----
+
+/**
+ * One value the user pastes. `save` tells the runtime where to store it:
+ * a file path (secrets never enter the model transcript; agents read them
+ * from disk) or a key in ~/.marketer/secrets.env. A future deployment
+ * target (e.g. Vercel env) slots in as another save variant.
+ */
+export interface InputField {
+  key: string;
+  label: string;
+  type?: "text" | "secret" | "multiline";
+  save: { file: string } | { envKey: string };
+}
+
+/**
+ * Emitted by agents as a MARKETER_INPUT_REQUEST line and rendered by the app
+ * as a form: title, web-only steps (each ideally a single click via `url`),
+ * and the fewest paste fields possible.
+ */
+export interface InputRequest {
+  id: string;
+  title: string;
+  reason?: string;
+  steps?: Array<{ text: string; url?: string }>;
+  fields: InputField[];
 }
 
 // ---- WebSocket protocol between clients (desktop app, future Slack bridge) and the service ----
@@ -73,9 +119,11 @@ export type ClientMessage =
       agentId: string;
       chatId: string;
       resumeSessionId?: string;
-      /** Per-workspace overrides from settings — take precedence over the registry definition. */
-      driver?: DriverType;
+      /** Resolved by the client: per-chat choice > per-agent override > workspace provider. Never defaulted by the runtime. */
+      driver: DriverType;
       model?: string;
+      /** Defaults to "guarded" (approval policy applies). */
+      access?: AccessMode;
     }
   | { type: "prompt"; chatId: string; text: string }
   | { type: "interrupt"; chatId: string }
@@ -84,6 +132,14 @@ export type ClientMessage =
       chatId: string;
       requestId: string;
       behavior: "allow" | "deny";
+    }
+  /** User submitted values for an agent's input request; the runtime stores
+   * them per each field's `save` target and tells the agent where. */
+  | {
+      type: "provideInput";
+      chatId: string;
+      request: InputRequest;
+      values: Record<string, string>;
     };
 
 export type ServerMessage =
