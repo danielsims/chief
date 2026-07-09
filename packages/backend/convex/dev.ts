@@ -34,6 +34,24 @@ const AUTH_MODELS = [
   "user",
 ];
 
+/** Wipes only integration connections so connect flows can be retested
+ * without losing the account or onboarding answers. */
+export const clearConnections = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const tables: TableNames[] = ["channel", "credential", "oauthState"];
+    const deleted: Record<string, number> = {};
+    for (const table of tables) {
+      const docs = await ctx.db.query(table).collect();
+      for (const doc of docs) {
+        await ctx.db.delete(doc._id);
+      }
+      deleted[table] = docs.length;
+    }
+    return deleted;
+  },
+});
+
 export const resetOnboarding = internalMutation({
   args: {},
   handler: async (ctx) => {

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import { ArrowUp } from "lucide-react";
 import { Button } from "@marketer/ui/components/button";
 import { OrgLogo } from "../components/org-logo";
+import { SetupProgress } from "../components/setup-progress";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   listAuthOrganizations,
@@ -110,6 +111,8 @@ export function DashboardPage() {
           An overview of your channels and agents.
         </p>
       </div>
+
+      <SetupProgress />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {widgets.map((w) => (

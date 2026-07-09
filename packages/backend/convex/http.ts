@@ -1,7 +1,7 @@
 import { httpRouter } from "convex/server";
 
 import { authComponent, createAuth } from "./auth";
-import { stripeWebhook } from "./billing";
+import { billingReturnPage, stripeWebhook } from "./billing";
 import { oauthCallback as googleAnalyticsOauthCallback } from "./googleAnalytics";
 
 const http = httpRouter();
@@ -13,6 +13,12 @@ http.route({
   path: "/stripe/webhook",
   method: "POST",
   handler: stripeWebhook,
+});
+
+http.route({
+  path: "/billing/return",
+  method: "GET",
+  handler: billingReturnPage,
 });
 
 http.route({

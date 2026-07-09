@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Navigate } from "react-router";
+import { Navigate, useSearchParams } from "react-router";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@marketer/backend/convex/_generated/api";
 import type { DriverType } from "@marketer/agent-runtime/types";
@@ -136,7 +136,7 @@ const questions: Record<StepKey, string> = {
   inference: "Which agent app should Marketer use?",
   health: "Quick check before we teach Marketer about your business.",
   context:
-    "I'll set this workspace up around one company, so the agents know exactly who they're working for. Is this the right company and website?",
+    "I'll set this workspace up around one company, so the agents know exactly who they're working for. What's your company and website?",
   socials:
     "Nice. Now add the public accounts the agents should learn from and write for.",
   selling: "Describe what you're selling in a few short words.",
@@ -1987,6 +1987,15 @@ function IntegrationConnectQueueControl({
           />
         ) : null}
 
+        {localAgentSetup &&
+        integrations.length > 0 &&
+        allConnected &&
+        !latestPreview?.series?.length ? (
+          <p className="animate-pulse border bg-background px-4 py-3 font-mono text-xs text-muted-foreground">
+            Pulling your first report...
+          </p>
+        ) : null}
+
         {integrations.length > 0 && allConnected ? (
           <div>
             <Button type="button" variant="ghost" onClick={onAddAnother}>
@@ -2185,6 +2194,9 @@ export function OnboardingPage() {
   >(null);
   const [setupPreview, setSetupPreview] = useState<SetupResult | null>(null);
   const latestRef = useRef<HTMLDivElement | null>(null);
+  // Deep link: /onboarding?step=analytics reopens setup at that step (the
+  // dashboard's finish-setting-up card uses this to resume skipped items).
+  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     let cancelled = false;
@@ -2196,7 +2208,16 @@ export function OnboardingPage() {
         orgs[0] ??
         null;
       setOrg(active);
-      setDraft(active ? loadDraft(active, user?.name) : loadPendingDraft());
+      const loaded = active
+        ? loadDraft(active, user?.name)
+        : loadPendingDraft();
+      const requestedStep = searchParams.get("step") as StepKey | null;
+      if (requestedStep && steps.includes(requestedStep)) {
+        setDraft({ ...loaded, step: requestedStep });
+        setSearchParams({}, { replace: true });
+      } else {
+        setDraft(loaded);
+      }
       setLoading(false);
     });
     return () => {
@@ -2461,12 +2482,17 @@ export function OnboardingPage() {
         return;
       }
       if (step === "adsConnect") {
-        // The budget upsell is for people who don't run ads; connecters
-        // already have campaigns.
+        // Connecters already run campaigns; anyone who emptied the queue
+        // gets the budget question they'd otherwise have skipped.
         setNotice(null);
         setError(null);
         setDraft((current) =>
-          current ? { ...current, step: "aeo" } : current,
+          current
+            ? {
+                ...current,
+                step: current.ads.integrations.length > 0 ? "aeo" : "adsBudget",
+              }
+            : current,
         );
         return;
       }

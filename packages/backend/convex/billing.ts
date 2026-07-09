@@ -161,6 +161,31 @@ function validateRedirectUrl(url: string): string {
   return parsed.toString();
 }
 
+
+function billingReturnUrl(status: string): string {
+  const siteUrl = process.env.CONVEX_SITE_URL;
+  if (!siteUrl) throw new Error("Missing CONVEX_SITE_URL");
+  return `${siteUrl}/billing/return?status=${status}`;
+}
+
+export const billingReturnPage = httpAction(async (_ctx, request) => {
+  const status = new URL(request.url).searchParams.get("status");
+  const heading =
+    status === "success"
+      ? "Payment set up."
+      : status === "canceled"
+        ? "Checkout canceled."
+        : "All done here.";
+  const body =
+    status === "success"
+      ? "Your workspace trial is active. You can close this tab and return to Marketer."
+      : "You can close this tab and return to Marketer.";
+  return new Response(
+    `<!doctype html><html><head><meta charset="utf-8"><title>Marketer</title><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#0c0c0c;color:#ededed;font-family:ui-sans-serif,system-ui,sans-serif"><div style="text-align:center;padding:24px"><p style="font-size:22px;margin:0">${heading}</p><p style="margin-top:10px;font-size:14px;color:#9a9a9a">${body}</p></div></body></html>`,
+    { status: 200, headers: { "Content-Type": "text/html" } },
+  );
+});
+
 async function requireActionIdentity(
   ctx: ActionContext,
 ): Promise<ActionIdentity> {
@@ -292,8 +317,8 @@ async function resolveOrganizationId(
 export const createCheckoutSession = action({
   args: {
     plan: v.union(v.literal("monthly"), v.literal("annual")),
-    successUrl: v.string(),
-    cancelUrl: v.string(),
+    successUrl: v.optional(v.string()),
+    cancelUrl: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<{ url: string }> => {
     const identity = await requireActionIdentity(ctx);
@@ -322,8 +347,12 @@ export const createCheckoutSession = action({
           plan: args.plan,
         },
       },
-      success_url: validateRedirectUrl(args.successUrl),
-      cancel_url: validateRedirectUrl(args.cancelUrl),
+      success_url: validateRedirectUrl(
+        args.successUrl ?? billingReturnUrl("success"),
+      ),
+      cancel_url: validateRedirectUrl(
+        args.cancelUrl ?? billingReturnUrl("canceled"),
+      ),
     });
 
     if (!session.url) {
@@ -336,7 +365,7 @@ export const createCheckoutSession = action({
 
 export const createPortalSession = action({
   args: {
-    returnUrl: v.string(),
+    returnUrl: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<{ url: string }> => {
     const identity = await requireActionIdentity(ctx);
@@ -344,7 +373,9 @@ export const createPortalSession = action({
     const customerId = await ensureStripeCustomer(ctx, stripe, identity);
     const session = await stripe.billingPortal.sessions.create({
       customer: customerId,
-      return_url: validateRedirectUrl(args.returnUrl),
+      return_url: validateRedirectUrl(
+        args.returnUrl ?? billingReturnUrl("portal"),
+      ),
     });
 
     return { url: session.url };

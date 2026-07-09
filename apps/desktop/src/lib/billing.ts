@@ -26,11 +26,11 @@ export async function openWorkspaceCheckout(
   }
 
   try {
-    const successUrl = `${window.location.origin}/`;
-    const cancelUrl = `${window.location.origin}/onboarding`;
+    // No redirect URLs from here: the desktop origin is tauri://, which
+    // Stripe rejects. The backend defaults to its own hosted return page.
     const result = (await convex.action(
       createCheckoutSession as never,
-      { plan, successUrl, cancelUrl } as never,
+      { plan } as never,
     )) as { url?: string } | null;
 
     if (!result?.url) {

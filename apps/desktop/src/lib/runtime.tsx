@@ -157,6 +157,38 @@ export function useRuntime() {
   return ctx;
 }
 
+/**
+ * Which required secret keys already exist on this machine, and a way to
+ * store new ones, with no agent session involved. Used to gate Connect
+ * buttons behind credential collection for integrations that are known to
+ * need values only the user can provide.
+ */
+export function useStoredInputs(keys: string[] | null) {
+  const { client, status } = useRuntime();
+  const [present, setPresent] = useState<ReadonlySet<string> | null>(null);
+  const keysSignature = JSON.stringify(keys ?? []);
+
+  useEffect(() => {
+    const parsed = JSON.parse(keysSignature) as string[];
+    if (parsed.length === 0 || status !== "connected") return;
+    const unsub = client.subscribe((msg) => {
+      if (msg.type === "inputsStatus") {
+        setPresent(new Set(msg.present.filter((key) => parsed.includes(key))));
+      }
+    });
+    client.send({ type: "queryInputs", keys: parsed });
+    return () => {
+      unsub();
+    };
+  }, [client, status, keysSignature]);
+
+  const store = (request: InputRequest, values: Record<string, string>) => {
+    client.send({ type: "storeInput", request, values });
+  };
+
+  return { present, store };
+}
+
 // ---- Chat state ----
 
 export type ChatItem =

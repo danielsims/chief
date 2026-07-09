@@ -15,6 +15,15 @@ function expandHome(path: string): string {
     : path;
 }
 
+/** Key names currently present in ~/.marketer/secrets.env. */
+function storedSecretKeys(): string[] {
+  if (!existsSync(SECRETS_ENV_PATH)) return [];
+  return readFileSync(SECRETS_ENV_PATH, "utf8")
+    .split("\n")
+    .map((line) => line.split("=")[0]?.trim() ?? "")
+    .filter(Boolean);
+}
+
 /** Upserts KEY='value' into ~/.marketer/secrets.env (created mode 600). */
 function saveEnvSecret(key: string, value: string) {
   mkdirSync(dirname(SECRETS_ENV_PATH), { recursive: true });
@@ -161,6 +170,20 @@ export function startServer(port = PORT) {
           case "respondPermission":
             manager.get(msg.chatId)?.respondPermission(msg.requestId, msg.behavior);
             break;
+
+          case "queryInputs": {
+            const present = storedSecretKeys().filter((key) =>
+              msg.keys.includes(key),
+            );
+            send({ type: "inputsStatus", present });
+            break;
+          }
+
+          case "storeInput": {
+            storeInputValues(msg.request, msg.values);
+            send({ type: "inputsStatus", present: storedSecretKeys() });
+            break;
+          }
 
           case "provideInput": {
             const session = manager.get(msg.chatId);

@@ -140,6 +140,17 @@ export type ClientMessage =
       chatId: string;
       request: InputRequest;
       values: Record<string, string>;
+    }
+  /** Which of these secret env keys already exist in ~/.marketer/secrets.env?
+   * Answered with inputsStatus. Lets the app collect required credentials
+   * BEFORE any agent session starts. */
+  | { type: "queryInputs"; keys: string[] }
+  /** Store values with no agent session involved (pre-connect requirement
+   * forms). Runtime stores them and broadcasts a fresh inputsStatus. */
+  | {
+      type: "storeInput";
+      request: InputRequest;
+      values: Record<string, string>;
     };
 
 export type ServerMessage =
@@ -148,4 +159,6 @@ export type ServerMessage =
   | { type: "event"; chatId: string; event: AgentEvent }
   /** Buffered transcript replayed on (re)open so clients resume mid-run. */
   | { type: "history"; chatId: string; events: AgentEvent[] }
+  /** Secret env keys currently present in ~/.marketer/secrets.env. */
+  | { type: "inputsStatus"; present: string[] }
   | { type: "error"; message: string; chatId?: string };
