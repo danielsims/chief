@@ -26,6 +26,9 @@ importers:
       '@marketer/agent-runtime':
         specifier: workspace:*
         version: link:../../packages/agent-runtime
+      '@marketer/backend':
+        specifier: workspace:*
+        version: link:../../packages/backend
       '@marketer/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -50,6 +53,9 @@ importers:
       better-auth:
         specifier: 1.6.16
         version: 1.6.16(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      convex:
+        specifier: ^1.31.6
+        version: 1.42.1(react@19.2.7)
       lucide-react:
         specifier: ^0.525.0
         version: 0.525.0(react@19.2.7)
@@ -69,6 +75,9 @@ importers:
       '@tauri-apps/cli':
         specifier: ^2
         version: 2.11.4
+      '@types/node':
+        specifier: ^22.15.0
+        version: 22.20.0
       '@types/react':
         specifier: ^19.1.8
         version: 19.2.17

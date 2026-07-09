@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "exports": {
-    "./convex/*": "./convex/*"
+    "./convex/_generated/*": "./convex/_generated/*.js",
+    "./convex/*": "./convex/*.ts"
   },
   "scripts": {
     "dev": "convex dev",

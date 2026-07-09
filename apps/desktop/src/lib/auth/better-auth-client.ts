@@ -110,6 +110,25 @@ export interface AuthOrganization {
   name: string;
   slug: string;
   logo?: string | null;
+  /** JSON string (better-auth stores metadata stringified) or object. */
+  metadata?: string | Record<string, unknown> | null;
+}
+
+/** Parse the better-auth organization metadata field, whatever shape it has. */
+export function parseOrganizationMetadata(
+  org: AuthOrganization | undefined | null,
+): Record<string, unknown> {
+  const metadata = org?.metadata;
+  if (!metadata) return {};
+  if (typeof metadata === "object") return metadata;
+  try {
+    const parsed = JSON.parse(metadata) as unknown;
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 export async function listAuthOrganizations(): Promise<AuthOrganization[]> {
@@ -174,7 +193,11 @@ export async function setActiveAuthOrganization(
 
 export async function updateAuthOrganization(
   organizationId: string,
-  data: { name?: string; logo?: string },
+  data: {
+    name?: string;
+    logo?: string;
+    metadata?: Record<string, unknown>;
+  },
 ): Promise<void> {
   const storedSession = getStoredSession();
   if (!storedSession?.token) throw new Error("Not authenticated");
@@ -194,6 +217,31 @@ export async function updateAuthOrganization(
     const text = await response.text().catch(() => "");
     throw new Error(
       `Failed to update organization: ${response.status} ${text}`,
+    );
+  }
+}
+
+export async function deleteAuthOrganization(
+  organizationId: string,
+): Promise<void> {
+  const storedSession = getStoredSession();
+  if (!storedSession?.token) throw new Error("Not authenticated");
+
+  const url = `${AUTH_BASE_URL}/api/auth/organization/delete`;
+  const fetcher = isTauri() ? tauriFetch : fetch;
+  const response = await fetcher(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${storedSession.token}`,
+    },
+    body: JSON.stringify({ organizationId }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(
+      `Failed to delete organization: ${response.status} ${text}`,
     );
   }
 }

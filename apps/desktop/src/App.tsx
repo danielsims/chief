@@ -1,10 +1,15 @@
-import { BrowserRouter, Route, Routes } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
+import { ConvexClientProvider } from "./lib/convex";
 import { RuntimeProvider } from "./lib/runtime";
 import { Layout } from "./components/layout";
 import { DashboardPage } from "./pages/dashboard";
 import { AgentsPage } from "./pages/agents";
-import { SettingsPage } from "./pages/settings";
+import { SettingsLayout } from "./pages/settings/layout";
+import { ProfileSettings } from "./pages/settings/profile";
+import { WorkspaceSettings } from "./pages/settings/workspace";
+import { AgentsSettings } from "./pages/settings/agents";
+import { IntegrationsSettings } from "./pages/settings/integrations";
 import { SignInScreen } from "./pages/sign-in";
 import { PlaceholderPage } from "./pages/placeholder";
 
@@ -58,7 +63,16 @@ function AuthenticatedApp() {
               }
             />
             <Route path="agents" element={<AgentsPage />} />
-            <Route path="settings" element={<SettingsPage />} />
+            <Route path="settings" element={<SettingsLayout />}>
+              <Route
+                index
+                element={<Navigate to="/settings/profile" replace />}
+              />
+              <Route path="profile" element={<ProfileSettings />} />
+              <Route path="workspace" element={<WorkspaceSettings />} />
+              <Route path="agents" element={<AgentsSettings />} />
+              <Route path="integrations" element={<IntegrationsSettings />} />
+            </Route>
           </Route>
         </Routes>
       </BrowserRouter>
@@ -69,7 +83,9 @@ function AuthenticatedApp() {
 export default function App() {
   return (
     <AuthProvider>
-      <AuthenticatedApp />
+      <ConvexClientProvider>
+        <AuthenticatedApp />
+      </ConvexClientProvider>
     </AuthProvider>
   );
 }

@@ -8,10 +8,13 @@
  * @module
  */
 
+import type * as agents from "../agents.js";
 import type * as auth from "../auth.js";
 import type * as debug from "../debug.js";
 import type * as env from "../env.js";
 import type * as http from "../http.js";
+import type * as lib_auth from "../lib/auth.js";
+import type * as socialAccounts from "../socialAccounts.js";
 
 import type {
   ApiFromModules,
@@ -20,10 +23,13 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  agents: typeof agents;
   auth: typeof auth;
   debug: typeof debug;
   env: typeof env;
   http: typeof http;
+  "lib/auth": typeof lib_auth;
+  socialAccounts: typeof socialAccounts;
 }>;
 
 /**

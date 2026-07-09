@@ -14,20 +14,50 @@ import { v } from "convex/values";
  * concept.
  */
 export default defineSchema({
+  /**
+   * Per-workspace overrides layered on top of the default agent registry
+   * (packages/agent-runtime defaultAgents). Every field except the key is
+   * optional: absent means "use the registry default".
+   */
   agent: defineTable({
     organizationId: v.string(),
     agentKey: v.string(), // stable id, e.g. "cmo"
-    name: v.string(),
-    role: v.string(),
-    description: v.string(),
-    instructions: v.string(),
-    driver: v.union(v.literal("claude"), v.literal("codex")),
+    name: v.optional(v.string()),
+    role: v.optional(v.string()),
+    description: v.optional(v.string()),
+    instructions: v.optional(v.string()),
+    driver: v.optional(
+      v.union(v.literal("claude"), v.literal("codex"), v.literal("vercel")),
+    ),
     model: v.optional(v.string()),
     delegates: v.optional(v.array(v.string())),
-    enabled: v.boolean(),
+    enabled: v.optional(v.boolean()),
+    /** Deployed Vercel-style agent endpoint (driver = "vercel"). */
+    vercelUrl: v.optional(v.string()),
+    vercelKey: v.optional(v.string()),
   })
     .index("by_organization", ["organizationId"])
     .index("by_organization_key", ["organizationId", "agentKey"]),
+
+  /**
+   * Social presence for a workspace. No OAuth: agents only draft and read
+   * public pages, so a handle + canonical URL is all we store.
+   */
+  socialAccount: defineTable({
+    organizationId: v.string(),
+    platform: v.union(
+      v.literal("x"),
+      v.literal("instagram"),
+      v.literal("linkedin"),
+      v.literal("tiktok"),
+      v.literal("youtube"),
+      v.literal("reddit"),
+    ),
+    handle: v.string(),
+    url: v.string(),
+  })
+    .index("by_organization", ["organizationId"])
+    .index("by_organization_platform", ["organizationId", "platform"]),
 
   chat: defineTable({
     organizationId: v.string(),
