@@ -1,7 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { ArrowUp } from "lucide-react";
 import { Button } from "@marketer/ui/components/button";
+import { OrgLogo } from "../components/org-logo";
+import { useAuth } from "../lib/auth/auth-context";
+import {
+  listAuthOrganizations,
+  type AuthOrganization,
+} from "../lib/auth/better-auth-client";
 
 function greeting() {
   const h = new Date().getHours();
@@ -49,6 +55,39 @@ const widgets = [
   },
 ];
 
+/**
+ * Small workspace anchor above the greeting so multi-company users can tell
+ * at a glance which company they are looking at.
+ */
+function WorkspaceIndicator() {
+  const { cloudOrganizationId } = useAuth();
+  const [org, setOrg] = useState<AuthOrganization | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listAuthOrganizations().then((orgs) => {
+      if (cancelled) return;
+      setOrg(
+        orgs.find((candidate) => candidate.id === cloudOrganizationId) ??
+          orgs[0] ??
+          null,
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudOrganizationId]);
+
+  if (!org) return null;
+
+  return (
+    <div className="mb-5 flex items-center justify-center gap-2">
+      <OrgLogo name={org.name} logo={org.logo} className="h-5 w-5 text-[11px]" />
+      <span className="text-xs text-muted-foreground">{org.name}</span>
+    </div>
+  );
+}
+
 export function DashboardPage() {
   const navigate = useNavigate();
   const [ask, setAsk] = useState("");
@@ -56,12 +95,13 @@ export function DashboardPage() {
   const submit = () => {
     const text = ask.trim();
     if (!text) return;
-    navigate(`/agents?agent=cmo&prompt=${encodeURIComponent(text)}`);
+    navigate(`/conversations?agent=cmo&prompt=${encodeURIComponent(text)}`);
   };
 
   return (
     <div className="mx-auto flex min-h-[calc(100vh-120px)] max-w-3xl flex-col justify-center gap-10">
       <div className="text-center">
+        <WorkspaceIndicator />
         <h1 className="font-serif text-[38px] leading-tight">
           {greeting()}
           <span className="text-muted-foreground">, Daniel</span>

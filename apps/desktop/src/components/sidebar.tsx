@@ -5,6 +5,7 @@ import {
   CalendarClock,
   Users,
   Flame,
+  MessagesSquare,
   Network,
   Settings,
 } from "lucide-react";
@@ -22,6 +23,7 @@ const items = [
   { to: "/schedule", label: "Schedule", icon: CalendarClock },
   { to: "/prospects", label: "Prospects", icon: Users },
   { to: "/trending", label: "Trending", icon: Flame },
+  { to: "/conversations", label: "Conversations", icon: MessagesSquare },
   { to: "/agents", label: "Agents", icon: Network },
 ];
 

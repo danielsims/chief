@@ -10,6 +10,7 @@ import {
 } from "@marketer/ui/components/select";
 import { useAgentChat, useRuntime } from "../../lib/runtime";
 import { getAgentOverride } from "../../lib/agent-overrides";
+import { recordChat } from "../../lib/chat-log";
 import { PROVIDER_META } from "../../lib/providers";
 import { Blocks } from "./message-blocks";
 
@@ -29,7 +30,12 @@ export function AgentChat({
   const [driver, setDriver] = useState<DriverType>(
     () => getAgentOverride(agent.id).driver ?? agent.driver,
   );
-  const { chat, send, interrupt } = useAgentChat(agent.id, driver);
+  const { chat, send: sendRaw, interrupt } = useAgentChat(agent.id, driver);
+  // Every send updates the local chat log the conversations list is built from.
+  const send = (text: string) => {
+    recordChat(agent.id, text);
+    sendRaw(text);
+  };
   const [draft, setDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const sentInitial = useRef(false);
