@@ -1,0 +1,73 @@
+import { useEffect, useState } from "react";
+import { cn } from "@marketer/ui/lib/utils";
+
+/**
+ * Square workspace logo-or-initial tile, shared by the workspace switcher,
+ * the dashboard workspace indicator and the settings preview.
+ *
+ * Falls back to the workspace's first initial (serif, matching the wordmark)
+ * when there is no logo, the image fails to load, or the image is a stub.
+ * Google's s2 favicon service never 404s: when a site has no real favicon it
+ * returns a 16x16 generic globe even at sz=64, so anything under 32px wide is
+ * treated as "no logo".
+ */
+export function OrgLogo({
+  name,
+  logo,
+  className,
+  imgClassName,
+}: {
+  name: string;
+  logo?: string | null;
+  className?: string;
+  imgClassName?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [logo]);
+
+  const initial = name.trim().charAt(0).toUpperCase() || "?";
+  const showImage = Boolean(logo) && !failed;
+
+  return (
+    <span
+      className={cn(
+        "flex items-center justify-center overflow-hidden border bg-accent",
+        className,
+      )}
+    >
+      {showImage ? (
+        <img
+          src={logo ?? undefined}
+          alt=""
+          draggable={false}
+          className={cn("h-full w-full object-cover", imgClassName)}
+          onError={() => setFailed(true)}
+          onLoad={(e) => {
+            if (e.currentTarget.naturalWidth < 32) setFailed(true);
+          }}
+        />
+      ) : (
+        /* translate-y compensates for Newsreader's tall ascender space so the
+           initial sits optically centered. Em-based so it scales with every
+           tile size. */
+        <span className="translate-y-[0.055em] font-serif leading-none select-none">
+          {initial}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Preflight a favicon URL in the browser. Resolves true only when the image
+ * loads and is at least 32px wide, filtering out the s2 generic-globe stub.
+ * Used before persisting a favicon URL as a workspace logo.
+ */
+export function faviconLoads(url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img.naturalWidth >= 32);
+    img.onerror = () => resolve(false);
+    img.src = url;
+  });
+}

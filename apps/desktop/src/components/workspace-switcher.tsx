@@ -18,47 +18,7 @@ import {
   setActiveAuthOrganization,
   type AuthOrganization,
 } from "../lib/auth/better-auth-client";
-
-/**
- * Square logo-or-initial tile. Falls back to the workspace's first initial
- * (serif, matching the wordmark) when there is no logo or the image 404s.
- */
-function OrgTile({
-  org,
-  className,
-}: {
-  org: Pick<AuthOrganization, "name" | "logo">;
-  className?: string;
-}) {
-  const [imageFailed, setImageFailed] = useState(false);
-  const initial = org.name.trim().charAt(0).toUpperCase() || "?";
-  const showImage = Boolean(org.logo) && !imageFailed;
-  return (
-    <span
-      className={cn(
-        "flex items-center justify-center overflow-hidden border bg-accent",
-        className,
-      )}
-    >
-      {showImage ? (
-        <img
-          src={org.logo ?? undefined}
-          alt=""
-          className="h-full w-full object-cover"
-          draggable={false}
-          onError={() => setImageFailed(true)}
-        />
-      ) : (
-        /* translate-y compensates for Newsreader's tall ascender space so the
-           initial sits optically centered. Em-based so it scales with both
-           tile sizes (h-10 trigger, h-6 popover rows). */
-        <span className="translate-y-[0.055em] font-serif leading-none select-none">
-          {initial}
-        </span>
-      )}
-    </span>
-  );
-}
+import { OrgLogo } from "./org-logo";
 
 export function WorkspaceSwitcher() {
   const { isAuthenticated, cloudOrganizationId } = useAuth();
@@ -114,7 +74,11 @@ export function WorkspaceSwitcher() {
               string (Radix Slot/asChild stringifies function classNames). */}
           <PopoverTrigger className="block h-10 w-10 border border-transparent text-muted-foreground transition-colors hover:text-foreground data-[state=open]:border-border data-[state=open]:text-foreground">
             {activeOrg ? (
-              <OrgTile org={activeOrg} className="h-full w-full text-base" />
+              <OrgLogo
+                name={activeOrg.name}
+                logo={activeOrg.logo}
+                className="h-full w-full text-base"
+              />
             ) : (
               <span className="flex h-full w-full items-center justify-center border bg-accent">
                 <Plus size={16} strokeWidth={1.75} />
@@ -143,7 +107,11 @@ export function WorkspaceSwitcher() {
                       switchingTo === org.id && "opacity-50",
                     )}
                   >
-                    <OrgTile org={org} className="h-6 w-6 shrink-0 text-xs" />
+                    <OrgLogo
+                      name={org.name}
+                      logo={org.logo}
+                      className="h-6 w-6 shrink-0 text-xs"
+                    />
                     <span className="min-w-0 flex-1 truncate">{org.name}</span>
                     {isActive ? (
                       <Check

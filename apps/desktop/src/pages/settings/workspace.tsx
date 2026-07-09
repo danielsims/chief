@@ -19,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@marketer/ui/components/dialog";
+import { OrgLogo } from "../../components/org-logo";
 import { useAuth } from "../../lib/auth/auth-context";
 import {
   type AuthOrganization,
@@ -53,15 +54,12 @@ function LogoPreview({
 }) {
   const src = logo || (website ? faviconUrl(website) : null);
   return (
-    <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden border bg-background">
-      {src ? (
-        <img src={src} alt={name} className="h-8 w-8 object-contain" />
-      ) : (
-        <span className="translate-y-[0.055em] font-serif text-lg leading-none">
-          {(name || "?").charAt(0).toUpperCase()}
-        </span>
-      )}
-    </span>
+    <OrgLogo
+      name={name}
+      logo={src}
+      className="h-12 w-12 shrink-0 text-lg"
+      imgClassName="h-8 w-8 object-contain"
+    />
   );
 }
 
