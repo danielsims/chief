@@ -133,6 +133,51 @@ export interface ChatState {
   error?: string;
 }
 
+const emptyChat: ChatState = { items: [], streaming: "", status: "idle" };
+
+/** Folds one runtime event into chat state; used for live events and for
+ * replaying the buffered transcript when a chat is (re)opened. */
+function reduceChat(c: ChatState, event: AgentEvent): ChatState {
+  switch (event.type) {
+    case "stream":
+      return { ...c, streaming: c.streaming + event.text, status: "running" };
+    case "message": {
+      if (event.role === "user") {
+        const text = event.content
+          .filter((b) => b.type === "text")
+          .map((b) => (b.type === "text" ? b.text : ""))
+          .join("\n");
+        if (!text) return c;
+        return {
+          ...c,
+          streaming: "",
+          status: "running",
+          items: [...c.items, { kind: "user", text }],
+        };
+      }
+      return {
+        ...c,
+        streaming: "",
+        items: [...c.items, { kind: "assistant", event }],
+      };
+    }
+    case "result":
+      return {
+        ...c,
+        streaming: "",
+        status: "idle",
+        lastCostUsd: event.costUsd ?? c.lastCostUsd,
+        error: event.ok ? undefined : event.error,
+      };
+    case "status":
+      return { ...c, status: event.status === "running" ? "running" : "idle" };
+    case "error":
+      return { ...c, error: event.message, status: "idle" };
+    default:
+      return c;
+  }
+}
+
 /**
  * Chat session against the local runtime. `driverOverride` is owned by the
  * chat UI (per-chat provider switcher); changing it reopens the session on
@@ -150,7 +195,7 @@ export function useAgentChat(agentId: string | null, driverOverride?: DriverType
 
   useEffect(() => {
     if (!agentId || !chatId || runtimeStatus !== "connected") return;
-    setChat({ items: [], streaming: "", status: "idle" });
+    setChat(emptyChat);
     const override = getAgentOverride(agentId);
     client.send({
       type: "openSession",
@@ -165,35 +210,14 @@ export function useAgentChat(agentId: string | null, driverOverride?: DriverType
         setChat((c) => ({ ...c, error: msg.message, status: "idle" }));
         return;
       }
+      if (msg.type === "history" && msg.chatId === chatId) {
+        // Rebuild the transcript from the runtime's buffer — resumes chats
+        // across navigation and reconnects, including mid-run streaming.
+        setChat(msg.events.reduce(reduceChat, emptyChat));
+        return;
+      }
       if (msg.type !== "event" || msg.chatId !== chatId) return;
-      const event = msg.event;
-      setChat((c) => {
-        switch (event.type) {
-          case "stream":
-            return { ...c, streaming: c.streaming + event.text, status: "running" };
-          case "message":
-            if (event.role !== "assistant") return c;
-            return {
-              ...c,
-              streaming: "",
-              items: [...c.items, { kind: "assistant", event }],
-            };
-          case "result":
-            return {
-              ...c,
-              streaming: "",
-              status: "idle",
-              lastCostUsd: event.costUsd ?? c.lastCostUsd,
-              error: event.ok ? undefined : event.error,
-            };
-          case "status":
-            return { ...c, status: event.status === "running" ? "running" : "idle" };
-          case "error":
-            return { ...c, error: event.message, status: "idle" };
-          default:
-            return c;
-        }
-      });
+      setChat((c) => reduceChat(c, msg.event));
     });
     return () => {
       unsub();
@@ -202,12 +226,8 @@ export function useAgentChat(agentId: string | null, driverOverride?: DriverType
 
   const send = (text: string) => {
     if (!chatId || !text.trim()) return;
-    setChat((c) => ({
-      ...c,
-      items: [...c.items, { kind: "user", text }],
-      status: "running",
-      error: undefined,
-    }));
+    // The user turn comes back as a server echo; only reflect intent here.
+    setChat((c) => ({ ...c, status: "running", error: undefined }));
     client.send({ type: "prompt", chatId, text });
   };
 

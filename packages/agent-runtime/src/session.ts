@@ -35,6 +35,15 @@ export class AgentSession extends EventEmitter {
   }
 
   sendPrompt(text: string) {
+    // Record the user turn as an event so reconnecting clients can rebuild
+    // the full transcript from the buffer.
+    const event: AgentEvent = {
+      type: "message",
+      role: "user",
+      content: [{ type: "text", text }],
+    };
+    this.events.push(event);
+    this.emit("event", event);
     return this.driver.sendPrompt(text);
   }
 

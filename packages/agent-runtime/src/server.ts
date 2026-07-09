@@ -76,6 +76,9 @@ export function startServer(port = PORT) {
               ws.on("close", () => session.off("event", listener));
             }
             send({ type: "sessionOpened", chatId: msg.chatId, agentId: agent.id });
+            // Replay the buffered transcript so navigating away and back (or
+            // reconnecting mid-run) resumes instead of presenting a fresh chat.
+            send({ type: "history", chatId: msg.chatId, events: session.events });
             break;
           }
 

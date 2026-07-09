@@ -90,4 +90,6 @@ export type ServerMessage =
   | { type: "agents"; agents: AgentDefinition[] }
   | { type: "sessionOpened"; chatId: string; agentId: string }
   | { type: "event"; chatId: string; event: AgentEvent }
+  /** Buffered transcript replayed on (re)open so clients resume mid-run. */
+  | { type: "history"; chatId: string; events: AgentEvent[] }
   | { type: "error"; message: string; chatId?: string };
