@@ -371,6 +371,8 @@ export type ClientMessage =
     }
   | {
       type: "openSession";
+      /** Brand/setup context markdown composed into the system prompt. */
+      workspaceContext?: string;
       agentId: string;
       chatId: string;
       resumeSessionId?: string;

@@ -1,7 +1,11 @@
 import { createServer } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import { SessionManager } from "./manager.js";
-import { defaultAgents, getAgent } from "./agents.js";
+import {
+  composeWorkspaceInstructions,
+  defaultAgents,
+  getAgent,
+} from "./agents.js";
 import { ensureExecutorWorkspace } from "./tools/control-plane.js";
 import { executorToolServer } from "./tools/spec.js";
 import { listModels } from "./models.js";
@@ -17,6 +21,10 @@ import type {
   ServerMessage,
 } from "./types.js";
 import { workspaceSecrets } from "./workspace-secrets.js";
+import {
+  readWorkspaceContext,
+  writeWorkspaceContext,
+} from "./workspace-context.js";
 import { RecurringWorkScheduler } from "./scheduler.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
 
@@ -349,13 +357,34 @@ export function startServer(port = PORT) {
                   ),
                 )
               : agent;
-            const effectiveAgent =
+            const integratedAgent =
               msg.integrations !== undefined
                 ? {
                     ...capableAgent,
                     instructions: `${capableAgent.instructions}\n\nAssigned integrations: ${msg.integrations.length > 0 ? msg.integrations.join(", ") : "none"}. Only search for and call integration tools from this assigned set.`,
                   }
                 : capableAgent;
+            // Prime the session with the workspace's brand context and the
+            // shared operating rules, and persist the context so unattended
+            // recurring runs open with the same grounding.
+            const workspaceContext =
+              msg.workspaceContext ??
+              (msg.workspaceId
+                ? readWorkspaceContext(msg.workspaceId)
+                : undefined);
+            if (msg.workspaceId && msg.workspaceContext) {
+              writeWorkspaceContext(msg.workspaceId, msg.workspaceContext);
+            }
+            const effectiveAgent =
+              agent.id === "setup"
+                ? integratedAgent
+                : {
+                    ...integratedAgent,
+                    instructions: composeWorkspaceInstructions(
+                      integratedAgent.instructions,
+                      workspaceContext,
+                    ),
+                  };
             const session = await manager.ensure(effectiveAgent, msg.chatId, {
               driver: msg.driver,
               access: msg.access ?? "guarded",

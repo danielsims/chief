@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { getAgent } from "./agents.js";
+import { composeWorkspaceInstructions, getAgent } from "./agents.js";
+import { readWorkspaceContext } from "./workspace-context.js";
 import { SessionManager } from "./manager.js";
 import { nextRunAt } from "./recurring-work.js";
 import { AgentSession } from "./session.js";
@@ -152,7 +153,10 @@ export class RecurringWorkScheduler {
       const approved = work.grant.toolPatterns;
       const scheduledAgent = {
         ...agent,
-        instructions: `${agent.instructions}\n\nThis is an unattended recurring run that the user approved in Marketer. Use Executor only; do not use shell commands or edit files. You may call only these delegated Executor tools: ${approved.length > 0 ? approved.join(", ") : "read-only tools that Executor already allows"}. If the task needs any other mutation, stop and explain what additional approval is required.`,
+        instructions: composeWorkspaceInstructions(
+          `${agent.instructions}\n\nThis is an unattended recurring run that the user approved in Marketer. Use Executor only; do not use shell commands or edit files. You may call only these delegated Executor tools: ${approved.length > 0 ? approved.join(", ") : "read-only tools that Executor already allows"}. If the task needs any other mutation, stop and explain what additional approval is required.`,
+          readWorkspaceContext(workspaceId),
+        ),
       };
       session = new AgentSession(scheduledAgent, `automation-${run.id}`, {
         // Codex currently exposes Executor's native MCP elicitation to the

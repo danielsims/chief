@@ -31,6 +31,7 @@ import { api } from "@marketer/backend/convex/_generated/api";
 import { useAction } from "convex/react";
 import { getAgentOverride } from "./agent-overrides";
 import { useAuth } from "./auth/auth-context";
+import { buildWorkspaceContext } from "./workspace-context";
 
 // "localhost" (not 127.0.0.1) — macOS ATS only exempts the literal
 // localhost hostname for insecure websockets inside WKWebView.
@@ -907,22 +908,31 @@ export function useAgentChat(
     if (cloudOrganizationId && !executorCapability) return;
     setChat(emptyChat);
     setSessionReady(false);
-    client.send({
-      type: "openSession",
-      agentId,
-      chatId,
-      driver,
-      access,
-      model: model || getAgentOverride(cloudOrganizationId, agentId).model,
-      capabilities:
-        capabilities ??
-        getAgentOverride(cloudOrganizationId, agentId).capabilities,
-      integrations:
-        integrations ??
-        getAgentOverride(cloudOrganizationId, agentId).integrations,
-      workspaceId: cloudOrganizationId ?? undefined,
-      executorCapability: executorCapability ?? undefined,
-    });
+    let cancelled = false;
+    // The brand brief rides along so the session opens already primed; the
+    // org list is cached, so this resolves fast and the open stays snappy.
+    void buildWorkspaceContext(cloudOrganizationId)
+      .catch(() => undefined)
+      .then((workspaceContext) => {
+        if (cancelled) return;
+        client.send({
+          type: "openSession",
+          agentId,
+          chatId,
+          driver,
+          access,
+          workspaceContext,
+          model: model || getAgentOverride(cloudOrganizationId, agentId).model,
+          capabilities:
+            capabilities ??
+            getAgentOverride(cloudOrganizationId, agentId).capabilities,
+          integrations:
+            integrations ??
+            getAgentOverride(cloudOrganizationId, agentId).integrations,
+          workspaceId: cloudOrganizationId ?? undefined,
+          executorCapability: executorCapability ?? undefined,
+        });
+      });
 
     const unsub = client.subscribe((msg) => {
       if (msg.type === "error" && msg.chatId === chatId) {
@@ -940,6 +950,7 @@ export function useAgentChat(
       setChat((c) => reduceChat(c, msg.event));
     });
     return () => {
+      cancelled = true;
       client.send({ type: "closeSession", chatId });
       unsub();
       setSessionReady(false);
