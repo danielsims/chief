@@ -21,6 +21,8 @@ import type {
   InputRequest,
   ProspectRecord,
   ProviderModelOption,
+  RecurringWorkRecord,
+  RecurringWorkRunRecord,
   ServerMessage,
   TrendRecord,
 } from "@marketer/agent-runtime/types";
@@ -321,6 +323,8 @@ interface WorkspaceDataState {
   trends: TrendRecord[];
   drafts: ContentDraftRecord[];
   campaigns: CampaignRecord[];
+  recurringWork: RecurringWorkRecord[];
+  recurringWorkRuns: RecurringWorkRunRecord[];
 }
 
 const emptyWorkspaceData: WorkspaceDataState = {
@@ -328,6 +332,8 @@ const emptyWorkspaceData: WorkspaceDataState = {
   trends: [],
   drafts: [],
   campaigns: [],
+  recurringWork: [],
+  recurringWorkRuns: [],
 };
 
 export function useWorkspaceData(workspaceId: string | null) {
@@ -357,6 +363,8 @@ export function useWorkspaceData(workspaceId: string | null) {
           trends: message.trends,
           drafts: message.drafts,
           campaigns: message.campaigns,
+          recurringWork: message.recurringWork,
+          recurringWorkRuns: message.recurringWorkRuns,
         });
         setLoading(false);
       }
@@ -390,7 +398,43 @@ export function useWorkspaceData(workspaceId: string | null) {
     });
   };
 
-  return { ...data, loading, saveCampaign };
+  const saveRecurringWork = (work: RecurringWorkRecord) => {
+    if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
+      return;
+    }
+    setData((current) => ({
+      ...current,
+      recurringWork: current.recurringWork.map((item) =>
+        item.id === work.id ? work : item,
+      ),
+    }));
+    client.send({
+      type: "saveRecurringWork",
+      workspaceId,
+      work,
+      executorCapability: capability,
+    });
+  };
+
+  const runRecurringWorkNow = (recurringWorkId: string) => {
+    if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
+      return;
+    }
+    client.send({
+      type: "runRecurringWorkNow",
+      workspaceId,
+      recurringWorkId,
+      executorCapability: capability,
+    });
+  };
+
+  return {
+    ...data,
+    loading,
+    saveCampaign,
+    saveRecurringWork,
+    runRecurringWorkNow,
+  };
 }
 
 export function useAgentPreferences(workspaceId: string | null) {

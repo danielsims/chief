@@ -132,6 +132,47 @@ export interface ContentDraftRecord {
   updatedAt: number;
 }
 
+export type RecurringWorkStatus =
+  "draft" | "active" | "paused" | "needs_approval" | "error";
+
+export interface AutomationGrant {
+  version: 1;
+  approvedAt: number;
+  /** Exact Executor tool addresses the user delegated to this automation. */
+  toolPatterns: string[];
+}
+
+export interface RecurringWorkRecord {
+  id: string;
+  agentId: string;
+  title: string;
+  instructions: string;
+  cron: string;
+  timezone: string;
+  status: RecurringWorkStatus;
+  approvalSummary: string;
+  proposedToolPatterns: string[];
+  grant?: AutomationGrant;
+  nextRunAt?: number;
+  lastRunAt?: number;
+  lastResult?: string;
+  createdAt: number;
+  updatedAt: number;
+  /** Computed by the runtime for calendar rendering, never persisted. */
+  upcomingRuns?: number[];
+}
+
+export interface RecurringWorkRunRecord {
+  id: string;
+  recurringWorkId: string;
+  status: "running" | "completed" | "failed" | "needs_approval";
+  scheduledFor: number;
+  startedAt: number;
+  finishedAt?: number;
+  summary?: string;
+  error?: string;
+}
+
 export type CampaignStatus =
   "draft" | "in_review" | "live" | "paused" | "completed";
 
@@ -217,6 +258,8 @@ export interface StartOptions {
   model?: string;
   resumeSessionId?: string;
   mcpServers?: McpServerSpec[];
+  /** Durable, user-authored delegation used only by unattended runs. */
+  automationGrant?: AutomationGrant;
 }
 
 // ---- Structured user input (secrets/config the agent cannot obtain itself) ----
@@ -271,6 +314,18 @@ export type ClientMessage =
       type: "saveCampaign";
       workspaceId: string;
       campaign: CampaignRecord;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "saveRecurringWork";
+      workspaceId: string;
+      work: RecurringWorkRecord;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "runRecurringWorkNow";
+      workspaceId: string;
+      recurringWorkId: string;
       executorCapability: ExecutorCapability;
     }
   | {
@@ -357,6 +412,8 @@ export type ServerMessage =
       trends: TrendRecord[];
       drafts: ContentDraftRecord[];
       campaigns: CampaignRecord[];
+      recurringWork: RecurringWorkRecord[];
+      recurringWorkRuns: RecurringWorkRunRecord[];
     }
   | {
       type: "agentPreferences";

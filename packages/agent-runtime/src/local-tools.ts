@@ -5,8 +5,10 @@ import type {
   CampaignRecord,
   ContentDraftRecord,
   ProspectRecord,
+  RecurringWorkRecord,
   TrendRecord,
 } from "./types.js";
+import { validateCron } from "./recurring-work.js";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -55,6 +57,21 @@ function amount(input: unknown, name: string) {
     throw new Error(`${name} must be a positive number.`);
   }
   return parsed;
+}
+
+function stringList(input: unknown, name: string, maximum = 30) {
+  if (!Array.isArray(input)) throw new Error(`${name} must be a list.`);
+  return input.slice(0, maximum).map((item) => value(item, name, 300)!);
+}
+
+function toolAddressList(input: unknown) {
+  const addresses = stringList(input, "proposedToolPatterns");
+  if (addresses.some((address) => !/^tools\.[A-Za-z0-9_.-]+$/.test(address))) {
+    throw new Error(
+      "proposedToolPatterns must contain exact Executor tool addresses.",
+    );
+  }
+  return [...new Set(addresses)];
 }
 
 export function localToolsOpenApi(origin: string) {
@@ -139,6 +156,21 @@ export function localToolsOpenApi(origin: string) {
           responses: saveResponse,
         },
       },
+      "/local-tools/recurring-work": {
+        get: {
+          operationId: "recurringWork.list",
+          summary: "List recurring agent work and approval state",
+          responses: { "200": { description: "Workspace recurring work" } },
+        },
+        post: {
+          operationId: "recurringWork.propose",
+          summary: "Propose recurring agent work for user approval",
+          description:
+            "Creates a draft only. The user must explicitly approve it in Marketer before it can run.",
+          requestBody: body("RecurringWorkInput"),
+          responses: saveResponse,
+        },
+      },
     },
     components: {
       securitySchemes: {
@@ -218,6 +250,41 @@ export function localToolsOpenApi(origin: string) {
             revenue: { type: "number", minimum: 0 },
           },
         },
+        RecurringWorkInput: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "agentId",
+            "title",
+            "instructions",
+            "cron",
+            "timezone",
+            "approvalSummary",
+            "proposedToolPatterns",
+          ],
+          properties: {
+            id: { type: "string" },
+            agentId: { type: "string" },
+            title: { type: "string" },
+            instructions: { type: "string" },
+            cron: {
+              type: "string",
+              description: "Standard five-field cron expression",
+            },
+            timezone: { type: "string", description: "IANA timezone" },
+            approvalSummary: {
+              type: "string",
+              description:
+                "Plain-language description of what will happen without asking again",
+            },
+            proposedToolPatterns: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "Exact Executor tool addresses required by this work",
+            },
+          },
+        },
       },
     },
   };
@@ -237,6 +304,9 @@ export async function handleLocalTool(
     if (path === "/local-tools/content") return json({ drafts: data.drafts });
     if (path === "/local-tools/campaigns") {
       return json({ campaigns: data.campaigns });
+    }
+    if (path === "/local-tools/recurring-work") {
+      return json({ recurringWork: data.recurringWork });
     }
   }
   if (request.method !== "POST") return json({ error: "Not found" }, 404);
@@ -341,6 +411,27 @@ export async function handleLocalTool(
       };
       await manager.saveCampaign(workspaceId, campaign);
       return json({ campaign });
+    }
+    if (path === "/local-tools/recurring-work") {
+      const now = Date.now();
+      const cron = value(body.cron, "cron", 120)!;
+      const timezone = value(body.timezone, "timezone", 120)!;
+      validateCron(cron, timezone);
+      const work: RecurringWorkRecord = {
+        id: value(body.id, "id", 120, false) ?? randomUUID(),
+        agentId: value(body.agentId, "agentId", 120)!,
+        title: value(body.title, "title", 200)!,
+        instructions: value(body.instructions, "instructions", 8_000)!,
+        cron,
+        timezone,
+        status: "draft",
+        approvalSummary: value(body.approvalSummary, "approvalSummary", 2_000)!,
+        proposedToolPatterns: toolAddressList(body.proposedToolPatterns),
+        createdAt: now,
+        updatedAt: now,
+      };
+      await manager.saveRecurringWork(workspaceId, work);
+      return json({ recurringWork: work, requiresUserApproval: true });
     }
     return json({ error: "Not found" }, 404);
   } catch (error) {

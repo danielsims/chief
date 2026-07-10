@@ -18,6 +18,7 @@ export interface SessionConfig {
   env?: Record<string, string>;
   model?: string;
   mcpServers?: McpServerSpec[];
+  automationGrant?: import("./types.js").AutomationGrant;
 }
 
 export class AgentSession extends EventEmitter {
@@ -102,6 +103,7 @@ export class AgentSession extends EventEmitter {
       model: this.config.model,
       resumeSessionId,
       mcpServers: this.config.mcpServers,
+      automationGrant: this.config.automationGrant,
     });
   }
 

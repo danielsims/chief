@@ -26,6 +26,7 @@
     "better-auth": "1.6.16",
     "convex": "^1.31.6",
     "lucide-react": "^0.525.0",
+    "motion": "12.42.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router": "^7.6.3",

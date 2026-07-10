@@ -13,6 +13,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BaseDriver } from "./base.js";
 import type { ContentBlock, StartOptions } from "../types.js";
+import {
+  executorAddressFromElicitation,
+  grantAllowsAddress,
+} from "../recurring-work.js";
 
 function findCodex(): string {
   if (process.env.CODEX_PATH) return process.env.CODEX_PATH;
@@ -52,7 +56,10 @@ export class CodexDriver extends BaseDriver {
   private turnId: string | undefined;
   private rpcId = 0;
   private pending = new Map<number, RpcRequest>();
-  private approvals = new Map<string, number>();
+  private approvals = new Map<
+    string,
+    { rpcId: number; kind: "codex" | "mcp" }
+  >();
   private activeToolUseIds = new Set<string>();
   private currentStream = "";
   private opts: StartOptions | null = null;
@@ -262,13 +269,21 @@ export class CodexDriver extends BaseDriver {
         msg.method === "item/fileChange/requestApproval")
     ) {
       const requestId = `codex-${msg.id}`;
-      this.approvals.set(requestId, msg.id);
       this.emitEvent({
         type: "permission",
         requestId,
         toolName: msg.method.includes("command") ? "bash" : "fileChange",
         input: p,
       });
+      if (this.opts?.automationGrant) {
+        this.write({
+          jsonrpc: "2.0",
+          id: msg.id,
+          result: { decision: "decline" },
+        });
+      } else {
+        this.approvals.set(requestId, { rpcId: msg.id, kind: "codex" });
+      }
       return;
     }
 
@@ -374,11 +389,33 @@ export class CodexDriver extends BaseDriver {
         break;
       case "mcpServer/elicitation/request":
         if (isServerRequest) {
-          this.write({
-            jsonrpc: "2.0",
-            id: msg.id,
-            result: { action: "accept", content: {} },
-          });
+          const requestId = `mcp-${msg.id}`;
+          const address = executorAddressFromElicitation(p);
+          const grant = this.opts?.automationGrant;
+          if (grant && grantAllowsAddress(grant.toolPatterns, address)) {
+            this.write({
+              jsonrpc: "2.0",
+              id: msg.id,
+              result: { action: "accept", content: {} },
+            });
+          } else {
+            this.emitEvent({
+              type: "permission",
+              requestId,
+              toolName: address ?? "Executor tool",
+              input: p,
+            });
+            if (grant) {
+              this.write({
+                jsonrpc: "2.0",
+                id: msg.id,
+                result: { action: "decline" },
+              });
+            } else {
+              this.approvals.set(requestId, { rpcId: msg.id!, kind: "mcp" });
+              this.emitEvent({ type: "status", status: "waiting" });
+            }
+          }
         }
         break;
       case "item/tool/call":
@@ -603,14 +640,18 @@ export class CodexDriver extends BaseDriver {
   }
 
   override respondPermission(requestId: string, behavior: "allow" | "deny") {
-    const rpcRequestId = this.approvals.get(requestId);
-    if (rpcRequestId === undefined) return;
+    const pending = this.approvals.get(requestId);
+    if (!pending) return;
     this.approvals.delete(requestId);
     this.write({
       jsonrpc: "2.0",
-      id: rpcRequestId,
-      result: { decision: behavior === "allow" ? "accept" : "decline" },
+      id: pending.rpcId,
+      result:
+        pending.kind === "mcp"
+          ? { action: behavior === "allow" ? "accept" : "decline", content: {} }
+          : { decision: behavior === "allow" ? "accept" : "decline" },
     });
+    this.emitEvent({ type: "status", status: "running" });
   }
 
   async interrupt(): Promise<void> {

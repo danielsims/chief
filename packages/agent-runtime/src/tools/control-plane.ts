@@ -41,6 +41,7 @@ interface Tool {
 }
 
 interface Policy {
+  id: string;
   pattern: string;
   action: "approve" | "require_approval" | "block";
 }
@@ -307,7 +308,7 @@ async function replaceConnection(
   });
 }
 
-async function approveReadTools(manifest: ServerManifest) {
+async function configureToolPolicies(manifest: ServerManifest) {
   const [cloudTools, localTools] = await Promise.all([
     request<Tool[]>(
       manifest,
@@ -319,8 +320,8 @@ async function approveReadTools(manifest: ServerManifest) {
     ),
   ]);
   const policies = await request<Policy[]>(manifest, "/policies");
-  const readTools = [...cloudTools, ...localTools].filter((tool) =>
-    [
+  const actions = new Map<string, Policy["action"]>([
+    ...[
       "agentTools.sourcesList",
       "agentTools.analyticsRunReport",
       "agentTools.uiPresentChart",
@@ -332,21 +333,25 @@ async function approveReadTools(manifest: ServerManifest) {
       "localTools.contentSave",
       "localTools.campaignsList",
       "localTools.campaignsSave",
-    ].includes(tool.name),
+      "localTools.recurringWorkList",
+      "localTools.recurringWorkPropose",
+    ].map((name) => [name, "approve"] as const),
+  ]);
+  const governedTools = [...cloudTools, ...localTools].filter((tool) =>
+    actions.has(tool.name),
   );
 
-  for (const tool of readTools) {
+  for (const tool of governedTools) {
     const pattern = tool.address.replace(/^tools\./, "");
-    if (
-      policies.some(
-        (policy) => policy.pattern === pattern && policy.action === "approve",
-      )
-    ) {
-      continue;
+    const action = actions.get(tool.name)!;
+    for (const policy of policies.filter((item) => item.pattern === pattern)) {
+      await request(manifest, `/policies/${encodeURIComponent(policy.id)}`, {
+        method: "DELETE",
+      });
     }
     await request(manifest, "/policies", {
       method: "POST",
-      body: JSON.stringify({ owner: "org", pattern, action: "approve" }),
+      body: JSON.stringify({ owner: "org", pattern, action }),
     });
   }
 }
@@ -404,8 +409,13 @@ async function provision(
     LOCAL_INTEGRATION,
     LOCAL_CONNECTION_NAME,
   );
-  await approveReadTools(manifest);
+  await configureToolPolicies(manifest);
   return workspace;
+}
+
+/** Returns the isolated on-disk Executor scope for an already-provisioned workspace. */
+export function existingExecutorWorkspace(workspaceId: string) {
+  return pathsForWorkspace(workspaceId);
 }
 
 /** Idempotently prepares one isolated Executor tenant per Marketer workspace. */

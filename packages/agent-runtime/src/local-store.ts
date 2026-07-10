@@ -12,7 +12,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createClient, type Client } from "@libsql/client";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, lte } from "drizzle-orm";
 import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
 
@@ -24,6 +24,8 @@ import type {
   ContentDraftRecord,
   DriverType,
   ProspectRecord,
+  RecurringWorkRecord,
+  RecurringWorkRunRecord,
   TrendRecord,
 } from "./types.js";
 
@@ -413,6 +415,142 @@ export class LocalStore {
       .run();
   }
 
+  async listRecurringWork(workspaceId: string): Promise<RecurringWorkRecord[]> {
+    await this.ready;
+    const rows = await this.db
+      .select()
+      .from(schema.recurringWork)
+      .where(eq(schema.recurringWork.workspaceId, workspaceId))
+      .orderBy(schema.recurringWork.nextRunAt)
+      .all();
+    return rows.map((work) => ({
+      ...work,
+      grant: work.grant ?? undefined,
+      nextRunAt: work.nextRunAt ?? undefined,
+      lastRunAt: work.lastRunAt ?? undefined,
+      lastResult: work.lastResult ?? undefined,
+    }));
+  }
+
+  async recurringWorkById(workspaceId: string, id: string) {
+    await this.ready;
+    const row = await this.db
+      .select()
+      .from(schema.recurringWork)
+      .where(
+        and(
+          eq(schema.recurringWork.id, id),
+          eq(schema.recurringWork.workspaceId, workspaceId),
+        ),
+      )
+      .get();
+    return row
+      ? ({
+          ...row,
+          grant: row.grant ?? undefined,
+          nextRunAt: row.nextRunAt ?? undefined,
+          lastRunAt: row.lastRunAt ?? undefined,
+          lastResult: row.lastResult ?? undefined,
+        } satisfies RecurringWorkRecord)
+      : undefined;
+  }
+
+  async saveRecurringWork(workspaceId: string, work: RecurringWorkRecord) {
+    await this.ready;
+    const { upcomingRuns: _upcomingRuns, ...persisted } = work;
+    const existing = await this.db
+      .select({ workspaceId: schema.recurringWork.workspaceId })
+      .from(schema.recurringWork)
+      .where(eq(schema.recurringWork.id, work.id))
+      .get();
+    if (existing && existing.workspaceId !== workspaceId) {
+      throw new Error("Recurring work belongs to a different workspace.");
+    }
+    await this.db
+      .insert(schema.recurringWork)
+      .values({ ...persisted, workspaceId })
+      .onConflictDoUpdate({
+        target: schema.recurringWork.id,
+        set: {
+          agentId: work.agentId,
+          title: work.title,
+          instructions: work.instructions,
+          cron: work.cron,
+          timezone: work.timezone,
+          status: work.status,
+          approvalSummary: work.approvalSummary,
+          proposedToolPatterns: work.proposedToolPatterns,
+          grant: work.grant,
+          nextRunAt: work.nextRunAt,
+          lastRunAt: work.lastRunAt,
+          lastResult: work.lastResult,
+          updatedAt: work.updatedAt,
+        },
+      })
+      .run();
+  }
+
+  async dueRecurringWork(now: number) {
+    await this.ready;
+    return this.db
+      .select()
+      .from(schema.recurringWork)
+      .where(
+        and(
+          eq(schema.recurringWork.status, "active"),
+          lte(schema.recurringWork.nextRunAt, now),
+        ),
+      )
+      .all();
+  }
+
+  async listRecurringWorkRuns(
+    workspaceId: string,
+  ): Promise<RecurringWorkRunRecord[]> {
+    await this.ready;
+    return this.db
+      .select({
+        id: schema.recurringWorkRuns.id,
+        recurringWorkId: schema.recurringWorkRuns.recurringWorkId,
+        status: schema.recurringWorkRuns.status,
+        scheduledFor: schema.recurringWorkRuns.scheduledFor,
+        startedAt: schema.recurringWorkRuns.startedAt,
+        finishedAt: schema.recurringWorkRuns.finishedAt,
+        summary: schema.recurringWorkRuns.summary,
+        error: schema.recurringWorkRuns.error,
+      })
+      .from(schema.recurringWorkRuns)
+      .where(eq(schema.recurringWorkRuns.workspaceId, workspaceId))
+      .orderBy(desc(schema.recurringWorkRuns.startedAt))
+      .limit(100)
+      .all()
+      .then((rows) =>
+        rows.map((run) => ({
+          ...run,
+          finishedAt: run.finishedAt ?? undefined,
+          summary: run.summary ?? undefined,
+          error: run.error ?? undefined,
+        })),
+      );
+  }
+
+  async saveRecurringWorkRun(workspaceId: string, run: RecurringWorkRunRecord) {
+    await this.ready;
+    await this.db
+      .insert(schema.recurringWorkRuns)
+      .values({ ...run, workspaceId })
+      .onConflictDoUpdate({
+        target: schema.recurringWorkRuns.id,
+        set: {
+          status: run.status,
+          finishedAt: run.finishedAt,
+          summary: run.summary,
+          error: run.error,
+        },
+      })
+      .run();
+  }
+
   async listCampaigns(workspaceId: string): Promise<CampaignRecord[]> {
     await this.ready;
     const rows = await this.db
@@ -475,6 +613,11 @@ export class LocalStore {
         AgentPreference["capabilities"] | undefined,
       integrations: preference.integrations ?? undefined,
     }));
+  }
+
+  async agentPreference(workspaceId: string, agentId: string) {
+    const preferences = await this.listAgentPreferences(workspaceId);
+    return preferences.find((preference) => preference.agentId === agentId);
   }
 
   async saveAgentPreference(workspaceId: string, preference: AgentPreference) {

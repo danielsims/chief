@@ -125,6 +125,67 @@ export const campaigns = sqliteTable(
   ],
 );
 
+export const recurringWork = sqliteTable(
+  "recurring_work",
+  {
+    id: text().primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    agentId: text("agent_id").notNull(),
+    title: text().notNull(),
+    instructions: text().notNull(),
+    cron: text().notNull(),
+    timezone: text().notNull(),
+    status: text({
+      enum: ["draft", "active", "paused", "needs_approval", "error"],
+    }).notNull(),
+    approvalSummary: text("approval_summary").notNull(),
+    proposedToolPatterns: text("proposed_tool_patterns", { mode: "json" })
+      .$type<string[]>()
+      .notNull(),
+    grant: text({ mode: "json" }).$type<{
+      version: 1;
+      approvedAt: number;
+      toolPatterns: string[];
+    }>(),
+    nextRunAt: integer("next_run_at"),
+    lastRunAt: integer("last_run_at"),
+    lastResult: text("last_result"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("recurring_work_workspace_next").on(
+      table.workspaceId,
+      table.nextRunAt,
+    ),
+  ],
+);
+
+export const recurringWorkRuns = sqliteTable(
+  "recurring_work_runs",
+  {
+    id: text().primaryKey(),
+    recurringWorkId: text("recurring_work_id")
+      .notNull()
+      .references(() => recurringWork.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id").notNull(),
+    status: text({
+      enum: ["running", "completed", "failed", "needs_approval"],
+    }).notNull(),
+    scheduledFor: integer("scheduled_for").notNull(),
+    startedAt: integer("started_at").notNull(),
+    finishedAt: integer("finished_at"),
+    summary: text(),
+    error: text(),
+  },
+  (table) => [
+    index("recurring_runs_workspace_started").on(
+      table.workspaceId,
+      table.startedAt,
+    ),
+  ],
+);
+
 export const agentPreferences = sqliteTable(
   "agent_preferences",
   {

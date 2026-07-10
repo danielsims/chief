@@ -1,6 +1,19 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { ContentDraftRecord } from "@marketer/agent-runtime/types";
+import type {
+  ContentDraftRecord,
+  RecurringWorkRecord,
+} from "@marketer/agent-runtime/types";
+import { useNavigate } from "react-router";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Button } from "@marketer/ui/components/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@marketer/ui/components/dialog";
 import {
   Popover,
   PopoverContent,
@@ -9,12 +22,21 @@ import {
 import { cn } from "@marketer/ui/lib/utils";
 import {
   Check,
+  CalendarPlus,
   ChevronLeft,
   ChevronRight,
+  FilePlus2,
+  MessageSquare,
+  Pause,
+  Play,
+  Plus,
+  Repeat2,
+  ShieldCheck,
   SlidersHorizontal,
 } from "lucide-react";
 import { useAuth } from "../lib/auth/auth-context";
 import { useWorkspaceData } from "../lib/runtime";
+import { createChat } from "../lib/chat-log";
 
 type ScheduledDraft = ContentDraftRecord;
 type CalendarView = "month" | "week" | "day";
@@ -66,18 +88,17 @@ function monthLabel(date: Date) {
   return date.toLocaleDateString([], { month: "long", year: "numeric" });
 }
 
-function buildContinuousWeeks(currentMonth: Date) {
-  const first = startOfWeek(addMonths(currentMonth, -MONTHS_BEFORE));
-  const finalMonth = addMonths(currentMonth, MONTHS_AFTER + 1);
-  const weeks: Date[][] = [];
-  let cursor = first;
-
-  while (cursor < finalMonth) {
-    weeks.push(Array.from({ length: 7 }, (_, index) => addDays(cursor, index)));
-    cursor = addDays(cursor, 7);
-  }
-
-  return weeks;
+function buildMonthCells(month: Date): Array<Date | null> {
+  const first = new Date(month.getFullYear(), month.getMonth(), 1);
+  const leading = (first.getDay() + 6) % 7;
+  const days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  const count = Math.ceil((leading + days) / 7) * 7;
+  return Array.from({ length: count }, (_, index) => {
+    const day = index - leading + 1;
+    return day > 0 && day <= days
+      ? new Date(month.getFullYear(), month.getMonth(), day)
+      : null;
+  });
 }
 
 function statusClass(status: ScheduledDraft["status"]) {
@@ -109,20 +130,40 @@ function DraftChip({ draft }: { draft: ScheduledDraft }) {
   );
 }
 
+function RecurringWorkChip({ work }: { work: RecurringWorkRecord }) {
+  return (
+    <div className="min-w-0 border border-violet-500/25 bg-violet-500/[0.06] px-2 py-1.5">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="size-1.5 shrink-0 bg-violet-500" />
+        <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
+          {work.title}
+        </span>
+      </div>
+      <p className="mt-1 truncate text-[10px] text-muted-foreground">
+        {work.status === "draft" ? "Approval needed" : work.agentId}
+      </p>
+    </div>
+  );
+}
+
 function DayCell({
   date,
   drafts,
+  recurringWork,
   today,
   selected,
   onSelect,
+  onContextMenu,
   boundaryRow = false,
   tall = false,
 }: {
   date: Date;
   drafts: ScheduledDraft[];
+  recurringWork: RecurringWorkRecord[];
   today: Date;
   selected: Date;
   onSelect: (date: Date) => void;
+  onContextMenu?: (date: Date, x: number, y: number) => void;
   boundaryRow?: boolean;
   tall?: boolean;
 }) {
@@ -130,11 +171,17 @@ function DayCell({
   const isToday = key === dayKey(today);
   const isSelected = key === dayKey(selected);
   const visibleLimit = tall ? 8 : boundaryRow ? 2 : 3;
+  const draftLimit = Math.max(0, visibleLimit - recurringWork.length);
 
   return (
     <button
       type="button"
       onClick={() => onSelect(date)}
+      onContextMenu={(event) => {
+        if (!onContextMenu) return;
+        event.preventDefault();
+        onContextMenu(date, event.clientX, event.clientY);
+      }}
       className={cn(
         "min-h-28 min-w-0 border-b border-r p-2 text-left align-top transition-colors hover:bg-accent/30",
         tall && "min-h-[420px]",
@@ -151,12 +198,15 @@ function DayCell({
         {date.getDate()}
       </span>
       <div className={cn("min-w-0 space-y-1", boundaryRow ? "mt-8" : "mt-2")}>
-        {drafts.slice(0, visibleLimit).map((draft) => (
+        {recurringWork.slice(0, visibleLimit).map((work) => (
+          <RecurringWorkChip key={work.id} work={work} />
+        ))}
+        {drafts.slice(0, draftLimit).map((draft) => (
           <DraftChip key={draft.id} draft={draft} />
         ))}
-        {drafts.length > visibleLimit ? (
+        {drafts.length + recurringWork.length > visibleLimit ? (
           <p className="px-1 text-[10px] text-muted-foreground">
-            +{drafts.length - visibleLimit} more
+            +{drafts.length + recurringWork.length - visibleLimit} more
           </p>
         ) : null}
       </div>
@@ -239,8 +289,11 @@ function ContinuousMonthView({
   today,
   selected,
   onSelect,
+  onDateContext,
   byDay,
+  recurringByDay,
   showPosts,
+  showAgentWork,
   scrollRequest,
 }: {
   currentMonth: Date;
@@ -249,14 +302,13 @@ function ContinuousMonthView({
   today: Date;
   selected: Date;
   onSelect: (date: Date) => void;
+  onDateContext: (date: Date, x: number, y: number) => void;
   byDay: ReadonlyMap<string, ScheduledDraft[]>;
+  recurringByDay: ReadonlyMap<string, RecurringWorkRecord[]>;
   showPosts: boolean;
+  showAgentWork: boolean;
   scrollRequest: { month: Date; token: number };
 }) {
-  const weeks = useMemo(
-    () => buildContinuousWeeks(currentMonth),
-    [currentMonth],
-  );
   const months = useMemo(
     () =>
       Array.from({ length: MONTHS_BEFORE + MONTHS_AFTER + 1 }, (_, index) =>
@@ -265,18 +317,15 @@ function ContinuousMonthView({
     [currentMonth],
   );
   const calendarRef = useRef<HTMLDivElement>(null);
-  const monthRows = useRef(new Map<string, HTMLDivElement>());
+  const monthSections = useRef(new Map<string, HTMLElement>());
   const scrollFrame = useRef<number | null>(null);
-  const scrollTimer = useRef<number | null>(null);
-  const scrollingRef = useRef(false);
-  const [isScrolling, setIsScrolling] = useState(false);
 
   const scrollToMonth = (month: Date, behavior: ScrollBehavior) => {
     const container = calendarRef.current;
-    const row = monthRows.current.get(monthKey(month));
-    if (!container || !row) return;
+    const section = monthSections.current.get(monthKey(month));
+    if (!container || !section) return;
     container.scrollTo({
-      top: row.offsetTop - CALENDAR_HEADER_HEIGHT,
+      top: section.offsetTop - CALENDAR_HEADER_HEIGHT,
       behavior,
     });
   };
@@ -291,26 +340,11 @@ function ContinuousMonthView({
       if (scrollFrame.current !== null) {
         window.cancelAnimationFrame(scrollFrame.current);
       }
-      if (scrollTimer.current !== null) {
-        window.clearTimeout(scrollTimer.current);
-      }
     },
     [],
   );
 
   const handleScroll = () => {
-    if (!scrollingRef.current) {
-      scrollingRef.current = true;
-      setIsScrolling(true);
-    }
-    if (scrollTimer.current !== null) {
-      window.clearTimeout(scrollTimer.current);
-    }
-    scrollTimer.current = window.setTimeout(() => {
-      scrollingRef.current = false;
-      setIsScrolling(false);
-    }, 160);
-
     if (scrollFrame.current !== null) return;
     scrollFrame.current = window.requestAnimationFrame(() => {
       scrollFrame.current = null;
@@ -319,8 +353,8 @@ function ContinuousMonthView({
       const threshold = container.scrollTop + CALENDAR_HEADER_HEIGHT + 2;
       let nextMonth = months[0]!;
       for (const month of months) {
-        const row = monthRows.current.get(monthKey(month));
-        if (!row || row.offsetTop > threshold) break;
+        const section = monthSections.current.get(monthKey(month));
+        if (!section || section.offsetTop > threshold) break;
         nextMonth = month;
       }
       if (!sameMonth(nextMonth, activeMonth)) {
@@ -346,43 +380,47 @@ function ContinuousMonthView({
         ))}
       </div>
 
-      {weeks.map((week) => {
-        const boundary = week.find((date) => date.getDate() === 1);
-        const boundaryKey = boundary ? monthKey(boundary) : null;
+      {months.map((month) => {
+        const key = monthKey(month);
+        const cells = buildMonthCells(month);
         return (
-          <div
-            key={dayKey(week[0]!)}
+          <section
+            key={key}
             ref={(node) => {
-              if (!boundaryKey) return;
-              if (node) monthRows.current.set(boundaryKey, node);
-              else monthRows.current.delete(boundaryKey);
+              if (node) monthSections.current.set(key, node);
+              else monthSections.current.delete(key);
             }}
             className="relative grid grid-cols-7 border-l"
           >
-            {boundary && !sameMonth(boundary, activeMonth) ? (
-              <p
-                className={cn(
-                  "pointer-events-none absolute left-3 top-2 z-10 font-serif text-xl transition-[opacity,transform] duration-150",
-                  isScrolling
-                    ? "translate-y-0 opacity-100"
-                    : "translate-y-1 opacity-0",
-                )}
-              >
-                {monthLabel(boundary)}
-              </p>
-            ) : null}
-            {week.map((date) => (
-              <DayCell
-                key={dayKey(date)}
-                date={date}
-                drafts={showPosts ? (byDay.get(dayKey(date)) ?? []) : []}
-                today={today}
-                selected={selected}
-                onSelect={onSelect}
-                boundaryRow={Boolean(boundary)}
-              />
-            ))}
-          </div>
+            <p className="pointer-events-none absolute left-3 top-2 z-10 font-serif text-xl">
+              {monthLabel(month)}
+            </p>
+            {cells.map((date, index) =>
+              date ? (
+                <DayCell
+                  key={dayKey(date)}
+                  date={date}
+                  drafts={showPosts ? (byDay.get(dayKey(date)) ?? []) : []}
+                  recurringWork={
+                    showAgentWork
+                      ? (recurringByDay.get(dayKey(date)) ?? [])
+                      : []
+                  }
+                  today={today}
+                  selected={selected}
+                  onSelect={onSelect}
+                  onContextMenu={onDateContext}
+                  boundaryRow={index < 7}
+                />
+              ) : (
+                <div
+                  key={`empty-${index}`}
+                  aria-hidden="true"
+                  className="min-h-28 border-b border-r bg-muted/[0.025]"
+                />
+              ),
+            )}
+          </section>
         );
       })}
     </div>
@@ -394,15 +432,21 @@ function FocusedCalendarView({
   selected,
   today,
   onSelect,
+  onDateContext,
   byDay,
+  recurringByDay,
   showPosts,
+  showAgentWork,
 }: {
   view: Exclude<CalendarView, "month">;
   selected: Date;
   today: Date;
   onSelect: (date: Date) => void;
+  onDateContext: (date: Date, x: number, y: number) => void;
   byDay: ReadonlyMap<string, ScheduledDraft[]>;
+  recurringByDay: ReadonlyMap<string, RecurringWorkRecord[]>;
   showPosts: boolean;
+  showAgentWork: boolean;
 }) {
   const dates =
     view === "week"
@@ -439,9 +483,13 @@ function FocusedCalendarView({
             key={dayKey(date)}
             date={date}
             drafts={showPosts ? (byDay.get(dayKey(date)) ?? []) : []}
+            recurringWork={
+              showAgentWork ? (recurringByDay.get(dayKey(date)) ?? []) : []
+            }
             today={today}
             selected={selected}
             onSelect={onSelect}
+            onContextMenu={onDateContext}
             tall
           />
         ))}
@@ -450,12 +498,258 @@ function FocusedCalendarView({
   );
 }
 
+type DateMenuAction = "event" | "content" | "agent" | "recurring";
+
+function CalendarContextMenu({
+  context,
+  onClose,
+  onAction,
+}: {
+  context: { date: Date; x: number; y: number } | null;
+  onClose: () => void;
+  onAction: (action: DateMenuAction, date: Date) => void;
+}) {
+  useEffect(() => {
+    if (!context) return;
+    const close = () => onClose();
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", escape);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", escape);
+    };
+  }, [context, onClose]);
+
+  if (!context) return null;
+  const actions: Array<{
+    id: DateMenuAction;
+    label: string;
+    detail: string;
+    Icon: typeof CalendarPlus;
+  }> = [
+    {
+      id: "event",
+      label: "Add a one-off event",
+      detail: "Place something on this date",
+      Icon: CalendarPlus,
+    },
+    {
+      id: "content",
+      label: "Schedule content",
+      detail: "Draft a post for this date",
+      Icon: FilePlus2,
+    },
+    {
+      id: "agent",
+      label: "Ask an agent to plan",
+      detail: "Open this date with your CMO",
+      Icon: MessageSquare,
+    },
+    {
+      id: "recurring",
+      label: "Set up recurring work",
+      detail: "Create an automation with approval",
+      Icon: Repeat2,
+    },
+  ];
+
+  return (
+    <div
+      role="menu"
+      onPointerDown={(event) => event.stopPropagation()}
+      className="fixed z-50 w-64 border bg-popover p-1.5 text-popover-foreground shadow-md"
+      style={{
+        left: Math.min(context.x, window.innerWidth - 272),
+        top: Math.min(context.y, window.innerHeight - 238),
+      }}
+    >
+      <p className="px-2 py-1.5 text-[10px] text-muted-foreground">
+        {context.date.toLocaleDateString([], {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+        })}
+      </p>
+      {actions.map(({ id, label, detail, Icon }) => (
+        <button
+          key={id}
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onAction(id, context.date);
+            onClose();
+          }}
+          className="flex w-full items-start gap-3 px-2 py-2 text-left transition-colors hover:bg-accent"
+        >
+          <Icon size={14} className="mt-0.5 shrink-0" />
+          <span>
+            <span className="block text-xs font-medium">{label}</span>
+            <span className="mt-0.5 block text-[10px] text-muted-foreground">
+              {detail}
+            </span>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RecurringWorkApprovalDialog({
+  work,
+  onClose,
+  onApprove,
+}: {
+  work: RecurringWorkRecord | null;
+  onClose: () => void;
+  onApprove: (work: RecurringWorkRecord) => void;
+}) {
+  return (
+    <Dialog open={Boolean(work)} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-lg">
+        {work ? (
+          <>
+            <DialogHeader>
+              <DialogTitle className="font-serif text-2xl">
+                Approve recurring work
+              </DialogTitle>
+              <DialogDescription>
+                Approve this once and {work.agentId} will keep running it until
+                you pause or revoke it.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="border p-4">
+                <p className="text-sm font-medium">{work.title}</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  {work.approvalSummary}
+                </p>
+                <p className="mt-3 font-mono text-[11px] text-muted-foreground">
+                  {work.cron} · {work.timezone}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium">Delegated actions</p>
+                <div className="mt-2 space-y-1.5">
+                  {work.proposedToolPatterns.length > 0 ? (
+                    work.proposedToolPatterns.map((pattern) => (
+                      <div
+                        key={pattern}
+                        className="flex items-center gap-2 border px-3 py-2"
+                      >
+                        <ShieldCheck
+                          size={13}
+                          className="shrink-0 text-emerald-500"
+                        />
+                        <span className="min-w-0 truncate text-xs">
+                          {pattern
+                            .split(".")
+                            .at(-1)
+                            ?.replace(/([A-Z])/g, " $1")}
+                        </span>
+                        <span className="ml-auto max-w-56 truncate font-mono text-[9px] text-muted-foreground">
+                          {pattern}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="border px-3 py-2 text-xs text-muted-foreground">
+                      Read connected data and save no external changes.
+                    </p>
+                  )}
+                </div>
+              </div>
+              <p className="text-xs leading-5 text-muted-foreground">
+                New integration actions are blocked automatically. Marketer will
+                ask you to approve an expanded scope before they can run.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={onClose}>
+                Not now
+              </Button>
+              <Button
+                onClick={() => {
+                  onApprove(work);
+                  onClose();
+                }}
+              >
+                Approve and activate
+              </Button>
+            </DialogFooter>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RecurringWorkDetail({
+  work,
+  onReview,
+  onToggle,
+  onRun,
+}: {
+  work: RecurringWorkRecord;
+  onReview: () => void;
+  onToggle: () => void;
+  onRun: () => void;
+}) {
+  const approvalNeeded =
+    work.status === "draft" || work.status === "needs_approval";
+  return (
+    <div className="border border-violet-500/25 p-3">
+      <div className="flex items-start gap-2">
+        <span className="mt-1 size-2 shrink-0 bg-violet-500" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-medium">{work.title}</p>
+          <p className="mt-1 text-[10px] capitalize text-muted-foreground">
+            {work.agentId} · {work.status.replace("_", " ")}
+          </p>
+        </div>
+      </div>
+      {work.lastResult ? (
+        <p className="mt-3 line-clamp-3 text-xs leading-5 text-muted-foreground">
+          {work.lastResult}
+        </p>
+      ) : null}
+      <div className="mt-3 flex gap-1.5">
+        {approvalNeeded ? (
+          <Button size="sm" className="flex-1" onClick={onReview}>
+            Review approval
+          </Button>
+        ) : (
+          <>
+            <Button variant="outline" size="sm" onClick={onRun}>
+              <Play size={12} />
+              Run now
+            </Button>
+            <Button variant="outline" size="sm" onClick={onToggle}>
+              {work.status === "active" ? (
+                <Pause size={12} />
+              ) : (
+                <Play size={12} />
+              )}
+              {work.status === "active" ? "Pause" : "Resume"}
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function SchedulePage() {
+  const navigate = useNavigate();
+  const reduceMotion = useReducedMotion();
   const today = useMemo(() => startOfDay(new Date()), []);
   const currentMonth = useMemo(() => startOfMonth(today), [today]);
   const [selected, setSelected] = useState(today);
   const [view, setView] = useState<CalendarView>("month");
   const [activeMonth, setActiveMonth] = useState(currentMonth);
+  const [monthDirection, setMonthDirection] = useState<1 | -1>(1);
   const [scrollRequest, setScrollRequest] = useState({
     month: currentMonth,
     token: 0,
@@ -463,6 +757,14 @@ export function SchedulePage() {
   const [visibleKinds, setVisibleKinds] = useState<ReadonlySet<ScheduleKind>>(
     () => new Set<ScheduleKind>(["post", "agent-work"]),
   );
+  const [approvalWork, setApprovalWork] = useState<RecurringWorkRecord | null>(
+    null,
+  );
+  const [dateMenu, setDateMenu] = useState<{
+    date: Date;
+    x: number;
+    y: number;
+  } | null>(null);
   const { cloudOrganizationId } = useAuth();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
 
@@ -481,12 +783,78 @@ export function SchedulePage() {
     return map;
   }, [workspaceData.drafts]);
 
+  const recurringByDay = useMemo(() => {
+    const map = new Map<string, RecurringWorkRecord[]>();
+    for (const work of workspaceData.recurringWork) {
+      for (const timestamp of work.upcomingRuns ?? []) {
+        const key = dayKey(new Date(timestamp));
+        const items = map.get(key) ?? [];
+        if (!items.some((item) => item.id === work.id)) items.push(work);
+        map.set(key, items);
+      }
+    }
+    return map;
+  }, [workspaceData.recurringWork]);
+
   const showPosts = visibleKinds.has("post");
+  const showAgentWork = visibleKinds.has("agent-work");
   const selectedDrafts = showPosts ? (byDay.get(dayKey(selected)) ?? []) : [];
+  const selectedRecurringWork = showAgentWork
+    ? (recurringByDay.get(dayKey(selected)) ?? [])
+    : [];
+  const pendingApprovals = workspaceData.recurringWork.filter(
+    (work) => work.status === "draft" || work.status === "needs_approval",
+  );
 
   const requestMonth = (month: Date) => {
+    setMonthDirection(month > activeMonth ? 1 : -1);
     setScrollRequest((current) => ({ month, token: current.token + 1 }));
     setActiveMonth(month);
+  };
+
+  const openAgentForDate = (
+    agentId: string,
+    title: string,
+    text: string,
+    send = false,
+  ) => {
+    const chat = createChat(agentId, title);
+    navigate(
+      `/conversations?agent=${agentId}&chat=${chat.id}&new=1&${send ? "prompt" : "draft"}=${encodeURIComponent(text)}`,
+    );
+  };
+
+  const handleDateAction = (action: DateMenuAction, date: Date) => {
+    const dateText = date.toLocaleDateString("en-AU", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+    if (action === "content") {
+      openAgentForDate(
+        "content",
+        `Content for ${dateText}`,
+        `Draft and schedule a piece of content for ${dateText}.`,
+      );
+      return;
+    }
+    if (action === "recurring") {
+      openAgentForDate(
+        "cmo",
+        "Set up recurring work",
+        `Help me set up recurring marketing work, beginning around ${dateText}. Ask only for the outcome or timing if genuinely needed, configure everything else, then create one narrow approval for Schedule.`,
+        true,
+      );
+      return;
+    }
+    openAgentForDate(
+      "cmo",
+      action === "event" ? `Event on ${dateText}` : `Plan ${dateText}`,
+      action === "event"
+        ? `Add a one-off marketing calendar event on ${dateText}. Ask me only for the missing event details, then save it to the schedule.`
+        : `Help me plan the marketing work and content for ${dateText}.`,
+    );
   };
 
   const move = (direction: number) => {
@@ -517,6 +885,21 @@ export function SchedulePage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const chat = createChat("cmo", "Set up recurring work");
+              const draft =
+                "Set up recurring work for me. Ask only for the outcome or timing if you genuinely need it, configure everything else yourself, then create one narrow approval for me to review in Schedule.";
+              navigate(
+                `/conversations?agent=cmo&chat=${chat.id}&new=1&prompt=${encodeURIComponent(draft)}`,
+              );
+            }}
+          >
+            <Plus size={13} />
+            New recurring work
+          </Button>
           <ScheduleFilters
             visibleKinds={visibleKinds}
             onToggle={(kind) => {
@@ -557,9 +940,35 @@ export function SchedulePage() {
       </header>
 
       <div className="flex min-h-0 shrink-0 items-center justify-between border-b px-4 py-2">
-        <p className="min-w-0 truncate font-serif text-xl">
-          {view === "month" ? monthLabel(activeMonth) : focusedHeading}
-        </p>
+        <div className="relative h-7 min-w-0 flex-1 overflow-hidden">
+          <AnimatePresence
+            initial={false}
+            mode="popLayout"
+            custom={monthDirection}
+          >
+            <motion.p
+              key={view === "month" ? monthKey(activeMonth) : focusedHeading}
+              initial={
+                reduceMotion ? false : { y: monthDirection * 20, opacity: 0 }
+              }
+              animate={{ y: 0, opacity: 1 }}
+              exit={
+                reduceMotion
+                  ? { opacity: 0 }
+                  : { y: monthDirection * -20, opacity: 0 }
+              }
+              transition={{
+                type: "spring",
+                stiffness: 440,
+                damping: 38,
+                mass: 0.7,
+              }}
+              className="absolute inset-x-0 min-w-0 truncate font-serif text-xl"
+            >
+              {view === "month" ? monthLabel(activeMonth) : focusedHeading}
+            </motion.p>
+          </AnimatePresence>
+        </div>
         <div className="flex items-center gap-1">
           <Button variant="outline" size="icon" onClick={() => move(-1)}>
             <ChevronLeft size={15} />
@@ -576,12 +985,21 @@ export function SchedulePage() {
             <ContinuousMonthView
               currentMonth={currentMonth}
               activeMonth={activeMonth}
-              onActiveMonthChange={setActiveMonth}
+              onActiveMonthChange={(month) => {
+                setMonthDirection(month > activeMonth ? 1 : -1);
+                setActiveMonth(month);
+              }}
               today={today}
               selected={selected}
               onSelect={setSelected}
+              onDateContext={(date, x, y) => {
+                setSelected(date);
+                setDateMenu({ date, x, y });
+              }}
               byDay={byDay}
+              recurringByDay={recurringByDay}
               showPosts={showPosts}
+              showAgentWork={showAgentWork}
               scrollRequest={scrollRequest}
             />
           ) : (
@@ -590,13 +1008,35 @@ export function SchedulePage() {
               selected={selected}
               today={today}
               onSelect={setSelected}
+              onDateContext={(date, x, y) => {
+                setSelected(date);
+                setDateMenu({ date, x, y });
+              }}
               byDay={byDay}
+              recurringByDay={recurringByDay}
               showPosts={showPosts}
+              showAgentWork={showAgentWork}
             />
           )}
         </section>
 
         <aside className="min-h-0 overflow-y-auto border-l p-5">
+          {pendingApprovals.length > 0 ? (
+            <div className="mb-6 space-y-2 border-b pb-5">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Needs your approval
+              </p>
+              {pendingApprovals.map((work) => (
+                <RecurringWorkDetail
+                  key={work.id}
+                  work={work}
+                  onReview={() => setApprovalWork(work)}
+                  onRun={() => {}}
+                  onToggle={() => {}}
+                />
+              ))}
+            </div>
+          ) : null}
           <p className="text-xs text-muted-foreground">
             {selected.toLocaleDateString([], { weekday: "long" })}
           </p>
@@ -607,7 +1047,23 @@ export function SchedulePage() {
             {selectedDrafts.map((draft) => (
               <DraftChip key={draft.id} draft={draft} />
             ))}
-            {selectedDrafts.length === 0 ? (
+            {selectedRecurringWork.map((work) => (
+              <RecurringWorkDetail
+                key={work.id}
+                work={work}
+                onReview={() => setApprovalWork(work)}
+                onRun={() => workspaceData.runRecurringWorkNow(work.id)}
+                onToggle={() =>
+                  workspaceData.saveRecurringWork({
+                    ...work,
+                    status: work.status === "active" ? "paused" : "active",
+                    updatedAt: Date.now(),
+                  })
+                }
+              />
+            ))}
+            {selectedDrafts.length === 0 &&
+            selectedRecurringWork.length === 0 ? (
               <div className="flex min-h-[420px] items-center justify-center text-center">
                 <p className="text-sm text-muted-foreground">
                   Nothing scheduled
@@ -617,6 +1073,27 @@ export function SchedulePage() {
           </div>
         </aside>
       </div>
+      <RecurringWorkApprovalDialog
+        work={approvalWork}
+        onClose={() => setApprovalWork(null)}
+        onApprove={(work) =>
+          workspaceData.saveRecurringWork({
+            ...work,
+            status: "active",
+            grant: {
+              version: 1,
+              approvedAt: Date.now(),
+              toolPatterns: work.proposedToolPatterns,
+            },
+            updatedAt: Date.now(),
+          })
+        }
+      />
+      <CalendarContextMenu
+        context={dateMenu}
+        onClose={() => setDateMenu(null)}
+        onAction={handleDateAction}
+      />
     </div>
   );
 }

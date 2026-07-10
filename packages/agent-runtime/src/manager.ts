@@ -5,6 +5,7 @@ import { AgentSession, type SessionConfig } from "./session.js";
 import type { AgentDefinition, AgentEvent } from "./types.js";
 import { LocalStore } from "./local-store.js";
 import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
+import { upcomingRuns } from "./recurring-work.js";
 
 const HOME = join(homedir(), ".marketer");
 
@@ -203,17 +204,37 @@ export class SessionManager {
   }
 
   async workspaceData(workspaceId: string) {
-    const [prospects, trends, drafts, campaigns] = await Promise.all([
+    const [
+      prospects,
+      trends,
+      drafts,
+      campaigns,
+      recurringWork,
+      recurringWorkRuns,
+    ] = await Promise.all([
       this.store.listProspects(workspaceId),
       this.store.listTrends(workspaceId),
       this.store.listDrafts(workspaceId),
       this.store.listCampaigns(workspaceId),
+      this.store.listRecurringWork(workspaceId),
+      this.store.listRecurringWorkRuns(workspaceId),
     ]);
     return {
       prospects,
       trends,
       drafts,
       campaigns,
+      recurringWork: recurringWork.map((work) => {
+        try {
+          return {
+            ...work,
+            upcomingRuns: upcomingRuns(work.cron, work.timezone),
+          };
+        } catch {
+          return { ...work, upcomingRuns: [] };
+        }
+      }),
+      recurringWorkRuns,
     };
   }
 
@@ -240,6 +261,32 @@ export class SessionManager {
     campaign: import("./types.js").CampaignRecord,
   ) {
     return this.store.saveCampaign(workspaceId, campaign);
+  }
+
+  recurringWorkById(workspaceId: string, id: string) {
+    return this.store.recurringWorkById(workspaceId, id);
+  }
+
+  saveRecurringWork(
+    workspaceId: string,
+    work: import("./types.js").RecurringWorkRecord,
+  ) {
+    return this.store.saveRecurringWork(workspaceId, work);
+  }
+
+  dueRecurringWork(now: number) {
+    return this.store.dueRecurringWork(now);
+  }
+
+  saveRecurringWorkRun(
+    workspaceId: string,
+    run: import("./types.js").RecurringWorkRunRecord,
+  ) {
+    return this.store.saveRecurringWorkRun(workspaceId, run);
+  }
+
+  agentPreference(workspaceId: string, agentId: string) {
+    return this.store.agentPreference(workspaceId, agentId);
   }
 
   listAgentPreferences(workspaceId: string) {

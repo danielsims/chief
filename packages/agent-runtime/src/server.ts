@@ -17,6 +17,8 @@ import type {
   ServerMessage,
 } from "./types.js";
 import { workspaceSecrets } from "./workspace-secrets.js";
+import { RecurringWorkScheduler } from "./scheduler.js";
+import { nextRunAt, validateCron } from "./recurring-work.js";
 
 /**
  * Stores submitted values per each field's save target and returns
@@ -83,6 +85,9 @@ export function startServer(port = PORT) {
     localCapabilities.set(capability.token, workspaceId);
   };
   let broadcastWorkspaceData = async (_workspaceId: string) => {};
+  const scheduler = new RecurringWorkScheduler(manager, (workspaceId) =>
+    broadcastWorkspaceData(workspaceId),
+  );
   // Bind both loopback families — macOS clients resolving "localhost" may
   // dial ::1 or 127.0.0.1. Never bind non-loopback interfaces here.
   const handler = async (
@@ -202,6 +207,56 @@ export function startServer(port = PORT) {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             await manager.saveCampaign(msg.workspaceId, msg.campaign);
             await broadcastWorkspaceData(msg.workspaceId);
+            break;
+
+          case "saveRecurringWork": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            validateCron(msg.work.cron, msg.work.timezone);
+            const existing = await manager.recurringWorkById(
+              msg.workspaceId,
+              msg.work.id,
+            );
+            if (!existing) {
+              throw new Error(
+                "Recurring work must be proposed by an agent first.",
+              );
+            }
+            if (msg.work.grant) {
+              const proposed = new Set(existing.proposedToolPatterns);
+              if (
+                msg.work.grant.toolPatterns.some(
+                  (pattern) => !proposed.has(pattern),
+                )
+              ) {
+                throw new Error(
+                  "Approval contains tools the agent did not propose.",
+                );
+              }
+            }
+            const active = msg.work.status === "active";
+            if (active && !msg.work.grant) {
+              throw new Error(
+                "Explicit approval is required before activation.",
+              );
+            }
+            await manager.saveRecurringWork(msg.workspaceId, {
+              ...existing,
+              status: msg.work.status,
+              grant: msg.work.grant,
+              nextRunAt: active
+                ? nextRunAt(msg.work.cron, msg.work.timezone)
+                : msg.work.nextRunAt,
+              updatedAt: Date.now(),
+            });
+            await broadcastWorkspaceData(msg.workspaceId);
+            break;
+          }
+
+          case "runRecurringWorkNow":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            void scheduler
+              .runNow(msg.workspaceId, msg.recurringWorkId)
+              .catch((error) => console.error("[recurring-work]", error));
             break;
 
           case "listAgentPreferences":
@@ -461,8 +516,10 @@ export function startServer(port = PORT) {
   });
 
   console.log(`[marketer] agent runtime listening on ws://127.0.0.1:${port}`);
+  scheduler.start();
 
   const shutdown = async () => {
+    scheduler.stop();
     await manager.stopAll();
     wss.close();
     process.exit(0);
