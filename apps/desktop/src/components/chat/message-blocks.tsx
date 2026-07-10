@@ -33,6 +33,9 @@ function toolResultText(content: unknown): string {
 
 function canonicalTool(name: string) {
   const clean = name.replace(/^mcp__[^_]+__/, "").toLowerCase();
+  if (clean === "skill" || clean === "skills" || clean.includes("skill")) {
+    return "skill";
+  }
   if (clean === "execute" || clean.endsWith("__execute")) return "integration";
   if (clean.includes("search")) return "search";
   if (clean.includes("web") || clean.includes("fetch")) return "web";
@@ -40,6 +43,15 @@ function canonicalTool(name: string) {
   if (clean.includes("edit") || clean.includes("write")) return "edit";
   if (clean.includes("bash") || clean.includes("command")) return "command";
   return "tool";
+}
+
+function skillName(input: unknown) {
+  if (!input || typeof input !== "object") return null;
+  const value = input as Record<string, unknown>;
+  for (const key of ["name", "skill", "skillName"]) {
+    if (typeof value[key] === "string" && value[key]) return value[key];
+  }
+  return null;
 }
 
 function executorToolLabel(input: unknown) {
@@ -65,6 +77,7 @@ function executorToolLabel(input: unknown) {
 
 function toolPresentation(name: string, input: unknown) {
   const kind = canonicalTool(name);
+  if (kind === "skill") return skillName(input) ?? "Skill";
   if (kind === "integration") {
     return executorToolLabel(input) ?? "Run connected tool";
   }
@@ -104,6 +117,7 @@ function ToolCard({
   result?: Extract<ContentBlock, { type: "tool_result" }>;
   progress?: string;
 }) {
+  const kind = canonicalTool(block.name);
   const label = toolPresentation(block.name, block.input);
   const summary = toolSummary(block.input);
   const output = result
@@ -132,8 +146,34 @@ function ToolCard({
     return () => window.clearInterval(timer);
   }, [result]);
 
+  if (kind === "skill") {
+    return (
+      <div className="flex min-w-0 max-w-full items-center gap-2.5 border bg-card/50 px-3 py-2 text-xs">
+        <span
+          className={cn(
+            "size-2 shrink-0 rounded-full",
+            !result && "animate-pulse bg-blue-500",
+            result?.is_error ? "bg-red-500" : result && "bg-emerald-500",
+          )}
+        />
+        <span className="shrink-0 font-medium">Skill</span>
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+          {label}
+        </span>
+        <span
+          className={cn(
+            "shrink-0 text-[10px] text-muted-foreground",
+            result?.is_error && "text-red-500",
+          )}
+        >
+          {result ? (result.is_error ? "Failed" : "Done") : "Loading"}
+        </span>
+      </div>
+    );
+  }
+
   return (
-    <details className="group border bg-card/50">
+    <details className="group min-w-0 max-w-full overflow-hidden border bg-card/50">
       <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3 py-2 text-xs [&::-webkit-details-marker]:hidden">
         <span
           className={cn(
@@ -169,14 +209,14 @@ function ToolCard({
       </summary>
       <div className="space-y-3 border-t px-3 py-3">
         {input && input !== "{}" ? (
-          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-muted-foreground">
+          <pre className="max-h-40 max-w-full overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-5 text-muted-foreground [overflow-wrap:anywhere]">
             {input}
           </pre>
         ) : null}
         {shownOutput ? (
           <pre
             className={cn(
-              "max-h-56 overflow-auto whitespace-pre-wrap break-words border-t pt-3 font-mono text-[11px] leading-5 text-muted-foreground",
+              "max-h-56 max-w-full overflow-auto whitespace-pre-wrap break-all border-t pt-3 font-mono text-[11px] leading-5 text-muted-foreground [overflow-wrap:anywhere]",
               result?.is_error && "text-red-500",
             )}
           >
@@ -207,7 +247,7 @@ export function Blocks({
   );
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 max-w-full space-y-3 overflow-hidden">
       {blocks.map((block, index) => {
         const generativePart = renderGenerativePart(block, capabilities);
         if (generativePart !== undefined) {
@@ -216,7 +256,10 @@ export function Blocks({
         switch (block.type) {
           case "text":
             return (
-              <div key={index} className="chat-markdown text-sm leading-6">
+              <div
+                key={index}
+                className="chat-markdown min-w-0 max-w-full overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]"
+              >
                 <StreamingMarkdown>{block.text}</StreamingMarkdown>
               </div>
             );
@@ -237,7 +280,7 @@ export function Blocks({
                     />
                   </span>
                 </summary>
-                <p className="mt-2 whitespace-pre-wrap border-l pl-3 leading-5 text-muted-foreground/80">
+                <p className="mt-2 max-w-full whitespace-pre-wrap break-all border-l pl-3 leading-5 text-muted-foreground/80 [overflow-wrap:anywhere]">
                   {block.thinking}
                 </p>
               </details>
@@ -263,11 +306,15 @@ export function Blocks({
             }
             const text = toolResultText(block.content).trim();
             if (!text) return null;
+            // Successful tool output is implementation detail. The tool row and
+            // the agent's response provide the useful transcript; dumping an
+            // orphaned payload here can expose entire skills or huge JSON blobs.
+            if (!block.is_error) return null;
             return (
               <pre
                 key={index}
                 className={cn(
-                  "max-h-56 overflow-auto whitespace-pre-wrap break-words border bg-card/50 px-3 py-2 font-mono text-[11px] leading-5 text-muted-foreground",
+                  "max-h-56 max-w-full overflow-auto whitespace-pre-wrap break-all border bg-card/50 px-3 py-2 font-mono text-[11px] leading-5 text-muted-foreground [overflow-wrap:anywhere]",
                   block.is_error && "border-red-500/40 text-red-500",
                 )}
               >

@@ -15,10 +15,18 @@ export function StreamingMarkdown({
   streaming?: boolean;
 }) {
   return (
-    <Suspense fallback={<div className="whitespace-pre-wrap">{children}</div>}>
-      <Streamdown animated={streaming} isAnimating={streaming}>
-        {children}
-      </Streamdown>
-    </Suspense>
+    <div className="min-w-0 max-w-full overflow-hidden [overflow-wrap:anywhere] [&_a]:break-all [&_code]:break-all [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
+      <Suspense
+        fallback={
+          <div className="max-w-full whitespace-pre-wrap break-all [overflow-wrap:anywhere]">
+            {children}
+          </div>
+        }
+      >
+        <Streamdown animated={streaming} isAnimating={streaming}>
+          {children}
+        </Streamdown>
+      </Suspense>
+    </div>
   );
 }

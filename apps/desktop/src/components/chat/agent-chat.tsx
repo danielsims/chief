@@ -187,8 +187,8 @@ export function AgentChat({
   };
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex-1 space-y-6 overflow-y-auto py-6 pr-2">
+    <div className="flex h-full min-w-0 flex-col overflow-hidden">
+      <div className="min-w-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto py-6 pr-2">
         {sessionReady && chat.items.length === 0 && !chat.streaming ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <p className="font-serif text-3xl">{agent.name}</p>
@@ -205,13 +205,16 @@ export function AgentChat({
         ) : null}
         {chat.items.map((item, i) =>
           item.kind === "user" ? (
-            <div key={i} className="mx-auto flex max-w-3xl justify-end">
-              <div className="max-w-[80%] border bg-accent px-3 py-2 text-sm whitespace-pre-wrap">
+            <div
+              key={i}
+              className="mx-auto flex w-full min-w-0 max-w-3xl justify-end"
+            >
+              <div className="max-w-[80%] whitespace-pre-wrap break-all border bg-accent px-3 py-2 text-sm [overflow-wrap:anywhere]">
                 {item.text}
               </div>
             </div>
           ) : (
-            <div key={i} className="mx-auto max-w-3xl">
+            <div key={i} className="mx-auto w-full min-w-0 max-w-3xl">
               <Blocks
                 blocks={withoutMarkerLines(item.event.content)}
                 progress={chat.toolProgress}
@@ -221,7 +224,7 @@ export function AgentChat({
           ),
         )}
         {chat.streaming ? (
-          <div className="chat-markdown mx-auto max-w-3xl text-sm leading-6">
+          <div className="chat-markdown mx-auto w-full min-w-0 max-w-3xl overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]">
             <StreamingMarkdown streaming>{chat.streaming}</StreamingMarkdown>
           </div>
         ) : null}

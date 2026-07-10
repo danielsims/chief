@@ -1,44 +1,50 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContentDraftRecord } from "@marketer/agent-runtime/types";
 import { Button } from "@marketer/ui/components/button";
 import { cn } from "@marketer/ui/lib/utils";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuth } from "../lib/auth/auth-context";
 import { useWorkspaceData } from "../lib/runtime";
 
-type CalendarView = "month" | "week";
-
 type ScheduledDraft = ContentDraftRecord;
 
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const MONTHS_BEFORE = 12;
+const MONTHS_AFTER = 24;
 
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-function startOfWeek(date: Date) {
-  const result = startOfDay(date);
-  result.setDate(result.getDate() - result.getDay());
-  return result;
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
 }
 
-function addDays(date: Date, count: number) {
-  const result = new Date(date);
-  result.setDate(result.getDate() + count);
-  return result;
+function addMonths(date: Date, count: number) {
+  return new Date(date.getFullYear(), date.getMonth() + count, 1);
 }
 
 function dayKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function buildDays(anchor: Date, view: CalendarView) {
-  const first =
-    view === "week"
-      ? startOfWeek(anchor)
-      : startOfWeek(new Date(anchor.getFullYear(), anchor.getMonth(), 1));
-  const count = view === "week" ? 7 : 42;
-  return Array.from({ length: count }, (_, index) => addDays(first, index));
+function monthKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function buildMonthCells(month: Date): Array<Date | null> {
+  const year = month.getFullYear();
+  const monthIndex = month.getMonth();
+  const firstWeekday = new Date(year, monthIndex, 1).getDay();
+  const leadingCells = (firstWeekday + 6) % 7;
+  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+  const cellCount = Math.ceil((leadingCells + daysInMonth) / 7) * 7;
+
+  return Array.from({ length: cellCount }, (_, index) => {
+    const day = index - leadingCells + 1;
+    return day >= 1 && day <= daysInMonth
+      ? new Date(year, monthIndex, day)
+      : null;
+  });
 }
 
 function statusClass(status: ScheduledDraft["status"]) {
@@ -72,154 +78,168 @@ function DraftChip({ draft }: { draft: ScheduledDraft }) {
 
 export function SchedulePage() {
   const today = useMemo(() => startOfDay(new Date()), []);
-  const [anchor, setAnchor] = useState(today);
+  const currentMonth = useMemo(() => startOfMonth(today), [today]);
   const [selected, setSelected] = useState(today);
-  const [view, setView] = useState<CalendarView>("month");
-  const days = useMemo(() => buildDays(anchor, view), [anchor, view]);
-  const rangeStart = days[0]!.getTime();
-  const rangeEnd = addDays(days.at(-1)!, 1).getTime() - 1;
+  const calendarRef = useRef<HTMLDivElement>(null);
+  const monthRefs = useRef(new Map<string, HTMLElement>());
   const { cloudOrganizationId } = useAuth();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
-  const drafts = useMemo(
+
+  const months = useMemo(
     () =>
-      workspaceData.drafts.filter(
-        (draft) =>
-          draft.scheduledFor !== undefined &&
-          draft.scheduledFor >= rangeStart &&
-          draft.scheduledFor <= rangeEnd,
+      Array.from({ length: MONTHS_BEFORE + MONTHS_AFTER + 1 }, (_, index) =>
+        addMonths(currentMonth, index - MONTHS_BEFORE),
       ),
-    [rangeEnd, rangeStart, workspaceData.drafts],
+    [currentMonth],
   );
 
   const byDay = useMemo(() => {
     const map = new Map<string, ScheduledDraft[]>();
-    for (const draft of drafts) {
+    for (const draft of workspaceData.drafts) {
       if (!draft.scheduledFor) continue;
       const key = dayKey(new Date(draft.scheduledFor));
-      const current = map.get(key) ?? [];
-      current.push(draft);
-      map.set(key, current);
+      const items = map.get(key) ?? [];
+      items.push(draft);
+      map.set(key, items);
+    }
+    for (const items of map.values()) {
+      items.sort((a, b) => (a.scheduledFor ?? 0) - (b.scheduledFor ?? 0));
     }
     return map;
-  }, [drafts]);
-  const selectedDrafts = byDay.get(dayKey(selected)) ?? [];
-  const heading =
-    view === "month"
-      ? anchor.toLocaleDateString([], { month: "long", year: "numeric" })
-      : `${days[0]!.toLocaleDateString([], { month: "short", day: "numeric" })} – ${days.at(-1)!.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`;
+  }, [workspaceData.drafts]);
 
-  const move = (direction: number) => {
-    const next = new Date(anchor);
-    if (view === "month") next.setMonth(next.getMonth() + direction, 1);
-    else next.setDate(next.getDate() + direction * 7);
-    setAnchor(next);
+  const scrollToMonth = (month: Date) => {
+    const container = calendarRef.current;
+    const section = monthRefs.current.get(monthKey(month));
+    if (!container || !section) return;
+    container.scrollTo({
+      top: section.offsetTop - 33,
+      behavior: "smooth",
+    });
   };
 
+  useLayoutEffect(() => {
+    const container = calendarRef.current;
+    const section = monthRefs.current.get(monthKey(currentMonth));
+    if (!container || !section) return;
+    container.scrollTop = section.offsetTop - 33;
+  }, [currentMonth]);
+
+  const selectedDrafts = byDay.get(dayKey(selected)) ?? [];
+
   return (
-    <div className="-mx-8 -mb-8 min-h-[calc(100vh-48px)]">
-      <header className="flex flex-wrap items-end justify-between gap-5 border-b px-8 pb-5 pt-4">
+    <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
+      <header className="flex shrink-0 items-end justify-between gap-5 border-b px-8 pb-5 pt-4">
         <div>
           <h1 className="font-serif text-3xl">Schedule</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Planned content across every channel.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setAnchor(today);
-              setSelected(today);
-            }}
-          >
-            Today
-          </Button>
-          <div className="flex border p-0.5">
-            {(["month", "week"] as const).map((item) => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => setView(item)}
-                className={cn(
-                  "px-3 py-1.5 text-xs capitalize text-muted-foreground transition-colors hover:text-foreground",
-                  view === item && "bg-accent text-foreground",
-                )}
-              >
-                {item}
-              </button>
-            ))}
-          </div>
-        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setSelected(today);
+            scrollToMonth(currentMonth);
+          }}
+        >
+          Today
+        </Button>
       </header>
 
-      <div className="grid min-h-[calc(100vh-164px)] grid-cols-[minmax(0,1fr)_280px]">
-        <section className="min-w-0 p-6 pr-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-serif text-2xl">{heading}</h2>
-            <div className="flex items-center gap-1">
-              <Button variant="outline" size="icon" onClick={() => move(-1)}>
-                <ChevronLeft size={15} />
-              </Button>
-              <Button variant="outline" size="icon" onClick={() => move(1)}>
-                <ChevronRight size={15} />
-              </Button>
-            </div>
-          </div>
-          <div className="grid grid-cols-7 border-l border-t">
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_280px]">
+        <section
+          ref={calendarRef}
+          className="relative min-w-0 overflow-y-auto overscroll-contain"
+        >
+          <div className="sticky top-0 z-30 grid h-9 grid-cols-7 border-b bg-background/95 backdrop-blur-lg">
             {WEEKDAYS.map((weekday) => (
               <div
                 key={weekday}
-                className="border-b border-r px-3 py-2 text-[11px] text-muted-foreground"
+                className="border-r px-3 py-2 text-[11px] text-muted-foreground last:border-r-0"
               >
                 {weekday}
               </div>
             ))}
-            {days.map((date) => {
-              const key = dayKey(date);
-              const items = byDay.get(key) ?? [];
-              const isToday = key === dayKey(today);
-              const isSelected = key === dayKey(selected);
-              const outside =
-                view === "month" && date.getMonth() !== anchor.getMonth();
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setSelected(date)}
-                  className={cn(
-                    "min-h-28 border-b border-r p-2 text-left align-top transition-colors hover:bg-accent/40",
-                    view === "week" && "min-h-[420px]",
-                    isSelected && "bg-accent/50",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "relative inline-block text-xs leading-none",
-                      outside && "text-muted-foreground/50",
-                      isToday &&
-                        "font-medium after:absolute after:-bottom-1 after:left-0 after:h-px after:w-3 after:bg-foreground",
-                    )}
-                  >
-                    {date.getDate()}
-                  </span>
-                  <div className="mt-2 space-y-1">
-                    {items.slice(0, view === "week" ? 8 : 3).map((draft) => (
-                      <DraftChip key={draft.id} draft={draft} />
-                    ))}
-                    {items.length > (view === "week" ? 8 : 3) ? (
-                      <p className="px-1 text-[10px] text-muted-foreground">
-                        +{items.length - (view === "week" ? 8 : 3)} more
-                      </p>
-                    ) : null}
-                  </div>
-                </button>
-              );
-            })}
           </div>
+
+          {months.map((month) => {
+            const key = monthKey(month);
+            const cells = buildMonthCells(month);
+            return (
+              <section
+                key={key}
+                ref={(node) => {
+                  if (node) monthRefs.current.set(key, node);
+                  else monthRefs.current.delete(key);
+                }}
+                className="relative"
+              >
+                <div className="sticky top-9 z-20 border-b bg-background/95 px-4 py-3 backdrop-blur-lg">
+                  <h2 className="font-serif text-2xl">
+                    {month.toLocaleDateString([], {
+                      month: "long",
+                      year: "numeric",
+                    })}
+                  </h2>
+                </div>
+                <div className="grid grid-cols-7 border-l">
+                  {cells.map((date, index) => {
+                    if (!date) {
+                      return (
+                        <div
+                          // The position is stable inside this month grid.
+                          key={`empty-${index}`}
+                          aria-hidden="true"
+                          className="min-h-28 border-b border-r bg-muted/[0.025]"
+                        />
+                      );
+                    }
+
+                    const dateKey = dayKey(date);
+                    const items = byDay.get(dateKey) ?? [];
+                    const isToday = dateKey === dayKey(today);
+                    const isSelected = dateKey === dayKey(selected);
+                    return (
+                      <button
+                        key={dateKey}
+                        type="button"
+                        onClick={() => setSelected(date)}
+                        className={cn(
+                          "min-h-28 min-w-0 border-b border-r p-2 text-left align-top transition-colors hover:bg-accent/30",
+                          isSelected && "bg-accent/40",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "relative inline-block text-xs leading-none",
+                            isToday &&
+                              "font-medium after:absolute after:-bottom-1 after:left-0 after:h-px after:w-3 after:bg-foreground",
+                          )}
+                        >
+                          {date.getDate()}
+                        </span>
+                        <div className="mt-2 min-w-0 space-y-1">
+                          {items.slice(0, 3).map((draft) => (
+                            <DraftChip key={draft.id} draft={draft} />
+                          ))}
+                          {items.length > 3 ? (
+                            <p className="px-1 text-[10px] text-muted-foreground">
+                              +{items.length - 3} more
+                            </p>
+                          ) : null}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
         </section>
 
-        <aside className="border-l p-5">
+        <aside className="min-h-0 overflow-y-auto border-l p-5">
           <p className="text-xs text-muted-foreground">
             {selected.toLocaleDateString([], { weekday: "long" })}
           </p>
@@ -231,12 +251,9 @@ export function SchedulePage() {
               <DraftChip key={draft.id} draft={draft} />
             ))}
             {selectedDrafts.length === 0 ? (
-              <div className="flex min-h-[420px] flex-col items-center justify-center px-6 text-center">
+              <div className="flex min-h-[420px] items-center justify-center text-center">
                 <p className="text-sm text-muted-foreground">
                   Nothing scheduled
-                </p>
-                <p className="mt-1 max-w-48 text-xs leading-5 text-muted-foreground/70">
-                  Agent suggestions and approved posts will appear here.
                 </p>
               </div>
             ) : null}
