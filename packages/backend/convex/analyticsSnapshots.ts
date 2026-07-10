@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
 import { requireOrganizationId } from "./lib/auth";
 
 const snapshotArgs = {
@@ -53,6 +53,19 @@ export const listLatest = query({
       )
       .collect();
   },
+});
+
+export const getForOrganization = internalQuery({
+  args: { organizationId: v.string(), provider: v.string() },
+  handler: async (ctx, args) =>
+    ctx.db
+      .query("analyticsSnapshot")
+      .withIndex("by_organization_provider", (q) =>
+        q
+          .eq("organizationId", args.organizationId)
+          .eq("provider", args.provider),
+      )
+      .unique(),
 });
 
 export const upsert = mutation({

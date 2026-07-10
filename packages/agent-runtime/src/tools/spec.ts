@@ -1,39 +1,25 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type {
-  CapabilityAuth,
-  IntegrationToolSource,
-  McpServerSpec,
-} from "../types.js";
 
-const TOOL_AGENTS = new Set(["analyst", "cmo", "ads"]);
+import type { McpServerSpec } from "../types.js";
+import type { ExecutorWorkspace } from "./control-plane.js";
+
+export function executorBinary(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..", "node_modules", ".bin", "executor");
+}
 
 /**
- * Materialize the workspace's connected integrations as one scoped MCP server.
- * The agent sees capabilities, never OAuth tokens or Convex credentials.
+ * Executor is the only agent-facing tool server. Its stdio process talks to
+ * the workspace's isolated daemon; provider credentials remain in Executor.
  */
-export function marketerToolServer(
-  agentId: string,
-  sources: IntegrationToolSource[] = [],
-  auth?: CapabilityAuth,
-): McpServerSpec | null {
-  if (!TOOL_AGENTS.has(agentId) || sources.length === 0) return null;
-
-  const here = dirname(fileURLToPath(import.meta.url));
-  const packageRoot = join(here, "..", "..");
+export function executorToolServer(
+  workspace: ExecutorWorkspace,
+): McpServerSpec {
   return {
-    name: "marketer",
-    command: join(packageRoot, "node_modules", ".bin", "tsx"),
-    args: [join(here, "mcp-server.ts")],
-    env: {
-      MARKETER_AGENT_ID: agentId,
-      MARKETER_TOOL_SOURCES: JSON.stringify(sources),
-      ...(auth
-        ? {
-            MARKETER_CONVEX_URL: auth.convexUrl,
-            MARKETER_CONVEX_TOKEN: auth.convexToken,
-          }
-        : {}),
-    },
+    name: "executor",
+    command: executorBinary(),
+    args: ["mcp", "--scope", workspace.scopeDir, "--elicitation-mode", "model"],
+    env: { EXECUTOR_DATA_DIR: workspace.dataDir },
   };
 }

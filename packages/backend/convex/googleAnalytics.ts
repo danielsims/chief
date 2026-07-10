@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import {
   action,
   httpAction,
+  internalAction,
   internalMutation,
   internalQuery,
   mutation,
@@ -34,7 +35,8 @@ function defaultRedirectUri(): string | null {
 function googleOAuthConfig() {
   return {
     clientId:
-      optionalEnv("GOOGLE_ANALYTICS_CLIENT_ID") ?? optionalEnv("AUTH_GOOGLE_ID"),
+      optionalEnv("GOOGLE_ANALYTICS_CLIENT_ID") ??
+      optionalEnv("AUTH_GOOGLE_ID"),
     clientSecret:
       optionalEnv("GOOGLE_ANALYTICS_CLIENT_SECRET") ??
       optionalEnv("AUTH_GOOGLE_SECRET"),
@@ -470,7 +472,8 @@ export const oauthCallback = httpAction(async (ctx, request) => {
 
   try {
     const config = googleOAuthConfig();
-    const clientId = config.clientId ?? requiredEnv("GOOGLE_ANALYTICS_CLIENT_ID");
+    const clientId =
+      config.clientId ?? requiredEnv("GOOGLE_ANALYTICS_CLIENT_ID");
     const clientSecret =
       config.clientSecret ?? requiredEnv("GOOGLE_ANALYTICS_CLIENT_SECRET");
     const redirectUri =
@@ -661,91 +664,224 @@ export const runReport = action({
     dimensions: v.array(v.string()),
     limit: v.number(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<ReportResult> => {
     const identity = await ctx.auth.getUserIdentity();
     const organizationId = identity?.organizationId as string | undefined;
     if (!identity || !organizationId) {
       throw new Error("No active workspace. Sign out and back in.");
     }
-    if (args.metrics.length === 0) throw new Error("Choose at least one metric.");
-    for (const metric of args.metrics) {
-      if (!REPORT_METRICS.has(metric)) throw new Error(`Unsupported metric: ${metric}`);
-    }
-    for (const dimension of args.dimensions) {
-      if (!REPORT_DIMENSIONS.has(dimension)) {
-        throw new Error(`Unsupported dimension: ${dimension}`);
-      }
-    }
-
-    const token = await accessTokenForOrganization(ctx, organizationId);
-    if (!token?.accessToken || !token.propertyId) {
-      throw new Error("Google Analytics is not connected to this workspace.");
-    }
-    const data = await fetchJson<{
-      dimensionHeaders?: Array<{ name: string }>;
-      metricHeaders?: Array<{ name: string; type?: string }>;
-      rows?: Array<{
-        dimensionValues?: Array<{ value?: string }>;
-        metricValues?: Array<{ value?: string }>;
-      }>;
-      rowCount?: number;
-    }>(
-      `https://analyticsdata.googleapis.com/v1beta/properties/${token.propertyId}:runReport`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          dateRanges: [{ startDate: args.startDate, endDate: args.endDate }],
-          metrics: args.metrics.map((name) => ({ name })),
-          dimensions: args.dimensions.map((name) => ({ name })),
-          limit: Math.max(1, Math.min(Math.trunc(args.limit), 10_000)),
-          keepEmptyRows: false,
-        }),
-      },
-    );
-
-    const dimensionHeaders = (data.dimensionHeaders ?? []).map(
-      (header) => header.name,
-    );
-    const metricHeaders = (data.metricHeaders ?? []).map((header) => ({
-      name: header.name,
-      type: header.type ?? "TYPE_UNSPECIFIED",
-    }));
-    const rows = (data.rows ?? []).map((row) => {
-      const result: Record<string, string | number> = {};
-      dimensionHeaders.forEach((name, index) => {
-        result[name] = row.dimensionValues?.[index]?.value ?? "";
-      });
-      metricHeaders.forEach((header, index) => {
-        const raw = row.metricValues?.[index]?.value ?? "0";
-        const numeric = Number(raw);
-        result[header.name] = Number.isFinite(numeric) ? numeric : raw;
-      });
-      return result;
-    });
-
-    await ctx.runMutation(internal.googleAnalytics.markSynced, {
-      organizationId,
-    });
-    return {
-      source: {
-        provider: PROVIDER,
-        id: token.propertyId,
-      },
-      range: { startDate: args.startDate, endDate: args.endDate },
-      columns: [
-        ...dimensionHeaders.map((name) => ({ name, kind: "dimension" })),
-        ...metricHeaders.map((header) => ({
-          name: header.name,
-          kind: "metric",
-          type: header.type,
-        })),
-      ],
-      rows,
-      rowCount: data.rowCount ?? rows.length,
-    };
+    return executeReport(ctx, organizationId, args);
   },
+});
+
+type ReportArgs = {
+  startDate: string;
+  endDate: string;
+  metrics: string[];
+  dimensions: string[];
+  limit: number;
+};
+
+type ReportResult = {
+  source: {
+    provider: string;
+    id: string | null;
+    mode?: "cached-snapshot";
+    capturedAt?: number;
+  };
+  range: { startDate: string; endDate: string };
+  columns: Array<{ name: string; kind: string; type?: string }>;
+  rows: Array<Record<string, string | number>>;
+  rowCount: number;
+};
+
+function compactDate(date: Date): string {
+  return date.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+function shiftCompactDate(value: string, days: number): string {
+  const date = new Date(
+    Date.UTC(
+      Number(value.slice(0, 4)),
+      Number(value.slice(4, 6)) - 1,
+      Number(value.slice(6, 8)),
+    ),
+  );
+  date.setUTCDate(date.getUTCDate() + days);
+  return compactDate(date);
+}
+
+function resolveSnapshotDate(value: string, latest: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value.replace(/-/g, "");
+  if (/^\d{8}$/.test(value)) return value;
+  if (value === "today") return latest;
+  if (value === "yesterday") return shiftCompactDate(latest, -1);
+  const relative = /^(\d+)daysAgo$/.exec(value);
+  if (relative) return shiftCompactDate(latest, -Number(relative[1]));
+  throw new Error(`Unsupported date: ${value}`);
+}
+
+async function reportFromSnapshot(
+  ctx: ActionCtx,
+  organizationId: string,
+  args: ReportArgs,
+): Promise<ReportResult | null> {
+  const snapshot = (await ctx.runQuery(
+    internal.analyticsSnapshots.getForOrganization,
+    { organizationId, provider: PROVIDER },
+  )) as {
+    series?: Array<{ date: string; value: number }>;
+    capturedAt: number;
+  } | null;
+  const series = snapshot?.series ?? [];
+  const latest = series.at(-1)?.date;
+  if (!snapshot || !latest || series.length === 0) return null;
+  if (
+    args.metrics.some((metric) => metric !== "activeUsers") ||
+    args.dimensions.some((dimension) => dimension !== "date")
+  ) {
+    throw new Error(
+      "This workspace currently has cached daily activeUsers data. Connect Google Analytics in integration settings for live reports with additional metrics or dimensions.",
+    );
+  }
+
+  const startDate = resolveSnapshotDate(args.startDate, latest);
+  const endDate = resolveSnapshotDate(args.endDate, latest);
+  const points = series
+    .filter((point) => point.date >= startDate && point.date <= endDate)
+    .slice(0, Math.max(1, Math.min(Math.trunc(args.limit), 10_000)));
+  const rows = args.dimensions.includes("date")
+    ? points.map((point) => ({ date: point.date, activeUsers: point.value }))
+    : [
+        {
+          activeUsers: points.reduce((total, point) => total + point.value, 0),
+        },
+      ];
+  return {
+    source: {
+      provider: PROVIDER,
+      id: null,
+      mode: "cached-snapshot",
+      capturedAt: snapshot.capturedAt,
+    },
+    range: { startDate: args.startDate, endDate: args.endDate },
+    columns: [
+      ...(args.dimensions.includes("date")
+        ? [{ name: "date", kind: "dimension" }]
+        : []),
+      { name: "activeUsers", kind: "metric", type: "TYPE_INTEGER" },
+    ],
+    rows,
+    rowCount: rows.length,
+  };
+}
+
+async function executeReport(
+  ctx: ActionCtx,
+  organizationId: string,
+  args: ReportArgs,
+): Promise<ReportResult> {
+  if (args.metrics.length === 0) throw new Error("Choose at least one metric.");
+  for (const metric of args.metrics) {
+    if (!REPORT_METRICS.has(metric))
+      throw new Error(`Unsupported metric: ${metric}`);
+  }
+  for (const dimension of args.dimensions) {
+    if (!REPORT_DIMENSIONS.has(dimension)) {
+      throw new Error(`Unsupported dimension: ${dimension}`);
+    }
+  }
+
+  const token = await accessTokenForOrganization(ctx, organizationId);
+  if (!token?.accessToken || !token.propertyId) {
+    const cached = await reportFromSnapshot(ctx, organizationId, args);
+    if (cached) return cached;
+    throw new Error("Google Analytics is not connected to this workspace.");
+  }
+  const data = await fetchJson<{
+    dimensionHeaders?: Array<{ name: string }>;
+    metricHeaders?: Array<{ name: string; type?: string }>;
+    rows?: Array<{
+      dimensionValues?: Array<{ value?: string }>;
+      metricValues?: Array<{ value?: string }>;
+    }>;
+    rowCount?: number;
+  }>(
+    `https://analyticsdata.googleapis.com/v1beta/properties/${token.propertyId}:runReport`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        dateRanges: [{ startDate: args.startDate, endDate: args.endDate }],
+        metrics: args.metrics.map((name) => ({ name })),
+        dimensions: args.dimensions.map((name) => ({ name })),
+        limit: Math.max(1, Math.min(Math.trunc(args.limit), 10_000)),
+        keepEmptyRows: false,
+      }),
+    },
+  );
+
+  const dimensionHeaders = (data.dimensionHeaders ?? []).map(
+    (header) => header.name,
+  );
+  const metricHeaders = (data.metricHeaders ?? []).map((header) => ({
+    name: header.name,
+    type: header.type ?? "TYPE_UNSPECIFIED",
+  }));
+  const rows = (data.rows ?? []).map((row) => {
+    const result: Record<string, string | number> = {};
+    dimensionHeaders.forEach((name, index) => {
+      result[name] = row.dimensionValues?.[index]?.value ?? "";
+    });
+    metricHeaders.forEach((header, index) => {
+      const raw = row.metricValues?.[index]?.value ?? "0";
+      const numeric = Number(raw);
+      result[header.name] = Number.isFinite(numeric) ? numeric : raw;
+    });
+    return result;
+  });
+
+  await ctx.runMutation(internal.googleAnalytics.markSynced, {
+    organizationId,
+  });
+  return {
+    source: {
+      provider: PROVIDER,
+      id: token.propertyId,
+    },
+    range: { startDate: args.startDate, endDate: args.endDate },
+    columns: [
+      ...dimensionHeaders.map((name) => ({ name, kind: "dimension" })),
+      ...metricHeaders.map((header) => ({
+        name: header.name,
+        kind: "metric",
+        type: header.type,
+      })),
+    ],
+    rows,
+    rowCount: data.rowCount ?? rows.length,
+  };
+}
+
+/** Internal entry point for the capability-authenticated Agent Tools API. */
+export const runReportForOrganization = internalAction({
+  args: {
+    organizationId: v.string(),
+    startDate: v.string(),
+    endDate: v.string(),
+    metrics: v.array(v.string()),
+    dimensions: v.array(v.string()),
+    limit: v.number(),
+  },
+  handler: async (ctx, args) =>
+    executeReport(ctx, args.organizationId, {
+      startDate: args.startDate,
+      endDate: args.endDate,
+      metrics: args.metrics,
+      dimensions: args.dimensions,
+      limit: args.limit,
+    }),
 });

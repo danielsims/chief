@@ -5,6 +5,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { WebSocketServer, WebSocket } from "ws";
 import { SessionManager } from "./manager.js";
 import { defaultAgents, getAgent } from "./agents.js";
+import { ensureExecutorWorkspace } from "./tools/control-plane.js";
 import { executorToolServer } from "./tools/spec.js";
 import type { ClientMessage, InputRequest, ServerMessage } from "./types.js";
 
@@ -76,8 +77,13 @@ export function startServer(port = PORT) {
   const manager = new SessionManager();
   // Bind both loopback families — macOS clients resolving "localhost" may
   // dial ::1 or 127.0.0.1. Never bind non-loopback interfaces here.
-  const handler = (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => {
-    console.log(`[diag] http ${req.method} ${req.url} from ${req.socket.remoteAddress}`);
+  const handler = (
+    req: import("node:http").IncomingMessage,
+    res: import("node:http").ServerResponse,
+  ) => {
+    console.log(
+      `[diag] http ${req.method} ${req.url} from ${req.socket.remoteAddress}`,
+    );
     res.writeHead(204, { "access-control-allow-origin": "*" });
     res.end();
   };
@@ -131,13 +137,20 @@ export function startServer(port = PORT) {
                 chatId: msg.chatId,
               });
             }
+            const executorWorkspace =
+              agent.id !== "setup" && msg.workspaceId && msg.executorCapability
+                ? await ensureExecutorWorkspace(
+                    msg.workspaceId,
+                    msg.executorCapability,
+                  )
+                : null;
             const session = await manager.ensure(agent, msg.chatId, {
               driver: msg.driver,
               access: msg.access ?? "guarded",
               model: msg.model,
-              mcpServers: [executorToolServer(msg.workspaceId)].filter(
-                (server): server is NonNullable<typeof server> => Boolean(server),
-              ),
+              mcpServers: executorWorkspace
+                ? [executorToolServer(executorWorkspace)]
+                : [],
             });
             if (!subscriptions.has(msg.chatId)) {
               subscriptions.add(msg.chatId);
@@ -147,10 +160,18 @@ export function startServer(port = PORT) {
               session.on("event", listener);
               ws.on("close", () => session.off("event", listener));
             }
-            send({ type: "sessionOpened", chatId: msg.chatId, agentId: agent.id });
+            send({
+              type: "sessionOpened",
+              chatId: msg.chatId,
+              agentId: agent.id,
+            });
             // Replay the buffered transcript so navigating away and back (or
             // reconnecting mid-run) resumes instead of presenting a fresh chat.
-            send({ type: "history", chatId: msg.chatId, events: session.events });
+            send({
+              type: "history",
+              chatId: msg.chatId,
+              events: session.events,
+            });
             break;
           }
 
@@ -159,7 +180,8 @@ export function startServer(port = PORT) {
             if (!session) {
               return send({
                 type: "error",
-                message: "No session for this chat yet. Reopen it to reconnect.",
+                message:
+                  "No session for this chat yet. Reopen it to reconnect.",
                 chatId: msg.chatId,
               });
             }
@@ -172,7 +194,9 @@ export function startServer(port = PORT) {
             break;
 
           case "respondPermission":
-            manager.get(msg.chatId)?.respondPermission(msg.requestId, msg.behavior);
+            manager
+              .get(msg.chatId)
+              ?.respondPermission(msg.requestId, msg.behavior);
             break;
 
           case "queryInputs": {
@@ -194,7 +218,8 @@ export function startServer(port = PORT) {
             if (!session) {
               return send({
                 type: "error",
-                message: "No session for this chat yet. Reopen it to reconnect.",
+                message:
+                  "No session for this chat yet. Reopen it to reconnect.",
                 chatId: msg.chatId,
               });
             }

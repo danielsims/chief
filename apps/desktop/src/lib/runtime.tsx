@@ -13,15 +13,33 @@ import type {
   AgentEvent,
   ClientMessage,
   DriverType,
+  ExecutorCapability,
   InputRequest,
   ServerMessage,
 } from "@marketer/agent-runtime/types";
+import { api } from "@marketer/backend/convex/_generated/api";
+import { useAction } from "convex/react";
 import { getAgentOverride } from "./agent-overrides";
 import { useAuth } from "./auth/auth-context";
 
 // "localhost" (not 127.0.0.1) — macOS ATS only exempts the literal
 // localhost hostname for insecure websockets inside WKWebView.
 const RUNTIME_URL = "ws://localhost:4318";
+const EXECUTOR_CAPABILITY_PREFIX = "marketer:executor-capability:";
+
+function workspaceCapabilityToken(organizationId: string): string {
+  const key = `${EXECUTOR_CAPABILITY_PREFIX}${organizationId}`;
+  const existing = window.localStorage.getItem(key);
+  if (existing && /^[A-Za-z0-9_-]{43,128}$/.test(existing)) return existing;
+
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const token = btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  window.localStorage.setItem(key, token);
+  return token;
+}
 
 type Listener = (msg: ServerMessage) => void;
 
@@ -306,6 +324,9 @@ export function useAgentChat(
 ) {
   const { client, status: runtimeStatus } = useRuntime();
   const { cloudOrganizationId } = useAuth();
+  const registerCapability = useAction(api.agentTools.registerCapability);
+  const [executorCapability, setExecutorCapability] =
+    useState<ExecutorCapability | null>(null);
   const chatId = agentId ? (chatIdOverride ?? `${agentId}-main`) : null;
   const [chat, setChat] = useState<ChatState>(emptyChat);
   // True once the runtime has confirmed the session (history replayed).
@@ -313,7 +334,36 @@ export function useAgentChat(
   // races the async session open and lands on a dead chat.
   const [sessionReady, setSessionReady] = useState(false);
   useEffect(() => {
+    if (!cloudOrganizationId) {
+      setExecutorCapability(null);
+      return;
+    }
+    let cancelled = false;
+    const token = workspaceCapabilityToken(cloudOrganizationId);
+    void registerCapability({ token })
+      .then(({ apiBaseUrl }) => {
+        if (!cancelled) setExecutorCapability({ apiBaseUrl, token });
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setChat((current) => ({
+            ...current,
+            status: "idle",
+            error:
+              error instanceof Error
+                ? error.message
+                : "Could not prepare connected tools.",
+          }));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudOrganizationId, registerCapability]);
+
+  useEffect(() => {
     if (!agentId || !chatId || !driver || runtimeStatus !== "connected") return;
+    if (cloudOrganizationId && !executorCapability) return;
     setChat(emptyChat);
     setSessionReady(false);
     client.send({
@@ -324,6 +374,7 @@ export function useAgentChat(
       access,
       model: getAgentOverride(agentId).model,
       workspaceId: cloudOrganizationId ?? undefined,
+      executorCapability: executorCapability ?? undefined,
     });
 
     const unsub = client.subscribe((msg) => {
@@ -353,6 +404,7 @@ export function useAgentChat(
     driver,
     access,
     cloudOrganizationId,
+    executorCapability,
   ]);
 
   const send = (text: string) => {
@@ -367,12 +419,23 @@ export function useAgentChat(
   };
 
   const respondPermission = (requestId: string, behavior: "allow" | "deny") => {
-    if (chatId) client.send({ type: "respondPermission", chatId, requestId, behavior });
+    if (chatId)
+      client.send({ type: "respondPermission", chatId, requestId, behavior });
   };
 
-  const provideInput = (request: InputRequest, values: Record<string, string>) => {
+  const provideInput = (
+    request: InputRequest,
+    values: Record<string, string>,
+  ) => {
     if (chatId) client.send({ type: "provideInput", chatId, request, values });
   };
 
-  return { chat, send, interrupt, respondPermission, provideInput, sessionReady };
+  return {
+    chat,
+    send,
+    interrupt,
+    respondPermission,
+    provideInput,
+    sessionReady,
+  };
 }

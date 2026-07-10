@@ -65,6 +65,12 @@ export interface McpServerSpec {
   env?: Record<string, string>;
 }
 
+/** Bootstrap material passed only across the loopback desktop/runtime socket. */
+export interface ExecutorCapability {
+  apiBaseUrl: string;
+  token: string;
+}
+
 /**
  * A provider-agnostic persona. Which driver/model executes it is workspace
  * state, resolved per session at openSession time — never part of the
@@ -135,6 +141,8 @@ export type ClientMessage =
       access?: AccessMode;
       /** Better Auth organization id used to isolate Executor's workspace. */
       workspaceId?: string;
+      /** Opaque workspace credential stored by Executor, never sent to a model. */
+      executorCapability?: ExecutorCapability;
     }
   | { type: "prompt"; chatId: string; text: string }
   | { type: "interrupt"; chatId: string }
