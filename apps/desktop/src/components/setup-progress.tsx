@@ -8,20 +8,20 @@ import {
   listAuthOrganizations,
   parseOrganizationMetadata,
 } from "../lib/auth/better-auth-client";
+import { createChat } from "../lib/chat-log";
 
 interface SetupItem {
   key: string;
   label: string;
   detail: string;
   done: boolean;
-  /** Onboarding step to resume at when not done. */
-  step: string;
+  action: "analytics" | "ads";
 }
 
 /**
  * Anything skipped during onboarding stays visible here until it's handled.
- * Each open item resumes the same agent-guided setup at the right step, so
- * finishing your account is the same experience as onboarding was.
+ * Completed onboarding is immutable. Open items route to their normal app
+ * surface or a specialist conversation instead of reopening onboarding.
  */
 export function SetupProgress() {
   const navigate = useNavigate();
@@ -76,7 +76,7 @@ export function SetupProgress() {
         ? "Connected"
         : "Connect a source so your agents can read real numbers",
       done: analyticsConnected,
-      step: "analytics",
+      action: "analytics",
     },
     {
       key: "ads",
@@ -86,13 +86,28 @@ export function SetupProgress() {
         : adsBudgetPlanned
           ? `Budget planned: ${String(ads.budget)}`
           : "Connect an ads account or set a budget for agent-run ads",
-      done: adsConnected || adsBudgetPlanned,
-      step: "ads",
+      done: adsConnected,
+      action: "ads",
     },
   ];
 
   const doneCount = items.filter((item) => item.done).length;
   if (doneCount === items.length) return null;
+
+  const startSetup = (item: SetupItem) => {
+    if (item.action === "analytics") {
+      navigate("/analytics");
+      return;
+    }
+    const conversation = createChat("ads", "Set up paid campaigns");
+    const budget = adsBudgetPlanned
+      ? String(ads.budget)
+      : "a small test budget";
+    const draft = `Help me set up my first paid campaign with ${budget}. Start by checking what ad accounts are connected, then guide me through the cleanest next step.`;
+    navigate(
+      `/conversations?agent=ads&chat=${conversation.id}&new=1&draft=${encodeURIComponent(draft)}`,
+    );
+  };
 
   return (
     <div className="border bg-card">
@@ -119,7 +134,7 @@ export function SetupProgress() {
             {!item.done ? (
               <button
                 type="button"
-                onClick={() => navigate(`/onboarding?step=${item.step}`)}
+                onClick={() => startSetup(item)}
                 className="shrink-0 cursor-pointer text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
               >
                 Set up

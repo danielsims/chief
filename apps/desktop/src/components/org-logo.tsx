@@ -74,7 +74,8 @@ export function OrgLogo({
   return (
     <span
       className={cn(
-        "relative flex items-center justify-center overflow-hidden border bg-accent",
+        "relative flex items-center justify-center overflow-hidden border",
+        loaded ? "bg-transparent" : "bg-accent",
         className,
       )}
     >
@@ -88,7 +89,7 @@ export function OrgLogo({
           alt=""
           draggable={false}
           className={cn(
-            "absolute inset-0 h-full w-full bg-white object-cover",
+            "absolute inset-0 h-full w-full object-cover",
             loaded ? "opacity-100" : "opacity-0",
             imgClassName,
           )}
