@@ -12,6 +12,7 @@ import type {
   AgentPreference,
   AgentDefinition,
   AgentEvent,
+  CampaignRecord,
   ClientMessage,
   ContentBlock,
   ContentDraftRecord,
@@ -300,12 +301,14 @@ interface WorkspaceDataState {
   prospects: ProspectRecord[];
   trends: TrendRecord[];
   drafts: ContentDraftRecord[];
+  campaigns: CampaignRecord[];
 }
 
 const emptyWorkspaceData: WorkspaceDataState = {
   prospects: [],
   trends: [],
   drafts: [],
+  campaigns: [],
 };
 
 export function useWorkspaceData(workspaceId: string | null) {
@@ -326,6 +329,7 @@ export function useWorkspaceData(workspaceId: string | null) {
           prospects: message.prospects,
           trends: message.trends,
           drafts: message.drafts,
+          campaigns: message.campaigns,
         });
         setLoading(false);
       }
@@ -336,7 +340,19 @@ export function useWorkspaceData(workspaceId: string | null) {
     };
   }, [client, status, workspaceId]);
 
-  return { ...data, loading };
+  const saveCampaign = (campaign: CampaignRecord) => {
+    if (!workspaceId) return;
+    setData((current) => ({
+      ...current,
+      campaigns: [
+        campaign,
+        ...current.campaigns.filter((item) => item.id !== campaign.id),
+      ],
+    }));
+    client.send({ type: "saveCampaign", workspaceId, campaign });
+  };
+
+  return { ...data, loading, saveCampaign };
 }
 
 export function useAgentPreferences(workspaceId: string | null) {

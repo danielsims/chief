@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { SessionManager } from "./manager.js";
 import type {
+  CampaignRecord,
   ContentDraftRecord,
   ProspectRecord,
   TrendRecord,
@@ -45,6 +46,15 @@ function time(input: unknown, fallback = Date.now()) {
     if (Number.isFinite(parsed)) return parsed;
   }
   return fallback;
+}
+
+function amount(input: unknown, name: string) {
+  if (input === undefined || input === null || input === "") return undefined;
+  const parsed = typeof input === "number" ? input : Number(input);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a positive number.`);
+  }
+  return parsed;
 }
 
 export function localToolsOpenApi(origin: string) {
@@ -116,6 +126,19 @@ export function localToolsOpenApi(origin: string) {
           responses: saveResponse,
         },
       },
+      "/local-tools/campaigns": {
+        get: {
+          operationId: "campaigns.list",
+          summary: "List saved paid campaigns",
+          responses: { "200": { description: "Workspace campaigns" } },
+        },
+        post: {
+          operationId: "campaigns.save",
+          summary: "Create or update a paid campaign plan",
+          requestBody: body("CampaignInput"),
+          responses: saveResponse,
+        },
+      },
     },
     components: {
       securitySchemes: {
@@ -176,6 +199,25 @@ export function localToolsOpenApi(origin: string) {
             scheduledFor: { oneOf: [{ type: "number" }, { type: "string" }] },
           },
         },
+        CampaignInput: {
+          type: "object",
+          additionalProperties: false,
+          required: ["name", "provider"],
+          properties: {
+            id: { type: "string" },
+            name: { type: "string" },
+            provider: { type: "string" },
+            objective: { type: "string" },
+            status: {
+              type: "string",
+              enum: ["draft", "in_review", "live", "paused", "completed"],
+            },
+            currency: { type: "string" },
+            budget: { type: "number", minimum: 0 },
+            spend: { type: "number", minimum: 0 },
+            revenue: { type: "number", minimum: 0 },
+          },
+        },
       },
     },
   };
@@ -193,6 +235,9 @@ export async function handleLocalTool(
       return json({ prospects: data.prospects });
     if (path === "/local-tools/trends") return json({ trends: data.trends });
     if (path === "/local-tools/content") return json({ drafts: data.drafts });
+    if (path === "/local-tools/campaigns") {
+      return json({ campaigns: data.campaigns });
+    }
   }
   if (request.method !== "POST") return json({ error: "Not found" }, 404);
   let body: Record<string, unknown>;
@@ -273,6 +318,29 @@ export async function handleLocalTool(
       };
       await manager.saveDraft(workspaceId, draft);
       return json({ draft });
+    }
+    if (path === "/local-tools/campaigns") {
+      const now = Date.now();
+      const campaign: CampaignRecord = {
+        id: value(body.id, "id", 120, false) ?? randomUUID(),
+        name: value(body.name, "name", 200)!,
+        provider: value(body.provider, "provider", 120)!,
+        objective: value(body.objective, "objective", 500, false),
+        status: choice(
+          body.status,
+          "status",
+          ["draft", "in_review", "live", "paused", "completed"],
+          "draft",
+        ),
+        currency: value(body.currency, "currency", 8, false) ?? "USD",
+        budget: amount(body.budget, "budget"),
+        spend: amount(body.spend, "spend"),
+        revenue: amount(body.revenue, "revenue"),
+        createdAt: now,
+        updatedAt: now,
+      };
+      await manager.saveCampaign(workspaceId, campaign);
+      return json({ campaign });
     }
     return json({ error: "Not found" }, 404);
   } catch (error) {

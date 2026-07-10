@@ -15,6 +15,7 @@ import {
 import { Layout } from "./components/layout";
 import { DashboardPage } from "./pages/dashboard";
 import { AnalyticsPage } from "./pages/analytics";
+import { CampaignsPage } from "./pages/campaigns";
 import { SchedulePage } from "./pages/schedule";
 import { AgentsPage } from "./pages/agents";
 import { ConversationsPage } from "./pages/conversations";
@@ -34,6 +35,44 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@marketer/backend/convex/_generated/api";
 import { hasWorkspaceAccess } from "./lib/billing";
+import { openWorkspaceCheckout } from "./lib/billing";
+import { Button } from "@marketer/ui/components/button";
+
+function WorkspaceAccessRequired() {
+  const [opening, setOpening] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const openCheckout = async () => {
+    setOpening(true);
+    setError(null);
+    const result = await openWorkspaceCheckout("monthly");
+    if (result.status === "error") setError(result.message);
+    if (result.status === "unavailable") {
+      setError("Checkout is not available right now.");
+    }
+    setOpening(false);
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
+      <div className="w-full max-w-md border bg-card p-8 text-center">
+        <h1 className="font-serif text-3xl">Continue with Marketer</h1>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+          Your workspace is already set up. Renew access to return to it.
+        </p>
+        <Button
+          className="mt-6"
+          onClick={() => void openCheckout()}
+          disabled={opening}
+        >
+          {opening ? "Opening checkout..." : "Continue to checkout"}
+        </Button>
+        {error ? (
+          <p className="mt-3 text-xs text-destructive">{error}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 function OnboardingGate({ children }: { children: ReactNode }) {
   const location = useLocation();
@@ -70,10 +109,7 @@ function OnboardingGate({ children }: { children: ReactNode }) {
     };
   }, [cloudOrganizationId]);
 
-  if (
-    location.pathname === "/onboarding" ||
-    location.pathname === "/workspaces/new"
-  ) {
+  if (location.pathname === "/workspaces/new") {
     return children;
   }
 
@@ -97,9 +133,15 @@ function OnboardingGate({ children }: { children: ReactNode }) {
     );
   }
 
-  if (needsOnboarding || !hasWorkspaceAccess(subscription)) {
+  if (location.pathname === "/onboarding") {
+    return needsOnboarding ? children : <Navigate to="/" replace />;
+  }
+
+  if (needsOnboarding) {
     return <Navigate to="/onboarding" replace />;
   }
+
+  if (!hasWorkspaceAccess(subscription)) return <WorkspaceAccessRequired />;
 
   return children;
 }
@@ -121,6 +163,7 @@ function AuthenticatedApp() {
             <Route element={<Layout />}>
               <Route index element={<DashboardPage />} />
               <Route path="analytics" element={<AnalyticsPage />} />
+              <Route path="campaigns" element={<CampaignsPage />} />
               <Route path="schedule" element={<SchedulePage />} />
               <Route path="prospects" element={<ProspectsPage />} />
               <Route path="trending" element={<TrendingPage />} />

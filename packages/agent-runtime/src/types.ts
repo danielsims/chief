@@ -132,6 +132,23 @@ export interface ContentDraftRecord {
   updatedAt: number;
 }
 
+export type CampaignStatus =
+  "draft" | "in_review" | "live" | "paused" | "completed";
+
+export interface CampaignRecord {
+  id: string;
+  name: string;
+  provider: string;
+  objective?: string;
+  status: CampaignStatus;
+  currency: string;
+  budget?: number;
+  spend?: number;
+  revenue?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface AgentPreference {
   agentId: string;
   enabled: boolean;
@@ -142,7 +159,11 @@ export interface AgentPreference {
 }
 
 export type AgentCapabilityId =
-  "analytics-chart" | "prospect-memory" | "trend-memory" | "content-calendar";
+  | "analytics-chart"
+  | "prospect-memory"
+  | "trend-memory"
+  | "content-calendar"
+  | "campaign-memory";
 
 /**
  * How much the session may do without asking. "guarded" routes mutating tool
@@ -235,6 +256,11 @@ export type ClientMessage =
   | { type: "listWorkspaceData"; workspaceId: string }
   | { type: "listAgentPreferences"; workspaceId: string }
   | {
+      type: "saveCampaign";
+      workspaceId: string;
+      campaign: CampaignRecord;
+    }
+  | {
       type: "saveAgentPreference";
       workspaceId: string;
       preference: AgentPreference;
@@ -310,6 +336,7 @@ export type ServerMessage =
       prospects: ProspectRecord[];
       trends: TrendRecord[];
       drafts: ContentDraftRecord[];
+      campaigns: CampaignRecord[];
     }
   | {
       type: "agentPreferences";

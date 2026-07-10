@@ -197,6 +197,11 @@ export function startServer(port = PORT) {
             });
             break;
 
+          case "saveCampaign":
+            await manager.saveCampaign(msg.workspaceId, msg.campaign);
+            await broadcastWorkspaceData(msg.workspaceId);
+            break;
+
           case "listAgentPreferences":
             send({
               type: "agentPreferences",

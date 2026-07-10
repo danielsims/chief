@@ -8,6 +8,7 @@ import {
   MessagesSquare,
   Network,
   Settings,
+  Megaphone,
 } from "lucide-react";
 import {
   Tooltip,
@@ -23,6 +24,7 @@ const items = [
   { to: "/agents", label: "Agents", icon: Network },
   { to: "/schedule", label: "Schedule", icon: CalendarClock },
   { to: "/analytics", label: "Analytics", icon: ChartLine },
+  { to: "/campaigns", label: "Campaigns", icon: Megaphone },
   { to: "/prospects", label: "Prospects", icon: Users },
   { to: "/trending", label: "Trending", icon: Flame },
 ];

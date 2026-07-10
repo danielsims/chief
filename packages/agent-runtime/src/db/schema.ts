@@ -2,6 +2,7 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
 } from "drizzle-orm/sqlite-core";
@@ -98,6 +99,29 @@ export const contentDrafts = sqliteTable(
       table.workspaceId,
       table.scheduledFor,
     ),
+  ],
+);
+
+export const campaigns = sqliteTable(
+  "campaigns",
+  {
+    id: text().primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    name: text().notNull(),
+    provider: text().notNull(),
+    objective: text(),
+    status: text({
+      enum: ["draft", "in_review", "live", "paused", "completed"],
+    }).notNull(),
+    currency: text().notNull().default("USD"),
+    budget: real(),
+    spend: real(),
+    revenue: real(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("campaigns_workspace_updated").on(table.workspaceId, table.updatedAt),
   ],
 );
 

@@ -20,6 +20,7 @@ import * as schema from "./db/schema.js";
 import type {
   AgentEvent,
   AgentPreference,
+  CampaignRecord,
   ContentDraftRecord,
   DriverType,
   ProspectRecord,
@@ -380,6 +381,51 @@ export class LocalStore {
           status: draft.status,
           scheduledFor: draft.scheduledFor,
           updatedAt: draft.updatedAt,
+        },
+      })
+      .run();
+  }
+
+  async listCampaigns(workspaceId: string): Promise<CampaignRecord[]> {
+    await this.ready;
+    const rows = await this.db
+      .select()
+      .from(schema.campaigns)
+      .where(eq(schema.campaigns.workspaceId, workspaceId))
+      .orderBy(desc(schema.campaigns.updatedAt))
+      .all();
+    return rows.map((campaign) => ({
+      id: campaign.id,
+      name: campaign.name,
+      provider: campaign.provider,
+      objective: campaign.objective ?? undefined,
+      status: campaign.status,
+      currency: campaign.currency,
+      budget: campaign.budget ?? undefined,
+      spend: campaign.spend ?? undefined,
+      revenue: campaign.revenue ?? undefined,
+      createdAt: campaign.createdAt,
+      updatedAt: campaign.updatedAt,
+    }));
+  }
+
+  async saveCampaign(workspaceId: string, campaign: CampaignRecord) {
+    await this.ready;
+    await this.db
+      .insert(schema.campaigns)
+      .values({ ...campaign, workspaceId })
+      .onConflictDoUpdate({
+        target: schema.campaigns.id,
+        set: {
+          name: campaign.name,
+          provider: campaign.provider,
+          objective: campaign.objective,
+          status: campaign.status,
+          currency: campaign.currency,
+          budget: campaign.budget,
+          spend: campaign.spend,
+          revenue: campaign.revenue,
+          updatedAt: campaign.updatedAt,
         },
       })
       .run();

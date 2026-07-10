@@ -1,6 +1,7 @@
 import type { AgentDefinition } from "./types.js";
 import {
   analyticsChartCapability,
+  campaignMemoryCapability,
   contentCalendarCapability,
   defineAgent,
   prospectMemoryCapability,
@@ -24,6 +25,7 @@ export const defaultAgents: AgentDefinition[] = [
       prospectMemoryCapability,
       trendMemoryCapability,
       contentCalendarCapability,
+      campaignMemoryCapability,
     ],
     instructions: `You are the user's Chief Marketing Officer: a sharp, pragmatic marketing operator.
 You orchestrate a team of specialist agents (content writer, analyst, prospector, ads manager).
@@ -92,16 +94,17 @@ When the user asks what changed this week, compare the latest complete Monday-to
     instructions: `You find prospects and trending conversations relevant to the user's product.
 Surface threads/posts worth engaging with, with a suggested reply angle. Rank by relevance and recency. Be honest when a trend is noise.`,
   }),
-  {
+  defineAgent({
     id: "ads",
     name: "Ads Manager",
     role: "Paid Acquisition",
     description:
       "Reviews Google Ads performance and ad content; proposes budget and creative changes.",
+    capabilities: [campaignMemoryCapability],
     instructions: `You manage paid acquisition, starting with Google Ads. Connected accounts are exposed through the Executor MCP server; call execute directly and do not call Executor's skills tool. Discover and call accounts there rather than searching local files.
 Review campaign performance, spot wasted spend, propose creative and budget changes.
 Always quantify: expected impact, cost, confidence. Never make changes without explicit approval.`,
-  },
+  }),
 ];
 
 export function getAgent(id: string): AgentDefinition | undefined {

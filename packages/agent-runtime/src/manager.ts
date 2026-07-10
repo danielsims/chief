@@ -191,15 +191,17 @@ export class SessionManager {
   }
 
   async workspaceData(workspaceId: string) {
-    const [prospects, trends, drafts] = await Promise.all([
+    const [prospects, trends, drafts, campaigns] = await Promise.all([
       this.store.listProspects(workspaceId),
       this.store.listTrends(workspaceId),
       this.store.listDrafts(workspaceId),
+      this.store.listCampaigns(workspaceId),
     ]);
     return {
       prospects,
       trends,
       drafts,
+      campaigns,
     };
   }
 
@@ -219,6 +221,13 @@ export class SessionManager {
     draft: import("./types.js").ContentDraftRecord,
   ) {
     return this.store.saveDraft(workspaceId, draft);
+  }
+
+  saveCampaign(
+    workspaceId: string,
+    campaign: import("./types.js").CampaignRecord,
+  ) {
+    return this.store.saveCampaign(workspaceId, campaign);
   }
 
   listAgentPreferences(workspaceId: string) {
