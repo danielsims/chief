@@ -6,6 +6,12 @@ import type {
 } from "@marketer/agent-runtime/types";
 import { Button } from "@marketer/ui/components/button";
 import { Input } from "@marketer/ui/components/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@marketer/ui/components/select";
 import { cn } from "@marketer/ui/lib/utils";
 import { ArrowUpDown, Plus, Search, Sparkles } from "lucide-react";
 import { ProviderLogo } from "../components/provider-logo";
@@ -141,21 +147,31 @@ export function CampaignsPage() {
       <div className="px-8 py-5">
         <div className="border bg-card">
           <div className="flex min-h-14 flex-wrap items-center gap-2 border-b px-3 py-2">
-            <select
-              aria-label="Filter campaigns by status"
+            <Select
               value={status}
-              onChange={(event) =>
-                setStatus(event.target.value as CampaignStatus | "all")
+              onValueChange={(value) =>
+                setStatus(value as CampaignStatus | "all")
               }
-              className="h-9 border bg-background px-3 text-xs outline-none"
             >
-              <option value="all">All campaigns</option>
-              {statuses.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                aria-label="Filter campaigns by status"
+                className="h-8 w-40 bg-background text-xs"
+              >
+                <span>
+                  {status === "all"
+                    ? "All campaigns"
+                    : statuses.find((item) => item.value === status)?.label}
+                </span>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All campaigns</SelectItem>
+                {statuses.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button
               variant="outline"
               size="sm"
