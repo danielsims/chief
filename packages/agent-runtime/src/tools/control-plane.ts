@@ -42,6 +42,7 @@ interface Tool {
 
 interface Policy {
   id: string;
+  owner: "org" | "user";
   pattern: string;
   action: "approve" | "require_approval" | "block";
 }
@@ -344,15 +345,23 @@ async function configureToolPolicies(manifest: ServerManifest) {
   for (const tool of governedTools) {
     const pattern = tool.address.replace(/^tools\./, "");
     const action = actions.get(tool.name)!;
-    for (const policy of policies.filter((item) => item.pattern === pattern)) {
+    const existing = policies.filter((item) => item.pattern === pattern);
+    const keep = existing.find(
+      (item) => item.owner === "org" && item.action === action,
+    );
+    for (const policy of existing) {
+      if (policy === keep) continue;
       await request(manifest, `/policies/${encodeURIComponent(policy.id)}`, {
         method: "DELETE",
+        body: JSON.stringify({ owner: policy.owner }),
       });
     }
-    await request(manifest, "/policies", {
-      method: "POST",
-      body: JSON.stringify({ owner: "org", pattern, action }),
-    });
+    if (!keep) {
+      await request(manifest, "/policies", {
+        method: "POST",
+        body: JSON.stringify({ owner: "org", pattern, action }),
+      });
+    }
   }
 }
 
