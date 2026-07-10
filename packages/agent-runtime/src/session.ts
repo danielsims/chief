@@ -135,6 +135,11 @@ export class AgentSession extends EventEmitter {
     this.emit("event", event);
   }
 
+  respondQuestion(requestId: string, answers: Record<string, string> | null) {
+    // The driver emits questionResolved itself, so the buffer stays correct.
+    this.driver.respondQuestion(requestId, answers);
+  }
+
   interrupt() {
     return this.driver.interrupt();
   }

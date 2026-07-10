@@ -16,6 +16,13 @@ export abstract class BaseDriver extends EventEmitter {
     // default: no interactive permissions
   }
 
+  respondQuestion(
+    _requestId: string,
+    _answers: Record<string, string> | null,
+  ): void {
+    // default: no interactive questions
+  }
+
   protected emitEvent(event: AgentEvent) {
     this.emit("event", event);
   }

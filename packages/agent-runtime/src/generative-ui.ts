@@ -34,6 +34,19 @@ function toolResultText(content: unknown): string {
   return isRecord(content) ? JSON.stringify(content) : "";
 }
 
+/** Parses JSON that may sit after a prose prefix ("[log] Chart result: {…}"). */
+function looseJsonParse(text: string): unknown {
+  for (const start of [text.indexOf("{"), text.indexOf("[")]) {
+    if (start < 0) continue;
+    try {
+      return JSON.parse(text.slice(start));
+    } catch {
+      // The other start may still be real JSON (e.g. "[log] {…}").
+    }
+  }
+  return undefined;
+}
+
 function parseJsonCandidates(text: string): unknown[] {
   const candidates = new Set<string>();
   const trimmed = text.trim();
@@ -52,6 +65,19 @@ function parseJsonCandidates(text: string): unknown[] {
     } catch {
       // Tool output often mixes prose and logs. Only complete JSON records
       // are eligible to become persistent UI data parts.
+      const loose = looseJsonParse(candidate);
+      if (loose !== undefined) parsed.push(loose);
+    }
+  }
+  // Executor execute results carry console output as `logs` strings, and
+  // agents often log a tool's return value instead of returning it — mine
+  // those strings (multi-line pretty JSON included) as candidates too.
+  for (const item of [...parsed]) {
+    if (!isRecord(item) || !Array.isArray(item.logs)) continue;
+    for (const log of item.logs) {
+      if (typeof log !== "string") continue;
+      const loose = looseJsonParse(log);
+      if (loose !== undefined) parsed.push(loose);
     }
   }
   return parsed;

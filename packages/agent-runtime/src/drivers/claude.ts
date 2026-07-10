@@ -8,7 +8,46 @@ import {
 import { randomUUID } from "node:crypto";
 import { BaseDriver } from "./base.js";
 import { evaluateToolUse } from "../approvals.js";
-import type { ContentBlock, StartOptions } from "../types.js";
+import type {
+  AgentQuestion,
+  ContentBlock,
+  StartOptions,
+} from "../types.js";
+
+function parseQuestions(input: Record<string, unknown>): AgentQuestion[] {
+  if (!Array.isArray(input.questions)) return [];
+  return input.questions.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const item = candidate as Record<string, unknown>;
+    if (typeof item.question !== "string" || !Array.isArray(item.options)) {
+      return [];
+    }
+    const options = item.options.flatMap((option) => {
+      if (!option || typeof option !== "object") return [];
+      const record = option as Record<string, unknown>;
+      return typeof record.label === "string"
+        ? [
+            {
+              label: record.label,
+              description:
+                typeof record.description === "string"
+                  ? record.description
+                  : undefined,
+            },
+          ]
+        : [];
+    });
+    if (options.length === 0) return [];
+    return [
+      {
+        question: item.question,
+        header: typeof item.header === "string" ? item.header : undefined,
+        multiSelect: item.multiSelect === true,
+        options,
+      },
+    ];
+  });
+}
 
 /**
  * Drives Claude Code via the official Agent SDK. The SDK spawns the local
@@ -26,9 +65,15 @@ export class ClaudeDriver extends BaseDriver {
     string,
     (behavior: "allow" | "deny") => void
   >();
+  private pendingQuestions = new Map<
+    string,
+    (answers: Record<string, string> | null) => void
+  >();
+  private access: StartOptions["access"] = "guarded";
 
   async start(opts: StartOptions): Promise<void> {
     this.sessionId = opts.resumeSessionId;
+    this.access = opts.access;
 
     const driver = this;
     async function* input(): AsyncGenerator<SDKUserMessage> {
@@ -67,20 +112,13 @@ export class ClaudeDriver extends BaseDriver {
         ),
         resume: this.sessionId,
         includePartialMessages: true,
-        // Guarded sessions route mutating tool calls through the approval
-        // policy. Full-access sessions (user-initiated setup runs) skip it so
-        // installs, browser opens and callback servers just work.
-        ...(opts.access === "full"
-          ? {
-              permissionMode: "bypassPermissions" as const,
-              allowDangerouslySkipPermissions: true,
-            }
-          : {
-              canUseTool: (
-                toolName: string,
-                toolInput: Record<string, unknown>,
-              ) => this.requestApproval(opts.cwd, toolName, toolInput),
-            }),
+        // canUseTool is always registered: it is also how AskUserQuestion
+        // answers reach the model. Full-access sessions auto-allow every
+        // other tool (installs, browser opens and callback servers just
+        // work); guarded sessions route mutations through the approval
+        // policy.
+        canUseTool: (toolName: string, toolInput: Record<string, unknown>) =>
+          this.decideToolUse(opts.cwd, toolName, toolInput),
         systemPrompt: {
           type: "preset",
           preset: "claude_code",
@@ -187,6 +225,54 @@ export class ClaudeDriver extends BaseDriver {
     }
   }
 
+  private decideToolUse(
+    cwd: string,
+    toolName: string,
+    toolInput: Record<string, unknown>,
+  ): Promise<PermissionResult> {
+    if (toolName === "AskUserQuestion") {
+      return this.requestAnswers(toolInput);
+    }
+    if (this.access === "full") {
+      return Promise.resolve({ behavior: "allow", updatedInput: toolInput });
+    }
+    return this.requestApproval(cwd, toolName, toolInput);
+  }
+
+  /**
+   * AskUserQuestion is answered, not approved: the UI collects the user's
+   * choices and they return to the model through updatedInput.answers.
+   */
+  private requestAnswers(
+    toolInput: Record<string, unknown>,
+  ): Promise<PermissionResult> {
+    const questions = parseQuestions(toolInput);
+    if (questions.length === 0) {
+      return Promise.resolve({
+        behavior: "deny",
+        message: "The question payload was malformed; ask again in plain text.",
+      });
+    }
+    const requestId = randomUUID();
+    return new Promise<PermissionResult>((resolve) => {
+      this.pendingQuestions.set(requestId, (answers) => {
+        this.emitEvent({ type: "questionResolved", requestId });
+        this.emitEvent({ type: "status", status: "running" });
+        resolve(
+          answers
+            ? { behavior: "allow", updatedInput: { ...toolInput, answers } }
+            : {
+                behavior: "deny",
+                message:
+                  "The user dismissed the questions. Continue with your best judgment.",
+              },
+        );
+      });
+      this.emitEvent({ type: "question", requestId, questions });
+      this.emitEvent({ type: "status", status: "waiting" });
+    });
+  }
+
   private requestApproval(
     cwd: string,
     toolName: string,
@@ -227,6 +313,16 @@ export class ClaudeDriver extends BaseDriver {
     this.pendingApprovals.delete(requestId);
     pending(behavior);
     this.emitEvent({ type: "status", status: "running" });
+  }
+
+  override respondQuestion(
+    requestId: string,
+    answers: Record<string, string> | null,
+  ) {
+    const pending = this.pendingQuestions.get(requestId);
+    if (!pending) return;
+    this.pendingQuestions.delete(requestId);
+    pending(answers);
   }
 
   async sendPrompt(text: string): Promise<void> {
