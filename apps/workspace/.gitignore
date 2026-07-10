@@ -1,0 +1,9 @@
+workspace-input/
+agent/instructions.md
+agent/subagents/
+agent/schedules/
+agent/lib/roster.ts
+.eve/
+.vercel/
+.vercel
+.env*
