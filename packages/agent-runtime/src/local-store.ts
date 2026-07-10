@@ -502,6 +502,7 @@ export class LocalStore {
           cron: work.cron,
           timezone: work.timezone,
           status: work.status,
+          placement: work.placement,
           approvalSummary: work.approvalSummary,
           proposedToolPatterns: work.proposedToolPatterns,
           grant: work.grant,
@@ -522,6 +523,8 @@ export class LocalStore {
       .where(
         and(
           eq(schema.recurringWork.status, "active"),
+          // Cloud-placed automations fire in the deployment, never here.
+          eq(schema.recurringWork.placement, "local"),
           lte(schema.recurringWork.nextRunAt, now),
           // An active row without a grant can never run; returning it would
           // make every tick fetch and skip it forever.

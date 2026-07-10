@@ -698,11 +698,13 @@ function RecurringWorkDetail({
   onReview,
   onToggle,
   onRun,
+  onPlacement,
 }: {
   work: RecurringWorkRecord;
   onReview: () => void;
   onToggle: () => void;
   onRun: () => void;
+  onPlacement?: (placement: RecurringWorkRecord["placement"]) => void;
 }) {
   const approvalNeeded =
     work.status === "draft" || work.status === "needs_approval";
@@ -744,6 +746,37 @@ function RecurringWorkDetail({
           </>
         )}
       </div>
+      {!approvalNeeded && onPlacement ? (
+        <div className="mt-3 flex items-center justify-between gap-2 border-t pt-2.5">
+          <span className="text-[10px] text-muted-foreground">Runs on</span>
+          <div className="flex border p-0.5">
+            {(
+              [
+                { value: "local", label: "This Mac" },
+                { value: "cloud", label: "Cloud" },
+              ] as const
+            ).map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => onPlacement(option.value)}
+                className={cn(
+                  "px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground",
+                  work.placement === option.value &&
+                    "bg-accent text-foreground",
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {work.placement === "cloud" && !approvalNeeded ? (
+        <p className="mt-1.5 text-[10px] text-muted-foreground">
+          Takes effect on the next workspace deploy.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -1064,6 +1097,13 @@ export function SchedulePage() {
                   workspaceData.saveRecurringWork({
                     ...work,
                     status: work.status === "active" ? "paused" : "active",
+                    updatedAt: Date.now(),
+                  })
+                }
+                onPlacement={(placement) =>
+                  workspaceData.saveRecurringWork({
+                    ...work,
+                    placement,
                     updatedAt: Date.now(),
                   })
                 }

@@ -138,6 +138,10 @@ export const recurringWork = sqliteTable(
     status: text({
       enum: ["draft", "active", "paused", "needs_approval", "error"],
     }).notNull(),
+    /** Where approved runs execute: this Mac's scheduler or the deployment. */
+    placement: text({ enum: ["local", "cloud"] })
+      .notNull()
+      .default("local"),
     approvalSummary: text("approval_summary").notNull(),
     proposedToolPatterns: text("proposed_tool_patterns", { mode: "json" })
       .$type<string[]>()

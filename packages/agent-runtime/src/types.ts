@@ -170,6 +170,8 @@ export interface RecurringWorkRecord {
   cron: string;
   timezone: string;
   status: RecurringWorkStatus;
+  /** Where approved runs execute: this Mac's scheduler or the deployment. */
+  placement: "local" | "cloud";
   approvalSummary: string;
   proposedToolPatterns: string[];
   grant?: AutomationGrant;

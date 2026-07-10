@@ -1,0 +1,1 @@
+ALTER TABLE `recurring_work` ADD `placement` text DEFAULT 'local' NOT NULL;

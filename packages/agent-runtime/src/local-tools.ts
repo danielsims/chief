@@ -425,6 +425,7 @@ export async function handleLocalTool(
         cron,
         timezone,
         status: "draft",
+        placement: "local",
         approvalSummary: value(body.approvalSummary, "approvalSummary", 2_000)!,
         proposedToolPatterns: toolAddressList(body.proposedToolPatterns),
         createdAt: now,
