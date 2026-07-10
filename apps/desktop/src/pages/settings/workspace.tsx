@@ -34,6 +34,21 @@ import {
   type SocialPlatformDef,
 } from "../../lib/social-platforms";
 import { removeImageAsset, uploadImageAsset } from "../../lib/image-upload";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@marketer/ui/components/select";
+import { IntegrationSetupPanel } from "../../components/chat/integration-setup-panel";
+import { useAgentConfig } from "../../lib/agent-config";
+import {
+  DEPLOY_PROVIDER,
+  DEPLOY_TARGETS,
+  deployWorkspaceTask,
+  type DeployTarget,
+} from "../../lib/deploy-workspace";
+import type { SetupResult } from "../../lib/integration-setup";
 
 function LogoPreview({
   logo,
@@ -52,6 +67,143 @@ function LogoPreview({
       className="h-12 w-12 shrink-0 text-lg"
       imgClassName="h-8 w-8 object-contain"
     />
+  );
+}
+
+function DeploymentSection({
+  org,
+  onOrgChange,
+}: {
+  org: AuthOrganization | null;
+  onOrgChange: (org: AuthOrganization) => void;
+}) {
+  const agentConfig = useAgentConfig();
+  const [target, setTarget] = useState<DeployTarget>("vercel");
+  const [deploying, setDeploying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const metadata = org ? parseOrganizationMetadata(org) : {};
+  const onboarding =
+    metadata.onboarding && typeof metadata.onboarding === "object"
+      ? (metadata.onboarding as Record<string, unknown>)
+      : {};
+  const deployedUrl =
+    typeof onboarding.cloudDeploymentUrl === "string" &&
+    onboarding.cloudDeploymentUrl
+      ? onboarding.cloudDeploymentUrl
+      : null;
+  const driver = agentConfig.forAgent("setup").driver;
+
+  const persistResult = async (result: SetupResult) => {
+    if (result.provider !== DEPLOY_PROVIDER) return;
+    setDeploying(false);
+    const url = typeof result.url === "string" ? result.url : null;
+    if (!org || !url || result.status !== "connected") {
+      if (result.status !== "connected") {
+        setError("Deployment did not finish. The log above has the details.");
+      }
+      return;
+    }
+    setError(null);
+    try {
+      const current = parseOrganizationMetadata(org);
+      const currentOnboarding =
+        current.onboarding && typeof current.onboarding === "object"
+          ? (current.onboarding as Record<string, unknown>)
+          : {};
+      const nextMetadata = {
+        ...current,
+        onboarding: { ...currentOnboarding, cloudDeploymentUrl: url },
+      };
+      await updateAuthOrganization(org.id, { metadata: nextMetadata });
+      onOrgChange({ ...org, metadata: nextMetadata });
+    } catch (persistError) {
+      setError(
+        persistError instanceof Error
+          ? persistError.message
+          : String(persistError),
+      );
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Deployment</CardTitle>
+        <CardDescription>
+          Run this workspace's agent team in the cloud. Your agents, brand
+          context and approved schedules deploy as one artifact.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {deployedUrl ? (
+          <div className="flex items-center justify-between gap-4 border px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">Deployed at</p>
+              <a
+                href={deployedUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="block truncate text-sm underline-offset-2 hover:underline"
+              >
+                {deployedUrl}
+              </a>
+            </div>
+          </div>
+        ) : null}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Select
+              value={target}
+              onValueChange={(value) => setTarget(value as DeployTarget)}
+              disabled={deploying}
+            >
+              <SelectTrigger className="h-8 w-40 text-xs">
+                {DEPLOY_TARGETS.find((item) => item.value === target)?.label}
+              </SelectTrigger>
+              <SelectContent>
+                {DEPLOY_TARGETS.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    <span className="block text-sm">{item.label}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {item.detail}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-xs text-muted-foreground">
+              {DEPLOY_TARGETS.find((item) => item.value === target)?.detail}
+            </span>
+          </div>
+          {driver ? (
+            <Button
+              size="sm"
+              disabled={deploying || !org}
+              onClick={() => {
+                setError(null);
+                setDeploying(true);
+              }}
+            >
+              {deployedUrl ? "Redeploy" : "Deploy workspace"}
+            </Button>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Choose an agent app before deploying.
+            </p>
+          )}
+        </div>
+        {error ? <p className="text-xs text-destructive">{error}</p> : null}
+        {deploying && driver ? (
+          <IntegrationSetupPanel
+            domain={DEPLOY_PROVIDER}
+            prompt={deployWorkspaceTask(target)}
+            driver={driver}
+            onResult={(result) => void persistResult(result)}
+          />
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -459,6 +611,8 @@ export function WorkspaceSettings() {
           )}
         </CardContent>
       </Card>
+
+      <DeploymentSection org={org} onOrgChange={setOrg} />
 
       {org && <DeleteWorkspaceCard org={org} />}
     </>
