@@ -19,53 +19,60 @@ var health_default$1 = health_default$2;
 var health_default = health_default$2;
 //#endregion
 //#region #nitro/virtual/eve-channel/GET /eve/v1/info
+const config$7 = {
+	"appRoot": "/Users/danielsims/Documents/Development/marketer/apps/workspace",
+	"dev": false
+};
+var info_default = (event) => dispatchChannelRequest(event, "GET /eve/v1/info", config$7);
+//#endregion
+//#region #nitro/virtual/eve-channel/POST /eve/v1/session
 const config$6 = {
 	"appRoot": "/Users/danielsims/Documents/Development/marketer/apps/workspace",
 	"dev": false
 };
-var info_default = (event) => dispatchChannelRequest(event, "GET /eve/v1/info", config$6);
+var session_default = (event) => dispatchChannelRequest(event, "POST /eve/v1/session", config$6);
 //#endregion
-//#region #nitro/virtual/eve-channel/POST /eve/v1/session
+//#region #nitro/virtual/eve-channel/POST /eve/v1/session/:sessionId
 const config$5 = {
 	"appRoot": "/Users/danielsims/Documents/Development/marketer/apps/workspace",
 	"dev": false
 };
-var session_default = (event) => dispatchChannelRequest(event, "POST /eve/v1/session", config$5);
+var _sessionId_default = (event) => dispatchChannelRequest(event, "POST /eve/v1/session/:sessionId", config$5);
 //#endregion
-//#region #nitro/virtual/eve-channel/POST /eve/v1/session/:sessionId
+//#region #nitro/virtual/eve-channel/GET /eve/v1/session/:sessionId/stream
 const config$4 = {
 	"appRoot": "/Users/danielsims/Documents/Development/marketer/apps/workspace",
 	"dev": false
 };
-var _sessionId_default = (event) => dispatchChannelRequest(event, "POST /eve/v1/session/:sessionId", config$4);
+var stream_default = (event) => dispatchChannelRequest(event, "GET /eve/v1/session/:sessionId/stream", config$4);
 //#endregion
-//#region #nitro/virtual/eve-channel/GET /eve/v1/session/:sessionId/stream
+//#region #nitro/virtual/eve-channel/GET /eve/v1/connections/:name/callback/:token
 const config$3 = {
 	"appRoot": "/Users/danielsims/Documents/Development/marketer/apps/workspace",
 	"dev": false
 };
-var stream_default = (event) => dispatchChannelRequest(event, "GET /eve/v1/session/:sessionId/stream", config$3);
+var _token_default$2 = (event) => dispatchChannelRequest(event, "GET /eve/v1/connections/:name/callback/:token", config$3);
 //#endregion
-//#region #nitro/virtual/eve-channel/GET /eve/v1/connections/:name/callback/:token
+//#region #nitro/virtual/eve-channel/POST /eve/v1/connections/:name/callback/:token
 const config$2 = {
 	"appRoot": "/Users/danielsims/Documents/Development/marketer/apps/workspace",
 	"dev": false
 };
-var _token_default$2 = (event) => dispatchChannelRequest(event, "GET /eve/v1/connections/:name/callback/:token", config$2);
+var _token_default$1 = (event) => dispatchChannelRequest(event, "POST /eve/v1/connections/:name/callback/:token", config$2);
 //#endregion
-//#region #nitro/virtual/eve-channel/POST /eve/v1/connections/:name/callback/:token
+//#region #nitro/virtual/eve-channel/POST /eve/v1/callback/:token
 const config$1 = {
 	"appRoot": "/Users/danielsims/Documents/Development/marketer/apps/workspace",
 	"dev": false
 };
-var _token_default$1 = (event) => dispatchChannelRequest(event, "POST /eve/v1/connections/:name/callback/:token", config$1);
+var _token_default = (event) => dispatchChannelRequest(event, "POST /eve/v1/callback/:token", config$1);
 //#endregion
-//#region #nitro/virtual/eve-channel/POST /eve/v1/callback/:token
+//#region #nitro/virtual/eve-channel/POST /eve/v1/slack
 const config = {
 	"appRoot": "/Users/danielsims/Documents/Development/marketer/apps/workspace",
 	"dev": false
 };
-var _token_default = (event) => dispatchChannelRequest(event, "POST /eve/v1/callback/:token", config);
+var slack_default = (event) => dispatchChannelRequest(event, "POST /eve/v1/slack", config);
 //#endregion
 //#region .eve/nitro/workflow/workflows-handler.mjs
 var workflows_handler_default = async ({ req }) => {
@@ -163,25 +170,29 @@ const findRoute = /* @__PURE__ */ (() => {
 		method: "POST",
 		handler: toEventHandler(session_default)
 	}, $5 = {
+		route: "/eve/v1/slack",
+		method: "POST",
+		handler: toEventHandler(slack_default)
+	}, $6 = {
 		route: "/.well-known/workflow/v1/flow",
 		handler: toEventHandler(workflows_handler_default)
-	}, $6 = {
+	}, $7 = {
 		route: "/eve/v1/session/:sessionId",
 		method: "POST",
 		handler: toEventHandler(_sessionId_default)
-	}, $7 = {
+	}, $8 = {
 		route: "/eve/v1/session/:sessionId/stream",
 		method: "GET",
 		handler: toEventHandler(stream_default)
-	}, $8 = {
+	}, $9 = {
 		route: "/eve/v1/connections/:name/callback/:token",
 		method: "GET",
 		handler: toEventHandler(_token_default$2)
-	}, $9 = {
+	}, $10 = {
 		route: "/eve/v1/connections/:name/callback/:token",
 		method: "POST",
 		handler: toEventHandler(_token_default$1)
-	}, $10 = {
+	}, $11 = {
 		route: "/eve/v1/callback/:token",
 		method: "POST",
 		handler: toEventHandler(_token_default)
@@ -197,7 +208,9 @@ const findRoute = /* @__PURE__ */ (() => {
 			if (m === "GET") return { data: $3 };
 		} else if (p === "/eve/v1/session") {
 			if (m === "POST") return { data: $4 };
-		} else if (p === "/.well-known/workflow/v1/flow") return { data: $5 };
+		} else if (p === "/eve/v1/slack") {
+			if (m === "POST") return { data: $5 };
+		} else if (p === "/.well-known/workflow/v1/flow") return { data: $6 };
 		let s = p.split("/"), l = s.length;
 		if (l > 1) {
 			if (s[1] === "eve") {
@@ -208,14 +221,14 @@ const findRoute = /* @__PURE__ */ (() => {
 								if (l === 5 || l === 4) {
 									if (m === "POST") {
 										if (l > 4) return {
-											data: $6,
+											data: $7,
 											params: { "sessionId": s[4] }
 										};
 									}
 								} else if (s[5] === "stream") {
 									if (l === 6) {
 										if (m === "GET") return {
-											data: $7,
+											data: $8,
 											params: { "sessionId": s[4] }
 										};
 									}
@@ -226,7 +239,7 @@ const findRoute = /* @__PURE__ */ (() => {
 										if (l === 7 || l === 6) {
 											if (m === "GET") {
 												if (l > 6) return {
-													data: $8,
+													data: $9,
 													params: {
 														"name": s[4],
 														"token": s[6]
@@ -235,7 +248,7 @@ const findRoute = /* @__PURE__ */ (() => {
 											}
 											if (m === "POST") {
 												if (l > 6) return {
-													data: $9,
+													data: $10,
 													params: {
 														"name": s[4],
 														"token": s[6]
@@ -249,7 +262,7 @@ const findRoute = /* @__PURE__ */ (() => {
 								if (l === 5 || l === 4) {
 									if (m === "POST") {
 										if (l > 4) return {
-											data: $10,
+											data: $11,
 											params: { "token": s[4] }
 										};
 									}

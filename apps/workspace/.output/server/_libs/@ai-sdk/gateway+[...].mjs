@@ -10853,7 +10853,7 @@ var require_get_vercel_oidc_token = /* @__PURE__ */ __commonJSMin(((exports, mod
 			err = error;
 		}
 		try {
-			const [{ getTokenPayload, isExpired }, { refreshToken }] = await Promise.all([await import("../_.mjs").then((m) => /* @__PURE__ */ __toESM(m.default)), await import("../_6.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))]);
+			const [{ getTokenPayload, isExpired }, { refreshToken }] = await Promise.all([await import("../_.mjs").then((m) => /* @__PURE__ */ __toESM(m.default)), await import("../_7.mjs").then((m) => /* @__PURE__ */ __toESM(m.default))]);
 			if (!token || isExpired(getTokenPayload(token), options?.expirationBufferMs)) {
 				await refreshToken(options);
 				token = getVercelOidcTokenSync();

@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@vercel/connect": "^0.3.2",
     "eve": "^0.22.4",
     "zod": "^4.4.3"
   },
