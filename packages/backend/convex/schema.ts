@@ -146,7 +146,9 @@ export default defineSchema({
     storageId: v.id("_storage"),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_owner_kind", ["ownerId", "kind"]),
+  })
+    .index("by_owner_kind", ["ownerId", "kind"])
+    .index("by_storage", ["storageId"]),
 
   /**
    * Stripe billing state, scoped to the better-auth organization. The row is

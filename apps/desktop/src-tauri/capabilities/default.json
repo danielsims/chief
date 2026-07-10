@@ -20,7 +20,9 @@
         { "url": "https://accounts.google.com/**" },
         { "url": "https://*.googleusercontent.com/**" },
         { "url": "https://oauth2.googleapis.com/**" },
-        { "url": "https://integrations.sh/**" }
+        { "url": "https://integrations.sh/**" },
+        { "url": "https://*.convex.cloud/**" },
+        { "url": "https://*.convex.site/**" }
       ]
     }
   ]
