@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -79,17 +80,54 @@ function pathsForWorkspace(workspaceId: string): ExecutorWorkspace {
   return { scopeDir: join(root, "scope"), dataDir: join(root, "data") };
 }
 
+function portForWorkspace(workspaceId: string): number {
+  const key = workspaceKey(workspaceId);
+  return 20_000 + (Number.parseInt(key.slice(0, 6), 16) % 20_000);
+}
+
+function portIsAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.unref();
+    server.once("error", () => resolve(false));
+    server.listen(port, "127.0.0.1", () => {
+      server.close(() => resolve(true));
+    });
+  });
+}
+
+async function availableWorkspacePort(workspaceId: string) {
+  const first = portForWorkspace(workspaceId);
+  for (let offset = 0; offset < 64; offset += 1) {
+    const port = 20_000 + ((first - 20_000 + offset) % 20_000);
+    if (await portIsAvailable(port)) return port;
+  }
+  throw new Error("No local port is available for this workspace's tools.");
+}
+
+function manifestPath(dataDir: string) {
+  return join(dataDir, "server-control", "server.json");
+}
+
+async function readManifest(dataDir: string): Promise<ServerManifest | null> {
+  try {
+    const manifest = JSON.parse(
+      await readFile(manifestPath(dataDir), "utf8"),
+    ) as ServerManifest;
+    return manifest.connection?.apiBaseUrl && manifest.connection.auth
+      ? manifest
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function waitForManifest(dataDir: string): Promise<ServerManifest> {
-  const path = join(dataDir, "server-control", "server.json");
   let lastError: unknown;
   for (let attempt = 0; attempt < 40; attempt += 1) {
     try {
-      const manifest = JSON.parse(
-        await readFile(path, "utf8"),
-      ) as ServerManifest;
-      if (manifest.connection?.apiBaseUrl && manifest.connection.auth) {
-        return manifest;
-      }
+      const manifest = await readManifest(dataDir);
+      if (manifest) return manifest;
     } catch (error) {
       lastError = error;
     }
@@ -292,6 +330,8 @@ async function approveReadTools(manifest: ServerManifest) {
       "localTools.trendsSave",
       "localTools.contentList",
       "localTools.contentSave",
+      "localTools.campaignsList",
+      "localTools.campaignsSave",
     ].includes(tool.name),
   );
 
@@ -324,15 +364,37 @@ async function provision(
     if (error.code !== "EEXIST") throw error;
   });
 
-  await execFileAsync(
-    executorBinary(),
-    ["daemon", "run", "--scope", workspace.scopeDir],
-    {
-      env: { ...process.env, EXECUTOR_DATA_DIR: workspace.dataDir },
-      timeout: 30_000,
-    },
-  );
-  const manifest = await waitForManifest(workspace.dataDir);
+  let manifest = await readManifest(workspace.dataDir);
+  if (manifest) {
+    try {
+      await request(manifest, "/integrations");
+    } catch {
+      manifest = null;
+      await rm(manifestPath(workspace.dataDir), { force: true });
+    }
+  }
+
+  if (!manifest) {
+    const port = await availableWorkspacePort(workspaceId);
+    await execFileAsync(
+      executorBinary(),
+      [
+        "daemon",
+        "run",
+        "--hostname",
+        "127.0.0.1",
+        "--port",
+        String(port),
+        "--scope",
+        workspace.scopeDir,
+      ],
+      {
+        env: { ...process.env, EXECUTOR_DATA_DIR: workspace.dataDir },
+        timeout: 30_000,
+      },
+    );
+    manifest = await waitForManifest(workspace.dataDir);
+  }
   await configureIntegration(manifest, capability);
   await configureLocalIntegration(manifest, capability);
   await replaceConnection(manifest, capability);
