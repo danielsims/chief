@@ -136,7 +136,7 @@ export function LineChartCard({
 
       <div
         ref={chartRef}
-        className="relative mt-2 h-64 w-full overflow-hidden"
+        className="relative mt-2 h-64 w-full overflow-visible"
         onMouseLeave={() => setHoveredIndex(null)}
       >
         <svg

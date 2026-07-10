@@ -7,13 +7,26 @@ use std::{
     time::Duration,
 };
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 struct RuntimeProcess(Mutex<Option<Child>>);
 
 impl Drop for RuntimeProcess {
     fn drop(&mut self) {
         if let Ok(mut child) = self.0.lock() {
             if let Some(child) = child.as_mut() {
+                #[cfg(unix)]
+                {
+                    let process_group = format!("-{}", child.id());
+                    let _ = Command::new("/bin/kill")
+                        .args(["-TERM", &process_group])
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status();
+                }
                 let _ = child.kill();
+                let _ = child.wait();
             }
         }
     }
@@ -86,6 +99,9 @@ fn start_agent_runtime() -> Option<Child> {
             .env("PATH", &path)
             .stdout(stdout)
             .stderr(stderr);
+
+        #[cfg(unix)]
+        command.process_group(0);
 
         match command.spawn() {
             Ok(child) => {

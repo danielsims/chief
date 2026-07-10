@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@marketer/ui/lib/utils";
 
 /**
@@ -44,11 +44,29 @@ export function OrgLogo({
   }, [logo, website]);
   const [candidateIndex, setCandidateIndex] = useState(0);
   const [loaded, setLoaded] = useState(false);
+  const imageRef = useRef<HTMLImageElement>(null);
   const candidate = candidates[candidateIndex];
   useEffect(() => {
     setCandidateIndex(0);
     setLoaded(false);
   }, [logo, website]);
+
+  useEffect(() => {
+    const image = imageRef.current;
+    if (!image || !candidate) return;
+    const frame = requestAnimationFrame(() => {
+      if (!image.complete) return;
+      if (image.naturalWidth >= candidate.minimumWidth) {
+        setLoaded(true);
+      } else if (image.naturalWidth > 0) {
+        setLoaded(false);
+        setCandidateIndex((index) =>
+          index === candidateIndex ? index + 1 : index,
+        );
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [candidate, candidateIndex]);
 
   const initial = name.trim().charAt(0).toUpperCase() || "?";
 
@@ -64,6 +82,7 @@ export function OrgLogo({
       </span>
       {candidate ? (
         <img
+          ref={imageRef}
           src={candidate.src}
           alt=""
           draggable={false}

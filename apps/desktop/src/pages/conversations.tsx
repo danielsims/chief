@@ -279,7 +279,7 @@ export function ConversationsPage() {
 
   return (
     <div className="-mb-8 flex h-[calc(100vh-48px)]">
-      <aside className="flex w-72 shrink-0 flex-col border-r pr-5">
+      <aside className="flex w-72 shrink-0 flex-col border-r px-5">
         <div className="shrink-0 pt-10">
           <div className="flex items-center justify-between">
             <h1 className="font-serif text-3xl">Conversations</h1>

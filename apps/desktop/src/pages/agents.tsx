@@ -324,7 +324,7 @@ export function AgentsPage() {
 
   return (
     <div className="-mb-8 flex min-h-[calc(100vh-48px)]">
-      <aside className="w-56 shrink-0 border-r pt-10 pr-5">
+      <aside className="w-56 shrink-0 border-r px-5 pt-10">
         <h1 className="font-serif text-3xl">Agents</h1>
         <nav className="mt-7 space-y-1">
           {[
