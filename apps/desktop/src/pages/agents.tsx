@@ -31,6 +31,7 @@ import {
   type AgentOverride as LocalAgentOverride,
   getWorkspaceProvider,
   setAgentOverride,
+  setWorkspaceProvider,
 } from "../lib/agent-overrides";
 import { useAgentConfig } from "../lib/agent-config";
 import { PROVIDER_META, type Provider } from "../lib/providers";
@@ -129,6 +130,11 @@ function InstalledAgentCard({
     if (patch.integrations) mirror.integrations = patch.integrations;
     if (workspaceId && Object.keys(mirror).length > 0) {
       setAgentOverride(workspaceId, agent.id, mirror);
+    }
+    // The first explicit driver choice becomes the workspace default so new
+    // chats for every agent open resolved instead of asking.
+    if (workspaceId && patch.driver && !getWorkspaceProvider(workspaceId)) {
+      setWorkspaceProvider(workspaceId, patch.driver);
     }
 
     onSave({

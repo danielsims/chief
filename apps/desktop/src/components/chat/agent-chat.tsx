@@ -14,6 +14,10 @@ import {
 import { useAgentChat, useProviderModels, useRuntime } from "../../lib/runtime";
 import { useAuth } from "../../lib/auth/auth-context";
 import { useAgentConfig } from "../../lib/agent-config";
+import {
+  getWorkspaceProvider,
+  setWorkspaceProvider,
+} from "../../lib/agent-overrides";
 import { PROVIDER_META } from "../../lib/providers";
 import {
   findPendingInputRequest,
@@ -309,6 +313,14 @@ export function AgentChat({
                   setChosenDriver(next);
                   setChosenModel("");
                   savePreferences(next, "");
+                  // The first explicit choice becomes the workspace default,
+                  // so no later chat ever opens unresolved again.
+                  if (
+                    cloudOrganizationId &&
+                    !getWorkspaceProvider(cloudOrganizationId)
+                  ) {
+                    setWorkspaceProvider(cloudOrganizationId, next);
+                  }
                 }}
               >
                 <SelectTrigger className="h-6 w-auto gap-1.5 border-transparent px-1 text-xs text-muted-foreground hover:text-foreground data-[state=open]:text-foreground">
