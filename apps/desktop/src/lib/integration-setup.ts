@@ -33,6 +33,27 @@ export interface SetupIntegration {
   name: string;
 }
 
+export interface AnalyticsSnapshotInput {
+  provider: string;
+  period: string;
+  activeUsers?: number;
+  sessions?: number;
+  pageViews?: number;
+  conversions?: number;
+  revenue?: number;
+  metricLabel?: string;
+  series?: Array<{ date: string; value: number }>;
+  rangeMetrics?: Array<{
+    key: string;
+    period: string;
+    activeUsers?: number;
+    sessions?: number;
+    pageViews?: number;
+    conversions?: number;
+    revenue?: number;
+  }>;
+}
+
 export function setupChatId(domain: string) {
   return `setup-${domain}`;
 }
@@ -154,7 +175,9 @@ const GOOGLE_CLIENT_STEPS = [
     text: "Click **Create credentials**, then **OAuth client ID**. Create a new one even if others are listed.",
   },
   { text: "Type: **Desktop app**. Name: **Marketer**. Click **Create**." },
-  { text: "Copy the **Client ID** and **Client secret** into the fields below." },
+  {
+    text: "Copy the **Client ID** and **Client secret** into the fields below.",
+  },
 ];
 
 /**
@@ -278,6 +301,7 @@ export async function persistSetupResult(
       displayName?: string;
       externalId?: string;
     }) => Promise<unknown>;
+    saveSnapshot?: (args: AnalyticsSnapshotInput) => Promise<unknown>;
   },
   category?: string,
 ): Promise<void> {
@@ -289,16 +313,58 @@ export async function persistSetupResult(
           ? result.propertyName
           : undefined,
     });
-    return;
+  } else {
+    await deps.markConnected({
+      provider: String(result.provider),
+      category,
+      displayName:
+        typeof result.displayName === "string" ? result.displayName : undefined,
+      externalId:
+        typeof result.externalId === "string" ? result.externalId : undefined,
+    });
   }
-  await deps.markConnected({
-    provider: String(result.provider),
-    category,
-    displayName:
-      typeof result.displayName === "string" ? result.displayName : undefined,
-    externalId:
-      typeof result.externalId === "string" ? result.externalId : undefined,
-  });
+
+  const numeric = (key: string) =>
+    typeof result[key] === "number" ? (result[key] as number) : undefined;
+  const series = Array.isArray(result.series) ? result.series : undefined;
+  if (
+    deps.saveSnapshot &&
+    (series?.length ||
+      ["activeUsers", "sessions", "pageViews", "conversions", "revenue"].some(
+        (key) => numeric(key) !== undefined,
+      ))
+  ) {
+    await deps.saveSnapshot({
+      provider: isGoogleAnalyticsResult(result)
+        ? "google-analytics"
+        : String(result.provider),
+      period:
+        typeof result.period === "string"
+          ? result.period
+          : series?.length
+            ? `${series.length} D`
+            : "30 D",
+      ...(numeric("activeUsers") !== undefined
+        ? { activeUsers: numeric("activeUsers") }
+        : {}),
+      ...(numeric("sessions") !== undefined
+        ? { sessions: numeric("sessions") }
+        : {}),
+      ...(numeric("pageViews") !== undefined
+        ? { pageViews: numeric("pageViews") }
+        : {}),
+      ...(numeric("conversions") !== undefined
+        ? { conversions: numeric("conversions") }
+        : {}),
+      ...(numeric("revenue") !== undefined
+        ? { revenue: numeric("revenue") }
+        : {}),
+      ...(typeof result.metricLabel === "string"
+        ? { metricLabel: result.metricLabel }
+        : {}),
+      ...(series?.length ? { series } : {}),
+    });
+  }
 }
 
 export function integrationSetupTask(integration: SetupIntegration): string {

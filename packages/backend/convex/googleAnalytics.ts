@@ -622,3 +622,130 @@ export const summary = action({
     };
   },
 });
+
+const REPORT_METRICS = new Set([
+  "activeUsers",
+  "newUsers",
+  "sessions",
+  "engagedSessions",
+  "screenPageViews",
+  "eventCount",
+  "keyEvents",
+  "totalRevenue",
+  "userEngagementDuration",
+]);
+
+const REPORT_DIMENSIONS = new Set([
+  "date",
+  "dateHour",
+  "country",
+  "city",
+  "deviceCategory",
+  "sessionDefaultChannelGroup",
+  "sessionSource",
+  "sessionMedium",
+  "pagePath",
+  "pageTitle",
+  "eventName",
+]);
+
+/**
+ * Authenticated capability endpoint used by the local MCP adapter. It keeps
+ * provider credentials in Convex while returning a portable row model.
+ */
+export const runReport = action({
+  args: {
+    startDate: v.string(),
+    endDate: v.string(),
+    metrics: v.array(v.string()),
+    dimensions: v.array(v.string()),
+    limit: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    const organizationId = identity?.organizationId as string | undefined;
+    if (!identity || !organizationId) {
+      throw new Error("No active workspace. Sign out and back in.");
+    }
+    if (args.metrics.length === 0) throw new Error("Choose at least one metric.");
+    for (const metric of args.metrics) {
+      if (!REPORT_METRICS.has(metric)) throw new Error(`Unsupported metric: ${metric}`);
+    }
+    for (const dimension of args.dimensions) {
+      if (!REPORT_DIMENSIONS.has(dimension)) {
+        throw new Error(`Unsupported dimension: ${dimension}`);
+      }
+    }
+
+    const token = await accessTokenForOrganization(ctx, organizationId);
+    if (!token?.accessToken || !token.propertyId) {
+      throw new Error("Google Analytics is not connected to this workspace.");
+    }
+    const data = await fetchJson<{
+      dimensionHeaders?: Array<{ name: string }>;
+      metricHeaders?: Array<{ name: string; type?: string }>;
+      rows?: Array<{
+        dimensionValues?: Array<{ value?: string }>;
+        metricValues?: Array<{ value?: string }>;
+      }>;
+      rowCount?: number;
+    }>(
+      `https://analyticsdata.googleapis.com/v1beta/properties/${token.propertyId}:runReport`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          dateRanges: [{ startDate: args.startDate, endDate: args.endDate }],
+          metrics: args.metrics.map((name) => ({ name })),
+          dimensions: args.dimensions.map((name) => ({ name })),
+          limit: Math.max(1, Math.min(Math.trunc(args.limit), 10_000)),
+          keepEmptyRows: false,
+        }),
+      },
+    );
+
+    const dimensionHeaders = (data.dimensionHeaders ?? []).map(
+      (header) => header.name,
+    );
+    const metricHeaders = (data.metricHeaders ?? []).map((header) => ({
+      name: header.name,
+      type: header.type ?? "TYPE_UNSPECIFIED",
+    }));
+    const rows = (data.rows ?? []).map((row) => {
+      const result: Record<string, string | number> = {};
+      dimensionHeaders.forEach((name, index) => {
+        result[name] = row.dimensionValues?.[index]?.value ?? "";
+      });
+      metricHeaders.forEach((header, index) => {
+        const raw = row.metricValues?.[index]?.value ?? "0";
+        const numeric = Number(raw);
+        result[header.name] = Number.isFinite(numeric) ? numeric : raw;
+      });
+      return result;
+    });
+
+    await ctx.runMutation(internal.googleAnalytics.markSynced, {
+      organizationId,
+    });
+    return {
+      source: {
+        provider: PROVIDER,
+        id: token.propertyId,
+      },
+      range: { startDate: args.startDate, endDate: args.endDate },
+      columns: [
+        ...dimensionHeaders.map((name) => ({ name, kind: "dimension" })),
+        ...metricHeaders.map((header) => ({
+          name: header.name,
+          kind: "metric",
+          type: header.type,
+        })),
+      ],
+      rows,
+      rowCount: data.rowCount ?? rows.length,
+    };
+  },
+});

@@ -4,6 +4,17 @@ import { convex } from "./convex";
 
 export type BillingPlan = "monthly" | "annual";
 
+export type BillingStatus =
+  "trialing" | "active" | "past_due" | "canceled" | "incomplete";
+
+export function hasWorkspaceAccess(
+  subscription: { status: BillingStatus } | null | undefined,
+): boolean {
+  return (
+    subscription?.status === "trialing" || subscription?.status === "active"
+  );
+}
+
 export type CheckoutResult =
   | { status: "opened" }
   | { status: "unavailable" }

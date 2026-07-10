@@ -17,6 +17,7 @@ import type {
   ServerMessage,
 } from "@marketer/agent-runtime/types";
 import { getAgentOverride } from "./agent-overrides";
+import { useAuth } from "./auth/auth-context";
 
 // "localhost" (not 127.0.0.1) — macOS ATS only exempts the literal
 // localhost hostname for insecure websockets inside WKWebView.
@@ -304,13 +305,13 @@ export function useAgentChat(
   access?: AccessMode,
 ) {
   const { client, status: runtimeStatus } = useRuntime();
+  const { cloudOrganizationId } = useAuth();
   const chatId = agentId ? (chatIdOverride ?? `${agentId}-main`) : null;
   const [chat, setChat] = useState<ChatState>(emptyChat);
   // True once the runtime has confirmed the session (history replayed).
   // Callers that auto-send a first prompt must wait for this, or the prompt
   // races the async session open and lands on a dead chat.
   const [sessionReady, setSessionReady] = useState(false);
-
   useEffect(() => {
     if (!agentId || !chatId || !driver || runtimeStatus !== "connected") return;
     setChat(emptyChat);
@@ -322,6 +323,7 @@ export function useAgentChat(
       driver,
       access,
       model: getAgentOverride(agentId).model,
+      workspaceId: cloudOrganizationId ?? undefined,
     });
 
     const unsub = client.subscribe((msg) => {
@@ -343,7 +345,15 @@ export function useAgentChat(
       unsub();
       setSessionReady(false);
     };
-  }, [agentId, chatId, client, runtimeStatus, driver, access]);
+  }, [
+    agentId,
+    chatId,
+    client,
+    runtimeStatus,
+    driver,
+    access,
+    cloudOrganizationId,
+  ]);
 
   const send = (text: string) => {
     if (!chatId || !text.trim()) return;

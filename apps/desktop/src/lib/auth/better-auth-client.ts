@@ -217,7 +217,7 @@ export async function updateAuthOrganization(
   organizationId: string,
   data: {
     name?: string;
-    logo?: string;
+    logo?: string | null;
     metadata?: Record<string, unknown>;
   },
 ): Promise<void> {

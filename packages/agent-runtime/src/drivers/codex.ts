@@ -1,14 +1,31 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
-import { existsSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { BaseDriver } from "./base.js";
 import type { ContentBlock, StartOptions } from "../types.js";
 
 function findCodex(): string {
   if (process.env.CODEX_PATH) return process.env.CODEX_PATH;
+  const packageCodex = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+    "node_modules",
+    ".bin",
+    "codex",
+  );
   for (const p of [
+    packageCodex,
     join(homedir(), ".local/bin/codex"),
     "/usr/local/bin/codex",
     "/opt/homebrew/bin/codex",
@@ -35,6 +52,8 @@ export class CodexDriver extends BaseDriver {
   private rpcId = 0;
   private pending = new Map<number, RpcRequest>();
   private approvals = new Map<string, number>();
+  private activeToolUseIds = new Set<string>();
+  private currentStream = "";
   private opts: StartOptions | null = null;
 
   async start(opts: StartOptions): Promise<void> {
@@ -47,8 +66,10 @@ export class CodexDriver extends BaseDriver {
     } catch {
       // non-fatal
     }
+    const codexHome = this.prepareCodexHome(opts);
     this.proc = spawn(findCodex(), ["app-server"], {
       cwd: opts.cwd,
+      env: { ...process.env, CODEX_HOME: codexHome },
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -56,6 +77,9 @@ export class CodexDriver extends BaseDriver {
     this.proc.on("error", (err) =>
       this.emitEvent({ type: "error", message: err.message }),
     );
+    // Codex writes diagnostics to stderr. Always drain it so a full pipe can
+    // never stall the app-server while a turn is streaming.
+    this.proc.stderr?.on("data", () => {});
 
     const rl = createInterface({ input: this.proc.stdout! });
     rl.on("line", (line) => {
@@ -96,7 +120,15 @@ export class CodexDriver extends BaseDriver {
         });
       } catch {
         // older/newer app-servers can reject optional fields — retry bare
-        res = await this.rpc("thread/resume", { threadId: this.threadId });
+        try {
+          res = await this.rpc("thread/resume", { threadId: this.threadId });
+        } catch {
+          res = await this.rpc("thread/start", {
+            cwd: opts.cwd,
+            ...accessParams,
+            ...(opts.model ? { model: opts.model } : {}),
+          });
+        }
       }
       this.threadId = threadIdOf(res) ?? this.threadId;
     } else {
@@ -116,7 +148,64 @@ export class CodexDriver extends BaseDriver {
       if (!id) throw new Error("codex thread/start returned no thread id");
       this.threadId = id;
     }
-    this.emitEvent({ type: "init", sessionId: this.threadId!, model: opts.model });
+    this.emitEvent({
+      type: "init",
+      sessionId: this.threadId!,
+      model: opts.model,
+    });
+  }
+
+  private prepareCodexHome(opts: StartOptions) {
+    const safeName = opts.cwd.replace(/[^a-z0-9_-]/gi, "-").slice(-80);
+    const target = join(homedir(), ".marketer", "codex", safeName);
+    mkdirSync(target, { recursive: true });
+    const userHome = join(homedir(), ".codex");
+    const auth = join(userHome, "auth.json");
+    if (existsSync(auth)) copyFileSync(auth, join(target, "auth.json"));
+
+    // Reuse the user's transcript store so persisted thread ids can resume,
+    // while keeping Marketer's MCP configuration isolated from global Codex.
+    for (const name of ["sessions", "session_index.jsonl"]) {
+      const source = join(userHome, name);
+      const destination = join(target, name);
+      if (existsSync(source) && !existsSync(destination)) {
+        try {
+          symlinkSync(source, destination);
+        } catch {
+          // A concurrent session may have created it first.
+        }
+      }
+    }
+
+    const lines: string[] = [];
+    const model = opts.model ?? this.readUserCodexSetting("model");
+    if (model) lines.push(`model = ${JSON.stringify(model)}`);
+    lines.push('model_reasoning_effort = "medium"');
+    for (const server of opts.mcpServers ?? []) {
+      lines.push("", `[mcp_servers.${server.name}]`);
+      lines.push(`command = ${JSON.stringify(server.command)}`);
+      lines.push(
+        `args = [${server.args.map((value) => JSON.stringify(value)).join(", ")}]`,
+      );
+      if (server.env && Object.keys(server.env).length > 0) {
+        const env = Object.entries(server.env)
+          .map(([key, value]) => `${key} = ${JSON.stringify(value)}`)
+          .join(", ");
+        lines.push(`env = { ${env} }`);
+      }
+      lines.push("startup_timeout_sec = 30");
+    }
+    writeFileSync(join(target, "config.toml"), `${lines.join("\n")}\n`);
+    return target;
+  }
+
+  private readUserCodexSetting(key: string) {
+    try {
+      const config = readFileSync(join(homedir(), ".codex", "config.toml"), "utf8");
+      return config.match(new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, "m"))?.[1];
+    } catch {
+      return undefined;
+    }
   }
 
   private handleMessage(msg: {
@@ -158,32 +247,75 @@ export class CodexDriver extends BaseDriver {
 
     switch (msg.method) {
       case "turn/started":
-        this.turnId = p.turnId;
+        this.turnId = p.turnId ?? p.turn?.id;
+        this.currentStream = "";
         this.emitEvent({ type: "status", status: "running" });
         break;
       case "item/agentMessage/delta":
-        if (typeof p.delta === "string") {
-          this.emitEvent({ type: "stream", text: p.delta });
+        {
+          const delta =
+            typeof p.delta === "string"
+              ? p.delta
+              : typeof p.delta?.text === "string"
+                ? p.delta.text
+                : typeof p.text === "string"
+                  ? p.text
+                  : "";
+          if (delta) {
+            this.currentStream += delta;
+            this.emitEvent({ type: "stream", text: delta });
+          }
         }
         break;
+      case "item/started": {
+        const item = (p.item ?? p) as Record<string, any>;
+        const blocks = this.itemStartedToBlocks(item);
+        if (blocks.length > 0) {
+          this.emitEvent({
+            type: "message",
+            role: "assistant",
+            content: blocks,
+          });
+        }
+        break;
+      }
       case "item/completed": {
         const item = p.item as Record<string, any> | undefined;
         if (!item) break;
         const blocks = this.itemToBlocks(item);
         if (blocks.length > 0) {
-          this.emitEvent({ type: "message", role: "assistant", content: blocks });
+          this.emitEvent({
+            type: "message",
+            role: "assistant",
+            content: blocks,
+          });
         }
         break;
       }
       case "turn/completed":
-        this.emitEvent({ type: "result", ok: true });
+        {
+          const turn = p.turn ?? p;
+          const failed = turn.status === "failed";
+          this.emitEvent({
+            type: "result",
+            ok: !failed,
+            error: failed
+              ? String(turn.error?.message ?? turn.error ?? "turn failed")
+              : undefined,
+          });
+        }
+        this.currentStream = "";
         this.emitEvent({ type: "status", status: "idle" });
         break;
       case "turn/failed":
         this.emitEvent({
           type: "result",
           ok: false,
-          error: String(p.error?.message ?? "turn failed"),
+          error: String(
+            typeof p.error === "string"
+              ? p.error
+              : (p.error?.message ?? "turn failed"),
+          ),
         });
         this.emitEvent({ type: "status", status: "idle" });
         break;
@@ -193,10 +325,29 @@ export class CodexDriver extends BaseDriver {
   private itemToBlocks(item: Record<string, any>): ContentBlock[] {
     switch (item.type) {
       case "agentMessage":
-        return item.text ? [{ type: "text", text: item.text }] : [];
-      case "reasoning":
-        return item.text ? [{ type: "thinking", thinking: item.text }] : [];
-      case "commandExecution": {
+      case "agent_message": {
+        const text =
+          typeof item.text === "string"
+            ? item.text
+            : typeof item.content === "string"
+              ? item.content
+              : this.currentStream;
+        this.currentStream = "";
+        return text ? [{ type: "text", text }] : [];
+      }
+      case "reasoning": {
+        const text =
+          typeof item.text === "string"
+            ? item.text
+            : typeof item.summary === "string"
+              ? item.summary
+              : Array.isArray(item.summary)
+                ? item.summary.map((part: any) => part?.text ?? "").join("\n")
+                : "";
+        return text ? [{ type: "thinking", thinking: text }] : [];
+      }
+      case "commandExecution":
+      case "command_execution": {
         const id = String(item.id ?? this.rpcId++);
         const blocks: ContentBlock[] = [
           {
@@ -211,28 +362,96 @@ export class CodexDriver extends BaseDriver {
         const output =
           item.output ?? item.aggregatedOutput ?? item.aggregated_output;
         const exitCode = item.exitCode ?? item.exit_code;
-        if (typeof output === "string" && output.trim()) {
-          blocks.push({
-            type: "tool_result",
-            tool_use_id: id,
-            content: output,
-            is_error: typeof exitCode === "number" && exitCode !== 0,
-          });
-        }
+        blocks.push({
+          type: "tool_result",
+          tool_use_id: id,
+          content:
+            typeof output === "string" && output.trim()
+              ? output
+              : `Command completed${typeof exitCode === "number" ? ` with exit code ${exitCode}` : ""}.`,
+          is_error: typeof exitCode === "number" && exitCode !== 0,
+        });
         return blocks;
       }
       case "fileChange":
+      case "file_change": {
+        const id = String(item.id ?? this.rpcId++);
         return [
           {
             type: "tool_use",
-            id: String(item.id ?? this.rpcId++),
+            id,
             name: "editFile",
-            input: { changes: item.changes },
+            input: {
+              file: item.filePath ?? item.file,
+              changes: item.changes,
+            },
+          },
+          {
+            type: "tool_result",
+            tool_use_id: id,
+            content:
+              item.diff ??
+              `Updated ${item.filePath ?? item.file ?? "workspace files"}.`,
           },
         ];
+      }
+      case "mcpToolCall":
+      case "mcp_tool_call": {
+        const id = String(item.id ?? this.rpcId++);
+        const result = item.result ?? item.output ?? item.content;
+        this.activeToolUseIds.delete(id);
+        return result === undefined
+          ? []
+          : [
+              {
+                type: "tool_result",
+                tool_use_id: id,
+                content: result,
+              },
+            ];
+      }
+      case "webSearch":
+      case "web_search": {
+        const id = String(item.id ?? this.rpcId++);
+        this.activeToolUseIds.delete(id);
+        return [
+          {
+            type: "tool_result",
+            tool_use_id: id,
+            content:
+              item.result ??
+              item.output ??
+              (item.query ? `Searched for ${item.query}` : "Search complete"),
+          },
+        ];
+      }
       default:
         return [];
     }
+  }
+
+  private itemStartedToBlocks(item: Record<string, any>): ContentBlock[] {
+    if (
+      item.type === "mcpToolCall" ||
+      item.type === "mcp_tool_call" ||
+      item.type === "webSearch" ||
+      item.type === "web_search"
+    ) {
+      const id = String(item.id ?? this.rpcId++);
+      this.activeToolUseIds.add(id);
+      const isSearch = item.type === "webSearch" || item.type === "web_search";
+      return [
+        {
+          type: "tool_use",
+          id,
+          name: isSearch ? "web_search" : String(item.tool ?? "tool"),
+          input: isSearch
+            ? { query: item.query ?? item.action?.query ?? "" }
+            : (item.arguments ?? item.input ?? {}),
+        },
+      ];
+    }
+    return [];
   }
 
   async sendPrompt(text: string): Promise<void> {
@@ -272,7 +491,8 @@ export class CodexDriver extends BaseDriver {
       this.pending.set(id, { resolve, reject });
       this.write({ jsonrpc: "2.0", id, method, params });
       setTimeout(() => {
-        if (this.pending.delete(id)) reject(new Error(`RPC timeout: ${method}`));
+        if (this.pending.delete(id))
+          reject(new Error(`RPC timeout: ${method}`));
       }, 30_000);
     });
   }

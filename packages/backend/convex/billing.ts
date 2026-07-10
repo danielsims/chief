@@ -78,6 +78,12 @@ const claimStripeWebhookEventRef = fnRef<
   { claimed: boolean }
 >("billing:claimStripeWebhookEvent");
 
+const hasStripeWebhookEventRef = fnRef<
+  "query",
+  { stripeEventId: string },
+  boolean
+>("billing:hasStripeWebhookEvent");
+
 interface SubscriptionRecord {
   _id: string;
   organizationId: string;
@@ -161,7 +167,6 @@ function validateRedirectUrl(url: string): string {
   return parsed.toString();
 }
 
-
 function billingReturnUrl(status: string): string {
   const siteUrl = process.env.CONVEX_SITE_URL;
   if (!siteUrl) throw new Error("Missing CONVEX_SITE_URL");
@@ -170,19 +175,95 @@ function billingReturnUrl(status: string): string {
 
 export const billingReturnPage = httpAction(async (_ctx, request) => {
   const status = new URL(request.url).searchParams.get("status");
-  const heading =
-    status === "success"
-      ? "Payment set up."
-      : status === "canceled"
-        ? "Checkout canceled."
-        : "All done here.";
-  const body =
-    status === "success"
-      ? "Your workspace trial is active. You can close this tab and return to Marketer."
-      : "You can close this tab and return to Marketer.";
+  const success = status === "success";
+  const heading = success ? "You're in." : "Checkout canceled.";
+  const body = success
+    ? "Your workspace is ready. Head back to Marketer to get started."
+    : "Nothing was charged. Return to Marketer when you're ready.";
+  const buttonLabel = success ? "Open Marketer" : "Return to Marketer";
   return new Response(
-    `<!doctype html><html><head><meta charset="utf-8"><title>Marketer</title><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#0c0c0c;color:#ededed;font-family:ui-sans-serif,system-ui,sans-serif"><div style="text-align:center;padding:24px"><p style="font-size:22px;margin:0">${heading}</p><p style="margin-top:10px;font-size:14px;color:#9a9a9a">${body}</p></div></body></html>`,
-    { status: 200, headers: { "Content-Type": "text/html" } },
+    `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${heading} | Marketer</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #0c0c0c;
+      color: #f5f5f5;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .brand {
+      position: fixed;
+      top: 32px;
+      left: 32px;
+      color: #f5f5f5;
+      font-family: Georgia, serif;
+      font-size: 24px;
+      font-style: italic;
+      line-height: 1;
+    }
+    main {
+      display: flex;
+      min-height: 100vh;
+      align-items: center;
+      justify-content: center;
+      padding: 80px 28px;
+    }
+    .content { width: 100%; max-width: 360px; text-align: center; }
+    h1 {
+      margin: 0;
+      font-family: Georgia, serif;
+      font-size: 42px;
+      font-weight: 400;
+      letter-spacing: -0.025em;
+      line-height: 1.05;
+    }
+    p {
+      margin: 16px auto 0;
+      color: #8c8c8c;
+      font-size: 14px;
+      line-height: 1.65;
+    }
+    a {
+      display: inline-flex;
+      width: 100%;
+      height: 44px;
+      margin-top: 40px;
+      align-items: center;
+      justify-content: center;
+      background: #f5f5f5;
+      color: #111;
+      font-size: 14px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: background 160ms ease;
+    }
+    a:hover { background: #dedede; }
+    a:focus-visible { outline: 2px solid #f5f5f5; outline-offset: 3px; }
+  </style>
+</head>
+<body>
+  <span class="brand" aria-hidden="true">m.</span>
+  <main>
+    <div class="content">
+      <h1>${heading}</h1>
+      <p>${body}</p>
+      <a href="marketer-desktop:///billing/success">${buttonLabel}</a>
+    </div>
+  </main>
+</body>
+</html>`,
+    {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    },
   );
 });
 
@@ -313,7 +394,6 @@ async function resolveOrganizationId(
 
   return null;
 }
-
 
 const PLAN_PRICES = {
   monthly: {
@@ -595,6 +675,21 @@ export const claimStripeWebhookEvent = internalMutation({
   },
 });
 
+export const hasStripeWebhookEvent = internalQuery({
+  args: {
+    stripeEventId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("stripeWebhookEvent")
+      .withIndex("by_stripeEventId", (q) =>
+        q.eq("stripeEventId", args.stripeEventId),
+      )
+      .first();
+    return existing !== null;
+  },
+});
+
 export const stripeWebhook = httpAction(async (ctx, request) => {
   const stripe = getStripe();
   const body = await request.text();
@@ -618,11 +713,10 @@ export const stripeWebhook = httpAction(async (ctx, request) => {
     });
   }
 
-  const claim = await ctx.runMutation(claimStripeWebhookEventRef, {
+  const alreadyProcessed = await ctx.runQuery(hasStripeWebhookEventRef, {
     stripeEventId: event.id,
-    type: event.type,
   });
-  if (!claim.claimed) {
+  if (alreadyProcessed) {
     return new Response("OK", { status: 200 });
   }
 
@@ -645,8 +739,16 @@ export const stripeWebhook = httpAction(async (ctx, request) => {
     }
   } catch (error) {
     console.error(`[stripe-webhook] Error handling ${event.type}`, error);
-    return new Response("Webhook processed with errors", { status: 200 });
+    // Stripe retries non-2xx deliveries. Do not mark the event processed until
+    // every handler has succeeded, otherwise a transient Stripe/Convex failure
+    // can permanently strand a paid workspace at onboarding.
+    return new Response("Webhook processing failed", { status: 500 });
   }
+
+  await ctx.runMutation(claimStripeWebhookEventRef, {
+    stripeEventId: event.id,
+    type: event.type,
+  });
 
   return new Response("OK", { status: 200 });
 });
@@ -661,10 +763,9 @@ async function handleCheckoutCompleted(
       ? session.customer
       : session.customer?.id;
   if (!stripeCustomerId) {
-    console.error(
-      "[stripe-webhook] checkout.session.completed missing customer",
+    throw new Error(
+      "checkout.session.completed is missing its Stripe customer",
     );
-    return;
   }
 
   const organizationId = await resolveOrganizationId(ctx, stripe, {
@@ -677,10 +778,9 @@ async function handleCheckoutCompleted(
         : session.subscription?.id,
   });
   if (!organizationId) {
-    console.error(
-      `[stripe-webhook] checkout.session.completed could not resolve organization for customer ${stripeCustomerId}`,
+    throw new Error(
+      `Could not resolve the workspace for Stripe customer ${stripeCustomerId}`,
     );
-    return;
   }
 
   await ctx.runMutation(setStripeCustomerForOrgRef, {
@@ -692,7 +792,11 @@ async function handleCheckoutCompleted(
     typeof session.subscription === "string"
       ? session.subscription
       : session.subscription?.id;
-  if (!stripeSubscriptionId) return;
+  if (!stripeSubscriptionId) {
+    throw new Error(
+      `Checkout session ${session.id} completed without a subscription`,
+    );
+  }
 
   const subscription =
     await stripe.subscriptions.retrieve(stripeSubscriptionId);
@@ -717,10 +821,9 @@ async function handleSubscriptionUpdated(
     stripeSubscriptionId: subscription.id,
   });
   if (!organizationId) {
-    console.error(
-      `[stripe-webhook] customer.subscription.updated could not resolve organization for subscription ${subscription.id}`,
+    throw new Error(
+      `Could not resolve the workspace for subscription ${subscription.id}`,
     );
-    return;
   }
 
   await ctx.runMutation(
@@ -744,10 +847,9 @@ async function handleSubscriptionDeleted(
     stripeSubscriptionId: subscription.id,
   });
   if (!organizationId) {
-    console.error(
-      `[stripe-webhook] customer.subscription.deleted could not resolve organization for subscription ${subscription.id}`,
+    throw new Error(
+      `Could not resolve the workspace for subscription ${subscription.id}`,
     );
-    return;
   }
 
   await ctx.runMutation(upsertSubscriptionFromStripeRef, {
@@ -773,10 +875,9 @@ async function handleInvoicePaymentFailed(
     stripeSubscriptionId,
   });
   if (!organizationId || !stripeCustomerId) {
-    console.error(
-      `[stripe-webhook] invoice.payment_failed could not resolve organization for invoice ${invoice.id}`,
+    throw new Error(
+      `Could not resolve the workspace for failed invoice ${invoice.id}`,
     );
-    return;
   }
 
   if (stripeSubscriptionId) {

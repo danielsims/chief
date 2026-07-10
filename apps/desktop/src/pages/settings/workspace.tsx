@@ -19,7 +19,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@marketer/ui/components/dialog";
-import { OrgLogo } from "../../components/org-logo";
+import {
+  faviconLoads,
+  faviconUrl,
+  OrgLogo,
+} from "../../components/org-logo";
 import { useAuth } from "../../lib/auth/auth-context";
 import {
   type AuthOrganization,
@@ -33,15 +37,6 @@ import {
   SOCIAL_PLATFORMS,
   type SocialPlatformDef,
 } from "../../lib/social-platforms";
-
-function faviconUrl(website: string): string | null {
-  const domain = website
-    .trim()
-    .replace(/^https?:\/\//i, "")
-    .split("/")[0];
-  if (!domain) return null;
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
-}
 
 function LogoPreview({
   logo,
@@ -247,13 +242,20 @@ export function WorkspaceSettings() {
     setSaveState("idle");
     try {
       const metadata = parseOrganizationMetadata(org);
+      const candidate = faviconUrl(website);
+      const logo = candidate && (await faviconLoads(candidate)) ? candidate : undefined;
+      const previousWebsite =
+        typeof metadata.websiteUrl === "string" ? metadata.websiteUrl.trim() : "";
+      const websiteChanged = previousWebsite !== website.trim();
       await updateAuthOrganization(org.id, {
         name: name.trim() || org.name,
+        ...(websiteChanged ? { logo: logo ?? null } : logo ? { logo } : {}),
         metadata: { ...metadata, websiteUrl: website.trim() },
       });
       setOrg({
         ...org,
         name: name.trim() || org.name,
+        logo: logo ?? (websiteChanged ? null : org.logo),
         metadata: { ...metadata, websiteUrl: website.trim() },
       });
       setSaveState("saved");

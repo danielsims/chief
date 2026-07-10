@@ -55,7 +55,7 @@ importers:
         version: 2.3.5
       better-auth:
         specifier: 1.6.16
-        version: 1.6.16(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        version: 1.6.16(next@15.5.20(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       convex:
         specifier: ^1.31.6
         version: 1.42.1(react@19.2.7)
@@ -107,13 +107,13 @@ importers:
     dependencies:
       '@convex-dev/better-auth':
         specifier: ^0.12.3
-        version: 0.12.5(@standard-schema/spec@1.1.0)(better-auth@1.6.16(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(convex@1.42.1(react@19.2.7))(react@19.2.7)(typescript@5.8.3)
+        version: 0.12.5(@standard-schema/spec@1.1.0)(better-auth@1.6.16(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(convex@1.42.1(react@19.2.7))(hono@4.12.28)(react@19.2.7)(typescript@5.8.3)
       '@marketer/ui':
         specifier: workspace:*
         version: link:../../packages/ui
       better-auth:
         specifier: 1.6.16
-        version: 1.6.16(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        version: 1.6.16(next@15.5.20(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       convex:
         specifier: ^1.31.6
         version: 1.42.1(react@19.2.7)
@@ -151,6 +151,12 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.1.5
         version: 0.1.77(zod@4.4.3)
+      '@openai/codex':
+        specifier: 0.144.1
+        version: 0.144.1
+      executor:
+        specifier: 1.5.30
+        version: 1.5.30
       ws:
         specifier: ^8.18.3
         version: 8.21.0
@@ -172,10 +178,10 @@ importers:
     dependencies:
       '@convex-dev/better-auth':
         specifier: ^0.12.3
-        version: 0.12.5(@standard-schema/spec@1.1.0)(better-auth@1.6.16(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(convex@1.42.1(react@19.2.7))(react@19.2.7)(typescript@5.8.3)
+        version: 0.12.5(@standard-schema/spec@1.1.0)(better-auth@1.6.16(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(convex@1.42.1(react@19.2.7))(hono@4.12.28)(react@19.2.7)(typescript@5.8.3)
       better-auth:
         specifier: 1.6.16
-        version: 1.6.16(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        version: 1.6.16(next@15.5.20(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       convex:
         specifier: ^1.31.6
         version: 1.42.1(react@19.2.7)
@@ -1293,6 +1299,47 @@ packages:
   '@noble/hashes@2.2.0':
     resolution: {integrity: sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==}
     engines: {node: '>= 20.19.0'}
+
+  '@openai/codex@0.144.1':
+    resolution: {integrity: sha512-Xir1zqPfpenhdoAoshN53uonzbBXj18COyzRkFlVZpSNyEl5XtkuYu9oddELePFN7K/0sXUcSO34Ad5IeCXPbw==}
+    engines: {node: '>=16'}
+    hasBin: true
+
+  '@openai/codex@0.144.1-darwin-arm64':
+    resolution: {integrity: sha512-dABeDK+ATqMG54MGBd3VjpKfh5EOoqx9PKVQB2QYDaEXx3F6CdUCXue5QIMfr4OxziUj8pUcLAQyd+KFqiTUFw==}
+    engines: {node: '>=16'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@openai/codex@0.144.1-darwin-x64':
+    resolution: {integrity: sha512-K2g3Q3tNxzFhV0SuzO6HcsYK7EQrp/o4HyeReyhkwVrwwUPoYwyIbB0IRjHIiDzRhbKriDccid2iyF5aPqdTcg==}
+    engines: {node: '>=16'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@openai/codex@0.144.1-linux-arm64':
+    resolution: {integrity: sha512-451o15+XtaXCCb35t/KCyyPqXHnTPxPxtdqEYOnE3e4sH5AfnI/uVJwfdjOksMG6vRLy6R+fLvSDOMguRFLmQw==}
+    engines: {node: '>=16'}
+    cpu: [arm64]
+    os: [linux]
+
+  '@openai/codex@0.144.1-linux-x64':
+    resolution: {integrity: sha512-HNGVI+BulrOaC/0IzBvd6EL62j7LrlbFKibrhw6hZjjCjAeUYzRB2jB4qDzXN1NfqDi6Xrvniof3kwbwab24lg==}
+    engines: {node: '>=16'}
+    cpu: [x64]
+    os: [linux]
+
+  '@openai/codex@0.144.1-win32-arm64':
+    resolution: {integrity: sha512-L4aDVEh9o1u7WYoxpSyv3un9Bz26YZYocOFqE2oHdEQDL2s6/LdtutLQc3oUZruLlEbkNsjSU0HI1OKsP0+Ctg==}
+    engines: {node: '>=16'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@openai/codex@0.144.1-win32-x64':
+    resolution: {integrity: sha512-qv2HOp6v/nVP31p5I5GxYyL0wa79PMzim1+W9CKSV0UldjFV9AMbualA8PeXcYhbvvh9Y1UASXxwjuQdlyfAvw==}
+    engines: {node: '>=16'}
+    cpu: [x64]
+    os: [win32]
 
   '@opentelemetry/semantic-conventions@1.42.0':
     resolution: {integrity: sha512-icc5xCzndZfhuJMy5oqk5AvloWquR7jtae74qzpkKkhGp8BivK+oCcEXgGnjCdTfp8hA44l+w8gE8yYJbocJJw==}
@@ -3128,6 +3175,51 @@ packages:
   estree-walker@3.0.3:
     resolution: {integrity: sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==}
 
+  executor@1.5.30:
+    resolution: {integrity: sha512-fV2V+lcX2rQKqSMiIgEAoajjFYy0PA5i/i0JfWX1FIrwESqmJmSZoIXHgw7kI+W3rqcbMSfuEmi/ZGyo6ofF4A==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  executor@1.5.30-darwin-arm64:
+    resolution: {integrity: sha512-5mQwAfTxo/YkljJUmckey6+WzOfsksMeCnznzFX/+DVfbaU5D/smU6o0pLhOiFwX4lRBy2ZeoljksGUB24hQ9w==}
+    cpu: [arm64]
+    os: [darwin]
+
+  executor@1.5.30-darwin-x64:
+    resolution: {integrity: sha512-sB79sdPm0gBzH+RE82hvIowiep914r41FfHM2rQAe/LznW3fYtSkoxxaflw5NlSpWwTk8XpkFxG7ZIqB5tzXzw==}
+    cpu: [x64]
+    os: [darwin]
+
+  executor@1.5.30-linux-arm64:
+    resolution: {integrity: sha512-0BjPCDCafc7k3HDLoHJBfeqdyiMPWgGfkOh1QHkPxWh/YjKmWaYiRWd/LYY5p3pSIVkny96nun8qvo85JC4/8A==}
+    cpu: [arm64]
+    os: [linux]
+
+  executor@1.5.30-linux-arm64-musl:
+    resolution: {integrity: sha512-uF3t6HLL2wJ+TvQpUGXR8Vvb9/lJzOpUP2EoyHtdSCv4ZfgAxNTec6t0eQLFm0SvKxpl22xQypCj3TnGL9yx3Q==}
+    cpu: [arm64]
+    os: [linux]
+
+  executor@1.5.30-linux-x64:
+    resolution: {integrity: sha512-t+X1wfdqecw27hzVQjUpKXIAnQvssZqUMaugbWE/0zE7zFvDlscOXhcbcYxlCWcz8cQHK23yXwvrp6mKHQ38YQ==}
+    cpu: [x64]
+    os: [linux]
+
+  executor@1.5.30-linux-x64-musl:
+    resolution: {integrity: sha512-cMtlQOyVBJfBdiPNnuXp2z8NzfmJTmq6bSwdkfYQXM+NdFc+fjZ7QEdAZM1aRdZpE0+RHzR5FL//VeajSx6UQg==}
+    cpu: [x64]
+    os: [linux]
+
+  executor@1.5.30-windows-arm64:
+    resolution: {integrity: sha512-Tu98h2fL3KXMo9BYdKV7yM+EIG+W7Y8x3D8KFunb/Drwyttw94AuWg4m4zc8lfVFu6duoSIlTHPn1+vpkx8U0g==}
+    cpu: [arm64]
+    os: [win32]
+
+  executor@1.5.30-windows-x64:
+    resolution: {integrity: sha512-EhODaa8yjMUdCGznux94hI1PEyyUeWbOcCWT4M8Pb+Tu4pQZmb1dRUKuXilr5QPsxKAIZ7zEdKGUAK5Gk+rBGA==}
+    cpu: [x64]
+    os: [win32]
+
   extend-shallow@2.0.1:
     resolution: {integrity: sha512-zCnTtlxNoAiDc3gqY2aYAWFx7XWWiasuF2K8Me5WbN8otHKTUKBwjPtNpRs/rbUZm7KxWAaNj7P1a/p52GbVug==}
     engines: {node: '>=0.10.0'}
@@ -3261,6 +3353,10 @@ packages:
 
   hoist-non-react-statics@3.3.2:
     resolution: {integrity: sha512-/gGivxi8JPKWNm/W0jSmzcMPpfpPLc3dY/6GxhX2hQ9iGj3aDfklV4ET7NjKpSinLpJ5vafa9iiGIEZg10SfBw==}
+
+  hono@4.12.28:
+    resolution: {integrity: sha512-YwUvVpSF7m1yOblFPrU3Hbo8XhPheBoiyfGuII6z19LnOr6JpDnyyp7LFNrfV56wS8tpvtBFGRISHN02pDdLOA==}
+    engines: {node: '>=16.9.0'}
 
   html-url-attributes@3.0.1:
     resolution: {integrity: sha512-ol6UPyBWqsrO6EJySPz2O7ZSr856WDrEzM5zMqp+FJJLGMW35cLYmmZnl0vztAZxRUoNZJFTCohfjuIJ8I4QBQ==}
@@ -4832,13 +4928,13 @@ snapshots:
 
   '@chevrotain/types@11.1.2': {}
 
-  '@convex-dev/better-auth@0.12.5(@standard-schema/spec@1.1.0)(better-auth@1.6.16(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(convex@1.42.1(react@19.2.7))(react@19.2.7)(typescript@5.8.3)':
+  '@convex-dev/better-auth@0.12.5(@standard-schema/spec@1.1.0)(better-auth@1.6.16(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(convex@1.42.1(react@19.2.7))(hono@4.12.28)(react@19.2.7)(typescript@5.8.3)':
     dependencies:
       '@better-fetch/fetch': 1.3.1
-      better-auth: 1.6.16(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      better-auth: 1.6.16(next@15.5.20(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       common-tags: 1.8.2
       convex: 1.42.1(react@19.2.7)
-      convex-helpers: 0.1.120(@standard-schema/spec@1.1.0)(convex@1.42.1(react@19.2.7))(react@19.2.7)(typescript@5.8.3)(zod@4.4.3)
+      convex-helpers: 0.1.120(@standard-schema/spec@1.1.0)(convex@1.42.1(react@19.2.7))(hono@4.12.28)(react@19.2.7)(typescript@5.8.3)(zod@4.4.3)
       jose: 6.2.3
       react: 19.2.7
       remeda: 2.39.0
@@ -5549,6 +5645,33 @@ snapshots:
   '@noble/ciphers@2.2.0': {}
 
   '@noble/hashes@2.2.0': {}
+
+  '@openai/codex@0.144.1':
+    optionalDependencies:
+      '@openai/codex-darwin-arm64': '@openai/codex@0.144.1-darwin-arm64'
+      '@openai/codex-darwin-x64': '@openai/codex@0.144.1-darwin-x64'
+      '@openai/codex-linux-arm64': '@openai/codex@0.144.1-linux-arm64'
+      '@openai/codex-linux-x64': '@openai/codex@0.144.1-linux-x64'
+      '@openai/codex-win32-arm64': '@openai/codex@0.144.1-win32-arm64'
+      '@openai/codex-win32-x64': '@openai/codex@0.144.1-win32-x64'
+
+  '@openai/codex@0.144.1-darwin-arm64':
+    optional: true
+
+  '@openai/codex@0.144.1-darwin-x64':
+    optional: true
+
+  '@openai/codex@0.144.1-linux-arm64':
+    optional: true
+
+  '@openai/codex@0.144.1-linux-x64':
+    optional: true
+
+  '@openai/codex@0.144.1-win32-arm64':
+    optional: true
+
+  '@openai/codex@0.144.1-win32-x64':
+    optional: true
 
   '@opentelemetry/semantic-conventions@1.42.0': {}
 
@@ -6997,7 +7120,7 @@ snapshots:
 
   baseline-browser-mapping@2.10.42: {}
 
-  better-auth@1.6.16(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
+  better-auth@1.6.16(next@15.5.20(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
     dependencies:
       '@better-auth/core': 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
       '@better-auth/drizzle-adapter': 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
@@ -7085,11 +7208,12 @@ snapshots:
 
   convert-source-map@2.0.0: {}
 
-  convex-helpers@0.1.120(@standard-schema/spec@1.1.0)(convex@1.42.1(react@19.2.7))(react@19.2.7)(typescript@5.8.3)(zod@4.4.3):
+  convex-helpers@0.1.120(@standard-schema/spec@1.1.0)(convex@1.42.1(react@19.2.7))(hono@4.12.28)(react@19.2.7)(typescript@5.8.3)(zod@4.4.3):
     dependencies:
       convex: 1.42.1(react@19.2.7)
     optionalDependencies:
       '@standard-schema/spec': 1.1.0
+      hono: 4.12.28
       react: 19.2.7
       typescript: 5.8.3
       zod: 4.4.3
@@ -7475,6 +7599,41 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.9
 
+  executor@1.5.30:
+    optionalDependencies:
+      executor-darwin-arm64: executor@1.5.30-darwin-arm64
+      executor-darwin-x64: executor@1.5.30-darwin-x64
+      executor-linux-arm64: executor@1.5.30-linux-arm64
+      executor-linux-arm64-musl: executor@1.5.30-linux-arm64-musl
+      executor-linux-x64: executor@1.5.30-linux-x64
+      executor-linux-x64-musl: executor@1.5.30-linux-x64-musl
+      executor-windows-arm64: executor@1.5.30-windows-arm64
+      executor-windows-x64: executor@1.5.30-windows-x64
+
+  executor@1.5.30-darwin-arm64:
+    optional: true
+
+  executor@1.5.30-darwin-x64:
+    optional: true
+
+  executor@1.5.30-linux-arm64:
+    optional: true
+
+  executor@1.5.30-linux-arm64-musl:
+    optional: true
+
+  executor@1.5.30-linux-x64:
+    optional: true
+
+  executor@1.5.30-linux-x64-musl:
+    optional: true
+
+  executor@1.5.30-windows-arm64:
+    optional: true
+
+  executor@1.5.30-windows-x64:
+    optional: true
+
   extend-shallow@2.0.1:
     dependencies:
       is-extendable: 0.1.1
@@ -7681,6 +7840,9 @@ snapshots:
   hoist-non-react-statics@3.3.2:
     dependencies:
       react-is: 16.13.1
+
+  hono@4.12.28:
+    optional: true
 
   html-url-attributes@3.0.1: {}
 

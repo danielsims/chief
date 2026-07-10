@@ -15,6 +15,7 @@ import { cn } from "@marketer/ui/lib/utils";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   listAuthOrganizations,
+  parseOrganizationMetadata,
   setActiveAuthOrganization,
   type AuthOrganization,
 } from "../lib/auth/better-auth-client";
@@ -77,6 +78,9 @@ export function WorkspaceSwitcher() {
               <OrgLogo
                 name={activeOrg.name}
                 logo={activeOrg.logo}
+                website={String(
+                  parseOrganizationMetadata(activeOrg).websiteUrl ?? "",
+                )}
                 className="h-full w-full text-base"
               />
             ) : (
@@ -110,6 +114,9 @@ export function WorkspaceSwitcher() {
                     <OrgLogo
                       name={org.name}
                       logo={org.logo}
+                      website={String(
+                        parseOrganizationMetadata(org).websiteUrl ?? "",
+                      )}
                       className="h-6 w-6 shrink-0 text-xs"
                     />
                     <span className="min-w-0 flex-1 truncate">{org.name}</span>

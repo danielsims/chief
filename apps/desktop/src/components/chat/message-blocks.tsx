@@ -1,9 +1,17 @@
 import type { ContentBlock } from "@marketer/agent-runtime/types";
 import { cn } from "@marketer/ui/lib/utils";
+import {
+  ChevronDown,
+  FilePenLine,
+  FileText,
+  Globe2,
+  Search,
+  Terminal,
+  Wrench,
+} from "lucide-react";
 
-const MAX_RESULT_CHARS = 1600;
+const MAX_RESULT_CHARS = 3000;
 
-/** Tool results come back as a string or an array of text blocks. */
 function toolResultText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -19,72 +27,189 @@ function toolResultText(content: unknown): string {
       .filter(Boolean)
       .join("\n");
   }
+  if (content && typeof content === "object") {
+    return JSON.stringify(content, null, 2);
+  }
   return "";
 }
 
+function canonicalTool(name: string) {
+  const clean = name.replace(/^mcp__[^_]+__/, "").toLowerCase();
+  if (clean.includes("search")) return "search";
+  if (clean.includes("web") || clean.includes("fetch")) return "web";
+  if (clean.includes("read")) return "read";
+  if (clean.includes("edit") || clean.includes("write")) return "edit";
+  if (clean.includes("bash") || clean.includes("command")) return "command";
+  return "tool";
+}
+
+function toolPresentation(name: string) {
+  const kind = canonicalTool(name);
+  if (kind === "command") return { label: "Run", Icon: Terminal };
+  if (kind === "search") return { label: "Search", Icon: Search };
+  if (kind === "web") return { label: "Browse", Icon: Globe2 };
+  if (kind === "read") return { label: "Read", Icon: FileText };
+  if (kind === "edit") return { label: "Edit", Icon: FilePenLine };
+  return { label: name.replace(/_/g, " "), Icon: Wrench };
+}
+
 export function toolSummary(input: unknown): string {
-  const i = (input ?? {}) as Record<string, unknown>;
-  if (typeof i.command === "string") return i.command;
-  if (typeof i.file_path === "string") return String(i.file_path);
-  if (typeof i.url === "string") return String(i.url);
-  const first = Object.values(i).find((v) => typeof v === "string");
-  return typeof first === "string" ? first.slice(0, 120) : "";
+  const value = (input ?? {}) as Record<string, unknown>;
+  for (const key of [
+    "description",
+    "file_path",
+    "path",
+    "command",
+    "query",
+    "url",
+  ]) {
+    if (typeof value[key] === "string" && value[key]) {
+      const text = String(value[key]);
+      return text.length > 90 ? `${text.slice(0, 90)}…` : text;
+    }
+  }
+  return "";
+}
+
+function ToolCard({
+  block,
+  result,
+}: {
+  block: Extract<ContentBlock, { type: "tool_use" }>;
+  result?: Extract<ContentBlock, { type: "tool_result" }>;
+}) {
+  const { label, Icon } = toolPresentation(block.name);
+  const summary = toolSummary(block.input);
+  const output = result ? toolResultText(result.content).trim() : "";
+  const shownOutput =
+    output.length > MAX_RESULT_CHARS
+      ? `…${output.slice(-MAX_RESULT_CHARS)}`
+      : output;
+  const input =
+    block.input && typeof block.input === "object"
+      ? JSON.stringify(block.input, null, 2)
+      : String(block.input ?? "");
+
+  return (
+    <details className="group border bg-card/50">
+      <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3 py-2 text-xs [&::-webkit-details-marker]:hidden">
+        <Icon size={13} className="shrink-0 text-muted-foreground" />
+        <span className="shrink-0 font-medium">{label}</span>
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+          {summary}
+        </span>
+        {result ? (
+          <span
+            className={cn(
+              "text-[10px]",
+              result.is_error ? "text-red-500" : "text-muted-foreground",
+            )}
+          >
+            {result.is_error ? "Failed" : "Done"}
+          </span>
+        ) : (
+          <span className="size-1.5 animate-pulse bg-amber-400" />
+        )}
+        <ChevronDown
+          size={12}
+          className="text-muted-foreground transition-transform group-open:rotate-180"
+        />
+      </summary>
+      <div className="space-y-3 border-t px-3 py-3">
+        {input && input !== "{}" ? (
+          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-muted-foreground">
+            {input}
+          </pre>
+        ) : null}
+        {shownOutput ? (
+          <pre
+            className={cn(
+              "max-h-56 overflow-auto whitespace-pre-wrap break-words border-t pt-3 font-mono text-[11px] leading-5 text-muted-foreground",
+              result?.is_error && "text-red-500",
+            )}
+          >
+            {shownOutput}
+          </pre>
+        ) : null}
+      </div>
+    </details>
+  );
 }
 
 export function Blocks({ blocks }: { blocks: ContentBlock[] }) {
+  const results = new Map(
+    blocks
+      .filter(
+        (block): block is Extract<ContentBlock, { type: "tool_result" }> =>
+          block.type === "tool_result",
+      )
+      .map((block) => [block.tool_use_id, block]),
+  );
+
   return (
-    <div className="space-y-2">
-      {blocks.map((block, i) => {
+    <div className="space-y-3">
+      {blocks.map((block, index) => {
         switch (block.type) {
           case "text":
             return (
-              <p key={i} className="whitespace-pre-wrap text-sm leading-6">
+              <p key={index} className="whitespace-pre-wrap text-sm leading-6">
                 {block.text}
               </p>
             );
           case "thinking":
             return (
-              <p
-                key={i}
-                className="whitespace-pre-wrap border-l pl-3 text-xs italic leading-5 text-muted-foreground/70"
+              <details
+                key={index}
+                className="group text-xs text-muted-foreground"
               >
-                {block.thinking}
-              </p>
+                <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                  <span className="inline-flex items-center gap-1.5">
+                    Reasoning
+                    <ChevronDown
+                      size={11}
+                      className="transition-transform group-open:rotate-180"
+                    />
+                  </span>
+                </summary>
+                <p className="mt-2 whitespace-pre-wrap border-l pl-3 leading-5 text-muted-foreground/80">
+                  {block.thinking}
+                </p>
+              </details>
             );
           case "tool_use":
             return (
-              <div
-                key={i}
-                className={cn(
-                  "flex items-baseline gap-2 border bg-accent/50 px-3 py-1.5 font-mono text-xs text-muted-foreground",
-                )}
-              >
-                <span className="text-foreground">❯</span>
-                <span className="shrink-0">{block.name}</span>
-                <span className="truncate">{toolSummary(block.input)}</span>
-              </div>
+              <ToolCard
+                key={block.id}
+                block={block}
+                result={results.get(block.id)}
+              />
             );
           case "tool_result": {
+            if (
+              blocks.some(
+                (candidate) =>
+                  candidate.type === "tool_use" &&
+                  candidate.id === block.tool_use_id,
+              )
+            ) {
+              return null;
+            }
             const text = toolResultText(block.content).trim();
             if (!text) return null;
-            const shown =
-              text.length > MAX_RESULT_CHARS
-                ? `…${text.slice(-MAX_RESULT_CHARS)}`
-                : text;
             return (
               <pre
-                key={i}
+                key={index}
                 className={cn(
-                  "max-h-44 overflow-y-auto whitespace-pre-wrap break-words border bg-background/60 px-3 py-2 font-mono text-[11px] leading-5 text-muted-foreground",
-                  block.is_error && "border-destructive/40 text-destructive/90",
+                  "max-h-56 overflow-auto whitespace-pre-wrap break-words border bg-card/50 px-3 py-2 font-mono text-[11px] leading-5 text-muted-foreground",
+                  block.is_error && "border-red-500/40 text-red-500",
                 )}
               >
-                {shown}
+                {text.length > MAX_RESULT_CHARS
+                  ? `…${text.slice(-MAX_RESULT_CHARS)}`
+                  : text}
               </pre>
             );
           }
-          default:
-            return null;
         }
       })}
     </div>

@@ -1,133 +1,165 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { Plus } from "lucide-react";
+import { MessageSquareText, Plus } from "lucide-react";
 import { defaultAgents } from "@marketer/agent-runtime/agents";
 import type { AgentDefinition } from "@marketer/agent-runtime/types";
+import { cn } from "@marketer/ui/lib/utils";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@marketer/ui/components/popover";
-import { cn } from "@marketer/ui/lib/utils";
 import { useRuntime } from "../lib/runtime";
-import { getChatLog, onChatLogChange, type ChatLogEntry } from "../lib/chat-log";
+import {
+  createChat,
+  getChatLog,
+  onChatLogChange,
+  type ChatLogEntry,
+} from "../lib/chat-log";
 import { getAgentOverride } from "../lib/agent-overrides";
 import { AgentChat } from "../components/chat/agent-chat";
 
-/**
- * Tracks which chats are mid-run by watching the runtime event stream.
- * Sessions keep streaming over the shared socket after navigation, so this
- * catches chats running in the background too.
- */
 function useRunningChats(): Record<string, boolean> {
   const { client } = useRuntime();
   const [running, setRunning] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    const unsub = client.subscribe((msg) => {
-      if (msg.type !== "event") return;
-      const e = msg.event;
+    const unsubscribe = client.subscribe((message) => {
+      if (message.type !== "event") return;
+      const event = message.event;
       let next: boolean | undefined;
-      if (e.type === "stream") next = true;
-      else if (e.type === "message" && e.role === "user") next = true;
-      else if (e.type === "status") next = e.status === "running";
-      else if (e.type === "result" || e.type === "error" || e.type === "exit") {
+      if (event.type === "stream") next = true;
+      else if (event.type === "message" && event.role === "user") next = true;
+      else if (event.type === "status") next = event.status === "running";
+      else if (
+        event.type === "result" ||
+        event.type === "error" ||
+        event.type === "exit"
+      ) {
         next = false;
       }
       if (next === undefined) return;
-      setRunning((r) =>
-        r[msg.chatId] === next ? r : { ...r, [msg.chatId]: next },
+      setRunning((current) =>
+        current[message.chatId] === next
+          ? current
+          : { ...current, [message.chatId]: next },
       );
     });
     return () => {
-      unsub();
+      unsubscribe();
     };
   }, [client]);
 
   return running;
 }
 
-function ChatRow({
-  agent,
+function ConversationRow({
   entry,
   active,
   running,
   onSelect,
 }: {
-  agent: AgentDefinition;
-  entry?: ChatLogEntry;
+  entry: ChatLogEntry;
   active: boolean;
   running: boolean;
   onSelect: () => void;
 }) {
   return (
     <button
+      type="button"
       onClick={onSelect}
       className={cn(
-        "w-full border border-transparent p-3 text-left transition-colors hover:bg-accent",
-        active && "border-border bg-accent",
+        "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent",
+        active && "bg-accent text-foreground",
       )}
     >
-      <span className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-sm font-medium leading-tight">
-          {agent.name}
-        </span>
-        {running && (
-          <span
-            className="h-1.5 w-1.5 shrink-0 animate-pulse bg-emerald-500"
-            title="Running"
-          />
-        )}
-      </span>
-      <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-        {entry?.lastText || "No messages yet"}
-      </span>
+      <MessageSquareText size={13} className="shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate">{entry.title}</span>
+      {running ? (
+        <span className="size-1.5 shrink-0 animate-pulse bg-emerald-500" />
+      ) : null}
     </button>
   );
 }
 
-function NewConversationButton({
+function AgentGroup({
+  agent,
+  entries,
+  activeChatId,
+  running,
+  onCreate,
+  onSelect,
+}: {
+  agent: AgentDefinition;
+  entries: ChatLogEntry[];
+  activeChatId: string | null;
+  running: Record<string, boolean>;
+  onCreate: () => void;
+  onSelect: (entry: ChatLogEntry) => void;
+}) {
+  return (
+    <section>
+      <div className="group flex items-center gap-2 px-2 py-1.5">
+        <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">
+          {agent.name}
+        </span>
+        <button
+          type="button"
+          aria-label={`New ${agent.name} conversation`}
+          onClick={onCreate}
+          className="p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 focus:opacity-100"
+        >
+          <Plus size={13} />
+        </button>
+      </div>
+      <div className="space-y-0.5">
+        {entries.map((entry) => (
+          <ConversationRow
+            key={entry.id}
+            entry={entry}
+            active={entry.id === activeChatId}
+            running={running[entry.id] ?? false}
+            onSelect={() => onSelect(entry)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function NewConversationMenu({
   agents,
   onPick,
 }: {
   agents: AgentDefinition[];
-  onPick: (agentId: string) => void;
+  onPick: (agent: AgentDefinition) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const enabled = agents.filter(
-    (a) => getAgentOverride(a.id).enabled !== false,
-  );
-
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger className="flex w-full items-center gap-2 border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground">
-        <Plus size={14} strokeWidth={1.75} />
-        New conversation
+      <PopoverTrigger
+        aria-label="New conversation"
+        className="border p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <Plus size={14} />
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-64 p-1">
-        <p className="px-2 pb-1 pt-1.5 text-xs text-muted-foreground">
-          Start a chat with
-        </p>
-        {enabled.map((agent) => (
+      <PopoverContent align="end" className="w-60 p-1">
+        {agents.map((agent) => (
           <button
             key={agent.id}
+            type="button"
             onClick={() => {
               setOpen(false);
-              onPick(agent.id);
+              onPick(agent);
             }}
-            className="w-full px-2 py-1.5 text-left transition-colors hover:bg-accent"
+            className="w-full px-2 py-2 text-left transition-colors hover:bg-accent"
           >
-            <span className="block text-sm leading-tight">{agent.name}</span>
+            <span className="block text-sm">{agent.name}</span>
             <span className="block text-xs text-muted-foreground">
               {agent.role}
             </span>
           </button>
         ))}
-        {enabled.length === 0 && (
-          <p className="px-2 py-1.5 text-xs text-muted-foreground">
-            No agents enabled. Enable one on the Agents page.
-          </p>
-        )}
       </PopoverContent>
     </Popover>
   );
@@ -135,92 +167,108 @@ function NewConversationButton({
 
 export function ConversationsPage() {
   const { agents: runtimeAgents } = useRuntime();
-  // The runtime roster when connected; the static roster as a fallback so
-  // the list still renders while the runtime is down.
   const agents = runtimeAgents.length > 0 ? runtimeAgents : defaultAgents;
-
+  const enabledAgents = agents.filter(
+    (agent) => getAgentOverride(agent.id).enabled !== false,
+  );
   const [params, setParams] = useSearchParams();
   const [log, setLog] = useState<ChatLogEntry[]>(() => getChatLog());
   useEffect(() => onChatLogChange(() => setLog(getChatLog())), []);
-
   const running = useRunningChats();
 
-  const chats = useMemo(
-    () =>
-      log
-        .map((entry) => ({
-          entry,
-          agent: agents.find((a) => a.id === entry.agentId),
-        }))
-        .filter((c): c is { entry: ChatLogEntry; agent: AgentDefinition } =>
-          Boolean(c.agent),
-        ),
-    [log, agents],
+  const activeAgentId = params.get("agent");
+  const activeChatId = params.get("chat");
+  const initialPrompt = params.get("prompt") ?? undefined;
+  const initialDraft = params.get("draft") ?? undefined;
+  const activeAgent = agents.find((agent) => agent.id === activeAgentId);
+  const activeEntry = log.find(
+    (entry) => entry.id === activeChatId && entry.agentId === activeAgentId,
   );
 
-  const activeId = params.get("agent") ?? chats[0]?.agent.id ?? null;
-  const initialPrompt = params.get("prompt") ?? undefined;
-  const active = activeId
-    ? agents.find((a) => a.id === activeId)
-    : undefined;
+  useEffect(() => {
+    if (activeAgent && activeEntry) return;
+    if (activeAgent && !activeEntry) {
+      const existing = log.find((entry) => entry.agentId === activeAgent.id);
+      const entry = existing ?? createChat(activeAgent.id);
+      setParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          next.set("agent", activeAgent.id);
+          next.set("chat", entry.id);
+          return next;
+        },
+        { replace: true },
+      );
+      return;
+    }
+    const first = log[0];
+    if (first) {
+      setParams({ agent: first.agentId, chat: first.id }, { replace: true });
+    }
+  }, [activeAgent, activeEntry, log, setParams]);
 
-  // A chat opened via ?agent= that has no history yet still shows as a row,
-  // so the selection is always visible in the list.
-  const listedIds = new Set(chats.map((c) => c.agent.id));
-  const unlisted =
-    active && !listedIds.has(active.id) ? active : undefined;
+  const grouped = useMemo(
+    () =>
+      enabledAgents
+        .map((agent) => ({
+          agent,
+          entries: log.filter((entry) => entry.agentId === agent.id),
+        }))
+        .filter((group) => group.entries.length > 0),
+    [enabledAgents, log],
+  );
+
+  const openNew = (agent: AgentDefinition) => {
+    const entry = createChat(agent.id);
+    setParams({ agent: agent.id, chat: entry.id });
+  };
 
   return (
     <div className="-mb-8 flex h-[calc(100vh-48px)]">
-      <div className="flex w-72 shrink-0 flex-col border-r">
-        <div className="shrink-0 pr-5 pt-10">
-          <h1 className="font-serif text-3xl">Conversations</h1>
-          <div className="mt-5">
-            <NewConversationButton
-              agents={agents}
-              onPick={(agentId) => setParams({ agent: agentId })}
-            />
+      <aside className="flex w-72 shrink-0 flex-col border-r pr-5">
+        <div className="shrink-0 pt-10">
+          <div className="flex items-center justify-between">
+            <h1 className="font-serif text-3xl">Conversations</h1>
+            <NewConversationMenu agents={enabledAgents} onPick={openNew} />
           </div>
         </div>
-        <div className="mt-3 flex-1 space-y-1 overflow-y-auto pb-4 pr-5">
-          {unlisted && (
-            <ChatRow
-              agent={unlisted}
-              active
-              running={running[`${unlisted.id}-main`] ?? false}
-              onSelect={() => setParams({ agent: unlisted.id })}
-            />
-          )}
-          {chats.map(({ entry, agent }) => (
-            <ChatRow
+        <div className="mt-6 flex-1 space-y-5 overflow-y-auto pb-5">
+          {grouped.map(({ agent, entries }) => (
+            <AgentGroup
               key={agent.id}
               agent={agent}
-              entry={entry}
-              active={agent.id === activeId}
-              running={running[`${agent.id}-main`] ?? false}
-              onSelect={() => setParams({ agent: agent.id })}
+              entries={entries}
+              activeChatId={activeChatId}
+              running={running}
+              onCreate={() => openNew(agent)}
+              onSelect={(entry) =>
+                setParams({ agent: agent.id, chat: entry.id })
+              }
             />
           ))}
-          {chats.length === 0 && !unlisted && (
-            <p className="p-3 text-xs text-muted-foreground">
-              No conversations yet. Start one above.
-            </p>
-          )}
         </div>
-      </div>
-      <div className="min-w-0 flex-1 pb-6 pl-6">
-        {active ? (
+      </aside>
+      <main className="min-w-0 flex-1 pb-6 pl-6">
+        {activeAgent && activeEntry ? (
           <AgentChat
-            key={active.id}
-            agent={active}
+            key={activeEntry.id}
+            agent={activeAgent}
+            chatId={activeEntry.id}
             initialPrompt={initialPrompt}
+            initialDraft={initialDraft}
+            onInitialPromptSent={() => {
+              setParams(
+                { agent: activeAgent.id, chat: activeEntry.id },
+                { replace: true },
+              );
+            }}
           />
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            Select a conversation or start a new one.
+            Start a conversation with an agent.
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }

@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { ArrowUp } from "lucide-react";
+import { useConvexAuth, useQuery } from "convex/react";
+import { api } from "@marketer/backend/convex/_generated/api";
+import { ArrowDownRight, ArrowUp, ArrowUpRight } from "lucide-react";
 import { Button } from "@marketer/ui/components/button";
+import { cn } from "@marketer/ui/lib/utils";
 import { OrgLogo } from "../components/org-logo";
+import { createChat } from "../lib/chat-log";
 import { SetupProgress } from "../components/setup-progress";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   listAuthOrganizations,
+  parseOrganizationMetadata,
   type AuthOrganization,
 } from "../lib/auth/better-auth-client";
 
@@ -17,44 +22,49 @@ function greeting() {
   return "Good evening";
 }
 
-const widgets = [
-  {
-    label: "Website traffic",
-    value: "-",
-    detail: "Connect Google Analytics",
-    to: "/analytics",
-  },
-  {
-    label: "Signups",
-    value: "-",
-    detail: "Connect Google Analytics",
-    to: "/analytics",
-  },
-  {
-    label: "Ad spend",
-    value: "-",
-    detail: "Connect Google Ads",
-    to: "/analytics",
-  },
-  {
-    label: "New prospects",
-    value: "-",
-    detail: "No channels connected",
-    to: "/prospects",
-  },
-  {
-    label: "Trending posts",
-    value: "-",
-    detail: "No channels connected",
-    to: "/trending",
-  },
-  {
-    label: "Scheduled posts",
-    value: "0",
-    detail: "Nothing scheduled",
-    to: "/schedule",
-  },
-];
+interface DashboardSnapshot {
+  provider: string;
+  period: string;
+  activeUsers?: number;
+  pageViews?: number;
+  conversions?: number;
+  rangeMetrics?: Array<{
+    key: string;
+    period: string;
+    activeUsers?: number;
+    pageViews?: number;
+    conversions?: number;
+  }>;
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat(undefined, {
+    notation: value > 9999 ? "compact" : "standard",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function percentageChange(current?: number, previous?: number) {
+  if (current === undefined || previous === undefined || previous <= 0) {
+    return null;
+  }
+  return ((current - previous) / previous) * 100;
+}
+
+function Trend({ value }: { value: number }) {
+  const positive = value >= 0;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-0.5 text-[11px]",
+        positive ? "text-emerald-500" : "text-red-500",
+      )}
+    >
+      {positive ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+      {Math.abs(value).toFixed(1)}%
+    </span>
+  );
+}
 
 /**
  * Small workspace anchor above the greeting so multi-company users can tell
@@ -80,10 +90,18 @@ function WorkspaceIndicator() {
   }, [cloudOrganizationId]);
 
   if (!org) return null;
+  const metadata = parseOrganizationMetadata(org);
 
   return (
     <div className="mb-5 flex items-center justify-center gap-2">
-      <OrgLogo name={org.name} logo={org.logo} className="h-5 w-5 text-[11px]" />
+      <OrgLogo
+        name={org.name}
+        logo={org.logo}
+        website={
+          typeof metadata.websiteUrl === "string" ? metadata.websiteUrl : ""
+        }
+        className="h-5 w-5 text-[11px]"
+      />
       <span className="text-xs text-muted-foreground">{org.name}</span>
     </div>
   );
@@ -92,11 +110,88 @@ function WorkspaceIndicator() {
 export function DashboardPage() {
   const navigate = useNavigate();
   const [ask, setAsk] = useState("");
+  const { cloudOrganizationId } = useAuth();
+  const convexAuth = useConvexAuth();
+  const canQuery = convexAuth.isAuthenticated && Boolean(cloudOrganizationId);
+  const snapshots = useQuery(
+    api.analyticsSnapshots.listLatest,
+    canQuery ? {} : "skip",
+  ) as DashboardSnapshot[] | undefined;
+  const scheduledCount = useQuery(
+    api.scheduledDrafts.countUpcoming,
+    canQuery ? {} : "skip",
+  );
+  const analytics = snapshots?.find(
+    (snapshot) => snapshot.provider === "google-analytics",
+  );
+  const analytics30 =
+    analytics?.rangeMetrics?.find((range) => range.key === "30d") ?? analytics;
+  const previous30 = analytics?.rangeMetrics?.find(
+    (range) => range.key === "previous30d",
+  );
+  const widgets = [
+    ...(analytics30
+      ? [
+          {
+            label: "Website traffic",
+            value: formatNumber(analytics30.activeUsers ?? 0),
+            detail: `${formatNumber(analytics30.pageViews ?? 0)} page views · ${analytics30.period}`,
+            trend: percentageChange(
+              analytics30.activeUsers,
+              previous30?.activeUsers,
+            ),
+            to: "/analytics",
+          },
+          {
+            label: "Signups",
+            value: formatNumber(analytics30.conversions ?? 0),
+            detail: `Tracked conversions · ${analytics30.period}`,
+            trend: percentageChange(
+              analytics30.conversions,
+              previous30?.conversions,
+            ),
+            to: "/analytics",
+          },
+        ]
+      : []),
+    {
+      label: "Action items",
+      value: "0",
+      detail: "Nothing flagged by agents",
+      trend: null,
+      to: "/conversations?agent=cmo",
+    },
+    {
+      label: "New prospects",
+      value: "0",
+      detail: "No new prospects yet",
+      trend: null,
+      to: "/prospects",
+    },
+    {
+      label: "Trending topics",
+      value: "0",
+      detail: "No topics surfaced yet",
+      trend: null,
+      to: "/trending",
+    },
+    {
+      label: "Scheduled posts",
+      value: formatNumber(scheduledCount ?? 0),
+      detail:
+        (scheduledCount ?? 0) > 0 ? "Upcoming content" : "Nothing scheduled",
+      trend: null,
+      to: "/schedule",
+    },
+  ];
 
   const submit = () => {
     const text = ask.trim();
     if (!text) return;
-    navigate(`/conversations?agent=cmo&prompt=${encodeURIComponent(text)}`);
+    const conversation = createChat("cmo", text);
+    navigate(
+      `/conversations?agent=cmo&chat=${conversation.id}&prompt=${encodeURIComponent(text)}`,
+    );
   };
 
   return (
@@ -123,10 +218,13 @@ export function DashboardPage() {
           >
             <span className="text-xs text-muted-foreground">{w.label}</span>
             <span>
-              <span className="block text-xl font-medium">{w.value}</span>
-              <span className="text-xs text-muted-foreground border-b border-dashed border-muted-foreground/30">
-                {w.detail}
+              <span className="flex items-center gap-2">
+                <span className="block text-xl font-medium">{w.value}</span>
+                {w.trend !== null && w.trend !== undefined ? (
+                  <Trend value={w.trend} />
+                ) : null}
               </span>
+              <span className="text-xs text-muted-foreground">{w.detail}</span>
             </span>
           </button>
         ))}

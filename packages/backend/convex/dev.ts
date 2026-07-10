@@ -1,3 +1,4 @@
+import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import { components } from "./_generated/api";
 import type { TableNames } from "./_generated/dataModel";
@@ -15,6 +16,7 @@ const APP_TABLES: TableNames[] = [
   "message",
   "schedule",
   "channel",
+  "analyticsSnapshot",
   "oauthState",
   "credential",
   "draft",
@@ -39,7 +41,12 @@ const AUTH_MODELS = [
 export const clearConnections = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const tables: TableNames[] = ["channel", "credential", "oauthState"];
+    const tables: TableNames[] = [
+      "channel",
+      "analyticsSnapshot",
+      "credential",
+      "oauthState",
+    ];
     const deleted: Record<string, number> = {};
     for (const table of tables) {
       const docs = await ctx.db.query(table).collect();
@@ -49,6 +56,78 @@ export const clearConnections = internalMutation({
       deleted[table] = docs.length;
     }
     return deleted;
+  },
+});
+
+/** Backfill provider history from a locally verified read without storing the
+ * machine credential in Convex. Existing points win only when the new read
+ * does not include that date. */
+export const seedAnalyticsSeries = internalMutation({
+  args: {
+    organizationId: v.string(),
+    provider: v.string(),
+    series: v.array(v.object({ date: v.string(), value: v.number() })),
+  },
+  handler: async (ctx, args) => {
+    const snapshot = await ctx.db
+      .query("analyticsSnapshot")
+      .withIndex("by_organization_provider", (q) =>
+        q
+          .eq("organizationId", args.organizationId)
+          .eq("provider", args.provider),
+      )
+      .unique();
+    if (!snapshot) throw new Error("Analytics snapshot not found");
+    const series = Array.from(
+      new Map(
+        [...(snapshot.series ?? []), ...args.series].map((point) => [
+          point.date,
+          point,
+        ]),
+      ).values(),
+    )
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(-370);
+    await ctx.db.patch(snapshot._id, { series });
+    return { count: series.length };
+  },
+});
+
+export const seedAnalyticsRanges = internalMutation({
+  args: {
+    organizationId: v.string(),
+    provider: v.string(),
+    rangeMetrics: v.array(
+      v.object({
+        key: v.string(),
+        period: v.string(),
+        activeUsers: v.optional(v.number()),
+        sessions: v.optional(v.number()),
+        pageViews: v.optional(v.number()),
+        conversions: v.optional(v.number()),
+        revenue: v.optional(v.number()),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const snapshot = await ctx.db
+      .query("analyticsSnapshot")
+      .withIndex("by_organization_provider", (q) =>
+        q
+          .eq("organizationId", args.organizationId)
+          .eq("provider", args.provider),
+      )
+      .unique();
+    if (!snapshot) throw new Error("Analytics snapshot not found");
+    const rangeMetrics = Array.from(
+      new Map(
+        [...(snapshot.rangeMetrics ?? []), ...args.rangeMetrics].map(
+          (range) => [range.key, range],
+        ),
+      ).values(),
+    );
+    await ctx.db.patch(snapshot._id, { rangeMetrics });
+    return { count: rangeMetrics.length };
   },
 });
 

@@ -47,7 +47,9 @@ export class SessionManager {
       // A live session can't hop backends or change its access level.
       if (
         existing.config.driver !== config.driver ||
-        existing.config.access !== config.access
+        existing.config.access !== config.access ||
+        JSON.stringify(existing.config.mcpServers ?? []) !==
+          JSON.stringify(config.mcpServers ?? [])
       ) {
         await existing.stop();
         this.sessions.delete(chatId);

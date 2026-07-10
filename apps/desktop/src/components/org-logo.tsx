@@ -14,19 +14,22 @@ import { cn } from "@marketer/ui/lib/utils";
 export function OrgLogo({
   name,
   logo,
+  website,
   className,
   imgClassName,
 }: {
   name: string;
   logo?: string | null;
+  website?: string | null;
   className?: string;
   imgClassName?: string;
 }) {
   const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [logo]);
+  const src = logo || faviconUrl(website ?? "");
+  useEffect(() => setFailed(false), [src]);
 
   const initial = name.trim().charAt(0).toUpperCase() || "?";
-  const showImage = Boolean(logo) && !failed;
+  const showImage = Boolean(src) && !failed;
 
   return (
     <span
@@ -37,7 +40,7 @@ export function OrgLogo({
     >
       {showImage ? (
         <img
-          src={logo ?? undefined}
+          src={src ?? undefined}
           alt=""
           draggable={false}
           className={cn("h-full w-full object-cover", imgClassName)}
@@ -56,6 +59,20 @@ export function OrgLogo({
       )}
     </span>
   );
+}
+
+/** Google's favicon endpoint, used consistently anywhere a workspace appears. */
+export function faviconUrl(website: string): string | null {
+  const trimmed = website.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(
+      /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`,
+    );
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(url.hostname)}&sz=64`;
+  } catch {
+    return null;
+  }
 }
 
 /**

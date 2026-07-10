@@ -6,6 +6,7 @@ import type {
   AgentDefinition,
   AgentEvent,
   DriverType,
+  McpServerSpec,
 } from "./types.js";
 
 /** Per-session execution config: which backend runs the persona and how much it may do unprompted. */
@@ -13,6 +14,7 @@ export interface SessionConfig {
   driver: DriverType;
   access: AccessMode;
   model?: string;
+  mcpServers?: McpServerSpec[];
 }
 
 export class AgentSession extends EventEmitter {
@@ -46,6 +48,7 @@ export class AgentSession extends EventEmitter {
       access: this.config.access,
       model: this.config.model,
       resumeSessionId,
+      mcpServers: this.config.mcpServers,
     });
   }
 

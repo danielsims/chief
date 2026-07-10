@@ -7,28 +7,11 @@ import {
   setActiveAuthOrganization,
   updateAuthOrganization,
 } from "../lib/auth/better-auth-client";
-import { faviconLoads } from "../components/org-logo";
+import { faviconLoads, faviconUrl } from "../components/org-logo";
 
 /**
  * Full-page workspace creation. Visually this is step one of onboarding.
  */
-
-/**
- * Default workspace logo: the favicon of the workspace's website, via
- * Google's favicon service. Persisted to the org `logo` field on create.
- */
-function faviconUrl(website: string): string | null {
-  const trimmed = website.trim();
-  if (!trimmed) return null;
-  try {
-    const url = new URL(
-      /^https?:\/\//.test(trimmed) ? trimmed : `https://${trimmed}`,
-    );
-    return `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=64`;
-  } catch {
-    return null;
-  }
-}
 
 function slugify(name: string): string {
   const base = name

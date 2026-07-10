@@ -42,13 +42,16 @@ import {
 import { SOCIAL_PLATFORMS, type SocialPlatform } from "../lib/social-platforms";
 import { setWorkspaceProvider } from "../lib/agent-overrides";
 import { useRuntime } from "../lib/runtime";
-import { openWorkspaceCheckout, type BillingPlan } from "../lib/billing";
-import { connectGoogleAnalytics } from "../lib/google-analytics";
 import {
-  persistSetupResult,
-  type SetupResult,
-} from "../lib/integration-setup";
+  hasWorkspaceAccess,
+  openWorkspaceCheckout,
+  type BillingPlan,
+} from "../lib/billing";
+import { connectGoogleAnalytics } from "../lib/google-analytics";
+import { persistSetupResult, type SetupResult } from "../lib/integration-setup";
 import { IntegrationConnect } from "../components/integrations/integration-connect";
+import { faviconLoads, faviconUrl } from "../components/org-logo";
+import { GoogleLogo } from "../components/google-logo";
 import {
   integrationLogoUrl,
   searchIntegrations,
@@ -150,7 +153,7 @@ const questions: Record<StepKey, string> = {
   adsBudget: "No ads today. Want your agents to run them for you?",
   aeo: "One more thing. Want to know when ChatGPT, Claude or Perplexity send you customers?",
   pricing: "Choose how this workspace is billed.",
-  finish: "Workspace setup is ready.",
+  finish: "You're in.",
 };
 
 const successOptions = [
@@ -184,10 +187,25 @@ const adsBudgetOptions = [
 const monitoringOptions = [
   { key: "x", label: "X", platform: "x" as const, Icon: Twitter },
   { key: "facebook", label: "Facebook", Icon: Facebook },
-  { key: "instagram", label: "Instagram", platform: "instagram" as const, Icon: Instagram },
-  { key: "reddit", label: "Reddit", platform: "reddit" as const, Icon: MessageCircle },
+  {
+    key: "instagram",
+    label: "Instagram",
+    platform: "instagram" as const,
+    Icon: Instagram,
+  },
+  {
+    key: "reddit",
+    label: "Reddit",
+    platform: "reddit" as const,
+    Icon: MessageCircle,
+  },
   { key: "linkedin", label: "LinkedIn", Icon: Linkedin },
-  { key: "youtube", label: "YouTube", platform: "youtube" as const, Icon: Youtube },
+  {
+    key: "youtube",
+    label: "YouTube",
+    platform: "youtube" as const,
+    Icon: Youtube,
+  },
   { key: "search", label: "Search", Icon: Search },
   { key: "communities", label: "Communities", Icon: Globe },
 ];
@@ -203,21 +221,24 @@ const fallbackAnalyticsIntegrations: IntegrationSearchResult[] = [
   {
     domain: "posthog.com",
     name: "PostHog",
-    description: "Product analytics and event data through the PostHog MCP server.",
+    description:
+      "Product analytics and event data through the PostHog MCP server.",
     kinds: ["mcp"],
     url: "https://integrations.sh/posthog.com/",
   },
   {
     domain: "pendo.io",
     name: "Pendo",
-    description: "Product analytics and behavioral data through MCP and API surfaces.",
+    description:
+      "Product analytics and behavioral data through MCP and API surfaces.",
     kinds: ["mcp", "openapi"],
     url: "https://integrations.sh/pendo.io/",
   },
   {
     domain: "mixpanel.com",
     name: "Mixpanel",
-    description: "Product analytics integration from the integrations.sh registry.",
+    description:
+      "Product analytics integration from the integrations.sh registry.",
     kinds: ["mcp"],
     url: "https://integrations.sh/mixpanel.com/",
   },
@@ -302,33 +323,6 @@ function BrandIcon({
   );
 }
 
-function GoogleLogo({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-        fill="#4285F4"
-      />
-      <path
-        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-        fill="#34A853"
-      />
-      <path
-        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-        fill="#FBBC05"
-      />
-      <path
-        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-        fill="#EA4335"
-      />
-    </svg>
-  );
-}
-
 function storageKey(orgId: string) {
   return `marketer-onboarding:${orgId}`;
 }
@@ -408,7 +402,10 @@ function normaliseIntegrations(value: unknown): IntegrationSearchResult[] {
   });
 }
 
-function draftFromOrg(org: AuthOrganization, userName?: string): OnboardingDraft {
+function draftFromOrg(
+  org: AuthOrganization,
+  userName?: string,
+): OnboardingDraft {
   const metadata = parseOrganizationMetadata(org);
   const onboarding =
     metadata.onboarding && typeof metadata.onboarding === "object"
@@ -448,7 +445,8 @@ function draftFromOrg(org: AuthOrganization, userName?: string): OnboardingDraft
   return {
     ...baseDraft(),
     workspaceMode:
-      onboarding.workspaceMode === "cloud" || onboarding.providerMode === "deployed"
+      onboarding.workspaceMode === "cloud" ||
+      onboarding.providerMode === "deployed"
         ? "cloud"
         : "local",
     companyName: looksLikePersonalOrg ? "" : org.name,
@@ -471,9 +469,7 @@ function draftFromOrg(org: AuthOrganization, userName?: string): OnboardingDraft
       channels: normaliseChannels(monitoring.channels, ["X", "Reddit"]),
       details: typeof monitoring.details === "string" ? monitoring.details : "",
       keywords:
-        typeof monitoring.keywords === "string"
-          ? monitoring.keywords
-          : "",
+        typeof monitoring.keywords === "string" ? monitoring.keywords : "",
     },
     analytics: {
       integrations: normaliseIntegrations(analytics.integrations),
@@ -489,7 +485,7 @@ function draftFromOrg(org: AuthOrganization, userName?: string): OnboardingDraft
       trackAiReferrals:
         typeof aeo.trackAiReferrals === "boolean" ? aeo.trackAiReferrals : true,
     },
-    step: "mode",
+    step: typeof onboarding.completedAt === "string" ? "pricing" : "mode",
   };
 }
 
@@ -503,11 +499,8 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
     const parsedMonitoring = parsed.monitoring as
       Partial<OnboardingDraft["monitoring"]> | undefined;
     const parsedAnalytics = parsed.analytics as
-      | Partial<OnboardingDraft["analytics"]>
-      | undefined;
-    const parsedAds = parsed.ads as
-      | Partial<OnboardingDraft["ads"]>
-      | undefined;
+      Partial<OnboardingDraft["analytics"]> | undefined;
+    const parsedAds = parsed.ads as Partial<OnboardingDraft["ads"]> | undefined;
     const parsedAeo = parsed.aeo as Partial<OnboardingDraft["aeo"]> | undefined;
     return {
       ...base,
@@ -665,7 +658,10 @@ function SocialIcon({
   platform?: SocialPlatform;
 }) {
   return (
-    <BrandIcon icon={platform ? socialIcons[platform] : undefined} label={label} />
+    <BrandIcon
+      icon={platform ? socialIcons[platform] : undefined}
+      label={label}
+    />
   );
 }
 
@@ -674,9 +670,9 @@ function isGoogleAnalyticsIntegration(
 ) {
   return Boolean(
     integration &&
-      (integration.domain === "analytics.googleapis.com" ||
-        integration.domain === "analyticsadmin.googleapis.com" ||
-        integration.name.toLowerCase().includes("google analytics")),
+    (integration.domain === "analytics.googleapis.com" ||
+      integration.domain === "analyticsadmin.googleapis.com" ||
+      integration.name.toLowerCase().includes("google analytics")),
   );
 }
 
@@ -799,15 +795,13 @@ function AnswerPreview({
   }
 
   if (step === "selling") {
-    return (
-      <UserBubble>
-        {draft.goals.selling || "Product not set"}
-      </UserBubble>
-    );
+    return <UserBubble>{draft.goals.selling || "Product not set"}</UserBubble>;
   }
 
   if (step === "audience") {
-    return <UserBubble>{draft.goals.audience || "Audience not set"}</UserBubble>;
+    return (
+      <UserBubble>{draft.goals.audience || "Audience not set"}</UserBubble>
+    );
   }
 
   if (step === "success") return <UserBubble>{draft.goals.success}</UserBubble>;
@@ -864,7 +858,11 @@ function AnswerPreview({
     if (!draft.ads.integrations.length) {
       return <UserBubble>No paid ads</UserBubble>;
     }
-    return <UserBubble>{selectedIntegrationNames(draft.ads.integrations)}</UserBubble>;
+    return (
+      <UserBubble>
+        {selectedIntegrationNames(draft.ads.integrations)}
+      </UserBubble>
+    );
   }
 
   if (step === "adsBudget") {
@@ -1196,9 +1194,7 @@ function ProviderControl({
         </button>
         <button
           type="button"
-          onClick={() =>
-            setField({ providerMode: "local", provider: "codex" })
-          }
+          onClick={() => setField({ providerMode: "local", provider: "codex" })}
           className={optionClass(
             draft.providerMode === "local" && draft.provider === "codex",
           )}
@@ -1644,9 +1640,8 @@ function IntegrationPickerControl({
   saving: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<IntegrationSearchResult[]>(
-    fallbackIntegrations,
-  );
+  const [results, setResults] =
+    useState<IntegrationSearchResult[]>(fallbackIntegrations);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -1675,11 +1670,13 @@ function IntegrationPickerControl({
 
   const options = useMemo(() => {
     const seen = new Set<string>();
-    return [...selected, ...fallbackIntegrations, ...results].filter((integration) => {
-      if (seen.has(integration.domain)) return false;
-      seen.add(integration.domain);
-      return true;
-    });
+    return [...selected, ...fallbackIntegrations, ...results].filter(
+      (integration) => {
+        if (seen.has(integration.domain)) return false;
+        seen.add(integration.domain);
+        return true;
+      },
+    );
   }, [fallbackIntegrations, results, selected]);
 
   const toggle = (integration: IntegrationSearchResult) => {
@@ -1722,7 +1719,9 @@ function IntegrationPickerControl({
           <IntegrationCard
             key={integration.domain}
             integration={integration}
-            selected={selected.some((item) => item.domain === integration.domain)}
+            selected={selected.some(
+              (item) => item.domain === integration.domain,
+            )}
             onClick={() => toggle(integration)}
           />
         ))}
@@ -1737,11 +1736,7 @@ type ConnectedChannel = {
   category?: string;
 };
 
-function ConnectedIntegrationRow({
-  channel,
-}: {
-  channel: ConnectedChannel;
-}) {
+function ConnectedIntegrationRow({ channel }: { channel: ConnectedChannel }) {
   const providerIntegration = integrationFromProvider(channel.provider);
 
   return (
@@ -1840,7 +1835,9 @@ function IntegrationConnectQueueControl({
     null;
   const connectedRows = integrations.flatMap((integration) =>
     (channels ?? [])
-      .filter((channel) => integrationProviderMatches(integration, channel.provider))
+      .filter((channel) =>
+        integrationProviderMatches(integration, channel.provider),
+      )
       .map((channel) => ({ integration, channel })),
   );
   const queuedIntegrations = firstOpenIntegration
@@ -1854,7 +1851,8 @@ function IntegrationConnectQueueControl({
     connectedForIntegration(integration),
   );
   const activeIsGoogleAnalytics =
-    category === "analytics" && isGoogleAnalyticsIntegration(firstOpenIntegration);
+    category === "analytics" &&
+    isGoogleAnalyticsIntegration(firstOpenIntegration);
   const cloudGoogleAnalyticsSetup =
     workspaceMode !== "local" && activeIsGoogleAnalytics;
   const oauthStatusText = allConnected
@@ -1871,11 +1869,11 @@ function IntegrationConnectQueueControl({
     <StepFrame
       onContinue={onContinue}
       saving={saving}
-      disabled={mustFinishConnections && integrations.length > 0 && !allConnected}
+      disabled={
+        mustFinishConnections && integrations.length > 0 && !allConnected
+      }
       continueLabel={
-        !firstOpenIntegration ||
-        localAgentSetup ||
-        !cloudGoogleAnalyticsSetup
+        !firstOpenIntegration || localAgentSetup || !cloudGoogleAnalyticsSetup
           ? "Continue"
           : canConnectGoogleAnalytics
             ? "Continue without connecting"
@@ -2111,7 +2109,34 @@ function PricingControl({
           onClick={() => void onCheckout()}
           disabled={saving}
         >
-          {saving ? "Opening..." : "Start free trial"}
+          {saving ? "Opening..." : "Open checkout"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function CompletionControl({
+  onContinue,
+  saving,
+}: {
+  onContinue: () => void;
+  saving: boolean;
+}) {
+  return (
+    <div className="flex min-h-[480px] w-full items-center justify-center border bg-card px-6 py-14">
+      <div className="flex max-w-sm flex-col items-center text-center">
+        <h2 className="font-serif text-4xl leading-none">You're in.</h2>
+        <p className="mt-4 text-sm leading-6 text-muted-foreground">
+          Your workspace is ready. Your agents have what they need to begin.
+        </p>
+        <Button
+          type="button"
+          className="mt-9"
+          onClick={onContinue}
+          disabled={saving}
+        >
+          {saving ? "Saving..." : "Go to dashboard"}
         </Button>
       </div>
     </div>
@@ -2125,6 +2150,7 @@ export function OnboardingPage() {
   const upsertSocial = useMutation(api.socialAccounts.upsert);
   const removeSocial = useMutation(api.socialAccounts.remove);
   const saveAnalyticsProperty = useMutation(api.googleAnalytics.saveProperty);
+  const saveAnalyticsSnapshot = useMutation(api.analyticsSnapshots.upsert);
   const markIntegrationConnected = useMutation(api.integrations.markConnected);
   const analyticsConnection = useQuery(
     api.googleAnalytics.connectionStatus,
@@ -2140,6 +2166,10 @@ export function OnboardingPage() {
   );
   const socialAccounts = useQuery(
     api.socialAccounts.list,
+    convexReady && cloudOrganizationId ? {} : "skip",
+  );
+  const subscription = useQuery(
+    api.billing.getSubscription,
     convexReady && cloudOrganizationId ? {} : "skip",
   );
 
@@ -2216,6 +2246,28 @@ export function OnboardingPage() {
   const currentIndex = steps.indexOf(step);
   const connectedAnalytics =
     analyticsConnection?.channel?.status === "connected";
+  const billingActive = hasWorkspaceAccess(subscription);
+  const billingResolved = subscription !== undefined;
+
+  useEffect(() => {
+    if (!draft || !billingResolved) return;
+
+    if (billingActive && draft.step === "pricing") {
+      setNotice("Checkout confirmed. Your free trial is active.");
+      setError(null);
+      setDraft((current) =>
+        current?.step === "pricing" ? { ...current, step: "finish" } : current,
+      );
+      return;
+    }
+
+    if (!billingActive && draft.step === "finish") {
+      setNotice(null);
+      setDraft((current) =>
+        current?.step === "finish" ? { ...current, step: "pricing" } : current,
+      );
+    }
+  }, [billingActive, billingResolved, draft?.step]);
 
   useEffect(() => {
     let ticks = 0;
@@ -2299,39 +2351,33 @@ export function OnboardingPage() {
     );
   }, []);
 
-  const clearAnalyticsSelection = useCallback(
-    () => {
-      setNotice(null);
-      setError(null);
-      setDraft((current) =>
-        current
-          ? {
-              ...current,
-              analytics: { ...current.analytics, integrations: [] },
-              step: "ads",
-            }
-          : current,
-      );
-    },
-    [],
-  );
+  const clearAnalyticsSelection = useCallback(() => {
+    setNotice(null);
+    setError(null);
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            analytics: { ...current.analytics, integrations: [] },
+            step: "ads",
+          }
+        : current,
+    );
+  }, []);
 
-  const clearAdsSelection = useCallback(
-    (nextStep: "adsBudget" | "aeo") => {
-      setNotice(null);
-      setError(null);
-      setDraft((current) =>
-        current
-          ? {
-              ...current,
-              ads: { ...current.ads, integrations: [] },
-              step: nextStep,
-            }
-          : current,
-      );
-    },
-    [],
-  );
+  const clearAdsSelection = useCallback((nextStep: "adsBudget" | "aeo") => {
+    setNotice(null);
+    setError(null);
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            ads: { ...current.ads, integrations: [] },
+            step: nextStep,
+          }
+        : current,
+    );
+  }, []);
 
   const goNext = useCallback(() => {
     setNotice(null);
@@ -2345,12 +2391,15 @@ export function OnboardingPage() {
 
   const persistContext = useCallback(async () => {
     if (!draft) return false;
+    const favicon = faviconUrl(draft.websiteUrl);
+    const logo = favicon && (await faviconLoads(favicon)) ? favicon : undefined;
     if (!org) {
       const name = draft.companyName.trim();
       if (!name) return false;
       const created = await createAuthOrganization({
         name,
         slug: slugify(name),
+        ...(logo ? { logo } : {}),
       });
       const metadata = parseOrganizationMetadata(created);
       const nextDraft = { ...draft, step: "socials" as StepKey };
@@ -2366,11 +2415,13 @@ export function OnboardingPage() {
     const metadata = parseOrganizationMetadata(org);
     await updateAuthOrganization(org.id, {
       name: draft.companyName.trim() || org.name,
+      ...(!org.logo && logo ? { logo } : {}),
       metadata: { ...metadata, websiteUrl: draft.websiteUrl.trim() },
     });
     setOrg({
       ...org,
       name: draft.companyName.trim() || org.name,
+      logo: org.logo ?? logo,
       metadata: { ...metadata, websiteUrl: draft.websiteUrl.trim() },
     });
     return false;
@@ -2397,6 +2448,13 @@ export function OnboardingPage() {
 
   const completeOnboarding = useCallback(async () => {
     if (!org || !draft) return;
+    if (!billingActive) {
+      setDraft((current) =>
+        current ? { ...current, step: "pricing" } : current,
+      );
+      setError("Complete checkout before continuing to the dashboard.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -2433,7 +2491,14 @@ export function OnboardingPage() {
     } finally {
       setSaving(false);
     }
-  }, [draft, org, persistContext, persistProvider, persistSocials]);
+  }, [
+    billingActive,
+    draft,
+    org,
+    persistContext,
+    persistProvider,
+    persistSocials,
+  ]);
 
   const advance = useCallback(async () => {
     if (!draft || saving) return;
@@ -2487,6 +2552,7 @@ export function OnboardingPage() {
         {
           saveProperty: saveAnalyticsProperty,
           markConnected: markIntegrationConnected,
+          saveSnapshot: saveAnalyticsSnapshot,
         },
         category,
       )
@@ -2499,7 +2565,7 @@ export function OnboardingPage() {
           setError(err instanceof Error ? err.message : String(err));
         });
     },
-    [markIntegrationConnected, saveAnalyticsProperty],
+    [markIntegrationConnected, saveAnalyticsProperty, saveAnalyticsSnapshot],
   );
 
   const startAnalyticsConnect = useCallback(async () => {
@@ -2537,8 +2603,6 @@ export function OnboardingPage() {
       setError(result.message);
       return;
     }
-    setNotice("Checkout opened in your browser.");
-    setDraft((current) => (current ? { ...current, step: "finish" } : current));
   }, [checkoutPlan]);
 
   const currentControl = useMemo(() => {
@@ -2845,16 +2909,10 @@ export function OnboardingPage() {
       );
     }
     return (
-      <StepFrame
+      <CompletionControl
         onContinue={() => void completeOnboarding()}
         saving={saving}
-        continueLabel="Go to dashboard"
-      >
-        <p className="text-sm leading-6 text-muted-foreground">
-          Your agents now have the company, channels, goals and source setup
-          path they need to start from the right place.
-        </p>
-      </StepFrame>
+      />
     );
   }, [
     advance,
@@ -2926,7 +2984,9 @@ export function OnboardingPage() {
               </div>
             ))}
           <div className="space-y-4">
-            <AgentBubble text={questions[step]} current />
+            {step === "finish" ? null : (
+              <AgentBubble text={questions[step]} current />
+            )}
             <div className="w-full max-w-[720px]">{currentControl}</div>
             <div className="min-h-5">
               {notice && step !== "analytics" ? (

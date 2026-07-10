@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@marketer/backend/convex/_generated/api";
 import { Button } from "@marketer/ui/components/button";
 import { cn } from "@marketer/ui/lib/utils";
-import { BarChart3, LineChart, RefreshCw, Sparkles } from "lucide-react";
+import { BarChart3, RefreshCw, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router";
 import { useAuth } from "../lib/auth/auth-context";
 import { getWorkspaceProvider } from "../lib/agent-overrides";
 import {
+  SETUP_RESULT_MARKER,
+  parseSetupResult,
   persistSetupResult,
+  type AnalyticsSnapshotInput,
   type SetupIntegration,
   type SetupResult,
 } from "../lib/integration-setup";
@@ -16,34 +19,41 @@ import {
   listAuthOrganizations,
   parseOrganizationMetadata,
 } from "../lib/auth/better-auth-client";
+import { useAgentChat, useRuntime } from "../lib/runtime";
 import { IntegrationConnect } from "../components/integrations/integration-connect";
+import { ConnectionPreview } from "../components/integrations/connection-preview";
+import { ProviderLogo } from "../components/provider-logo";
+import { createChat } from "../lib/chat-log";
+import {
+  GOOGLE_ANALYTICS_PROVIDER,
+  providerDetails,
+} from "../lib/provider-details";
 
-type ProviderTab = "overview" | "meta" | "google-ads";
-
-interface Summary {
-  activeUsers: number;
-  sessions: number;
-  pageViews: number;
-  conversions: number;
-  revenue: number;
-  period: string;
+interface AnalyticsChannel {
+  _id: string;
+  provider: string;
+  category?: string;
+  displayName: string;
+  externalId?: string;
+  lastSyncAt?: number;
 }
 
-const tabs: Array<{ key: ProviderTab; label: string }> = [
-  { key: "overview", label: "Overview" },
-  { key: "meta", label: "Meta" },
-  { key: "google-ads", label: "Google Ads" },
-];
+interface ReportData extends AnalyticsSnapshotInput {
+  capturedAt?: number;
+}
 
-const GOOGLE_ANALYTICS_PROVIDER = "google-analytics";
+const METRIC_RANGES = [
+  { key: "7d", label: "7D" },
+  { key: "14d", label: "14D" },
+  { key: "30d", label: "30D" },
+  { key: "3m", label: "3M" },
+  { key: "1y", label: "1Y" },
+] as const;
 
 const fallbackAnalyticsIntegration: SetupIntegration = {
   domain: "analytics.googleapis.com",
   name: "Google Analytics",
 };
-
-const bars = [58, 42, 46, 68, 34, 58, 68];
-const linePoints = [30, 43, 40, 55, 51, 68, 82];
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat(undefined, {
@@ -61,16 +71,6 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
-function polyline(points: number[]) {
-  return points
-    .map((value, index) => {
-      const x = (index / (points.length - 1)) * 100;
-      const y = 100 - value;
-      return `${x},${y}`;
-    })
-    .join(" ");
-}
-
 function MetricCell({
   label,
   value,
@@ -84,98 +84,11 @@ function MetricCell({
     <div className="min-h-[110px] border-r border-b p-4 last:border-r-0">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-3 text-2xl font-medium tracking-normal">{value}</p>
-      <div className="mt-5 flex items-center justify-between text-xs text-muted-foreground">
-        <span>Live</span>
-        <span>{period}</span>
-      </div>
+      <p className="mt-5 text-xs text-muted-foreground">{period}</p>
     </div>
   );
 }
 
-function PerformanceChart() {
-  return (
-    <div className="border bg-card p-5">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium">Performance</p>
-        <LineChart size={15} className="text-muted-foreground" />
-      </div>
-      <div className="mt-8 h-56">
-        <svg
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-          className="h-full w-full"
-        >
-          <polyline
-            points={polyline(linePoints.map((value) => value - 16))}
-            fill="none"
-            stroke="currentColor"
-            strokeDasharray="2 2"
-            strokeWidth="0.6"
-            className="text-muted-foreground"
-          />
-          <polyline
-            points={polyline(linePoints)}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1"
-            className="text-foreground"
-          />
-        </svg>
-      </div>
-      <div className="mt-4 grid grid-cols-7 text-center text-xs text-muted-foreground">
-        {["Jun 12", "Jun 13", "Jun 14", "Jun 15", "Jun 16", "Jun 17", "Jun 18"].map(
-          (day) => (
-            <span key={day}>{day}</span>
-          ),
-        )}
-      </div>
-    </div>
-  );
-}
-
-function BarPanel() {
-  return (
-    <div className="border bg-card p-5">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium">Active users</p>
-        <BarChart3 size={15} className="text-muted-foreground" />
-      </div>
-      <div className="mt-8 flex h-56 items-end gap-3">
-        {bars.map((height, index) => (
-          <div
-            key={index}
-            className="flex min-w-0 flex-1 flex-col items-center gap-3"
-          >
-            <div
-              className="w-full bg-foreground"
-              style={{ height: `${height}%` }}
-            />
-            <span className="text-xs text-muted-foreground">
-              {`Jun ${12 + index}`}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ComingSoonProvider({ label }: { label: string }) {
-  return (
-    <div className="mt-6 border bg-card p-8">
-      <p className="text-sm font-medium">{label}</p>
-      <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-        This provider will use the same channel model and integrations.sh
-        discovery path as your analytics source.
-      </p>
-    </div>
-  );
-}
-
-/**
- * Reads the analytics integration the user chose during onboarding so the
- * connect flow here targets their tool, not a hardcoded default.
- */
 function usePreferredAnalyticsIntegration(): SetupIntegration {
   const [integration, setIntegration] = useState<SetupIntegration>(
     fallbackAnalyticsIntegration,
@@ -199,14 +112,13 @@ function usePreferredAnalyticsIntegration(): SetupIntegration {
         onboarding.analytics && typeof onboarding.analytics === "object"
           ? (onboarding.analytics as Record<string, unknown>)
           : {};
-      const chosen =
-        analytics.integration && typeof analytics.integration === "object"
-          ? (analytics.integration as Record<string, unknown>)
-          : null;
+      const integrations = Array.isArray(analytics.integrations)
+        ? analytics.integrations
+        : [];
+      const chosen = integrations[0] as Record<string, unknown> | undefined;
       if (
         chosen &&
         typeof chosen.domain === "string" &&
-        chosen.domain !== "none" &&
         typeof chosen.name === "string"
       ) {
         setIntegration({ domain: chosen.domain, name: chosen.name });
@@ -220,60 +132,312 @@ function usePreferredAnalyticsIntegration(): SetupIntegration {
   return integration;
 }
 
+function reportFromResult(result: SetupResult): ReportData | null {
+  const number = (key: string) =>
+    typeof result[key] === "number" ? (result[key] as number) : undefined;
+  const series = Array.isArray(result.series) ? result.series : undefined;
+  const hasMetrics = [
+    "activeUsers",
+    "sessions",
+    "pageViews",
+    "conversions",
+    "revenue",
+  ].some((key) => number(key) !== undefined);
+  if (!hasMetrics && !series?.length) return null;
+
+  return {
+    provider:
+      result.provider === "analytics.googleapis.com"
+        ? GOOGLE_ANALYTICS_PROVIDER
+        : String(result.provider),
+    period:
+      typeof result.period === "string"
+        ? result.period
+        : series?.length
+          ? `${series.length} D`
+          : "30 D",
+    activeUsers: number("activeUsers"),
+    sessions: number("sessions"),
+    pageViews: number("pageViews"),
+    conversions: number("conversions"),
+    revenue: number("revenue"),
+    metricLabel:
+      typeof result.metricLabel === "string" ? result.metricLabel : undefined,
+    series,
+  };
+}
+
+function snapshotArgs(report: ReportData): AnalyticsSnapshotInput {
+  const periodKey =
+    report.period === "7 D"
+      ? "7d"
+      : report.period === "14 D"
+        ? "14d"
+        : report.period === "30 D"
+          ? "30d"
+          : report.period === "3 M"
+            ? "3m"
+            : report.period === "1 Y"
+              ? "1y"
+              : null;
+  const currentRange = periodKey
+    ? {
+        key: periodKey,
+        period: report.period,
+        activeUsers: report.activeUsers,
+        sessions: report.sessions,
+        pageViews: report.pageViews,
+        conversions: report.conversions,
+        revenue: report.revenue,
+      }
+    : null;
+  return {
+    provider: report.provider,
+    period: report.period,
+    ...(report.activeUsers !== undefined
+      ? { activeUsers: report.activeUsers }
+      : {}),
+    ...(report.sessions !== undefined ? { sessions: report.sessions } : {}),
+    ...(report.pageViews !== undefined ? { pageViews: report.pageViews } : {}),
+    ...(report.conversions !== undefined
+      ? { conversions: report.conversions }
+      : {}),
+    ...(report.revenue !== undefined ? { revenue: report.revenue } : {}),
+    ...(report.metricLabel ? { metricLabel: report.metricLabel } : {}),
+    ...(report.series?.length ? { series: report.series } : {}),
+    ...(report.rangeMetrics?.length || currentRange
+      ? {
+          rangeMetrics: [
+            ...(report.rangeMetrics ?? []),
+            ...(currentRange ? [currentRange] : []),
+          ],
+        }
+      : {}),
+  };
+}
+
+function analyticsReportTask(channel: AnalyticsChannel) {
+  const details = providerDetails(channel.provider);
+  return `Refresh the existing ${details.product} connection for this workspace. Do not reconnect it, change credentials, or ask setup questions. Use the local credentials and tools already configured on this Mac. Pull the last 30 days of active users, sessions, page views, conversions and revenue, plus up to 14 ascending daily active-user points. Keep narration to one short line, then end with exactly one valid single-line result in this shape:
+${SETUP_RESULT_MARKER} {"provider":"${channel.provider}","status":"report","period":"30 D","activeUsers":0,"sessions":0,"pageViews":0,"conversions":0,"revenue":0,"metricLabel":"Active users","series":[{"date":"YYYYMMDD","value":0}]}
+Use the real numeric values. Property id: ${channel.externalId ?? "use the connected property"}.`;
+}
+
 export function AnalyticsPage() {
   const navigate = useNavigate();
   const { cloudOrganizationId } = useAuth();
   const convexAuth = useConvexAuth();
-  const [tab, setTab] = useState<ProviderTab>("overview");
+  const { status: runtimeStatus } = useRuntime();
+  const [tab, setTab] = useState("overview");
+  const [metricRange, setMetricRange] = useState("30d");
   const [notice, setNotice] = useState<string | null>(null);
-  const [summary, setSummary] = useState<Summary | null>(null);
+  const [liveReports, setLiveReports] = useState<Record<string, ReportData>>(
+    {},
+  );
   const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
+  const awaitingAgentRef = useRef(false);
+  const autoRefreshedRef = useRef(new Set<string>());
+  const handledResultsRef = useRef(new Set<string>());
   const canUseWorkspaceAnalytics =
     convexAuth.isAuthenticated && Boolean(cloudOrganizationId);
 
   const connectedChannels = useQuery(
     api.integrations.listConnected,
-    canUseWorkspaceAnalytics ? { category: "analytics" } : "skip",
+    canUseWorkspaceAnalytics ? {} : "skip",
   );
-  const saveAnalyticsProperty = useMutation(api.googleAnalytics.saveProperty);
-  const markIntegrationConnected = useMutation(api.integrations.markConnected);
-  const disconnectGoogleAnalytics = useMutation(api.googleAnalytics.disconnect);
-  const disconnectIntegration = useMutation(api.integrations.disconnect);
-  const getSummary = useAction(api.googleAnalytics.summary);
-
-  const preferredIntegration = usePreferredAnalyticsIntegration();
-  const workspaceProvider = getWorkspaceProvider();
-
-  const channel = connectedChannels?.[0];
-  const connected = Boolean(channel);
-  const isGoogleAnalyticsSource =
-    channel?.provider === GOOGLE_ANALYTICS_PROVIDER;
-  const sourceName = channel?.displayName ?? preferredIntegration.name;
-  const liveReportsAvailable = connected && isGoogleAnalyticsSource;
-
-  const refresh = useCallback(async () => {
-    if (!liveReportsAvailable || refreshing) return;
-    setRefreshing(true);
-    setNotice(null);
-    try {
-      const next = (await getSummary({})) as Summary | null;
-      if (next) {
-        setSummary(next);
-      } else {
-        setNotice(
-          `${sourceName} is connected, but no property is ready for reports yet.`,
-        );
-      }
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
-    } finally {
-      setRefreshing(false);
-    }
-  }, [liveReportsAvailable, getSummary, refreshing, sourceName]);
+  const productChannels = useMemo(
+    () =>
+      ((connectedChannels ?? []) as AnalyticsChannel[]).filter(
+        (channel) =>
+          channel.category === "analytics" || channel.category === "ads",
+      ),
+    [connectedChannels],
+  );
+  const selectedChannel =
+    tab === "overview"
+      ? productChannels[0]
+      : productChannels.find((channel) => channel.provider === tab);
+  const selectedProvider = selectedChannel?.provider;
+  const selectedDetails = selectedProvider
+    ? providerDetails(selectedProvider)
+    : null;
 
   useEffect(() => {
-    if (liveReportsAvailable && !summary) void refresh();
-  }, [liveReportsAvailable, refresh, summary]);
+    if (tab !== "overview" && !selectedChannel) setTab("overview");
+  }, [selectedChannel, tab]);
+
+  useEffect(() => setMetricRange("30d"), [selectedProvider]);
+
+  const storedSnapshot = useQuery(
+    api.analyticsSnapshots.getLatest,
+    canUseWorkspaceAnalytics && selectedProvider
+      ? { provider: selectedProvider }
+      : "skip",
+  );
+  const report = selectedProvider
+    ? (liveReports[selectedProvider] ?? storedSnapshot ?? null)
+    : null;
+
+  const saveAnalyticsProperty = useMutation(api.googleAnalytics.saveProperty);
+  const markIntegrationConnected = useMutation(api.integrations.markConnected);
+  const saveSnapshot = useMutation(api.analyticsSnapshots.upsert);
+  const getSummary = useAction(api.googleAnalytics.summary);
+  const preferredIntegration = usePreferredAnalyticsIntegration();
+  const workspaceProvider = getWorkspaceProvider();
+  const visibleDetails =
+    selectedDetails ?? providerDetails(preferredIntegration.domain);
+
+  const reportChat = useAgentChat(
+    selectedChannel ? "analyst" : null,
+    workspaceProvider,
+    selectedChannel
+      ? `analytics-report-${selectedChannel.provider.replace(/[^a-z0-9-]/gi, "-")}`
+      : undefined,
+    "full",
+  );
+
+  const finishRefresh = useCallback(() => {
+    refreshingRef.current = false;
+    awaitingAgentRef.current = false;
+    setRefreshing(false);
+  }, []);
+
+  const acceptReport = useCallback(
+    (next: ReportData) => {
+      const captured = { ...next, capturedAt: Date.now() };
+      setLiveReports((current) => {
+        const base = current[next.provider] ?? storedSnapshot ?? undefined;
+        const nextRanges = snapshotArgs(captured).rangeMetrics ?? [];
+        return {
+          ...current,
+          [next.provider]: {
+            ...captured,
+            series: Array.from(
+              new Map(
+                [...(base?.series ?? []), ...(captured.series ?? [])].map(
+                  (point) => [point.date, point],
+                ),
+              ).values(),
+            )
+              .sort((a, b) => a.date.localeCompare(b.date))
+              .slice(-370),
+            rangeMetrics: Array.from(
+              new Map(
+                [...(base?.rangeMetrics ?? []), ...nextRanges].map((range) => [
+                  range.key,
+                  range,
+                ]),
+              ).values(),
+            ),
+          },
+        };
+      });
+      void saveSnapshot(snapshotArgs(captured));
+      setNotice(null);
+      finishRefresh();
+    },
+    [finishRefresh, saveSnapshot, storedSnapshot],
+  );
+
+  useEffect(() => {
+    let found = false;
+    for (const item of reportChat.chat.items) {
+      if (item.kind !== "assistant") continue;
+      for (const block of item.event.content) {
+        if (block.type !== "text") continue;
+        const result = parseSetupResult(block.text);
+        if (!result) continue;
+        const next = reportFromResult(result);
+        if (!next) continue;
+        const key = JSON.stringify(result);
+        if (handledResultsRef.current.has(key)) continue;
+        handledResultsRef.current.add(key);
+        acceptReport(next);
+        found = true;
+      }
+    }
+    if (
+      !found &&
+      awaitingAgentRef.current &&
+      reportChat.chat.status === "idle"
+    ) {
+      setNotice("The report finished without returning analytics data.");
+      finishRefresh();
+    }
+  }, [
+    acceptReport,
+    finishRefresh,
+    reportChat.chat.items,
+    reportChat.chat.status,
+  ]);
+
+  useEffect(() => {
+    if (!reportChat.chat.error || !awaitingAgentRef.current) return;
+    setNotice(reportChat.chat.error);
+    finishRefresh();
+  }, [finishRefresh, reportChat.chat.error]);
+
+  const refresh = useCallback(async () => {
+    if (!selectedChannel || refreshingRef.current) return;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    setNotice(null);
+
+    if (selectedChannel.provider === GOOGLE_ANALYTICS_PROVIDER) {
+      try {
+        const cloudReport = (await getSummary({})) as Omit<
+          ReportData,
+          "provider"
+        > | null;
+        if (cloudReport) {
+          acceptReport({
+            ...cloudReport,
+            provider: GOOGLE_ANALYTICS_PROVIDER,
+          });
+          return;
+        }
+      } catch {
+        // Local connections intentionally have no Convex credential. Continue
+        // through the local report agent instead of retrying the action.
+      }
+    }
+
+    if (
+      workspaceProvider &&
+      runtimeStatus === "connected" &&
+      reportChat.sessionReady
+    ) {
+      awaitingAgentRef.current = true;
+      reportChat.send(analyticsReportTask(selectedChannel));
+      return;
+    }
+
+    setNotice("The local analytics runner is not ready yet.");
+    finishRefresh();
+  }, [
+    acceptReport,
+    finishRefresh,
+    getSummary,
+    reportChat,
+    runtimeStatus,
+    selectedChannel,
+    workspaceProvider,
+  ]);
+
+  useEffect(() => {
+    if (
+      !selectedChannel ||
+      storedSnapshot === undefined ||
+      storedSnapshot ||
+      !reportChat.sessionReady ||
+      autoRefreshedRef.current.has(selectedChannel._id)
+    ) {
+      return;
+    }
+    autoRefreshedRef.current.add(selectedChannel._id);
+    void refresh();
+  }, [refresh, reportChat.sessionReady, selectedChannel, storedSnapshot]);
 
   const handleSetupResult = useCallback(
     (result: SetupResult) => {
@@ -282,65 +446,83 @@ export function AnalyticsPage() {
         {
           saveProperty: saveAnalyticsProperty,
           markConnected: markIntegrationConnected,
+          saveSnapshot,
         },
         "analytics",
       ).catch((error) => {
         setNotice(error instanceof Error ? error.message : String(error));
       });
     },
-    [markIntegrationConnected, saveAnalyticsProperty],
+    [markIntegrationConnected, saveAnalyticsProperty, saveSnapshot],
   );
 
-  const disconnect = useCallback(() => {
-    if (!channel) return;
-    setSummary(null);
-    void (
-      isGoogleAnalyticsSource
-        ? disconnectGoogleAnalytics({})
-        : disconnectIntegration({ provider: channel.provider })
-    ).catch((error) => {
-      setNotice(error instanceof Error ? error.message : String(error));
-    });
-  }, [
-    channel,
-    disconnectGoogleAnalytics,
-    disconnectIntegration,
-    isGoogleAnalyticsSource,
-  ]);
-
+  const sourceName = selectedChannel?.displayName ?? preferredIntegration.name;
   const askAnalyst = () => {
-    const prompt = `Review our ${sourceName} analytics. The workspace's analytics source is ${channel?.provider ?? preferredIntegration.domain}${channel?.externalId ? ` (id ${channel.externalId})` : ""}. Use the connected local tooling to pull the last 30 days of traffic and conversions, then summarize what changed and recommend one action.`;
-    navigate(`/conversations?agent=analyst&prompt=${encodeURIComponent(prompt)}`);
+    const draft = "What changed in our traffic recently?";
+    const conversation = createChat("analyst", `${sourceName} analytics`);
+    navigate(
+      `/conversations?agent=analyst&chat=${conversation.id}&draft=${encodeURIComponent(draft)}`,
+    );
   };
 
-  const metrics = useMemo(() => {
-    const value = (n: number, format: (n: number) => string) =>
-      liveReportsAvailable && summary ? format(n) : "-";
-    const s = summary ?? {
-      activeUsers: 0,
-      sessions: 0,
-      pageViews: 0,
-      conversions: 0,
-      revenue: 0,
-      period: "30 D",
-    };
-    return [
-      { label: "Active users", value: value(s.activeUsers, formatNumber) },
-      { label: "Sessions", value: value(s.sessions, formatNumber) },
-      { label: "Page views", value: value(s.pageViews, formatNumber) },
-      { label: "Conversions", value: value(s.conversions, formatNumber) },
-      { label: "Revenue", value: value(s.revenue, formatCurrency) },
-      {
-        label: "Conversion rate",
-        value:
-          liveReportsAvailable && summary && s.sessions > 0
-            ? `${((s.conversions / s.sessions) * 100).toFixed(1)}%`
-            : "-",
-      },
-    ];
-  }, [liveReportsAvailable, summary]);
+  const metricReport =
+    report?.rangeMetrics?.find((range) => range.key === metricRange) ??
+    (metricRange === "30d" ? report : null);
+  const availableMetricRanges = METRIC_RANGES.filter(
+    (range) =>
+      range.key === "30d" ||
+      report?.rangeMetrics?.some((stored) => stored.key === range.key),
+  );
 
-  const period = summary?.period ?? "30 D";
+  const metrics = useMemo(() => {
+    if (!metricReport) return [];
+    const values = [
+      metricReport.activeUsers !== undefined
+        ? {
+            label: "Active users",
+            value: formatNumber(metricReport.activeUsers),
+          }
+        : null,
+      metricReport.sessions !== undefined
+        ? { label: "Sessions", value: formatNumber(metricReport.sessions) }
+        : null,
+      metricReport.pageViews !== undefined
+        ? { label: "Page views", value: formatNumber(metricReport.pageViews) }
+        : null,
+      metricReport.conversions !== undefined
+        ? {
+            label: "Conversions",
+            value: formatNumber(metricReport.conversions),
+          }
+        : null,
+      metricReport.revenue !== undefined
+        ? { label: "Revenue", value: formatCurrency(metricReport.revenue) }
+        : null,
+      metricReport.conversions !== undefined &&
+      metricReport.sessions !== undefined &&
+      metricReport.sessions > 0
+        ? {
+            label: "Conversion rate",
+            value: `${((metricReport.conversions / metricReport.sessions) * 100).toFixed(1)}%`,
+          }
+        : null,
+    ];
+    return values.filter((value): value is { label: string; value: string } =>
+      Boolean(value),
+    );
+  }, [metricReport]);
+
+  const tabs = [
+    { key: "overview", label: "Overview", domain: null },
+    ...productChannels.map((channel) => {
+      const details = providerDetails(channel.provider);
+      return {
+        key: channel.provider,
+        label: details.product,
+        domain: details.productDomain,
+      };
+    }),
+  ];
 
   return (
     <div className="-mx-8 -mb-8 min-h-[calc(100vh-48px)]">
@@ -353,10 +535,19 @@ export function AnalyticsPage() {
               type="button"
               onClick={() => setTab(item.key)}
               className={cn(
-                "border-b border-transparent pb-3 text-sm text-muted-foreground transition-colors hover:text-foreground",
+                "flex items-center gap-2 border-b border-transparent pb-3 text-sm text-muted-foreground transition-colors hover:text-foreground",
                 tab === item.key && "border-foreground text-foreground",
               )}
             >
+              {item.domain ? (
+                <ProviderLogo
+                  domain={item.domain}
+                  label={item.label}
+                  className="size-5 border-0"
+                />
+              ) : (
+                <BarChart3 size={15} />
+              )}
               {item.label}
             </button>
           ))}
@@ -371,45 +562,34 @@ export function AnalyticsPage() {
                 ? "Loading workspace..."
                 : "No active workspace"}
             </p>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-              Analytics needs an active workspace before it can connect a
-              source or fetch reports.
-            </p>
           </div>
-        </div>
-      ) : tab !== "overview" ? (
-        <div className="px-8 pt-6">
-          <ComingSoonProvider label={tab === "meta" ? "Meta" : "Google Ads"} />
         </div>
       ) : (
         <div className="space-y-5 px-8 py-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" size="sm" onClick={askAnalyst}>
-                <Sparkles size={14} />
-                Ask Analyst
-              </Button>
-              <Button variant="outline" size="sm" disabled>
-                Compare
-              </Button>
-              <Button variant="outline" size="sm" disabled>
-                By channel
-              </Button>
-            </div>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              {channel?.lastSyncAt ? (
-                <span>
-                  Last refreshed{" "}
-                  {new Date(channel.lastSyncAt).toLocaleTimeString()}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={askAnalyst}
+              disabled={!selectedChannel}
+            >
+              <Sparkles size={14} />
+              Ask Analyst
+            </Button>
+            <div className="flex items-center gap-3">
+              {report?.capturedAt || selectedChannel?.lastSyncAt ? (
+                <span className="text-xs text-muted-foreground">
+                  Updated{" "}
+                  {new Date(
+                    report?.capturedAt ?? selectedChannel!.lastSyncAt!,
+                  ).toLocaleTimeString()}
                 </span>
-              ) : (
-                <span>No report refresh yet</span>
-              )}
+              ) : null}
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => void refresh()}
-                disabled={!liveReportsAvailable || refreshing}
+                disabled={!selectedChannel || refreshing}
               >
                 <RefreshCw
                   size={14}
@@ -420,73 +600,133 @@ export function AnalyticsPage() {
             </div>
           </div>
 
-          <div className="border bg-card p-5">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
-                <p className="text-sm font-medium">
-                  {connected ? sourceName : preferredIntegration.name}
-                </p>
-                <p className="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">
-                  {connected
-                    ? `This workspace's analytics source${channel?.externalId ? ` (${channel.externalId})` : ""}. The Analyst agent reads it through the tools set up on this Mac.`
-                    : "Your analytics source from onboarding. The setup agent connects it using this Mac and asks before changing anything."}
-                </p>
-              </div>
-              {connected ? (
-                <Button variant="outline" onClick={disconnect}>
-                  Disconnect
-                </Button>
-              ) : null}
+          <div className="border bg-card">
+            <div className="flex items-center gap-3 px-5 py-3">
+              <ProviderLogo
+                domain={visibleDetails.familyDomain}
+                label={visibleDetails.family}
+                className="size-7"
+              />
+              <p className="text-sm font-medium">{visibleDetails.family}</p>
             </div>
-            <div className="mt-5 border-t pt-4">
-              {workspaceProvider ? (
-                <IntegrationConnect
-                  integration={
-                    connected
-                      ? { domain: channel?.provider ?? "", name: sourceName }
-                      : preferredIntegration
-                  }
-                  driver={workspaceProvider}
-                  connected={connected}
-                  connectedLabel={sourceName}
-                  onResult={handleSetupResult}
-                />
-              ) : (
-                <p className="text-xs leading-5 text-muted-foreground">
-                  Choose an agent app on the Agents page before connecting a
-                  source.
-                </p>
-              )}
-              {notice ? (
-                <p className="mt-3 text-xs text-muted-foreground">{notice}</p>
+            <div className="border-t p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex min-w-0 gap-3">
+                  <ProviderLogo
+                    domain={visibleDetails.productDomain}
+                    label={visibleDetails.product}
+                    className="size-10"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">
+                      {visibleDetails.product}
+                    </p>
+                    <p className="mt-1 truncate text-sm font-medium">
+                      {sourceName}
+                    </p>
+                    {selectedChannel?.externalId ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Property {selectedChannel.externalId}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+                {selectedChannel ? (
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      navigate(
+                        `/settings/integrations/${encodeURIComponent(selectedChannel.provider)}`,
+                      )
+                    }
+                  >
+                    Manage
+                  </Button>
+                ) : null}
+              </div>
+
+              {!selectedChannel ? (
+                <div className="mt-5 border-t pt-4">
+                  {workspaceProvider ? (
+                    <IntegrationConnect
+                      integration={preferredIntegration}
+                      driver={workspaceProvider}
+                      connected={false}
+                      onResult={handleSetupResult}
+                    />
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Choose an agent app before connecting a source.
+                    </p>
+                  )}
+                </div>
               ) : null}
             </div>
           </div>
 
-          {connected && !liveReportsAvailable ? (
-            <p className="text-xs leading-5 text-muted-foreground">
-              Live {sourceName} report cells are coming next. Until then, Ask
-              Analyst pulls current numbers through the connected tools.
-            </p>
+          {notice ? (
+            <p className="text-xs text-muted-foreground">{notice}</p>
           ) : null}
 
-          <div className="overflow-hidden border bg-card">
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3">
-              {metrics.map((metric) => (
-                <MetricCell
-                  key={metric.label}
-                  label={metric.label}
-                  value={metric.value}
-                  period={period}
-                />
-              ))}
+          {metrics.length > 0 ? (
+            <div className="overflow-hidden border bg-card">
+              <div className="flex items-center justify-between border-b px-4 py-3">
+                <p className="text-xs font-medium">Performance</p>
+                <div className="flex border p-0.5">
+                  {availableMetricRanges.map((range) => (
+                    <button
+                      key={range.key}
+                      type="button"
+                      onClick={() => setMetricRange(range.key)}
+                      className={cn(
+                        "px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground",
+                        metricRange === range.key &&
+                          "bg-accent text-foreground",
+                      )}
+                    >
+                      {range.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3">
+                {metrics.map((metric) => (
+                  <MetricCell
+                    key={metric.label}
+                    label={metric.label}
+                    value={metric.value}
+                    period={metricReport?.period ?? "30 D"}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
+          ) : null}
 
-          <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
-            <PerformanceChart />
-            <BarPanel />
-          </div>
+          {report?.series?.length ? (
+            <ConnectionPreview
+              name={sourceName}
+              metricLabel={report.metricLabel}
+              series={report.series}
+              rangeKey={metricRange}
+            />
+          ) : null}
+
+          {!report && selectedChannel ? (
+            <div className="flex min-h-64 items-center justify-center border bg-card px-6 py-12 text-center">
+              <div className="max-w-sm">
+                <h2 className="font-serif text-2xl">
+                  {refreshing
+                    ? "Pulling your first report..."
+                    : "No report yet"}
+                </h2>
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                  {refreshing
+                    ? `Reading ${sourceName} through the connection on this Mac.`
+                    : "Refresh to pull current analytics from this source."}
+                </p>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
     </div>

@@ -5,6 +5,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { WebSocketServer, WebSocket } from "ws";
 import { SessionManager } from "./manager.js";
 import { defaultAgents, getAgent } from "./agents.js";
+import { executorToolServer } from "./tools/spec.js";
 import type { ClientMessage, InputRequest, ServerMessage } from "./types.js";
 
 const SECRETS_ENV_PATH = join(homedir(), ".marketer", "secrets.env");
@@ -134,6 +135,9 @@ export function startServer(port = PORT) {
               driver: msg.driver,
               access: msg.access ?? "guarded",
               model: msg.model,
+              mcpServers: [executorToolServer(msg.workspaceId)].filter(
+                (server): server is NonNullable<typeof server> => Boolean(server),
+              ),
             });
             if (!subscriptions.has(msg.chatId)) {
               subscriptions.add(msg.chatId);

@@ -54,6 +54,17 @@ export class ClaudeDriver extends BaseDriver {
         env,
         cwd: opts.cwd,
         model: opts.model,
+        mcpServers: Object.fromEntries(
+          (opts.mcpServers ?? []).map((server) => [
+            server.name,
+            {
+              type: "stdio" as const,
+              command: server.command,
+              args: server.args,
+              env: server.env ?? {},
+            },
+          ]),
+        ),
         resume: this.sessionId,
         includePartialMessages: true,
         // Guarded sessions route mutating tool calls through the approval

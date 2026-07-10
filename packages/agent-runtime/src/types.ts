@@ -57,6 +57,14 @@ export type DriverType = "claude" | "codex";
  */
 export type AccessMode = "full" | "guarded";
 
+/** Provider-neutral stdio tool server description understood by every driver. */
+export interface McpServerSpec {
+  name: string;
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
 /**
  * A provider-agnostic persona. Which driver/model executes it is workspace
  * state, resolved per session at openSession time — never part of the
@@ -80,6 +88,7 @@ export interface StartOptions {
   access: AccessMode;
   model?: string;
   resumeSessionId?: string;
+  mcpServers?: McpServerSpec[];
 }
 
 // ---- Structured user input (secrets/config the agent cannot obtain itself) ----
@@ -124,6 +133,8 @@ export type ClientMessage =
       model?: string;
       /** Defaults to "guarded" (approval policy applies). */
       access?: AccessMode;
+      /** Better Auth organization id used to isolate Executor's workspace. */
+      workspaceId?: string;
     }
   | { type: "prompt"; chatId: string; text: string }
   | { type: "interrupt"; chatId: string }

@@ -110,6 +110,42 @@ export default defineSchema({
     .index("by_organization", ["organizationId"])
     .index("by_organization_provider", ["organizationId", "provider"]),
 
+  /**
+   * Latest normalized report produced by either a cloud OAuth action or the
+   * local Analyst agent. UI reads this instead of repeatedly hitting provider
+   * APIs whenever the Analytics page renders.
+   */
+  analyticsSnapshot: defineTable({
+    organizationId: v.string(),
+    provider: v.string(),
+    period: v.string(),
+    activeUsers: v.optional(v.number()),
+    sessions: v.optional(v.number()),
+    pageViews: v.optional(v.number()),
+    conversions: v.optional(v.number()),
+    revenue: v.optional(v.number()),
+    metricLabel: v.optional(v.string()),
+    series: v.optional(
+      v.array(v.object({ date: v.string(), value: v.number() })),
+    ),
+    rangeMetrics: v.optional(
+      v.array(
+        v.object({
+          key: v.string(),
+          period: v.string(),
+          activeUsers: v.optional(v.number()),
+          sessions: v.optional(v.number()),
+          pageViews: v.optional(v.number()),
+          conversions: v.optional(v.number()),
+          revenue: v.optional(v.number()),
+        }),
+      ),
+    ),
+    capturedAt: v.number(),
+  })
+    .index("by_organization", ["organizationId"])
+    .index("by_organization_provider", ["organizationId", "provider"]),
+
   /** In-flight OAuth authorization state for any provider's connect flow. */
   oauthState: defineTable({
     state: v.string(),
