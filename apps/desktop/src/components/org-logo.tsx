@@ -91,7 +91,9 @@ export function OrgLogo({
           className={cn(
             "absolute inset-0 h-full w-full object-cover",
             loaded ? "opacity-100" : "opacity-0",
-            imgClassName,
+            // imgClassName exists to inset small site favicons; an uploaded
+            // workspace logo always covers its tile edge to edge.
+            candidate.src === logo ? undefined : imgClassName,
           )}
           onError={() => {
             setLoaded(false);

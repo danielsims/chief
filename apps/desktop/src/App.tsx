@@ -7,12 +7,14 @@ import {
 } from "react-router";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
 import { ConvexClientProvider } from "./lib/convex";
+import { AgentConfigProvider } from "./lib/agent-config";
 import { RuntimeProvider } from "./lib/runtime";
 import {
   listAuthOrganizations,
   parseOrganizationMetadata,
 } from "./lib/auth/better-auth-client";
 import { Layout } from "./components/layout";
+import { EntryState } from "./components/entry-state";
 import { DashboardPage } from "./pages/dashboard";
 import { AnalyticsPage } from "./pages/analytics";
 import { CampaignsPage } from "./pages/campaigns";
@@ -79,14 +81,28 @@ function OnboardingGate({ children }: { children: ReactNode }) {
   const { cloudOrganizationId } = useAuth();
   const { isAuthenticated: convexReady } = useConvexAuth();
   const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
-  const subscription = useQuery(
+  const subscriptionQuery = useQuery(
     api.billing.getSubscription,
     convexReady && cloudOrganizationId ? {} : "skip",
   );
+  // Latch the last resolved subscription so a re-subscribe (auth refresh,
+  // org revalidation) revalidates behind the mounted app instead of tearing
+  // the whole tree down to a loading screen. Convex pushes real status
+  // changes reactively, so access enforcement stays server-driven.
+  const [knownSubscription, setKnownSubscription] =
+    useState<typeof subscriptionQuery>(undefined);
+  useEffect(() => {
+    if (subscriptionQuery !== undefined) {
+      setKnownSubscription(subscriptionQuery);
+    }
+  }, [subscriptionQuery]);
+  const subscription =
+    subscriptionQuery === undefined ? knownSubscription : subscriptionQuery;
 
   useEffect(() => {
     let cancelled = false;
-    setNeedsOnboarding(null);
+    // No reset here: keep the last onboarding decision mounted while the
+    // fresh answer loads. Only the first resolution shows the entry state.
     void listAuthOrganizations().then((orgs) => {
       if (cancelled) return;
       const active =
@@ -113,24 +129,12 @@ function OnboardingGate({ children }: { children: ReactNode }) {
     return children;
   }
 
-  if (needsOnboarding === null) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
-        Loading workspace...
-      </div>
-    );
-  }
-
   const billingLoading =
     Boolean(cloudOrganizationId) &&
     (!convexReady || subscription === undefined);
 
-  if (billingLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
-        Checking workspace access...
-      </div>
-    );
+  if (needsOnboarding === null || billingLoading) {
+    return <EntryState />;
   }
 
   if (location.pathname === "/onboarding") {
@@ -155,37 +159,42 @@ function AuthenticatedApp() {
 
   return (
     <RuntimeProvider>
-      <BrowserRouter>
-        <OnboardingGate>
-          <Routes>
-            <Route path="workspaces/new" element={<CreateWorkspacePage />} />
-            <Route path="onboarding" element={<OnboardingPage />} />
-            <Route element={<Layout />}>
-              <Route index element={<DashboardPage />} />
-              <Route path="analytics" element={<AnalyticsPage />} />
-              <Route path="campaigns" element={<CampaignsPage />} />
-              <Route path="schedule" element={<SchedulePage />} />
-              <Route path="prospects" element={<ProspectsPage />} />
-              <Route path="trending" element={<TrendingPage />} />
-              <Route path="conversations" element={<ConversationsPage />} />
-              <Route path="agents" element={<AgentsPage />} />
-              <Route path="settings" element={<SettingsLayout />}>
-                <Route
-                  index
-                  element={<Navigate to="/settings/profile" replace />}
-                />
-                <Route path="profile" element={<ProfileSettings />} />
-                <Route path="workspace" element={<WorkspaceSettings />} />
-                <Route path="integrations" element={<IntegrationsSettings />} />
-                <Route
-                  path="integrations/:provider"
-                  element={<IntegrationSettingsDetail />}
-                />
+      <AgentConfigProvider>
+        <BrowserRouter>
+          <OnboardingGate>
+            <Routes>
+              <Route path="workspaces/new" element={<CreateWorkspacePage />} />
+              <Route path="onboarding" element={<OnboardingPage />} />
+              <Route element={<Layout />}>
+                <Route index element={<DashboardPage />} />
+                <Route path="analytics" element={<AnalyticsPage />} />
+                <Route path="campaigns" element={<CampaignsPage />} />
+                <Route path="schedule" element={<SchedulePage />} />
+                <Route path="prospects" element={<ProspectsPage />} />
+                <Route path="trending" element={<TrendingPage />} />
+                <Route path="conversations" element={<ConversationsPage />} />
+                <Route path="agents" element={<AgentsPage />} />
+                <Route path="settings" element={<SettingsLayout />}>
+                  <Route
+                    index
+                    element={<Navigate to="/settings/profile" replace />}
+                  />
+                  <Route path="profile" element={<ProfileSettings />} />
+                  <Route path="workspace" element={<WorkspaceSettings />} />
+                  <Route
+                    path="integrations"
+                    element={<IntegrationsSettings />}
+                  />
+                  <Route
+                    path="integrations/:provider"
+                    element={<IntegrationSettingsDetail />}
+                  />
+                </Route>
               </Route>
-            </Route>
-          </Routes>
-        </OnboardingGate>
-      </BrowserRouter>
+            </Routes>
+          </OnboardingGate>
+        </BrowserRouter>
+      </AgentConfigProvider>
     </RuntimeProvider>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { GenerativeChartSeries } from "@marketer/agent-runtime/types";
 import { cn } from "@marketer/ui/lib/utils";
 
@@ -56,7 +56,9 @@ export function LineChartCard({
   const [width, setWidth] = useState(760);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
-  useEffect(() => {
+  // Layout effect: measure before first paint so the SVG never renders a
+  // frame at the fallback width and then visibly reflows to the container.
+  useLayoutEffect(() => {
     const element = chartRef.current;
     if (!element) return;
     const update = () => setWidth(Math.max(element.clientWidth, 360));

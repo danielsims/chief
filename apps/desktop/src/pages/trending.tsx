@@ -49,7 +49,11 @@ export function TrendingPage() {
         </div>
       </header>
 
-      {visible.length > 0 ? (
+      {loading && trends.length === 0 ? (
+        // Pending is not empty: hold a quiet frame instead of flashing the
+        // empty state's serif heading before rows arrive.
+        <div aria-busy="true" className="min-h-[calc(100vh-170px)]" />
+      ) : visible.length > 0 ? (
         <div className="px-8 py-6">
           <div className="border">
             <div className="grid grid-cols-[minmax(220px,1.2fr)_120px_100px_minmax(280px,2fr)_110px] border-b bg-card px-4 py-2.5 text-[11px] text-muted-foreground">
@@ -109,21 +113,17 @@ export function TrendingPage() {
       ) : (
         <div className="flex min-h-[calc(100vh-170px)] items-center justify-center px-8 text-center">
           <div className="max-w-sm">
-            <p className="font-serif text-2xl">
-              {loading ? "Reading the market" : "No trends yet"}
-            </p>
+            <p className="font-serif text-2xl">No trends yet</p>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
               The Prospector saves supported market signals here, with the
               source and why each one matters.
             </p>
-            {!loading ? (
-              <Link
-                to="/conversations?agent=prospector"
-                className="mt-5 inline-block border px-3 py-2 text-xs transition-colors hover:bg-accent"
-              >
-                Open Prospector
-              </Link>
-            ) : null}
+            <Link
+              to="/conversations?agent=prospector"
+              className="mt-5 inline-block border px-3 py-2 text-xs transition-colors hover:bg-accent"
+            >
+              Open Prospector
+            </Link>
           </div>
         </div>
       )}

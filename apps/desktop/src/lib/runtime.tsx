@@ -12,6 +12,7 @@ import type {
   AgentPreference,
   AgentDefinition,
   AgentEvent,
+  AgentQuestion,
   CampaignRecord,
   ClientMessage,
   ContentBlock,
@@ -247,14 +248,27 @@ export interface LocalChatSummary {
   model?: string;
 }
 
+// Last-known workspace state, kept across component mounts so re-entering a
+// page renders the previous data immediately and revalidates in place
+// instead of flashing an empty frame.
+const chatsCache = new Map<string, LocalChatSummary[]>();
+
 /** Durable chats from the runtime-owned local libSQL database. */
 export function useLocalChats(workspaceId: string | null) {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
-  const [chats, setChats] = useState<LocalChatSummary[]>([]);
+  const [chats, setChats] = useState<LocalChatSummary[]>(
+    () => (workspaceId && chatsCache.get(workspaceId)) || [],
+  );
+  const chatsWorkspaceRef = useRef<string | null>(workspaceId);
 
   useEffect(() => {
-    setChats([]);
+    // Reset only when the workspace itself changes; a runtime reconnect or
+    // capability refresh keeps the last list mounted while it revalidates.
+    if (chatsWorkspaceRef.current !== workspaceId) {
+      chatsWorkspaceRef.current = workspaceId;
+      setChats((workspaceId && chatsCache.get(workspaceId)) || []);
+    }
     if (
       !workspaceId ||
       workspaceId !== cloudOrganizationId ||
@@ -265,6 +279,7 @@ export function useLocalChats(workspaceId: string | null) {
     }
     const unsubscribe = client.subscribe((message) => {
       if (message.type === "chats" && message.workspaceId === workspaceId) {
+        chatsCache.set(workspaceId, message.chats);
         setChats(message.chats);
       }
     });
@@ -282,7 +297,11 @@ export function useLocalChats(workspaceId: string | null) {
     if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
       return;
     }
-    setChats((current) => current.filter((chat) => chat.id !== chatId));
+    setChats((current) => {
+      const next = current.filter((chat) => chat.id !== chatId);
+      chatsCache.set(workspaceId, next);
+      return next;
+    });
     client.send({
       type: "deleteSession",
       chatId,
@@ -294,17 +313,25 @@ export function useLocalChats(workspaceId: string | null) {
   return { chats, remove };
 }
 
+const providerModelsCache = new Map<DriverType, ProviderModelOption[]>();
+
 export function useProviderModels(driver: DriverType | null) {
   const { client, status } = useRuntime();
-  const [models, setModels] = useState<ProviderModelOption[]>([]);
+  // Cached across mounts and runtime reconnects: the picker renders the last
+  // known list immediately and refreshes in place.
+  const [models, setModels] = useState<ProviderModelOption[]>(
+    () => (driver && providerModelsCache.get(driver)) || [],
+  );
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    setModels([]);
+    const cached = driver ? providerModelsCache.get(driver) : undefined;
+    setModels(cached ?? []);
     if (!driver || status !== "connected") return;
-    setLoading(true);
+    if (!cached) setLoading(true);
     const unsubscribe = client.subscribe((message) => {
       if (message.type === "models" && message.driver === driver) {
+        providerModelsCache.set(driver, message.models);
         setModels(message.models);
         setLoading(false);
       }
@@ -336,14 +363,33 @@ const emptyWorkspaceData: WorkspaceDataState = {
   recurringWorkRuns: [],
 };
 
+const workspaceDataCache = new Map<string, WorkspaceDataState>();
+
 export function useWorkspaceData(workspaceId: string | null) {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
-  const [data, setData] = useState<WorkspaceDataState>(emptyWorkspaceData);
-  const [loading, setLoading] = useState(false);
+  // Loading means "no data has ever resolved for this workspace". The cache
+  // spans mounts, so navigating back to a page shows the last data at once
+  // and revalidates in place instead of flashing empty or placeholder frames.
+  const [data, setData] = useState<WorkspaceDataState>(
+    () =>
+      (workspaceId && workspaceDataCache.get(workspaceId)) ||
+      emptyWorkspaceData,
+  );
+  const [loading, setLoading] = useState(
+    () => !(workspaceId && workspaceDataCache.has(workspaceId)),
+  );
+  const dataWorkspaceRef = useRef<string | null>(workspaceId);
 
   useEffect(() => {
-    setData(emptyWorkspaceData);
+    if (dataWorkspaceRef.current !== workspaceId) {
+      dataWorkspaceRef.current = workspaceId;
+      const cached = workspaceId
+        ? workspaceDataCache.get(workspaceId)
+        : undefined;
+      setData(cached ?? emptyWorkspaceData);
+      setLoading(!cached);
+    }
     if (
       !workspaceId ||
       workspaceId !== cloudOrganizationId ||
@@ -352,20 +398,21 @@ export function useWorkspaceData(workspaceId: string | null) {
     ) {
       return;
     }
-    setLoading(true);
     const unsubscribe = client.subscribe((message) => {
       if (
         message.type === "workspaceData" &&
         message.workspaceId === workspaceId
       ) {
-        setData({
+        const next = {
           prospects: message.prospects,
           trends: message.trends,
           drafts: message.drafts,
           campaigns: message.campaigns,
           recurringWork: message.recurringWork,
           recurringWorkRuns: message.recurringWorkRuns,
-        });
+        };
+        workspaceDataCache.set(workspaceId, next);
+        setData(next);
         setLoading(false);
       }
     });
@@ -383,13 +430,17 @@ export function useWorkspaceData(workspaceId: string | null) {
     if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
       return;
     }
-    setData((current) => ({
-      ...current,
-      campaigns: [
-        campaign,
-        ...current.campaigns.filter((item) => item.id !== campaign.id),
-      ],
-    }));
+    setData((current) => {
+      const next = {
+        ...current,
+        campaigns: [
+          campaign,
+          ...current.campaigns.filter((item) => item.id !== campaign.id),
+        ],
+      };
+      workspaceDataCache.set(workspaceId, next);
+      return next;
+    });
     client.send({
       type: "saveCampaign",
       workspaceId,
@@ -402,12 +453,16 @@ export function useWorkspaceData(workspaceId: string | null) {
     if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
       return;
     }
-    setData((current) => ({
-      ...current,
-      recurringWork: current.recurringWork.map((item) =>
-        item.id === work.id ? work : item,
-      ),
-    }));
+    setData((current) => {
+      const next = {
+        ...current,
+        recurringWork: current.recurringWork.map((item) =>
+          item.id === work.id ? work : item,
+        ),
+      };
+      workspaceDataCache.set(workspaceId, next);
+      return next;
+    });
     client.send({
       type: "saveRecurringWork",
       workspaceId,
@@ -437,14 +492,28 @@ export function useWorkspaceData(workspaceId: string | null) {
   };
 }
 
+const preferencesCache = new Map<string, AgentPreference[]>();
+
 export function useAgentPreferences(workspaceId: string | null) {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
-  const [preferences, setPreferences] = useState<AgentPreference[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [preferences, setPreferences] = useState<AgentPreference[]>(
+    () => (workspaceId && preferencesCache.get(workspaceId)) || [],
+  );
+  const [loading, setLoading] = useState(
+    () => !(workspaceId && preferencesCache.has(workspaceId)),
+  );
+  const preferencesWorkspaceRef = useRef<string | null>(workspaceId);
 
   useEffect(() => {
-    setPreferences([]);
+    if (preferencesWorkspaceRef.current !== workspaceId) {
+      preferencesWorkspaceRef.current = workspaceId;
+      const cached = workspaceId
+        ? preferencesCache.get(workspaceId)
+        : undefined;
+      setPreferences(cached ?? []);
+      setLoading(!cached);
+    }
     if (
       !workspaceId ||
       workspaceId !== cloudOrganizationId ||
@@ -453,12 +522,12 @@ export function useAgentPreferences(workspaceId: string | null) {
     ) {
       return;
     }
-    setLoading(true);
     const unsubscribe = client.subscribe((message) => {
       if (
         message.type === "agentPreferences" &&
         message.workspaceId === workspaceId
       ) {
+        preferencesCache.set(workspaceId, message.preferences);
         setPreferences(message.preferences);
         setLoading(false);
       }
@@ -477,10 +546,14 @@ export function useAgentPreferences(workspaceId: string | null) {
     if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
       return;
     }
-    setPreferences((current) => [
-      preference,
-      ...current.filter((item) => item.agentId !== preference.agentId),
-    ]);
+    setPreferences((current) => {
+      const next = [
+        preference,
+        ...current.filter((item) => item.agentId !== preference.agentId),
+      ];
+      preferencesCache.set(workspaceId, next);
+      return next;
+    });
     client.send({
       type: "saveAgentPreference",
       workspaceId,
@@ -560,12 +633,19 @@ export interface PendingApproval {
   input: unknown;
 }
 
+export interface PendingQuestion {
+  requestId: string;
+  questions: AgentQuestion[];
+}
+
 export interface ChatState {
   items: ChatItem[];
   streaming: string;
   status: "idle" | "running";
   /** Tool calls waiting on the user's allow/deny decision. */
   approvals: PendingApproval[];
+  /** Agent questions waiting on the user's answers. */
+  questions: PendingQuestion[];
   toolProgress: Record<string, string>;
   lastCostUsd?: number;
   error?: string;
@@ -576,6 +656,7 @@ const emptyChat: ChatState = {
   streaming: "",
   status: "idle",
   approvals: [],
+  questions: [],
   toolProgress: {},
 };
 
@@ -738,12 +819,30 @@ function reduceChat(c: ChatState, event: AgentEvent): ChatState {
         ...c,
         approvals: c.approvals.filter((a) => a.requestId !== event.requestId),
       };
+    case "question":
+      return {
+        ...c,
+        questions: c.questions.some((q) => q.requestId === event.requestId)
+          ? c.questions
+          : [
+              ...c.questions,
+              { requestId: event.requestId, questions: event.questions },
+            ],
+      };
+    case "questionResolved":
+      return {
+        ...c,
+        questions: c.questions.filter(
+          (q) => q.requestId !== event.requestId,
+        ),
+      };
     case "result":
       return {
         ...c,
         streaming: "",
         status: "idle",
         approvals: [],
+        questions: [],
         lastCostUsd: event.costUsd ?? c.lastCostUsd,
         error: event.ok ? undefined : event.error,
       };
@@ -875,6 +974,14 @@ export function useAgentChat(
       client.send({ type: "respondPermission", chatId, requestId, behavior });
   };
 
+  const respondQuestion = (
+    requestId: string,
+    answers: Record<string, string> | null,
+  ) => {
+    if (chatId)
+      client.send({ type: "respondQuestion", chatId, requestId, answers });
+  };
+
   const provideInput = (
     request: InputRequest,
     values: Record<string, string>,
@@ -887,6 +994,7 @@ export function useAgentChat(
     send,
     interrupt,
     respondPermission,
+    respondQuestion,
     provideInput,
     sessionReady,
     executorCapability,

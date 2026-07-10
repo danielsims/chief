@@ -392,7 +392,14 @@ function ContinuousMonthView({
             }}
             className="relative grid grid-cols-7 border-l"
           >
-            <p className="pointer-events-none absolute left-3 top-2 z-10 font-serif text-xl">
+            <p
+              className={cn(
+                "pointer-events-none absolute left-3 top-2 z-10 font-serif text-xl transition-opacity duration-300",
+                // The page header already names the active month; the in-grid
+                // label fades away instead of duplicating it.
+                sameMonth(month, activeMonth) && "opacity-0",
+              )}
+            >
               {monthLabel(month)}
             </p>
             {cells.map((date, index) =>

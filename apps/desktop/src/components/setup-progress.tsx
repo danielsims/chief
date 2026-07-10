@@ -18,6 +18,45 @@ interface SetupItem {
   action: "analytics" | "ads";
 }
 
+/** Resolved card state: null means "everything done, render nothing". */
+interface SetupSnapshot {
+  items: SetupItem[];
+  doneCount: number;
+  adsBudget: string | null;
+}
+
+const SNAPSHOT_KEY = "marketer-setup-progress";
+
+function snapshotKey(workspaceId: string) {
+  return `${SNAPSHOT_KEY}:${workspaceId}`;
+}
+
+/**
+ * The last resolved decision, persisted so the card holds its place in the
+ * dashboard's first frame instead of popping in after two network round
+ * trips and shoving every card down.
+ */
+function readSnapshot(
+  workspaceId: string | null,
+): SetupSnapshot | null | undefined {
+  if (!workspaceId) return undefined;
+  const raw = localStorage.getItem(snapshotKey(workspaceId));
+  if (raw === null) return undefined;
+  if (raw === "hidden") return null;
+  try {
+    return JSON.parse(raw) as SetupSnapshot;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeSnapshot(workspaceId: string, snapshot: SetupSnapshot | null) {
+  localStorage.setItem(
+    snapshotKey(workspaceId),
+    snapshot === null ? "hidden" : JSON.stringify(snapshot),
+  );
+}
+
 /**
  * Anything skipped during onboarding stays visible here until it's handled.
  * Completed onboarding is immutable. Open items route to their normal app
@@ -33,6 +72,9 @@ export function SetupProgress() {
   );
   const [onboarding, setOnboarding] = useState<Record<string, unknown> | null>(
     null,
+  );
+  const [snapshot, setSnapshot] = useState<SetupSnapshot | null | undefined>(
+    () => readSnapshot(cloudOrganizationId),
   );
 
   useEffect(() => {
@@ -55,44 +97,59 @@ export function SetupProgress() {
     };
   }, [cloudOrganizationId]);
 
-  if (!onboarding || channels === undefined) return null;
+  // Recompute once both sources resolve; persist so the next dashboard
+  // visit renders the same decision synchronously and revalidates in place.
+  useEffect(() => {
+    if (!cloudOrganizationId || !onboarding || channels === undefined) return;
+    const ads =
+      onboarding.ads && typeof onboarding.ads === "object"
+        ? (onboarding.ads as Record<string, unknown>)
+        : {};
+    const analyticsConnected = channels.some(
+      (channel) => channel.category === "analytics",
+    );
+    const adsConnected = channels.some(
+      (channel) => channel.category === "ads",
+    );
+    const adsBudgetPlanned =
+      typeof ads.budget === "string" && ads.budget !== "No budget yet";
 
-  const ads =
-    onboarding.ads && typeof onboarding.ads === "object"
-      ? (onboarding.ads as Record<string, unknown>)
-      : {};
-  const analyticsConnected = channels.some(
-    (channel) => channel.category === "analytics",
-  );
-  const adsConnected = channels.some((channel) => channel.category === "ads");
-  const adsBudgetPlanned =
-    typeof ads.budget === "string" && ads.budget !== "No budget yet";
+    const items: SetupItem[] = [
+      {
+        key: "analytics",
+        label: "Analytics",
+        detail: analyticsConnected
+          ? "Connected"
+          : "Connect a source so your agents can read real numbers",
+        done: analyticsConnected,
+        action: "analytics",
+      },
+      {
+        key: "ads",
+        label: "Ads",
+        detail: adsConnected
+          ? "Connected"
+          : adsBudgetPlanned
+            ? `Budget planned: ${String(ads.budget)}`
+            : "Connect an ads account or set a budget for agent-run ads",
+        done: adsConnected,
+        action: "ads",
+      },
+    ];
+    const doneCount = items.filter((item) => item.done).length;
+    const next: SetupSnapshot | null =
+      doneCount === items.length
+        ? null
+        : {
+            items,
+            doneCount,
+            adsBudget: adsBudgetPlanned ? String(ads.budget) : null,
+          };
+    writeSnapshot(cloudOrganizationId, next);
+    setSnapshot(next);
+  }, [cloudOrganizationId, onboarding, channels]);
 
-  const items: SetupItem[] = [
-    {
-      key: "analytics",
-      label: "Analytics",
-      detail: analyticsConnected
-        ? "Connected"
-        : "Connect a source so your agents can read real numbers",
-      done: analyticsConnected,
-      action: "analytics",
-    },
-    {
-      key: "ads",
-      label: "Ads",
-      detail: adsConnected
-        ? "Connected"
-        : adsBudgetPlanned
-          ? `Budget planned: ${String(ads.budget)}`
-          : "Connect an ads account or set a budget for agent-run ads",
-      done: adsConnected,
-      action: "ads",
-    },
-  ];
-
-  const doneCount = items.filter((item) => item.done).length;
-  if (doneCount === items.length) return null;
+  if (!snapshot) return null;
 
   const startSetup = (item: SetupItem) => {
     if (item.action === "analytics") {
@@ -100,9 +157,7 @@ export function SetupProgress() {
       return;
     }
     const conversation = createChat("ads", "Set up paid campaigns");
-    const budget = adsBudgetPlanned
-      ? String(ads.budget)
-      : "a small test budget";
+    const budget = snapshot.adsBudget ?? "a small test budget";
     const draft = `Help me set up my first paid campaign with ${budget}. Start by checking what ad accounts are connected, then guide me through the cleanest next step.`;
     navigate(
       `/conversations?agent=ads&chat=${conversation.id}&new=1&draft=${encodeURIComponent(draft)}`,
@@ -114,11 +169,12 @@ export function SetupProgress() {
       <div className="flex items-center justify-between border-b px-5 py-3">
         <p className="text-sm font-medium">Finish setting up</p>
         <p className="text-xs text-muted-foreground">
-          {Math.round((doneCount / items.length) * 100)}% complete
+          {Math.round((snapshot.doneCount / snapshot.items.length) * 100)}%
+          complete
         </p>
       </div>
       <div className="divide-y">
-        {items.map((item) => (
+        {snapshot.items.map((item) => (
           <div key={item.key} className="flex items-center gap-3 px-5 py-3">
             {item.done ? (
               <CheckCircle2 size={15} className="shrink-0 text-emerald-500" />

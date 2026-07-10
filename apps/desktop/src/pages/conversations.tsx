@@ -347,6 +347,7 @@ export function ConversationsPage() {
             key={activeChatId}
             agent={activeAgent}
             chatId={activeChatId}
+            isNew={isDraftChat && !activeEntry}
             initialPrompt={initialPrompt}
             initialDraft={initialDraft}
             initialDriver={

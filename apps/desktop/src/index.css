@@ -3,6 +3,27 @@
 @source "../../../packages/ui/src";
 @source "../node_modules/streamdown/dist/*.js";
 
+/* Startup entry state: a thin line sweeping under the wordmark. */
+@keyframes entry-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+.entry-progress {
+  animation: entry-sweep 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .entry-progress {
+    animation: none;
+    transform: translateX(100%);
+  }
+}
+
 .chat-markdown > *:first-child {
   margin-top: 0;
 }
