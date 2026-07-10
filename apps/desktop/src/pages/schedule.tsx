@@ -34,8 +34,10 @@ import {
   ShieldCheck,
   SlidersHorizontal,
 } from "lucide-react";
+import { Input } from "@marketer/ui/components/input";
+import { useAgentConfig } from "../lib/agent-config";
 import { useAuth } from "../lib/auth/auth-context";
-import { useWorkspaceData } from "../lib/runtime";
+import { useAgentChat, useWorkspaceData } from "../lib/runtime";
 import { createChat } from "../lib/chat-log";
 
 type ScheduledDraft = ContentDraftRecord;
@@ -608,11 +610,27 @@ function RecurringWorkApprovalDialog({
   work,
   onClose,
   onApprove,
+  onReject,
+  revision,
 }: {
   work: RecurringWorkRecord | null;
   onClose: () => void;
   onApprove: (work: RecurringWorkRecord) => void;
+  onReject: (work: RecurringWorkRecord) => void;
+  revision: {
+    available: boolean;
+    busy: boolean;
+    note: string | null;
+    onRequest: (feedback: string) => void;
+  };
 }) {
+  const [feedback, setFeedback] = useState("");
+  const submitFeedback = () => {
+    const text = feedback.trim();
+    if (!text || revision.busy) return;
+    setFeedback("");
+    revision.onRequest(text);
+  };
   return (
     <Dialog open={Boolean(work)} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-lg">
@@ -672,12 +690,60 @@ function RecurringWorkApprovalDialog({
                 New integration actions are blocked automatically. Marketer will
                 ask you to approve an expanded scope before they can run.
               </p>
+              {revision.available ? (
+                <div className="border-t pt-3">
+                  <div className="flex gap-2">
+                    <Input
+                      value={feedback}
+                      onChange={(event) => setFeedback(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          submitFeedback();
+                        }
+                      }}
+                      placeholder="Ask for a change before approving…"
+                      disabled={revision.busy}
+                      className="h-8 text-sm"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      disabled={!feedback.trim() || revision.busy}
+                      onClick={submitFeedback}
+                    >
+                      Send
+                    </Button>
+                  </div>
+                  {revision.busy ? (
+                    <p className="agent-working mt-2 font-mono text-xs">
+                      updating the plan…
+                    </p>
+                  ) : revision.note ? (
+                    <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                      {revision.note}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
-            <DialogFooter>
+            <DialogFooter className="items-center">
+              <button
+                type="button"
+                onClick={() => {
+                  onReject(work);
+                  onClose();
+                }}
+                className="mr-auto text-xs text-muted-foreground transition-colors hover:text-destructive"
+              >
+                Reject
+              </button>
               <Button variant="outline" onClick={onClose}>
                 Not now
               </Button>
               <Button
+                disabled={revision.busy}
                 onClick={() => {
                   onApprove(work);
                   onClose();
@@ -797,9 +863,7 @@ export function SchedulePage() {
   const [visibleKinds, setVisibleKinds] = useState<ReadonlySet<ScheduleKind>>(
     () => new Set<ScheduleKind>(["post", "agent-work"]),
   );
-  const [approvalWork, setApprovalWork] = useState<RecurringWorkRecord | null>(
-    null,
-  );
+  const [approvalWorkId, setApprovalWorkId] = useState<string | null>(null);
   const [dateMenu, setDateMenu] = useState<{
     date: Date;
     x: number;
@@ -807,6 +871,54 @@ export function SchedulePage() {
   } | null>(null);
   const { cloudOrganizationId } = useAuth();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
+  const agentConfig = useAgentConfig();
+  // Derived from live workspace data so an agent revision streams straight
+  // into the open approval card.
+  const approvalWork = approvalWorkId
+    ? (workspaceData.recurringWork.find((work) => work.id === approvalWorkId) ??
+      null)
+    : null;
+  const revisionDriver = agentConfig.forAgent("cmo").driver;
+  const revisionChat = useAgentChat(
+    approvalWorkId ? "cmo" : null,
+    revisionDriver,
+    approvalWorkId ? `revise-recurring-${approvalWorkId}` : undefined,
+    "full",
+  );
+  const revisionNote = useMemo(() => {
+    for (let i = revisionChat.chat.items.length - 1; i >= 0; i -= 1) {
+      const item = revisionChat.chat.items[i]!;
+      if (item.kind !== "assistant") continue;
+      const text = item.event.content
+        .flatMap((block) => (block.type === "text" ? [block.text] : []))
+        .join(" ")
+        .trim();
+      if (text) return text;
+    }
+    return null;
+  }, [revisionChat.chat.items]);
+  const requestRevision = (feedback: string) => {
+    if (!approvalWork) return;
+    const draft = {
+      id: approvalWork.id,
+      agentId: approvalWork.agentId,
+      title: approvalWork.title,
+      cron: approvalWork.cron,
+      timezone: approvalWork.timezone,
+      instructions: approvalWork.instructions,
+      approvalSummary: approvalWork.approvalSummary,
+      proposedToolPatterns: approvalWork.proposedToolPatterns,
+    };
+    revisionChat.send(
+      [
+        "The user is reviewing a draft recurring-work approval and asked for a change before approving.",
+        `Current draft (JSON): ${JSON.stringify(draft)}`,
+        `Feedback: "${feedback}"`,
+        `Right now it is ${new Date().toString()}.`,
+        "Apply the feedback by calling the recurringWorkPropose local tool with the SAME id and ALL fields (id, title, agentId, cron, timezone, instructions, approvalSummary, proposedToolPatterns), changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
+      ].join("\n"),
+    );
+  };
 
   const byDay = useMemo(() => {
     const map = new Map<string, ScheduledDraft[]>();
@@ -1063,14 +1175,14 @@ export function SchedulePage() {
         <aside className="min-h-0 overflow-y-auto border-l p-5">
           {pendingApprovals.length > 0 ? (
             <div className="mb-6 space-y-2 border-b pb-5">
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Needs your approval
               </p>
               {pendingApprovals.map((work) => (
                 <RecurringWorkDetail
                   key={work.id}
                   work={work}
-                  onReview={() => setApprovalWork(work)}
+                  onReview={() => setApprovalWorkId(work.id)}
                   onRun={() => {}}
                   onToggle={() => {}}
                 />
@@ -1091,7 +1203,7 @@ export function SchedulePage() {
               <RecurringWorkDetail
                 key={work.id}
                 work={work}
-                onReview={() => setApprovalWork(work)}
+                onReview={() => setApprovalWorkId(work.id)}
                 onRun={() => workspaceData.runRecurringWorkNow(work.id)}
                 onToggle={() =>
                   workspaceData.saveRecurringWork({
@@ -1122,7 +1234,7 @@ export function SchedulePage() {
       </div>
       <RecurringWorkApprovalDialog
         work={approvalWork}
-        onClose={() => setApprovalWork(null)}
+        onClose={() => setApprovalWorkId(null)}
         onApprove={(work) =>
           workspaceData.saveRecurringWork({
             ...work,
@@ -1135,6 +1247,13 @@ export function SchedulePage() {
             updatedAt: Date.now(),
           })
         }
+        onReject={(work) => workspaceData.deleteRecurringWork(work.id)}
+        revision={{
+          available: Boolean(revisionDriver),
+          busy: revisionChat.chat.status === "running",
+          note: revisionNote,
+          onRequest: requestRevision,
+        }}
       />
       <CalendarContextMenu
         context={dateMenu}

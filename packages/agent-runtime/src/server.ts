@@ -297,6 +297,15 @@ export function startServer(port = PORT) {
               .catch((error) => console.error("[recurring-work]", error));
             break;
 
+          case "deleteRecurringWork":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            await manager.deleteRecurringWork(
+              msg.workspaceId,
+              msg.recurringWorkId,
+            );
+            await broadcastWorkspaceData(msg.workspaceId);
+            break;
+
           case "listAgentPreferences":
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             send({

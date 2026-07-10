@@ -357,6 +357,13 @@ export type ClientMessage =
       recurringWorkId: string;
       executorCapability: ExecutorCapability;
     }
+  /** Rejecting a proposal removes the record and its run history. */
+  | {
+      type: "deleteRecurringWork";
+      workspaceId: string;
+      recurringWorkId: string;
+      executorCapability: ExecutorCapability;
+    }
   | {
       type: "saveAgentPreference";
       workspaceId: string;

@@ -297,6 +297,10 @@ export class SessionManager {
     return this.store.dueRecurringWork(now);
   }
 
+  deleteRecurringWork(workspaceId: string, id: string) {
+    return this.store.deleteRecurringWork(workspaceId, id);
+  }
+
   claimRecurringWork(
     workspaceId: string,
     id: string,

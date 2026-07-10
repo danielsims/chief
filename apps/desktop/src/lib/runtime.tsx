@@ -484,12 +484,35 @@ export function useWorkspaceData(workspaceId: string | null) {
     });
   };
 
+  const deleteRecurringWork = (recurringWorkId: string) => {
+    if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
+      return;
+    }
+    setData((current) => {
+      const next = {
+        ...current,
+        recurringWork: current.recurringWork.filter(
+          (item) => item.id !== recurringWorkId,
+        ),
+      };
+      workspaceDataCache.set(workspaceId, next);
+      return next;
+    });
+    client.send({
+      type: "deleteRecurringWork",
+      workspaceId,
+      recurringWorkId,
+      executorCapability: capability,
+    });
+  };
+
   return {
     ...data,
     loading,
     saveCampaign,
     saveRecurringWork,
     runRecurringWorkNow,
+    deleteRecurringWork,
   };
 }
 
