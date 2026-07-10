@@ -12,7 +12,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createClient, type Client } from "@libsql/client";
-import { and, desc, eq, lte } from "drizzle-orm";
+import { and, desc, eq, isNotNull, lte } from "drizzle-orm";
 import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
 
@@ -313,6 +313,14 @@ export class LocalStore {
 
   async saveProspect(workspaceId: string, prospect: ProspectRecord) {
     await this.ready;
+    const existing = await this.db
+      .select({ workspaceId: schema.prospects.workspaceId })
+      .from(schema.prospects)
+      .where(eq(schema.prospects.id, prospect.id))
+      .get();
+    if (existing && existing.workspaceId !== workspaceId) {
+      throw new Error("Prospect belongs to a different workspace.");
+    }
     await this.db
       .insert(schema.prospects)
       .values({ ...prospect, workspaceId, updatedAt: Date.now() })
@@ -355,6 +363,14 @@ export class LocalStore {
 
   async saveTrend(workspaceId: string, trend: TrendRecord) {
     await this.ready;
+    const existing = await this.db
+      .select({ workspaceId: schema.trends.workspaceId })
+      .from(schema.trends)
+      .where(eq(schema.trends.id, trend.id))
+      .get();
+    if (existing && existing.workspaceId !== workspaceId) {
+      throw new Error("Trend belongs to a different workspace.");
+    }
     await this.db
       .insert(schema.trends)
       .values({ ...trend, workspaceId, updatedAt: Date.now() })
@@ -397,6 +413,14 @@ export class LocalStore {
 
   async saveDraft(workspaceId: string, draft: ContentDraftRecord) {
     await this.ready;
+    const existing = await this.db
+      .select({ workspaceId: schema.contentDrafts.workspaceId })
+      .from(schema.contentDrafts)
+      .where(eq(schema.contentDrafts.id, draft.id))
+      .get();
+    if (existing && existing.workspaceId !== workspaceId) {
+      throw new Error("Content draft belongs to a different workspace.");
+    }
     await this.db
       .insert(schema.contentDrafts)
       .values({ ...draft, workspaceId })
@@ -499,9 +523,38 @@ export class LocalStore {
         and(
           eq(schema.recurringWork.status, "active"),
           lte(schema.recurringWork.nextRunAt, now),
+          // An active row without a grant can never run; returning it would
+          // make every tick fetch and skip it forever.
+          isNotNull(schema.recurringWork.grant),
         ),
       )
       .all();
+  }
+
+  /**
+   * Atomically claims a due run by advancing nextRunAt only if it still holds
+   * the expected due time. Exactly one process wins when several runtimes
+   * poll the same database.
+   */
+  async claimRecurringWork(
+    workspaceId: string,
+    id: string,
+    expectedNextRunAt: number,
+    nextRunAt: number,
+  ): Promise<boolean> {
+    await this.ready;
+    const result = await this.db
+      .update(schema.recurringWork)
+      .set({ nextRunAt, updatedAt: Date.now() })
+      .where(
+        and(
+          eq(schema.recurringWork.id, id),
+          eq(schema.recurringWork.workspaceId, workspaceId),
+          eq(schema.recurringWork.nextRunAt, expectedNextRunAt),
+        ),
+      )
+      .run();
+    return result.rowsAffected > 0;
   }
 
   async listRecurringWorkRuns(
@@ -576,6 +629,14 @@ export class LocalStore {
 
   async saveCampaign(workspaceId: string, campaign: CampaignRecord) {
     await this.ready;
+    const existing = await this.db
+      .select({ workspaceId: schema.campaigns.workspaceId })
+      .from(schema.campaigns)
+      .where(eq(schema.campaigns.id, campaign.id))
+      .get();
+    if (existing && existing.workspaceId !== workspaceId) {
+      throw new Error("Campaign belongs to a different workspace.");
+    }
     await this.db
       .insert(schema.campaigns)
       .values({ ...campaign, workspaceId })

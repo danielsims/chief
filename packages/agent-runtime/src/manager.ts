@@ -30,6 +30,8 @@ export class SessionManager {
   private retainCounts = new Map<string, number>();
   private released = new Set<string>();
   private persistence = new Map<string, Promise<void>>();
+  /** Workspaces with a session mid-open, so their secrets must not lock. */
+  private startingWorkspaces = new Map<string, number>();
   private persisted: Record<string, PersistedSession> = {};
   private readonly store = new LocalStore();
 
@@ -73,7 +75,24 @@ export class SessionManager {
       }
     }
 
-    const env = await workspaceSecrets.materialize(config.workspaceId);
+    // Mark the workspace as starting before any await so a concurrently
+    // closing session can't lock (delete) its secrets mid-materialize.
+    this.startingWorkspaces.set(
+      config.workspaceId,
+      (this.startingWorkspaces.get(config.workspaceId) ?? 0) + 1,
+    );
+    let env: Record<string, string>;
+    try {
+      env = await workspaceSecrets.materialize(config.workspaceId);
+    } finally {
+      const remaining =
+        (this.startingWorkspaces.get(config.workspaceId) ?? 1) - 1;
+      if (remaining > 0) {
+        this.startingWorkspaces.set(config.workspaceId, remaining);
+      } else {
+        this.startingWorkspaces.delete(config.workspaceId);
+      }
+    }
     const scopedConfig = { ...config, env };
     const archivedKey = workspaceChatKey(config.workspaceId, chatId);
     const storedEvents =
@@ -278,6 +297,20 @@ export class SessionManager {
     return this.store.dueRecurringWork(now);
   }
 
+  claimRecurringWork(
+    workspaceId: string,
+    id: string,
+    expectedNextRunAt: number,
+    nextRunAt: number,
+  ) {
+    return this.store.claimRecurringWork(
+      workspaceId,
+      id,
+      expectedNextRunAt,
+      nextRunAt,
+    );
+  }
+
   saveRecurringWorkRun(
     workspaceId: string,
     run: import("./types.js").RecurringWorkRunRecord,
@@ -309,10 +342,12 @@ export class SessionManager {
   }
 
   private lockWorkspaceIfInactive(workspaceId: string) {
-    const active = [...this.sessions.values()].some(
-      (session) => session.config.workspaceId === workspaceId,
-    );
-    if (!active) workspaceSecrets.lock(workspaceId);
+    const active =
+      (this.startingWorkspaces.get(workspaceId) ?? 0) > 0 ||
+      [...this.sessions.values()].some(
+        (session) => session.config.workspaceId === workspaceId,
+      );
+    if (!active) void workspaceSecrets.lock(workspaceId);
   }
 
   private save() {

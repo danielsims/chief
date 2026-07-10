@@ -126,6 +126,24 @@ function safeFileName(path: string) {
  * environment file is materialized while that workspace has a live agent.
  */
 class WorkspaceSecrets {
+  // materialize (create .runtime) and lock (delete .runtime) race when a
+  // session closes while its replacement opens; per-workspace serialization
+  // keeps the directory's lifecycle linear.
+  private queues = new Map<string, Promise<unknown>>();
+
+  private serialize<T>(
+    workspaceId: string,
+    task: () => T | Promise<T>,
+  ): Promise<T> {
+    const prior = this.queues.get(workspaceId) ?? Promise.resolve();
+    const next = prior.then(task, task);
+    this.queues.set(
+      workspaceId,
+      next.catch(() => {}),
+    );
+    return next;
+  }
+
   async keys(workspaceId: string): Promise<string[]> {
     return readIndex(workspaceId).env;
   }
@@ -154,7 +172,13 @@ class WorkspaceSecrets {
     return join(workspaceRoot(workspaceId), ".runtime", "files", name);
   }
 
-  async materialize(workspaceId: string): Promise<Record<string, string>> {
+  materialize(workspaceId: string): Promise<Record<string, string>> {
+    return this.serialize(workspaceId, () => this.materializeNow(workspaceId));
+  }
+
+  private async materializeNow(
+    workspaceId: string,
+  ): Promise<Record<string, string>> {
     const root = workspaceRoot(workspaceId);
     const runtime = join(root, ".runtime");
     const files = join(runtime, "files");
@@ -213,10 +237,12 @@ class WorkspaceSecrets {
     if (existsSync(runtime)) await this.materialize(workspaceId);
   }
 
-  lock(workspaceId: string) {
-    rmSync(join(workspaceRoot(workspaceId), ".runtime"), {
-      recursive: true,
-      force: true,
+  lock(workspaceId: string): Promise<void> {
+    return this.serialize(workspaceId, () => {
+      rmSync(join(workspaceRoot(workspaceId), ".runtime"), {
+        recursive: true,
+        force: true,
+      });
     });
   }
 

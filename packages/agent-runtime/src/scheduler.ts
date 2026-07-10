@@ -41,8 +41,14 @@ export class RecurringWorkScheduler {
 
   start() {
     if (this.timer) return;
-    void this.tick();
-    this.timer = setInterval(() => void this.tick(), POLL_INTERVAL_MS);
+    // Fire-and-forget: a failed tick logs and waits for the next interval
+    // instead of surfacing an unhandled rejection that kills the runtime.
+    const safeTick = () =>
+      void this.tick().catch((error) =>
+        console.error("[scheduler] tick failed:", error),
+      );
+    safeTick();
+    this.timer = setInterval(safeTick, POLL_INTERVAL_MS);
     this.timer.unref();
   }
 
@@ -58,7 +64,7 @@ export class RecurringWorkScheduler {
     );
     if (!work) throw new Error("Recurring work was not found.");
     if (!work.grant) throw new Error("Recurring work has not been approved.");
-    await this.run(workspaceId, work, Date.now());
+    await this.run(workspaceId, work, Date.now(), { claim: false });
   }
 
   private async tick() {
@@ -75,6 +81,9 @@ export class RecurringWorkScheduler {
             lastResult: work.lastResult ?? undefined,
           },
           work.nextRunAt!,
+          { claim: true },
+        ).catch((error) =>
+          console.error(`[scheduler] run ${work.id} failed:`, error),
         ),
       ),
     );
@@ -84,10 +93,35 @@ export class RecurringWorkScheduler {
     workspaceId: string,
     work: RecurringWorkRecord,
     scheduledFor: number,
+    { claim }: { claim: boolean },
   ) {
     if (this.running.has(work.id) || !work.grant) return;
     this.running.add(work.id);
     const now = Date.now();
+    // Downtime recovery is one catch-up run, not a replay: the next
+    // occurrence is computed from now when the due time is already past,
+    // otherwise a week offline would refire a daily job seven times.
+    const scheduleFrom = () => Math.max(scheduledFor, Date.now());
+    if (claim) {
+      // Scheduled dispatch must win an atomic claim on the due time so a
+      // second runtime polling the same database cannot run the same job.
+      const claimed = await this.manager.claimRecurringWork(
+        workspaceId,
+        work.id,
+        scheduledFor,
+        nextRunAt(work.cron, work.timezone, scheduleFrom()),
+      );
+      if (!claimed) {
+        this.running.delete(work.id);
+        return;
+      }
+    } else {
+      await this.manager.saveRecurringWork(workspaceId, {
+        ...work,
+        nextRunAt: nextRunAt(work.cron, work.timezone, scheduleFrom()),
+        updatedAt: now,
+      });
+    }
     const run: RecurringWorkRunRecord = {
       id: randomUUID(),
       recurringWorkId: work.id,
@@ -95,17 +129,12 @@ export class RecurringWorkScheduler {
       scheduledFor,
       startedAt: now,
     };
-    await this.manager.saveRecurringWorkRun(workspaceId, run);
-    await this.manager.saveRecurringWork(workspaceId, {
-      ...work,
-      nextRunAt: nextRunAt(work.cron, work.timezone, scheduledFor),
-      updatedAt: now,
-    });
-    await this.onChange(workspaceId);
 
     let session: AgentSession | null = null;
     let blocked = false;
     try {
+      await this.manager.saveRecurringWorkRun(workspaceId, run);
+      await this.onChange(workspaceId);
       const agent = getAgent(work.agentId);
       if (!agent) throw new Error(`Unknown agent: ${work.agentId}`);
       const preference = await this.manager.agentPreference(
@@ -183,7 +212,7 @@ export class RecurringWorkScheduler {
       await this.manager.saveRecurringWork(workspaceId, {
         ...work,
         status: blocked ? "needs_approval" : "active",
-        nextRunAt: nextRunAt(work.cron, work.timezone, scheduledFor),
+        nextRunAt: nextRunAt(work.cron, work.timezone, scheduleFrom()),
         lastRunAt: Date.now(),
         lastResult: summary ?? result.error,
         updatedAt: Date.now(),
@@ -203,7 +232,7 @@ export class RecurringWorkScheduler {
         status: blocked ? "needs_approval" : "active",
         nextRunAt: blocked
           ? work.nextRunAt
-          : nextRunAt(work.cron, work.timezone, scheduledFor),
+          : nextRunAt(work.cron, work.timezone, scheduleFrom()),
         lastRunAt: Date.now(),
         lastResult: message,
         updatedAt: Date.now(),

@@ -326,12 +326,20 @@ export function startServer(port = PORT) {
               }
               await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             }
+            // Workspace tools are additive: a control-plane failure here must
+            // degrade the session to no executor tools, not block chat.
             const executorWorkspace =
               agent.id !== "setup" && msg.workspaceId && msg.executorCapability
                 ? await ensureExecutorWorkspace(
                     msg.workspaceId,
                     msg.executorCapability,
-                  )
+                  ).catch((error: unknown) => {
+                    console.error(
+                      `[runtime] Executor workspace unavailable for ${msg.chatId}:`,
+                      error,
+                    );
+                    return null;
+                  })
                 : null;
             const capableAgent = msg.capabilities
               ? composeAgentCapabilities(
@@ -448,6 +456,12 @@ export function startServer(port = PORT) {
               ?.respondPermission(msg.requestId, msg.behavior);
             break;
 
+          case "respondQuestion":
+            manager
+              .get(msg.chatId)
+              ?.respondQuestion(msg.requestId, msg.answers);
+            break;
+
           case "queryInputs": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             const present = (
@@ -515,8 +529,19 @@ export function startServer(port = PORT) {
     });
   });
 
-  console.log(`[marketer] agent runtime listening on ws://127.0.0.1:${port}`);
-  scheduler.start();
+  // The scheduler dispatches approved unattended work, so only the process
+  // that actually owns the port may run it — a second runtime (stale watcher,
+  // installed app next to dev) polling the same database must stay passive.
+  http4.on("listening", () => {
+    console.log(`[marketer] agent runtime listening on ws://127.0.0.1:${port}`);
+    scheduler.start();
+  });
+  http4.on("error", (error) => {
+    console.error(
+      `[marketer] could not bind port ${port} (another runtime running?); scheduler stays off:`,
+      error,
+    );
+  });
 
   const shutdown = async () => {
     scheduler.stop();
