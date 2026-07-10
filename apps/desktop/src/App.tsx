@@ -26,6 +26,7 @@ import { TrendingPage } from "./pages/trending";
 import { SettingsLayout } from "./pages/settings/layout";
 import { ProfileSettings } from "./pages/settings/profile";
 import { WorkspaceSettings } from "./pages/settings/workspace";
+import { DeploymentSettings } from "./pages/settings/deployment";
 import {
   IntegrationSettingsDetail,
   IntegrationsSettings,
@@ -181,6 +182,7 @@ function AuthenticatedApp() {
                   />
                   <Route path="profile" element={<ProfileSettings />} />
                   <Route path="workspace" element={<WorkspaceSettings />} />
+                  <Route path="deployment" element={<DeploymentSettings />} />
                   <Route
                     path="integrations"
                     element={<IntegrationsSettings />}
