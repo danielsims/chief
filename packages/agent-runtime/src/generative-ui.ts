@@ -101,13 +101,79 @@ function collectReports(
   return reports;
 }
 
+function explicitChart(value: unknown): GenerativeChartData | null {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const chart = explicitChart(item);
+      if (chart) return chart;
+    }
+    return null;
+  }
+  if (!isRecord(value)) return null;
+  if (
+    value.type === "data-chart" &&
+    isRecord(value.data) &&
+    value.data.kind === "line" &&
+    typeof value.data.title === "string" &&
+    typeof value.data.yLabel === "string" &&
+    Array.isArray(value.data.series)
+  ) {
+    const series = value.data.series.flatMap((candidate, index) => {
+      if (!isRecord(candidate) || !Array.isArray(candidate.points)) return [];
+      const points = candidate.points.flatMap((point) => {
+        if (!isRecord(point)) return [];
+        return typeof point.x === "string" &&
+          typeof point.value === "number" &&
+          Number.isFinite(point.value)
+          ? [{ x: point.x, value: point.value }]
+          : [];
+      });
+      if (points.length < 2) return [];
+      return [
+        {
+          id:
+            typeof candidate.id === "string"
+              ? candidate.id
+              : `series-${index + 1}`,
+          label:
+            typeof candidate.label === "string"
+              ? candidate.label
+              : `Series ${index + 1}`,
+          points,
+        },
+      ];
+    });
+    if (series.length === 0) return null;
+    return {
+      kind: "line",
+      title: value.data.title,
+      subtitle:
+        typeof value.data.subtitle === "string"
+          ? value.data.subtitle
+          : undefined,
+      xLabel:
+        typeof value.data.xLabel === "string" ? value.data.xLabel : undefined,
+      yLabel: value.data.yLabel,
+      series,
+    };
+  }
+  for (const child of Object.values(value)) {
+    const chart = explicitChart(child);
+    if (chart) return chart;
+  }
+  return null;
+}
+
 function chartFromContent(
   toolUseId: string,
   content: unknown,
 ): GenerativeChartBlock | null {
-  const reports = parseJsonCandidates(toolResultText(content)).flatMap(
-    (candidate) => collectReports(candidate),
-  );
+  const candidates = parseJsonCandidates(toolResultText(content));
+  for (const candidate of candidates) {
+    const data = explicitChart(candidate);
+    if (data) return { type: "data-chart", id: `chart-${toolUseId}`, data };
+  }
+  const reports = candidates.flatMap((candidate) => collectReports(candidate));
   const chartable = reports.flatMap(({ key, data }) => {
     const dimension = data.columns.find(
       (column) => column.kind === "dimension" && column.name,

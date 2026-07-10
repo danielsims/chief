@@ -173,6 +173,7 @@ export function AgentChat({
               <Blocks
                 blocks={withoutMarkerLines(item.event.content)}
                 progress={chat.toolProgress}
+                capabilities={agent.capabilities}
               />
             </div>
           ),

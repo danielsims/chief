@@ -6,6 +6,7 @@ import { oauthCallback as googleAnalyticsOauthCallback } from "./googleAnalytics
 import {
   listSources as agentToolSources,
   openApiSpec as agentToolsOpenApi,
+  presentChart as agentToolPresentChart,
   runAnalyticsReport as agentToolAnalyticsReport,
 } from "./agentTools";
 
@@ -48,6 +49,12 @@ http.route({
   path: "/agent-tools/analytics/report",
   method: "POST",
   handler: agentToolAnalyticsReport,
+});
+
+http.route({
+  path: "/agent-tools/ui/chart",
+  method: "POST",
+  handler: agentToolPresentChart,
 });
 
 export default http;

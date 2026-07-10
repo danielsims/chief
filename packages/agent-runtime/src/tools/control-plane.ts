@@ -229,9 +229,11 @@ async function approveReadTools(manifest: ServerManifest) {
   );
   const policies = await request<Policy[]>(manifest, "/policies");
   const readTools = tools.filter((tool) =>
-    ["agentTools.sourcesList", "agentTools.analyticsRunReport"].includes(
-      tool.name,
-    ),
+    [
+      "agentTools.sourcesList",
+      "agentTools.analyticsRunReport",
+      "agentTools.uiPresentChart",
+    ].includes(tool.name),
   );
 
   for (const tool of readTools) {

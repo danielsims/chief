@@ -251,6 +251,32 @@ export const openApiSpec = httpAction(async (_ctx, request) => {
           },
         },
       },
+      "/agent-tools/ui/chart": {
+        post: {
+          operationId: "ui.presentChart",
+          summary: "Present a line chart in the conversation",
+          description:
+            "Returns a typed chart UI part for Marketer to render inline in chat. Use this instead of creating SVG, HTML, image, or other chart files.",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/PresentChartRequest" },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Typed data-chart UI part",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ChartDataPart" },
+                },
+              },
+            },
+          },
+        },
+      },
     },
     components: {
       securitySchemes: {
@@ -346,6 +372,54 @@ export const openApiSpec = httpAction(async (_ctx, request) => {
           },
           required: ["startDate", "endDate", "metrics"],
         },
+        ChartPoint: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            x: { type: "string", maxLength: 80 },
+            value: { type: "number" },
+          },
+          required: ["x", "value"],
+        },
+        ChartSeries: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            label: { type: "string", maxLength: 120 },
+            points: {
+              type: "array",
+              minItems: 2,
+              maxItems: 370,
+              items: { $ref: "#/components/schemas/ChartPoint" },
+            },
+          },
+          required: ["label", "points"],
+        },
+        PresentChartRequest: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            title: { type: "string", maxLength: 120 },
+            subtitle: { type: "string", maxLength: 180 },
+            xLabel: { type: "string", maxLength: 80 },
+            yLabel: { type: "string", maxLength: 80 },
+            series: {
+              type: "array",
+              minItems: 1,
+              maxItems: 4,
+              items: { $ref: "#/components/schemas/ChartSeries" },
+            },
+          },
+          required: ["title", "yLabel", "series"],
+        },
+        ChartDataPart: {
+          type: "object",
+          properties: {
+            type: { type: "string", enum: ["data-chart"] },
+            data: { type: "object", additionalProperties: true },
+          },
+          required: ["type", "data"],
+        },
       },
     },
   });
@@ -394,4 +468,73 @@ export const runAnalyticsReport = httpAction(async (ctx, request) => {
       { status: 400 },
     );
   }
+});
+
+function shortString(value: unknown, maximum: number): string | undefined {
+  return typeof value === "string" && value.trim()
+    ? value.trim().slice(0, maximum)
+    : undefined;
+}
+
+export const presentChart = httpAction(async (ctx, request) => {
+  const organizationId = await organizationFromRequest(ctx, request);
+  if (!organizationId) return json({ error: "Unauthorized" }, { status: 401 });
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return json({ error: "Request body must be JSON." }, { status: 400 });
+  }
+
+  const title = shortString(body.title, 120);
+  const yLabel = shortString(body.yLabel, 80);
+  if (!title || !yLabel || !Array.isArray(body.series)) {
+    return json(
+      { error: "A title, yLabel, and at least one series are required." },
+      { status: 400 },
+    );
+  }
+
+  const series = body.series.slice(0, 4).flatMap((candidate, index) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const record = candidate as Record<string, unknown>;
+    const label = shortString(record.label, 120);
+    if (!label || !Array.isArray(record.points)) return [];
+    const points = record.points.slice(0, 370).flatMap((point) => {
+      if (!point || typeof point !== "object") return [];
+      const value = point as Record<string, unknown>;
+      const x = shortString(value.x, 80);
+      return x &&
+        typeof value.value === "number" &&
+        Number.isFinite(value.value)
+        ? [{ x, value: value.value }]
+        : [];
+    });
+    return points.length >= 2
+      ? [{ id: `series-${index + 1}`, label, points }]
+      : [];
+  });
+  if (series.length === 0) {
+    return json(
+      { error: "Each chart series needs at least two valid points." },
+      { status: 400 },
+    );
+  }
+
+  return json({
+    type: "data-chart",
+    data: {
+      kind: "line",
+      title,
+      ...(shortString(body.subtitle, 180)
+        ? { subtitle: shortString(body.subtitle, 180) }
+        : {}),
+      ...(shortString(body.xLabel, 80)
+        ? { xLabel: shortString(body.xLabel, 80) }
+        : {}),
+      yLabel,
+      series,
+    },
+  });
 });

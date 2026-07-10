@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
-import type { ContentBlock } from "@marketer/agent-runtime/types";
+import { Fragment, useEffect, useState } from "react";
+import type {
+  AgentCapabilityId,
+  ContentBlock,
+} from "@marketer/agent-runtime/types";
 import { cn } from "@marketer/ui/lib/utils";
 import { ChevronDown } from "lucide-react";
-import { LineChartCard } from "../charts/line-chart-card";
-import { shortAnalyticsDate } from "../integrations/connection-preview";
+import { renderGenerativePart } from "../generative-ui/registry";
 import { StreamingMarkdown } from "./streaming-markdown";
 
 const MAX_RESULT_CHARS = 3000;
@@ -40,9 +42,32 @@ function canonicalTool(name: string) {
   return "tool";
 }
 
-function toolPresentation(name: string) {
+function executorToolLabel(input: unknown) {
+  if (!input || typeof input !== "object") return null;
+  const code = (input as Record<string, unknown>).code;
+  if (typeof code !== "string") return null;
+  const calls = Array.from(
+    code.matchAll(/agentTools\.([A-Za-z0-9_]+)\s*\(/g),
+    (match) => match[1],
+  );
+  if (calls.includes("uiPresentChart")) return "Present chart";
+  const reports = calls.filter((call) => call === "analyticsRunReport");
+  if (reports.length > 1) return "Compare analytics periods";
+  if (reports.length === 1) return "Fetch analytics report";
+  if (calls.includes("sourcesList")) return "Check connected sources";
+  const first = calls[0];
+  return first
+    ? first
+        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+        .replace(/^./, (character) => character.toUpperCase())
+    : null;
+}
+
+function toolPresentation(name: string, input: unknown) {
   const kind = canonicalTool(name);
-  if (kind === "integration") return "Run integration";
+  if (kind === "integration") {
+    return executorToolLabel(input) ?? "Run connected tool";
+  }
   if (kind === "command") return "Run";
   if (kind === "search") return "Search";
   if (kind === "web") return "Browse";
@@ -79,7 +104,7 @@ function ToolCard({
   result?: Extract<ContentBlock, { type: "tool_result" }>;
   progress?: string;
 }) {
-  const label = toolPresentation(block.name);
+  const label = toolPresentation(block.name, block.input);
   const summary = toolSummary(block.input);
   const output = result
     ? toolResultText(result.content).trim()
@@ -108,7 +133,7 @@ function ToolCard({
   }, [result]);
 
   return (
-    <details className="group border bg-card/50" open={!result}>
+    <details className="group border bg-card/50">
       <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3 py-2 text-xs [&::-webkit-details-marker]:hidden">
         <span
           className={cn(
@@ -166,9 +191,11 @@ function ToolCard({
 export function Blocks({
   blocks,
   progress = {},
+  capabilities = [],
 }: {
   blocks: ContentBlock[];
   progress?: Record<string, string>;
+  capabilities?: readonly AgentCapabilityId[];
 }) {
   const results = new Map(
     blocks
@@ -182,6 +209,10 @@ export function Blocks({
   return (
     <div className="space-y-3">
       {blocks.map((block, index) => {
+        const generativePart = renderGenerativePart(block, capabilities);
+        if (generativePart !== undefined) {
+          return <Fragment key={index}>{generativePart}</Fragment>;
+        }
         switch (block.type) {
           case "text":
             return (
@@ -190,15 +221,7 @@ export function Blocks({
               </div>
             );
           case "data-chart":
-            return (
-              <LineChartCard
-                key={block.id ?? index}
-                title={block.data.title}
-                subtitle={block.data.subtitle}
-                series={block.data.series}
-                formatX={shortAnalyticsDate}
-              />
-            );
+            return null;
           case "thinking":
             return (
               <details

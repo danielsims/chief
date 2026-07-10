@@ -92,6 +92,8 @@ export type AgentStatus = "idle" | "running" | "waiting" | "error";
 
 export type DriverType = "claude" | "codex";
 
+export type AgentCapabilityId = "analytics-chart";
+
 /**
  * How much the session may do without asking. "guarded" routes mutating tool
  * calls through the approval policy (normal chats); "full" skips approvals
@@ -127,6 +129,8 @@ export interface AgentDefinition {
   description: string;
   /** System prompt appended to the driver's base prompt. */
   instructions: string;
+  /** Optional, composable tool + UI behaviors available to this agent. */
+  capabilities?: AgentCapabilityId[];
   /** The CMO orchestrator can delegate to these agent ids. */
   delegates?: string[];
 }
