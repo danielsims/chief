@@ -4,6 +4,7 @@ import { authComponent, createAuth } from "./auth";
 import { billingReturnPage, stripeWebhook } from "./billing";
 import { oauthCallback as googleAnalyticsOauthCallback } from "./googleAnalytics";
 import {
+  capabilityIdentity as agentToolCapabilityIdentity,
   listSources as agentToolSources,
   openApiSpec as agentToolsOpenApi,
   presentChart as agentToolPresentChart,
@@ -31,6 +32,12 @@ http.route({
   path: "/google-analytics/callback",
   method: "GET",
   handler: googleAnalyticsOauthCallback,
+});
+
+http.route({
+  path: "/agent-tools/whoami",
+  method: "GET",
+  handler: agentToolCapabilityIdentity,
 });
 
 http.route({

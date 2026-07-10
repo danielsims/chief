@@ -1,7 +1,4 @@
 import { createServer } from "node:http";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { WebSocketServer, WebSocket } from "ws";
 import { SessionManager } from "./manager.js";
 import { defaultAgents, getAgent } from "./agents.js";
@@ -13,62 +10,37 @@ import {
   availableCapabilities,
   composeAgentCapabilities,
 } from "./capabilities/index.js";
-import type { ClientMessage, InputRequest, ServerMessage } from "./types.js";
-
-const SECRETS_ENV_PATH = join(homedir(), ".marketer", "secrets.env");
-
-function expandHome(path: string): string {
-  return path.startsWith("~/") || path === "~"
-    ? join(homedir(), path.slice(1))
-    : path;
-}
-
-/** Key names currently present in ~/.marketer/secrets.env. */
-function storedSecretKeys(): string[] {
-  if (!existsSync(SECRETS_ENV_PATH)) return [];
-  return readFileSync(SECRETS_ENV_PATH, "utf8")
-    .split("\n")
-    .map((line) => line.split("=")[0]?.trim() ?? "")
-    .filter(Boolean);
-}
-
-/** Upserts KEY='value' into ~/.marketer/secrets.env (created mode 600). */
-function saveEnvSecret(key: string, value: string) {
-  mkdirSync(dirname(SECRETS_ENV_PATH), { recursive: true });
-  const escaped = value.replace(/'/g, "'\\''");
-  const line = `${key}='${escaped}'`;
-  let lines: string[] = [];
-  if (existsSync(SECRETS_ENV_PATH)) {
-    lines = readFileSync(SECRETS_ENV_PATH, "utf8").split("\n").filter(Boolean);
-  }
-  const index = lines.findIndex((l) => l.startsWith(`${key}=`));
-  if (index >= 0) lines[index] = line;
-  else lines.push(line);
-  writeFileSync(SECRETS_ENV_PATH, lines.join("\n") + "\n", { mode: 0o600 });
-}
+import type {
+  ClientMessage,
+  ExecutorCapability,
+  InputRequest,
+  ServerMessage,
+} from "./types.js";
+import { workspaceSecrets } from "./workspace-secrets.js";
 
 /**
  * Stores submitted values per each field's save target and returns
  * human-readable destinations for the agent (never the values themselves).
  */
-function storeInputValues(
+async function storeInputValues(
+  workspaceId: string,
   request: InputRequest,
   values: Record<string, string>,
-): string[] {
+): Promise<string[]> {
   const saved: string[] = [];
   for (const field of request.fields) {
     const value = values[field.key];
     if (typeof value !== "string" || value.length === 0) continue;
     if ("file" in field.save) {
-      const path = expandHome(field.save.file);
-      mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, value, { mode: 0o600 });
-      saved.push(path);
+      saved.push(
+        await workspaceSecrets.storeFile(workspaceId, field.save.file, value),
+      );
     } else {
-      saveEnvSecret(field.save.envKey, value);
-      saved.push(`${field.save.envKey} in ${SECRETS_ENV_PATH}`);
+      await workspaceSecrets.storeEnv(workspaceId, field.save.envKey, value);
+      saved.push(`${field.save.envKey} in this workspace's Keychain vault`);
     }
   }
+  await workspaceSecrets.refresh(workspaceId);
   return saved;
 }
 
@@ -82,6 +54,34 @@ const PORT = Number(process.env.MARKETER_RUNTIME_PORT ?? 4318);
 export function startServer(port = PORT) {
   const manager = new SessionManager();
   const localCapabilities = new Map<string, string>();
+  const authorizeWorkspace = async (
+    workspaceId: string,
+    capability: ExecutorCapability,
+  ) => {
+    const cachedWorkspace = localCapabilities.get(capability.token);
+    if (cachedWorkspace) {
+      if (cachedWorkspace !== workspaceId) {
+        throw new Error("Workspace capability does not match this workspace.");
+      }
+      return;
+    }
+
+    const url = new URL("/agent-tools/whoami", capability.apiBaseUrl);
+    const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+    if (url.protocol !== "https:" && !(local && url.protocol === "http:")) {
+      throw new Error("Workspace capability endpoint must use HTTPS.");
+    }
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${capability.token}` },
+    });
+    const body = (await response.json().catch(() => null)) as {
+      organizationId?: string;
+    } | null;
+    if (!response.ok || body?.organizationId !== workspaceId) {
+      throw new Error("Could not verify access to this workspace.");
+    }
+    localCapabilities.set(capability.token, workspaceId);
+  };
   let broadcastWorkspaceData = async (_workspaceId: string) => {};
   // Bind both loopback families — macOS clients resolving "localhost" may
   // dial ::1 or 127.0.0.1. Never bind non-loopback interfaces here.
@@ -254,11 +254,11 @@ export function startServer(port = PORT) {
                 chatId: msg.chatId,
               });
             }
-            if (msg.workspaceId && msg.executorCapability) {
-              localCapabilities.set(
-                msg.executorCapability.token,
-                msg.workspaceId,
-              );
+            if (msg.workspaceId) {
+              if (!msg.executorCapability) {
+                throw new Error("Workspace authorization is required.");
+              }
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             }
             const executorWorkspace =
               agent.id !== "setup" && msg.workspaceId && msg.executorCapability
@@ -384,16 +384,26 @@ export function startServer(port = PORT) {
             break;
 
           case "queryInputs": {
-            const present = storedSecretKeys().filter((key) =>
-              msg.keys.includes(key),
-            );
-            send({ type: "inputsStatus", present });
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const present = (
+              await workspaceSecrets.keys(msg.workspaceId)
+            ).filter((key) => msg.keys.includes(key));
+            send({
+              type: "inputsStatus",
+              workspaceId: msg.workspaceId,
+              present,
+            });
             break;
           }
 
           case "storeInput": {
-            storeInputValues(msg.request, msg.values);
-            send({ type: "inputsStatus", present: storedSecretKeys() });
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            await storeInputValues(msg.workspaceId, msg.request, msg.values);
+            send({
+              type: "inputsStatus",
+              workspaceId: msg.workspaceId,
+              present: await workspaceSecrets.keys(msg.workspaceId),
+            });
             break;
           }
 
@@ -407,7 +417,11 @@ export function startServer(port = PORT) {
                 chatId: msg.chatId,
               });
             }
-            const saved = storeInputValues(msg.request, msg.values);
+            const saved = await storeInputValues(
+              session.config.workspaceId,
+              msg.request,
+              msg.values,
+            );
             await session.sendPrompt(
               saved.length > 0
                 ? `Provided: ${msg.request.title}. Saved to: ${saved.join(", ")}. Read the values from there when commands need them; never print them. Continue the setup.`

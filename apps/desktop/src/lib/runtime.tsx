@@ -32,6 +32,7 @@ import { useAuth } from "./auth/auth-context";
 // localhost hostname for insecure websockets inside WKWebView.
 const RUNTIME_URL = "ws://localhost:4318";
 const EXECUTOR_CAPABILITY_PREFIX = "marketer:executor-capability:";
+const workspaceCapabilityCache = new Map<string, ExecutorCapability>();
 
 function workspaceCapabilityToken(organizationId: string): string {
   const key = `${EXECUTOR_CAPABILITY_PREFIX}${organizationId}`;
@@ -45,6 +46,57 @@ function workspaceCapabilityToken(organizationId: string): string {
     .replace(/=+$/, "");
   window.localStorage.setItem(key, token);
   return token;
+}
+
+function useWorkspaceCapability() {
+  const { cloudOrganizationId } = useAuth();
+  const registerCapability = useAction(api.agentTools.registerCapability);
+  const [capability, setCapability] = useState<ExecutorCapability | null>(
+    cloudOrganizationId
+      ? (workspaceCapabilityCache.get(cloudOrganizationId) ?? null)
+      : null,
+  );
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!cloudOrganizationId) {
+      setCapability(null);
+      setError(null);
+      return;
+    }
+    const cached = workspaceCapabilityCache.get(cloudOrganizationId);
+    if (cached) {
+      setCapability(cached);
+      setError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setCapability(null);
+    setError(null);
+    const token = workspaceCapabilityToken(cloudOrganizationId);
+    void registerCapability({ token })
+      .then(({ apiBaseUrl }) => {
+        if (cancelled) return;
+        const next = { apiBaseUrl, token };
+        workspaceCapabilityCache.set(cloudOrganizationId, next);
+        setCapability(next);
+      })
+      .catch((reason) => {
+        if (!cancelled) {
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : "Could not authorize this workspace.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudOrganizationId, registerCapability]);
+
+  return { cloudOrganizationId, capability, error };
 }
 
 type Listener = (msg: ServerMessage) => void;
@@ -331,25 +383,49 @@ export function useAgentPreferences(workspaceId: string | null) {
  */
 export function useStoredInputs(keys: string[] | null) {
   const { client, status } = useRuntime();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
   const [present, setPresent] = useState<ReadonlySet<string> | null>(null);
   const keysSignature = JSON.stringify(keys ?? []);
 
   useEffect(() => {
     const parsed = JSON.parse(keysSignature) as string[];
-    if (parsed.length === 0 || status !== "connected") return;
+    setPresent(null);
+    if (
+      parsed.length === 0 ||
+      status !== "connected" ||
+      !cloudOrganizationId ||
+      !capability
+    ) {
+      return;
+    }
     const unsub = client.subscribe((msg) => {
-      if (msg.type === "inputsStatus") {
+      if (
+        msg.type === "inputsStatus" &&
+        msg.workspaceId === cloudOrganizationId
+      ) {
         setPresent(new Set(msg.present.filter((key) => parsed.includes(key))));
       }
     });
-    client.send({ type: "queryInputs", keys: parsed });
+    client.send({
+      type: "queryInputs",
+      workspaceId: cloudOrganizationId,
+      keys: parsed,
+      executorCapability: capability,
+    });
     return () => {
       unsub();
     };
-  }, [client, status, keysSignature]);
+  }, [client, status, keysSignature, cloudOrganizationId, capability]);
 
   const store = (request: InputRequest, values: Record<string, string>) => {
-    client.send({ type: "storeInput", request, values });
+    if (!cloudOrganizationId || !capability) return;
+    client.send({
+      type: "storeInput",
+      workspaceId: cloudOrganizationId,
+      request,
+      values,
+      executorCapability: capability,
+    });
   };
 
   return { present, store };
@@ -588,12 +664,13 @@ export function useAgentChat(
   integrations?: string[],
 ) {
   const { client, status: runtimeStatus } = useRuntime();
-  const { cloudOrganizationId } = useAuth();
-  const registerCapability = useAction(api.agentTools.registerCapability);
+  const {
+    cloudOrganizationId,
+    capability: executorCapability,
+    error: capabilityError,
+  } = useWorkspaceCapability();
   const capabilityKey = capabilities?.join("\0") ?? "";
   const integrationKey = integrations?.join("\0") ?? "";
-  const [executorCapability, setExecutorCapability] =
-    useState<ExecutorCapability | null>(null);
   const chatId = agentId ? (chatIdOverride ?? `${agentId}-main`) : null;
   const [chat, setChat] = useState<ChatState>(emptyChat);
   // True once the runtime has confirmed the session (history replayed).
@@ -601,32 +678,13 @@ export function useAgentChat(
   // races the async session open and lands on a dead chat.
   const [sessionReady, setSessionReady] = useState(false);
   useEffect(() => {
-    if (!cloudOrganizationId) {
-      setExecutorCapability(null);
-      return;
-    }
-    let cancelled = false;
-    const token = workspaceCapabilityToken(cloudOrganizationId);
-    void registerCapability({ token })
-      .then(({ apiBaseUrl }) => {
-        if (!cancelled) setExecutorCapability({ apiBaseUrl, token });
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setChat((current) => ({
-            ...current,
-            status: "idle",
-            error:
-              error instanceof Error
-                ? error.message
-                : "Could not prepare connected tools.",
-          }));
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [cloudOrganizationId, registerCapability]);
+    if (!capabilityError) return;
+    setChat((current) => ({
+      ...current,
+      status: "idle",
+      error: capabilityError,
+    }));
+  }, [capabilityError]);
 
   useEffect(() => {
     if (!agentId || !chatId || !driver || runtimeStatus !== "connected") return;

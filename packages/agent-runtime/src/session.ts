@@ -15,6 +15,7 @@ export interface SessionConfig {
   driver: DriverType;
   access: AccessMode;
   workspaceId: string;
+  env?: Record<string, string>;
   model?: string;
   mcpServers?: McpServerSpec[];
 }
@@ -97,6 +98,7 @@ export class AgentSession extends EventEmitter {
       cwd,
       instructions: this.agent.instructions,
       access: this.config.access,
+      env: this.config.env,
       model: this.config.model,
       resumeSessionId,
       mcpServers: this.config.mcpServers,

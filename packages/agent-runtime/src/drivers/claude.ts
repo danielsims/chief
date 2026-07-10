@@ -43,7 +43,7 @@ export class ClaudeDriver extends BaseDriver {
     // Strip nested-session markers so the CLI doesn't think it's running
     // inside another Claude Code session (matters when the service itself
     // was launched from one).
-    const env = { ...process.env } as Record<string, string>;
+    const env = { ...process.env, ...opts.env } as Record<string, string>;
     delete env.CLAUDECODE;
     delete env.CLAUDE_CODE_ENTRYPOINT;
     delete env.CLAUDE_CODE_SESSION_ID;
@@ -146,7 +146,11 @@ export class ClaudeDriver extends BaseDriver {
           }
         }
         if (blocks.length > 0) {
-          this.emitEvent({ type: "message", role: "assistant", content: blocks });
+          this.emitEvent({
+            type: "message",
+            role: "assistant",
+            content: blocks,
+          });
         }
         break;
       }

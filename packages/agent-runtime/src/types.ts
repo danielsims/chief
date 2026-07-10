@@ -191,6 +191,8 @@ export interface StartOptions {
   cwd: string;
   instructions: string;
   access: AccessMode;
+  /** Workspace-scoped execution environment, including ephemeral secrets. */
+  env?: Record<string, string>;
   model?: string;
   resumeSessionId?: string;
   mcpServers?: McpServerSpec[];
@@ -201,7 +203,7 @@ export interface StartOptions {
 /**
  * One value the user pastes. `save` tells the runtime where to store it:
  * a file path (secrets never enter the model transcript; agents read them
- * from disk) or a key in ~/.marketer/secrets.env. A future deployment
+ * from disk) or a workspace-scoped Keychain entry. A future deployment
  * target (e.g. Vercel env) slots in as another save variant.
  */
 export interface InputField {
@@ -280,16 +282,23 @@ export type ClientMessage =
       request: InputRequest;
       values: Record<string, string>;
     }
-  /** Which of these secret env keys already exist in ~/.marketer/secrets.env?
+  /** Which of these secret env keys already exist for this workspace?
    * Answered with inputsStatus. Lets the app collect required credentials
    * BEFORE any agent session starts. */
-  | { type: "queryInputs"; keys: string[] }
+  | {
+      type: "queryInputs";
+      workspaceId: string;
+      keys: string[];
+      executorCapability: ExecutorCapability;
+    }
   /** Store values with no agent session involved (pre-connect requirement
    * forms). Runtime stores them and broadcasts a fresh inputsStatus. */
   | {
       type: "storeInput";
+      workspaceId: string;
       request: InputRequest;
       values: Record<string, string>;
+      executorCapability: ExecutorCapability;
     };
 
 export type ServerMessage =
@@ -324,6 +333,6 @@ export type ServerMessage =
   | { type: "event"; chatId: string; event: AgentEvent }
   /** Buffered transcript replayed on (re)open so clients resume mid-run. */
   | { type: "history"; chatId: string; events: AgentEvent[] }
-  /** Secret env keys currently present in ~/.marketer/secrets.env. */
-  | { type: "inputsStatus"; present: string[] }
+  /** Secret env keys currently present for the authenticated workspace. */
+  | { type: "inputsStatus"; workspaceId: string; present: string[] }
   | { type: "error"; message: string; chatId?: string };

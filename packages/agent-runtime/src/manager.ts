@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { AgentSession, type SessionConfig } from "./session.js";
 import type { AgentDefinition, AgentEvent } from "./types.js";
 import { LocalStore } from "./local-store.js";
+import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
 
 const HOME = join(homedir(), ".marketer");
 
@@ -67,9 +68,11 @@ export class SessionManager {
       }
     }
 
+    const env = await workspaceSecrets.materialize(config.workspaceId);
+    const scopedConfig = { ...config, env };
     const storedEvents =
       this.archivedEvents.get(chatId) ?? (await this.store.transcript(chatId));
-    const session = new AgentSession(agent, chatId, config, storedEvents);
+    const session = new AgentSession(agent, chatId, scopedConfig, storedEvents);
     this.sessions.set(chatId, session);
 
     session.on("event", (event) => {
@@ -86,6 +89,7 @@ export class SessionManager {
         if (this.sessions.get(chatId) === session) {
           this.sessions.delete(chatId);
         }
+        this.lockWorkspaceIfInactive(config.workspaceId);
       }
       if (
         event.type === "message" ||
@@ -119,7 +123,7 @@ export class SessionManager {
       }
     });
 
-    const cwd = join(HOME, "agents", agent.id);
+    const cwd = join(workspaceRoot(config.workspaceId), "agents", agent.id);
     mkdirSync(cwd, { recursive: true });
     // Session ids don't transfer across backends — only resume same-driver.
     const prev = this.persisted[chatId];
@@ -153,6 +157,7 @@ export class SessionManager {
     this.sessions.delete(chatId);
     this.released.delete(chatId);
     await session.stop();
+    this.lockWorkspaceIfInactive(session.config.workspaceId);
   }
 
   async remove(chatId: string) {
@@ -165,6 +170,7 @@ export class SessionManager {
     await this.store.deleteChat(chatId);
     this.save();
     await session?.stop();
+    if (session) this.lockWorkspaceIfInactive(session.config.workspaceId);
   }
 
   listChats(workspaceId: string) {
@@ -230,7 +236,15 @@ export class SessionManager {
     await Promise.all([...this.sessions.values()].map((s) => s.stop()));
     await Promise.all(this.persistence.values());
     this.sessions.clear();
+    workspaceSecrets.lockAll();
     await this.store.close();
+  }
+
+  private lockWorkspaceIfInactive(workspaceId: string) {
+    const active = [...this.sessions.values()].some(
+      (session) => session.config.workspaceId === workspaceId,
+    );
+    if (!active) workspaceSecrets.lock(workspaceId);
   }
 
   private save() {

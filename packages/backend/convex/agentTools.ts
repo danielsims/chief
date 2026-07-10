@@ -185,6 +185,19 @@ async function organizationFromRequest(
   });
 }
 
+/**
+ * Lets the local runtime prove that an opaque capability belongs to the
+ * Better Auth organization claimed by the desktop client. No user or source
+ * data is returned through this bootstrap endpoint.
+ */
+export const capabilityIdentity = httpAction(async (ctx, request) => {
+  const organizationId = await organizationFromRequest(ctx, request);
+  if (!organizationId) {
+    return json({ error: "Unauthorized" }, { status: 401 });
+  }
+  return json({ organizationId });
+});
+
 export const openApiSpec = httpAction(async (_ctx, request) => {
   const origin = new URL(request.url).origin;
   return json({

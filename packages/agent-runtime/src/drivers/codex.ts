@@ -71,7 +71,7 @@ export class CodexDriver extends BaseDriver {
     const codexHome = this.prepareCodexHome(opts);
     this.proc = spawn(findCodex(), ["app-server"], {
       cwd: opts.cwd,
-      env: { ...process.env, CODEX_HOME: codexHome },
+      env: { ...process.env, ...opts.env, CODEX_HOME: codexHome },
       stdio: ["pipe", "pipe", "pipe"],
       // A process group lets stop() terminate Codex and every MCP child it
       // spawned. Killing only the wrapper leaks app-server/Executor processes.

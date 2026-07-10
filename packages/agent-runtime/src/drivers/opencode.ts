@@ -73,13 +73,15 @@ export class OpenCodeDriver extends BaseDriver {
   private stopping = false;
   private access: StartOptions["access"] = "guarded";
   private cwd = homedir();
+  private environment: NodeJS.ProcessEnv = { ...process.env };
 
   async start(options: StartOptions) {
     this.access = options.access;
     this.cwd = options.cwd;
     this.sessionId = options.resumeSessionId;
     writeFileSync(join(options.cwd, "AGENTS.md"), options.instructions);
-    const env = { ...process.env };
+    const env = { ...process.env, ...options.env };
+    this.environment = env;
     if (options.model) {
       env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ model: options.model });
     }
@@ -450,7 +452,7 @@ export class OpenCodeDriver extends BaseDriver {
       const args = Array.isArray(params.args) ? params.args.map(String) : [];
       const child = spawn(params.command, args, {
         cwd: typeof params.cwd === "string" ? params.cwd : this.cwd,
-        env: { ...process.env },
+        env: this.environment,
         stdio: ["pipe", "pipe", "pipe"],
       });
       const state: TerminalState = {
