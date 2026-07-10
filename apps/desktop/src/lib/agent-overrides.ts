@@ -28,34 +28,58 @@ const EVENT = "marketer-agent-overrides-changed";
  * per-chat choice > per-agent override > workspace provider, and if none is
  * set the UI must ask, not assume.
  */
-export function getWorkspaceProvider(): DriverType | null {
-  const value = localStorage.getItem(PROVIDER_KEY);
+function workspaceKey(base: string, workspaceId: string) {
+  return `${base}:${workspaceId}`;
+}
+
+function retireLegacyGlobalState() {
+  localStorage.removeItem(KEY);
+  localStorage.removeItem(PROVIDER_KEY);
+}
+
+export function getWorkspaceProvider(
+  workspaceId: string | null | undefined,
+): DriverType | null {
+  if (!workspaceId) return null;
+  retireLegacyGlobalState();
+  const value = localStorage.getItem(workspaceKey(PROVIDER_KEY, workspaceId));
   return value === "claude" || value === "codex" || value === "opencode"
     ? value
     : null;
 }
 
-export function setWorkspaceProvider(driver: DriverType) {
-  localStorage.setItem(PROVIDER_KEY, driver);
+export function setWorkspaceProvider(workspaceId: string, driver: DriverType) {
+  retireLegacyGlobalState();
+  localStorage.setItem(workspaceKey(PROVIDER_KEY, workspaceId), driver);
   window.dispatchEvent(new CustomEvent(EVENT));
 }
 
-export function getAgentOverrides(): AgentOverrides {
+export function getAgentOverrides(workspaceId: string): AgentOverrides {
+  retireLegacyGlobalState();
   try {
-    return JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    return JSON.parse(
+      localStorage.getItem(workspaceKey(KEY, workspaceId)) ?? "{}",
+    );
   } catch {
     return {};
   }
 }
 
-export function getAgentOverride(agentKey: string): AgentOverride {
-  return getAgentOverrides()[agentKey] ?? {};
+export function getAgentOverride(
+  workspaceId: string | null | undefined,
+  agentKey: string,
+): AgentOverride {
+  return workspaceId ? (getAgentOverrides(workspaceId)[agentKey] ?? {}) : {};
 }
 
-export function setAgentOverride(agentKey: string, override: AgentOverride) {
-  const all = getAgentOverrides();
+export function setAgentOverride(
+  workspaceId: string,
+  agentKey: string,
+  override: AgentOverride,
+) {
+  const all = getAgentOverrides(workspaceId);
   all[agentKey] = { ...all[agentKey], ...override };
-  localStorage.setItem(KEY, JSON.stringify(all));
+  localStorage.setItem(workspaceKey(KEY, workspaceId), JSON.stringify(all));
   window.dispatchEvent(new CustomEvent(EVENT));
 }
 

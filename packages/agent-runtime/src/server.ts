@@ -190,6 +190,7 @@ export function startServer(port = PORT) {
             break;
 
           case "listWorkspaceData":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             send({
               type: "workspaceData",
               workspaceId: msg.workspaceId,
@@ -198,11 +199,13 @@ export function startServer(port = PORT) {
             break;
 
           case "saveCampaign":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             await manager.saveCampaign(msg.workspaceId, msg.campaign);
             await broadcastWorkspaceData(msg.workspaceId);
             break;
 
           case "listAgentPreferences":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             send({
               type: "agentPreferences",
               workspaceId: msg.workspaceId,
@@ -211,6 +214,7 @@ export function startServer(port = PORT) {
             break;
 
           case "saveAgentPreference":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             await manager.saveAgentPreference(msg.workspaceId, msg.preference);
             send({
               type: "agentPreferences",
@@ -220,6 +224,7 @@ export function startServer(port = PORT) {
             break;
 
           case "setChatPreferences":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             await manager.updateChatPreferences(
               msg.workspaceId,
               msg.chatId,
@@ -234,6 +239,7 @@ export function startServer(port = PORT) {
             break;
 
           case "listChats":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             send({
               type: "chats",
               workspaceId: msg.workspaceId,
@@ -346,6 +352,7 @@ export function startServer(port = PORT) {
             break;
 
           case "deleteSession":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             subscriptions.delete(msg.chatId);
             {
               const registered = sessionListeners.get(msg.chatId);
@@ -354,14 +361,12 @@ export function startServer(port = PORT) {
                 sessionListeners.delete(msg.chatId);
               }
             }
-            await manager.remove(msg.chatId);
-            if (msg.workspaceId) {
-              send({
-                type: "chats",
-                workspaceId: msg.workspaceId,
-                chats: await manager.listChats(msg.workspaceId),
-              });
-            }
+            await manager.remove(msg.workspaceId, msg.chatId);
+            send({
+              type: "chats",
+              workspaceId: msg.workspaceId,
+              chats: await manager.listChats(msg.workspaceId),
+            });
             break;
 
           case "prompt": {

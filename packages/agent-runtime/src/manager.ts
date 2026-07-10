@@ -8,6 +8,10 @@ import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
 
 const HOME = join(homedir(), ".marketer");
 
+function workspaceChatKey(workspaceId: string, chatId: string) {
+  return `${workspaceId}\0${chatId}`;
+}
+
 interface PersistedSession {
   agentId: string;
   sessionId: string;
@@ -70,8 +74,10 @@ export class SessionManager {
 
     const env = await workspaceSecrets.materialize(config.workspaceId);
     const scopedConfig = { ...config, env };
+    const archivedKey = workspaceChatKey(config.workspaceId, chatId);
     const storedEvents =
-      this.archivedEvents.get(chatId) ?? (await this.store.transcript(chatId));
+      this.archivedEvents.get(archivedKey) ??
+      (await this.store.transcript(config.workspaceId, chatId));
     const session = new AgentSession(agent, chatId, scopedConfig, storedEvents);
     this.sessions.set(chatId, session);
 
@@ -85,7 +91,7 @@ export class SessionManager {
         this.save();
       }
       if (event.type === "exit") {
-        this.archivedEvents.set(chatId, session.events.slice(-500));
+        this.archivedEvents.set(archivedKey, session.events.slice(-500));
         if (this.sessions.get(chatId) === session) {
           this.sessions.delete(chatId);
         }
@@ -153,21 +159,27 @@ export class SessionManager {
   private async stopReleased(chatId: string) {
     const session = this.sessions.get(chatId);
     if (!session || session.isBusy || !this.released.has(chatId)) return;
-    this.archivedEvents.set(chatId, session.events.slice(-500));
+    this.archivedEvents.set(
+      workspaceChatKey(session.config.workspaceId, chatId),
+      session.events.slice(-500),
+    );
     this.sessions.delete(chatId);
     this.released.delete(chatId);
     await session.stop();
     this.lockWorkspaceIfInactive(session.config.workspaceId);
   }
 
-  async remove(chatId: string) {
+  async remove(workspaceId: string, chatId: string) {
     const session = this.sessions.get(chatId);
+    if (session && session.config.workspaceId !== workspaceId) {
+      throw new Error("Chat belongs to a different workspace.");
+    }
     this.sessions.delete(chatId);
-    this.archivedEvents.delete(chatId);
+    this.archivedEvents.delete(workspaceChatKey(workspaceId, chatId));
     this.retainCounts.delete(chatId);
     this.released.delete(chatId);
     delete this.persisted[chatId];
-    await this.store.deleteChat(chatId);
+    await this.store.deleteChat(workspaceId, chatId);
     this.save();
     await session?.stop();
     if (session) this.lockWorkspaceIfInactive(session.config.workspaceId);

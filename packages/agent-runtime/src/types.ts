@@ -251,19 +251,33 @@ export interface InputRequest {
 
 export type ClientMessage =
   | { type: "listAgents" }
-  | { type: "listChats"; workspaceId: string }
+  | {
+      type: "listChats";
+      workspaceId: string;
+      executorCapability: ExecutorCapability;
+    }
   | { type: "listModels"; driver: DriverType }
-  | { type: "listWorkspaceData"; workspaceId: string }
-  | { type: "listAgentPreferences"; workspaceId: string }
+  | {
+      type: "listWorkspaceData";
+      workspaceId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "listAgentPreferences";
+      workspaceId: string;
+      executorCapability: ExecutorCapability;
+    }
   | {
       type: "saveCampaign";
       workspaceId: string;
       campaign: CampaignRecord;
+      executorCapability: ExecutorCapability;
     }
   | {
       type: "saveAgentPreference";
       workspaceId: string;
       preference: AgentPreference;
+      executorCapability: ExecutorCapability;
     }
   | {
       type: "setChatPreferences";
@@ -271,6 +285,7 @@ export type ClientMessage =
       chatId: string;
       driver: DriverType;
       model?: string;
+      executorCapability: ExecutorCapability;
     }
   | {
       type: "openSession";
@@ -292,7 +307,12 @@ export type ClientMessage =
     }
   | { type: "prompt"; chatId: string; text: string }
   | { type: "closeSession"; chatId: string }
-  | { type: "deleteSession"; chatId: string; workspaceId?: string }
+  | {
+      type: "deleteSession";
+      chatId: string;
+      workspaceId: string;
+      executorCapability: ExecutorCapability;
+    }
   | { type: "interrupt"; chatId: string }
   | {
       type: "respondPermission";

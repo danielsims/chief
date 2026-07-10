@@ -2441,9 +2441,9 @@ export function OnboardingPage() {
   const persistProvider = useCallback(() => {
     if (!draft) return;
     if (draft.provider === "claude" || draft.provider === "codex") {
-      setWorkspaceProvider(draft.provider);
+      if (org) setWorkspaceProvider(org.id, draft.provider);
     }
-  }, [draft]);
+  }, [draft, org]);
 
   const completeOnboarding = useCallback(async () => {
     if (!org || !draft) return;

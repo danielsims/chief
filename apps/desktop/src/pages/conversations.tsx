@@ -12,9 +12,8 @@ import {
 import { useAgentPreferences, useLocalChats, useRuntime } from "../lib/runtime";
 import { useAuth } from "../lib/auth/auth-context";
 import {
+  clearLegacyChatCache,
   createChat,
-  deleteChat,
-  getChatLog,
   type ChatLogEntry,
 } from "../lib/chat-log";
 import { getAgentOverride } from "../lib/agent-overrides";
@@ -233,20 +232,16 @@ export function ConversationsPage() {
   const enabledAgents = agents.filter(
     (agent) =>
       preferences.get(agent.id)?.enabled !== false &&
-      getAgentOverride(agent.id).enabled !== false,
+      getAgentOverride(cloudOrganizationId, agent.id).enabled !== false,
   );
   const [params, setParams] = useSearchParams();
-  const legacyChats = useMemo(
-    () => getChatLog().filter((entry) => entry.lastText.trim()),
-    [],
-  );
-  const log = useMemo(() => {
-    const merged = new Map<string, ChatLogEntry>();
-    for (const entry of legacyChats) merged.set(entry.id, entry);
-    for (const entry of localChats.chats) merged.set(entry.id, entry);
-    return [...merged.values()].sort((a, b) => b.lastAt - a.lastAt);
-  }, [legacyChats, localChats.chats]);
+  // The runtime database is the sole transcript index. Its chat query is
+  // workspace-scoped; never merge the old browser-global cache here because
+  // that exposes one organization's conversation titles in another.
+  const log = localChats.chats;
   const running = useRunningChats();
+
+  useEffect(() => clearLegacyChatCache(), []);
 
   const activeAgentId = params.get("agent");
   const activeChatId = params.get("chat");
@@ -312,7 +307,6 @@ export function ConversationsPage() {
 
   const removeChat = (entry: ChatLogEntry) => {
     const remaining = log.filter((candidate) => candidate.id !== entry.id);
-    deleteChat(entry.id);
     localChats.remove(entry.id);
     if (entry.id !== activeChatId) return;
     const next = remaining[0];

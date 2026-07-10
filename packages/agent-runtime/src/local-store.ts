@@ -157,6 +157,14 @@ export class LocalStore {
     if (!firstText || !lastText) return;
     const now = Date.now();
     await this.db.transaction(async (tx) => {
+      const existing = await tx
+        .select({ workspaceId: schema.chats.workspaceId })
+        .from(schema.chats)
+        .where(eq(schema.chats.id, context.id))
+        .get();
+      if (existing && existing.workspaceId !== context.workspaceId) {
+        throw new Error("Chat belongs to a different workspace.");
+      }
       await tx
         .insert(schema.chats)
         .values({
@@ -220,8 +228,19 @@ export class LocalStore {
     }));
   }
 
-  async transcript(chatId: string): Promise<AgentEvent[]> {
+  async transcript(workspaceId: string, chatId: string): Promise<AgentEvent[]> {
     await this.ready;
+    const chat = await this.db
+      .select({ id: schema.chats.id })
+      .from(schema.chats)
+      .where(
+        and(
+          eq(schema.chats.id, chatId),
+          eq(schema.chats.workspaceId, workspaceId),
+        ),
+      )
+      .get();
+    if (!chat) return [];
     const rows = await this.db
       .select({ eventJson: schema.chatEvents.eventJson })
       .from(schema.chatEvents)
@@ -237,9 +256,17 @@ export class LocalStore {
     });
   }
 
-  async deleteChat(chatId: string) {
+  async deleteChat(workspaceId: string, chatId: string) {
     await this.ready;
-    await this.db.delete(schema.chats).where(eq(schema.chats.id, chatId)).run();
+    await this.db
+      .delete(schema.chats)
+      .where(
+        and(
+          eq(schema.chats.id, chatId),
+          eq(schema.chats.workspaceId, workspaceId),
+        ),
+      )
+      .run();
   }
 
   async updateChatPreferences(

@@ -75,14 +75,18 @@ export function AgentChat({
   const [driver, setDriver] = useState<DriverType | null>(
     () =>
       initialDriver ??
-      getAgentOverride(agent.id).driver ??
-      getWorkspaceProvider(),
+      getAgentOverride(cloudOrganizationId, agent.id).driver ??
+      getWorkspaceProvider(cloudOrganizationId),
   );
   const [model, setModel] = useState(
-    () => initialModel ?? getAgentOverride(agent.id).model ?? "",
+    () =>
+      initialModel ??
+      getAgentOverride(cloudOrganizationId, agent.id).model ??
+      "",
   );
   const activeCapabilities =
-    getAgentOverride(agent.id).capabilities ?? agent.capabilities;
+    getAgentOverride(cloudOrganizationId, agent.id).capabilities ??
+    agent.capabilities;
   const providerModels = useProviderModels(driver);
   const {
     chat,
@@ -91,6 +95,7 @@ export function AgentChat({
     respondPermission,
     provideInput,
     sessionReady,
+    executorCapability,
   } = useAgentChat(
     agent.id,
     driver,
@@ -170,13 +175,14 @@ export function AgentChat({
   const suggestions = CHAT_SUGGESTIONS[agent.id] ?? [];
 
   const savePreferences = (nextDriver: DriverType, nextModel: string) => {
-    if (!cloudOrganizationId) return;
+    if (!cloudOrganizationId || !executorCapability) return;
     client.send({
       type: "setChatPreferences",
       workspaceId: cloudOrganizationId,
       chatId,
       driver: nextDriver,
       model: nextModel || undefined,
+      executorCapability,
     });
   };
 

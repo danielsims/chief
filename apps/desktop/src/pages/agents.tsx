@@ -89,12 +89,14 @@ function ProviderOption({ provider }: { provider: Provider }) {
 
 function InstalledAgentCard({
   agent,
+  workspaceId,
   override,
   integrations,
   ready,
   onSave,
 }: {
   agent: AgentDefinition;
+  workspaceId: string | null;
   override: AgentOverride | undefined;
   integrations: IntegrationOption[];
   ready: boolean;
@@ -103,7 +105,7 @@ function InstalledAgentCard({
   const enabled = override?.enabled ?? true;
   // Per-agent override wins; otherwise the workspace's chosen agent app.
   // Null means neither exists yet — the select asks instead of assuming.
-  const driver = override?.driver ?? getWorkspaceProvider();
+  const driver = override?.driver ?? getWorkspaceProvider(workspaceId);
   const models = useProviderModels(driver);
   const model = override?.model ?? "";
   const capabilities = override?.capabilities ?? agent.capabilities ?? [];
@@ -125,8 +127,8 @@ function InstalledAgentCard({
     if (patch.model !== undefined) mirror.model = patch.model || undefined;
     if (patch.capabilities) mirror.capabilities = patch.capabilities;
     if (patch.integrations) mirror.integrations = patch.integrations;
-    if (Object.keys(mirror).length > 0) {
-      setAgentOverride(agent.id, mirror);
+    if (workspaceId && Object.keys(mirror).length > 0) {
+      setAgentOverride(workspaceId, agent.id, mirror);
     }
 
     onSave({
@@ -144,7 +146,7 @@ function InstalledAgentCard({
   return (
     <div
       className={cn(
-        "flex flex-col border bg-card p-5",
+        "flex min-h-full flex-col bg-card p-6",
         !enabled && "opacity-60",
       )}
     >
@@ -365,11 +367,22 @@ export function AgentsPage() {
   const overrides = agentPreferences.preferences;
   const ready = Boolean(cloudOrganizationId) && !agentPreferences.loading;
   const [view, setView] = useState<"installed" | "available">("installed");
+  const [selectedAgentId, setSelectedAgentId] = useState(
+    () => agents[0]?.id ?? "",
+  );
+  const selectedAgent =
+    agents.find((agent) => agent.id === selectedAgentId) ?? agents[0];
+
+  useEffect(() => {
+    if (agents.some((agent) => agent.id === selectedAgentId)) return;
+    setSelectedAgentId(agents[0]?.id ?? "");
+  }, [agents, selectedAgentId]);
 
   // Hydrate the synchronous mirror from the runtime-owned local database.
   useEffect(() => {
+    if (!cloudOrganizationId) return;
     for (const override of overrides) {
-      const local = getAgentOverride(override.agentId);
+      const local = getAgentOverride(cloudOrganizationId, override.agentId);
       const patch: LocalAgentOverride = {};
       const driver = override.driver;
       if (driver && local.driver !== driver) patch.driver = driver;
@@ -392,10 +405,10 @@ export function AgentsPage() {
         patch.integrations = override.integrations;
       }
       if (Object.keys(patch).length > 0) {
-        setAgentOverride(override.agentId, patch);
+        setAgentOverride(cloudOrganizationId, override.agentId, patch);
       }
     }
-  }, [overrides]);
+  }, [cloudOrganizationId, overrides]);
 
   return (
     <div className="-mx-8 -mb-8 flex min-h-[calc(100vh-48px)]">
@@ -446,17 +459,57 @@ export function AgentsPage() {
 
         {view === "installed" ? (
           <>
-            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-              {agents.map((agent) => (
-                <InstalledAgentCard
-                  key={agent.id}
-                  agent={agent}
-                  override={overrides.find((o) => o.agentId === agent.id)}
-                  integrations={integrations}
-                  ready={ready}
-                  onSave={agentPreferences.save}
-                />
-              ))}
+            <div className="grid min-h-[620px] grid-cols-[260px_minmax(0,1fr)] border bg-card">
+              <div className="border-r p-2">
+                {agents.map((agent) => {
+                  const override = overrides.find(
+                    (item) => item.agentId === agent.id,
+                  );
+                  const enabled = override?.enabled ?? true;
+                  const selected = agent.id === selectedAgent?.id;
+                  return (
+                    <button
+                      key={agent.id}
+                      type="button"
+                      onClick={() => setSelectedAgentId(agent.id)}
+                      className={cn(
+                        "flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-accent",
+                        selected && "bg-accent",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "size-1.5 shrink-0",
+                          enabled ? "bg-emerald-500" : "bg-muted-foreground/40",
+                        )}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">
+                          {agent.name}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {agent.role}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="min-w-0">
+                {selectedAgent ? (
+                  <InstalledAgentCard
+                    key={selectedAgent.id}
+                    agent={selectedAgent}
+                    workspaceId={cloudOrganizationId}
+                    override={overrides.find(
+                      (item) => item.agentId === selectedAgent.id,
+                    )}
+                    integrations={integrations}
+                    ready={ready}
+                    onSave={agentPreferences.save}
+                  />
+                ) : null}
+              </div>
             </div>
             {!ready ? (
               <p className="mt-3 text-xs text-muted-foreground">

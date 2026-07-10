@@ -300,7 +300,7 @@ export function AnalyticsPage() {
   const saveSnapshot = useMutation(api.analyticsSnapshots.upsert);
   const getSummary = useAction(api.googleAnalytics.summary);
   const preferredIntegration = usePreferredAnalyticsIntegration();
-  const workspaceProvider = getWorkspaceProvider();
+  const workspaceProvider = getWorkspaceProvider(cloudOrganizationId);
   const visibleDetails =
     selectedDetails ?? providerDetails(preferredIntegration.domain);
 

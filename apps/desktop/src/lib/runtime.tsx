@@ -248,26 +248,45 @@ export interface LocalChatSummary {
 /** Durable chats from the runtime-owned local libSQL database. */
 export function useLocalChats(workspaceId: string | null) {
   const { client, status } = useRuntime();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
   const [chats, setChats] = useState<LocalChatSummary[]>([]);
 
   useEffect(() => {
     setChats([]);
-    if (!workspaceId || status !== "connected") return;
+    if (
+      !workspaceId ||
+      workspaceId !== cloudOrganizationId ||
+      !capability ||
+      status !== "connected"
+    ) {
+      return;
+    }
     const unsubscribe = client.subscribe((message) => {
       if (message.type === "chats" && message.workspaceId === workspaceId) {
         setChats(message.chats);
       }
     });
-    client.send({ type: "listChats", workspaceId });
+    client.send({
+      type: "listChats",
+      workspaceId,
+      executorCapability: capability,
+    });
     return () => {
       unsubscribe();
     };
-  }, [client, status, workspaceId]);
+  }, [capability, client, cloudOrganizationId, status, workspaceId]);
 
   const remove = (chatId: string) => {
-    if (!workspaceId) return;
+    if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
+      return;
+    }
     setChats((current) => current.filter((chat) => chat.id !== chatId));
-    client.send({ type: "deleteSession", chatId, workspaceId });
+    client.send({
+      type: "deleteSession",
+      chatId,
+      workspaceId,
+      executorCapability: capability,
+    });
   };
 
   return { chats, remove };
@@ -313,12 +332,20 @@ const emptyWorkspaceData: WorkspaceDataState = {
 
 export function useWorkspaceData(workspaceId: string | null) {
   const { client, status } = useRuntime();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
   const [data, setData] = useState<WorkspaceDataState>(emptyWorkspaceData);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     setData(emptyWorkspaceData);
-    if (!workspaceId || status !== "connected") return;
+    if (
+      !workspaceId ||
+      workspaceId !== cloudOrganizationId ||
+      !capability ||
+      status !== "connected"
+    ) {
+      return;
+    }
     setLoading(true);
     const unsubscribe = client.subscribe((message) => {
       if (
@@ -334,14 +361,20 @@ export function useWorkspaceData(workspaceId: string | null) {
         setLoading(false);
       }
     });
-    client.send({ type: "listWorkspaceData", workspaceId });
+    client.send({
+      type: "listWorkspaceData",
+      workspaceId,
+      executorCapability: capability,
+    });
     return () => {
       unsubscribe();
     };
-  }, [client, status, workspaceId]);
+  }, [capability, client, cloudOrganizationId, status, workspaceId]);
 
   const saveCampaign = (campaign: CampaignRecord) => {
-    if (!workspaceId) return;
+    if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
+      return;
+    }
     setData((current) => ({
       ...current,
       campaigns: [
@@ -349,7 +382,12 @@ export function useWorkspaceData(workspaceId: string | null) {
         ...current.campaigns.filter((item) => item.id !== campaign.id),
       ],
     }));
-    client.send({ type: "saveCampaign", workspaceId, campaign });
+    client.send({
+      type: "saveCampaign",
+      workspaceId,
+      campaign,
+      executorCapability: capability,
+    });
   };
 
   return { ...data, loading, saveCampaign };
@@ -357,12 +395,20 @@ export function useWorkspaceData(workspaceId: string | null) {
 
 export function useAgentPreferences(workspaceId: string | null) {
   const { client, status } = useRuntime();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
   const [preferences, setPreferences] = useState<AgentPreference[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     setPreferences([]);
-    if (!workspaceId || status !== "connected") return;
+    if (
+      !workspaceId ||
+      workspaceId !== cloudOrganizationId ||
+      !capability ||
+      status !== "connected"
+    ) {
+      return;
+    }
     setLoading(true);
     const unsubscribe = client.subscribe((message) => {
       if (
@@ -373,19 +419,30 @@ export function useAgentPreferences(workspaceId: string | null) {
         setLoading(false);
       }
     });
-    client.send({ type: "listAgentPreferences", workspaceId });
+    client.send({
+      type: "listAgentPreferences",
+      workspaceId,
+      executorCapability: capability,
+    });
     return () => {
       unsubscribe();
     };
-  }, [client, status, workspaceId]);
+  }, [capability, client, cloudOrganizationId, status, workspaceId]);
 
   const save = (preference: AgentPreference) => {
-    if (!workspaceId) return;
+    if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
+      return;
+    }
     setPreferences((current) => [
       preference,
       ...current.filter((item) => item.agentId !== preference.agentId),
     ]);
-    client.send({ type: "saveAgentPreference", workspaceId, preference });
+    client.send({
+      type: "saveAgentPreference",
+      workspaceId,
+      preference,
+      executorCapability: capability,
+    });
   };
 
   return { preferences, loading, save };
@@ -713,9 +770,13 @@ export function useAgentChat(
       chatId,
       driver,
       access,
-      model: model || getAgentOverride(agentId).model,
-      capabilities: capabilities ?? getAgentOverride(agentId).capabilities,
-      integrations: integrations ?? getAgentOverride(agentId).integrations,
+      model: model || getAgentOverride(cloudOrganizationId, agentId).model,
+      capabilities:
+        capabilities ??
+        getAgentOverride(cloudOrganizationId, agentId).capabilities,
+      integrations:
+        integrations ??
+        getAgentOverride(cloudOrganizationId, agentId).integrations,
       workspaceId: cloudOrganizationId ?? undefined,
       executorCapability: executorCapability ?? undefined,
     });
@@ -784,5 +845,6 @@ export function useAgentChat(
     respondPermission,
     provideInput,
     sessionReady,
+    executorCapability,
   };
 }
