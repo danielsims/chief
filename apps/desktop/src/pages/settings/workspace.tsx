@@ -19,11 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@marketer/ui/components/dialog";
-import {
-  faviconLoads,
-  faviconUrl,
-  OrgLogo,
-} from "../../components/org-logo";
+import { OrgLogo, resolveFaviconUrl } from "../../components/org-logo";
 import { useAuth } from "../../lib/auth/auth-context";
 import {
   type AuthOrganization,
@@ -47,11 +43,11 @@ function LogoPreview({
   website: string;
   name: string;
 }) {
-  const src = logo || (website ? faviconUrl(website) : null);
   return (
     <OrgLogo
       name={name}
-      logo={src}
+      logo={logo}
+      website={website}
       className="h-12 w-12 shrink-0 text-lg"
       imgClassName="h-8 w-8 object-contain"
     />
@@ -147,8 +143,8 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
       <CardContent>
         <div className="flex items-center justify-between py-1">
           <p className="text-xs text-muted-foreground">
-            You'll be moved to another workspace, or signed out if this is
-            your last one.
+            You'll be moved to another workspace, or signed out if this is your
+            last one.
           </p>
           <Button
             variant="destructive"
@@ -168,8 +164,8 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
           <DialogHeader>
             <DialogTitle>Delete {org.name}</DialogTitle>
             <DialogDescription>
-              This deletes the workspace and all of its data. Type the
-              workspace name to confirm.
+              This deletes the workspace and all of its data. Type the workspace
+              name to confirm.
             </DialogDescription>
           </DialogHeader>
           <Input
@@ -242,10 +238,11 @@ export function WorkspaceSettings() {
     setSaveState("idle");
     try {
       const metadata = parseOrganizationMetadata(org);
-      const candidate = faviconUrl(website);
-      const logo = candidate && (await faviconLoads(candidate)) ? candidate : undefined;
+      const logo = (await resolveFaviconUrl(website)) ?? undefined;
       const previousWebsite =
-        typeof metadata.websiteUrl === "string" ? metadata.websiteUrl.trim() : "";
+        typeof metadata.websiteUrl === "string"
+          ? metadata.websiteUrl.trim()
+          : "";
       const websiteChanged = previousWebsite !== website.trim();
       await updateAuthOrganization(org.id, {
         name: name.trim() || org.name,
@@ -277,8 +274,8 @@ export function WorkspaceSettings() {
         <CardHeader>
           <CardTitle>Workspace</CardTitle>
           <CardDescription>
-            The company your agents work for. They use the name and website
-            as context.
+            The company your agents work for. They use the name and website as
+            context.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">

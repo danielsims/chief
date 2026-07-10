@@ -25,14 +25,15 @@ export function OrgLogo({
   imgClassName?: string;
 }) {
   const candidates = useMemo(() => {
-    const direct = directFaviconUrl(website ?? "");
-    const google = faviconUrl(website ?? "");
+    const siteCandidates = faviconCandidates(website ?? "");
     return Array.from(
       new Map(
         [
-          logo ? { src: logo, minimumWidth: 16 } : null,
-          direct ? { src: direct, minimumWidth: 16 } : null,
-          google ? { src: google, minimumWidth: 32 } : null,
+          logo ? { src: logo, minimumWidth: minimumFaviconWidth(logo) } : null,
+          ...siteCandidates.map((src) => ({
+            src,
+            minimumWidth: minimumFaviconWidth(src),
+          })),
         ]
           .filter(
             (candidate): candidate is { src: string; minimumWidth: number } =>
@@ -87,7 +88,7 @@ export function OrgLogo({
           alt=""
           draggable={false}
           className={cn(
-            "absolute inset-0 h-full w-full object-cover",
+            "absolute inset-0 h-full w-full bg-white object-cover",
             loaded ? "opacity-100" : "opacity-0",
             imgClassName,
           )}
@@ -109,31 +110,39 @@ export function OrgLogo({
   );
 }
 
-function directFaviconUrl(website: string): string | null {
+function websiteOrigin(website: string): URL | null {
   const trimmed = website.trim();
   if (!trimmed) return null;
   try {
-    const url = new URL(
+    return new URL(
       /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`,
     );
-    return `${url.origin}/favicon.ico`;
   } catch {
     return null;
   }
 }
 
+function faviconCandidates(website: string): string[] {
+  const url = websiteOrigin(website);
+  if (!url) return [];
+  return [
+    `${url.origin}/favicon.ico`,
+    `${url.origin}/favicon.svg`,
+    `${url.origin}/apple-touch-icon.png`,
+    `https://www.google.com/s2/favicons?domain=${encodeURIComponent(url.hostname)}&sz=64`,
+  ];
+}
+
+function minimumFaviconWidth(url: string) {
+  return url.includes("google.com/s2/favicons") ? 32 : 16;
+}
+
 /** Google's favicon endpoint, used consistently anywhere a workspace appears. */
 export function faviconUrl(website: string): string | null {
-  const trimmed = website.trim();
-  if (!trimmed) return null;
-  try {
-    const url = new URL(
-      /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`,
-    );
-    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(url.hostname)}&sz=64`;
-  } catch {
-    return null;
-  }
+  const url = websiteOrigin(website);
+  return url
+    ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(url.hostname)}&sz=64`
+    : null;
 }
 
 /**
@@ -141,11 +150,24 @@ export function faviconUrl(website: string): string | null {
  * loads and is at least 32px wide, filtering out the s2 generic-globe stub.
  * Used before persisting a favicon URL as a workspace logo.
  */
-export function faviconLoads(url: string): Promise<boolean> {
+export function faviconLoads(
+  url: string,
+  minimumWidth = minimumFaviconWidth(url),
+): Promise<boolean> {
   return new Promise((resolve) => {
     const img = new Image();
-    img.onload = () => resolve(img.naturalWidth >= 32);
+    img.onload = () => resolve(img.naturalWidth >= minimumWidth);
     img.onerror = () => resolve(false);
     img.src = url;
   });
+}
+
+/** Resolve the site's own icon first, using Google only as a final fallback. */
+export async function resolveFaviconUrl(
+  website: string,
+): Promise<string | null> {
+  for (const candidate of faviconCandidates(website)) {
+    if (await faviconLoads(candidate)) return candidate;
+  }
+  return null;
 }

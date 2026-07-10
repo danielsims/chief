@@ -7,7 +7,7 @@ import {
   setActiveAuthOrganization,
   updateAuthOrganization,
 } from "../lib/auth/better-auth-client";
-import { faviconLoads, faviconUrl } from "../components/org-logo";
+import { resolveFaviconUrl } from "../components/org-logo";
 
 /**
  * Full-page workspace creation. Visually this is step one of onboarding.
@@ -40,8 +40,7 @@ export function CreateWorkspacePage() {
       try {
         // Only persist the favicon as the logo when it is a real one; the
         // favicon service returns a 16px generic globe for sites without one.
-        let logo = faviconUrl(website);
-        if (logo && !(await faviconLoads(logo))) logo = null;
+        const logo = await resolveFaviconUrl(website);
         const org = await createAuthOrganization({
           name: trimmed,
           slug: slugify(trimmed),

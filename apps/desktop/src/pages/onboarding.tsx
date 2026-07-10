@@ -50,7 +50,7 @@ import {
 import { connectGoogleAnalytics } from "../lib/google-analytics";
 import { persistSetupResult, type SetupResult } from "../lib/integration-setup";
 import { IntegrationConnect } from "../components/integrations/integration-connect";
-import { faviconLoads, faviconUrl } from "../components/org-logo";
+import { resolveFaviconUrl } from "../components/org-logo";
 import { GoogleLogo } from "../components/google-logo";
 import {
   integrationLogoUrl,
@@ -2253,7 +2253,7 @@ export function OnboardingPage() {
     if (!draft || !billingResolved) return;
 
     if (billingActive && draft.step === "pricing") {
-      setNotice("Checkout confirmed. Your free trial is active.");
+      setNotice(null);
       setError(null);
       setDraft((current) =>
         current?.step === "pricing" ? { ...current, step: "finish" } : current,
@@ -2391,8 +2391,7 @@ export function OnboardingPage() {
 
   const persistContext = useCallback(async () => {
     if (!draft) return false;
-    const favicon = faviconUrl(draft.websiteUrl);
-    const logo = favicon && (await faviconLoads(favicon)) ? favicon : undefined;
+    const logo = (await resolveFaviconUrl(draft.websiteUrl)) ?? undefined;
     if (!org) {
       const name = draft.companyName.trim();
       if (!name) return false;
