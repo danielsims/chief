@@ -25,6 +25,9 @@ import {
   readWorkspaceContext,
   writeWorkspaceContext,
 } from "./workspace-context.js";
+import { createMarketerMcpHandler } from "./mcp-server.js";
+import { loadSlackGatewayConfig } from "./channels/slack-config.js";
+import { SlackGateway } from "./channels/slack-gateway.js";
 import { RecurringWorkScheduler } from "./scheduler.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
 
@@ -91,7 +94,29 @@ export function startServer(port = PORT) {
       throw new Error("Could not verify access to this workspace.");
     }
     localCapabilities.set(capability.token, workspaceId);
+    void ensureSlackGateway(workspaceId);
   };
+
+  // Local Slack gateways: one Socket Mode connection per workspace that has
+  // enabled Slack and stored its tokens. Started lazily on first workspace
+  // authorization; config changes apply on the next runtime start.
+  const slackGateways = new Map<string, SlackGateway>();
+  const slackAttempted = new Set<string>();
+  const ensureSlackGateway = async (workspaceId: string) => {
+    if (slackAttempted.has(workspaceId)) return;
+    slackAttempted.add(workspaceId);
+    try {
+      const config = await loadSlackGatewayConfig(workspaceId);
+      if (!config) return;
+      const gateway = new SlackGateway(manager, config);
+      await gateway.start();
+      slackGateways.set(workspaceId, gateway);
+      console.log(`[slack] gateway connected for workspace ${workspaceId}`);
+    } catch (error) {
+      console.error("[slack] gateway failed to start:", error);
+    }
+  };
+
   let broadcastWorkspaceData = async (_workspaceId: string) => {};
   const scheduler = new RecurringWorkScheduler(manager, (workspaceId) =>
     broadcastWorkspaceData(workspaceId),
@@ -141,9 +166,14 @@ export function startServer(port = PORT) {
       }
       return;
     }
+    if (await handleMcp(req, res)) return;
     res.writeHead(204, { "access-control-allow-origin": "*" });
     res.end();
   };
+  const handleMcp = createMarketerMcpHandler({
+    manager,
+    authorize: authorizeWorkspace,
+  });
   const http4 = createServer(handler);
   const http6 = createServer(handler);
   const wss = new WebSocketServer({ server: http4 });
@@ -574,6 +604,11 @@ export function startServer(port = PORT) {
 
   const shutdown = async () => {
     scheduler.stop();
+    await Promise.all(
+      [...slackGateways.values()].map((gateway) =>
+        gateway.stop().catch(() => {}),
+      ),
+    );
     await manager.stopAll();
     wss.close();
     process.exit(0);
