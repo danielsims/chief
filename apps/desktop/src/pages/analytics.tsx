@@ -6,7 +6,7 @@ import { cn } from "@marketer/ui/lib/utils";
 import { BarChart3, RefreshCw, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router";
 import { useAuth } from "../lib/auth/auth-context";
-import { getWorkspaceProvider } from "../lib/agent-overrides";
+import { useAgentConfig } from "../lib/agent-config";
 import {
   SETUP_RESULT_MARKER,
   parseSetupResult,
@@ -241,6 +241,7 @@ export function AnalyticsPage() {
   const navigate = useNavigate();
   const { cloudOrganizationId } = useAuth();
   const convexAuth = useConvexAuth();
+  const agentConfig = useAgentConfig();
   const { status: runtimeStatus } = useRuntime();
   const [tab, setTab] = useState("overview");
   const [metricRange, setMetricRange] = useState("30d");
@@ -294,13 +295,19 @@ export function AnalyticsPage() {
   const report = selectedProvider
     ? (liveReports[selectedProvider] ?? storedSnapshot ?? null)
     : null;
+  // Pending is not empty: while the persisted snapshot is still resolving,
+  // the page must hold geometry rather than flash "No report yet".
+  const reportPending =
+    Boolean(selectedProvider) &&
+    storedSnapshot === undefined &&
+    !liveReports[selectedProvider ?? ""];
 
   const saveAnalyticsProperty = useMutation(api.googleAnalytics.saveProperty);
   const markIntegrationConnected = useMutation(api.integrations.markConnected);
   const saveSnapshot = useMutation(api.analyticsSnapshots.upsert);
   const getSummary = useAction(api.googleAnalytics.summary);
   const preferredIntegration = usePreferredAnalyticsIntegration();
-  const workspaceProvider = getWorkspaceProvider(cloudOrganizationId);
+  const workspaceProvider = agentConfig.forAgent("analyst").driver;
   const visibleDetails =
     selectedDetails ?? providerDetails(preferredIntegration.domain);
 
@@ -739,20 +746,28 @@ export function AnalyticsPage() {
           ) : null}
 
           {!report && selectedChannel ? (
-            <div className="flex min-h-64 items-center justify-center border bg-card px-6 py-12 text-center">
-              <div className="max-w-sm">
-                <h2 className="font-serif text-2xl">
-                  {refreshing
-                    ? "Pulling your first report..."
-                    : "No report yet"}
-                </h2>
-                <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                  {refreshing
-                    ? `Reading ${sourceName} through the connection on this Mac.`
-                    : "Refresh to pull current analytics from this source."}
-                </p>
+            reportPending ? (
+              <div
+                className="min-h-64 border bg-card"
+                aria-busy="true"
+                aria-label="Loading report"
+              />
+            ) : (
+              <div className="flex min-h-64 items-center justify-center border bg-card px-6 py-12 text-center">
+                <div className="max-w-sm">
+                  <h2 className="font-serif text-2xl">
+                    {refreshing
+                      ? "Pulling your first report..."
+                      : "No report yet"}
+                  </h2>
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                    {refreshing
+                      ? `Reading ${sourceName} through the connection on this Mac.`
+                      : "Refresh to pull current analytics from this source."}
+                  </p>
+                </div>
               </div>
-            </div>
+            )
           ) : null}
         </div>
       )}

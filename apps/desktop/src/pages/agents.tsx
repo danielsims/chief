@@ -29,10 +29,10 @@ import {
 import { useAuth } from "../lib/auth/auth-context";
 import {
   type AgentOverride as LocalAgentOverride,
-  getAgentOverride,
   getWorkspaceProvider,
   setAgentOverride,
 } from "../lib/agent-overrides";
+import { useAgentConfig } from "../lib/agent-config";
 import { PROVIDER_META, type Provider } from "../lib/providers";
 
 type AgentOverride = AgentPreference;
@@ -345,6 +345,10 @@ function AvailableAgentCard({
   );
 }
 
+// Last resolved integrations, so revisiting the page renders the access
+// section in the first frame instead of popping it in after the query.
+let integrationsCache: IntegrationOption[] | undefined;
+
 export function AgentsPage() {
   const { agents: runtimeAgents } = useRuntime();
   const { cloudOrganizationId } = useAuth();
@@ -353,12 +357,13 @@ export function AgentsPage() {
     api.integrations.listConnected,
     convexAuth.isAuthenticated && cloudOrganizationId ? {} : "skip",
   );
-  const integrations: IntegrationOption[] = (connectedIntegrations ?? []).map(
-    (integration) => ({
+  if (connectedIntegrations !== undefined) {
+    integrationsCache = connectedIntegrations.map((integration) => ({
       provider: integration.provider,
       displayName: integration.displayName,
-    }),
-  );
+    }));
+  }
+  const integrations: IntegrationOption[] = integrationsCache ?? [];
   // The runtime roster when connected; the static roster as a fallback so
   // the registry still renders while the runtime is down.
   const agents = runtimeAgents.length > 0 ? runtimeAgents : defaultAgents;
@@ -378,37 +383,8 @@ export function AgentsPage() {
     setSelectedAgentId(agents[0]?.id ?? "");
   }, [agents, selectedAgentId]);
 
-  // Hydrate the synchronous mirror from the runtime-owned local database.
-  useEffect(() => {
-    if (!cloudOrganizationId) return;
-    for (const override of overrides) {
-      const local = getAgentOverride(cloudOrganizationId, override.agentId);
-      const patch: LocalAgentOverride = {};
-      const driver = override.driver;
-      if (driver && local.driver !== driver) patch.driver = driver;
-      if ((override.model || undefined) !== local.model) {
-        patch.model = override.model || undefined;
-      }
-      if (local.enabled !== override.enabled) {
-        patch.enabled = override.enabled;
-      }
-      if (
-        JSON.stringify(local.capabilities ?? []) !==
-        JSON.stringify(override.capabilities ?? [])
-      ) {
-        patch.capabilities = override.capabilities;
-      }
-      if (
-        JSON.stringify(local.integrations ?? []) !==
-        JSON.stringify(override.integrations ?? [])
-      ) {
-        patch.integrations = override.integrations;
-      }
-      if (Object.keys(patch).length > 0) {
-        setAgentOverride(cloudOrganizationId, override.agentId, patch);
-      }
-    }
-  }, [cloudOrganizationId, overrides]);
+  // The localStorage mirror is hydrated app-wide by AgentConfigProvider.
+  const agentConfig = useAgentConfig();
 
   return (
     <div className="-mx-8 -mb-8 flex min-h-[calc(100vh-48px)]">
@@ -446,15 +422,48 @@ export function AgentsPage() {
       </aside>
 
       <main className="min-w-0 flex-1 px-6 pb-8 pt-10">
-        <div className="mb-6">
-          <h2 className="font-serif text-2xl">
-            {view === "installed" ? "Your team" : "Available agents"}
-          </h2>
-          <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-            {view === "installed"
-              ? "Enable agents, choose the provider each one runs on, and open a conversation."
-              : "Specialists that can be added to the workspace as the registry expands."}
-          </p>
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-6">
+          <div>
+            <h2 className="font-serif text-2xl">
+              {view === "installed" ? "Your team" : "Available agents"}
+            </h2>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
+              {view === "installed"
+                ? "Enable agents, choose the provider each one runs on, and open a conversation."
+                : "Specialists that can be added to the workspace as the registry expands."}
+            </p>
+          </div>
+          {view === "installed" ? (
+            <div className="flex items-center gap-3">
+              <span
+                className="text-xs text-muted-foreground"
+                title="Automatic lets agents run their tools without asking; Ask first pauses every mutating tool call for your approval."
+              >
+                Tool approvals
+              </span>
+              <div className="flex border p-0.5">
+                {(
+                  [
+                    { mode: "auto", label: "Automatic" },
+                    { mode: "ask", label: "Ask first" },
+                  ] as const
+                ).map(({ mode, label }) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => agentConfig.setApprovals(mode)}
+                    className={cn(
+                      "px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground",
+                      agentConfig.approvals === mode &&
+                        "bg-accent text-foreground",
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {view === "installed" ? (

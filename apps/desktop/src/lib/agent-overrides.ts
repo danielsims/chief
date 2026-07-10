@@ -20,7 +20,28 @@ export type AgentOverrides = Record<string, AgentOverride>;
 
 const KEY = "marketer-agent-overrides";
 const PROVIDER_KEY = "marketer-workspace-provider";
+const APPROVALS_KEY = "marketer-tool-approvals";
 const EVENT = "marketer-agent-overrides-changed";
+
+/**
+ * Workspace-level tool approvals. "auto" (the default) opens sessions with
+ * full access so agents work without permission prompts; "ask" keeps the
+ * guarded approval seam for every mutating tool call.
+ */
+export type ApprovalMode = "auto" | "ask";
+
+export function getToolApprovals(
+  workspaceId: string | null | undefined,
+): ApprovalMode {
+  if (!workspaceId) return "auto";
+  const value = localStorage.getItem(workspaceKey(APPROVALS_KEY, workspaceId));
+  return value === "ask" ? "ask" : "auto";
+}
+
+export function setToolApprovals(workspaceId: string, mode: ApprovalMode) {
+  localStorage.setItem(workspaceKey(APPROVALS_KEY, workspaceId), mode);
+  window.dispatchEvent(new CustomEvent(EVENT));
+}
 
 /**
  * The workspace's agent app, chosen explicitly during onboarding (or in

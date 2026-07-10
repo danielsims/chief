@@ -13,16 +13,14 @@ import {
 } from "@marketer/ui/components/select";
 import { useAgentChat, useProviderModels, useRuntime } from "../../lib/runtime";
 import { useAuth } from "../../lib/auth/auth-context";
-import {
-  getAgentOverride,
-  getWorkspaceProvider,
-} from "../../lib/agent-overrides";
+import { useAgentConfig } from "../../lib/agent-config";
 import { PROVIDER_META } from "../../lib/providers";
 import {
   findPendingInputRequest,
   withoutMarkerLines,
 } from "../../lib/integration-setup";
 import { ApprovalCard } from "./approval-card";
+import { QuestionCard } from "./question-card";
 import { InputRequestSection } from "../integrations/input-request-section";
 import { Blocks } from "./message-blocks";
 import { StreamingMarkdown } from "./streaming-markdown";
@@ -51,6 +49,7 @@ const CHAT_SUGGESTIONS: Record<string, string[]> = {
 export function AgentChat({
   agent,
   chatId,
+  isNew,
   initialPrompt,
   initialDraft,
   initialDriver,
@@ -60,6 +59,8 @@ export function AgentChat({
 }: {
   agent: AgentDefinition;
   chatId: string;
+  /** True for a draft chat with no persisted transcript to replay. */
+  isNew?: boolean;
   initialPrompt?: string;
   initialDraft?: string;
   initialDriver?: DriverType;
@@ -69,30 +70,24 @@ export function AgentChat({
 }) {
   const { status: runtimeStatus, client } = useRuntime();
   const { cloudOrganizationId } = useAuth();
-  // Per-chat provider, resolved per-agent override > workspace provider.
-  // Null means the user hasn't chosen an agent app yet — no session opens
-  // and the picker asks instead of assuming one.
-  const [driver, setDriver] = useState<DriverType | null>(
-    () =>
-      initialDriver ??
-      getAgentOverride(cloudOrganizationId, agent.id).driver ??
-      getWorkspaceProvider(cloudOrganizationId),
-  );
-  const [model, setModel] = useState(
-    () =>
-      initialModel ??
-      getAgentOverride(cloudOrganizationId, agent.id).model ??
-      "",
-  );
-  const activeCapabilities =
-    getAgentOverride(cloudOrganizationId, agent.id).capabilities ??
-    agent.capabilities;
+  const agentConfig = useAgentConfig();
+  const resolved = agentConfig.forAgent(agent.id);
+  // The user's explicit in-chat choice wins; otherwise the chat record's
+  // saved provider; otherwise the global agent config (Agent settings >
+  // workspace provider). Derived, not cached — so a chat mounted before the
+  // config resolves picks it up the moment it arrives instead of asking.
+  const [chosenDriver, setChosenDriver] = useState<DriverType | null>(null);
+  const [chosenModel, setChosenModel] = useState<string | null>(null);
+  const driver = chosenDriver ?? initialDriver ?? resolved.driver;
+  const model = chosenModel ?? initialModel ?? resolved.model;
+  const activeCapabilities = resolved.capabilities ?? agent.capabilities;
   const providerModels = useProviderModels(driver);
   const {
     chat,
     send: sendRaw,
     interrupt,
     respondPermission,
+    respondQuestion,
     provideInput,
     sessionReady,
     executorCapability,
@@ -100,7 +95,7 @@ export function AgentChat({
     agent.id,
     driver,
     chatId,
-    undefined,
+    agentConfig.access,
     model || undefined,
     activeCapabilities,
     integrations,
@@ -189,7 +184,12 @@ export function AgentChat({
   return (
     <div className="flex h-full min-w-0 flex-col overflow-hidden">
       <div className="min-w-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto py-6 pr-2">
-        {sessionReady && chat.items.length === 0 && !chat.streaming ? (
+        {/* A new chat has nothing to replay, so its identity header renders
+            immediately; existing chats wait for history so the empty state
+            never flashes before the transcript. */}
+        {(sessionReady || isNew) &&
+        chat.items.length === 0 &&
+        !chat.streaming ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <p className="font-serif text-3xl">{agent.name}</p>
             <p className="max-w-md text-sm text-muted-foreground">
@@ -233,6 +233,17 @@ export function AgentChat({
             <ApprovalCard approval={approval} onRespond={respondPermission} />
           </div>
         ))}
+        {chat.questions.map((pending) => (
+          <div key={pending.requestId} className="mx-auto max-w-3xl">
+            <QuestionCard
+              pending={pending}
+              onSubmit={(answers) =>
+                respondQuestion(pending.requestId, answers)
+              }
+              onDismiss={() => respondQuestion(pending.requestId, null)}
+            />
+          </div>
+        ))}
         {pendingInput ? (
           <div className="mx-auto max-w-3xl">
             <InputRequestSection
@@ -262,7 +273,7 @@ export function AgentChat({
 
       <div className="mx-auto w-full max-w-3xl space-y-2">
         {suggestions.length > 0 && chat.status !== "running" ? (
-          <div className="flex flex-wrap gap-2 px-1">
+          <div className="flex flex-wrap gap-2">
             {suggestions.map((suggestion) => (
               <button
                 key={suggestion}
@@ -295,8 +306,8 @@ export function AgentChat({
                 value={driver ?? undefined}
                 onValueChange={(value) => {
                   const next = value as DriverType;
-                  setDriver(next);
-                  setModel("");
+                  setChosenDriver(next);
+                  setChosenModel("");
                   savePreferences(next, "");
                 }}
               >
@@ -331,7 +342,7 @@ export function AgentChat({
                     value={model || "__auto__"}
                     onValueChange={(value) => {
                       const next = value === "__auto__" ? "" : value;
-                      setModel(next);
+                      setChosenModel(next);
                       savePreferences(driver, next);
                     }}
                   >
@@ -358,11 +369,6 @@ export function AgentChat({
                   </Select>
                 </>
               ) : null}
-              {chat.lastCostUsd !== undefined && (
-                <span className="text-[11px] text-muted-foreground">
-                  last turn ${chat.lastCostUsd.toFixed(4)}
-                </span>
-              )}
             </div>
             {chat.status === "running" ? (
               <Button
