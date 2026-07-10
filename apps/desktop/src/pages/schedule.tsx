@@ -1,20 +1,14 @@
 import { useMemo, useState } from "react";
-import { useConvexAuth, useQuery } from "convex/react";
-import { api } from "@marketer/backend/convex/_generated/api";
+import type { ContentDraftRecord } from "@marketer/agent-runtime/types";
 import { Button } from "@marketer/ui/components/button";
 import { cn } from "@marketer/ui/lib/utils";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuth } from "../lib/auth/auth-context";
+import { useWorkspaceData } from "../lib/runtime";
 
 type CalendarView = "month" | "week";
 
-interface ScheduledDraft {
-  _id: string;
-  title: string;
-  platform: string;
-  status: "draft" | "approved" | "scheduled" | "published";
-  scheduledFor?: number;
-}
+type ScheduledDraft = ContentDraftRecord;
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -85,16 +79,21 @@ export function SchedulePage() {
   const rangeStart = days[0]!.getTime();
   const rangeEnd = addDays(days.at(-1)!, 1).getTime() - 1;
   const { cloudOrganizationId } = useAuth();
-  const convexAuth = useConvexAuth();
-  const canQuery = convexAuth.isAuthenticated && Boolean(cloudOrganizationId);
-  const drafts = useQuery(
-    api.scheduledDrafts.listRange,
-    canQuery ? { start: rangeStart, end: rangeEnd } : "skip",
-  ) as ScheduledDraft[] | undefined;
+  const workspaceData = useWorkspaceData(cloudOrganizationId);
+  const drafts = useMemo(
+    () =>
+      workspaceData.drafts.filter(
+        (draft) =>
+          draft.scheduledFor !== undefined &&
+          draft.scheduledFor >= rangeStart &&
+          draft.scheduledFor <= rangeEnd,
+      ),
+    [rangeEnd, rangeStart, workspaceData.drafts],
+  );
 
   const byDay = useMemo(() => {
     const map = new Map<string, ScheduledDraft[]>();
-    for (const draft of drafts ?? []) {
+    for (const draft of drafts) {
       if (!draft.scheduledFor) continue;
       const key = dayKey(new Date(draft.scheduledFor));
       const current = map.get(key) ?? [];
@@ -196,17 +195,17 @@ export function SchedulePage() {
                 >
                   <span
                     className={cn(
-                      "relative flex size-6 items-center justify-center text-xs",
+                      "relative inline-block text-xs leading-none",
                       outside && "text-muted-foreground/50",
                       isToday &&
-                        "font-medium after:absolute after:bottom-0 after:h-px after:w-3 after:bg-foreground",
+                        "font-medium after:absolute after:-bottom-1 after:left-0 after:h-px after:w-3 after:bg-foreground",
                     )}
                   >
                     {date.getDate()}
                   </span>
                   <div className="mt-2 space-y-1">
                     {items.slice(0, view === "week" ? 8 : 3).map((draft) => (
-                      <DraftChip key={draft._id} draft={draft} />
+                      <DraftChip key={draft.id} draft={draft} />
                     ))}
                     {items.length > (view === "week" ? 8 : 3) ? (
                       <p className="px-1 text-[10px] text-muted-foreground">
@@ -229,7 +228,7 @@ export function SchedulePage() {
           </h2>
           <div className="mt-6 space-y-2">
             {selectedDrafts.map((draft) => (
-              <DraftChip key={draft._id} draft={draft} />
+              <DraftChip key={draft.id} draft={draft} />
             ))}
             {selectedDrafts.length === 0 ? (
               <div className="flex min-h-[420px] flex-col items-center justify-center px-6 text-center">

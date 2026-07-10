@@ -9,14 +9,19 @@ import {
 } from "react";
 import type {
   AccessMode,
+  AgentPreference,
   AgentDefinition,
   AgentEvent,
   ClientMessage,
   ContentBlock,
+  ContentDraftRecord,
   DriverType,
   ExecutorCapability,
   InputRequest,
+  ProspectRecord,
+  ProviderModelOption,
   ServerMessage,
+  TrendRecord,
 } from "@marketer/agent-runtime/types";
 import { api } from "@marketer/backend/convex/_generated/api";
 import { useAction } from "convex/react";
@@ -175,6 +180,147 @@ export function useRuntime() {
   const ctx = useContext(RuntimeContext);
   if (!ctx) throw new Error("useRuntime must be used inside RuntimeProvider");
   return ctx;
+}
+
+export interface LocalChatSummary {
+  id: string;
+  agentId: string;
+  title: string;
+  lastText: string;
+  lastAt: number;
+  driver?: DriverType;
+  model?: string;
+}
+
+/** Durable chats from the runtime-owned local libSQL database. */
+export function useLocalChats(workspaceId: string | null) {
+  const { client, status } = useRuntime();
+  const [chats, setChats] = useState<LocalChatSummary[]>([]);
+
+  useEffect(() => {
+    setChats([]);
+    if (!workspaceId || status !== "connected") return;
+    const unsubscribe = client.subscribe((message) => {
+      if (message.type === "chats" && message.workspaceId === workspaceId) {
+        setChats(message.chats);
+      }
+    });
+    client.send({ type: "listChats", workspaceId });
+    return () => {
+      unsubscribe();
+    };
+  }, [client, status, workspaceId]);
+
+  const remove = (chatId: string) => {
+    if (!workspaceId) return;
+    setChats((current) => current.filter((chat) => chat.id !== chatId));
+    client.send({ type: "deleteSession", chatId, workspaceId });
+  };
+
+  return { chats, remove };
+}
+
+export function useProviderModels(driver: DriverType | null) {
+  const { client, status } = useRuntime();
+  const [models, setModels] = useState<ProviderModelOption[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setModels([]);
+    if (!driver || status !== "connected") return;
+    setLoading(true);
+    const unsubscribe = client.subscribe((message) => {
+      if (message.type === "models" && message.driver === driver) {
+        setModels(message.models);
+        setLoading(false);
+      }
+    });
+    client.send({ type: "listModels", driver });
+    return () => {
+      unsubscribe();
+    };
+  }, [client, driver, status]);
+
+  return { models, loading };
+}
+
+interface WorkspaceDataState {
+  prospects: ProspectRecord[];
+  trends: TrendRecord[];
+  drafts: ContentDraftRecord[];
+}
+
+const emptyWorkspaceData: WorkspaceDataState = {
+  prospects: [],
+  trends: [],
+  drafts: [],
+};
+
+export function useWorkspaceData(workspaceId: string | null) {
+  const { client, status } = useRuntime();
+  const [data, setData] = useState<WorkspaceDataState>(emptyWorkspaceData);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setData(emptyWorkspaceData);
+    if (!workspaceId || status !== "connected") return;
+    setLoading(true);
+    const unsubscribe = client.subscribe((message) => {
+      if (
+        message.type === "workspaceData" &&
+        message.workspaceId === workspaceId
+      ) {
+        setData({
+          prospects: message.prospects,
+          trends: message.trends,
+          drafts: message.drafts,
+        });
+        setLoading(false);
+      }
+    });
+    client.send({ type: "listWorkspaceData", workspaceId });
+    return () => {
+      unsubscribe();
+    };
+  }, [client, status, workspaceId]);
+
+  return { ...data, loading };
+}
+
+export function useAgentPreferences(workspaceId: string | null) {
+  const { client, status } = useRuntime();
+  const [preferences, setPreferences] = useState<AgentPreference[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setPreferences([]);
+    if (!workspaceId || status !== "connected") return;
+    setLoading(true);
+    const unsubscribe = client.subscribe((message) => {
+      if (
+        message.type === "agentPreferences" &&
+        message.workspaceId === workspaceId
+      ) {
+        setPreferences(message.preferences);
+        setLoading(false);
+      }
+    });
+    client.send({ type: "listAgentPreferences", workspaceId });
+    return () => {
+      unsubscribe();
+    };
+  }, [client, status, workspaceId]);
+
+  const save = (preference: AgentPreference) => {
+    if (!workspaceId) return;
+    setPreferences((current) => [
+      preference,
+      ...current.filter((item) => item.agentId !== preference.agentId),
+    ]);
+    client.send({ type: "saveAgentPreference", workspaceId, preference });
+  };
+
+  return { preferences, loading, save };
 }
 
 /**
@@ -437,10 +583,15 @@ export function useAgentChat(
   driver: DriverType | null,
   chatIdOverride?: string,
   access?: AccessMode,
+  model?: string,
+  capabilities?: import("@marketer/agent-runtime/types").AgentCapabilityId[],
+  integrations?: string[],
 ) {
   const { client, status: runtimeStatus } = useRuntime();
   const { cloudOrganizationId } = useAuth();
   const registerCapability = useAction(api.agentTools.registerCapability);
+  const capabilityKey = capabilities?.join("\0") ?? "";
+  const integrationKey = integrations?.join("\0") ?? "";
   const [executorCapability, setExecutorCapability] =
     useState<ExecutorCapability | null>(null);
   const chatId = agentId ? (chatIdOverride ?? `${agentId}-main`) : null;
@@ -488,7 +639,9 @@ export function useAgentChat(
       chatId,
       driver,
       access,
-      model: getAgentOverride(agentId).model,
+      model: model || getAgentOverride(agentId).model,
+      capabilities: capabilities ?? getAgentOverride(agentId).capabilities,
+      integrations: integrations ?? getAgentOverride(agentId).integrations,
       workspaceId: cloudOrganizationId ?? undefined,
       executorCapability: executorCapability ?? undefined,
     });
@@ -522,6 +675,9 @@ export function useAgentChat(
     access,
     cloudOrganizationId,
     executorCapability,
+    model,
+    capabilityKey,
+    integrationKey,
   ]);
 
   const send = (text: string) => {

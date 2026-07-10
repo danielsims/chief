@@ -9,12 +9,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@marketer/ui/components/popover";
-import { useRuntime } from "../lib/runtime";
+import { useAgentPreferences, useLocalChats, useRuntime } from "../lib/runtime";
+import { useAuth } from "../lib/auth/auth-context";
 import {
   createChat,
   deleteChat,
   getChatLog,
-  onChatLogChange,
   type ChatLogEntry,
 } from "../lib/chat-log";
 import { getAgentOverride } from "../lib/agent-overrides";
@@ -209,14 +209,43 @@ function NewConversationMenu({
 }
 
 export function ConversationsPage() {
-  const { agents: runtimeAgents, client } = useRuntime();
-  const agents = runtimeAgents.length > 0 ? runtimeAgents : defaultAgents;
+  const { agents: runtimeAgents } = useRuntime();
+  const { cloudOrganizationId } = useAuth();
+  const localChats = useLocalChats(cloudOrganizationId);
+  const agentPreferences = useAgentPreferences(cloudOrganizationId);
+  const preferences = useMemo(
+    () =>
+      new Map(
+        agentPreferences.preferences.map((preference) => [
+          preference.agentId,
+          preference,
+        ]),
+      ),
+    [agentPreferences.preferences],
+  );
+  const agents = (runtimeAgents.length > 0 ? runtimeAgents : defaultAgents).map(
+    (agent) => ({
+      ...agent,
+      capabilities:
+        preferences.get(agent.id)?.capabilities ?? agent.capabilities,
+    }),
+  );
   const enabledAgents = agents.filter(
-    (agent) => getAgentOverride(agent.id).enabled !== false,
+    (agent) =>
+      preferences.get(agent.id)?.enabled !== false &&
+      getAgentOverride(agent.id).enabled !== false,
   );
   const [params, setParams] = useSearchParams();
-  const [log, setLog] = useState<ChatLogEntry[]>(() => getChatLog());
-  useEffect(() => onChatLogChange(() => setLog(getChatLog())), []);
+  const legacyChats = useMemo(
+    () => getChatLog().filter((entry) => entry.lastText.trim()),
+    [],
+  );
+  const log = useMemo(() => {
+    const merged = new Map<string, ChatLogEntry>();
+    for (const entry of legacyChats) merged.set(entry.id, entry);
+    for (const entry of localChats.chats) merged.set(entry.id, entry);
+    return [...merged.values()].sort((a, b) => b.lastAt - a.lastAt);
+  }, [legacyChats, localChats.chats]);
   const running = useRunningChats();
 
   const activeAgentId = params.get("agent");
@@ -227,10 +256,24 @@ export function ConversationsPage() {
   const activeEntry = log.find(
     (entry) => entry.id === activeChatId && entry.agentId === activeAgentId,
   );
+  const isDraftChat = params.get("new") === "1";
 
   useEffect(() => {
-    if (activeAgent && activeEntry) return;
-    if (activeAgent && !activeEntry) {
+    if (!activeEntry || !isDraftChat) return;
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("new");
+        next.delete("prompt");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [activeEntry, isDraftChat, setParams]);
+
+  useEffect(() => {
+    if (activeAgent && (activeEntry || (activeChatId && isDraftChat))) return;
+    if (activeAgent && !activeChatId) {
       const existing = log.find((entry) => entry.agentId === activeAgent.id);
       const entry = existing ?? createChat(activeAgent.id);
       setParams(
@@ -238,6 +281,7 @@ export function ConversationsPage() {
           const next = new URLSearchParams(current);
           next.set("agent", activeAgent.id);
           next.set("chat", entry.id);
+          if (!existing) next.set("new", "1");
           return next;
         },
         { replace: true },
@@ -248,7 +292,7 @@ export function ConversationsPage() {
     if (first) {
       setParams({ agent: first.agentId, chat: first.id }, { replace: true });
     }
-  }, [activeAgent, activeEntry, log, setParams]);
+  }, [activeAgent, activeChatId, activeEntry, isDraftChat, log, setParams]);
 
   const grouped = useMemo(
     () =>
@@ -263,13 +307,13 @@ export function ConversationsPage() {
 
   const openNew = (agent: AgentDefinition) => {
     const entry = createChat(agent.id);
-    setParams({ agent: agent.id, chat: entry.id });
+    setParams({ agent: agent.id, chat: entry.id, new: "1" });
   };
 
   const removeChat = (entry: ChatLogEntry) => {
     const remaining = log.filter((candidate) => candidate.id !== entry.id);
     deleteChat(entry.id);
-    client.send({ type: "deleteSession", chatId: entry.id });
+    localChats.remove(entry.id);
     if (entry.id !== activeChatId) return;
     const next = remaining[0];
     setParams(next ? { agent: next.agentId, chat: next.id } : {}, {
@@ -278,7 +322,7 @@ export function ConversationsPage() {
   };
 
   return (
-    <div className="-mb-8 flex h-[calc(100vh-48px)]">
+    <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)]">
       <aside className="flex w-72 shrink-0 flex-col border-r px-5">
         <div className="shrink-0 pt-10">
           <div className="flex items-center justify-between">
@@ -304,16 +348,27 @@ export function ConversationsPage() {
         </div>
       </aside>
       <main className="min-w-0 flex-1 pb-6 pl-6">
-        {activeAgent && activeEntry ? (
+        {activeAgent && activeChatId && (activeEntry || isDraftChat) ? (
           <AgentChat
-            key={activeEntry.id}
+            key={activeChatId}
             agent={activeAgent}
-            chatId={activeEntry.id}
+            chatId={activeChatId}
             initialPrompt={initialPrompt}
             initialDraft={initialDraft}
+            initialDriver={
+              activeEntry?.driver ?? preferences.get(activeAgent.id)?.driver
+            }
+            initialModel={
+              activeEntry?.model ?? preferences.get(activeAgent.id)?.model
+            }
+            integrations={preferences.get(activeAgent.id)?.integrations}
             onInitialPromptSent={() => {
               setParams(
-                { agent: activeAgent.id, chat: activeEntry.id },
+                (current) => {
+                  const next = new URLSearchParams(current);
+                  next.delete("prompt");
+                  return next;
+                },
                 { replace: true },
               );
             }}

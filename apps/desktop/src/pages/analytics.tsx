@@ -477,7 +477,7 @@ export function AnalyticsPage() {
     const draft = "What changed in our traffic recently?";
     const conversation = createChat("analyst", `${sourceName} analytics`);
     navigate(
-      `/conversations?agent=analyst&chat=${conversation.id}&draft=${encodeURIComponent(draft)}`,
+      `/conversations?agent=analyst&chat=${conversation.id}&new=1&draft=${encodeURIComponent(draft)}`,
     );
   };
 

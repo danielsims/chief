@@ -3,10 +3,26 @@ import type { GenerativeChartSeries } from "@marketer/agent-runtime/types";
 import { cn } from "@marketer/ui/lib/utils";
 
 const SERIES_STYLES = [
-  { path: "stroke-foreground", dot: "fill-foreground" },
-  { path: "stroke-muted-foreground", dot: "fill-muted-foreground" },
-  { path: "stroke-emerald-500", dot: "fill-emerald-500" },
-  { path: "stroke-blue-500", dot: "fill-blue-500" },
+  {
+    path: "stroke-foreground",
+    dot: "fill-foreground",
+    legend: "border-foreground",
+  },
+  {
+    path: "stroke-muted-foreground",
+    dot: "fill-muted-foreground",
+    legend: "border-muted-foreground",
+  },
+  {
+    path: "stroke-emerald-500",
+    dot: "fill-emerald-500",
+    legend: "border-emerald-500",
+  },
+  {
+    path: "stroke-blue-500",
+    dot: "fill-blue-500",
+    legend: "border-blue-500",
+  },
 ] as const;
 
 function niceMaximum(value: number) {
@@ -114,25 +130,6 @@ export function LineChartCard({
           <p className="text-xs text-muted-foreground">{contextLabel}</p>
         ) : null}
       </div>
-
-      {series.length > 1 ? (
-        <div className="flex min-h-7 flex-wrap gap-x-4 gap-y-1 px-5 pt-2">
-          {series.map((item, index) => (
-            <span
-              key={item.id}
-              className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground"
-            >
-              <span
-                className={cn(
-                  "size-1.5 rounded-full",
-                  SERIES_STYLES[index % SERIES_STYLES.length]!.dot,
-                )}
-              />
-              {item.label}
-            </span>
-          ))}
-        </div>
-      ) : null}
 
       <div
         ref={chartRef}
@@ -310,6 +307,23 @@ export function LineChartCard({
             </div>
           </div>
         ) : null}
+      </div>
+      <div className="flex min-h-11 flex-wrap items-center gap-x-5 gap-y-2 border-t px-5 py-3">
+        {series.map((item, index) => {
+          const style = SERIES_STYLES[index % SERIES_STYLES.length]!;
+          return (
+            <span
+              key={item.id}
+              className="inline-flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground"
+            >
+              <span
+                className={cn("w-6 border-t-2", style.legend)}
+                style={{ borderTopStyle: index === 1 ? "dashed" : "solid" }}
+              />
+              <span className="max-w-52 truncate">{item.label}</span>
+            </span>
+          );
+        })}
       </div>
     </div>
   );

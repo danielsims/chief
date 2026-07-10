@@ -19,12 +19,12 @@ import { WorkspaceSwitcher } from "./workspace-switcher";
 
 const items = [
   { to: "/", label: "Overview", icon: LayoutGrid },
-  { to: "/analytics", label: "Analytics", icon: ChartLine },
-  { to: "/schedule", label: "Schedule", icon: CalendarClock },
-  { to: "/prospects", label: "Prospects", icon: Users },
-  { to: "/trending", label: "Trending", icon: Flame },
   { to: "/conversations", label: "Conversations", icon: MessagesSquare },
   { to: "/agents", label: "Agents", icon: Network },
+  { to: "/schedule", label: "Schedule", icon: CalendarClock },
+  { to: "/analytics", label: "Analytics", icon: ChartLine },
+  { to: "/prospects", label: "Prospects", icon: Users },
+  { to: "/trending", label: "Trending", icon: Flame },
 ];
 
 function RailItem({

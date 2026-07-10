@@ -9,6 +9,7 @@ import { OrgLogo } from "../components/org-logo";
 import { createChat } from "../lib/chat-log";
 import { SetupProgress } from "../components/setup-progress";
 import { useAuth } from "../lib/auth/auth-context";
+import { useWorkspaceData } from "../lib/runtime";
 import {
   listAuthOrganizations,
   parseOrganizationMetadata,
@@ -122,10 +123,19 @@ export function DashboardPage() {
     api.analyticsSnapshots.listLatest,
     canQuery ? {} : "skip",
   ) as DashboardSnapshot[] | undefined;
-  const scheduledCount = useQuery(
-    api.scheduledDrafts.countUpcoming,
-    canQuery ? {} : "skip",
-  );
+  const workspaceData = useWorkspaceData(cloudOrganizationId);
+  const scheduledCount = workspaceData.drafts.filter(
+    (draft) =>
+      draft.status === "scheduled" &&
+      draft.scheduledFor !== undefined &&
+      draft.scheduledFor >= Date.now(),
+  ).length;
+  const newProspects = workspaceData.prospects.filter(
+    (prospect) => prospect.status === "new",
+  ).length;
+  const newTrends = workspaceData.trends.filter(
+    (trend) => trend.status === "new",
+  ).length;
   const analytics = snapshots?.find(
     (snapshot) => snapshot.provider === "google-analytics",
   );
@@ -180,23 +190,22 @@ export function DashboardPage() {
     },
     {
       label: "New prospects",
-      value: "0",
-      detail: "No new prospects yet",
+      value: workspaceData.loading ? "—" : formatNumber(newProspects),
+      detail: newProspects > 0 ? "Ready to review" : "No new prospects yet",
       trend: null,
       to: "/prospects",
     },
     {
       label: "Trending topics",
-      value: "0",
-      detail: "No topics surfaced yet",
+      value: workspaceData.loading ? "—" : formatNumber(newTrends),
+      detail: newTrends > 0 ? "New signals surfaced" : "No topics surfaced yet",
       trend: null,
       to: "/trending",
     },
     {
       label: "Scheduled posts",
-      value: scheduledCount === undefined ? "—" : formatNumber(scheduledCount),
-      detail:
-        (scheduledCount ?? 0) > 0 ? "Upcoming content" : "Nothing scheduled",
+      value: workspaceData.loading ? "—" : formatNumber(scheduledCount),
+      detail: scheduledCount > 0 ? "Upcoming content" : "Nothing scheduled",
       trend: null,
       to: "/schedule",
     },
@@ -207,7 +216,7 @@ export function DashboardPage() {
     if (!text) return;
     const conversation = createChat("cmo", text);
     navigate(
-      `/conversations?agent=cmo&chat=${conversation.id}&prompt=${encodeURIComponent(text)}`,
+      `/conversations?agent=cmo&chat=${conversation.id}&new=1&prompt=${encodeURIComponent(text)}`,
     );
   };
 

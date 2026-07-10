@@ -11,12 +11,12 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@marketer/ui/components/select";
-import { useAgentChat, useRuntime } from "../../lib/runtime";
+import { useAgentChat, useProviderModels, useRuntime } from "../../lib/runtime";
+import { useAuth } from "../../lib/auth/auth-context";
 import {
   getAgentOverride,
   getWorkspaceProvider,
 } from "../../lib/agent-overrides";
-import { recordChat } from "../../lib/chat-log";
 import { PROVIDER_META } from "../../lib/providers";
 import {
   findPendingInputRequest,
@@ -28,7 +28,7 @@ import { Blocks } from "./message-blocks";
 import { StreamingMarkdown } from "./streaming-markdown";
 
 // The local runtime only runs CLI-backed providers.
-const CHAT_PROVIDERS: DriverType[] = ["claude", "codex"];
+const CHAT_PROVIDERS: DriverType[] = ["claude", "codex", "opencode"];
 
 const CHAT_SUGGESTIONS: Record<string, string[]> = {
   analyst: [
@@ -53,21 +53,37 @@ export function AgentChat({
   chatId,
   initialPrompt,
   initialDraft,
+  initialDriver,
+  initialModel,
+  integrations,
   onInitialPromptSent,
 }: {
   agent: AgentDefinition;
   chatId: string;
   initialPrompt?: string;
   initialDraft?: string;
+  initialDriver?: DriverType;
+  initialModel?: string;
+  integrations?: string[];
   onInitialPromptSent?: () => void;
 }) {
-  const { status: runtimeStatus } = useRuntime();
+  const { status: runtimeStatus, client } = useRuntime();
+  const { cloudOrganizationId } = useAuth();
   // Per-chat provider, resolved per-agent override > workspace provider.
   // Null means the user hasn't chosen an agent app yet — no session opens
   // and the picker asks instead of assuming one.
   const [driver, setDriver] = useState<DriverType | null>(
-    () => getAgentOverride(agent.id).driver ?? getWorkspaceProvider(),
+    () =>
+      initialDriver ??
+      getAgentOverride(agent.id).driver ??
+      getWorkspaceProvider(),
   );
+  const [model, setModel] = useState(
+    () => initialModel ?? getAgentOverride(agent.id).model ?? "",
+  );
+  const activeCapabilities =
+    getAgentOverride(agent.id).capabilities ?? agent.capabilities;
+  const providerModels = useProviderModels(driver);
   const {
     chat,
     send: sendRaw,
@@ -75,7 +91,15 @@ export function AgentChat({
     respondPermission,
     provideInput,
     sessionReady,
-  } = useAgentChat(agent.id, driver, chatId);
+  } = useAgentChat(
+    agent.id,
+    driver,
+    chatId,
+    undefined,
+    model || undefined,
+    activeCapabilities,
+    integrations,
+  );
   const [answeredInputs, setAnsweredInputs] = useState<ReadonlySet<string>>(
     new Set(),
   );
@@ -100,9 +124,7 @@ export function AgentChat({
       ),
     [chat.items],
   );
-  // Every send updates the local chat log the conversations list is built from.
   const send = (text: string) => {
-    recordChat(agent.id, chatId, text);
     sendRaw(text);
   };
   const [draft, setDraft] = useState(initialDraft ?? "");
@@ -142,7 +164,21 @@ export function AgentChat({
   };
 
   const activeMeta = driver ? PROVIDER_META[driver] : null;
+  const activeModel =
+    providerModels.models.find((option) => option.value === model)?.label ??
+    (model || "Auto");
   const suggestions = CHAT_SUGGESTIONS[agent.id] ?? [];
+
+  const savePreferences = (nextDriver: DriverType, nextModel: string) => {
+    if (!cloudOrganizationId) return;
+    client.send({
+      type: "setChatPreferences",
+      workspaceId: cloudOrganizationId,
+      chatId,
+      driver: nextDriver,
+      model: nextModel || undefined,
+    });
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -173,7 +209,7 @@ export function AgentChat({
               <Blocks
                 blocks={withoutMarkerLines(item.event.content)}
                 progress={chat.toolProgress}
-                capabilities={agent.capabilities}
+                capabilities={activeCapabilities}
               />
             </div>
           ),
@@ -248,7 +284,12 @@ export function AgentChat({
             <div className="flex items-center gap-3">
               <Select
                 value={driver ?? undefined}
-                onValueChange={(value) => setDriver(value as DriverType)}
+                onValueChange={(value) => {
+                  const next = value as DriverType;
+                  setDriver(next);
+                  setModel("");
+                  savePreferences(next, "");
+                }}
               >
                 <SelectTrigger className="h-6 w-auto gap-1.5 border-transparent px-1 text-xs text-muted-foreground hover:text-foreground data-[state=open]:text-foreground">
                   {activeMeta ? (
@@ -274,6 +315,40 @@ export function AgentChat({
                   })}
                 </SelectContent>
               </Select>
+              {driver ? (
+                <>
+                  <span className="text-xs text-muted-foreground/50">/</span>
+                  <Select
+                    value={model || "__auto__"}
+                    onValueChange={(value) => {
+                      const next = value === "__auto__" ? "" : value;
+                      setModel(next);
+                      savePreferences(driver, next);
+                    }}
+                  >
+                    <SelectTrigger className="h-6 w-auto max-w-48 gap-1.5 border-transparent px-1 text-xs text-muted-foreground hover:text-foreground data-[state=open]:text-foreground">
+                      <span className="truncate">
+                        {providerModels.loading
+                          ? "Loading models…"
+                          : activeModel}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent className="max-h-72 min-w-56">
+                      {(providerModels.models.length > 0
+                        ? providerModels.models
+                        : [{ value: "", label: "Auto" }]
+                      ).map((option) => (
+                        <SelectItem
+                          key={option.value || "auto"}
+                          value={option.value || "__auto__"}
+                        >
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </>
+              ) : null}
               {chat.lastCostUsd !== undefined && (
                 <span className="text-[11px] text-muted-foreground">
                   last turn ${chat.lastCostUsd.toFixed(4)}

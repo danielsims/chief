@@ -1,14 +1,19 @@
 /**
  * Per-workspace agent overrides (driver/model/enabled), shared between the
- * settings UI (writes) and the chat runtime (reads). localStorage-backed for
- * now; will move behind a Convex adapter with the rest of workspace state.
+ * settings UI (writes) and the chat runtime (reads). The runtime libSQL store
+ * is durable; this tiny localStorage mirror keeps session opening synchronous.
  */
-import type { DriverType } from "@marketer/agent-runtime/types";
+import type {
+  AgentCapabilityId,
+  DriverType,
+} from "@marketer/agent-runtime/types";
 
 export interface AgentOverride {
   driver?: DriverType;
   model?: string;
   enabled?: boolean;
+  capabilities?: AgentCapabilityId[];
+  integrations?: string[];
 }
 
 export type AgentOverrides = Record<string, AgentOverride>;
@@ -25,7 +30,9 @@ const EVENT = "marketer-agent-overrides-changed";
  */
 export function getWorkspaceProvider(): DriverType | null {
   const value = localStorage.getItem(PROVIDER_KEY);
-  return value === "claude" || value === "codex" ? value : null;
+  return value === "claude" || value === "codex" || value === "opencode"
+    ? value
+    : null;
 }
 
 export function setWorkspaceProvider(driver: DriverType) {

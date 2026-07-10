@@ -18,6 +18,8 @@ import { AnalyticsPage } from "./pages/analytics";
 import { SchedulePage } from "./pages/schedule";
 import { AgentsPage } from "./pages/agents";
 import { ConversationsPage } from "./pages/conversations";
+import { ProspectsPage } from "./pages/prospects";
+import { TrendingPage } from "./pages/trending";
 import { SettingsLayout } from "./pages/settings/layout";
 import { ProfileSettings } from "./pages/settings/profile";
 import { WorkspaceSettings } from "./pages/settings/workspace";
@@ -28,7 +30,6 @@ import {
 import { SignInScreen } from "./pages/sign-in";
 import { CreateWorkspacePage } from "./pages/workspace-new";
 import { OnboardingPage } from "./pages/onboarding";
-import { PlaceholderPage } from "./pages/placeholder";
 import { useEffect, useState, type ReactNode } from "react";
 import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@marketer/backend/convex/_generated/api";
@@ -121,24 +122,8 @@ function AuthenticatedApp() {
               <Route index element={<DashboardPage />} />
               <Route path="analytics" element={<AnalyticsPage />} />
               <Route path="schedule" element={<SchedulePage />} />
-              <Route
-                path="prospects"
-                element={
-                  <PlaceholderPage
-                    title="Prospects"
-                    description="People and conversations your prospector agent found."
-                  />
-                }
-              />
-              <Route
-                path="trending"
-                element={
-                  <PlaceholderPage
-                    title="Trending"
-                    description="Trending posts and topics across your connected channels."
-                  />
-                }
-              />
+              <Route path="prospects" element={<ProspectsPage />} />
+              <Route path="trending" element={<TrendingPage />} />
               <Route path="conversations" element={<ConversationsPage />} />
               <Route path="agents" element={<AgentsPage />} />
               <Route path="settings" element={<SettingsLayout />}>

@@ -1,12 +1,14 @@
-import { type ComponentProps, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { api } from "@marketer/backend/convex/_generated/api";
-import type { Doc } from "@marketer/backend/convex/_generated/dataModel";
 import { defaultAgents } from "@marketer/agent-runtime/agents";
-import type { AgentDefinition } from "@marketer/agent-runtime/types";
+import { availableCapabilities } from "@marketer/agent-runtime/capabilities";
+import type {
+  AgentCapabilityId,
+  AgentDefinition,
+  AgentPreference,
+  DriverType,
+} from "@marketer/agent-runtime/types";
 import { Button } from "@marketer/ui/components/button";
-import { Input } from "@marketer/ui/components/input";
 import {
   Select,
   SelectContent,
@@ -17,7 +19,14 @@ import {
 } from "@marketer/ui/components/select";
 import { Switch } from "@marketer/ui/components/switch";
 import { cn } from "@marketer/ui/lib/utils";
-import { useRuntime } from "../lib/runtime";
+import { api } from "@marketer/backend/convex/_generated/api";
+import { useConvexAuth, useQuery } from "convex/react";
+import {
+  useAgentPreferences,
+  useProviderModels,
+  useRuntime,
+} from "../lib/runtime";
+import { useAuth } from "../lib/auth/auth-context";
 import {
   type AgentOverride as LocalAgentOverride,
   getAgentOverride,
@@ -26,7 +35,12 @@ import {
 } from "../lib/agent-overrides";
 import { PROVIDER_META, type Provider } from "../lib/providers";
 
-type AgentOverride = Doc<"agent">;
+type AgentOverride = AgentPreference;
+
+interface IntegrationOption {
+  provider: string;
+  displayName: string;
+}
 
 /**
  * Agents a registry backend will offer later. Shown here so the page reads
@@ -63,34 +77,6 @@ const availableAgents = [
   },
 ];
 
-/** Input that keeps local state and commits on blur or Enter. */
-function CommitInput({
-  value,
-  onCommit,
-  ...props
-}: {
-  value: string;
-  onCommit: (value: string) => void;
-} & Omit<ComponentProps<typeof Input>, "value" | "onChange">) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => {
-    setDraft(value);
-  }, [value]);
-  return (
-    <Input
-      {...props}
-      value={draft}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={() => {
-        if (draft !== value) onCommit(draft.trim());
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") event.currentTarget.blur();
-      }}
-    />
-  );
-}
-
 function ProviderOption({ provider }: { provider: Provider }) {
   const { label, Icon } = PROVIDER_META[provider];
   return (
@@ -104,42 +90,52 @@ function ProviderOption({ provider }: { provider: Provider }) {
 function InstalledAgentCard({
   agent,
   override,
+  integrations,
   ready,
+  onSave,
 }: {
   agent: AgentDefinition;
   override: AgentOverride | undefined;
+  integrations: IntegrationOption[];
   ready: boolean;
+  onSave: (preference: AgentPreference) => void;
 }) {
-  const upsertOverride = useMutation(api.agents.upsertOverride);
-
   const enabled = override?.enabled ?? true;
   // Per-agent override wins; otherwise the workspace's chosen agent app.
   // Null means neither exists yet — the select asks instead of assuming.
-  const driver = (override?.driver ??
-    getWorkspaceProvider() ??
-    null) as Provider | null;
-  const vercelUrl = override?.vercelUrl ?? "";
-  const vercelKey = override?.vercelKey ?? "";
+  const driver = override?.driver ?? getWorkspaceProvider();
+  const models = useProviderModels(driver);
+  const model = override?.model ?? "";
+  const capabilities = override?.capabilities ?? agent.capabilities ?? [];
+  const assignedIntegrations =
+    override?.integrations ?? integrations.map((item) => item.provider);
 
   const save = (patch: {
     enabled?: boolean;
-    driver?: Provider;
-    vercelUrl?: string;
-    vercelKey?: string;
+    driver?: DriverType;
+    model?: string;
+    capabilities?: AgentCapabilityId[];
+    integrations?: string[];
   }) => {
-    // Convex is the durable record; the localStorage mirror is what the live
-    // chat runtime reads when opening sessions. Keep both in sync.
+    // The runtime-owned libSQL database is durable; this localStorage mirror
+    // keeps session opening synchronous. Keep both in sync.
     const mirror: LocalAgentOverride = {};
     if ("enabled" in patch) mirror.enabled = patch.enabled;
-    if (patch.driver === "claude" || patch.driver === "codex") {
-      mirror.driver = patch.driver;
-    }
+    if (patch.driver) mirror.driver = patch.driver;
+    if (patch.model !== undefined) mirror.model = patch.model || undefined;
+    if (patch.capabilities) mirror.capabilities = patch.capabilities;
+    if (patch.integrations) mirror.integrations = patch.integrations;
     if (Object.keys(mirror).length > 0) {
       setAgentOverride(agent.id, mirror);
     }
 
-    upsertOverride({ agentKey: agent.id, ...patch }).catch((error) => {
-      console.error(`[Agents] Failed to save ${agent.name}:`, error);
+    onSave({
+      agentId: agent.id,
+      enabled: patch.enabled ?? enabled,
+      driver: patch.driver ?? driver ?? undefined,
+      model: (patch.model ?? model) || undefined,
+      capabilities: patch.capabilities ?? capabilities,
+      integrations: patch.integrations ?? assignedIntegrations,
     });
   };
 
@@ -175,42 +171,78 @@ function InstalledAgentCard({
         {agent.description}
       </p>
 
-      {driver === "vercel" && (
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <label className="text-xs text-muted-foreground">
-              Endpoint URL
-            </label>
-            <CommitInput
-              value={vercelUrl}
-              disabled={!ready}
-              placeholder="https://agents.example.com/api/agent"
-              onCommit={(next) => save({ vercelUrl: next })}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs text-muted-foreground">API key</label>
-            <CommitInput
-              value={vercelKey}
-              disabled={!ready}
-              type="password"
-              placeholder="key"
-              onCommit={(next) => save({ vercelKey: next })}
-            />
-          </div>
-          <p className="col-span-2 text-xs text-muted-foreground">
-            Deployed agents are not available yet. The endpoint is saved for
-            when they are.
-          </p>
+      <div className="mt-4 border-t pt-3">
+        <p className="mb-2 text-[11px] text-muted-foreground">Capabilities</p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {availableCapabilities.map((capability) => {
+            const checked = capabilities.includes(capability.id);
+            return (
+              <label
+                key={capability.id}
+                className="flex items-center justify-between gap-3 border px-3 py-2 text-xs"
+              >
+                <span>{capability.id.replace(/-/g, " ")}</span>
+                <Switch
+                  checked={checked}
+                  disabled={!ready}
+                  onCheckedChange={(next) =>
+                    save({
+                      capabilities: next
+                        ? [...capabilities, capability.id]
+                        : capabilities.filter((id) => id !== capability.id),
+                    })
+                  }
+                />
+              </label>
+            );
+          })}
         </div>
-      )}
+      </div>
+
+      {integrations.length > 0 ? (
+        <div className="mt-4 border-t pt-3">
+          <p className="mb-2 text-[11px] text-muted-foreground">
+            Integration access
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {integrations.map((integration) => {
+              const checked = assignedIntegrations.includes(
+                integration.provider,
+              );
+              return (
+                <label
+                  key={integration.provider}
+                  className="flex items-center justify-between gap-3 border px-3 py-2 text-xs"
+                >
+                  <span className="truncate">{integration.displayName}</span>
+                  <Switch
+                    checked={checked}
+                    disabled={!ready}
+                    onCheckedChange={(next) =>
+                      save({
+                        integrations: next
+                          ? [...assignedIntegrations, integration.provider]
+                          : assignedIntegrations.filter(
+                              (provider) => provider !== integration.provider,
+                            ),
+                      })
+                    }
+                  />
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
         <div className="flex items-center gap-2">
           <Select
             value={driver ?? undefined}
             disabled={!ready}
-            onValueChange={(value) => save({ driver: value as Provider })}
+            onValueChange={(value) =>
+              save({ driver: value as DriverType, model: "" })
+            }
           >
             <SelectTrigger className="h-7 w-auto gap-1.5 border-transparent px-1 text-xs text-muted-foreground hover:text-foreground data-[state=open]:text-foreground">
               {meta ? (
@@ -231,15 +263,45 @@ function InstalledAgentCard({
                 <SelectItem value="codex">
                   <ProviderOption provider="codex" />
                 </SelectItem>
-              </SelectGroup>
-              <SelectGroup>
-                <SelectLabel>Deployed</SelectLabel>
-                <SelectItem value="vercel">
-                  <ProviderOption provider="vercel" />
+                <SelectItem value="opencode">
+                  <ProviderOption provider="opencode" />
                 </SelectItem>
               </SelectGroup>
             </SelectContent>
           </Select>
+          {driver ? (
+            <Select
+              value={model || "__auto__"}
+              disabled={!ready}
+              onValueChange={(value) =>
+                save({ model: value === "__auto__" ? "" : value })
+              }
+            >
+              <SelectTrigger className="h-7 w-auto max-w-40 gap-1.5 border-transparent px-1 text-xs text-muted-foreground hover:text-foreground">
+                <span className="truncate">
+                  {models.loading
+                    ? "Loading…"
+                    : (models.models.find((item) => item.value === model)
+                        ?.label ??
+                        model) ||
+                      "Auto"}
+                </span>
+              </SelectTrigger>
+              <SelectContent className="max-h-72 min-w-52">
+                {(models.models.length
+                  ? models.models
+                  : [{ value: "", label: "Auto" }]
+                ).map((item) => (
+                  <SelectItem
+                    key={item.value || "auto"}
+                    value={item.value || "__auto__"}
+                  >
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
           {meta ? (
             <span className="text-xs text-muted-foreground">
               {meta.location}
@@ -283,47 +345,60 @@ function AvailableAgentCard({
 
 export function AgentsPage() {
   const { agents: runtimeAgents } = useRuntime();
+  const { cloudOrganizationId } = useAuth();
+  const convexAuth = useConvexAuth();
+  const connectedIntegrations = useQuery(
+    api.integrations.listConnected,
+    convexAuth.isAuthenticated && cloudOrganizationId ? {} : "skip",
+  );
+  const integrations: IntegrationOption[] = (connectedIntegrations ?? []).map(
+    (integration) => ({
+      provider: integration.provider,
+      displayName: integration.displayName,
+    }),
+  );
   // The runtime roster when connected; the static roster as a fallback so
   // the registry still renders while the runtime is down.
   const agents = runtimeAgents.length > 0 ? runtimeAgents : defaultAgents;
 
-  const { isAuthenticated: convexReady } = useConvexAuth();
-  const overrides = useQuery(
-    api.agents.listOverrides,
-    convexReady ? {} : "skip",
-  );
-  const ready = convexReady && overrides !== undefined;
+  const agentPreferences = useAgentPreferences(cloudOrganizationId);
+  const overrides = agentPreferences.preferences;
+  const ready = Boolean(cloudOrganizationId) && !agentPreferences.loading;
   const [view, setView] = useState<"installed" | "available">("installed");
 
-  // Hydrate the runtime's localStorage mirror from the durable Convex record
-  // so settings made on another machine apply to live chats here too.
+  // Hydrate the synchronous mirror from the runtime-owned local database.
   useEffect(() => {
-    if (!overrides) return;
     for (const override of overrides) {
-      const local = getAgentOverride(override.agentKey);
+      const local = getAgentOverride(override.agentId);
       const patch: LocalAgentOverride = {};
-      const driver =
-        override.driver === "claude" || override.driver === "codex"
-          ? override.driver
-          : undefined;
+      const driver = override.driver;
       if (driver && local.driver !== driver) patch.driver = driver;
       if ((override.model || undefined) !== local.model) {
         patch.model = override.model || undefined;
       }
-      if (
-        override.enabled !== undefined &&
-        local.enabled !== override.enabled
-      ) {
+      if (local.enabled !== override.enabled) {
         patch.enabled = override.enabled;
       }
+      if (
+        JSON.stringify(local.capabilities ?? []) !==
+        JSON.stringify(override.capabilities ?? [])
+      ) {
+        patch.capabilities = override.capabilities;
+      }
+      if (
+        JSON.stringify(local.integrations ?? []) !==
+        JSON.stringify(override.integrations ?? [])
+      ) {
+        patch.integrations = override.integrations;
+      }
       if (Object.keys(patch).length > 0) {
-        setAgentOverride(override.agentKey, patch);
+        setAgentOverride(override.agentId, patch);
       }
     }
   }, [overrides]);
 
   return (
-    <div className="-mb-8 flex min-h-[calc(100vh-48px)]">
+    <div className="-mx-8 -mb-8 flex min-h-[calc(100vh-48px)]">
       <aside className="w-56 shrink-0 border-r px-5 pt-10">
         <h1 className="font-serif text-3xl">Agents</h1>
         <nav className="mt-7 space-y-1">
@@ -376,12 +451,14 @@ export function AgentsPage() {
                 <InstalledAgentCard
                   key={agent.id}
                   agent={agent}
-                  override={overrides?.find((o) => o.agentKey === agent.id)}
+                  override={overrides.find((o) => o.agentId === agent.id)}
+                  integrations={integrations}
                   ready={ready}
+                  onSave={agentPreferences.save}
                 />
               ))}
             </div>
-            {!convexReady ? (
+            {!ready ? (
               <p className="mt-3 text-xs text-muted-foreground">
                 Connecting to your workspace…
               </p>

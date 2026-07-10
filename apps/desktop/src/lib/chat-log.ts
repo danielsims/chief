@@ -1,9 +1,5 @@
-/**
- * Local record of conversations the user has opened or sent to. The runtime
- * has no "list chats" protocol yet, so the conversations page derives its
- * list from this log. Each entry owns a stable runtime chat id, so one agent
- * can have multiple independent conversations.
- */
+/** Legacy browser metadata retained only while existing installations migrate
+ * to the runtime-owned local database. New chats are durable there instead. */
 
 export interface ChatLogEntry {
   id: string;
@@ -12,10 +8,11 @@ export interface ChatLogEntry {
   /** Last message the user sent, shown as the row preview. */
   lastText: string;
   lastAt: number;
+  driver?: import("@marketer/agent-runtime/types").DriverType;
+  model?: string;
 }
 
 const KEY = "marketer-chat-log";
-const EVENT = "marketer-chat-log-changed";
 
 export function getChatLog(): ChatLogEntry[] {
   try {
@@ -44,7 +41,6 @@ export function getChatLog(): ChatLogEntry[] {
 
 function saveChatLog(next: ChatLogEntry[]) {
   localStorage.setItem(KEY, JSON.stringify(next));
-  window.dispatchEvent(new CustomEvent(EVENT));
 }
 
 export function createChat(agentId: string, title = "New conversation") {
@@ -56,39 +52,9 @@ export function createChat(agentId: string, title = "New conversation") {
     lastText: "",
     lastAt: now,
   };
-  saveChatLog([entry, ...getChatLog()]);
   return entry;
-}
-
-export function recordChat(agentId: string, chatId: string, lastText: string) {
-  const existing = getChatLog().find((entry) => entry.id === chatId);
-  const rest = getChatLog().filter((entry) => entry.id !== chatId);
-  const cleanText = lastText.trim();
-  const next: ChatLogEntry[] = [
-    {
-      id: chatId,
-      agentId,
-      title:
-        existing?.title && existing.title !== "New conversation"
-          ? existing.title
-          : cleanText.slice(0, 72) || "New conversation",
-      lastText: cleanText.slice(0, 200),
-      lastAt: Date.now(),
-    },
-    ...rest,
-  ];
-  saveChatLog(next);
 }
 
 export function deleteChat(chatId: string) {
   saveChatLog(getChatLog().filter((entry) => entry.id !== chatId));
-}
-
-export function onChatLogChange(listener: () => void) {
-  window.addEventListener(EVENT, listener);
-  window.addEventListener("storage", listener);
-  return () => {
-    window.removeEventListener(EVENT, listener);
-    window.removeEventListener("storage", listener);
-  };
 }
