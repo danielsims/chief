@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Card,
   CardContent,
@@ -8,9 +9,45 @@ import {
 import { Button } from "@marketer/ui/components/button";
 import { Input } from "@marketer/ui/components/input";
 import { useAuth } from "../../lib/auth/auth-context";
+import { removeImageAsset, uploadImageAsset } from "../../lib/image-upload";
 
 export function ProfileSettings() {
-  const { isAuthenticated, isSigningIn, user, signIn, signOut } = useAuth();
+  const {
+    isAuthenticated,
+    isSigningIn,
+    user,
+    signIn,
+    signOut,
+    updateProfileImage,
+  } = useAuth();
+  const [uploading, setUploading] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+
+  const uploadImage = async (file: File | undefined) => {
+    if (!file) return;
+    setUploading(true);
+    setImageError(null);
+    try {
+      await updateProfileImage(await uploadImageAsset(file, "profile"));
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeImage = async () => {
+    setUploading(true);
+    setImageError(null);
+    try {
+      await updateProfileImage(null);
+      await removeImageAsset("profile");
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setUploading(false);
+    }
+  };
 
   if (!isAuthenticated || !user) {
     return (
@@ -43,7 +80,8 @@ export function ProfileSettings() {
       <CardHeader>
         <CardTitle>Profile</CardTitle>
         <CardDescription>
-          Your name and email come from your sign-in provider.
+          Your name and email come from your sign-in provider. Your profile
+          image can be changed here.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -61,15 +99,49 @@ export function ProfileSettings() {
               </span>
             )}
           </span>
-          <div>
+          <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">{user.name}</p>
             <p className="text-xs text-muted-foreground">
               {user.emailVerified ? "Verified" : "Unverified"}
             </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Button asChild variant="outline" size="sm">
+                <label className="cursor-pointer">
+                  {uploading ? "Processing..." : "Upload image"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={uploading}
+                    onChange={(event) => {
+                      void uploadImage(event.target.files?.[0]);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+              </Button>
+              {user.image ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={uploading}
+                  onClick={() => void removeImage()}
+                >
+                  Remove
+                </Button>
+              ) : null}
+            </div>
+            {imageError ? (
+              <p className="mt-2 text-xs text-destructive">{imageError}</p>
+            ) : null}
           </div>
         </div>
         <div className="space-y-1.5">
-          <label className="text-xs text-muted-foreground" htmlFor="profile-name">
+          <label
+            className="text-xs text-muted-foreground"
+            htmlFor="profile-name"
+          >
             Name
           </label>
           <Input id="profile-name" value={user.name} readOnly />

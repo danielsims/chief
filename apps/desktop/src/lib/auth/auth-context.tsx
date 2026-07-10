@@ -22,6 +22,7 @@ import type { StoredSession } from "./session";
 import {
   AUTH_BASE_URL,
   authClient,
+  updateAuthUser,
   validateStoredSession,
 } from "./better-auth-client";
 import { pollForDesktopPkce, setupAuthDeepLink } from "./client";
@@ -54,6 +55,7 @@ interface AuthState {
   authError: string | null;
   signIn: () => void;
   signOut: () => void;
+  updateProfileImage: (image: string | null) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -201,6 +203,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void remoteSignOut;
   }, []);
 
+  const updateProfileImage = useCallback(async (image: string | null) => {
+    await updateAuthUser({ image });
+    setStoredSessionState((current) => {
+      if (!current) return current;
+      const next: StoredSession = {
+        ...current,
+        user: {
+          ...current.user,
+          ...(image ? { image } : { image: undefined }),
+        },
+        lastValidated: Date.now(),
+      };
+      setStoredSession(next);
+      return next;
+    });
+  }, []);
+
   // ─── Context Value ───────────────────────────────────────────────────
 
   const user = storedSession?.user ?? null;
@@ -224,8 +243,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       authError,
       signIn,
       signOut,
+      updateProfileImage,
     }),
-    [authError, isLoading, isSigningIn, signIn, signOut, storedSession, user],
+    [
+      authError,
+      isLoading,
+      isSigningIn,
+      signIn,
+      signOut,
+      storedSession,
+      updateProfileImage,
+      user,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -244,6 +273,7 @@ export function useAuth(): AuthState {
       authError: null,
       signIn: () => {},
       signOut: () => {},
+      updateProfileImage: async () => {},
     };
   }
   return ctx;

@@ -17,6 +17,7 @@ import type * as dev from "../dev.js";
 import type * as env from "../env.js";
 import type * as googleAnalytics from "../googleAnalytics.js";
 import type * as http from "../http.js";
+import type * as imageAssets from "../imageAssets.js";
 import type * as integrations from "../integrations.js";
 import type * as lib_auth from "../lib/auth.js";
 import type * as socialAccounts from "../socialAccounts.js";
@@ -37,6 +38,7 @@ declare const fullApi: ApiFromModules<{
   env: typeof env;
   googleAnalytics: typeof googleAnalytics;
   http: typeof http;
+  imageAssets: typeof imageAssets;
   integrations: typeof integrations;
   "lib/auth": typeof lib_auth;
   socialAccounts: typeof socialAccounts;

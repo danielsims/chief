@@ -307,6 +307,29 @@ export async function deleteAuthOrganization(
   invalidateOrganizationCache();
 }
 
+export async function updateAuthUser(data: {
+  name?: string;
+  image?: string | null;
+}): Promise<void> {
+  const storedSession = getStoredSession();
+  if (!storedSession?.token) throw new Error("Not authenticated");
+
+  const url = `${AUTH_BASE_URL}/api/auth/update-user`;
+  const fetcher = isTauri() ? tauriFetch : fetch;
+  const response = await fetcher(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${storedSession.token}`,
+    },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Failed to update profile: ${response.status} ${text}`);
+  }
+}
+
 export async function createAuthOrganization(input: {
   name: string;
   slug: string;

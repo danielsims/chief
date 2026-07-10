@@ -139,6 +139,15 @@ export default defineSchema({
     .index("by_organization", ["organizationId"])
     .index("by_token_hash", ["tokenHash"]),
 
+  /** User and workspace image uploads stored in Convex file storage. */
+  imageAsset: defineTable({
+    ownerId: v.string(),
+    kind: v.union(v.literal("profile"), v.literal("workspace")),
+    storageId: v.id("_storage"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_owner_kind", ["ownerId", "kind"]),
+
   /**
    * Stripe billing state, scoped to the better-auth organization. The row is
    * created lazily at Checkout/Portal time so we can reuse one Stripe customer

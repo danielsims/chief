@@ -33,6 +33,7 @@ import {
   SOCIAL_PLATFORMS,
   type SocialPlatformDef,
 } from "../../lib/social-platforms";
+import { removeImageAsset, uploadImageAsset } from "../../lib/image-upload";
 
 function LogoPreview({
   logo,
@@ -205,6 +206,10 @@ export function WorkspaceSettings() {
   const [org, setOrg] = useState<AuthOrganization | null>(null);
   const [name, setName] = useState("");
   const [website, setWebsite] = useState("");
+  const [logo, setLogo] = useState<string | null>(null);
+  const [logoSource, setLogoSource] = useState<"favicon" | "upload">("favicon");
+  const [processingLogo, setProcessingLogo] = useState(false);
+  const [logoError, setLogoError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saved" | "error">(
     "idle",
@@ -225,6 +230,8 @@ export function WorkspaceSettings() {
         setWebsite(
           typeof metadata.websiteUrl === "string" ? metadata.websiteUrl : "",
         );
+        setLogo(active.logo ?? null);
+        setLogoSource(metadata.logoSource === "upload" ? "upload" : "favicon");
       }
     });
     return () => {
@@ -238,29 +245,92 @@ export function WorkspaceSettings() {
     setSaveState("idle");
     try {
       const metadata = parseOrganizationMetadata(org);
-      const logo = (await resolveFaviconUrl(website)) ?? undefined;
-      const previousWebsite =
-        typeof metadata.websiteUrl === "string"
-          ? metadata.websiteUrl.trim()
-          : "";
-      const websiteChanged = previousWebsite !== website.trim();
+      const nextLogo =
+        logoSource === "upload"
+          ? logo
+          : await resolveFaviconUrl(website.trim());
       await updateAuthOrganization(org.id, {
         name: name.trim() || org.name,
-        ...(websiteChanged ? { logo: logo ?? null } : logo ? { logo } : {}),
-        metadata: { ...metadata, websiteUrl: website.trim() },
+        logo: nextLogo,
+        metadata: {
+          ...metadata,
+          websiteUrl: website.trim(),
+          logoSource:
+            logoSource === "upload" && nextLogo ? "upload" : "favicon",
+        },
       });
       setOrg({
         ...org,
         name: name.trim() || org.name,
-        logo: logo ?? (websiteChanged ? null : org.logo),
-        metadata: { ...metadata, websiteUrl: website.trim() },
+        logo: nextLogo,
+        metadata: {
+          ...metadata,
+          websiteUrl: website.trim(),
+          logoSource:
+            logoSource === "upload" && nextLogo ? "upload" : "favicon",
+        },
       });
+      setLogo(nextLogo);
       setSaveState("saved");
     } catch (error) {
       console.error("[Settings] Failed to save workspace:", error);
       setSaveState("error");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const uploadLogo = async (file: File | undefined) => {
+    if (!file) return;
+    setProcessingLogo(true);
+    setLogoError(null);
+    try {
+      if (!org) return;
+      const nextLogo = await uploadImageAsset(file, "workspace");
+      const metadata = parseOrganizationMetadata(org);
+      await updateAuthOrganization(org.id, {
+        logo: nextLogo,
+        metadata: { ...metadata, logoSource: "upload" },
+      });
+      setOrg({
+        ...org,
+        logo: nextLogo,
+        metadata: { ...metadata, logoSource: "upload" },
+      });
+      setLogo(nextLogo);
+      setLogoSource("upload");
+      setSaveState("saved");
+    } catch (error) {
+      setLogoError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setProcessingLogo(false);
+    }
+  };
+
+  const useWebsiteIcon = async () => {
+    if (!org) return;
+    setProcessingLogo(true);
+    setLogoError(null);
+    try {
+      const nextLogo = await resolveFaviconUrl(website.trim());
+      const metadata = parseOrganizationMetadata(org);
+      await updateAuthOrganization(org.id, {
+        logo: nextLogo,
+        metadata: { ...metadata, logoSource: "favicon" },
+      });
+      await removeImageAsset("workspace");
+      setOrg({
+        ...org,
+        logo: nextLogo,
+        metadata: { ...metadata, logoSource: "favicon" },
+      });
+      setLogo(nextLogo);
+      setLogoSource("favicon");
+      setSaveState("saved");
+    } catch (error) {
+      setLogoError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setProcessingLogo(false);
     }
   };
 
@@ -280,10 +350,43 @@ export function WorkspaceSettings() {
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="flex items-center gap-4">
-            <LogoPreview logo={org?.logo} website={website} name={name} />
-            <p className="text-xs text-muted-foreground">
-              The logo defaults to your website's favicon.
-            </p>
+            <LogoPreview logo={logo} website={website} name={name} />
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button asChild variant="outline" size="sm">
+                  <label className="cursor-pointer">
+                    {processingLogo ? "Processing..." : "Upload image"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={processingLogo || !org}
+                      onChange={(event) => {
+                        void uploadLogo(event.target.files?.[0]);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+                </Button>
+                {logoSource === "upload" ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={processingLogo}
+                    onClick={() => void useWebsiteIcon()}
+                  >
+                    Use website icon
+                  </Button>
+                ) : null}
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Upload an image to override the website favicon.
+              </p>
+              {logoError ? (
+                <p className="mt-1 text-xs text-destructive">{logoError}</p>
+              ) : null}
+            </div>
           </div>
           <div className="space-y-1.5">
             <label
