@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { BaseDriver } from "./drivers/base.js";
 import { createDriver } from "./drivers/index.js";
+import { withGenerativeDataParts } from "./generative-ui.js";
 import type {
   AccessMode,
   AgentDefinition,
@@ -41,8 +42,9 @@ export class AgentSession extends EventEmitter {
     this.config = config;
     this.driver = createDriver(config.driver);
 
-    this.events = initialEvents.slice(-500);
-    this.driver.on("event", (event: AgentEvent) => {
+    this.events = initialEvents.map(withGenerativeDataParts).slice(-500);
+    this.driver.on("event", (rawEvent: AgentEvent) => {
+      const event = withGenerativeDataParts(rawEvent);
       if (event.type === "init") this.sessionId = event.sessionId;
       if (event.type === "status") this.status = event.status;
       if (

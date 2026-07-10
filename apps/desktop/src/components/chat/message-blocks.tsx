@@ -1,15 +1,10 @@
 import { useEffect, useState } from "react";
 import type { ContentBlock } from "@marketer/agent-runtime/types";
 import { cn } from "@marketer/ui/lib/utils";
-import {
-  ChevronDown,
-  FilePenLine,
-  FileText,
-  Globe2,
-  Search,
-  Terminal,
-  Wrench,
-} from "lucide-react";
+import { ChevronDown } from "lucide-react";
+import { LineChartCard } from "../charts/line-chart-card";
+import { shortAnalyticsDate } from "../integrations/connection-preview";
+import { StreamingMarkdown } from "./streaming-markdown";
 
 const MAX_RESULT_CHARS = 3000;
 
@@ -47,13 +42,13 @@ function canonicalTool(name: string) {
 
 function toolPresentation(name: string) {
   const kind = canonicalTool(name);
-  if (kind === "integration") return { label: "Run integration", Icon: Wrench };
-  if (kind === "command") return { label: "Run", Icon: Terminal };
-  if (kind === "search") return { label: "Search", Icon: Search };
-  if (kind === "web") return { label: "Browse", Icon: Globe2 };
-  if (kind === "read") return { label: "Read", Icon: FileText };
-  if (kind === "edit") return { label: "Edit", Icon: FilePenLine };
-  return { label: name.replace(/_/g, " "), Icon: Wrench };
+  if (kind === "integration") return "Run integration";
+  if (kind === "command") return "Run";
+  if (kind === "search") return "Search";
+  if (kind === "web") return "Browse";
+  if (kind === "read") return "Read";
+  if (kind === "edit") return "Edit";
+  return name.replace(/_/g, " ");
 }
 
 export function toolSummary(input: unknown): string {
@@ -84,7 +79,7 @@ function ToolCard({
   result?: Extract<ContentBlock, { type: "tool_result" }>;
   progress?: string;
 }) {
-  const { label, Icon } = toolPresentation(block.name);
+  const label = toolPresentation(block.name);
   const summary = toolSummary(block.input);
   const output = result
     ? toolResultText(result.content).trim()
@@ -93,6 +88,9 @@ function ToolCard({
     output.length > MAX_RESULT_CHARS
       ? `…${output.slice(-MAX_RESULT_CHARS)}`
       : output;
+  const warning = Boolean(
+    result && !result.is_error && /\bwarn(?:ing)?\b/i.test(output),
+  );
   const input =
     block.input && typeof block.input === "object"
       ? JSON.stringify(block.input, null, 2)
@@ -112,7 +110,15 @@ function ToolCard({
   return (
     <details className="group border bg-card/50" open={!result}>
       <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3 py-2 text-xs [&::-webkit-details-marker]:hidden">
-        <Icon size={13} className="shrink-0 text-muted-foreground" />
+        <span
+          className={cn(
+            "size-2 shrink-0 rounded-full",
+            !result && "animate-pulse bg-blue-500",
+            result?.is_error && "bg-red-500",
+            result && !result.is_error && warning && "bg-amber-400",
+            result && !result.is_error && !warning && "bg-emerald-500",
+          )}
+        />
         <span className="shrink-0 font-medium">{label}</span>
         <span className="min-w-0 flex-1 truncate text-muted-foreground">
           {summary}
@@ -179,9 +185,19 @@ export function Blocks({
         switch (block.type) {
           case "text":
             return (
-              <p key={index} className="whitespace-pre-wrap text-sm leading-6">
-                {block.text}
-              </p>
+              <div key={index} className="chat-markdown text-sm leading-6">
+                <StreamingMarkdown>{block.text}</StreamingMarkdown>
+              </div>
+            );
+          case "data-chart":
+            return (
+              <LineChartCard
+                key={block.id ?? index}
+                title={block.data.title}
+                subtitle={block.data.subtitle}
+                series={block.data.series}
+                formatX={shortAnalyticsDate}
+              />
             );
           case "thinking":
             return (

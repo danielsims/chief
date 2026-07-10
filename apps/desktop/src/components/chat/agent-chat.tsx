@@ -25,6 +25,7 @@ import {
 import { ApprovalCard } from "./approval-card";
 import { InputRequestSection } from "../integrations/input-request-section";
 import { Blocks } from "./message-blocks";
+import { StreamingMarkdown } from "./streaming-markdown";
 
 // The local runtime only runs CLI-backed providers.
 const CHAT_PROVIDERS: DriverType[] = ["claude", "codex"];
@@ -146,7 +147,7 @@ export function AgentChat({
   return (
     <div className="flex h-full flex-col">
       <div className="flex-1 space-y-6 overflow-y-auto py-6 pr-2">
-        {chat.items.length === 0 && !chat.streaming && (
+        {sessionReady && chat.items.length === 0 && !chat.streaming ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <p className="font-serif text-3xl">{agent.name}</p>
             <p className="max-w-md text-sm text-muted-foreground">
@@ -159,7 +160,7 @@ export function AgentChat({
               </p>
             )}
           </div>
-        )}
+        ) : null}
         {chat.items.map((item, i) =>
           item.kind === "user" ? (
             <div key={i} className="mx-auto flex max-w-3xl justify-end">
@@ -176,12 +177,11 @@ export function AgentChat({
             </div>
           ),
         )}
-        {chat.streaming && (
-          <p className="mx-auto max-w-3xl whitespace-pre-wrap text-sm leading-6">
-            {chat.streaming}
-            <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-foreground align-text-bottom" />
-          </p>
-        )}
+        {chat.streaming ? (
+          <div className="chat-markdown mx-auto max-w-3xl text-sm leading-6">
+            <StreamingMarkdown streaming>{chat.streaming}</StreamingMarkdown>
+          </div>
+        ) : null}
         {chat.approvals.map((approval) => (
           <div key={approval.requestId} className="mx-auto max-w-3xl">
             <ApprovalCard approval={approval} onRespond={respondPermission} />

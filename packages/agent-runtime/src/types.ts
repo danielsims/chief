@@ -1,9 +1,47 @@
+import type { UIMessage } from "ai";
+
 // Normalized event vocabulary across all drivers (claude, codex, ...).
 // Content blocks mirror the shape both the Claude Agent SDK and the UI expect.
+
+export interface GenerativeChartPoint {
+  x: string;
+  value: number;
+}
+
+export interface GenerativeChartSeries {
+  id: string;
+  label: string;
+  points: GenerativeChartPoint[];
+}
+
+export interface GenerativeChartData {
+  kind: "line";
+  title: string;
+  subtitle?: string;
+  xLabel?: string;
+  yLabel: string;
+  series: GenerativeChartSeries[];
+}
+
+/**
+ * Marketer's persistent custom UI parts follow AI SDK 7's typed `data-*`
+ * contract. The websocket transport remains provider-neutral; every driver
+ * can emit the same chart part and every client can render it consistently.
+ */
+export type MarketerUIMessage = UIMessage<
+  unknown,
+  { chart: GenerativeChartData }
+>;
+
+export type GenerativeChartBlock = Extract<
+  MarketerUIMessage["parts"][number],
+  { type: "data-chart" }
+>;
 
 export type ContentBlock =
   | { type: "text"; text: string }
   | { type: "thinking"; thinking: string }
+  | GenerativeChartBlock
   | {
       type: "tool_use";
       id: string;
