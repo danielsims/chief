@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "@marketer/ui/lib/utils";
 
 /**
@@ -24,16 +24,33 @@ export function OrgLogo({
   className?: string;
   imgClassName?: string;
 }) {
-  const [failed, setFailed] = useState(false);
+  const candidates = useMemo(() => {
+    const direct = directFaviconUrl(website ?? "");
+    const google = faviconUrl(website ?? "");
+    return Array.from(
+      new Map(
+        [
+          logo ? { src: logo, minimumWidth: 16 } : null,
+          direct ? { src: direct, minimumWidth: 16 } : null,
+          google ? { src: google, minimumWidth: 32 } : null,
+        ]
+          .filter(
+            (candidate): candidate is { src: string; minimumWidth: number } =>
+              Boolean(candidate),
+          )
+          .map((candidate) => [candidate.src, candidate]),
+      ).values(),
+    );
+  }, [logo, website]);
+  const [candidateIndex, setCandidateIndex] = useState(0);
   const [loaded, setLoaded] = useState(false);
-  const src = logo || faviconUrl(website ?? "");
+  const candidate = candidates[candidateIndex];
   useEffect(() => {
-    setFailed(false);
+    setCandidateIndex(0);
     setLoaded(false);
-  }, [src]);
+  }, [logo, website]);
 
   const initial = name.trim().charAt(0).toUpperCase() || "?";
-  const showImage = Boolean(src) && !failed;
 
   return (
     <span
@@ -42,14 +59,12 @@ export function OrgLogo({
         className,
       )}
     >
-      {!loaded ? (
-        <span className="translate-y-[0.055em] font-serif leading-none select-none">
-          {initial}
-        </span>
-      ) : null}
-      {showImage ? (
+      <span className="translate-y-[0.055em] font-serif leading-none select-none">
+        {initial}
+      </span>
+      {candidate ? (
         <img
-          src={src ?? undefined}
+          src={candidate.src}
           alt=""
           draggable={false}
           className={cn(
@@ -59,11 +74,12 @@ export function OrgLogo({
           )}
           onError={() => {
             setLoaded(false);
-            setFailed(true);
+            setCandidateIndex((index) => index + 1);
           }}
           onLoad={(e) => {
-            if (e.currentTarget.naturalWidth < 32) {
-              setFailed(true);
+            if (e.currentTarget.naturalWidth < candidate.minimumWidth) {
+              setLoaded(false);
+              setCandidateIndex((index) => index + 1);
               return;
             }
             setLoaded(true);
@@ -72,6 +88,19 @@ export function OrgLogo({
       ) : null}
     </span>
   );
+}
+
+function directFaviconUrl(website: string): string | null {
+  const trimmed = website.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(
+      /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`,
+    );
+    return `${url.origin}/favicon.ico`;
+  } catch {
+    return null;
+  }
 }
 
 /** Google's favicon endpoint, used consistently anywhere a workspace appears. */

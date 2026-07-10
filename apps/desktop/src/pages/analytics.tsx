@@ -89,6 +89,20 @@ function MetricCell({
   );
 }
 
+function AnalyticsLoadingState() {
+  return (
+    <div className="space-y-5 px-8 py-6" aria-busy="true">
+      <div className="flex h-8 items-center justify-between">
+        <span className="h-8 w-28 border bg-card" />
+        <span className="h-8 w-24 border bg-card" />
+      </div>
+      <div className="h-[154px] border bg-card" />
+      <div className="h-[274px] border bg-card" />
+      <div className="h-[348px] border bg-card" />
+    </div>
+  );
+}
+
 function usePreferredAnalyticsIntegration(): SetupIntegration {
   const [integration, setIntegration] = useState<SetupIntegration>(
     fallbackAnalyticsIntegration,
@@ -246,6 +260,8 @@ export function AnalyticsPage() {
     api.integrations.listConnected,
     canUseWorkspaceAnalytics ? {} : "skip",
   );
+  const channelsLoading =
+    canUseWorkspaceAnalytics && connectedChannels === undefined;
   const productChannels = useMemo(
     () =>
       ((connectedChannels ?? []) as AnalyticsChannel[]).filter(
@@ -551,6 +567,15 @@ export function AnalyticsPage() {
               {item.label}
             </button>
           ))}
+          {channelsLoading ? (
+            <span
+              className="flex items-center gap-2 border-b border-transparent pb-3 text-sm opacity-0"
+              aria-hidden="true"
+            >
+              <span className="size-5" />
+              Google Analytics
+            </span>
+          ) : null}
         </div>
       </div>
 
@@ -564,6 +589,8 @@ export function AnalyticsPage() {
             </p>
           </div>
         </div>
+      ) : channelsLoading ? (
+        <AnalyticsLoadingState />
       ) : (
         <div className="space-y-5 px-8 py-6">
           <div className="flex flex-wrap items-center justify-between gap-3">

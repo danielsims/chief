@@ -92,7 +92,7 @@ function WorkspaceIndicator() {
   const metadata = org ? parseOrganizationMetadata(org) : {};
 
   return (
-    <div className="mb-5 flex h-5 items-center justify-center gap-2">
+    <div className="mb-5 flex h-7 items-center justify-center gap-2.5">
       {org ? (
         <>
           <OrgLogo
@@ -101,12 +101,12 @@ function WorkspaceIndicator() {
             website={
               typeof metadata.websiteUrl === "string" ? metadata.websiteUrl : ""
             }
-            className="h-5 w-5 text-[11px]"
+            className="h-7 w-7 shrink-0 text-sm"
           />
           <span className="text-xs text-muted-foreground">{org.name}</span>
         </>
       ) : (
-        <span className="h-5" aria-hidden="true" />
+        <span className="h-7" aria-hidden="true" />
       )}
     </div>
   );
