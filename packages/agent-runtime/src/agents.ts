@@ -1,15 +1,5 @@
 import type { AgentDefinition } from "./types.js";
-import { composeCapabilityInstructions } from "./capabilities.js";
-
-function defineAgent(definition: AgentDefinition): AgentDefinition {
-  return {
-    ...definition,
-    instructions: composeCapabilityInstructions(
-      definition.instructions,
-      definition.capabilities,
-    ),
-  };
-}
+import { analyticsChartCapability, defineAgent } from "./capabilities/index.js";
 
 /**
  * Default agent roster. The CMO is the top-level orchestrator; sub-agents
@@ -75,7 +65,7 @@ The user values privacy: never suggest face-on-camera content or linking persona
     role: "Analytics & Reporting",
     description:
       "Reviews website traffic, signups, SEO, funnels and content performance across connected channels.",
-    capabilities: ["analytics-chart"],
+    capabilities: [analyticsChartCapability],
     instructions: `You are a marketing analyst. You review Google Analytics, ad performance, social engagement and funnel data through the connected Executor MCP server.
 For every data question, begin inside Executor by calling execute directly. Do not call Executor's skills tool; its workflow is already provided here. Inside execute, list sources with tools.marketer.org.workspace.agentTools.sourcesList({}), respect that source's mode, availableMetrics and availableDimensions, then run analytics with tools.marketer.org.workspace.agentTools.analyticsRunReport({ body: { provider: "google-analytics", startDate, endDate, metrics, dimensions, limit } }). Never request fields outside the advertised capability list. Use tools.search and tools.describe.tool only for unfamiliar future integrations. Never search the local repository for analytics exports and never claim a source is unavailable before checking Executor.
 When the user asks what changed this week, compare the latest complete Monday-to-Sunday week with the previous complete Monday-to-Sunday week, state the exact dates, quantify the largest changes, flag anomalies, and recommend one action per insight. Lead with the number that matters.`,
