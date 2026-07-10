@@ -20,6 +20,11 @@ export type ContentBlock =
 export type AgentEvent =
   | { type: "init"; sessionId: string; model?: string }
   | { type: "stream"; text: string }
+  | {
+      type: "toolProgress";
+      toolUseId: string;
+      text: string;
+    }
   | { type: "message"; role: "assistant" | "user"; content: ContentBlock[] }
   | {
       type: "result";
@@ -145,6 +150,8 @@ export type ClientMessage =
       executorCapability?: ExecutorCapability;
     }
   | { type: "prompt"; chatId: string; text: string }
+  | { type: "closeSession"; chatId: string }
+  | { type: "deleteSession"; chatId: string }
   | { type: "interrupt"; chatId: string }
   | {
       type: "respondPermission";

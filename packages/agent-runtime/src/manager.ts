@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { AgentSession, type SessionConfig } from "./session.js";
-import type { AgentDefinition } from "./types.js";
+import type { AgentDefinition, AgentEvent } from "./types.js";
 
 const HOME = join(homedir(), ".marketer");
 
@@ -19,6 +19,9 @@ interface PersistedSession {
  */
 export class SessionManager {
   private sessions = new Map<string, AgentSession>();
+  private archivedEvents = new Map<string, AgentEvent[]>();
+  private retainCounts = new Map<string, number>();
+  private released = new Set<string>();
   private persisted: Record<string, PersistedSession> = {};
 
   constructor() {
@@ -58,7 +61,12 @@ export class SessionManager {
       }
     }
 
-    const session = new AgentSession(agent, chatId, config);
+    const session = new AgentSession(
+      agent,
+      chatId,
+      config,
+      this.archivedEvents.get(chatId),
+    );
     this.sessions.set(chatId, session);
 
     session.on("event", (event) => {
@@ -71,7 +79,18 @@ export class SessionManager {
         this.save();
       }
       if (event.type === "exit") {
-        this.sessions.delete(chatId);
+        this.archivedEvents.set(chatId, session.events.slice(-500));
+        if (this.sessions.get(chatId) === session) {
+          this.sessions.delete(chatId);
+        }
+      }
+      if (
+        this.released.has(chatId) &&
+        (event.type === "result" ||
+          event.type === "error" ||
+          (event.type === "status" && event.status === "idle"))
+      ) {
+        void this.stopReleased(chatId);
       }
     });
 
@@ -83,6 +102,42 @@ export class SessionManager {
       prev && prev.driver === config.driver ? prev.sessionId : undefined;
     await session.start(cwd, resume);
     return session;
+  }
+
+  retain(chatId: string) {
+    this.released.delete(chatId);
+    this.retainCounts.set(chatId, (this.retainCounts.get(chatId) ?? 0) + 1);
+  }
+
+  async release(chatId: string) {
+    const next = Math.max(0, (this.retainCounts.get(chatId) ?? 1) - 1);
+    if (next > 0) {
+      this.retainCounts.set(chatId, next);
+      return;
+    }
+    this.retainCounts.delete(chatId);
+    this.released.add(chatId);
+    await this.stopReleased(chatId);
+  }
+
+  private async stopReleased(chatId: string) {
+    const session = this.sessions.get(chatId);
+    if (!session || session.isBusy || !this.released.has(chatId)) return;
+    this.archivedEvents.set(chatId, session.events.slice(-500));
+    this.sessions.delete(chatId);
+    this.released.delete(chatId);
+    await session.stop();
+  }
+
+  async remove(chatId: string) {
+    const session = this.sessions.get(chatId);
+    this.sessions.delete(chatId);
+    this.archivedEvents.delete(chatId);
+    this.retainCounts.delete(chatId);
+    this.released.delete(chatId);
+    delete this.persisted[chatId];
+    this.save();
+    await session?.stop();
   }
 
   async stopAll() {

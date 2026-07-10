@@ -102,15 +102,74 @@ export const connectedSources = internalQuery({
         q.eq("organizationId", args.organizationId),
       )
       .collect();
-    return channels
-      .filter((channel) => channel.status === "connected")
-      .map((channel) => ({
-        provider: channel.provider,
-        category: channel.category ?? "other",
-        name: channel.displayName,
-        id: channel.externalId ?? null,
-        lastSyncedAt: channel.lastSyncAt ?? null,
-      }));
+    return Promise.all(
+      channels
+        .filter((channel) => channel.status === "connected")
+        .map(async (channel) => {
+          const credential = await ctx.db
+            .query("credential")
+            .withIndex("by_organization_provider", (q) =>
+              q
+                .eq("organizationId", args.organizationId)
+                .eq("provider", channel.provider),
+            )
+            .unique();
+          const snapshot = await ctx.db
+            .query("analyticsSnapshot")
+            .withIndex("by_organization_provider", (q) =>
+              q
+                .eq("organizationId", args.organizationId)
+                .eq("provider", channel.provider),
+            )
+            .unique();
+          const live = Boolean(credential);
+          return {
+            provider: channel.provider,
+            category: channel.category ?? "other",
+            name: channel.displayName,
+            id: channel.externalId ?? null,
+            lastSyncedAt: channel.lastSyncAt ?? null,
+            mode: live
+              ? "live"
+              : snapshot
+                ? "cached-snapshot"
+                : "metadata-only",
+            capturedAt: snapshot?.capturedAt ?? null,
+            availableMetrics: live
+              ? [
+                  "activeUsers",
+                  "newUsers",
+                  "sessions",
+                  "engagedSessions",
+                  "screenPageViews",
+                  "eventCount",
+                  "keyEvents",
+                  "totalRevenue",
+                  "userEngagementDuration",
+                ]
+              : snapshot?.series?.length
+                ? ["activeUsers"]
+                : [],
+            availableDimensions: live
+              ? [
+                  "date",
+                  "dateHour",
+                  "country",
+                  "city",
+                  "deviceCategory",
+                  "sessionDefaultChannelGroup",
+                  "sessionSource",
+                  "sessionMedium",
+                  "pagePath",
+                  "pageTitle",
+                  "eventName",
+                ]
+              : snapshot?.series?.length
+                ? ["date"]
+                : [],
+          };
+        }),
+    );
   },
 });
 
@@ -206,8 +265,28 @@ export const openApiSpec = httpAction(async (_ctx, request) => {
             name: { type: "string" },
             id: { type: ["string", "null"] },
             lastSyncedAt: { type: ["number", "null"] },
+            mode: {
+              type: "string",
+              enum: ["live", "cached-snapshot", "metadata-only"],
+            },
+            capturedAt: { type: ["number", "null"] },
+            availableMetrics: { type: "array", items: { type: "string" } },
+            availableDimensions: {
+              type: "array",
+              items: { type: "string" },
+            },
           },
-          required: ["provider", "category", "name", "id", "lastSyncedAt"],
+          required: [
+            "provider",
+            "category",
+            "name",
+            "id",
+            "lastSyncedAt",
+            "mode",
+            "capturedAt",
+            "availableMetrics",
+            "availableDimensions",
+          ],
         },
         AnalyticsReportRequest: {
           type: "object",

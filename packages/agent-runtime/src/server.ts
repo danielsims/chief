@@ -104,6 +104,13 @@ export function startServer(port = PORT) {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
     };
     const subscriptions = new Set<string>();
+    const sessionListeners = new Map<
+      string,
+      {
+        session: Awaited<ReturnType<typeof manager.ensure>>;
+        listener: (event: unknown) => void;
+      }
+    >();
 
     ws.on("message", async (data) => {
       let msg: ClientMessage;
@@ -154,11 +161,12 @@ export function startServer(port = PORT) {
             });
             if (!subscriptions.has(msg.chatId)) {
               subscriptions.add(msg.chatId);
+              manager.retain(msg.chatId);
               const chatId = msg.chatId;
               const listener = (event: unknown) =>
                 send({ type: "event", chatId, event: event as never });
               session.on("event", listener);
-              ws.on("close", () => session.off("event", listener));
+              sessionListeners.set(chatId, { session, listener });
             }
             send({
               type: "sessionOpened",
@@ -174,6 +182,29 @@ export function startServer(port = PORT) {
             });
             break;
           }
+
+          case "closeSession":
+            if (subscriptions.delete(msg.chatId)) {
+              const registered = sessionListeners.get(msg.chatId);
+              if (registered) {
+                registered.session.off("event", registered.listener);
+                sessionListeners.delete(msg.chatId);
+              }
+              await manager.release(msg.chatId);
+            }
+            break;
+
+          case "deleteSession":
+            subscriptions.delete(msg.chatId);
+            {
+              const registered = sessionListeners.get(msg.chatId);
+              if (registered) {
+                registered.session.off("event", registered.listener);
+                sessionListeners.delete(msg.chatId);
+              }
+            }
+            await manager.remove(msg.chatId);
+            break;
 
           case "prompt": {
             const session = manager.get(msg.chatId);
@@ -239,6 +270,16 @@ export function startServer(port = PORT) {
           chatId: "chatId" in msg ? msg.chatId : undefined,
         });
       }
+    });
+
+    ws.on("close", () => {
+      for (const chatId of subscriptions) {
+        const registered = sessionListeners.get(chatId);
+        if (registered) registered.session.off("event", registered.listener);
+        void manager.release(chatId);
+      }
+      sessionListeners.clear();
+      subscriptions.clear();
     });
   });
 

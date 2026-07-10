@@ -38,6 +38,7 @@ function findCodex(): string {
 interface RpcRequest {
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
+  timer: NodeJS.Timeout;
 }
 
 /**
@@ -55,6 +56,7 @@ export class CodexDriver extends BaseDriver {
   private activeToolUseIds = new Set<string>();
   private currentStream = "";
   private opts: StartOptions | null = null;
+  private stopping = false;
 
   async start(opts: StartOptions): Promise<void> {
     this.opts = opts;
@@ -71,15 +73,31 @@ export class CodexDriver extends BaseDriver {
       cwd: opts.cwd,
       env: { ...process.env, CODEX_HOME: codexHome },
       stdio: ["pipe", "pipe", "pipe"],
+      // A process group lets stop() terminate Codex and every MCP child it
+      // spawned. Killing only the wrapper leaks app-server/Executor processes.
+      detached: true,
     });
 
-    this.proc.on("exit", (code) => this.emitEvent({ type: "exit", code }));
+    this.proc.on("exit", (code) => {
+      this.rejectPending("Codex exited");
+      if (!this.stopping && code !== 0) {
+        this.emitEvent({
+          type: "error",
+          message: `Codex exited unexpectedly${code === null ? "." : ` with code ${code}.`}`,
+        });
+      }
+      this.emitEvent({ type: "exit", code });
+      this.emitEvent({ type: "status", status: "idle" });
+    });
     this.proc.on("error", (err) =>
       this.emitEvent({ type: "error", message: err.message }),
     );
     // Codex writes diagnostics to stderr. Always drain it so a full pipe can
     // never stall the app-server while a turn is streaming.
-    this.proc.stderr?.on("data", () => {});
+    this.proc.stderr?.on("data", (chunk) => {
+      const text = String(chunk).trim();
+      if (text) console.error(`[codex] ${text.slice(0, 800)}`);
+    });
 
     const rl = createInterface({ input: this.proc.stdout! });
     rl.on("line", (line) => {
@@ -201,7 +219,10 @@ export class CodexDriver extends BaseDriver {
 
   private readUserCodexSetting(key: string) {
     try {
-      const config = readFileSync(join(homedir(), ".codex", "config.toml"), "utf8");
+      const config = readFileSync(
+        join(homedir(), ".codex", "config.toml"),
+        "utf8",
+      );
       return config.match(new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, "m"))?.[1];
     } catch {
       return undefined;
@@ -220,6 +241,7 @@ export class CodexDriver extends BaseDriver {
       const req = this.pending.get(msg.id);
       if (req) {
         this.pending.delete(msg.id);
+        clearTimeout(req.timer);
         if (msg.error) req.reject(new Error(msg.error.message));
         else req.resolve(msg.result);
       }
@@ -227,6 +249,11 @@ export class CodexDriver extends BaseDriver {
     }
 
     const p = (msg.params ?? {}) as Record<string, any>;
+    const isServerRequest =
+      msg.id !== undefined &&
+      Boolean(msg.method) &&
+      msg.result === undefined &&
+      !msg.error;
 
     // Server -> client approval requests (RPC with id)
     if (
@@ -267,6 +294,32 @@ export class CodexDriver extends BaseDriver {
           }
         }
         break;
+      case "item/commandExecution/outputDelta": {
+        const output =
+          typeof p.output === "string"
+            ? p.output
+            : typeof p.output?.text === "string"
+              ? p.output.text
+              : typeof p.delta === "string"
+                ? p.delta
+                : "";
+        const toolUseId = String(p.itemId ?? p.item?.id ?? p.id ?? "command");
+        if (output) {
+          this.emitEvent({ type: "toolProgress", toolUseId, text: output });
+        }
+        break;
+      }
+      case "item/mcpToolCall/progress": {
+        const text =
+          typeof p.message === "string"
+            ? p.message
+            : typeof p.delta === "string"
+              ? p.delta
+              : "";
+        const toolUseId = String(p.itemId ?? p.item?.id ?? p.id ?? "tool");
+        if (text) this.emitEvent({ type: "toolProgress", toolUseId, text });
+        break;
+      }
       case "item/started": {
         const item = (p.item ?? p) as Record<string, any>;
         const blocks = this.itemStartedToBlocks(item);
@@ -319,6 +372,47 @@ export class CodexDriver extends BaseDriver {
         });
         this.emitEvent({ type: "status", status: "idle" });
         break;
+      case "mcpServer/elicitation/request":
+        if (isServerRequest) {
+          this.write({
+            jsonrpc: "2.0",
+            id: msg.id,
+            result: { action: "accept", content: {} },
+          });
+        }
+        break;
+      case "item/tool/call":
+        // Unknown dynamic tools are client-executed RPC requests. An explicit
+        // response is essential; silently ignoring one leaves the turn hung.
+        if (isServerRequest) {
+          this.write({
+            jsonrpc: "2.0",
+            id: msg.id,
+            result: {
+              success: false,
+              contentItems: [
+                {
+                  type: "inputText",
+                  text: "This client only supports configured MCP tools.",
+                },
+              ],
+            },
+          });
+        }
+        break;
+      case "error":
+      case "codex/event/error": {
+        const error = p.error ?? p.event?.error ?? p.message ?? p;
+        this.emitEvent({
+          type: "error",
+          message:
+            typeof error === "string"
+              ? error
+              : String(error?.message ?? JSON.stringify(error)),
+        });
+        this.emitEvent({ type: "status", status: "idle" });
+        break;
+      }
     }
   }
 
@@ -398,9 +492,9 @@ export class CodexDriver extends BaseDriver {
       case "mcpToolCall":
       case "mcp_tool_call": {
         const id = String(item.id ?? this.rpcId++);
-        const result = item.result ?? item.output ?? item.content;
+        const result = this.extractMcpResult(item);
         this.activeToolUseIds.delete(id);
-        return result === undefined
+        return result === ""
           ? []
           : [
               {
@@ -431,6 +525,26 @@ export class CodexDriver extends BaseDriver {
   }
 
   private itemStartedToBlocks(item: Record<string, any>): ContentBlock[] {
+    if (item.type === "commandExecution" || item.type === "command_execution") {
+      return [
+        {
+          type: "tool_use",
+          id: String(item.id ?? this.rpcId++),
+          name: "bash",
+          input: { command: item.command ?? "" },
+        },
+      ];
+    }
+    if (item.type === "fileChange" || item.type === "file_change") {
+      return [
+        {
+          type: "tool_use",
+          id: String(item.id ?? this.rpcId++),
+          name: "editFile",
+          input: { file: item.filePath ?? item.file ?? "" },
+        },
+      ];
+    }
     if (
       item.type === "mcpToolCall" ||
       item.type === "mcp_tool_call" ||
@@ -452,6 +566,33 @@ export class CodexDriver extends BaseDriver {
       ];
     }
     return [];
+  }
+
+  private extractMcpResult(item: Record<string, any>): string {
+    if (item.error) {
+      return `Error: ${typeof item.error === "string" ? item.error : JSON.stringify(item.error)}`;
+    }
+    const content = item.result?.content;
+    if (Array.isArray(content)) {
+      return content
+        .map((part) =>
+          typeof part === "string"
+            ? part
+            : typeof part?.text === "string"
+              ? part.text
+              : JSON.stringify(part),
+        )
+        .join("\n");
+    }
+    if (item.result?.structuredContent) {
+      return JSON.stringify(item.result.structuredContent, null, 2);
+    }
+    const value = item.result ?? item.output ?? item.content;
+    return value === undefined
+      ? ""
+      : typeof value === "string"
+        ? value
+        : JSON.stringify(value, null, 2);
   }
 
   async sendPrompt(text: string): Promise<void> {
@@ -482,19 +623,48 @@ export class CodexDriver extends BaseDriver {
   }
 
   async stop(): Promise<void> {
-    this.proc?.kill();
+    const proc = this.proc;
+    if (!proc) return;
+    this.stopping = true;
+    this.proc = null;
+    this.rejectPending("Codex stopped");
+    proc.stdin?.end();
+    const pid = proc.pid;
+    if (!pid) return;
+    try {
+      process.kill(-pid, "SIGTERM");
+    } catch {
+      proc.kill("SIGTERM");
+    }
+    const force = setTimeout(() => {
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        proc.kill("SIGKILL");
+      }
+    }, 2_000);
+    force.unref();
   }
 
   private rpc(method: string, params: unknown): Promise<unknown> {
     const id = ++this.rpcId;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.write({ jsonrpc: "2.0", id, method, params });
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         if (this.pending.delete(id))
           reject(new Error(`RPC timeout: ${method}`));
       }, 30_000);
+      timer.unref();
+      this.pending.set(id, { resolve, reject, timer });
+      this.write({ jsonrpc: "2.0", id, method, params });
     });
+  }
+
+  private rejectPending(reason: string) {
+    for (const request of this.pending.values()) {
+      clearTimeout(request.timer);
+      request.reject(new Error(reason));
+    }
+    this.pending.clear();
   }
 
   private notify(method: string, params: unknown) {

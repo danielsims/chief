@@ -25,20 +25,68 @@ export class AgentSession extends EventEmitter {
   sessionId: string | undefined;
   events: AgentEvent[] = [];
   private driver: BaseDriver;
+  private status: "idle" | "running" | "waiting" | "error" = "idle";
+  private stallTimer: NodeJS.Timeout | null = null;
+  private readonly stallTimeoutMs = 90_000;
 
-  constructor(agent: AgentDefinition, chatId: string, config: SessionConfig) {
+  constructor(
+    agent: AgentDefinition,
+    chatId: string,
+    config: SessionConfig,
+    initialEvents: AgentEvent[] = [],
+  ) {
     super();
     this.agent = agent;
     this.chatId = chatId;
     this.config = config;
     this.driver = createDriver(config.driver);
 
+    this.events = initialEvents.slice(-500);
     this.driver.on("event", (event: AgentEvent) => {
       if (event.type === "init") this.sessionId = event.sessionId;
-      this.events.push(event);
-      if (this.events.length > 500) this.events.shift();
-      this.emit("event", event);
+      if (event.type === "status") this.status = event.status;
+      if (
+        event.type === "result" ||
+        event.type === "error" ||
+        event.type === "exit"
+      ) {
+        this.status = event.type === "error" ? "error" : "idle";
+      }
+      this.record(event);
+      if (this.status === "running") this.armStallWatchdog();
+      else this.clearStallWatchdog();
     });
+  }
+
+  get isBusy() {
+    return this.status === "running" || this.status === "waiting";
+  }
+
+  private record(event: AgentEvent) {
+    this.events.push(event);
+    if (this.events.length > 500) this.events.shift();
+    this.emit("event", event);
+  }
+
+  private clearStallWatchdog() {
+    if (this.stallTimer) clearTimeout(this.stallTimer);
+    this.stallTimer = null;
+  }
+
+  private armStallWatchdog() {
+    this.clearStallWatchdog();
+    this.stallTimer = setTimeout(() => {
+      if (!this.isBusy) return;
+      void this.driver.interrupt().catch(() => {});
+      this.status = "idle";
+      this.record({
+        type: "error",
+        message:
+          "The agent stopped after 90 seconds without any new output. You can retry the request.",
+      });
+      this.record({ type: "status", status: "idle" });
+    }, this.stallTimeoutMs);
+    this.stallTimer.unref();
   }
 
   async start(cwd: string, resumeSessionId?: string) {
@@ -62,6 +110,8 @@ export class AgentSession extends EventEmitter {
     };
     this.events.push(event);
     this.emit("event", event);
+    this.status = "running";
+    this.armStallWatchdog();
     return this.driver.sendPrompt(text);
   }
 
@@ -69,7 +119,11 @@ export class AgentSession extends EventEmitter {
     this.driver.respondPermission(requestId, behavior);
     // Record the resolution in the buffer so replayed transcripts don't
     // resurrect an approval prompt that was already answered.
-    const event: AgentEvent = { type: "permissionResolved", requestId, behavior };
+    const event: AgentEvent = {
+      type: "permissionResolved",
+      requestId,
+      behavior,
+    };
     this.events.push(event);
     this.emit("event", event);
   }
@@ -79,6 +133,7 @@ export class AgentSession extends EventEmitter {
   }
 
   async stop() {
+    this.clearStallWatchdog();
     await this.driver.stop();
     this.removeAllListeners();
   }
