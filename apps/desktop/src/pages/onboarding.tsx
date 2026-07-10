@@ -14,6 +14,7 @@ import {
 import { Button } from "@marketer/ui/components/button";
 import { Input } from "@marketer/ui/components/input";
 import { PrefixedInput } from "@marketer/ui/components/prefixed-input";
+import { SuccessCheck } from "@marketer/ui/components/success-check";
 import { cn } from "@marketer/ui/lib/utils";
 import { Claude, OpenAI, Vercel } from "@lobehub/icons";
 import {
@@ -2126,18 +2127,21 @@ function CompletionControl({
   return (
     <div className="flex min-h-[480px] w-full items-center justify-center border bg-card px-6 py-14">
       <div className="flex max-w-sm flex-col items-center text-center">
-        <h2 className="font-serif text-4xl leading-none">You're in.</h2>
-        <p className="mt-4 text-sm leading-6 text-muted-foreground">
-          Your workspace is ready. Your agents have what they need to begin.
-        </p>
-        <Button
-          type="button"
-          className="mt-9"
-          onClick={onContinue}
-          disabled={saving}
-        >
-          {saving ? "Saving..." : "Go to dashboard"}
-        </Button>
+        <SuccessCheck className="mb-8" />
+        <div className="success-copy flex flex-col items-center">
+          <h2 className="font-serif text-4xl leading-none">You're in.</h2>
+          <p className="mt-4 text-sm leading-6 text-muted-foreground">
+            Your workspace is ready. Your agents have what they need to begin.
+          </p>
+          <Button
+            type="button"
+            className="mt-9"
+            onClick={onContinue}
+            disabled={saving}
+          >
+            {saving ? "Saving..." : "Go to dashboard"}
+          </Button>
+        </div>
       </div>
     </div>
   );

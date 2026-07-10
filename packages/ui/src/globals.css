@@ -136,6 +136,51 @@
   }
 }
 
+/* Earned completion moment: the ring draws, the check lands, the copy
+   settles in after. Motion is reserved for this focal state. */
+@keyframes success-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes success-settle {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.success-ring {
+  animation: success-draw 0.6s cubic-bezier(0.65, 0, 0.35, 1) 0.15s forwards;
+}
+
+.success-check {
+  animation: success-draw 0.35s cubic-bezier(0.65, 0, 0.35, 1) 0.7s forwards;
+}
+
+.success-copy {
+  opacity: 0;
+  animation: success-settle 0.5s cubic-bezier(0.4, 0, 0.2, 1) 0.85s forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .success-ring,
+  .success-check {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .success-copy {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
 @layer base {
   /* Tailwind v4 resets buttons to cursor: default; interactive elements
      should read as clickable. */
