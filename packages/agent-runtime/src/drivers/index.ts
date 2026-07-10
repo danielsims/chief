@@ -1,6 +1,7 @@
 import { BaseDriver } from "./base.js";
 import { ClaudeDriver } from "./claude.js";
 import { CodexDriver } from "./codex.js";
+import { OpenCodeDriver } from "./opencode.js";
 import type { DriverType } from "../types.js";
 
 /**
@@ -15,6 +16,7 @@ import type { DriverType } from "../types.js";
 const registry: Record<DriverType, new () => BaseDriver> = {
   claude: ClaudeDriver,
   codex: CodexDriver,
+  opencode: OpenCodeDriver,
 };
 
 export function createDriver(type: DriverType): BaseDriver {
@@ -23,4 +25,4 @@ export function createDriver(type: DriverType): BaseDriver {
   return new Driver();
 }
 
-export { BaseDriver, ClaudeDriver, CodexDriver };
+export { BaseDriver, ClaudeDriver, CodexDriver, OpenCodeDriver };

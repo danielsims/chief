@@ -90,9 +90,59 @@ export type AgentEvent =
 
 export type AgentStatus = "idle" | "running" | "waiting" | "error";
 
-export type DriverType = "claude" | "codex";
+export type DriverType = "claude" | "codex" | "opencode";
 
-export type AgentCapabilityId = "analytics-chart";
+export interface ProviderModelOption {
+  value: string;
+  label: string;
+}
+
+export interface ProspectRecord {
+  id: string;
+  name: string;
+  company?: string;
+  source: string;
+  sourceUrl?: string;
+  summary: string;
+  relevance: "high" | "medium" | "low";
+  status: "new" | "researching" | "contacted" | "dismissed";
+  foundAt: number;
+}
+
+export interface TrendRecord {
+  id: string;
+  title: string;
+  source: string;
+  sourceUrl?: string;
+  summary: string;
+  signal: "high" | "medium" | "low";
+  status: "new" | "watching" | "acted" | "dismissed";
+  foundAt: number;
+}
+
+export interface ContentDraftRecord {
+  id: string;
+  agentId: string;
+  title: string;
+  body: string;
+  platform: string;
+  status: "draft" | "approved" | "scheduled" | "published";
+  scheduledFor?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AgentPreference {
+  agentId: string;
+  enabled: boolean;
+  driver?: DriverType;
+  model?: string;
+  capabilities?: AgentCapabilityId[];
+  integrations?: string[];
+}
+
+export type AgentCapabilityId =
+  "analytics-chart" | "prospect-memory" | "trend-memory" | "content-calendar";
 
 /**
  * How much the session may do without asking. "guarded" routes mutating tool
@@ -129,6 +179,8 @@ export interface AgentDefinition {
   description: string;
   /** System prompt appended to the driver's base prompt. */
   instructions: string;
+  /** Uncomposed persona used when workspace capability assignments change. */
+  baseInstructions?: string;
   /** Optional, composable tool + UI behaviors available to this agent. */
   capabilities?: AgentCapabilityId[];
   /** The CMO orchestrator can delegate to these agent ids. */
@@ -176,6 +228,22 @@ export interface InputRequest {
 
 export type ClientMessage =
   | { type: "listAgents" }
+  | { type: "listChats"; workspaceId: string }
+  | { type: "listModels"; driver: DriverType }
+  | { type: "listWorkspaceData"; workspaceId: string }
+  | { type: "listAgentPreferences"; workspaceId: string }
+  | {
+      type: "saveAgentPreference";
+      workspaceId: string;
+      preference: AgentPreference;
+    }
+  | {
+      type: "setChatPreferences";
+      workspaceId: string;
+      chatId: string;
+      driver: DriverType;
+      model?: string;
+    }
   | {
       type: "openSession";
       agentId: string;
@@ -184,6 +252,9 @@ export type ClientMessage =
       /** Resolved by the client: per-chat choice > per-agent override > workspace provider. Never defaulted by the runtime. */
       driver: DriverType;
       model?: string;
+      capabilities?: AgentCapabilityId[];
+      /** Connected integration ids assigned to this agent. */
+      integrations?: string[];
       /** Defaults to "guarded" (approval policy applies). */
       access?: AccessMode;
       /** Better Auth organization id used to isolate Executor's workspace. */
@@ -193,7 +264,7 @@ export type ClientMessage =
     }
   | { type: "prompt"; chatId: string; text: string }
   | { type: "closeSession"; chatId: string }
-  | { type: "deleteSession"; chatId: string }
+  | { type: "deleteSession"; chatId: string; workspaceId?: string }
   | { type: "interrupt"; chatId: string }
   | {
       type: "respondPermission";
@@ -223,6 +294,32 @@ export type ClientMessage =
 
 export type ServerMessage =
   | { type: "agents"; agents: AgentDefinition[] }
+  | { type: "models"; driver: DriverType; models: ProviderModelOption[] }
+  | {
+      type: "workspaceData";
+      workspaceId: string;
+      prospects: ProspectRecord[];
+      trends: TrendRecord[];
+      drafts: ContentDraftRecord[];
+    }
+  | {
+      type: "agentPreferences";
+      workspaceId: string;
+      preferences: AgentPreference[];
+    }
+  | {
+      type: "chats";
+      workspaceId: string;
+      chats: Array<{
+        id: string;
+        agentId: string;
+        title: string;
+        lastText: string;
+        lastAt: number;
+        driver?: DriverType;
+        model?: string;
+      }>;
+    }
   | { type: "sessionOpened"; chatId: string; agentId: string }
   | { type: "event"; chatId: string; event: AgentEvent }
   /** Buffered transcript replayed on (re)open so clients resume mid-run. */

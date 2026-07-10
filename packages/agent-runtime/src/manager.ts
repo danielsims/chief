@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { AgentSession, type SessionConfig } from "./session.js";
 import type { AgentDefinition, AgentEvent } from "./types.js";
+import { LocalStore } from "./local-store.js";
 
 const HOME = join(homedir(), ".marketer");
 
@@ -22,7 +23,9 @@ export class SessionManager {
   private archivedEvents = new Map<string, AgentEvent[]>();
   private retainCounts = new Map<string, number>();
   private released = new Set<string>();
+  private persistence = new Map<string, Promise<void>>();
   private persisted: Record<string, PersistedSession> = {};
+  private readonly store = new LocalStore();
 
   constructor() {
     mkdirSync(HOME, { recursive: true });
@@ -51,6 +54,9 @@ export class SessionManager {
       if (
         existing.config.driver !== config.driver ||
         existing.config.access !== config.access ||
+        existing.config.workspaceId !== config.workspaceId ||
+        existing.config.model !== config.model ||
+        existing.agent.instructions !== agent.instructions ||
         JSON.stringify(existing.config.mcpServers ?? []) !==
           JSON.stringify(config.mcpServers ?? [])
       ) {
@@ -61,12 +67,9 @@ export class SessionManager {
       }
     }
 
-    const session = new AgentSession(
-      agent,
-      chatId,
-      config,
-      this.archivedEvents.get(chatId),
-    );
+    const storedEvents =
+      this.archivedEvents.get(chatId) ?? (await this.store.transcript(chatId));
+    const session = new AgentSession(agent, chatId, config, storedEvents);
     this.sessions.set(chatId, session);
 
     session.on("event", (event) => {
@@ -83,6 +86,28 @@ export class SessionManager {
         if (this.sessions.get(chatId) === session) {
           this.sessions.delete(chatId);
         }
+      }
+      if (
+        event.type === "message" ||
+        event.type === "result" ||
+        event.type === "error" ||
+        event.type === "permissionResolved"
+      ) {
+        const persistence = (this.persistence.get(chatId) ?? Promise.resolve())
+          .then(() =>
+            this.store.saveTranscript(
+              {
+                id: chatId,
+                workspaceId: config.workspaceId,
+                agentId: agent.id,
+                driver: config.driver,
+                model: config.model,
+              },
+              session.events,
+            ),
+          )
+          .catch((error) => console.error("[local-store] transcript:", error));
+        this.persistence.set(chatId, persistence);
       }
       if (
         this.released.has(chatId) &&
@@ -106,6 +131,7 @@ export class SessionManager {
 
   retain(chatId: string) {
     this.released.delete(chatId);
+    this.persistence.delete(chatId);
     this.retainCounts.set(chatId, (this.retainCounts.get(chatId) ?? 0) + 1);
   }
 
@@ -136,13 +162,75 @@ export class SessionManager {
     this.retainCounts.delete(chatId);
     this.released.delete(chatId);
     delete this.persisted[chatId];
+    await this.store.deleteChat(chatId);
     this.save();
     await session?.stop();
   }
 
+  listChats(workspaceId: string) {
+    return this.store.listChats(workspaceId);
+  }
+
+  waitForChatPersistence(chatId: string) {
+    return this.persistence.get(chatId) ?? Promise.resolve();
+  }
+
+  updateChatPreferences(
+    workspaceId: string,
+    chatId: string,
+    driver: import("./types.js").DriverType,
+    model?: string,
+  ) {
+    return this.store.updateChatPreferences(workspaceId, chatId, driver, model);
+  }
+
+  async workspaceData(workspaceId: string) {
+    const [prospects, trends, drafts] = await Promise.all([
+      this.store.listProspects(workspaceId),
+      this.store.listTrends(workspaceId),
+      this.store.listDrafts(workspaceId),
+    ]);
+    return {
+      prospects,
+      trends,
+      drafts,
+    };
+  }
+
+  saveProspect(
+    workspaceId: string,
+    prospect: import("./types.js").ProspectRecord,
+  ) {
+    return this.store.saveProspect(workspaceId, prospect);
+  }
+
+  saveTrend(workspaceId: string, trend: import("./types.js").TrendRecord) {
+    return this.store.saveTrend(workspaceId, trend);
+  }
+
+  saveDraft(
+    workspaceId: string,
+    draft: import("./types.js").ContentDraftRecord,
+  ) {
+    return this.store.saveDraft(workspaceId, draft);
+  }
+
+  listAgentPreferences(workspaceId: string) {
+    return this.store.listAgentPreferences(workspaceId);
+  }
+
+  saveAgentPreference(
+    workspaceId: string,
+    preference: import("./types.js").AgentPreference,
+  ) {
+    return this.store.saveAgentPreference(workspaceId, preference);
+  }
+
   async stopAll() {
     await Promise.all([...this.sessions.values()].map((s) => s.stop()));
+    await Promise.all(this.persistence.values());
     this.sessions.clear();
+    await this.store.close();
   }
 
   private save() {

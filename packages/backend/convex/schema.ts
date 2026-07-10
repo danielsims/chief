@@ -2,10 +2,9 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 /**
- * Cloud state for durable/remote features: agent definitions, chat history
- * mirrors, schedules, connected channels and content drafts. The local
- * runtime remains the execution engine; Convex is the sync + durability
- * layer so agents are reachable when you're away from the machine.
+ * Cloud state for identity, billing, and shared integration connections.
+ * Private agent configuration, conversations, prospects, trends, drafts,
+ * and schedules live in the encrypted local libSQL database instead.
  *
  * There is no workspace table: a "workspace" IS the better-auth organization
  * (owned by the betterAuth component on this deployment). Rows carry
@@ -14,31 +13,6 @@ import { v } from "convex/values";
  * concept.
  */
 export default defineSchema({
-  /**
-   * Per-workspace overrides layered on top of the default agent registry
-   * (packages/agent-runtime defaultAgents). Every field except the key is
-   * optional: absent means "use the registry default".
-   */
-  agent: defineTable({
-    organizationId: v.string(),
-    agentKey: v.string(), // stable id, e.g. "cmo"
-    name: v.optional(v.string()),
-    role: v.optional(v.string()),
-    description: v.optional(v.string()),
-    instructions: v.optional(v.string()),
-    driver: v.optional(
-      v.union(v.literal("claude"), v.literal("codex"), v.literal("vercel")),
-    ),
-    model: v.optional(v.string()),
-    delegates: v.optional(v.array(v.string())),
-    enabled: v.optional(v.boolean()),
-    /** Deployed Vercel-style agent endpoint (driver = "vercel"). */
-    vercelUrl: v.optional(v.string()),
-    vercelKey: v.optional(v.string()),
-  })
-    .index("by_organization", ["organizationId"])
-    .index("by_organization_key", ["organizationId", "agentKey"]),
-
   /**
    * Social presence for a workspace. No OAuth: agents only draft and read
    * public pages, so a handle + canonical URL is all we store.
@@ -58,37 +32,6 @@ export default defineSchema({
   })
     .index("by_organization", ["organizationId"])
     .index("by_organization_platform", ["organizationId", "platform"]),
-
-  chat: defineTable({
-    organizationId: v.string(),
-    agentKey: v.string(),
-    title: v.optional(v.string()),
-    /** Backend-native session id (claude session / codex thread) for resume. */
-    runtimeSessionId: v.optional(v.string()),
-    lastMessageAt: v.number(),
-  }).index("by_organization_agent", [
-    "organizationId",
-    "agentKey",
-    "lastMessageAt",
-  ]),
-
-  message: defineTable({
-    chatId: v.id("chat"),
-    role: v.union(v.literal("user"), v.literal("assistant")),
-    /** Normalized ContentBlock[] from the runtime, stored as JSON. */
-    content: v.string(),
-    costUsd: v.optional(v.number()),
-  }).index("by_chat", ["chatId"]),
-
-  schedule: defineTable({
-    organizationId: v.string(),
-    agentKey: v.string(),
-    /** Natural-language description of the job, given to the agent as prompt. */
-    prompt: v.string(),
-    cron: v.string(),
-    enabled: v.boolean(),
-    lastRunAt: v.optional(v.number()),
-  }).index("by_organization", ["organizationId"]),
 
   channel: defineTable({
     organizationId: v.string(),
@@ -195,22 +138,6 @@ export default defineSchema({
   })
     .index("by_organization", ["organizationId"])
     .index("by_token_hash", ["tokenHash"]),
-
-  draft: defineTable({
-    organizationId: v.string(),
-    agentKey: v.string(),
-    kind: v.union(v.literal("text"), v.literal("image"), v.literal("video")),
-    platform: v.string(),
-    title: v.string(),
-    body: v.string(),
-    status: v.union(
-      v.literal("draft"),
-      v.literal("approved"),
-      v.literal("scheduled"),
-      v.literal("published"),
-    ),
-    scheduledFor: v.optional(v.number()),
-  }).index("by_organization_status", ["organizationId", "status"]),
 
   /**
    * Stripe billing state, scoped to the better-auth organization. The row is

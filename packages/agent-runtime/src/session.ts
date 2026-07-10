@@ -14,6 +14,7 @@ import type {
 export interface SessionConfig {
   driver: DriverType;
   access: AccessMode;
+  workspaceId: string;
   model?: string;
   mcpServers?: McpServerSpec[];
 }

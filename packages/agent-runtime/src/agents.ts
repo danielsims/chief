@@ -1,5 +1,11 @@
 import type { AgentDefinition } from "./types.js";
-import { analyticsChartCapability, defineAgent } from "./capabilities/index.js";
+import {
+  analyticsChartCapability,
+  contentCalendarCapability,
+  defineAgent,
+  prospectMemoryCapability,
+  trendMemoryCapability,
+} from "./capabilities/index.js";
 
 /**
  * Default agent roster. The CMO is the top-level orchestrator; sub-agents
@@ -7,19 +13,24 @@ import { analyticsChartCapability, defineAgent } from "./capabilities/index.js";
  * once workspaces exist — keep it data, not code.
  */
 export const defaultAgents: AgentDefinition[] = [
-  {
+  defineAgent({
     id: "cmo",
     name: "CMO",
     role: "Chief Marketing Officer",
     description:
       "Top-level orchestrator. Owns strategy, delegates to specialist agents, answers anything about your marketing.",
     delegates: ["content", "analyst", "prospector", "ads"],
+    capabilities: [
+      prospectMemoryCapability,
+      trendMemoryCapability,
+      contentCalendarCapability,
+    ],
     instructions: `You are the user's Chief Marketing Officer: a sharp, pragmatic marketing operator.
 You orchestrate a team of specialist agents (content writer, analyst, prospector, ads manager).
 Connected marketing integrations are exposed through the Executor MCP server. Its execute workflow is already known: call execute directly, use tools.search or the exact known path inside that one sandbox run, describe only unfamiliar tools, then call them. Do not call Executor's skills tool. Never decide an integration is unavailable by scanning the local repository or terminal.
 Be direct and concise. Push for shipping over polishing. When asked for strategy, give a recommendation, not a survey.
 When work belongs to a specialist (drafting a post, pulling analytics), do it yourself if quick, otherwise note it should be delegated.`,
-  },
+  }),
   {
     id: "setup",
     name: "Setup",
@@ -49,16 +60,17 @@ When a connection is verified, end your final message with exactly one line of t
 MARKETER_SETUP_RESULT {"provider":"<provider-id>","status":"connected",...provider-specific fields}
 Use the provider id the task specifies (default: the integration's domain) and include any identifiers reporting will need later, such as account or property ids. This line is machine-read; keep it valid single-line JSON.`,
   },
-  {
+  defineAgent({
     id: "content",
     name: "Content Writer",
     role: "Content & Social",
     description:
       "Drafts text, image and video post concepts for TikTok, X, Instagram, LinkedIn and Reddit.",
+    capabilities: [contentCalendarCapability],
     instructions: `You are a senior social content writer. You draft platform-native posts (text, image concepts, video scripts) for TikTok, X, Instagram, LinkedIn, Reddit.
 You know each platform's tone, formats and constraints. No hashtag spam, no engagement-bait clichés. Never use em dashes.
 The user values privacy: never suggest face-on-camera content or linking personal accounts to brand accounts.`,
-  },
+  }),
   defineAgent({
     id: "analyst",
     name: "Analyst",
@@ -70,15 +82,16 @@ The user values privacy: never suggest face-on-camera content or linking persona
 For every data question, begin inside Executor by calling execute directly. Do not call Executor's skills tool; its workflow is already provided here. Inside execute, list sources with tools.marketer.org.workspace.agentTools.sourcesList({}), respect that source's mode, availableMetrics and availableDimensions, then run analytics with tools.marketer.org.workspace.agentTools.analyticsRunReport({ body: { provider: "google-analytics", startDate, endDate, metrics, dimensions, limit } }). Never request fields outside the advertised capability list. Use tools.search and tools.describe.tool only for unfamiliar future integrations. Never search the local repository for analytics exports and never claim a source is unavailable before checking Executor.
 When the user asks what changed this week, compare the latest complete Monday-to-Sunday week with the previous complete Monday-to-Sunday week, state the exact dates, quantify the largest changes, flag anomalies, and recommend one action per insight. Lead with the number that matters.`,
   }),
-  {
+  defineAgent({
     id: "prospector",
     name: "Prospector",
     role: "Prospecting & Trends",
     description:
       "Finds new prospects and trending conversations worth joining across Twitter, Reddit and other channels.",
+    capabilities: [prospectMemoryCapability, trendMemoryCapability],
     instructions: `You find prospects and trending conversations relevant to the user's product.
 Surface threads/posts worth engaging with, with a suggested reply angle. Rank by relevance and recency. Be honest when a trend is noise.`,
-  },
+  }),
   {
     id: "ads",
     name: "Ads Manager",

@@ -10,7 +10,9 @@ import { executorBinary } from "./spec.js";
 
 const execFileAsync = promisify(execFile);
 const MARKETER_INTEGRATION = "marketer";
+const LOCAL_INTEGRATION = "marketer-local";
 const CONNECTION_NAME = "workspace";
+const LOCAL_CONNECTION_NAME = "local-workspace";
 
 interface ServerManifest {
   connection: {
@@ -186,25 +188,70 @@ async function configureIntegration(
   }
 }
 
-async function replaceConnection(
+async function configureLocalIntegration(
   manifest: ServerManifest,
   capability: ExecutorCapability,
 ) {
+  const specUrl = "http://127.0.0.1:4318/local-tools/openapi.json";
+  const baseUrl = "http://127.0.0.1:4318";
+  const integrations = await request<Integration[]>(manifest, "/integrations");
+  const exists = integrations.some(
+    (integration) => integration.slug === LOCAL_INTEGRATION,
+  );
+  if (exists) {
+    await request(manifest, `/openapi/integrations/${LOCAL_INTEGRATION}/spec`, {
+      method: "POST",
+      body: JSON.stringify({ spec: { kind: "url", url: specUrl } }),
+    });
+    await request(
+      manifest,
+      `/openapi/integrations/${LOCAL_INTEGRATION}/config`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          mode: "replace",
+          authenticationTemplate: bearerAuthentication,
+          baseUrl,
+        }),
+      },
+    );
+  } else {
+    await request(manifest, "/openapi/specs", {
+      method: "POST",
+      body: JSON.stringify({
+        spec: { kind: "url", url: specUrl },
+        slug: LOCAL_INTEGRATION,
+        name: "Marketer local workspace",
+        description: "Private prospects, trends and content on this Mac.",
+        family: "marketer",
+        baseUrl,
+        authenticationTemplate: bearerAuthentication,
+      }),
+    });
+  }
+}
+
+async function replaceConnection(
+  manifest: ServerManifest,
+  capability: ExecutorCapability,
+  integration = MARKETER_INTEGRATION,
+  connectionName = CONNECTION_NAME,
+) {
   const connections = await request<Connection[]>(
     manifest,
-    `/connections?integration=${MARKETER_INTEGRATION}&owner=org`,
+    `/connections?integration=${integration}&owner=org`,
   );
   if (
     connections.some(
       (connection) =>
-        connection.integration === MARKETER_INTEGRATION &&
+        connection.integration === integration &&
         connection.owner === "org" &&
-        connection.name === CONNECTION_NAME,
+        connection.name === connectionName,
     )
   ) {
     await request(
       manifest,
-      `/connections/org/${MARKETER_INTEGRATION}/${CONNECTION_NAME}`,
+      `/connections/org/${integration}/${connectionName}`,
       { method: "DELETE" },
     );
   }
@@ -213,8 +260,8 @@ async function replaceConnection(
     method: "POST",
     body: JSON.stringify({
       owner: "org",
-      name: CONNECTION_NAME,
-      integration: MARKETER_INTEGRATION,
+      name: connectionName,
+      integration,
       template: "workspace",
       value: capability.token,
       identityLabel: "Current Marketer workspace",
@@ -223,16 +270,28 @@ async function replaceConnection(
 }
 
 async function approveReadTools(manifest: ServerManifest) {
-  const tools = await request<Tool[]>(
-    manifest,
-    `/tools?integration=${MARKETER_INTEGRATION}&owner=org&connection=${CONNECTION_NAME}&includeAnnotations=true`,
-  );
+  const [cloudTools, localTools] = await Promise.all([
+    request<Tool[]>(
+      manifest,
+      `/tools?integration=${MARKETER_INTEGRATION}&owner=org&connection=${CONNECTION_NAME}&includeAnnotations=true`,
+    ),
+    request<Tool[]>(
+      manifest,
+      `/tools?integration=${LOCAL_INTEGRATION}&owner=org&connection=${LOCAL_CONNECTION_NAME}&includeAnnotations=true`,
+    ),
+  ]);
   const policies = await request<Policy[]>(manifest, "/policies");
-  const readTools = tools.filter((tool) =>
+  const readTools = [...cloudTools, ...localTools].filter((tool) =>
     [
       "agentTools.sourcesList",
       "agentTools.analyticsRunReport",
       "agentTools.uiPresentChart",
+      "localTools.prospectsList",
+      "localTools.prospectsSave",
+      "localTools.trendsList",
+      "localTools.trendsSave",
+      "localTools.contentList",
+      "localTools.contentSave",
     ].includes(tool.name),
   );
 
@@ -275,7 +334,14 @@ async function provision(
   );
   const manifest = await waitForManifest(workspace.dataDir);
   await configureIntegration(manifest, capability);
+  await configureLocalIntegration(manifest, capability);
   await replaceConnection(manifest, capability);
+  await replaceConnection(
+    manifest,
+    capability,
+    LOCAL_INTEGRATION,
+    LOCAL_CONNECTION_NAME,
+  );
   await approveReadTools(manifest);
   return workspace;
 }

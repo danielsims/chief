@@ -10,17 +10,12 @@ import type { TableNames } from "./_generated/dataModel";
  */
 
 const APP_TABLES: TableNames[] = [
-  "agent",
   "socialAccount",
-  "chat",
-  "message",
-  "schedule",
   "channel",
   "analyticsSnapshot",
   "oauthState",
   "credential",
   "agentCapability",
-  "draft",
   "subscription",
   "stripeWebhookEvent",
 ];

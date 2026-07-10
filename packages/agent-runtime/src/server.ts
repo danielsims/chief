@@ -7,6 +7,12 @@ import { SessionManager } from "./manager.js";
 import { defaultAgents, getAgent } from "./agents.js";
 import { ensureExecutorWorkspace } from "./tools/control-plane.js";
 import { executorToolServer } from "./tools/spec.js";
+import { listModels } from "./models.js";
+import { handleLocalTool, localToolsOpenApi } from "./local-tools.js";
+import {
+  availableCapabilities,
+  composeAgentCapabilities,
+} from "./capabilities/index.js";
 import type { ClientMessage, InputRequest, ServerMessage } from "./types.js";
 
 const SECRETS_ENV_PATH = join(homedir(), ".marketer", "secrets.env");
@@ -75,15 +81,53 @@ const PORT = Number(process.env.MARKETER_RUNTIME_PORT ?? 4318);
  */
 export function startServer(port = PORT) {
   const manager = new SessionManager();
+  const localCapabilities = new Map<string, string>();
+  let broadcastWorkspaceData = async (_workspaceId: string) => {};
   // Bind both loopback families — macOS clients resolving "localhost" may
   // dial ::1 or 127.0.0.1. Never bind non-loopback interfaces here.
-  const handler = (
+  const handler = async (
     req: import("node:http").IncomingMessage,
     res: import("node:http").ServerResponse,
   ) => {
-    console.log(
-      `[diag] http ${req.method} ${req.url} from ${req.socket.remoteAddress}`,
-    );
+    const path = req.url
+      ? new URL(req.url, `http://127.0.0.1:${port}`).pathname
+      : "/";
+    if (req.method === "GET" && path === "/local-tools/openapi.json") {
+      res.writeHead(200, {
+        "content-type": "application/json",
+        "cache-control": "no-store",
+      });
+      res.end(JSON.stringify(localToolsOpenApi(`http://127.0.0.1:${port}`)));
+      return;
+    }
+    if (path.startsWith("/local-tools/")) {
+      const authorization = req.headers.authorization ?? "";
+      const token = authorization.match(/^Bearer (.+)$/)?.[1];
+      const workspaceId = token ? localCapabilities.get(token) : undefined;
+      if (!workspaceId) {
+        res.writeHead(401, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "Unauthorized" }));
+        return;
+      }
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      const request = new Request(`http://127.0.0.1:${port}${req.url}`, {
+        method: req.method,
+        headers: Object.fromEntries(
+          Object.entries(req.headers).flatMap(([key, value]) =>
+            typeof value === "string" ? [[key, value]] : [],
+          ),
+        ),
+        ...(chunks.length > 0 ? { body: Buffer.concat(chunks) } : {}),
+      });
+      const response = await handleLocalTool(request, workspaceId, manager);
+      res.writeHead(response.status, Object.fromEntries(response.headers));
+      res.end(await response.text());
+      if (req.method === "POST" && response.ok) {
+        void broadcastWorkspaceData(workspaceId);
+      }
+      return;
+    }
     res.writeHead(204, { "access-control-allow-origin": "*" });
     res.end();
   };
@@ -96,6 +140,17 @@ export function startServer(port = PORT) {
   http6.on("error", () => {});
   wss6.on("connection", (ws, req) => wss.emit("connection", ws, req));
   wss6.on("error", () => {});
+  broadcastWorkspaceData = async (workspaceId) => {
+    const data = await manager.workspaceData(workspaceId);
+    const message = JSON.stringify({
+      type: "workspaceData",
+      workspaceId,
+      ...data,
+    });
+    for (const client of new Set([...wss.clients, ...wss6.clients])) {
+      if (client.readyState === WebSocket.OPEN) client.send(message);
+    }
+  };
 
   wss.on("connection", (ws, req) => {
     console.log(`[marketer] client connected (${req.socket.remoteAddress})`);
@@ -126,6 +181,61 @@ export function startServer(port = PORT) {
             send({ type: "agents", agents: defaultAgents });
             break;
 
+          case "listModels":
+            send({
+              type: "models",
+              driver: msg.driver,
+              models: await listModels(msg.driver),
+            });
+            break;
+
+          case "listWorkspaceData":
+            send({
+              type: "workspaceData",
+              workspaceId: msg.workspaceId,
+              ...(await manager.workspaceData(msg.workspaceId)),
+            });
+            break;
+
+          case "listAgentPreferences":
+            send({
+              type: "agentPreferences",
+              workspaceId: msg.workspaceId,
+              preferences: await manager.listAgentPreferences(msg.workspaceId),
+            });
+            break;
+
+          case "saveAgentPreference":
+            await manager.saveAgentPreference(msg.workspaceId, msg.preference);
+            send({
+              type: "agentPreferences",
+              workspaceId: msg.workspaceId,
+              preferences: await manager.listAgentPreferences(msg.workspaceId),
+            });
+            break;
+
+          case "setChatPreferences":
+            await manager.updateChatPreferences(
+              msg.workspaceId,
+              msg.chatId,
+              msg.driver,
+              msg.model,
+            );
+            send({
+              type: "chats",
+              workspaceId: msg.workspaceId,
+              chats: await manager.listChats(msg.workspaceId),
+            });
+            break;
+
+          case "listChats":
+            send({
+              type: "chats",
+              workspaceId: msg.workspaceId,
+              chats: await manager.listChats(msg.workspaceId),
+            });
+            break;
+
           case "openSession": {
             const agent = getAgent(msg.agentId);
             if (!agent) {
@@ -144,6 +254,12 @@ export function startServer(port = PORT) {
                 chatId: msg.chatId,
               });
             }
+            if (msg.workspaceId && msg.executorCapability) {
+              localCapabilities.set(
+                msg.executorCapability.token,
+                msg.workspaceId,
+              );
+            }
             const executorWorkspace =
               agent.id !== "setup" && msg.workspaceId && msg.executorCapability
                 ? await ensureExecutorWorkspace(
@@ -151,9 +267,25 @@ export function startServer(port = PORT) {
                     msg.executorCapability,
                   )
                 : null;
-            const session = await manager.ensure(agent, msg.chatId, {
+            const capableAgent = msg.capabilities
+              ? composeAgentCapabilities(
+                  agent,
+                  availableCapabilities.filter((capability) =>
+                    msg.capabilities!.includes(capability.id),
+                  ),
+                )
+              : agent;
+            const effectiveAgent =
+              msg.integrations !== undefined
+                ? {
+                    ...capableAgent,
+                    instructions: `${capableAgent.instructions}\n\nAssigned integrations: ${msg.integrations.length > 0 ? msg.integrations.join(", ") : "none"}. Only search for and call integration tools from this assigned set.`,
+                  }
+                : capableAgent;
+            const session = await manager.ensure(effectiveAgent, msg.chatId, {
               driver: msg.driver,
               access: msg.access ?? "guarded",
+              workspaceId: msg.workspaceId ?? "local",
               model: msg.model,
               mcpServers: executorWorkspace
                 ? [executorToolServer(executorWorkspace)]
@@ -163,8 +295,22 @@ export function startServer(port = PORT) {
               subscriptions.add(msg.chatId);
               manager.retain(msg.chatId);
               const chatId = msg.chatId;
-              const listener = (event: unknown) =>
-                send({ type: "event", chatId, event: event as never });
+              const listener = async (event: unknown) => {
+                const agentEvent = event as import("./types.js").AgentEvent;
+                send({ type: "event", chatId, event: agentEvent });
+                if (
+                  agentEvent.type === "message" &&
+                  agentEvent.role === "user" &&
+                  msg.workspaceId
+                ) {
+                  await manager.waitForChatPersistence(chatId);
+                  send({
+                    type: "chats",
+                    workspaceId: msg.workspaceId,
+                    chats: await manager.listChats(msg.workspaceId),
+                  });
+                }
+              };
               session.on("event", listener);
               sessionListeners.set(chatId, { session, listener });
             }
@@ -204,6 +350,13 @@ export function startServer(port = PORT) {
               }
             }
             await manager.remove(msg.chatId);
+            if (msg.workspaceId) {
+              send({
+                type: "chats",
+                workspaceId: msg.workspaceId,
+                chats: await manager.listChats(msg.workspaceId),
+              });
+            }
             break;
 
           case "prompt": {

@@ -11,19 +11,23 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.5",
+    "@libsql/client": "0.17.4",
     "@openai/codex": "0.144.1",
     "ai": "7.0.19",
+    "drizzle-orm": "1.0.0-rc.4",
     "executor": "1.5.30",
     "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
     "@types/ws": "^8.18.1",
+    "drizzle-kit": "1.0.0-rc.4",
     "tsx": "^4.20.3",
     "typescript": "~5.8.3"
   }
