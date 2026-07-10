@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { ContentBlock } from "@marketer/agent-runtime/types";
 import { cn } from "@marketer/ui/lib/utils";
 import {
@@ -77,13 +78,17 @@ export function toolSummary(input: unknown): string {
 function ToolCard({
   block,
   result,
+  progress,
 }: {
   block: Extract<ContentBlock, { type: "tool_use" }>;
   result?: Extract<ContentBlock, { type: "tool_result" }>;
+  progress?: string;
 }) {
   const { label, Icon } = toolPresentation(block.name);
   const summary = toolSummary(block.input);
-  const output = result ? toolResultText(result.content).trim() : "";
+  const output = result
+    ? toolResultText(result.content).trim()
+    : (progress?.trim() ?? "");
   const shownOutput =
     output.length > MAX_RESULT_CHARS
       ? `…${output.slice(-MAX_RESULT_CHARS)}`
@@ -93,8 +98,19 @@ function ToolCard({
       ? JSON.stringify(block.input, null, 2)
       : String(block.input ?? "");
 
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (result) return;
+    const started = Date.now();
+    const timer = window.setInterval(
+      () => setElapsed(Math.floor((Date.now() - started) / 1000)),
+      1_000,
+    );
+    return () => window.clearInterval(timer);
+  }, [result]);
+
   return (
-    <details className="group border bg-card/50">
+    <details className="group border bg-card/50" open={!result}>
       <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3 py-2 text-xs [&::-webkit-details-marker]:hidden">
         <Icon size={13} className="shrink-0 text-muted-foreground" />
         <span className="shrink-0 font-medium">{label}</span>
@@ -111,7 +127,9 @@ function ToolCard({
             {result.is_error ? "Failed" : "Done"}
           </span>
         ) : (
-          <span className="size-1.5 animate-pulse bg-amber-400" />
+          <span className="text-[10px] text-muted-foreground">
+            {elapsed >= 30 ? "Still working" : "Running"} · {elapsed}s
+          </span>
         )}
         <ChevronDown
           size={12}
@@ -139,7 +157,13 @@ function ToolCard({
   );
 }
 
-export function Blocks({ blocks }: { blocks: ContentBlock[] }) {
+export function Blocks({
+  blocks,
+  progress = {},
+}: {
+  blocks: ContentBlock[];
+  progress?: Record<string, string>;
+}) {
   const results = new Map(
     blocks
       .filter(
@@ -185,6 +209,7 @@ export function Blocks({ blocks }: { blocks: ContentBlock[] }) {
                 key={block.id}
                 block={block}
                 result={results.get(block.id)}
+                progress={progress[block.id]}
               />
             );
           case "tool_result": {

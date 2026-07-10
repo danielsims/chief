@@ -25,8 +25,12 @@ export function OrgLogo({
   imgClassName?: string;
 }) {
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const src = logo || faviconUrl(website ?? "");
-  useEffect(() => setFailed(false), [src]);
+  useEffect(() => {
+    setFailed(false);
+    setLoaded(false);
+  }, [src]);
 
   const initial = name.trim().charAt(0).toUpperCase() || "?";
   const showImage = Boolean(src) && !failed;
@@ -34,29 +38,38 @@ export function OrgLogo({
   return (
     <span
       className={cn(
-        "flex items-center justify-center overflow-hidden border bg-accent",
+        "relative flex items-center justify-center overflow-hidden border bg-accent",
         className,
       )}
     >
+      {!loaded ? (
+        <span className="translate-y-[0.055em] font-serif leading-none select-none">
+          {initial}
+        </span>
+      ) : null}
       {showImage ? (
         <img
           src={src ?? undefined}
           alt=""
           draggable={false}
-          className={cn("h-full w-full object-cover", imgClassName)}
-          onError={() => setFailed(true)}
+          className={cn(
+            "absolute inset-0 h-full w-full object-cover",
+            loaded ? "opacity-100" : "opacity-0",
+            imgClassName,
+          )}
+          onError={() => {
+            setLoaded(false);
+            setFailed(true);
+          }}
           onLoad={(e) => {
-            if (e.currentTarget.naturalWidth < 32) setFailed(true);
+            if (e.currentTarget.naturalWidth < 32) {
+              setFailed(true);
+              return;
+            }
+            setLoaded(true);
           }}
         />
-      ) : (
-        /* translate-y compensates for Newsreader's tall ascender space so the
-           initial sits optically centered. Em-based so it scales with every
-           tile size. */
-        <span className="translate-y-[0.055em] font-serif leading-none select-none">
-          {initial}
-        </span>
-      )}
+      ) : null}
     </span>
   );
 }

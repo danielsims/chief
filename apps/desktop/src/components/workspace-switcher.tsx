@@ -28,8 +28,8 @@ export function WorkspaceSwitcher() {
   const [organizations, setOrganizations] = useState<AuthOrganization[]>([]);
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
 
-  const refresh = useCallback(() => {
-    void listAuthOrganizations().then(setOrganizations);
+  const refresh = useCallback((force = false) => {
+    void listAuthOrganizations(force).then(setOrganizations);
   }, []);
 
   useEffect(() => {
@@ -39,7 +39,7 @@ export function WorkspaceSwitcher() {
   const handleOpenChange = useCallback(
     (next: boolean) => {
       setOpen(next);
-      if (next) refresh();
+      if (next) refresh(true);
     },
     [refresh],
   );

@@ -89,20 +89,25 @@ function WorkspaceIndicator() {
     };
   }, [cloudOrganizationId]);
 
-  if (!org) return null;
-  const metadata = parseOrganizationMetadata(org);
+  const metadata = org ? parseOrganizationMetadata(org) : {};
 
   return (
-    <div className="mb-5 flex items-center justify-center gap-2">
-      <OrgLogo
-        name={org.name}
-        logo={org.logo}
-        website={
-          typeof metadata.websiteUrl === "string" ? metadata.websiteUrl : ""
-        }
-        className="h-5 w-5 text-[11px]"
-      />
-      <span className="text-xs text-muted-foreground">{org.name}</span>
+    <div className="mb-5 flex h-5 items-center justify-center gap-2">
+      {org ? (
+        <>
+          <OrgLogo
+            name={org.name}
+            logo={org.logo}
+            website={
+              typeof metadata.websiteUrl === "string" ? metadata.websiteUrl : ""
+            }
+            className="h-5 w-5 text-[11px]"
+          />
+          <span className="text-xs text-muted-foreground">{org.name}</span>
+        </>
+      ) : (
+        <span className="h-5" aria-hidden="true" />
+      )}
     </div>
   );
 }
@@ -130,30 +135,42 @@ export function DashboardPage() {
     (range) => range.key === "previous30d",
   );
   const widgets = [
-    ...(analytics30
-      ? [
-          {
-            label: "Website traffic",
-            value: formatNumber(analytics30.activeUsers ?? 0),
-            detail: `${formatNumber(analytics30.pageViews ?? 0)} page views · ${analytics30.period}`,
-            trend: percentageChange(
-              analytics30.activeUsers,
-              previous30?.activeUsers,
-            ),
-            to: "/analytics",
-          },
-          {
-            label: "Signups",
-            value: formatNumber(analytics30.conversions ?? 0),
-            detail: `Tracked conversions · ${analytics30.period}`,
-            trend: percentageChange(
-              analytics30.conversions,
-              previous30?.conversions,
-            ),
-            to: "/analytics",
-          },
-        ]
-      : []),
+    {
+      label: "Website traffic",
+      value:
+        snapshots === undefined
+          ? "—"
+          : formatNumber(analytics30?.activeUsers ?? 0),
+      detail:
+        snapshots === undefined
+          ? "Loading analytics…"
+          : analytics30
+            ? `${formatNumber(analytics30.pageViews ?? 0)} page views · ${analytics30.period}`
+            : "No analytics report yet",
+      trend: percentageChange(
+        analytics30?.activeUsers,
+        previous30?.activeUsers,
+      ),
+      to: "/analytics",
+    },
+    {
+      label: "Signups",
+      value:
+        snapshots === undefined
+          ? "—"
+          : formatNumber(analytics30?.conversions ?? 0),
+      detail:
+        snapshots === undefined
+          ? "Loading analytics…"
+          : analytics30
+            ? `Tracked conversions · ${analytics30.period}`
+            : "No conversion data yet",
+      trend: percentageChange(
+        analytics30?.conversions,
+        previous30?.conversions,
+      ),
+      to: "/analytics",
+    },
     {
       label: "Action items",
       value: "0",
@@ -177,7 +194,7 @@ export function DashboardPage() {
     },
     {
       label: "Scheduled posts",
-      value: formatNumber(scheduledCount ?? 0),
+      value: scheduledCount === undefined ? "—" : formatNumber(scheduledCount),
       detail:
         (scheduledCount ?? 0) > 0 ? "Upcoming content" : "Nothing scheduled",
       trend: null,
@@ -207,8 +224,6 @@ export function DashboardPage() {
         </p>
       </div>
 
-      <SetupProgress />
-
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {widgets.map((w) => (
           <button
@@ -229,6 +244,8 @@ export function DashboardPage() {
           </button>
         ))}
       </div>
+
+      <SetupProgress />
 
       <div className="mx-auto w-full max-w-[680px]">
         <div className="border bg-card/80 backdrop-blur-lg">

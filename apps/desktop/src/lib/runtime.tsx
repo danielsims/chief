@@ -12,6 +12,7 @@ import type {
   AgentDefinition,
   AgentEvent,
   ClientMessage,
+  ContentBlock,
   DriverType,
   ExecutorCapability,
   InputRequest,
@@ -226,6 +227,7 @@ export interface ChatState {
   status: "idle" | "running";
   /** Tool calls waiting on the user's allow/deny decision. */
   approvals: PendingApproval[];
+  toolProgress: Record<string, string>;
   lastCostUsd?: number;
   error?: string;
 }
@@ -235,7 +237,91 @@ const emptyChat: ChatState = {
   streaming: "",
   status: "idle",
   approvals: [],
+  toolProgress: {},
 };
+
+function hasToolUse(item: ChatItem, id: string) {
+  return (
+    item.kind === "assistant" &&
+    item.event.content.some(
+      (block) => block.type === "tool_use" && block.id === id,
+    )
+  );
+}
+
+function mergeAssistantBlocks(items: ChatItem[], blocks: ContentBlock[]) {
+  const next = [...items];
+  const pending: ContentBlock[] = [];
+
+  for (const block of blocks) {
+    if (block.type === "tool_use") {
+      const index = next.findIndex((item) => hasToolUse(item, block.id));
+      if (index < 0) {
+        pending.push(block);
+        continue;
+      }
+      const item = next[index]!;
+      if (item.kind !== "assistant") continue;
+      next[index] = {
+        kind: "assistant",
+        event: {
+          ...item.event,
+          content: item.event.content.map((current) =>
+            current.type === "tool_use" && current.id === block.id
+              ? block
+              : current,
+          ),
+        },
+      };
+      continue;
+    }
+
+    if (block.type === "tool_result") {
+      const pendingUse = pending.some(
+        (candidate) =>
+          candidate.type === "tool_use" && candidate.id === block.tool_use_id,
+      );
+      if (pendingUse) {
+        pending.push(block);
+        continue;
+      }
+      const index = next.findIndex((item) =>
+        hasToolUse(item, block.tool_use_id),
+      );
+      if (index < 0) {
+        pending.push(block);
+        continue;
+      }
+      const item = next[index]!;
+      if (item.kind !== "assistant") continue;
+      next[index] = {
+        kind: "assistant",
+        event: {
+          ...item.event,
+          content: [
+            ...item.event.content.filter(
+              (current) =>
+                current.type !== "tool_result" ||
+                current.tool_use_id !== block.tool_use_id,
+            ),
+            block,
+          ],
+        },
+      };
+      continue;
+    }
+
+    pending.push(block);
+  }
+
+  if (pending.length > 0) {
+    next.push({
+      kind: "assistant",
+      event: { type: "message", role: "assistant", content: pending },
+    });
+  }
+  return next;
+}
 
 /** Folds one runtime event into chat state; used for live events and for
  * replaying the buffered transcript when a chat is (re)opened. */
@@ -244,6 +330,15 @@ function reduceChat(c: ChatState, event: AgentEvent): ChatState {
     case "stream":
       return { ...c, streaming: c.streaming + event.text, status: "running" };
     case "message": {
+      const resultIds = event.content
+        .filter(
+          (block): block is Extract<ContentBlock, { type: "tool_result" }> =>
+            block.type === "tool_result",
+        )
+        .map((block) => block.tool_use_id);
+      const toolProgress = { ...c.toolProgress };
+      for (const id of resultIds) delete toolProgress[id];
+
       if (event.role === "user") {
         const text = event.content
           .filter((b) => b.type === "text")
@@ -262,7 +357,8 @@ function reduceChat(c: ChatState, event: AgentEvent): ChatState {
         if (event.content.some((b) => b.type === "tool_result")) {
           return {
             ...c,
-            items: [...c.items, { kind: "assistant", event }],
+            items: mergeAssistantBlocks(c.items, event.content),
+            toolProgress,
           };
         }
         return c;
@@ -270,7 +366,18 @@ function reduceChat(c: ChatState, event: AgentEvent): ChatState {
       return {
         ...c,
         streaming: "",
-        items: [...c.items, { kind: "assistant", event }],
+        items: mergeAssistantBlocks(c.items, event.content),
+        toolProgress,
+      };
+    }
+    case "toolProgress": {
+      const current = c.toolProgress[event.toolUseId] ?? "";
+      return {
+        ...c,
+        toolProgress: {
+          ...c.toolProgress,
+          [event.toolUseId]: `${current}${event.text}`.slice(-8_000),
+        },
       };
     }
     case "permission":
@@ -305,6 +412,15 @@ function reduceChat(c: ChatState, event: AgentEvent): ChatState {
       return { ...c, status: event.status === "running" ? "running" : "idle" };
     case "error":
       return { ...c, error: event.message, status: "idle" };
+    case "exit":
+      return {
+        ...c,
+        status: "idle",
+        error:
+          event.code && event.code !== 0
+            ? `Agent process exited with code ${event.code}.`
+            : c.error,
+      };
     default:
       return c;
   }
@@ -393,6 +509,7 @@ export function useAgentChat(
       setChat((c) => reduceChat(c, msg.event));
     });
     return () => {
+      client.send({ type: "closeSession", chatId });
       unsub();
       setSessionReady(false);
     };

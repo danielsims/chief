@@ -82,6 +82,23 @@ export function AgentChat({
     () => findPendingInputRequest(chat.items, answeredInputs),
     [chat.items, answeredInputs],
   );
+  const hasActiveTool = useMemo(
+    () =>
+      chat.items.some(
+        (item) =>
+          item.kind === "assistant" &&
+          item.event.content.some(
+            (block) =>
+              block.type === "tool_use" &&
+              !item.event.content.some(
+                (candidate) =>
+                  candidate.type === "tool_result" &&
+                  candidate.tool_use_id === block.id,
+              ),
+          ),
+      ),
+    [chat.items],
+  );
   // Every send updates the local chat log the conversations list is built from.
   const send = (text: string) => {
     recordChat(agent.id, chatId, text);
@@ -152,7 +169,10 @@ export function AgentChat({
             </div>
           ) : (
             <div key={i} className="mx-auto max-w-3xl">
-              <Blocks blocks={withoutMarkerLines(item.event.content)} />
+              <Blocks
+                blocks={withoutMarkerLines(item.event.content)}
+                progress={chat.toolProgress}
+              />
             </div>
           ),
         )}
@@ -180,6 +200,7 @@ export function AgentChat({
         ) : null}
         {chat.status === "running" &&
           !chat.streaming &&
+          !hasActiveTool &&
           chat.approvals.length === 0 && (
             <div className="mx-auto w-full max-w-3xl">
               <p className="agent-working font-mono text-xs">working…</p>

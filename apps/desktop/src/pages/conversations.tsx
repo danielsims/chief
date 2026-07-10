@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { Bot, Plus } from "lucide-react";
+import { ChevronRight, MoreVertical, Plus, Trash2 } from "lucide-react";
 import { defaultAgents } from "@marketer/agent-runtime/agents";
 import type { AgentDefinition } from "@marketer/agent-runtime/types";
 import { cn } from "@marketer/ui/lib/utils";
@@ -12,6 +12,7 @@ import {
 import { useRuntime } from "../lib/runtime";
 import {
   createChat,
+  deleteChat,
   getChatLog,
   onChatLogChange,
   type ChatLogEntry,
@@ -58,26 +59,54 @@ function ConversationRow({
   active,
   running,
   onSelect,
+  onDelete,
 }: {
   entry: ChatLogEntry;
   active: boolean;
   running: boolean;
   onSelect: () => void;
+  onDelete: () => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
-    <button
-      type="button"
-      onClick={onSelect}
+    <div
       className={cn(
-        "flex w-full items-center gap-2 py-2 pr-3 pl-8 text-left text-sm transition-colors hover:bg-accent",
+        "group/row flex w-full items-center text-sm transition-colors hover:bg-accent",
         active && "bg-accent text-foreground",
       )}
     >
-      <span className="min-w-0 flex-1 truncate">{entry.title}</span>
+      <button
+        type="button"
+        onClick={onSelect}
+        className="min-w-0 flex-1 truncate py-2 pr-2 pl-8 text-left"
+      >
+        {entry.title}
+      </button>
       {running ? (
         <span className="size-1.5 shrink-0 animate-pulse bg-emerald-500" />
       ) : null}
-    </button>
+      <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+        <PopoverTrigger
+          aria-label={`Manage ${entry.title}`}
+          className="mr-1 flex size-7 shrink-0 items-center justify-center text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/row:opacity-100 data-[state=open]:opacity-100"
+        >
+          <MoreVertical size={14} />
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-40 p-1">
+          <button
+            type="button"
+            onClick={() => {
+              setMenuOpen(false);
+              onDelete();
+            }}
+            className="flex w-full items-center gap-2 px-2 py-2 text-left text-xs text-destructive transition-colors hover:bg-destructive/10"
+          >
+            <Trash2 size={13} />
+            Delete chat
+          </button>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 
@@ -88,6 +117,7 @@ function AgentGroup({
   running,
   onCreate,
   onSelect,
+  onDelete,
 }: {
   agent: AgentDefinition;
   entries: ChatLogEntry[];
@@ -95,14 +125,26 @@ function AgentGroup({
   running: Record<string, boolean>;
   onCreate: () => void;
   onSelect: (entry: ChatLogEntry) => void;
+  onDelete: (entry: ChatLogEntry) => void;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
   return (
     <section>
       <div className="group flex items-center gap-2 px-2 py-1.5">
-        <Bot size={13} className="shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">
-          {agent.name}
-        </span>
+        <button
+          type="button"
+          onClick={() => setCollapsed((current) => !current)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ChevronRight
+            size={12}
+            className={cn(
+              "shrink-0 transition-transform",
+              !collapsed && "rotate-90",
+            )}
+          />
+          <span className="truncate">{agent.name}</span>
+        </button>
         <button
           type="button"
           aria-label={`New ${agent.name} conversation`}
@@ -112,7 +154,7 @@ function AgentGroup({
           <Plus size={13} />
         </button>
       </div>
-      <div className="space-y-0.5">
+      <div className={cn("space-y-0.5", collapsed && "hidden")}>
         {entries.map((entry) => (
           <ConversationRow
             key={entry.id}
@@ -120,6 +162,7 @@ function AgentGroup({
             active={entry.id === activeChatId}
             running={running[entry.id] ?? false}
             onSelect={() => onSelect(entry)}
+            onDelete={() => onDelete(entry)}
           />
         ))}
       </div>
@@ -166,7 +209,7 @@ function NewConversationMenu({
 }
 
 export function ConversationsPage() {
-  const { agents: runtimeAgents } = useRuntime();
+  const { agents: runtimeAgents, client } = useRuntime();
   const agents = runtimeAgents.length > 0 ? runtimeAgents : defaultAgents;
   const enabledAgents = agents.filter(
     (agent) => getAgentOverride(agent.id).enabled !== false,
@@ -223,6 +266,17 @@ export function ConversationsPage() {
     setParams({ agent: agent.id, chat: entry.id });
   };
 
+  const removeChat = (entry: ChatLogEntry) => {
+    const remaining = log.filter((candidate) => candidate.id !== entry.id);
+    deleteChat(entry.id);
+    client.send({ type: "deleteSession", chatId: entry.id });
+    if (entry.id !== activeChatId) return;
+    const next = remaining[0];
+    setParams(next ? { agent: next.agentId, chat: next.id } : {}, {
+      replace: true,
+    });
+  };
+
   return (
     <div className="-mb-8 flex h-[calc(100vh-48px)]">
       <aside className="flex w-72 shrink-0 flex-col border-r pr-5">
@@ -244,6 +298,7 @@ export function ConversationsPage() {
               onSelect={(entry) =>
                 setParams({ agent: agent.id, chat: entry.id })
               }
+              onDelete={removeChat}
             />
           ))}
         </div>

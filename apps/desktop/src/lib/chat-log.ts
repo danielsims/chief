@@ -80,6 +80,10 @@ export function recordChat(agentId: string, chatId: string, lastText: string) {
   saveChatLog(next);
 }
 
+export function deleteChat(chatId: string) {
+  saveChatLog(getChatLog().filter((entry) => entry.id !== chatId));
+}
+
 export function onChatLogChange(listener: () => void) {
   window.addEventListener(EVENT, listener);
   window.addEventListener("storage", listener);

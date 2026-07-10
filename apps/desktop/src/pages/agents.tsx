@@ -115,9 +115,9 @@ function InstalledAgentCard({
   const enabled = override?.enabled ?? true;
   // Per-agent override wins; otherwise the workspace's chosen agent app.
   // Null means neither exists yet — the select asks instead of assuming.
-  const driver = (override?.driver ?? getWorkspaceProvider() ?? null) as
-    | Provider
-    | null;
+  const driver = (override?.driver ??
+    getWorkspaceProvider() ??
+    null) as Provider | null;
   const vercelUrl = override?.vercelUrl ?? "";
   const vercelKey = override?.vercelKey ?? "";
 
@@ -162,9 +162,7 @@ function InstalledAgentCard({
               </span>
             )}
           </p>
-          <p className="truncate text-xs text-muted-foreground">
-            {agent.role}
-          </p>
+          <p className="truncate text-xs text-muted-foreground">{agent.role}</p>
         </div>
         <Switch
           checked={enabled}
@@ -295,6 +293,7 @@ export function AgentsPage() {
     convexReady ? {} : "skip",
   );
   const ready = convexReady && overrides !== undefined;
+  const [view, setView] = useState<"installed" | "available">("installed");
 
   // Hydrate the runtime's localStorage mirror from the durable Convex record
   // so settings made on another machine apply to live chats here too.
@@ -311,7 +310,10 @@ export function AgentsPage() {
       if ((override.model || undefined) !== local.model) {
         patch.model = override.model || undefined;
       }
-      if (override.enabled !== undefined && local.enabled !== override.enabled) {
+      if (
+        override.enabled !== undefined &&
+        local.enabled !== override.enabled
+      ) {
         patch.enabled = override.enabled;
       }
       if (Object.keys(patch).length > 0) {
@@ -321,40 +323,78 @@ export function AgentsPage() {
   }, [overrides]);
 
   return (
-    <div className="pb-8 pt-10">
-      <h1 className="font-serif text-3xl">Agents</h1>
-      <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-        Your marketing team. Enable agents, set the provider each one runs
-        on, and open a chat. You can switch providers per chat.
-      </p>
-
-      <div className="mt-8">
-        <p className="text-xs text-muted-foreground">Installed</p>
-        <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-          {agents.map((agent) => (
-            <InstalledAgentCard
-              key={agent.id}
-              agent={agent}
-              override={overrides?.find((o) => o.agentKey === agent.id)}
-              ready={ready}
-            />
+    <div className="-mb-8 flex min-h-[calc(100vh-48px)]">
+      <aside className="w-56 shrink-0 border-r pt-10 pr-5">
+        <h1 className="font-serif text-3xl">Agents</h1>
+        <nav className="mt-7 space-y-1">
+          {[
+            {
+              key: "installed" as const,
+              label: "Installed",
+              count: agents.length,
+            },
+            {
+              key: "available" as const,
+              label: "Available",
+              count: availableAgents.length,
+            },
+          ].map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => setView(item.key)}
+              className={cn(
+                "flex w-full items-center justify-between px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+                view === item.key && "bg-accent text-foreground",
+              )}
+            >
+              <span>{item.label}</span>
+              <span className="text-[11px] text-muted-foreground">
+                {item.count}
+              </span>
+            </button>
           ))}
-        </div>
-        {!convexReady && (
-          <p className="mt-3 text-xs text-muted-foreground">
-            Connecting to your workspace…
+        </nav>
+      </aside>
+
+      <main className="min-w-0 flex-1 px-6 pb-8 pt-10">
+        <div className="mb-6">
+          <h2 className="font-serif text-2xl">
+            {view === "installed" ? "Your team" : "Available agents"}
+          </h2>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
+            {view === "installed"
+              ? "Enable agents, choose the provider each one runs on, and open a conversation."
+              : "Specialists that can be added to the workspace as the registry expands."}
           </p>
-        )}
-      </div>
-
-      <div className="mt-10">
-        <p className="text-xs text-muted-foreground">Available</p>
-        <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-          {availableAgents.map((agent) => (
-            <AvailableAgentCard key={agent.id} agent={agent} />
-          ))}
         </div>
-      </div>
+
+        {view === "installed" ? (
+          <>
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              {agents.map((agent) => (
+                <InstalledAgentCard
+                  key={agent.id}
+                  agent={agent}
+                  override={overrides?.find((o) => o.agentKey === agent.id)}
+                  ready={ready}
+                />
+              ))}
+            </div>
+            {!convexReady ? (
+              <p className="mt-3 text-xs text-muted-foreground">
+                Connecting to your workspace…
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            {availableAgents.map((agent) => (
+              <AvailableAgentCard key={agent.id} agent={agent} />
+            ))}
+          </div>
+        )}
+      </main>
     </div>
   );
 }
