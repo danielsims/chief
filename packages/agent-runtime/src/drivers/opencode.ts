@@ -122,12 +122,42 @@ export class OpenCodeDriver extends BaseDriver {
       }),
     );
     const capabilities = record(initialized.agentCapabilities);
-    const mcpServers = (options.mcpServers ?? []).map((server) => ({
-      name: server.name,
-      command: server.command,
-      args: server.args,
-      env: server.env ?? {},
-    }));
+    // OpenCode's ACP accepts only http/sse MCP servers (1.17 rejects
+    // command-based entries with -32602, killing session/new). Tool servers
+    // carrying an HTTP endpoint connect through it; stdio-only ones can be
+    // passed natively only when the agent declares stdio support.
+    const mcpCapabilities = record(capabilities.mcpCapabilities);
+    const supportsStdio = mcpCapabilities.stdio === true;
+    const mcpServers: Array<Record<string, unknown>> = (
+      options.mcpServers ?? []
+    ).flatMap((server): Array<Record<string, unknown>> => {
+      if (server.url) {
+        return [
+          {
+            type: "http",
+            name: server.name,
+            url: server.url,
+            headers: Object.entries(server.headers ?? {}).map(
+              ([name, value]) => ({ name, value }),
+            ),
+          },
+        ];
+      }
+      if (supportsStdio) {
+        return [
+          {
+            name: server.name,
+            command: server.command,
+            args: server.args,
+            env: server.env ?? {},
+          },
+        ];
+      }
+      console.error(
+        `[opencode] Dropping stdio MCP server "${server.name}" — this OpenCode version only accepts http/sse MCP over ACP.`,
+      );
+      return [];
+    });
     let session: Record<string, unknown>;
     if (
       this.sessionId &&
@@ -152,7 +182,9 @@ export class OpenCodeDriver extends BaseDriver {
         await this.rpc("session/new", { cwd: options.cwd, mcpServers }),
       );
     }
-    const sessionId = session.sessionId ?? session.id;
+    // session/new returns the id; session/load returns only configOptions —
+    // a successful load keeps the id we asked to load.
+    const sessionId = session.sessionId ?? session.id ?? this.sessionId;
     if (typeof sessionId !== "string") {
       throw new Error("OpenCode returned no ACP session id.");
     }
@@ -518,12 +550,16 @@ export class OpenCodeDriver extends BaseDriver {
         }, timeoutMs);
       }
       this.pending.set(id, pending);
-      this.process.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
+      this.process.stdin.write(
+        `${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`,
+      );
     });
   }
 
   private respond(id: number | string, result: unknown) {
-    this.process?.stdin?.write(`${JSON.stringify({ id, result })}\n`);
+    this.process?.stdin?.write(
+      `${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`,
+    );
   }
 
   private rejectPending(message: string) {

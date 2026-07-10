@@ -84,11 +84,31 @@ export type AgentEvent =
       requestId: string;
       behavior: "allow" | "deny";
     }
+  /** The agent asked the user structured questions (Claude's
+   * AskUserQuestion); the UI renders them and answers via respondQuestion. */
+  | {
+      type: "question";
+      requestId: string;
+      questions: AgentQuestion[];
+    }
+  | { type: "questionResolved"; requestId: string }
   | { type: "status"; status: AgentStatus }
   | { type: "error"; message: string }
   | { type: "exit"; code: number | null };
 
 export type AgentStatus = "idle" | "running" | "waiting" | "error";
+
+export interface AgentQuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface AgentQuestion {
+  question: string;
+  header?: string;
+  multiSelect?: boolean;
+  options: AgentQuestionOption[];
+}
 
 export type DriverType = "claude" | "codex" | "opencode";
 
@@ -214,12 +234,19 @@ export type AgentCapabilityId =
  */
 export type AccessMode = "full" | "guarded";
 
-/** Provider-neutral stdio tool server description understood by every driver. */
+/** Provider-neutral tool server description understood by every driver. */
 export interface McpServerSpec {
   name: string;
   command: string;
   args: string[];
   env?: Record<string, string>;
+  /**
+   * Streamable-HTTP endpoint for the same server, for clients whose MCP
+   * support is http/sse only (OpenCode's ACP). Stdio-capable drivers keep
+   * using command/args.
+   */
+  url?: string;
+  headers?: Record<string, string>;
 }
 
 /** Bootstrap material passed only across the loopback desktop/runtime socket. */
@@ -374,6 +401,13 @@ export type ClientMessage =
       chatId: string;
       requestId: string;
       behavior: "allow" | "deny";
+    }
+  /** Answers for an agent question, keyed by question text; null dismisses. */
+  | {
+      type: "respondQuestion";
+      chatId: string;
+      requestId: string;
+      answers: Record<string, string> | null;
     }
   /** User submitted values for an agent's input request; the runtime stores
    * them per each field's `save` target and tells the agent where. */
