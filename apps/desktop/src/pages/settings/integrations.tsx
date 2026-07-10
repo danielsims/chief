@@ -161,7 +161,7 @@ export function IntegrationSettingsDetail() {
         ) : null}
       </dl>
 
-      <div className="mt-8 border-t pt-6">
+      <div className="mt-8 border border-destructive/40 bg-destructive/5 p-5">
         <h3 className="text-sm font-medium">Disconnect integration</h3>
         <p className="mt-1 max-w-lg text-xs leading-5 text-muted-foreground">
           Marketer will stop reading this source. Existing reports remain in
@@ -182,7 +182,7 @@ export function IntegrationSettingsDetail() {
               </Button>
             </>
           ) : (
-            <Button variant="outline" onClick={() => setConfirming(true)}>
+            <Button variant="destructive" onClick={() => setConfirming(true)}>
               Disconnect
             </Button>
           )}

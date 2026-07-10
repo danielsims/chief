@@ -114,6 +114,28 @@
   }
 }
 
+@keyframes agent-working-shimmer {
+  0% { background-position: 140% 0; }
+  100% { background-position: -40% 0; }
+}
+
+@layer utilities {
+  .agent-working {
+    width: fit-content;
+    color: transparent;
+    background-image: linear-gradient(
+      100deg,
+      var(--muted-foreground) 20%,
+      var(--foreground) 45%,
+      var(--muted-foreground) 70%
+    );
+    background-size: 220% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    animation: agent-working-shimmer 1.35s linear infinite;
+  }
+}
+
 @layer base {
   /* Tailwind v4 resets buttons to cursor: default; interactive elements
      should read as clickable. */

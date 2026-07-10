@@ -35,6 +35,7 @@ function toolResultText(content: unknown): string {
 
 function canonicalTool(name: string) {
   const clean = name.replace(/^mcp__[^_]+__/, "").toLowerCase();
+  if (clean === "execute" || clean.endsWith("__execute")) return "integration";
   if (clean.includes("search")) return "search";
   if (clean.includes("web") || clean.includes("fetch")) return "web";
   if (clean.includes("read")) return "read";
@@ -45,6 +46,7 @@ function canonicalTool(name: string) {
 
 function toolPresentation(name: string) {
   const kind = canonicalTool(name);
+  if (kind === "integration") return { label: "Run integration", Icon: Wrench };
   if (kind === "command") return { label: "Run", Icon: Terminal };
   if (kind === "search") return { label: "Search", Icon: Search };
   if (kind === "web") return { label: "Browse", Icon: Globe2 };
@@ -62,6 +64,7 @@ export function toolSummary(input: unknown): string {
     "command",
     "query",
     "url",
+    "code",
   ]) {
     if (typeof value[key] === "string" && value[key]) {
       const text = String(value[key]);

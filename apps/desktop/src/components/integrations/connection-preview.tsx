@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@marketer/ui/lib/utils";
 
 const RANGE_CONFIG = {
@@ -142,6 +142,17 @@ export function ConnectionPreview({
   visualization?: "line" | "bar";
 }) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const chartRef = useRef<HTMLDivElement>(null);
+  const [chartWidth, setChartWidth] = useState(960);
+  useEffect(() => {
+    const element = chartRef.current;
+    if (!element) return;
+    const update = () => setChartWidth(Math.max(element.clientWidth, 320));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const range =
     RANGE_CONFIG[rangeKey as keyof typeof RANGE_CONFIG] ?? RANGE_CONFIG["30d"];
   const points = useMemo(
@@ -150,7 +161,7 @@ export function ConnectionPreview({
   );
   if (points.length === 0) return null;
 
-  const width = 960;
+  const width = chartWidth;
   const height = 260;
   const left = 0;
   const right = 0;
@@ -197,7 +208,11 @@ export function ConnectionPreview({
         </p>
       </div>
 
-      <div className="relative mt-4" onMouseLeave={() => setHoveredIndex(null)}>
+      <div
+        ref={chartRef}
+        className="relative mt-4 w-full"
+        onMouseLeave={() => setHoveredIndex(null)}
+      >
         <svg
           aria-label={`${metricLabel} over ${range.label}`}
           className="h-64 w-full overflow-visible"

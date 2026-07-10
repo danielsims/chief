@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { MessageSquareText, Plus } from "lucide-react";
+import { Bot, Plus } from "lucide-react";
 import { defaultAgents } from "@marketer/agent-runtime/agents";
 import type { AgentDefinition } from "@marketer/agent-runtime/types";
 import { cn } from "@marketer/ui/lib/utils";
@@ -69,11 +69,10 @@ function ConversationRow({
       type="button"
       onClick={onSelect}
       className={cn(
-        "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent",
+        "flex w-full items-center gap-2 py-2 pr-3 pl-8 text-left text-sm transition-colors hover:bg-accent",
         active && "bg-accent text-foreground",
       )}
     >
-      <MessageSquareText size={13} className="shrink-0 text-muted-foreground" />
       <span className="min-w-0 flex-1 truncate">{entry.title}</span>
       {running ? (
         <span className="size-1.5 shrink-0 animate-pulse bg-emerald-500" />
@@ -100,6 +99,7 @@ function AgentGroup({
   return (
     <section>
       <div className="group flex items-center gap-2 px-2 py-1.5">
+        <Bot size={13} className="shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">
           {agent.name}
         </span>

@@ -181,9 +181,9 @@ export function AgentChat({
         {chat.status === "running" &&
           !chat.streaming &&
           chat.approvals.length === 0 && (
-            <p className="font-mono text-xs text-muted-foreground animate-pulse">
-              working…
-            </p>
+            <div className="mx-auto w-full max-w-3xl">
+              <p className="agent-working font-mono text-xs">working…</p>
+            </div>
           )}
         {chat.error && (
           <p className="mx-auto max-w-3xl border border-destructive/40 px-3 py-2 text-xs text-destructive">
