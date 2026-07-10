@@ -25,6 +25,16 @@ export function nextRunAt(cron: string, timezone: string, after = Date.now()) {
     .getTime();
 }
 
+/** The occurrence's calendar date (YYYY-MM-DD) in the work's timezone. */
+export function runDateKey(timestamp: number, timezone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(timestamp));
+}
+
 export function upcomingRuns(
   cron: string,
   timezone: string,

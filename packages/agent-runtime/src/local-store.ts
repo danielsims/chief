@@ -450,6 +450,7 @@ export class LocalStore {
     return rows.map((work) => ({
       ...work,
       grant: work.grant ?? undefined,
+      skipDates: work.skipDates ?? undefined,
       nextRunAt: work.nextRunAt ?? undefined,
       lastRunAt: work.lastRunAt ?? undefined,
       lastResult: work.lastResult ?? undefined,
@@ -472,6 +473,7 @@ export class LocalStore {
       ? ({
           ...row,
           grant: row.grant ?? undefined,
+          skipDates: row.skipDates ?? undefined,
           nextRunAt: row.nextRunAt ?? undefined,
           lastRunAt: row.lastRunAt ?? undefined,
           lastResult: row.lastResult ?? undefined,
@@ -503,6 +505,7 @@ export class LocalStore {
           timezone: work.timezone,
           status: work.status,
           placement: work.placement,
+          skipDates: work.skipDates ?? null,
           approvalSummary: work.approvalSummary,
           proposedToolPatterns: work.proposedToolPatterns,
           grant: work.grant,

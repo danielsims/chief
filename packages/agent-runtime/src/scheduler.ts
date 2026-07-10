@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { composeWorkspaceInstructions, getAgent } from "./agents.js";
+import { runDateKey } from "./recurring-work.js";
 import { readWorkspaceContext } from "./workspace-context.js";
 import { SessionManager } from "./manager.js";
 import { nextRunAt } from "./recurring-work.js";
@@ -77,6 +78,7 @@ export class RecurringWorkScheduler {
           {
             ...work,
             grant: work.grant ?? undefined,
+            skipDates: work.skipDates ?? undefined,
             nextRunAt: work.nextRunAt ?? undefined,
             lastRunAt: work.lastRunAt ?? undefined,
             lastResult: work.lastResult ?? undefined,
@@ -123,6 +125,21 @@ export class RecurringWorkScheduler {
         updatedAt: now,
       });
     }
+    // A skipped occurrence consumes its claim (nextRunAt already advanced)
+    // without executing, and the spent skip date is cleared.
+    const skipKey = runDateKey(scheduledFor, work.timezone);
+    if (claim && work.skipDates?.includes(skipKey)) {
+      await this.manager.saveRecurringWork(workspaceId, {
+        ...work,
+        skipDates: work.skipDates.filter((date) => date !== skipKey),
+        nextRunAt: nextRunAt(work.cron, work.timezone, scheduleFrom()),
+        updatedAt: Date.now(),
+      });
+      this.running.delete(work.id);
+      await this.onChange(workspaceId);
+      return;
+    }
+
     const run: RecurringWorkRunRecord = {
       id: randomUUID(),
       recurringWorkId: work.id,

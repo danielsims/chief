@@ -277,8 +277,16 @@ export function startServer(port = PORT) {
                 "Explicit approval is required before activation.",
               );
             }
+            // The client may edit scheduling and presentation; instructions
+            // and proposed tool patterns stay agent-authored and the grant is
+            // validated above, so the delegation can never widen silently.
             await manager.saveRecurringWork(msg.workspaceId, {
               ...existing,
+              title: msg.work.title,
+              cron: msg.work.cron,
+              timezone: msg.work.timezone,
+              placement: msg.work.placement,
+              skipDates: msg.work.skipDates,
               status: msg.work.status,
               grant: msg.work.grant,
               nextRunAt: active

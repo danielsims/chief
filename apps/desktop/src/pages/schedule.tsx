@@ -28,8 +28,10 @@ import {
   FilePlus2,
   MessageSquare,
   Pause,
+  Pencil,
   Play,
   Plus,
+  Trash2,
   Repeat2,
   ShieldCheck,
   SlidersHorizontal,
@@ -132,11 +134,32 @@ function DraftChip({ draft }: { draft: ScheduledDraft }) {
   );
 }
 
-function RecurringWorkChip({ work }: { work: RecurringWorkRecord }) {
+function RecurringWorkChip({
+  work,
+  onContextMenu,
+}: {
+  work: RecurringWorkRecord;
+  onContextMenu?: (work: RecurringWorkRecord, x: number, y: number) => void;
+}) {
+  const approvalNeeded =
+    work.status === "draft" || work.status === "needs_approval";
   return (
-    <div className="min-w-0 border border-violet-500/25 bg-violet-500/[0.06] px-2 py-1.5">
+    <div
+      onContextMenu={(event) => {
+        if (!onContextMenu) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onContextMenu(work, event.clientX, event.clientY);
+      }}
+      className="min-w-0 border bg-card px-2 py-1.5"
+    >
       <div className="flex min-w-0 items-center gap-1.5">
-        <span className="size-1.5 shrink-0 bg-violet-500" />
+        <span
+          className={cn(
+            "size-1.5 shrink-0",
+            approvalNeeded ? "bg-amber-400" : "bg-foreground",
+          )}
+        />
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
           {work.title}
         </span>
@@ -156,6 +179,7 @@ function DayCell({
   selected,
   onSelect,
   onContextMenu,
+  onWorkContext,
   boundaryRow = false,
   tall = false,
 }: {
@@ -166,6 +190,12 @@ function DayCell({
   selected: Date;
   onSelect: (date: Date) => void;
   onContextMenu?: (date: Date, x: number, y: number) => void;
+  onWorkContext?: (
+    work: RecurringWorkRecord,
+    date: Date,
+    x: number,
+    y: number,
+  ) => void;
   boundaryRow?: boolean;
   tall?: boolean;
 }) {
@@ -201,7 +231,15 @@ function DayCell({
       </span>
       <div className={cn("min-w-0 space-y-1", boundaryRow ? "mt-8" : "mt-2")}>
         {recurringWork.slice(0, visibleLimit).map((work) => (
-          <RecurringWorkChip key={work.id} work={work} />
+          <RecurringWorkChip
+            key={work.id}
+            work={work}
+            onContextMenu={
+              onWorkContext
+                ? (item, x, y) => onWorkContext(item, date, x, y)
+                : undefined
+            }
+          />
         ))}
         {drafts.slice(0, draftLimit).map((draft) => (
           <DraftChip key={draft.id} draft={draft} />
@@ -239,7 +277,7 @@ function ScheduleFilters({
       kind: "agent-work",
       label: "Agent work",
       detail: "Recurring proactive actions",
-      color: "bg-violet-500",
+      color: "bg-foreground",
     },
   ];
 
@@ -292,6 +330,7 @@ function ContinuousMonthView({
   selected,
   onSelect,
   onDateContext,
+  onWorkContext,
   byDay,
   recurringByDay,
   showPosts,
@@ -305,6 +344,12 @@ function ContinuousMonthView({
   selected: Date;
   onSelect: (date: Date) => void;
   onDateContext: (date: Date, x: number, y: number) => void;
+  onWorkContext: (
+    work: RecurringWorkRecord,
+    date: Date,
+    x: number,
+    y: number,
+  ) => void;
   byDay: ReadonlyMap<string, ScheduledDraft[]>;
   recurringByDay: ReadonlyMap<string, RecurringWorkRecord[]>;
   showPosts: boolean;
@@ -419,6 +464,7 @@ function ContinuousMonthView({
                   selected={selected}
                   onSelect={onSelect}
                   onContextMenu={onDateContext}
+                  onWorkContext={onWorkContext}
                   boundaryRow={index < 7}
                 />
               ) : (
@@ -442,6 +488,7 @@ function FocusedCalendarView({
   today,
   onSelect,
   onDateContext,
+  onWorkContext,
   byDay,
   recurringByDay,
   showPosts,
@@ -452,6 +499,12 @@ function FocusedCalendarView({
   today: Date;
   onSelect: (date: Date) => void;
   onDateContext: (date: Date, x: number, y: number) => void;
+  onWorkContext: (
+    work: RecurringWorkRecord,
+    date: Date,
+    x: number,
+    y: number,
+  ) => void;
   byDay: ReadonlyMap<string, ScheduledDraft[]>;
   recurringByDay: ReadonlyMap<string, RecurringWorkRecord[]>;
   showPosts: boolean;
@@ -499,6 +552,7 @@ function FocusedCalendarView({
             selected={selected}
             onSelect={onSelect}
             onContextMenu={onDateContext}
+            onWorkContext={onWorkContext}
             tall
           />
         ))}
@@ -605,6 +659,229 @@ function CalendarContextMenu({
     </div>
   );
 }
+
+function RecurringWorkContextMenu({
+  context,
+  onClose,
+  onSkip,
+  onEdit,
+  onCancelSeries,
+}: {
+  context: {
+    work: RecurringWorkRecord;
+    date: Date;
+    x: number;
+    y: number;
+  } | null;
+  onClose: () => void;
+  onSkip: (work: RecurringWorkRecord, date: Date) => void;
+  onEdit: (work: RecurringWorkRecord) => void;
+  onCancelSeries: (work: RecurringWorkRecord) => void;
+}) {
+  useEffect(() => {
+    if (!context) return;
+    const close = () => onClose();
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", escape);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", escape);
+    };
+  }, [context, onClose]);
+
+  if (!context) return null;
+  const { work, date } = context;
+  const canSkip = work.status === "active" || work.status === "paused";
+  return (
+    <div
+      role="menu"
+      onPointerDown={(event) => event.stopPropagation()}
+      className="fixed z-50 w-64 border bg-popover p-1.5 text-popover-foreground shadow-md"
+      style={{
+        left: Math.min(context.x, window.innerWidth - 272),
+        top: Math.min(context.y, window.innerHeight - 190),
+      }}
+    >
+      <p className="truncate px-2 py-1.5 text-[10px] text-muted-foreground">
+        {work.title}
+      </p>
+      {canSkip ? (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onSkip(work, date);
+            onClose();
+          }}
+          className="flex w-full items-start gap-3 px-2 py-2 text-left transition-colors hover:bg-accent"
+        >
+          <Pause size={14} className="mt-0.5 shrink-0" />
+          <span>
+            <span className="block text-xs font-medium">
+              Skip this occurrence
+            </span>
+            <span className="mt-0.5 block text-[10px] text-muted-foreground">
+              {date.toLocaleDateString([], {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+              })}{" "}
+              only
+            </span>
+          </span>
+        </button>
+      ) : null}
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => {
+          onEdit(work);
+          onClose();
+        }}
+        className="flex w-full items-start gap-3 px-2 py-2 text-left transition-colors hover:bg-accent"
+      >
+        <Pencil size={14} className="mt-0.5 shrink-0" />
+        <span>
+          <span className="block text-xs font-medium">Edit schedule</span>
+          <span className="mt-0.5 block text-[10px] text-muted-foreground">
+            Change the title or timing directly
+          </span>
+        </span>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => {
+          onCancelSeries(work);
+          onClose();
+        }}
+        className="flex w-full items-start gap-3 px-2 py-2 text-left transition-colors hover:bg-accent"
+      >
+        <Trash2 size={14} className="mt-0.5 shrink-0 text-destructive" />
+        <span>
+          <span className="block text-xs font-medium text-destructive">
+            Cancel series
+          </span>
+          <span className="mt-0.5 block text-[10px] text-muted-foreground">
+            Removes the automation and its history
+          </span>
+        </span>
+      </button>
+    </div>
+  );
+}
+
+const CRON_FIELDS = /^\S+\s+\S+\s+\S+\s+\S+\s+\S+$/;
+
+function RecurringWorkEditDialog({
+  work,
+  onClose,
+  onSave,
+}: {
+  work: RecurringWorkRecord | null;
+  onClose: () => void;
+  onSave: (
+    work: RecurringWorkRecord,
+    patch: { title: string; cron: string; timezone: string },
+  ) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [cron, setCron] = useState("");
+  const [timezone, setTimezone] = useState("");
+
+  useEffect(() => {
+    if (!work) return;
+    setTitle(work.title);
+    setCron(work.cron);
+    setTimezone(work.timezone);
+  }, [work]);
+
+  const timezoneValid = (() => {
+    try {
+      new Intl.DateTimeFormat("en", { timeZone: timezone });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  const valid =
+    Boolean(title.trim()) && CRON_FIELDS.test(cron.trim()) && timezoneValid;
+
+  return (
+    <Dialog open={Boolean(work)} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-md">
+        {work ? (
+          <>
+            <DialogHeader>
+              <DialogTitle className="font-serif text-2xl">
+                Edit schedule
+              </DialogTitle>
+              <DialogDescription>
+                Change the timing directly, or ask for a change in the
+                approval card and the agent will rework it.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">Title</label>
+                <Input
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">
+                  Schedule
+                </label>
+                <Input
+                  value={cron}
+                  onChange={(event) => setCron(event.target.value)}
+                  className="font-mono"
+                  placeholder="0 8 * * 1"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  minute · hour · day of month · month · day of week
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">
+                  Timezone
+                </label>
+                <Input
+                  value={timezone}
+                  onChange={(event) => setTimezone(event.target.value)}
+                  placeholder="Australia/Sydney"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button
+                disabled={!valid}
+                onClick={() => {
+                  onSave(work, {
+                    title: title.trim(),
+                    cron: cron.trim(),
+                    timezone: timezone.trim(),
+                  });
+                  onClose();
+                }}
+              >
+                Save
+              </Button>
+            </DialogFooter>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 
 function RecurringWorkApprovalDialog({
   work,
@@ -775,9 +1052,9 @@ function RecurringWorkDetail({
   const approvalNeeded =
     work.status === "draft" || work.status === "needs_approval";
   return (
-    <div className="border border-violet-500/25 p-3">
+    <div className="border p-3">
       <div className="flex items-start gap-2">
-        <span className="mt-1 size-2 shrink-0 bg-violet-500" />
+        <span className="mt-1 size-1.5 shrink-0 bg-foreground" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-medium">{work.title}</p>
           <p className="mt-1 text-[10px] capitalize text-muted-foreground">
@@ -869,6 +1146,13 @@ export function SchedulePage() {
     x: number;
     y: number;
   } | null>(null);
+  const [workMenu, setWorkMenu] = useState<{
+    work: RecurringWorkRecord;
+    date: Date;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [editWorkId, setEditWorkId] = useState<string | null>(null);
   const { cloudOrganizationId } = useAuth();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const agentConfig = useAgentConfig();
@@ -919,6 +1203,39 @@ export function SchedulePage() {
       ].join("\n"),
     );
   };
+
+  const workDateKeyIn = (timestamp: number, timezone: string) => {
+    try {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date(timestamp));
+    } catch {
+      return dayKey(new Date(timestamp));
+    }
+  };
+  const skipOccurrence = (work: RecurringWorkRecord, date: Date) => {
+    const cellKey = dayKey(date);
+    const occurrence = (work.upcomingRuns ?? []).find(
+      (timestamp) => dayKey(new Date(timestamp)) === cellKey,
+    );
+    const skipKey = occurrence
+      ? workDateKeyIn(occurrence, work.timezone)
+      : cellKey;
+    const skipDates = work.skipDates ?? [];
+    if (skipDates.includes(skipKey)) return;
+    workspaceData.saveRecurringWork({
+      ...work,
+      skipDates: [...skipDates, skipKey],
+      updatedAt: Date.now(),
+    });
+  };
+  const editWork = editWorkId
+    ? (workspaceData.recurringWork.find((work) => work.id === editWorkId) ??
+      null)
+    : null;
 
   const byDay = useMemo(() => {
     const map = new Map<string, ScheduledDraft[]>();
@@ -1144,6 +1461,9 @@ export function SchedulePage() {
               today={today}
               selected={selected}
               onSelect={setSelected}
+              onWorkContext={(work, date, x, y) =>
+                setWorkMenu({ work, date, x, y })
+              }
               onDateContext={(date, x, y) => {
                 setSelected(date);
                 setDateMenu({ date, x, y });
@@ -1160,6 +1480,9 @@ export function SchedulePage() {
               selected={selected}
               today={today}
               onSelect={setSelected}
+              onWorkContext={(work, date, x, y) =>
+                setWorkMenu({ work, date, x, y })
+              }
               onDateContext={(date, x, y) => {
                 setSelected(date);
                 setDateMenu({ date, x, y });
@@ -1259,6 +1582,24 @@ export function SchedulePage() {
         context={dateMenu}
         onClose={() => setDateMenu(null)}
         onAction={handleDateAction}
+      />
+      <RecurringWorkContextMenu
+        context={workMenu}
+        onClose={() => setWorkMenu(null)}
+        onSkip={skipOccurrence}
+        onEdit={(work) => setEditWorkId(work.id)}
+        onCancelSeries={(work) => workspaceData.deleteRecurringWork(work.id)}
+      />
+      <RecurringWorkEditDialog
+        work={editWork}
+        onClose={() => setEditWorkId(null)}
+        onSave={(work, patch) =>
+          workspaceData.saveRecurringWork({
+            ...work,
+            ...patch,
+            updatedAt: Date.now(),
+          })
+        }
       />
     </div>
   );

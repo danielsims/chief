@@ -5,7 +5,7 @@ import { AgentSession, type SessionConfig } from "./session.js";
 import type { AgentDefinition, AgentEvent } from "./types.js";
 import { LocalStore } from "./local-store.js";
 import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
-import { upcomingRuns } from "./recurring-work.js";
+import { runDateKey, upcomingRuns } from "./recurring-work.js";
 
 const HOME = join(homedir(), ".marketer");
 
@@ -245,9 +245,13 @@ export class SessionManager {
       campaigns,
       recurringWork: recurringWork.map((work) => {
         try {
+          const skipped = new Set(work.skipDates ?? []);
           return {
             ...work,
-            upcomingRuns: upcomingRuns(work.cron, work.timezone),
+            upcomingRuns: upcomingRuns(work.cron, work.timezone).filter(
+              (timestamp) =>
+                !skipped.has(runDateKey(timestamp, work.timezone)),
+            ),
           };
         } catch {
           return { ...work, upcomingRuns: [] };

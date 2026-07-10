@@ -142,6 +142,7 @@ export const recurringWork = sqliteTable(
     placement: text({ enum: ["local", "cloud"] })
       .notNull()
       .default("local"),
+    skipDates: text("skip_dates", { mode: "json" }).$type<string[]>(),
     approvalSummary: text("approval_summary").notNull(),
     proposedToolPatterns: text("proposed_tool_patterns", { mode: "json" })
       .$type<string[]>()

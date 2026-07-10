@@ -172,6 +172,8 @@ export interface RecurringWorkRecord {
   status: RecurringWorkStatus;
   /** Where approved runs execute: this Mac's scheduler or the deployment. */
   placement: "local" | "cloud";
+  /** Occurrence dates (YYYY-MM-DD in the work's timezone) the user skipped. */
+  skipDates?: string[];
   approvalSummary: string;
   proposedToolPatterns: string[];
   grant?: AutomationGrant;
