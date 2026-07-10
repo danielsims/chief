@@ -37,6 +37,12 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { Input } from "@marketer/ui/components/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@marketer/ui/components/select";
 import { useAgentConfig } from "../lib/agent-config";
 import { useAuth } from "../lib/auth/auth-context";
 import { useAgentChat, useWorkspaceData } from "../lib/runtime";
@@ -120,7 +126,7 @@ function DraftChip({ draft }: { draft: ScheduledDraft }) {
       })
     : "";
   return (
-    <div className="min-w-0 border bg-background px-2 py-1.5">
+    <div className="min-w-0 select-none border bg-background px-2 py-1.5">
       <div className="flex min-w-0 items-center gap-1.5">
         <span className={cn("size-1.5 shrink-0", statusClass(draft.status))} />
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
@@ -151,7 +157,7 @@ function RecurringWorkChip({
         event.stopPropagation();
         onContextMenu(work, event.clientX, event.clientY);
       }}
-      className="min-w-0 border bg-card px-2 py-1.5"
+      className="min-w-0 select-none border bg-card px-2 py-1.5"
     >
       <div className="flex min-w-0 items-center gap-1.5">
         <span
@@ -776,6 +782,74 @@ function RecurringWorkContextMenu({
 
 const CRON_FIELDS = /^\S+\s+\S+\s+\S+\s+\S+\s+\S+$/;
 
+type ScheduleFrequency = "daily" | "weekdays" | "weekly" | "monthly" | "custom";
+
+const WEEKDAY_OPTIONS = [
+  { value: "1", label: "Monday" },
+  { value: "2", label: "Tuesday" },
+  { value: "3", label: "Wednesday" },
+  { value: "4", label: "Thursday" },
+  { value: "5", label: "Friday" },
+  { value: "6", label: "Saturday" },
+  { value: "0", label: "Sunday" },
+];
+
+interface ScheduleFields {
+  frequency: ScheduleFrequency;
+  time: string; // HH:MM
+  weekday: string; // 0-6 for weekly
+  dayOfMonth: string; // 1-31 for monthly
+  custom: string; // raw cron for the escape hatch
+}
+
+/** Reads a cron into friendly fields when it matches a simple shape. */
+function fieldsFromCron(cron: string): ScheduleFields {
+  const fallback: ScheduleFields = {
+    frequency: "custom",
+    time: "09:00",
+    weekday: "1",
+    dayOfMonth: "1",
+    custom: cron,
+  };
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5) return fallback;
+  const [minute, hour, dom, month, dow] = parts as [
+    string,
+    string,
+    string,
+    string,
+    string,
+  ];
+  if (!/^\d{1,2}$/.test(minute) || !/^\d{1,2}$/.test(hour) || month !== "*") {
+    return fallback;
+  }
+  const time = `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
+  if (dom === "*" && dow === "*") {
+    return { ...fallback, frequency: "daily", time };
+  }
+  if (dom === "*" && dow === "1-5") {
+    return { ...fallback, frequency: "weekdays", time };
+  }
+  if (dom === "*" && /^[0-6]$/.test(dow)) {
+    return { ...fallback, frequency: "weekly", time, weekday: dow };
+  }
+  if (/^\d{1,2}$/.test(dom) && dow === "*") {
+    return { ...fallback, frequency: "monthly", time, dayOfMonth: dom };
+  }
+  return fallback;
+}
+
+function cronFromFields(fields: ScheduleFields): string {
+  if (fields.frequency === "custom") return fields.custom.trim();
+  const [hour = "9", minute = "0"] = fields.time.split(":");
+  const m = String(Number(minute));
+  const h = String(Number(hour));
+  if (fields.frequency === "daily") return `${m} ${h} * * *`;
+  if (fields.frequency === "weekdays") return `${m} ${h} * * 1-5`;
+  if (fields.frequency === "weekly") return `${m} ${h} * * ${fields.weekday}`;
+  return `${m} ${h} ${Number(fields.dayOfMonth)} * *`;
+}
+
 function RecurringWorkEditDialog({
   work,
   onClose,
@@ -789,16 +863,19 @@ function RecurringWorkEditDialog({
   ) => void;
 }) {
   const [title, setTitle] = useState("");
-  const [cron, setCron] = useState("");
   const [timezone, setTimezone] = useState("");
+  const [fields, setFields] = useState<ScheduleFields>(() =>
+    fieldsFromCron("0 9 * * *"),
+  );
 
   useEffect(() => {
     if (!work) return;
     setTitle(work.title);
-    setCron(work.cron);
     setTimezone(work.timezone);
+    setFields(fieldsFromCron(work.cron));
   }, [work]);
 
+  const cron = cronFromFields(fields);
   const timezoneValid = (() => {
     try {
       new Intl.DateTimeFormat("en", { timeZone: timezone });
@@ -807,8 +884,25 @@ function RecurringWorkEditDialog({
       return false;
     }
   })();
+  const dayOfMonthValid =
+    fields.frequency !== "monthly" ||
+    (Number(fields.dayOfMonth) >= 1 && Number(fields.dayOfMonth) <= 31);
   const valid =
-    Boolean(title.trim()) && CRON_FIELDS.test(cron.trim()) && timezoneValid;
+    Boolean(title.trim()) &&
+    CRON_FIELDS.test(cron) &&
+    timezoneValid &&
+    dayOfMonthValid;
+
+  const patch = (next: Partial<ScheduleFields>) =>
+    setFields((current) => ({ ...current, ...next }));
+
+  const frequencies: Array<{ value: ScheduleFrequency; label: string }> = [
+    { value: "daily", label: "Every day" },
+    { value: "weekdays", label: "Weekdays" },
+    { value: "weekly", label: "Weekly" },
+    { value: "monthly", label: "Monthly" },
+    { value: "custom", label: "Custom" },
+  ];
 
   return (
     <Dialog open={Boolean(work)} onOpenChange={(open) => !open && onClose()}>
@@ -833,18 +927,88 @@ function RecurringWorkEditDialog({
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground">
-                  Schedule
-                </label>
-                <Input
-                  value={cron}
-                  onChange={(event) => setCron(event.target.value)}
-                  className="font-mono"
-                  placeholder="0 8 * * 1"
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  minute · hour · day of month · month · day of week
-                </p>
+                <label className="text-xs text-muted-foreground">Repeats</label>
+                <div className="flex flex-wrap gap-2">
+                  <Select
+                    value={fields.frequency}
+                    onValueChange={(value) =>
+                      patch({ frequency: value as ScheduleFrequency })
+                    }
+                  >
+                    <SelectTrigger className="h-9 w-36 text-sm">
+                      {
+                        frequencies.find(
+                          (item) => item.value === fields.frequency,
+                        )?.label
+                      }
+                    </SelectTrigger>
+                    <SelectContent>
+                      {frequencies.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {fields.frequency === "weekly" ? (
+                    <Select
+                      value={fields.weekday}
+                      onValueChange={(value) => patch({ weekday: value })}
+                    >
+                      <SelectTrigger className="h-9 w-32 text-sm">
+                        {
+                          WEEKDAY_OPTIONS.find(
+                            (item) => item.value === fields.weekday,
+                          )?.label
+                        }
+                      </SelectTrigger>
+                      <SelectContent>
+                        {WEEKDAY_OPTIONS.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : null}
+                  {fields.frequency === "monthly" ? (
+                    <Input
+                      value={fields.dayOfMonth}
+                      onChange={(event) =>
+                        patch({ dayOfMonth: event.target.value })
+                      }
+                      className="h-9 w-20 text-sm"
+                      placeholder="Day"
+                    />
+                  ) : null}
+                  {fields.frequency !== "custom" ? (
+                    <Input
+                      type="time"
+                      value={fields.time}
+                      onChange={(event) => patch({ time: event.target.value })}
+                      className="h-9 w-28 text-sm"
+                    />
+                  ) : null}
+                </div>
+                {fields.frequency === "custom" ? (
+                  <div className="space-y-1">
+                    <Input
+                      value={fields.custom}
+                      onChange={(event) =>
+                        patch({ custom: event.target.value })
+                      }
+                      className="font-mono"
+                      placeholder="0 8 * * 1"
+                    />
+                    <p className="text-[10px] text-muted-foreground">
+                      minute · hour · day of month · month · day of week
+                    </p>
+                  </div>
+                ) : (
+                  <p className="font-mono text-[10px] text-muted-foreground">
+                    {cron}
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs text-muted-foreground">
@@ -866,7 +1030,7 @@ function RecurringWorkEditDialog({
                 onClick={() => {
                   onSave(work, {
                     title: title.trim(),
-                    cron: cron.trim(),
+                    cron,
                     timezone: timezone.trim(),
                   });
                   onClose();
