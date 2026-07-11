@@ -1,6 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
 
 import { composeWorkspaceInstructions, getAgent } from "./agents.js";
 import { runDateKey } from "./recurring-work.js";
@@ -14,9 +12,9 @@ import type {
   AgentEvent,
   RecurringWorkRecord,
   RecurringWorkRunRecord,
+  RunResultArtifact,
   RuntimeNotice,
 } from "./types.js";
-import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -30,7 +28,157 @@ function lastAssistantText(events: readonly AgentEvent[]) {
         : [],
     )
     .at(-1)
-    ?.slice(0, 2_000);
+    ?.slice(0, 20_000);
+}
+
+function reportedRequiredDataFailure(summary: string | undefined) {
+  if (!summary) return false;
+  return /MARKETER_RUN_FAILED|tool_not_found|live analytics report unavailable|analytics (?:data|report) (?:is |was )?(?:not available|unavailable)|analytics (?:has|have) not (?:yet )?populated|no reliable .*data .*available/i.test(
+    summary,
+  );
+}
+
+function blockedRunSummary(blockedTools: readonly string[]) {
+  if (
+    blockedTools.includes(
+      "tools.marketer.org.workspace.agentTools.analyticsRunReport",
+    )
+  ) {
+    return "Live analytics was not read. The Analyst selected the cached workspace report path instead of this task's approved live Google Analytics path. No Google permission was removed and nothing was changed. Reconnect Google Analytics if prompted, then rerun the report.";
+  }
+  const count = blockedTools.length;
+  if (count === 0) {
+    return "The connector stopped before the approved tool could run. Nothing was changed. Retry the report; if it stops again, reconnect the integration.";
+  }
+  return count === 1
+    ? "The run stopped before using one tool outside its approved scope. Nothing was changed. Review that tool, then rerun."
+    : `The run stopped before using ${count} tools outside its approved scope. Nothing was changed. Review those tools, then rerun.`;
+}
+
+type ArtifactWorkspaceData = Awaited<
+  ReturnType<SessionManager["workspaceData"]>
+>;
+
+function newIds<T extends { id: string }>(before: T[], after: T[]) {
+  const existing = new Set(before.map((item) => item.id));
+  return after.filter((item) => !existing.has(item.id));
+}
+
+function changedIds<T extends { id: string; updatedAt: number }>(
+  before: T[],
+  after: T[],
+) {
+  const existing = new Map(before.map((item) => [item.id, item.updatedAt]));
+  return after.filter((item) => existing.get(item.id) !== item.updatedAt);
+}
+
+function artifactsFromRun(
+  events: readonly AgentEvent[],
+  before: ArtifactWorkspaceData,
+  after: ArtifactWorkspaceData,
+): RunResultArtifact[] {
+  const artifacts: RunResultArtifact[] = [];
+  const chartIds = new Set<string>();
+  for (const event of events) {
+    if (event.type !== "message") continue;
+    for (const block of event.content) {
+      if (block.type !== "data-chart") continue;
+      const id = block.id ?? `chart-${artifacts.length + 1}`;
+      if (chartIds.has(id)) continue;
+      chartIds.add(id);
+      artifacts.push({ type: "data-chart", id, data: block.data });
+    }
+  }
+
+  const prospects = newIds(before.prospects, after.prospects).slice(0, 25);
+  if (prospects.length > 0) {
+    artifacts.push({
+      type: "data-table",
+      id: "prospects",
+      data: {
+        title: "Prospects found",
+        columns: [
+          { key: "name", label: "Name" },
+          { key: "company", label: "Company" },
+          { key: "relevance", label: "Relevance" },
+          { key: "source", label: "Source" },
+        ],
+        rows: prospects.map((item) => ({
+          name: item.name,
+          company: item.company ?? "",
+          relevance: item.relevance,
+          source: item.source,
+        })),
+      },
+    });
+  }
+
+  const trends = newIds(before.trends, after.trends).slice(0, 25);
+  if (trends.length > 0) {
+    artifacts.push({
+      type: "data-table",
+      id: "trends",
+      data: {
+        title: "Signals found",
+        columns: [
+          { key: "title", label: "Signal" },
+          { key: "source", label: "Source" },
+          { key: "strength", label: "Strength" },
+        ],
+        rows: trends.map((item) => ({
+          title: item.title,
+          source: item.source,
+          strength: item.signal,
+        })),
+      },
+    });
+  }
+
+  const drafts = changedIds(before.drafts, after.drafts).slice(0, 25);
+  if (drafts.length > 0) {
+    artifacts.push({
+      type: "data-table",
+      id: "content",
+      data: {
+        title: "Content prepared",
+        columns: [
+          { key: "title", label: "Draft" },
+          { key: "platform", label: "Channel" },
+          { key: "status", label: "Status" },
+        ],
+        rows: drafts.map((item) => ({
+          title: item.title,
+          platform: item.platform,
+          status: item.status,
+        })),
+      },
+    });
+  }
+
+  const campaigns = changedIds(before.campaigns, after.campaigns).slice(0, 25);
+  if (campaigns.length > 0) {
+    artifacts.push({
+      type: "data-table",
+      id: "campaigns",
+      data: {
+        title: "Campaigns",
+        columns: [
+          { key: "name", label: "Campaign" },
+          { key: "provider", label: "Provider" },
+          { key: "status", label: "Status" },
+          { key: "budget", label: "Budget" },
+        ],
+        rows: campaigns.map((item) => ({
+          name: item.name,
+          provider: item.provider,
+          status: item.status,
+          budget: item.budget ?? "",
+        })),
+      },
+    });
+  }
+
+  return artifacts;
 }
 
 export class RecurringWorkScheduler {
@@ -93,6 +241,7 @@ export class RecurringWorkScheduler {
             ...work,
             grant: work.grant ?? undefined,
             skipDates: work.skipDates ?? undefined,
+            runOnceAt: work.runOnceAt ?? undefined,
             nextRunAt: work.nextRunAt ?? undefined,
             lastRunAt: work.lastRunAt ?? undefined,
             lastResult: work.lastResult ?? undefined,
@@ -116,13 +265,14 @@ export class RecurringWorkScheduler {
     work: RecurringWorkRecord,
     session: AgentSession | null,
     status: "completed" | "failed" | "needs_approval",
+    runId: string,
     detail?: string,
   ) {
     try {
       if (session) {
         await this.manager.saveTranscript(
           {
-            id: `automation-${work.id}`,
+            id: `automation-run-${runId}`,
             workspaceId,
             agentId: work.agentId,
             driver: "codex",
@@ -141,6 +291,10 @@ export class RecurringWorkScheduler {
         title: work.title,
         detail: detail?.trim().slice(0, 140) || undefined,
         sourceId: `automation-${work.id}`,
+        agentId: work.agentId,
+        chatId: `automation-run-${runId}`,
+        runId,
+        recurringWorkId: work.id,
       });
       if (status !== "completed") {
         await this.manager.raiseAttentionItem(workspaceId, {
@@ -182,7 +336,9 @@ export class RecurringWorkScheduler {
         workspaceId,
         work.id,
         scheduledFor,
-        nextRunAt(work.cron, work.timezone, scheduleFrom()),
+        work.runOnceAt === undefined
+          ? nextRunAt(work.cron, work.timezone, scheduleFrom())
+          : null,
       );
       if (!claimed) {
         this.running.delete(work.id);
@@ -191,7 +347,10 @@ export class RecurringWorkScheduler {
     } else {
       await this.manager.saveRecurringWork(workspaceId, {
         ...work,
-        nextRunAt: nextRunAt(work.cron, work.timezone, scheduleFrom()),
+        nextRunAt:
+          work.runOnceAt === undefined
+            ? nextRunAt(work.cron, work.timezone, scheduleFrom())
+            : undefined,
         updatedAt: now,
       });
     }
@@ -201,8 +360,12 @@ export class RecurringWorkScheduler {
     if (claim && work.skipDates?.includes(skipKey)) {
       await this.manager.saveRecurringWork(workspaceId, {
         ...work,
+        status: work.runOnceAt === undefined ? work.status : "paused",
         skipDates: work.skipDates.filter((date) => date !== skipKey),
-        nextRunAt: nextRunAt(work.cron, work.timezone, scheduleFrom()),
+        nextRunAt:
+          work.runOnceAt === undefined
+            ? nextRunAt(work.cron, work.timezone, scheduleFrom())
+            : undefined,
         updatedAt: Date.now(),
       });
       this.running.delete(work.id);
@@ -217,6 +380,7 @@ export class RecurringWorkScheduler {
       scheduledFor,
       startedAt: now,
     };
+    const beforeData = await this.manager.workspaceData(workspaceId);
 
     let session: AgentSession | null = null;
     let blocked = false;
@@ -224,12 +388,6 @@ export class RecurringWorkScheduler {
     try {
       await this.manager.saveRecurringWorkRun(workspaceId, run);
       await this.onChange(workspaceId);
-      this.notice(workspaceId, {
-        kind: "run-started",
-        title: work.title,
-        detail: "Scheduled run starting.",
-        sourceId: `automation-${work.id}`,
-      });
       const agent = getAgent(work.agentId);
       if (!agent) throw new Error(`Unknown agent: ${work.agentId}`);
       const preference = await this.manager.agentPreference(
@@ -240,29 +398,43 @@ export class RecurringWorkScheduler {
         throw new Error(`${agent.name} is disabled.`);
       }
 
-      const cwd = join(workspaceRoot(workspaceId), "automations", work.id);
-      mkdirSync(cwd, { recursive: true });
-      const env = await workspaceSecrets.materialize(workspaceId);
       const executor = existingExecutorWorkspace(workspaceId);
       const approved = work.grant.toolPatterns;
+      const liveGoogleAnalyticsApproved = approved.some((address) =>
+        [
+          "tools.marketer.org.workspace.agentTools.analyticsRunReport",
+          "tools.marketer-local.org.localworkspace.localTools.googleAnalyticsRunReport",
+        ].includes(address),
+      );
+      const effectiveApproved = liveGoogleAnalyticsApproved
+        ? [
+            ...new Set([
+              ...approved,
+              "tools.marketer-local.org.localworkspace.localTools.googleAnalyticsRunReport",
+            ]),
+          ]
+        : approved;
       const scheduledAgent = {
         ...agent,
         instructions: composeWorkspaceInstructions(
-          `${agent.instructions}\n\nThis is an unattended recurring run that the user approved in Marketer. Use Executor only; do not use shell commands or edit files. You may call only these delegated Executor tools: ${approved.length > 0 ? approved.join(", ") : "read-only tools that Executor already allows"}. If the task needs any other mutation, stop and explain what additional approval is required.`,
+          `${agent.instructions}\n\nThis is an unattended recurring run that the user approved in Marketer. Use Executor only; do not use shell commands or edit files. You may call only these exact delegated Executor tool addresses: ${effectiveApproved.length > 0 ? effectiveApproved.join(", ") : "read-only tools that Executor already allows"}. Do not substitute a similarly named tool from another integration.${liveGoogleAnalyticsApproved ? " The live local Google Analytics report tool is approved. Always call tools.marketer-local.org.localworkspace.localTools.googleAnalyticsRunReport for Google Analytics, even when an older task instruction names tools.marketer.org.workspace.agentTools.analyticsRunReport or the workspace source says cached. The cached source is discovery metadata, not the report to analyze. Call the local report tool with body: { propertyId, startDate, endDate, metrics: [string], dimensions: [string], limit }. Never use dateRanges or objects with a name property." : ""} If the task needs any other mutation, stop and explain what additional approval is required. Produce a decision-ready result, not only prose. Present numeric time series as focused charts. Multiple charts are encouraged when the evidence covers different questions. Each chart must contain only directly comparable series, use one measurement scale, and order time points chronologically. Never combine daily traffic, acquisition groups, landing pages, and events into one chart. Make created or updated campaigns, prospects, signals, and content explicit so Marketer can show them as tables. Put concise analysis beside the artifact. Never publish connector errors, tool names, authorization details, missing-data complaints, or debugging instructions as a report. If required evidence is unavailable, retry the approved live read tool once. If it still fails, return only MARKETER_RUN_FAILED followed by one short plain-language cause. Use direct sales-style language and never use an em dash character.`,
           readWorkspaceContext(workspaceId),
         ),
       };
-      session = new AgentSession(scheduledAgent, `automation-${run.id}`, {
-        // Codex currently exposes Executor's native MCP elicitation to the
-        // host, allowing this grant to be enforced before every mutation.
-        driver: "codex",
-        access: "guarded",
-        workspaceId,
-        env,
-        model: preference?.model,
-        mcpServers: [executorToolServer(executor)],
-        automationGrant: work.grant,
-      });
+      session = await this.manager.ensure(
+        scheduledAgent,
+        `automation-run-${run.id}`,
+        {
+          // Codex currently exposes Executor's native MCP elicitation to the
+          // host, allowing this grant to be enforced before every mutation.
+          driver: "codex",
+          access: "guarded",
+          workspaceId,
+          model: preference?.model,
+          mcpServers: [executorToolServer(executor)],
+          automationGrant: work.grant,
+        },
+      );
 
       const result = await new Promise<{ ok: boolean; error?: string }>(
         async (resolve, reject) => {
@@ -291,10 +463,30 @@ export class RecurringWorkScheduler {
             }
           });
           try {
-            await session!.start(cwd);
             await session!.sendPrompt(
-              `Run this approved recurring work now.\n\n${work.instructions}\n\nReturn a concise summary of what changed, what was saved or sent, and anything that needs the user's attention.`,
+              `Run this approved recurring work now.\n\n${work.instructions}\n\nReturn a concise result with a clear headline, the evidence, the next action, what was saved or sent, and anything that needs the user's attention. Use bullets where they improve scanning. Do not use an em dash character.`,
             );
+            await this.manager.saveTranscript(
+              {
+                id: `automation-run-${run.id}`,
+                workspaceId,
+                agentId: work.agentId,
+                driver: "codex",
+                model: preference?.model,
+              },
+              session!.events,
+              work.title,
+            );
+            this.notice(workspaceId, {
+              kind: "run-started",
+              title: work.title,
+              detail: "Scheduled run starting.",
+              sourceId: `automation-${work.id}`,
+              agentId: work.agentId,
+              chatId: `automation-run-${run.id}`,
+              runId: run.id,
+              recurringWorkId: work.id,
+            });
           } catch (error) {
             clearTimeout(timeout);
             reject(error);
@@ -302,54 +494,105 @@ export class RecurringWorkScheduler {
         },
       );
 
-      const summary = lastAssistantText(session.events);
+      const agentSummary = lastAssistantText(session.events);
+      const dataFailure = reportedRequiredDataFailure(agentSummary);
+      const artifacts = await this.manager
+        .workspaceData(workspaceId)
+        .then((afterData) =>
+          artifactsFromRun(session!.events, beforeData, afterData),
+        )
+        .catch(() => []);
       const status = blocked
         ? "needs_approval"
-        : result.ok
+        : result.ok && !dataFailure
           ? "completed"
           : "failed";
+      const summary = blocked
+        ? blockedRunSummary(blockedTools)
+        : dataFailure
+          ? "Analytics data was unavailable for this run. Nothing was changed. Try again."
+          : agentSummary;
       await this.manager.saveRecurringWorkRun(workspaceId, {
         ...run,
         status,
         finishedAt: Date.now(),
         summary,
+        artifacts: artifacts.length > 0 ? artifacts : undefined,
         error: result.error,
         blockedTools: blockedTools.length > 0 ? blockedTools : undefined,
       });
-      // Every run leaves a reviewable conversation, and a blocked run raises
+      // Every run leaves a reviewable transcript, and a blocked run raises
       // one concrete attention item instead of failing silently.
-      await this.deliverRunOutcome(workspaceId, work, session, status, summary);
+      await this.deliverRunOutcome(
+        workspaceId,
+        work,
+        session,
+        status,
+        run.id,
+        summary,
+      );
+      if (status === "completed") {
+        for (const suffix of ["approval", "needs_approval", "failed"]) {
+          await this.manager.dismissAttentionItem(
+            workspaceId,
+            `attention-${work.id}-${suffix}`,
+          );
+        }
+      }
       await this.manager.saveRecurringWork(workspaceId, {
         ...work,
-        status: blocked ? "needs_approval" : "active",
-        nextRunAt: nextRunAt(work.cron, work.timezone, scheduleFrom()),
+        status: blocked
+          ? "needs_approval"
+          : work.runOnceAt === undefined
+            ? "active"
+            : "paused",
+        nextRunAt:
+          work.runOnceAt === undefined
+            ? nextRunAt(work.cron, work.timezone, scheduleFrom())
+            : undefined,
         lastRunAt: Date.now(),
         lastResult: summary ?? result.error,
         updatedAt: Date.now(),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const artifacts = session
+        ? await this.manager
+            .workspaceData(workspaceId)
+            .then((afterData) =>
+              artifactsFromRun(session!.events, beforeData, afterData),
+            )
+            .catch(() => [])
+        : [];
       await this.manager.saveRecurringWorkRun(workspaceId, {
         ...run,
         status: blocked ? "needs_approval" : "failed",
         finishedAt: Date.now(),
         error: message,
+        artifacts: artifacts.length > 0 ? artifacts : undefined,
       });
       await this.deliverRunOutcome(
         workspaceId,
         work,
         session,
         blocked ? "needs_approval" : "failed",
+        run.id,
         message,
       );
       await this.manager.saveRecurringWork(workspaceId, {
         ...work,
         // A transient provider or network failure is recorded on the run but
         // does not silently disable an automation the user approved forever.
-        status: blocked ? "needs_approval" : "active",
+        status: blocked
+          ? "needs_approval"
+          : work.runOnceAt === undefined
+            ? "active"
+            : "error",
         nextRunAt: blocked
           ? work.nextRunAt
-          : nextRunAt(work.cron, work.timezone, scheduleFrom()),
+          : work.runOnceAt === undefined
+            ? nextRunAt(work.cron, work.timezone, scheduleFrom())
+            : undefined,
         lastRunAt: Date.now(),
         lastResult: message,
         updatedAt: Date.now(),

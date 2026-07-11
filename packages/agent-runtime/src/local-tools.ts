@@ -8,7 +8,13 @@ import type {
   RecurringWorkRecord,
   TrendRecord,
 } from "./types.js";
-import { validateCron } from "./recurring-work.js";
+import { nextRunAt, validateCron } from "./recurring-work.js";
+import { readWorkspaceContext } from "./workspace-context.js";
+import {
+  googleAnalyticsMetadata,
+  googleAnalyticsProperties,
+  googleAnalyticsRunReport,
+} from "./google-analytics-local.js";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -62,6 +68,17 @@ function amount(input: unknown, name: string) {
 function stringList(input: unknown, name: string, maximum = 30) {
   if (!Array.isArray(input)) throw new Error(`${name} must be a list.`);
   return input.slice(0, maximum).map((item) => value(item, name, 300)!);
+}
+
+function googleAnalyticsFieldList(input: unknown, name: string) {
+  if (!Array.isArray(input)) throw new Error(`${name} must be a list.`);
+  return input.map((item) => {
+    if (typeof item === "string") return item;
+    if (item && typeof item === "object" && "name" in item) {
+      return value((item as { name?: unknown }).name, name, 200)!;
+    }
+    throw new Error(`${name} must contain field names.`);
+  });
 }
 
 function toolAddressList(input: unknown) {
@@ -159,7 +176,8 @@ export function localToolsOpenApi(origin: string) {
       "/local-tools/attention": {
         post: {
           operationId: "attention.raise",
-          summary: "Flag something that genuinely requires the user's attention",
+          summary:
+            "Flag something that genuinely requires the user's attention",
           description:
             "Use sparingly: only for items the user must personally decide or act on. A concrete reason is required; routine output and successes must never be flagged.",
           requestBody: body("AttentionInput"),
@@ -174,10 +192,40 @@ export function localToolsOpenApi(origin: string) {
         },
         post: {
           operationId: "recurringWork.propose",
-          summary: "Propose recurring agent work for user approval",
+          summary: "Create recurring agent work under workspace policy",
           description:
-            "Creates a draft only. The user must explicitly approve it in Marketer before it can run.",
+            "Creates a reviewable draft by default. Immediate activation is accepted only when onboarding granted automatic scheduling authority.",
           requestBody: body("RecurringWorkInput"),
+          responses: saveResponse,
+        },
+      },
+      "/local-tools/google-analytics/metadata": {
+        post: {
+          operationId: "googleAnalytics.metadata",
+          summary: "Discover live GA4 metrics and dimensions",
+          description:
+            "Uses this Mac's existing Google Analytics login. Query by a concept such as conversion, landing page, acquisition, or revenue before building a report.",
+          requestBody: body("GoogleAnalyticsMetadataInput"),
+          responses: saveResponse,
+        },
+      },
+      "/local-tools/google-analytics/properties": {
+        post: {
+          operationId: "googleAnalytics.properties",
+          summary: "List GA4 properties available on this Mac",
+          description:
+            "Uses this Mac's existing Google Analytics login to list the properties the user can report on.",
+          requestBody: body("GoogleAnalyticsPropertiesInput"),
+          responses: saveResponse,
+        },
+      },
+      "/local-tools/google-analytics/report": {
+        post: {
+          operationId: "googleAnalytics.runReport",
+          summary: "Run a live GA4 report from this Mac",
+          description:
+            "Builds and runs a live Google Analytics Data API request. Pass body fields directly as propertyId, startDate, endDate, metrics as strings, dimensions as strings, and limit. Do not wrap field names in name objects.",
+          requestBody: body("GoogleAnalyticsReportInput"),
           responses: saveResponse,
         },
       },
@@ -207,6 +255,11 @@ export function localToolsOpenApi(origin: string) {
           required: ["name", "source", "summary"],
           properties: {
             id: { type: "string" },
+            playbookId: {
+              type: "string",
+              description:
+                "Playbook approved during onboarding; required for immediate activation",
+            },
             name: { type: "string" },
             company: { type: "string" },
             source: { type: "string" },
@@ -274,6 +327,52 @@ export function localToolsOpenApi(origin: string) {
             revenue: { type: "number", minimum: 0 },
           },
         },
+        GoogleAnalyticsMetadataInput: {
+          type: "object",
+          additionalProperties: false,
+          required: ["propertyId"],
+          properties: {
+            propertyId: { type: "string" },
+            query: {
+              type: "string",
+              description:
+                "Optional concept used to narrow the GA4 metadata catalogue",
+            },
+          },
+        },
+        GoogleAnalyticsPropertiesInput: {
+          type: "object",
+          additionalProperties: false,
+          properties: {},
+        },
+        GoogleAnalyticsReportInput: {
+          type: "object",
+          additionalProperties: false,
+          required: ["propertyId", "startDate", "endDate", "metrics"],
+          properties: {
+            propertyId: { type: "string" },
+            startDate: { type: "string", examples: ["7daysAgo"] },
+            endDate: { type: "string", examples: ["yesterday"] },
+            metrics: {
+              type: "array",
+              minItems: 1,
+              maxItems: 10,
+              items: { type: "string" },
+            },
+            dimensions: {
+              type: "array",
+              maxItems: 9,
+              default: [],
+              items: { type: "string" },
+            },
+            limit: {
+              type: "integer",
+              minimum: 1,
+              maximum: 10000,
+              default: 100,
+            },
+          },
+        },
         RecurringWorkInput: {
           type: "object",
           additionalProperties: false,
@@ -296,6 +395,11 @@ export function localToolsOpenApi(origin: string) {
               description: "Standard five-field cron expression",
             },
             timezone: { type: "string", description: "IANA timezone" },
+            runOnceAt: {
+              oneOf: [{ type: "number" }, { type: "string" }],
+              description:
+                "Exact timestamp for a one-off task. Omit for recurring work.",
+            },
             approvalSummary: {
               type: "string",
               description:
@@ -306,6 +410,12 @@ export function localToolsOpenApi(origin: string) {
               items: { type: "string" },
               description:
                 "Exact Executor tool addresses required by this work",
+            },
+            activate: {
+              type: "boolean",
+              default: false,
+              description:
+                "Activate immediately only when the workspace context explicitly grants automatic scheduling authority",
             },
           },
         },
@@ -341,6 +451,35 @@ export async function handleLocalTool(
     return json({ error: "Request body must be JSON." }, 400);
   }
   try {
+    if (path === "/local-tools/google-analytics/properties") {
+      return json(await googleAnalyticsProperties());
+    }
+    if (path === "/local-tools/google-analytics/metadata") {
+      return json(
+        await googleAnalyticsMetadata({
+          propertyId: body.propertyId,
+          query: body.query,
+        }),
+      );
+    }
+    if (path === "/local-tools/google-analytics/report") {
+      const dateRange = Array.isArray(body.dateRanges)
+        ? (body.dateRanges[0] as Record<string, unknown> | undefined)
+        : undefined;
+      return json(
+        await googleAnalyticsRunReport({
+          propertyId: body.propertyId,
+          startDate: body.startDate ?? dateRange?.startDate,
+          endDate: body.endDate ?? dateRange?.endDate,
+          metrics: googleAnalyticsFieldList(body.metrics, "metrics"),
+          dimensions:
+            body.dimensions === undefined
+              ? []
+              : googleAnalyticsFieldList(body.dimensions, "dimensions"),
+          limit: body.limit,
+        }),
+      );
+    }
     if (path === "/local-tools/prospects") {
       const prospect: ProspectRecord = {
         id: value(body.id, "id", 120, false) ?? randomUUID(),
@@ -438,36 +577,101 @@ export async function handleLocalTool(
     }
     if (path === "/local-tools/recurring-work") {
       const now = Date.now();
+      const id = value(body.id, "id", 120, false) ?? randomUUID();
+      const existing = await manager.recurringWorkById(workspaceId, id);
       const cron = value(body.cron, "cron", 120)!;
       const timezone = value(body.timezone, "timezone", 120)!;
+      const runOnceAt =
+        body.runOnceAt === undefined
+          ? existing?.runOnceAt
+          : time(body.runOnceAt, Number.NaN);
+      if (runOnceAt !== undefined && !Number.isFinite(runOnceAt)) {
+        throw new Error("runOnceAt must be a valid timestamp.");
+      }
       validateCron(cron, timezone);
+      const activate = body.activate === true;
+      const workspaceContext = readWorkspaceContext(workspaceId);
+      const schedulingAuthority = workspaceContext?.match(
+        /^Agent scheduling authority:\s*(automatic|review|manual)$/im,
+      )?.[1];
+      if (activate && schedulingAuthority !== "automatic") {
+        throw new Error(
+          "This workspace requires schedule review. Create a draft without activate.",
+        );
+      }
+      const agentId = value(body.agentId, "agentId", 120)!;
+      const playbookId = value(body.playbookId, "playbookId", 120, false);
+      if (activate) {
+        let scope: Array<{
+          playbookId?: string;
+          agentId?: string;
+          cron?: string;
+          timezone?: string;
+        }> = [];
+        try {
+          const encoded = workspaceContext?.match(
+            /^Automatic schedule scope:\s*(.+)$/im,
+          )?.[1];
+          scope = encoded ? JSON.parse(encoded) : [];
+        } catch {
+          scope = [];
+        }
+        const approved = scope.find(
+          (item) =>
+            item.playbookId === playbookId &&
+            item.agentId === agentId &&
+            item.cron === cron &&
+            item.timezone === timezone,
+        );
+        if (!approved) {
+          throw new Error(
+            "This schedule is outside the starter plan approved during onboarding. Create a draft without activate.",
+          );
+        }
+      }
+      const proposedToolPatterns = toolAddressList(body.proposedToolPatterns);
       const work: RecurringWorkRecord = {
-        id: value(body.id, "id", 120, false) ?? randomUUID(),
-        agentId: value(body.agentId, "agentId", 120)!,
+        id,
+        agentId,
         title: value(body.title, "title", 200)!,
         instructions: value(body.instructions, "instructions", 8_000)!,
         cron,
         timezone,
-        status: "draft",
+        runOnceAt,
+        status: activate ? "active" : "draft",
         placement: "local",
         approvalSummary: value(body.approvalSummary, "approvalSummary", 2_000)!,
-        proposedToolPatterns: toolAddressList(body.proposedToolPatterns),
-        createdAt: now,
+        proposedToolPatterns,
+        grant: activate
+          ? { version: 1, approvedAt: now, toolPatterns: proposedToolPatterns }
+          : undefined,
+        nextRunAt: activate
+          ? runOnceAt !== undefined && runOnceAt <= now
+            ? now
+            : (runOnceAt ?? nextRunAt(cron, timezone))
+          : undefined,
+        createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       };
       await manager.saveRecurringWork(workspaceId, work);
-      // The proposal itself is the action item; agents must not raise a
-      // second one by hand.
-      await manager.raiseAttentionItem(workspaceId, {
-        id: `attention-${work.id}-approval`,
-        agentId: work.agentId,
-        title: `Approve: ${work.title}`,
-        reason: work.approvalSummary,
-        sourceId: `automation-${work.id}`,
-        status: "open",
-        createdAt: Date.now(),
+      if (!activate) {
+        // The proposal itself is the action item; agents must not raise a
+        // second one by hand.
+        await manager.raiseAttentionItem(workspaceId, {
+          id: `attention-${work.id}-approval`,
+          agentId: work.agentId,
+          title: `Approve: ${work.title}`,
+          reason: work.approvalSummary,
+          sourceId: `automation-${work.id}`,
+          status: "open",
+          createdAt: Date.now(),
+        });
+      }
+      return json({
+        recurringWork: work,
+        requiresUserApproval: !activate,
+        activated: activate,
       });
-      return json({ recurringWork: work, requiresUserApproval: true });
     }
     if (path === "/local-tools/attention") {
       const title = value(body.title, "title", 200)!;

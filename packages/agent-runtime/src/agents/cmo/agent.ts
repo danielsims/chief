@@ -3,6 +3,7 @@ import {
   contentCalendarCapability,
   defineAgent,
   prospectMemoryCapability,
+  scheduleManagerCapability,
   trendMemoryCapability,
 } from "../../capabilities/index.js";
 import { instructions } from "./instructions.js";
@@ -19,6 +20,7 @@ export const cmo = defineAgent({
     trendMemoryCapability,
     contentCalendarCapability,
     campaignMemoryCapability,
+    scheduleManagerCapability,
   ],
   instructions,
 });

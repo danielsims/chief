@@ -13,7 +13,7 @@ const execFileAsync = promisify(execFile);
 const MARKETER_INTEGRATION = "marketer";
 const LOCAL_INTEGRATION = "marketer-local";
 const CONNECTION_NAME = "workspace";
-const LOCAL_CONNECTION_NAME = "local-workspace";
+const LOCAL_CONNECTION_NAME = "localworkspace";
 
 interface ServerManifest {
   connection: {
@@ -337,6 +337,9 @@ async function configureToolPolicies(manifest: ServerManifest) {
       "localTools.attentionRaise",
       "localTools.recurringWorkList",
       "localTools.recurringWorkPropose",
+      "localTools.googleAnalyticsMetadata",
+      "localTools.googleAnalyticsProperties",
+      "localTools.googleAnalyticsRunReport",
     ].map((name) => [name, "approve"] as const),
   ]);
   const governedTools = [...cloudTools, ...localTools].filter((tool) =>

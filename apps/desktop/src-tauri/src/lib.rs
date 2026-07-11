@@ -3,30 +3,110 @@ use std::{
     net::{SocketAddr, TcpStream},
     path::Path,
     process::{Child, Command, Stdio},
-    sync::Mutex,
-    time::Duration,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    thread::{self, JoinHandle},
+    time::{Duration, Instant},
 };
 
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
-struct RuntimeProcess(Mutex<Option<Child>>);
+struct RuntimeProcess {
+    stop: Arc<AtomicBool>,
+    supervisor: Mutex<Option<JoinHandle<()>>>,
+}
+
+fn terminate_runtime(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        let process_group = format!("-{}", child.id());
+        let _ = Command::new("/bin/kill")
+            .args(["-TERM", &process_group])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+impl RuntimeProcess {
+    fn start() -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let supervisor_stop = Arc::clone(&stop);
+        let supervisor = thread::spawn(move || {
+            let mut child: Option<Child> = None;
+            let mut started_at: Option<Instant> = None;
+            let mut missing_checks = 0_u8;
+
+            while !supervisor_stop.load(Ordering::Relaxed) {
+                if let Some(runtime) = child.as_mut() {
+                    match runtime.try_wait() {
+                        Ok(Some(status)) => {
+                            eprintln!("[runtime] agent runtime exited with {status}; restarting");
+                            child = None;
+                            started_at = None;
+                        }
+                        Ok(None) => {
+                            if runtime_is_running() {
+                                started_at = None;
+                            } else if started_at
+                                .is_some_and(|started| started.elapsed() > Duration::from_secs(20))
+                            {
+                                eprintln!(
+                                    "[runtime] agent runtime did not open its port; restarting"
+                                );
+                                terminate_runtime(runtime);
+                                child = None;
+                                started_at = None;
+                            }
+                        }
+                        Err(error) => {
+                            eprintln!(
+                                "[runtime] could not inspect agent runtime: {error}; restarting"
+                            );
+                            terminate_runtime(runtime);
+                            child = None;
+                            started_at = None;
+                        }
+                    }
+                } else if runtime_is_running() {
+                    // A developer-run runtime may already own the port. Leave it
+                    // alone while healthy, but take over if it later disappears.
+                    missing_checks = 0;
+                } else {
+                    missing_checks = missing_checks.saturating_add(1);
+                    if missing_checks >= 2 {
+                        child = spawn_agent_runtime();
+                        started_at = child.as_ref().map(|_| Instant::now());
+                        missing_checks = 0;
+                    }
+                }
+
+                thread::sleep(Duration::from_secs(1));
+            }
+
+            if let Some(runtime) = child.as_mut() {
+                terminate_runtime(runtime);
+            }
+        });
+
+        Self {
+            stop,
+            supervisor: Mutex::new(Some(supervisor)),
+        }
+    }
+}
 
 impl Drop for RuntimeProcess {
     fn drop(&mut self) {
-        if let Ok(mut child) = self.0.lock() {
-            if let Some(child) = child.as_mut() {
-                #[cfg(unix)]
-                {
-                    let process_group = format!("-{}", child.id());
-                    let _ = Command::new("/bin/kill")
-                        .args(["-TERM", &process_group])
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status();
-                }
-                let _ = child.kill();
-                let _ = child.wait();
+        self.stop.store(true, Ordering::Relaxed);
+        if let Ok(mut supervisor) = self.supervisor.lock() {
+            if let Some(handle) = supervisor.take() {
+                let _ = handle.join();
             }
         }
     }
@@ -39,11 +119,7 @@ fn runtime_is_running() -> bool {
     TcpStream::connect_timeout(&addr, Duration::from_millis(250)).is_ok()
 }
 
-fn start_agent_runtime() -> Option<Child> {
-    if runtime_is_running() {
-        return None;
-    }
-
+fn spawn_agent_runtime() -> Option<Child> {
     let repo_dir = std::env::var("MARKETER_REPO_DIR")
         .unwrap_or_else(|_| "/Users/danielsims/Documents/Development/marketer".to_string());
     if !Path::new(&repo_dir).exists() {
@@ -161,7 +237,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .setup(|app| {
-            app.manage(RuntimeProcess(Mutex::new(start_agent_runtime())));
+            app.manage(RuntimeProcess::start());
             let handle = app.handle().clone();
             focus_main_window(&handle);
             Ok(())

@@ -224,7 +224,7 @@ export class LocalStore {
       .where(eq(schema.chats.workspaceId, workspaceId))
       .orderBy(desc(schema.chats.updatedAt))
       .all();
-    return rows.map((chat) => ({
+    return rows.filter((chat) => !chat.id.startsWith("automation-")).map((chat) => ({
       id: chat.id,
       agentId: chat.agentId,
       title: chat.title,
@@ -456,6 +456,7 @@ export class LocalStore {
       ...work,
       grant: work.grant ?? undefined,
       skipDates: work.skipDates ?? undefined,
+      runOnceAt: work.runOnceAt ?? undefined,
       nextRunAt: work.nextRunAt ?? undefined,
       lastRunAt: work.lastRunAt ?? undefined,
       lastResult: work.lastResult ?? undefined,
@@ -479,6 +480,7 @@ export class LocalStore {
           ...row,
           grant: row.grant ?? undefined,
           skipDates: row.skipDates ?? undefined,
+          runOnceAt: row.runOnceAt ?? undefined,
           nextRunAt: row.nextRunAt ?? undefined,
           lastRunAt: row.lastRunAt ?? undefined,
           lastResult: row.lastResult ?? undefined,
@@ -508,13 +510,14 @@ export class LocalStore {
           instructions: work.instructions,
           cron: work.cron,
           timezone: work.timezone,
+          runOnceAt: work.runOnceAt ?? null,
           status: work.status,
           placement: work.placement,
           skipDates: work.skipDates ?? null,
           approvalSummary: work.approvalSummary,
           proposedToolPatterns: work.proposedToolPatterns,
           grant: work.grant,
-          nextRunAt: work.nextRunAt,
+          nextRunAt: work.nextRunAt ?? null,
           lastRunAt: work.lastRunAt,
           lastResult: work.lastResult,
           updatedAt: work.updatedAt,
@@ -592,7 +595,17 @@ export class LocalStore {
     await this.db
       .insert(schema.attentionItems)
       .values({ ...item, sourceId: item.sourceId ?? null, workspaceId })
-      .onConflictDoNothing()
+      .onConflictDoUpdate({
+        target: schema.attentionItems.id,
+        set: {
+          agentId: item.agentId,
+          title: item.title,
+          reason: item.reason,
+          sourceId: item.sourceId ?? null,
+          status: item.status,
+          createdAt: item.createdAt,
+        },
+      })
       .run();
   }
 
@@ -638,7 +651,7 @@ export class LocalStore {
     workspaceId: string,
     id: string,
     expectedNextRunAt: number,
-    nextRunAt: number,
+    nextRunAt: number | null,
   ): Promise<boolean> {
     await this.ready;
     const result = await this.db
@@ -669,6 +682,7 @@ export class LocalStore {
         finishedAt: schema.recurringWorkRuns.finishedAt,
         summary: schema.recurringWorkRuns.summary,
         error: schema.recurringWorkRuns.error,
+        artifacts: schema.recurringWorkRuns.artifacts,
         blockedTools: schema.recurringWorkRuns.blockedTools,
       })
       .from(schema.recurringWorkRuns)
@@ -682,6 +696,7 @@ export class LocalStore {
           finishedAt: run.finishedAt ?? undefined,
           summary: run.summary ?? undefined,
           error: run.error ?? undefined,
+          artifacts: run.artifacts ?? undefined,
           blockedTools: run.blockedTools ?? undefined,
         })),
       );
@@ -705,9 +720,7 @@ export class LocalStore {
       .orderBy(desc(schema.recurringWorkRuns.startedAt))
       .limit(10)
       .all();
-    return [
-      ...new Set(rows.flatMap((row) => row.blockedTools ?? [])),
-    ];
+    return [...new Set(rows.flatMap((row) => row.blockedTools ?? []))];
   }
 
   async saveRecurringWorkRun(workspaceId: string, run: RecurringWorkRunRecord) {
@@ -723,6 +736,7 @@ export class LocalStore {
           blockedTools: run.blockedTools ?? null,
           summary: run.summary,
           error: run.error,
+          artifacts: run.artifacts ?? null,
         },
       })
       .run();

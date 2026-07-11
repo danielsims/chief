@@ -70,6 +70,21 @@ export class CodexDriver extends BaseDriver {
   private opts: StartOptions | null = null;
   private stopping = false;
 
+  private finishActiveTools(content: string, isError = false) {
+    if (this.activeToolUseIds.size === 0) return;
+    this.emitEvent({
+      type: "message",
+      role: "assistant",
+      content: Array.from(this.activeToolUseIds, (toolUseId) => ({
+        type: "tool_result" as const,
+        tool_use_id: toolUseId,
+        content,
+        is_error: isError,
+      })),
+    });
+    this.activeToolUseIds.clear();
+  }
+
   async start(opts: StartOptions): Promise<void> {
     this.opts = opts;
     this.threadId = opts.resumeSessionId;
@@ -104,6 +119,10 @@ export class CodexDriver extends BaseDriver {
 
     this.proc.on("exit", (code) => {
       this.rejectPending("Codex exited");
+      this.finishActiveTools(
+        "Tool stopped because the agent runtime exited.",
+        true,
+      );
       if (!this.stopping && code !== 0) {
         this.emitEvent({
           type: "error",
@@ -393,18 +412,33 @@ export class CodexDriver extends BaseDriver {
         {
           const turn = p.turn ?? p;
           const failed = turn.status === "failed";
+          const interrupted = [
+            "aborted",
+            "cancelled",
+            "canceled",
+            "interrupted",
+          ].includes(String(turn.status ?? "").toLowerCase());
+          this.finishActiveTools(
+            failed || interrupted
+              ? "Tool stopped before completing."
+              : "Tool completed.",
+            failed || interrupted,
+          );
           this.emitEvent({
             type: "result",
-            ok: !failed,
+            ok: !failed && !interrupted,
             error: failed
               ? String(turn.error?.message ?? turn.error ?? "turn failed")
-              : undefined,
+              : interrupted
+                ? "Turn interrupted"
+                : undefined,
           });
         }
         this.currentStream = "";
         this.emitEvent({ type: "status", status: "idle" });
         break;
       case "turn/failed":
+        this.finishActiveTools("Tool stopped before completing.", true);
         this.emitEvent({
           type: "result",
           ok: false,
@@ -432,14 +466,19 @@ export class CodexDriver extends BaseDriver {
               )?.[1] ?? "",
             );
             const params = meta.tool_params as
-              | Record<string, unknown>
-              | undefined;
+              Record<string, unknown> | undefined;
             const code = typeof params?.code === "string" ? params.code : "";
             const addresses =
               toolName === "execute" ? executorAddressesFromCode(code) : [];
-            const readOnlyCatalog = ["skills", "search", "describe"].includes(
-              toolName,
-            );
+            const readOnlyCatalog = [
+              "skills",
+              "search",
+              "describe",
+              // Executor's resume tool only continues the immediately prior
+              // call. The original execute snippet has already been checked
+              // against this automation's narrow grant.
+              "resume",
+            ].includes(toolName);
             const allowed =
               readOnlyCatalog ||
               (toolName === "execute" &&
@@ -456,8 +495,7 @@ export class CodexDriver extends BaseDriver {
             } else {
               const blockedAddress =
                 addresses.find(
-                  (address) =>
-                    !grantAllowsAddress(grant.toolPatterns, address),
+                  (address) => !grantAllowsAddress(grant.toolPatterns, address),
                 ) ?? toolName;
               this.emitEvent({
                 type: "permission",
@@ -522,6 +560,10 @@ export class CodexDriver extends BaseDriver {
       case "error":
       case "codex/event/error": {
         const error = p.error ?? p.event?.error ?? p.message ?? p;
+        this.finishActiveTools(
+          "Tool stopped because the agent encountered an error.",
+          true,
+        );
         this.emitEvent({
           type: "error",
           message:
@@ -612,16 +654,28 @@ export class CodexDriver extends BaseDriver {
       case "mcp_tool_call": {
         const id = String(item.id ?? this.rpcId++);
         const result = this.extractMcpResult(item);
+        const status = String(item.status ?? "").toLowerCase();
+        const failed =
+          Boolean(item.error) ||
+          [
+            "failed",
+            "aborted",
+            "cancelled",
+            "canceled",
+            "declined",
+            "interrupted",
+          ].includes(status);
         this.activeToolUseIds.delete(id);
-        return result === ""
-          ? []
-          : [
-              {
-                type: "tool_result",
-                tool_use_id: id,
-                content: result,
-              },
-            ];
+        return [
+          {
+            type: "tool_result",
+            tool_use_id: id,
+            content:
+              result ||
+              (failed ? "Tool stopped before completing." : "Tool completed."),
+            is_error: failed,
+          },
+        ];
       }
       case "webSearch":
       case "web_search": {

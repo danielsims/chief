@@ -17,11 +17,21 @@ and one concrete recommendation per insight.
 - For every data question, begin inside Executor by calling execute directly.
   Do not call Executor's skills tool; its workflow is already provided here.
 - Inside execute, list sources with
-  tools.marketer.org.workspace.agentTools.sourcesList({}), respect that
-  source's mode, availableMetrics and availableDimensions, then run analytics
-  with tools.marketer.org.workspace.agentTools.analyticsRunReport({ body: {
+  tools.marketer.org.workspace.agentTools.sourcesList({}). If Google Analytics
+  is live, run analytics with
+  tools.marketer.org.workspace.agentTools.analyticsRunReport({ body: {
   provider: "google-analytics", startDate, endDate, metrics, dimensions,
-  limit } }). Never request fields outside the advertised capability list.
+  limit } }).
+- If Google Analytics is a cached snapshot but the source has a property id,
+  use the machine's live connection instead. Find
+  localTools.googleAnalyticsProperties, localTools.googleAnalyticsMetadata,
+  and localTools.googleAnalyticsRunReport with tools.search. List properties
+  if the source does not identify one. Use metadata to discover valid GA4 API
+  fields when the report needs more than the common acquisition, page, event,
+  user, session, engagement, key-event, or revenue fields. Then build a narrow
+  live report request with the property id, date range, metrics, dimensions,
+  and limit. Do not settle for the cached activeUsers snapshot when this live
+  path works.
 - Use tools.search and tools.describe.tool only for unfamiliar future
   integrations. Never search the local repository for analytics exports and
   never claim a source is unavailable before checking Executor.
@@ -29,4 +39,9 @@ and one concrete recommendation per insight.
   Monday-to-Sunday week with the previous complete Monday-to-Sunday week,
   state the exact dates, quantify the largest changes, flag anomalies, and
   recommend one action per insight. Lead with the number that matters.
+- Every scheduled report with at least two time points must leave a chart
+  artifact. Use uiPresentChart after fetching the data, or return a structured
+  report with dimension and metric columns so Marketer can build the chart.
+  Keep the written analysis beside it short: headline, key changes, next
+  actions, and data quality. Do not repeat every value in prose.
 `;

@@ -294,6 +294,11 @@ export function startServer(port = PORT) {
               }
             }
             const active = msg.work.status === "active";
+            const now = Date.now();
+            const missedOneOff =
+              active &&
+              existing.runOnceAt !== undefined &&
+              existing.runOnceAt <= now;
             if (active && !msg.work.grant) {
               throw new Error(
                 "Explicit approval is required before activation.",
@@ -312,9 +317,12 @@ export function startServer(port = PORT) {
               status: msg.work.status,
               grant: msg.work.grant,
               nextRunAt: active
-                ? nextRunAt(msg.work.cron, msg.work.timezone)
+                ? missedOneOff
+                  ? now
+                  : (existing.runOnceAt ??
+                    nextRunAt(msg.work.cron, msg.work.timezone))
                 : msg.work.nextRunAt,
-              updatedAt: Date.now(),
+              updatedAt: now,
             });
             if (active) {
               // Approving IS the action the attention item asked for — the
@@ -327,6 +335,11 @@ export function startServer(port = PORT) {
               }
             }
             await broadcastWorkspaceData(msg.workspaceId);
+            if (missedOneOff) {
+              void scheduler
+                .runNow(msg.workspaceId, msg.work.id)
+                .catch((error) => console.error("[recurring-work]", error));
+            }
             break;
           }
 
@@ -374,7 +387,12 @@ export function startServer(port = PORT) {
             }
             await manager.saveRecurringWork(msg.workspaceId, {
               ...work,
-              nextRunAt: nextRunAt(work.cron, work.timezone),
+              nextRunAt:
+                work.runOnceAt === undefined
+                  ? nextRunAt(work.cron, work.timezone)
+                  : msg.rerun
+                    ? Date.now()
+                    : undefined,
               proposedToolPatterns: [
                 ...new Set([...work.proposedToolPatterns, ...addTools]),
               ],
@@ -387,7 +405,10 @@ export function startServer(port = PORT) {
                   ...new Set([...work.grant.toolPatterns, ...addTools]),
                 ],
               },
-              status: "active",
+              status:
+                work.runOnceAt !== undefined && !msg.rerun
+                  ? "paused"
+                  : "active",
               updatedAt: Date.now(),
             });
             for (const suffix of ["approval", "needs_approval", "failed"]) {
@@ -423,10 +444,7 @@ export function startServer(port = PORT) {
 
           case "deleteRecurringWorkRun":
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await manager.deleteRecurringWorkRun(
-              msg.workspaceId,
-              msg.runId,
-            );
+            await manager.deleteRecurringWorkRun(msg.workspaceId, msg.runId);
             await broadcastWorkspaceData(msg.workspaceId);
             break;
 
@@ -472,6 +490,47 @@ export function startServer(port = PORT) {
               chats: await manager.listChats(msg.workspaceId),
             });
             break;
+
+          case "observeSession": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const session = manager.get(msg.chatId);
+            if (
+              !session ||
+              session.agent.id !== msg.agentId ||
+              session.config.workspaceId !== msg.workspaceId
+            ) {
+              return send({
+                type: "error",
+                message: "This scheduled run is no longer active.",
+                chatId: msg.chatId,
+              });
+            }
+            if (!subscriptions.has(msg.chatId)) {
+              subscriptions.add(msg.chatId);
+              manager.retain(msg.chatId);
+              const chatId = msg.chatId;
+              const listener = (event: unknown) => {
+                send({
+                  type: "event",
+                  chatId,
+                  event: event as import("./types.js").AgentEvent,
+                });
+              };
+              session.on("event", listener);
+              sessionListeners.set(chatId, { session, listener });
+            }
+            send({
+              type: "sessionOpened",
+              chatId: msg.chatId,
+              agentId: msg.agentId,
+            });
+            send({
+              type: "history",
+              chatId: msg.chatId,
+              events: session.events,
+            });
+            break;
+          }
 
           case "openSession": {
             const agent = getAgent(msg.agentId);
@@ -538,16 +597,13 @@ export function startServer(port = PORT) {
             if (msg.workspaceId && msg.workspaceContext) {
               writeWorkspaceContext(msg.workspaceId, msg.workspaceContext);
             }
-            const effectiveAgent =
-              agent.id === "setup"
-                ? integratedAgent
-                : {
-                    ...integratedAgent,
-                    instructions: composeWorkspaceInstructions(
-                      integratedAgent.instructions,
-                      workspaceContext,
-                    ),
-                  };
+            const effectiveAgent = {
+              ...integratedAgent,
+              instructions: composeWorkspaceInstructions(
+                integratedAgent.instructions,
+                workspaceContext,
+              ),
+            };
             const session = await manager.ensure(effectiveAgent, msg.chatId, {
               driver: msg.driver,
               access: msg.access ?? "guarded",

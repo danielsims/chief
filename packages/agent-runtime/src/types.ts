@@ -23,6 +23,13 @@ export interface GenerativeChartData {
   series: GenerativeChartSeries[];
 }
 
+export interface GenerativeTableData {
+  title: string;
+  subtitle?: string;
+  columns: Array<{ key: string; label: string }>;
+  rows: Array<Record<string, string | number | boolean | null>>;
+}
+
 /**
  * Marketer's persistent custom UI parts follow AI SDK 7's typed `data-*`
  * contract. The websocket transport remains provider-neutral; every driver
@@ -30,7 +37,7 @@ export interface GenerativeChartData {
  */
 export type MarketerUIMessage = UIMessage<
   unknown,
-  { chart: GenerativeChartData }
+  { chart: GenerativeChartData; table: GenerativeTableData }
 >;
 
 export type GenerativeChartBlock = Extract<
@@ -38,10 +45,16 @@ export type GenerativeChartBlock = Extract<
   { type: "data-chart" }
 >;
 
+export type GenerativeTableBlock = Extract<
+  MarketerUIMessage["parts"][number],
+  { type: "data-table" }
+>;
+
 export type ContentBlock =
   | { type: "text"; text: string }
   | { type: "thinking"; thinking: string }
   | GenerativeChartBlock
+  | GenerativeTableBlock
   | {
       type: "tool_use";
       id: string;
@@ -169,6 +182,8 @@ export interface RecurringWorkRecord {
   instructions: string;
   cron: string;
   timezone: string;
+  /** Exact occurrence for work that runs once rather than recurring. */
+  runOnceAt?: number;
   status: RecurringWorkStatus;
   /** Where approved runs execute: this Mac's scheduler or the deployment. */
   placement: "local" | "cloud";
@@ -195,9 +210,12 @@ export interface RecurringWorkRunRecord {
   finishedAt?: number;
   summary?: string;
   error?: string;
+  artifacts?: RunResultArtifact[];
   /** Executor addresses the grant declined during this run. */
   blockedTools?: string[];
 }
+
+export type RunResultArtifact = GenerativeChartBlock | GenerativeTableBlock;
 
 export interface AttentionItem {
   id: string;
@@ -240,7 +258,8 @@ export type AgentCapabilityId =
   | "prospect-memory"
   | "trend-memory"
   | "content-calendar"
-  | "campaign-memory";
+  | "campaign-memory"
+  | "schedule-manager";
 
 /**
  * How much the session may do without asking. "guarded" routes mutating tool
@@ -434,6 +453,13 @@ export type ClientMessage =
       /** Opaque workspace credential stored by Executor, never sent to a model. */
       executorCapability?: ExecutorCapability;
     }
+  | {
+      type: "observeSession";
+      agentId: string;
+      chatId: string;
+      workspaceId: string;
+      executorCapability: ExecutorCapability;
+    }
   | { type: "prompt"; chatId: string; text: string }
   | { type: "closeSession"; chatId: string }
   | {
@@ -495,6 +521,10 @@ export interface RuntimeNotice {
   detail?: string;
   /** Deep-link target, e.g. `automation-<id>`. */
   sourceId?: string;
+  agentId?: string;
+  chatId?: string;
+  runId?: string;
+  recurringWorkId?: string;
 }
 
 export type ServerMessage =

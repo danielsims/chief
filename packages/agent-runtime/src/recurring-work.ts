@@ -56,7 +56,16 @@ export function upcomingRuns(
 export function executorAddressesFromCode(code: string): string[] {
   return [
     ...new Set(
-      [...code.matchAll(/tools\.[A-Za-z0-9_.-]+/g)].map((match) => match[0]),
+      [
+        ...[...code.matchAll(/tools\.[A-Za-z0-9_.-]+/g)].map(
+          (match) => match[0],
+        ),
+        ...[
+          ...code.matchAll(
+            /tools\[(["'])([A-Za-z0-9_.-]+)\1\]((?:\.[A-Za-z0-9_.-]+)+)/g,
+          ),
+        ].map((match) => `tools.${match[2]}${match[3]}`),
+      ],
     ),
   ].filter((address) => !/^tools\.(search|describe)(\.|$)/.test(address));
 }
@@ -82,9 +91,33 @@ export function grantAllowsAddress(
   address: string | null,
 ) {
   if (!address) return false;
-  return patterns.some((pattern) => {
-    if (pattern === address) return true;
+  // Codex normalises MCP server names to identifier-safe underscores in tool
+  // calls. Executor's catalog keeps the original hyphenated integration name.
+  // They identify the same configured server and must share one approval.
+  const canonical = (value: string) =>
+    value
+      .replace(/^tools\.marketer_local\./, "tools.marketer-local.")
+      .replace(
+        /^tools\.marketer-local\.org\.localWorkspace\./,
+        "tools.marketer-local.org.localworkspace.",
+      );
+  const requested = canonical(address);
+  return patterns.some((rawPattern) => {
+    const pattern = canonical(rawPattern);
+    // The cached workspace report and the Mac's live GA4 report represent the
+    // same read-only analytics capability. Older schedules approved the
+    // cached address before the live connector existed, so preserve that
+    // approval while routing them to fresher data.
+    if (
+      pattern ===
+        "tools.marketer.org.workspace.agentTools.analyticsRunReport" &&
+      requested ===
+        "tools.marketer-local.org.localworkspace.localTools.googleAnalyticsRunReport"
+    ) {
+      return true;
+    }
+    if (pattern === requested) return true;
     if (!pattern.endsWith(".*")) return false;
-    return address.startsWith(pattern.slice(0, -1));
+    return requested.startsWith(pattern.slice(0, -1));
   });
 }

@@ -250,10 +250,15 @@ export class SessionManager {
           const skipped = new Set(work.skipDates ?? []);
           return {
             ...work,
-            upcomingRuns: upcomingRuns(work.cron, work.timezone).filter(
-              (timestamp) =>
-                !skipped.has(runDateKey(timestamp, work.timezone)),
-            ),
+            upcomingRuns:
+              work.runOnceAt !== undefined
+                ? work.lastRunAt
+                  ? []
+                  : [work.runOnceAt]
+                : upcomingRuns(work.cron, work.timezone).filter(
+                    (timestamp) =>
+                      !skipped.has(runDateKey(timestamp, work.timezone)),
+                  ),
           };
         } catch {
           return { ...work, upcomingRuns: [] };
@@ -344,7 +349,7 @@ export class SessionManager {
     workspaceId: string,
     id: string,
     expectedNextRunAt: number,
-    nextRunAt: number,
+    nextRunAt: number | null,
   ) {
     return this.store.claimRecurringWork(
       workspaceId,

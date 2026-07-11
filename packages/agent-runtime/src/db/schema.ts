@@ -135,6 +135,7 @@ export const recurringWork = sqliteTable(
     instructions: text().notNull(),
     cron: text().notNull(),
     timezone: text().notNull(),
+    runOnceAt: integer("run_once_at"),
     status: text({
       enum: ["draft", "active", "paused", "needs_approval", "error"],
     }).notNull(),
@@ -182,6 +183,9 @@ export const recurringWorkRuns = sqliteTable(
     finishedAt: integer("finished_at"),
     summary: text(),
     error: text(),
+    artifacts: text({ mode: "json" }).$type<
+      import("../types.js").RunResultArtifact[]
+    >(),
     /** Executor addresses the grant declined during this run. */
     blockedTools: text("blocked_tools", { mode: "json" }).$type<string[]>(),
   },
