@@ -386,6 +386,13 @@ export type ClientMessage =
       rerun?: boolean;
       executorCapability: ExecutorCapability;
     }
+  /** Removes one historical run record from the calendar. */
+  | {
+      type: "deleteRecurringWorkRun";
+      workspaceId: string;
+      runId: string;
+      executorCapability: ExecutorCapability;
+    }
   /** Rejecting a proposal removes the record and its run history. */
   | {
       type: "deleteRecurringWork";

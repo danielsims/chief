@@ -523,6 +523,19 @@ export class LocalStore {
       .run();
   }
 
+  async deleteRecurringWorkRun(workspaceId: string, runId: string) {
+    await this.ready;
+    await this.db
+      .delete(schema.recurringWorkRuns)
+      .where(
+        and(
+          eq(schema.recurringWorkRuns.id, runId),
+          eq(schema.recurringWorkRuns.workspaceId, workspaceId),
+        ),
+      )
+      .run();
+  }
+
   async deleteRecurringWork(workspaceId: string, id: string) {
     await this.ready;
     await this.db

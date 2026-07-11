@@ -56,6 +56,7 @@ export function AgentChat({
   chatId,
   isNew,
   composer,
+  composerDate,
   initialPrompt,
   initialDraft,
   initialDriver,
@@ -68,7 +69,9 @@ export function AgentChat({
   /** True for a draft chat with no persisted transcript to replay. */
   isNew?: boolean;
   /** Guided inline setup rendered above the message box. */
-  composer?: "recurring";
+  composer?: "recurring" | "oneoff";
+  /** Prefilled date (YYYY-MM-DD) for the one-off composer. */
+  composerDate?: string;
   initialPrompt?: string;
   initialDraft?: string;
   initialDriver?: DriverType;
@@ -136,7 +139,7 @@ export function AgentChat({
     sendRaw(text);
   };
   const [draft, setDraft] = useState(initialDraft ?? "");
-  const [composerOpen, setComposerOpen] = useState(composer === "recurring");
+  const [composerOpen, setComposerOpen] = useState(composer !== undefined);
   const bottomRef = useRef<HTMLDivElement>(null);
   const sentInitial = useRef(false);
 
@@ -283,6 +286,8 @@ export function AgentChat({
       <div className="mx-auto w-full max-w-3xl space-y-2">
         {composerOpen ? (
           <RecurringWorkComposer
+            mode={composer === "oneoff" ? "one-off" : "recurring"}
+            date={composerDate}
             onCompose={setDraft}
             onDismiss={() => setComposerOpen(false)}
           />

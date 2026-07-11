@@ -349,8 +349,13 @@ export function ConversationsPage() {
             chatId={activeChatId}
             isNew={isDraftChat && !activeEntry}
             composer={
-              params.get("compose") === "recurring" ? "recurring" : undefined
+              params.get("compose") === "recurring"
+                ? "recurring"
+                : params.get("compose") === "oneoff"
+                  ? "oneoff"
+                  : undefined
             }
+            composerDate={params.get("date") ?? undefined}
             initialPrompt={initialPrompt}
             initialDraft={initialDraft}
             initialDriver={

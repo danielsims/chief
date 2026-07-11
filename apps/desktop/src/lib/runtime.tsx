@@ -512,6 +512,28 @@ export function useWorkspaceData(workspaceId: string | null) {
     });
   };
 
+  const deleteRecurringWorkRun = (runId: string) => {
+    if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
+      return;
+    }
+    setData((current) => {
+      const next = {
+        ...current,
+        recurringWorkRuns: current.recurringWorkRuns.filter(
+          (run) => run.id !== runId,
+        ),
+      };
+      workspaceDataCache.set(workspaceId, next);
+      return next;
+    });
+    client.send({
+      type: "deleteRecurringWorkRun",
+      workspaceId,
+      runId,
+      executorCapability: capability,
+    });
+  };
+
   const dismissAttentionItem = (attentionItemId: string) => {
     if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
       return;
@@ -563,6 +585,7 @@ export function useWorkspaceData(workspaceId: string | null) {
     saveRecurringWork,
     runRecurringWorkNow,
     deleteRecurringWork,
+    deleteRecurringWorkRun,
     dismissAttentionItem,
     expandRecurringWorkGrant,
   };

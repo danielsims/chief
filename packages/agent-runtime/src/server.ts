@@ -319,7 +319,7 @@ export function startServer(port = PORT) {
             if (active) {
               // Approving IS the action the attention item asked for — the
               // app knows the user acted; never make them dismiss it too.
-              for (const suffix of ["needs_approval", "failed"]) {
+              for (const suffix of ["approval", "needs_approval", "failed"]) {
                 await manager.dismissAttentionItem(
                   msg.workspaceId,
                   `attention-${msg.work.id}-${suffix}`,
@@ -390,7 +390,7 @@ export function startServer(port = PORT) {
               status: "active",
               updatedAt: Date.now(),
             });
-            for (const suffix of ["needs_approval", "failed"]) {
+            for (const suffix of ["approval", "needs_approval", "failed"]) {
               await manager.dismissAttentionItem(
                 msg.workspaceId,
                 `attention-${msg.recurringWorkId}-${suffix}`,
@@ -410,6 +410,22 @@ export function startServer(port = PORT) {
             await manager.deleteRecurringWork(
               msg.workspaceId,
               msg.recurringWorkId,
+            );
+            // Rejecting is also an action: clear anything it was flagged for.
+            for (const suffix of ["approval", "needs_approval", "failed"]) {
+              await manager.dismissAttentionItem(
+                msg.workspaceId,
+                `attention-${msg.recurringWorkId}-${suffix}`,
+              );
+            }
+            await broadcastWorkspaceData(msg.workspaceId);
+            break;
+
+          case "deleteRecurringWorkRun":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            await manager.deleteRecurringWorkRun(
+              msg.workspaceId,
+              msg.runId,
             );
             await broadcastWorkspaceData(msg.workspaceId);
             break;

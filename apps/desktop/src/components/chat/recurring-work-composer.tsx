@@ -22,6 +22,33 @@ interface Preset {
   task: string;
 }
 
+const ONE_OFF_PRESETS: Preset[] = [
+  {
+    id: "analytics-snapshot",
+    label: "Analytics snapshot",
+    description: "How the numbers looked on this day, with context.",
+    task: "Pull an analytics snapshot for this day and explain what stands out.",
+  },
+  {
+    id: "draft-post",
+    label: "Draft a post",
+    description: "A post drafted for this date's moment or announcement.",
+    task: "Draft a post for this date and save it to the schedule for my review.",
+  },
+  {
+    id: "campaign-check",
+    label: "Campaign check",
+    description: "A one-time look at how campaigns are tracking.",
+    task: "Check how our campaigns are tracking and flag anything worth acting on.",
+  },
+  {
+    id: "custom",
+    label: "Custom",
+    description: "Describe the one-off task in your own words.",
+    task: "",
+  },
+];
+
 const PRESETS: Preset[] = [
   {
     id: "growth-brief",
@@ -93,38 +120,56 @@ function timePhrase(time: string) {
 }
 
 export function RecurringWorkComposer({
+  mode = "recurring",
+  date,
   onCompose,
   onDismiss,
 }: {
+  mode?: "recurring" | "one-off";
+  /** Prefilled date (YYYY-MM-DD) for one-off tasks from the calendar. */
+  date?: string;
   onCompose: (text: string) => void;
   onDismiss: () => void;
 }) {
-  const [presetId, setPresetId] = useState("growth-brief");
+  const oneOff = mode === "one-off";
+  const presets = oneOff ? ONE_OFF_PRESETS : PRESETS;
+  const [presetId, setPresetId] = useState(
+    oneOff ? "analytics-snapshot" : "growth-brief",
+  );
+  const [onDate, setOnDate] = useState(
+    date ?? new Date().toISOString().slice(0, 10),
+  );
   const [customTask, setCustomTask] = useState("");
   const [frequency, setFrequency] = useState<Frequency>("weekly");
   const [weekday, setWeekday] = useState("Monday");
   const [dayOfMonth, setDayOfMonth] = useState("1");
   const [time, setTime] = useState("09:00");
 
-  const preset = PRESETS.find((item) => item.id === presetId) ?? PRESETS[0]!;
+  const preset = presets.find((item) => item.id === presetId) ?? presets[0]!;
   const task = presetId === "custom" ? customTask.trim() : preset.task;
 
   useEffect(() => {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const text = task
-      ? `Set up recurring work for me: ${task} Run it ${frequencyPhrase(frequency, weekday, dayOfMonth)} at ${timePhrase(time)} (${timezone}). Configure everything else yourself and create one narrow approval for me to review in Schedule.`
+      ? oneOff
+        ? `Schedule a one-off task for ${new Date(`${onDate}T00:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })} at ${timePhrase(time)} (${timezone}): ${task} It runs once on that date only. Configure everything else yourself and create one narrow approval for me to review in Schedule.`
+        : `Set up recurring work for me: ${task} Run it ${frequencyPhrase(frequency, weekday, dayOfMonth)} at ${timePhrase(time)} (${timezone}). Configure everything else yourself and create one narrow approval for me to review in Schedule.`
       : "";
     onCompose(text);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task, frequency, weekday, dayOfMonth, time]);
+  }, [task, frequency, weekday, dayOfMonth, time, onDate, oneOff]);
 
   return (
     <div className="border bg-card p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-medium">Schedule new work</p>
+          <p className="text-sm font-medium">
+            {oneOff ? "Schedule a one-off task" : "Schedule new work"}
+          </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Pick what your team should own; the brief writes itself below.
+            {oneOff
+              ? "Pick what should happen that day; the brief writes itself below."
+              : "Pick what your team should own; the brief writes itself below."}
           </p>
         </div>
         <button
@@ -138,7 +183,7 @@ export function RecurringWorkComposer({
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1 border p-0.5 w-fit">
-        {PRESETS.map((item) => (
+        {presets.map((item) => (
           <button
             key={item.id}
             type="button"
@@ -163,6 +208,14 @@ export function RecurringWorkComposer({
       ) : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
+        {oneOff ? (
+          <Input
+            type="date"
+            value={onDate}
+            onChange={(event) => setOnDate(event.target.value)}
+            className="h-8 w-36 text-xs"
+          />
+        ) : (
         <Select
           value={frequency}
           onValueChange={(value) => setFrequency(value as Frequency)}
@@ -178,7 +231,8 @@ export function RecurringWorkComposer({
             ))}
           </SelectContent>
         </Select>
-        {frequency === "weekly" ? (
+        )}
+        {!oneOff && frequency === "weekly" ? (
           <Select value={weekday} onValueChange={setWeekday}>
             <SelectTrigger className="h-8 w-32 text-xs">
               {weekday}
@@ -192,7 +246,7 @@ export function RecurringWorkComposer({
             </SelectContent>
           </Select>
         ) : null}
-        {frequency === "monthly" ? (
+        {!oneOff && frequency === "monthly" ? (
           <Input
             value={dayOfMonth}
             onChange={(event) => setDayOfMonth(event.target.value)}

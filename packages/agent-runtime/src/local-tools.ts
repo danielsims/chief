@@ -456,6 +456,17 @@ export async function handleLocalTool(
         updatedAt: now,
       };
       await manager.saveRecurringWork(workspaceId, work);
+      // The proposal itself is the action item; agents must not raise a
+      // second one by hand.
+      await manager.raiseAttentionItem(workspaceId, {
+        id: `attention-${work.id}-approval`,
+        agentId: work.agentId,
+        title: `Approve: ${work.title}`,
+        reason: work.approvalSummary,
+        sourceId: `automation-${work.id}`,
+        status: "open",
+        createdAt: Date.now(),
+      });
       return json({ recurringWork: work, requiresUserApproval: true });
     }
     if (path === "/local-tools/attention") {

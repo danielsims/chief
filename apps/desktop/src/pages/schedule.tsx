@@ -193,10 +193,22 @@ interface PastRunEntry {
 }
 
 /** A finished occurrence stays on the calendar, quietly greyed. */
-function PastRunChip({ run }: { run: PastRunEntry }) {
+function PastRunChip({
+  run,
+  onContextMenu,
+}: {
+  run: PastRunEntry;
+  onContextMenu?: (run: PastRunEntry, x: number, y: number) => void;
+}) {
   const running = run.status === "running";
   return (
     <div
+      onContextMenu={(event) => {
+        if (!onContextMenu) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onContextMenu(run, event.clientX, event.clientY);
+      }}
       className={cn(
         "min-w-0 select-none border px-2 py-1.5",
         running
@@ -234,6 +246,85 @@ function PastRunChip({ run }: { run: PastRunEntry }) {
   );
 }
 
+
+function PastRunContextMenu({
+  context,
+  onClose,
+  onReview,
+  onRemove,
+  onEditSeries,
+  onCancelSeries,
+}: {
+  context: { run: PastRunEntry; x: number; y: number } | null;
+  onClose: () => void;
+  onReview: (run: PastRunEntry) => void;
+  onRemove: (run: PastRunEntry) => void;
+  onEditSeries: (run: PastRunEntry) => void;
+  onCancelSeries: (run: PastRunEntry) => void;
+}) {
+  useEffect(() => {
+    if (!context) return;
+    const close = () => onClose();
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", escape);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", escape);
+    };
+  }, [context, onClose]);
+
+  if (!context) return null;
+  const { run } = context;
+  const items: Array<{ label: string; detail: string; action: () => void; destructive?: boolean }> = [
+    { label: "Review", detail: "Outcome and follow-up", action: () => onReview(run) },
+    { label: "Remove from history", detail: "Deletes this record only", action: () => onRemove(run), destructive: true },
+    { label: "Edit schedule", detail: "Change the series timing", action: () => onEditSeries(run) },
+    { label: "Cancel series", detail: "Removes the automation and its history", action: () => onCancelSeries(run), destructive: true },
+  ];
+  return (
+    <div
+      role="menu"
+      onPointerDown={(event) => event.stopPropagation()}
+      className="fixed z-50 w-64 border bg-popover p-1.5 text-popover-foreground shadow-md"
+      style={{
+        left: Math.min(context.x, window.innerWidth - 272),
+        top: Math.min(context.y, window.innerHeight - 200),
+      }}
+    >
+      <p className="truncate px-2 py-1.5 text-[10px] text-muted-foreground">
+        {run.title}
+      </p>
+      {items.map((item) => (
+        <button
+          key={item.label}
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            item.action();
+            onClose();
+          }}
+          className="flex w-full flex-col px-2 py-2 text-left transition-colors hover:bg-accent"
+        >
+          <span
+            className={cn(
+              "text-xs font-medium",
+              item.destructive && "text-destructive",
+            )}
+          >
+            {item.label}
+          </span>
+          <span className="mt-0.5 text-[10px] text-muted-foreground">
+            {item.detail}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function DayCell({
   date,
   drafts,
@@ -244,6 +335,7 @@ function DayCell({
   onSelect,
   onContextMenu,
   onWorkContext,
+  onPastRunContext,
   boundaryRow = false,
   tall = false,
 }: {
@@ -261,6 +353,7 @@ function DayCell({
     x: number,
     y: number,
   ) => void;
+  onPastRunContext?: (run: PastRunEntry, x: number, y: number) => void;
   boundaryRow?: boolean;
   tall?: boolean;
 }) {
@@ -297,7 +390,11 @@ function DayCell({
       </span>
       <div className={cn("min-w-0 space-y-1", boundaryRow ? "mt-8" : "mt-2")}>
         {pastRuns.slice(0, visibleLimit).map((run) => (
-          <PastRunChip key={run.id} run={run} />
+          <PastRunChip
+            key={run.id}
+            run={run}
+            onContextMenu={onPastRunContext}
+          />
         ))}
         {recurringWork.slice(0, workLimit).map((work) => (
           <RecurringWorkChip
@@ -406,6 +503,7 @@ function ContinuousMonthView({
   onSelect,
   onDateContext,
   onWorkContext,
+  onPastRunContext,
   byDay,
   recurringByDay,
   pastRunsByDay,
@@ -426,6 +524,7 @@ function ContinuousMonthView({
     x: number,
     y: number,
   ) => void;
+  onPastRunContext: (run: PastRunEntry, x: number, y: number) => void;
   byDay: ReadonlyMap<string, ScheduledDraft[]>;
   recurringByDay: ReadonlyMap<string, RecurringWorkRecord[]>;
   pastRunsByDay: ReadonlyMap<string, PastRunEntry[]>;
@@ -547,6 +646,7 @@ function ContinuousMonthView({
                   onSelect={onSelect}
                   onContextMenu={onDateContext}
                   onWorkContext={onWorkContext}
+                  onPastRunContext={onPastRunContext}
                   boundaryRow={index < 7}
                 />
               ) : (
@@ -571,6 +671,7 @@ function FocusedCalendarView({
   onSelect,
   onDateContext,
   onWorkContext,
+  onPastRunContext,
   byDay,
   recurringByDay,
   pastRunsByDay,
@@ -588,6 +689,7 @@ function FocusedCalendarView({
     x: number,
     y: number,
   ) => void;
+  onPastRunContext: (run: PastRunEntry, x: number, y: number) => void;
   byDay: ReadonlyMap<string, ScheduledDraft[]>;
   recurringByDay: ReadonlyMap<string, RecurringWorkRecord[]>;
   pastRunsByDay: ReadonlyMap<string, PastRunEntry[]>;
@@ -640,6 +742,7 @@ function FocusedCalendarView({
             onSelect={onSelect}
             onContextMenu={onDateContext}
             onWorkContext={onWorkContext}
+            onPastRunContext={onPastRunContext}
             tall
           />
         ))}
@@ -1400,6 +1503,11 @@ export function SchedulePage() {
     x: number;
     y: number;
   } | null>(null);
+  const [pastRunMenu, setPastRunMenu] = useState<{
+    run: PastRunEntry;
+    x: number;
+    y: number;
+  } | null>(null);
   const [editWorkId, setEditWorkId] = useState<string | null>(null);
   const { cloudOrganizationId } = useAuth();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
@@ -1614,20 +1722,24 @@ export function SchedulePage() {
       return;
     }
     if (action === "recurring") {
-      openAgentForDate(
-        "cmo",
-        "Set up recurring work",
-        `Help me set up recurring marketing work, beginning around ${dateText}. Ask only for the outcome or timing if genuinely needed, configure everything else, then create one narrow approval for Schedule.`,
-        true,
+      const chat = createChat("cmo", "Set up recurring work");
+      navigate(
+        `/conversations?agent=cmo&chat=${chat.id}&new=1&compose=recurring`,
+      );
+      return;
+    }
+    if (action === "event") {
+      const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      const chat = createChat("cmo", `Event on ${dateText}`);
+      navigate(
+        `/conversations?agent=cmo&chat=${chat.id}&new=1&compose=oneoff&date=${iso}`,
       );
       return;
     }
     openAgentForDate(
       "cmo",
-      action === "event" ? `Event on ${dateText}` : `Plan ${dateText}`,
-      action === "event"
-        ? `Add a one-off marketing calendar event on ${dateText}. Ask me only for the missing event details, then save it to the schedule.`
-        : `Help me plan the marketing work and content for ${dateText}.`,
+      `Plan ${dateText}`,
+      `Help me plan the marketing work and content for ${dateText}.`,
     );
   };
 
@@ -1767,6 +1879,7 @@ export function SchedulePage() {
               onWorkContext={(work, date, x, y) =>
                 setWorkMenu({ work, date, x, y })
               }
+              onPastRunContext={(run, x, y) => setPastRunMenu({ run, x, y })}
               onDateContext={(date, x, y) => {
                 setSelected(date);
                 setDateMenu({ date, x, y });
@@ -1787,6 +1900,7 @@ export function SchedulePage() {
               onWorkContext={(work, date, x, y) =>
                 setWorkMenu({ work, date, x, y })
               }
+              onPastRunContext={(run, x, y) => setPastRunMenu({ run, x, y })}
               onDateContext={(date, x, y) => {
                 setSelected(date);
                 setDateMenu({ date, x, y });
@@ -1828,6 +1942,10 @@ export function SchedulePage() {
               <button
                 key={run.id}
                 type="button"
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setPastRunMenu({ run, x: event.clientX, y: event.clientY });
+                }}
                 onClick={() =>
                   setRunReview({
                     title: run.title,
@@ -1965,6 +2083,27 @@ export function SchedulePage() {
         context={dateMenu}
         onClose={() => setDateMenu(null)}
         onAction={handleDateAction}
+      />
+      <PastRunContextMenu
+        context={pastRunMenu}
+        onClose={() => setPastRunMenu(null)}
+        onReview={(run) =>
+          setRunReview({
+            title: run.title,
+            agentId: run.agentId,
+            recurringWorkId: run.workId,
+            detail:
+              run.status === "running"
+                ? "Running now…"
+                : (run.summary ?? "No summary was recorded."),
+            status: run.status,
+            at: run.scheduledFor,
+            blockedTools: run.blockedTools ?? [],
+          })
+        }
+        onRemove={(run) => workspaceData.deleteRecurringWorkRun(run.id)}
+        onEditSeries={(run) => setEditWorkId(run.workId)}
+        onCancelSeries={(run) => workspaceData.deleteRecurringWork(run.workId)}
       />
       <RecurringWorkContextMenu
         context={workMenu}

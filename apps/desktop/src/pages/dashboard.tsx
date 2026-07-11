@@ -8,6 +8,11 @@ import { cn } from "@marketer/ui/lib/utils";
 import { OrgLogo } from "../components/org-logo";
 import { createChat } from "../lib/chat-log";
 import { SetupProgress } from "../components/setup-progress";
+import { RecurringWorkApprovalFlow } from "../components/recurring-work-approval-flow";
+import type {
+  AttentionItem,
+  RecurringWorkRecord,
+} from "@marketer/agent-runtime/types";
 import {
   RunReviewDialog,
   reviewFromAttention,
@@ -150,6 +155,23 @@ export function DashboardPage() {
     (range) => range.key === "previous30d",
   );
   const attention = workspaceData.attentionItems;
+  const [approvalWork, setApprovalWork] =
+    useState<RecurringWorkRecord | null>(null);
+  // An approval-type item opens the real approval dialog directly — no
+  // intermediary. Everything else opens the run review.
+  const openAttention = (item: AttentionItem) => {
+    const workId = item.sourceId?.startsWith("automation-")
+      ? item.sourceId.slice("automation-".length)
+      : undefined;
+    const work = workId
+      ? workspaceData.recurringWork.find((entry) => entry.id === workId)
+      : undefined;
+    if (work && work.status === "draft") {
+      setApprovalWork(work);
+      return;
+    }
+    setReview(reviewFromAttention(item, workspaceData.recurringWorkRuns));
+  };
   const [review, setReview] = useState<RunReview | null>(null);
 
   interface Widget {
@@ -174,15 +196,7 @@ export function DashboardPage() {
     to: "/conversations?agent=cmo",
     indicator: attention.length > 0,
     onClick:
-      attention.length > 0
-        ? () =>
-            setReview(
-              reviewFromAttention(
-                attention[0]!,
-                workspaceData.recurringWorkRuns,
-              ),
-            )
-        : undefined,
+      attention.length > 0 ? () => openAttention(attention[0]!) : undefined,
   };
   const widgets: Widget[] = [
     actionItems,
@@ -295,6 +309,23 @@ export function DashboardPage() {
 
       <SetupProgress />
 
+      <RecurringWorkApprovalFlow
+        work={approvalWork}
+        onClose={() => setApprovalWork(null)}
+        onApprove={(work) =>
+          workspaceData.saveRecurringWork({
+            ...work,
+            status: "active",
+            grant: {
+              version: 1,
+              approvedAt: Date.now(),
+              toolPatterns: work.proposedToolPatterns,
+            },
+            updatedAt: Date.now(),
+          })
+        }
+        onReject={(work) => workspaceData.deleteRecurringWork(work.id)}
+      />
       <RunReviewDialog
         review={review}
         onClose={() => setReview(null)}
