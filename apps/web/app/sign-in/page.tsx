@@ -12,7 +12,7 @@ import { GoogleLogo } from "./google-logo";
 function SignInContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // Redirect away only when Convex has accepted our token — the same source
+  // Redirect away only when Convex has accepted our token, the same source
   // of truth the protected layouts use for their redirect to /sign-in. Using
   // the Better Auth session here instead caused an infinite redirect loop
   // whenever a session existed but a Convex token could not be minted.
@@ -24,7 +24,7 @@ function SignInContent() {
   // Get the callback URL from query params, default to home
   const callbackUrl = searchParams.get("callbackUrl") ?? "/";
 
-  // Desktop PKCE params — present when the desktop app opens this page
+  // Desktop PKCE params, present when the desktop app opens this page
   const clientId = searchParams.get("client_id");
   const codeChallenge = searchParams.get("code_challenge");
   const codeChallengeMethod = searchParams.get("code_challenge_method");
@@ -73,7 +73,7 @@ function SignInContent() {
         },
       );
 
-      // BetterAuth returns a redirect URL — follow it
+      // BetterAuth returns a redirect URL, so follow it
       if (response.status === 200) {
         const data = (await response.json()) as {
           url?: string;

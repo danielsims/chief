@@ -39,7 +39,7 @@ function BillingReturnContent() {
                   You&rsquo;re in.
                 </h1>
                 <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-                  Your workspace is ready. Marketer is opening now — you can
+                  Your workspace is ready. Marketer is opening now. You can
                   close this tab.
                 </p>
                 <a
