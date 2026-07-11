@@ -112,10 +112,12 @@ function ToolCard({
   block,
   result,
   progress,
+  active,
 }: {
   block: Extract<ContentBlock, { type: "tool_use" }>;
   result?: Extract<ContentBlock, { type: "tool_result" }>;
   progress?: string;
+  active: boolean;
 }) {
   const kind = canonicalTool(block.name);
   const label = toolPresentation(block.name, block.input);
@@ -137,14 +139,14 @@ function ToolCard({
 
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
-    if (result) return;
+    if (result || !active) return;
     const started = Date.now();
     const timer = window.setInterval(
       () => setElapsed(Math.floor((Date.now() - started) / 1000)),
       1_000,
     );
     return () => window.clearInterval(timer);
-  }, [result]);
+  }, [active, result]);
 
   if (kind === "skill") {
     return (
@@ -152,7 +154,8 @@ function ToolCard({
         <span
           className={cn(
             "size-2 shrink-0 rounded-full",
-            !result && "animate-pulse bg-blue-500",
+            !result && active && "animate-pulse bg-blue-500",
+            !result && !active && "bg-muted-foreground/50",
             result?.is_error ? "bg-red-500" : result && "bg-emerald-500",
           )}
         />
@@ -166,7 +169,13 @@ function ToolCard({
             result?.is_error && "text-red-500",
           )}
         >
-          {result ? (result.is_error ? "Failed" : "Done") : "Loading"}
+          {result
+            ? result.is_error
+              ? "Failed"
+              : "Done"
+            : active
+              ? "Loading"
+              : "Stopped"}
         </span>
       </div>
     );
@@ -178,7 +187,8 @@ function ToolCard({
         <span
           className={cn(
             "size-2 shrink-0 rounded-full",
-            !result && "animate-pulse bg-blue-500",
+            !result && active && "animate-pulse bg-blue-500",
+            !result && !active && "bg-muted-foreground/50",
             result?.is_error && "bg-red-500",
             result && !result.is_error && warning && "bg-amber-400",
             result && !result.is_error && !warning && "bg-emerald-500",
@@ -197,10 +207,12 @@ function ToolCard({
           >
             {result.is_error ? "Failed" : "Done"}
           </span>
-        ) : (
+        ) : active ? (
           <span className="text-[10px] text-muted-foreground">
             {elapsed >= 30 ? "Still working" : "Running"} · {elapsed}s
           </span>
+        ) : (
+          <span className="text-[10px] text-muted-foreground">Stopped</span>
         )}
         <ChevronDown
           size={12}
@@ -232,10 +244,12 @@ export function Blocks({
   blocks,
   progress = {},
   capabilities = [],
+  active = true,
 }: {
   blocks: ContentBlock[];
   progress?: Record<string, string>;
   capabilities?: readonly AgentCapabilityId[];
+  active?: boolean;
 }) {
   const results = new Map(
     blocks
@@ -264,6 +278,7 @@ export function Blocks({
               </div>
             );
           case "data-chart":
+          case "data-table":
             return null;
           case "thinking":
             return (
@@ -292,6 +307,7 @@ export function Blocks({
                 block={block}
                 result={results.get(block.id)}
                 progress={progress[block.id]}
+                active={active}
               />
             );
           case "tool_result": {

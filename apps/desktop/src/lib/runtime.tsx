@@ -34,7 +34,7 @@ import { useAction } from "convex/react";
 import { getAgentOverride } from "./agent-overrides";
 import { useAuth } from "./auth/auth-context";
 import { buildWorkspaceContext } from "./workspace-context";
-import { notifySystem } from "./notifications";
+import { navigateApp, notifySystem } from "./notifications";
 
 // "localhost" (not 127.0.0.1) — macOS ATS only exempts the literal
 // localhost hostname for insecure websockets inside WKWebView.
@@ -115,7 +115,7 @@ export class RuntimeClient {
   private queue: ClientMessage[] = [];
   private closed = false;
   private reconnectTimer: number | null = null;
-  private reconnectDelayMs = 5000;
+  private reconnectDelayMs = 1000;
   onStatus: (status: RuntimeStatus) => void = () => {};
 
   connect() {
@@ -139,7 +139,7 @@ export class RuntimeClient {
       return;
     }
     this.ws.onopen = () => {
-      this.reconnectDelayMs = 5000;
+      this.reconnectDelayMs = 1000;
       this.onStatus("connected");
       for (const msg of this.queue.splice(0)) this.send(msg);
     };
@@ -163,7 +163,7 @@ export class RuntimeClient {
     if (this.closed || this.reconnectTimer !== null) return;
     this.onStatus("disconnected");
     const delay = this.reconnectDelayMs;
-    this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 1.5, 30000);
+    this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 5000);
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
@@ -220,8 +220,25 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     const unsub = client.subscribe((msg) => {
       if (msg.type === "agents") setAgents(msg.agents);
       if (msg.type === "runtimeNotice") {
-        toast(msg.notice.title, { description: msg.notice.detail });
-        void notifySystem(msg.notice.title, msg.notice.detail);
+        const workId = msg.notice.sourceId?.replace(/^automation-/, "");
+        const route = msg.notice.runId
+          ? `/schedule/history?run=${encodeURIComponent(msg.notice.runId)}`
+          : workId
+            ? `/schedule/history?work=${encodeURIComponent(workId)}`
+            : undefined;
+        toast(msg.notice.title, {
+          description: msg.notice.detail,
+          action: route
+            ? {
+                label:
+                  msg.notice.kind === "run-started"
+                    ? "View run"
+                    : "View results",
+                onClick: () => navigateApp(route),
+              }
+            : undefined,
+        });
+        void notifySystem(msg.notice.title, msg.notice.detail, route);
       }
     });
     client.connect();
@@ -723,7 +740,7 @@ export function useStoredInputs(keys: string[] | null) {
 // ---- Chat state ----
 
 export type ChatItem =
-  | { kind: "user"; text: string }
+  | { kind: "user"; text: string; optimistic?: boolean }
   | { kind: "assistant"; event: Extract<AgentEvent, { type: "message" }> };
 
 export interface PendingApproval {
@@ -864,6 +881,22 @@ function reduceChat(c: ChatState, event: AgentEvent): ChatState {
           .map((b) => (b.type === "text" ? b.text : ""))
           .join("\n");
         if (text) {
+          const optimisticIndex = c.items.findIndex(
+            (item) =>
+              item.kind === "user" &&
+              item.optimistic === true &&
+              item.text === text,
+          );
+          if (optimisticIndex >= 0) {
+            const items = [...c.items];
+            items[optimisticIndex] = { kind: "user", text };
+            return {
+              ...c,
+              streaming: "",
+              status: "running",
+              items,
+            };
+          }
           return {
             ...c,
             streaming: "",
@@ -931,9 +964,7 @@ function reduceChat(c: ChatState, event: AgentEvent): ChatState {
     case "questionResolved":
       return {
         ...c,
-        questions: c.questions.filter(
-          (q) => q.requestId !== event.requestId,
-        ),
+        questions: c.questions.filter((q) => q.requestId !== event.requestId),
       };
     case "result":
       return {
@@ -977,6 +1008,7 @@ export function useAgentChat(
   model?: string,
   capabilities?: import("@marketer/agent-runtime/types").AgentCapabilityId[],
   integrations?: string[],
+  observeOnly = false,
 ) {
   const { client, status: runtimeStatus } = useRuntime();
   const {
@@ -1002,35 +1034,47 @@ export function useAgentChat(
   }, [capabilityError]);
 
   useEffect(() => {
-    if (!agentId || !chatId || !driver || runtimeStatus !== "connected") return;
+    if (!agentId || !chatId || runtimeStatus !== "connected") return;
+    if (!observeOnly && !driver) return;
     if (cloudOrganizationId && !executorCapability) return;
     setChat(emptyChat);
     setSessionReady(false);
     let cancelled = false;
-    // The brand brief rides along so the session opens already primed; the
-    // org list is cached, so this resolves fast and the open stays snappy.
-    void buildWorkspaceContext(cloudOrganizationId)
-      .catch(() => undefined)
-      .then((workspaceContext) => {
-        if (cancelled) return;
-        client.send({
-          type: "openSession",
-          agentId,
-          chatId,
-          driver,
-          access,
-          workspaceContext,
-          model: model || getAgentOverride(cloudOrganizationId, agentId).model,
-          capabilities:
-            capabilities ??
-            getAgentOverride(cloudOrganizationId, agentId).capabilities,
-          integrations:
-            integrations ??
-            getAgentOverride(cloudOrganizationId, agentId).integrations,
-          workspaceId: cloudOrganizationId ?? undefined,
-          executorCapability: executorCapability ?? undefined,
-        });
+    if (observeOnly && cloudOrganizationId && executorCapability) {
+      client.send({
+        type: "observeSession",
+        agentId,
+        chatId,
+        workspaceId: cloudOrganizationId,
+        executorCapability,
       });
+    } else {
+      // The brand brief rides along so the session opens already primed; the
+      // org list is cached, so this resolves fast and the open stays snappy.
+      void buildWorkspaceContext(cloudOrganizationId)
+        .catch(() => undefined)
+        .then((workspaceContext) => {
+          if (cancelled || !driver) return;
+          client.send({
+            type: "openSession",
+            agentId,
+            chatId,
+            driver,
+            access,
+            workspaceContext,
+            model:
+              model || getAgentOverride(cloudOrganizationId, agentId).model,
+            capabilities:
+              capabilities ??
+              getAgentOverride(cloudOrganizationId, agentId).capabilities,
+            integrations:
+              integrations ??
+              getAgentOverride(cloudOrganizationId, agentId).integrations,
+            workspaceId: cloudOrganizationId ?? undefined,
+            executorCapability: executorCapability ?? undefined,
+          });
+        });
+    }
 
     const unsub = client.subscribe((msg) => {
       if (msg.type === "error" && msg.chatId === chatId) {
@@ -1065,12 +1109,17 @@ export function useAgentChat(
     model,
     capabilityKey,
     integrationKey,
+    observeOnly,
   ]);
 
   const send = (text: string) => {
     if (!chatId || !text.trim()) return;
-    // The user turn comes back as a server echo; only reflect intent here.
-    setChat((c) => ({ ...c, status: "running", error: undefined }));
+    setChat((c) => ({
+      ...c,
+      status: "running",
+      error: undefined,
+      items: [...c.items, { kind: "user", text, optimistic: true }],
+    }));
     client.send({ type: "prompt", chatId, text });
   };
 

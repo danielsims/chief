@@ -18,6 +18,7 @@ import { SuccessCheck } from "@marketer/ui/components/success-check";
 import { cn } from "@marketer/ui/lib/utils";
 import { Claude, OpenAI, Vercel } from "@lobehub/icons";
 import {
+  Check,
   CheckCircle2,
   Cloud,
   Facebook,
@@ -58,6 +59,22 @@ import {
   searchIntegrations,
   type IntegrationSearchResult,
 } from "../lib/integrations";
+import { createChat } from "../lib/chat-log";
+import { getPlaybook, playbookInstructions } from "../lib/playbooks";
+
+type AutomationMode = "automatic" | "review" | "manual";
+type AutomationFrequency = "weekdays" | "weekly";
+
+interface OnboardingAutomationItem {
+  playbookId: string;
+  title: string;
+  agentId: string;
+  purpose: string;
+  enabled: boolean;
+  frequency: AutomationFrequency;
+  day: number;
+  time: string;
+}
 
 type StepKey =
   | "mode"
@@ -76,6 +93,7 @@ type StepKey =
   | "adsConnect"
   | "adsBudget"
   | "aeo"
+  | "automation"
   | "pricing"
   | "finish";
 
@@ -110,6 +128,11 @@ interface OnboardingDraft {
   aeo: {
     trackAiReferrals: boolean;
   };
+  automation: {
+    mode: AutomationMode;
+    timezone: string;
+    plan: OnboardingAutomationItem[];
+  };
   step: StepKey;
 }
 
@@ -130,6 +153,7 @@ const steps: StepKey[] = [
   "adsConnect",
   "adsBudget",
   "aeo",
+  "automation",
   "pricing",
   "finish",
 ];
@@ -153,6 +177,8 @@ const questions: Record<StepKey, string> = {
   adsConnect: "Got it. Let me connect those ads accounts for you.",
   adsBudget: "No ads today. Want your agents to run them for you?",
   aeo: "One more thing. Want to know when ChatGPT, Claude or Perplexity send you customers?",
+  automation:
+    "I've drafted a starter rhythm around your goals. Choose what should run and how much freedom your agents should have.",
   pricing: "Choose how this workspace is billed.",
   finish: "You're in.",
 };
@@ -184,6 +210,87 @@ const adsBudgetOptions = [
   "$1,000 to $3,000 a month",
   "$3,000+ a month",
 ];
+
+const weekDays = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+
+function defaultAutomationPlan(): OnboardingAutomationItem[] {
+  return [
+    {
+      playbookId: "buying-signals",
+      title: "Find buying signals",
+      agentId: "prospector",
+      purpose: "Surface people already describing the problem you solve.",
+      enabled: true,
+      frequency: "weekdays",
+      day: 1,
+      time: "09:00",
+    },
+    {
+      playbookId: "founder-content",
+      title: "Founder content",
+      agentId: "content",
+      purpose: "Turn what the company is learning into useful draft posts.",
+      enabled: true,
+      frequency: "weekly",
+      day: 2,
+      time: "10:00",
+    },
+    {
+      playbookId: "growth-brief",
+      title: "Growth report",
+      agentId: "analyst",
+      purpose: "Explain what changed and recommend the next action.",
+      enabled: true,
+      frequency: "weekly",
+      day: 5,
+      time: "15:00",
+    },
+  ];
+}
+
+function automationCron(item: OnboardingAutomationItem) {
+  const [hour = "09", minute = "00"] = item.time.split(":");
+  return item.frequency === "weekdays"
+    ? `${Number(minute)} ${Number(hour)} * * 1-5`
+    : `${Number(minute)} ${Number(hour)} * * ${item.day}`;
+}
+
+function onboardingAutomationPrompt(draft: OnboardingDraft) {
+  const enabled = draft.automation.plan.filter((item) => item.enabled);
+  const activate = draft.automation.mode === "automatic";
+  const jobs = enabled
+    .map((item) => {
+      const playbook = getPlaybook(item.playbookId);
+      return [
+        `## ${item.title}`,
+        `Owner: ${item.agentId}`,
+        `Schedule: ${automationCron(item)} in ${draft.automation.timezone}`,
+        `Purpose: ${item.purpose}`,
+        playbook ? playbookInstructions(playbook) : undefined,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+    })
+    .join("\n\n");
+  return [
+    "Set up the starter recurring-work plan I approved during onboarding.",
+    `Scheduling authority: ${draft.automation.mode}.`,
+    activate
+      ? "For each selected job, call recurringWorkPropose with activate: true and its exact playbookId after discovering the narrow tool paths it needs."
+      : "For each selected job, create one narrow recurringWorkPropose draft for me to review in Schedule. Do not activate it.",
+    "Check existing recurring work first. Reuse or update a matching schedule instead of creating duplicates. Configure all remaining details yourself. Scheduling authority does not approve publishing, outreach, spend changes, or other external mutations.",
+    `Workspace goal: ${draft.goals.success}. The company sells ${draft.goals.selling} to ${draft.goals.audience}.`,
+    jobs,
+  ].join("\n\n");
+}
 
 const monitoringOptions = [
   { key: "x", label: "X", platform: "x" as const, Icon: Twitter },
@@ -371,6 +478,12 @@ function baseDraft(): OnboardingDraft {
     aeo: {
       trackAiReferrals: true,
     },
+    automation: {
+      mode: "review",
+      timezone:
+        Intl.DateTimeFormat().resolvedOptions().timeZone || "Australia/Brisbane",
+      plan: defaultAutomationPlan(),
+    },
     step: "mode",
   };
 }
@@ -403,6 +516,36 @@ function normaliseIntegrations(value: unknown): IntegrationSearchResult[] {
   });
 }
 
+function normaliseAutomationPlan(value: unknown): OnboardingAutomationItem[] {
+  const defaults = defaultAutomationPlan();
+  if (!Array.isArray(value)) return defaults;
+  return defaults.map((fallback) => {
+    const saved = value.find(
+      (item) =>
+        item &&
+        typeof item === "object" &&
+        (item as { playbookId?: unknown }).playbookId === fallback.playbookId,
+    ) as Partial<OnboardingAutomationItem> | undefined;
+    return {
+      ...fallback,
+      enabled:
+        typeof saved?.enabled === "boolean" ? saved.enabled : fallback.enabled,
+      frequency:
+        saved?.frequency === "weekdays" || saved?.frequency === "weekly"
+          ? saved.frequency
+          : fallback.frequency,
+      day:
+        typeof saved?.day === "number" && saved.day >= 0 && saved.day <= 6
+          ? saved.day
+          : fallback.day,
+      time:
+        typeof saved?.time === "string" && /^\d{2}:\d{2}$/.test(saved.time)
+          ? saved.time
+          : fallback.time,
+    };
+  });
+}
+
 function draftFromOrg(
   org: AuthOrganization,
   userName?: string,
@@ -431,6 +574,10 @@ function draftFromOrg(
   const aeo =
     onboarding.aeo && typeof onboarding.aeo === "object"
       ? (onboarding.aeo as Partial<OnboardingDraft["aeo"]>)
+      : {};
+  const automation =
+    onboarding.automation && typeof onboarding.automation === "object"
+      ? (onboarding.automation as Partial<OnboardingDraft["automation"]>)
       : {};
   const provider =
     onboarding.provider === "claude" ||
@@ -486,6 +633,19 @@ function draftFromOrg(
       trackAiReferrals:
         typeof aeo.trackAiReferrals === "boolean" ? aeo.trackAiReferrals : true,
     },
+    automation: {
+      mode:
+        automation.mode === "automatic" ||
+        automation.mode === "review" ||
+        automation.mode === "manual"
+          ? automation.mode
+          : "review",
+      timezone:
+        typeof automation.timezone === "string" && automation.timezone
+          ? automation.timezone
+          : baseDraft().automation.timezone,
+      plan: normaliseAutomationPlan(automation.plan),
+    },
     step: typeof onboarding.completedAt === "string" ? "pricing" : "mode",
   };
 }
@@ -503,6 +663,9 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
       Partial<OnboardingDraft["analytics"]> | undefined;
     const parsedAds = parsed.ads as Partial<OnboardingDraft["ads"]> | undefined;
     const parsedAeo = parsed.aeo as Partial<OnboardingDraft["aeo"]> | undefined;
+    const parsedAutomation = parsed.automation as
+      | Partial<OnboardingDraft["automation"]>
+      | undefined;
     return {
       ...base,
       ...parsed,
@@ -547,6 +710,20 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
           typeof parsedAeo?.trackAiReferrals === "boolean"
             ? parsedAeo.trackAiReferrals
             : base.aeo.trackAiReferrals,
+      },
+      automation: {
+        mode:
+          parsedAutomation?.mode === "automatic" ||
+          parsedAutomation?.mode === "review" ||
+          parsedAutomation?.mode === "manual"
+            ? parsedAutomation.mode
+            : base.automation.mode,
+        timezone:
+          typeof parsedAutomation?.timezone === "string" &&
+          parsedAutomation.timezone
+            ? parsedAutomation.timezone
+            : base.automation.timezone,
+        plan: normaliseAutomationPlan(parsedAutomation?.plan),
       },
       step:
         parsed.step && steps.includes(parsed.step) && hasSetupMode
@@ -874,6 +1051,26 @@ function AnswerPreview({
     return (
       <UserBubble>
         {draft.aeo.trackAiReferrals ? "Track AI referrals" : "Not now"}
+      </UserBubble>
+    );
+  }
+
+  if (step === "automation") {
+    const enabled = draft.automation.plan.filter((item) => item.enabled);
+    const modeLabel =
+      draft.automation.mode === "automatic"
+        ? "Activate automatically"
+        : draft.automation.mode === "review"
+          ? "Review in Schedule"
+          : "Not now";
+    return (
+      <UserBubble>
+        <span className="block font-medium">{modeLabel}</span>
+        {enabled.length > 0 && draft.automation.mode !== "manual" ? (
+          <span className="mt-1 block text-muted-foreground">
+            {enabled.map((item) => item.title).join(", ")}
+          </span>
+        ) : null}
       </UserBubble>
     );
   }
@@ -1479,6 +1676,194 @@ function TimeControl({
           <span>More</span>
         </div>
       </div>
+    </StepFrame>
+  );
+}
+
+function AutomationControl({
+  draft,
+  setAutomation,
+  onContinue,
+  saving,
+}: {
+  draft: OnboardingDraft;
+  setAutomation: (patch: Partial<OnboardingDraft["automation"]>) => void;
+  onContinue: () => void;
+  saving: boolean;
+}) {
+  const enabledCount = draft.automation.plan.filter((item) => item.enabled).length;
+  const updateItem = (
+    playbookId: string,
+    patch: Partial<OnboardingAutomationItem>,
+  ) => {
+    setAutomation({
+      plan: draft.automation.plan.map((item) =>
+        item.playbookId === playbookId ? { ...item, ...patch } : item,
+      ),
+    });
+  };
+  const agentLabels: Record<string, string> = {
+    analyst: "Analyst",
+    content: "Content Writer",
+    prospector: "Prospector",
+  };
+  const modes: Array<{
+    mode: AutomationMode;
+    label: string;
+    detail: string;
+  }> = [
+    {
+      mode: "automatic",
+      label: "Activate selected",
+      detail: "Start these schedules after setup.",
+    },
+    {
+      mode: "review",
+      label: "Review first",
+      detail: "Send drafts to Schedule for approval.",
+    },
+    {
+      mode: "manual",
+      label: "Not now",
+      detail: "Leave recurring work empty.",
+    },
+  ];
+
+  return (
+    <StepFrame
+      onContinue={onContinue}
+      saving={saving}
+      disabled={draft.automation.mode !== "manual" && enabledCount === 0}
+      continueLabel={
+        draft.automation.mode === "automatic"
+          ? `Activate ${enabledCount}`
+          : draft.automation.mode === "review"
+            ? `Review ${enabledCount}`
+            : "Skip for now"
+      }
+    >
+      <div className="grid gap-2 sm:grid-cols-3">
+        {modes.map((option) => (
+          <button
+            key={option.mode}
+            type="button"
+            onClick={() => setAutomation({ mode: option.mode })}
+            className={cn(
+              "border bg-background p-3 text-left transition-colors hover:border-foreground",
+              draft.automation.mode === option.mode &&
+                "border-foreground bg-accent",
+            )}
+          >
+            <span className="block text-xs font-medium">{option.label}</span>
+            <span className="mt-1 block text-[10px] leading-4 text-muted-foreground">
+              {option.detail}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {draft.automation.mode !== "manual" ? (
+        <div className="mt-4">
+          <div className="mb-2 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-xs font-medium">Suggested starter plan</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
+                Based on your goal, channels and available time.
+              </p>
+            </div>
+            <span className="text-[10px] text-muted-foreground">
+              {draft.automation.timezone}
+            </span>
+          </div>
+          <div className="divide-y border bg-background">
+            {draft.automation.plan.map((item) => (
+              <div
+                key={item.playbookId}
+                className={cn(
+                  "grid gap-3 px-3 py-3 transition-opacity sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center",
+                  !item.enabled && "opacity-50",
+                )}
+              >
+                <div className="flex min-w-0 items-start gap-3">
+                  <button
+                    type="button"
+                    aria-label={`${item.enabled ? "Remove" : "Add"} ${item.title}`}
+                    onClick={() =>
+                      updateItem(item.playbookId, { enabled: !item.enabled })
+                    }
+                    className={cn(
+                      "mt-0.5 flex size-5 shrink-0 items-center justify-center border transition-colors",
+                      item.enabled && "border-foreground bg-foreground text-background",
+                    )}
+                  >
+                    {item.enabled ? <Check size={12} /> : null}
+                  </button>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <p className="truncate text-xs font-medium">{item.title}</p>
+                      <span className="text-[10px] text-muted-foreground">
+                        {agentLabels[item.agentId] ?? item.agentId}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+                      {item.purpose}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 pl-8 sm:pl-0">
+                  <select
+                    aria-label={`${item.title} frequency`}
+                    value={item.frequency}
+                    disabled={!item.enabled}
+                    onChange={(event) =>
+                      updateItem(item.playbookId, {
+                        frequency: event.target.value as AutomationFrequency,
+                      })
+                    }
+                    className="h-8 border bg-background px-2 text-[10px] outline-none disabled:cursor-not-allowed"
+                  >
+                    <option value="weekdays">Weekdays</option>
+                    <option value="weekly">Weekly</option>
+                  </select>
+                  {item.frequency === "weekly" ? (
+                    <select
+                      aria-label={`${item.title} day`}
+                      value={item.day}
+                      disabled={!item.enabled}
+                      onChange={(event) =>
+                        updateItem(item.playbookId, {
+                          day: Number(event.target.value),
+                        })
+                      }
+                      className="h-8 border bg-background px-2 text-[10px] outline-none disabled:cursor-not-allowed"
+                    >
+                      {weekDays.map((day, index) => (
+                        <option key={day} value={index}>
+                          {day.slice(0, 3)}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  <input
+                    aria-label={`${item.title} time`}
+                    type="time"
+                    value={item.time}
+                    disabled={!item.enabled}
+                    onChange={(event) =>
+                      updateItem(item.playbookId, { time: event.target.value })
+                    }
+                    className="h-8 w-[92px] border bg-background px-2 text-[10px] outline-none disabled:cursor-not-allowed"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[10px] leading-4 text-muted-foreground">
+            Scheduling authority applies only to these agent jobs. Publishing,
+            outreach and spend still require their own approval.
+          </p>
+        </div>
+      ) : null}
     </StepFrame>
   );
 }
@@ -2355,6 +2740,20 @@ export function OnboardingPage() {
     );
   }, []);
 
+  const setAutomation = useCallback(
+    (patch: Partial<OnboardingDraft["automation"]>) => {
+      setDraft((current) =>
+        current
+          ? {
+              ...current,
+              automation: { ...current.automation, ...patch },
+            }
+          : current,
+      );
+    },
+    [],
+  );
+
   const clearAnalyticsSelection = useCallback(() => {
     setNotice(null);
     setError(null);
@@ -2483,12 +2882,24 @@ export function OnboardingPage() {
             analytics: draft.analytics,
             ads: draft.ads,
             aeo: draft.aeo,
+            automation: draft.automation,
             completedAt: new Date().toISOString(),
           },
         },
       });
       localStorage.removeItem(storageKey(org.id));
-      window.location.assign("/");
+      const enabledAutomation = draft.automation.plan.some(
+        (item) => item.enabled,
+      );
+      if (draft.automation.mode === "manual" || !enabledAutomation) {
+        window.location.assign("/");
+        return;
+      }
+      const chat = createChat("cmo", "Set up starter automations");
+      const prompt = onboardingAutomationPrompt(draft);
+      window.location.assign(
+        `/conversations?agent=cmo&chat=${encodeURIComponent(chat.id)}&new=1&prompt=${encodeURIComponent(prompt)}`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -2901,6 +3312,16 @@ export function OnboardingPage() {
         />
       );
     }
+    if (step === "automation") {
+      return (
+        <AutomationControl
+          draft={draft}
+          setAutomation={setAutomation}
+          onContinue={advance}
+          saving={saving}
+        />
+      );
+    }
     if (step === "pricing") {
       return (
         <PricingControl
@@ -2937,6 +3358,7 @@ export function OnboardingPage() {
     setField,
     setGoals,
     setAeo,
+    setAutomation,
     setAdsIntegrations,
     setAdsBudget,
     setAnalyticsIntegrations,

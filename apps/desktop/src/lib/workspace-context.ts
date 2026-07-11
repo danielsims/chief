@@ -34,6 +34,7 @@ export async function buildWorkspaceContext(
   const ads = record(onboarding.ads);
   const monitoring = record(onboarding.monitoring);
   const analytics = record(onboarding.analytics);
+  const automation = record(onboarding.automation);
 
   const lines: string[] = [];
   const website = text(metadata.websiteUrl);
@@ -61,6 +62,51 @@ export async function buildWorkspaceContext(
     : [];
   if (integrations.length > 0) {
     lines.push(`Analytics sources chosen at setup: ${integrations.join(", ")}`);
+  }
+  const schedulingAuthority = text(automation.mode);
+  if (
+    schedulingAuthority === "automatic" ||
+    schedulingAuthority === "review" ||
+    schedulingAuthority === "manual"
+  ) {
+    lines.push(`Agent scheduling authority: ${schedulingAuthority}`);
+  }
+  const timezone = text(automation.timezone);
+  const enabledPlan = Array.isArray(automation.plan)
+    ? automation.plan
+        .map((item) => record(item))
+        .filter((item) => item.enabled === true)
+    : [];
+  const plan = enabledPlan.map((item) => {
+          const title = text(item.title);
+          const frequency = text(item.frequency);
+          const time = text(item.time);
+          return title
+            ? `${title}: ${frequency || "scheduled"}${time ? ` at ${time}` : ""}${timezone ? ` (${timezone})` : ""}`
+            : "";
+        }).filter(Boolean);
+  if (plan.length > 0) {
+    lines.push(`Approved starter schedule:\n- ${plan.join("\n- ")}`);
+  }
+  if (schedulingAuthority === "automatic" && enabledPlan.length > 0) {
+    const scope = enabledPlan.map((item) => {
+      const [hour = "9", minute = "0"] = text(item.time).split(":");
+      const frequency = text(item.frequency);
+      const day =
+        typeof item.day === "number" && item.day >= 0 && item.day <= 6
+          ? item.day
+          : 1;
+      return {
+        playbookId: text(item.playbookId),
+        agentId: text(item.agentId),
+        cron:
+          frequency === "weekdays"
+            ? `${Number(minute)} ${Number(hour)} * * 1-5`
+            : `${Number(minute)} ${Number(hour)} * * ${day}`,
+        timezone,
+      };
+    });
+    lines.push(`Automatic schedule scope: ${JSON.stringify(scope)}`);
   }
 
   return lines.join("\n");

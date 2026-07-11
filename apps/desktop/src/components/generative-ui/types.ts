@@ -5,7 +5,7 @@ import type {
 } from "@marketer/agent-runtime/types";
 
 export interface GenerativePartRenderer {
-  capability: AgentCapabilityId;
+  capability?: AgentCapabilityId;
   partType: ContentBlock["type"];
   render: (part: ContentBlock) => ReactNode | undefined;
 }

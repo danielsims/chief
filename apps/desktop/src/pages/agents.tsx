@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router";
 import { defaultAgents } from "@marketer/agent-runtime/agents";
 import { availableCapabilities } from "@marketer/agent-runtime/capabilities";
 import type {
@@ -7,6 +7,7 @@ import type {
   AgentDefinition,
   AgentPreference,
   DriverType,
+  RecurringWorkRunRecord,
 } from "@marketer/agent-runtime/types";
 import { Button } from "@marketer/ui/components/button";
 import {
@@ -18,6 +19,11 @@ import {
   SelectTrigger,
 } from "@marketer/ui/components/select";
 import { Switch } from "@marketer/ui/components/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@marketer/ui/components/tooltip";
 import { cn } from "@marketer/ui/lib/utils";
 import { api } from "@marketer/backend/convex/_generated/api";
 import { useConvexAuth, useQuery } from "convex/react";
@@ -25,6 +31,7 @@ import {
   useAgentPreferences,
   useProviderModels,
   useRuntime,
+  useWorkspaceData,
 } from "../lib/runtime";
 import { useAuth } from "../lib/auth/auth-context";
 import {
@@ -35,12 +42,117 @@ import {
 } from "../lib/agent-overrides";
 import { useAgentConfig } from "../lib/agent-config";
 import { PROVIDER_META, type Provider } from "../lib/providers";
+import { createChat } from "../lib/chat-log";
+import {
+  PLAYBOOKS,
+  PLAYBOOK_CATEGORIES,
+  playbookRunPrompt,
+  playbookSetupPrompt,
+  type PlaybookCategory,
+} from "../lib/playbooks";
+import { IntegrationAvatarStack } from "../components/integrations/integration-avatar-stack";
+import { AgentDeploymentPanel } from "../components/agents/agent-deployment-panel";
+import { PlaybookDocument } from "../components/playbooks/playbook-document";
 
 type AgentOverride = AgentPreference;
 
 interface IntegrationOption {
   provider: string;
   displayName: string;
+}
+
+interface AgentRunTick {
+  run: RecurringWorkRunRecord;
+  title: string;
+}
+
+const capabilityDetails: Record<
+  AgentCapabilityId,
+  { label: string; description: string }
+> = {
+  "analytics-chart": {
+    label: "Analytics charts",
+    description: "Turn reliable data into visual analysis.",
+  },
+  "prospect-memory": {
+    label: "Prospect memory",
+    description: "Keep useful prospects and their source evidence.",
+  },
+  "trend-memory": {
+    label: "Trend memory",
+    description: "Save supported market and audience signals.",
+  },
+  "content-calendar": {
+    label: "Content calendar",
+    description: "Create and track content drafts and schedules.",
+  },
+  "campaign-memory": {
+    label: "Campaign memory",
+    description: "Maintain durable campaign plans and status.",
+  },
+  "schedule-manager": {
+    label: "Schedule manager",
+    description: "Turn goals into recurring specialist work.",
+  },
+};
+
+function AgentRunTicks({
+  runs,
+  max = 24,
+}: {
+  runs: AgentRunTick[];
+  max?: number;
+}) {
+  const visible = runs.slice(0, max).reverse();
+  const emptySlotCount = Math.max(0, max - visible.length);
+
+  return (
+    <div className="flex h-9 items-center gap-1 px-1" aria-label="Recent run history">
+      {visible.map(({ run, title }) => (
+        <Tooltip key={run.id} delayDuration={0}>
+          <TooltipTrigger asChild>
+            <Link
+              to={`/schedule/history?run=${encodeURIComponent(run.id)}`}
+              aria-label={`Open ${title} run`}
+              className="relative z-10 flex h-9 w-1.5 items-center justify-center"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <span
+                className={cn(
+                  "h-4 w-0.5",
+                  run.status === "completed" && "bg-emerald-500",
+                  run.status === "running" && "animate-pulse bg-sky-400",
+                  run.status === "needs_approval" && "bg-amber-400",
+                  run.status === "failed" && "bg-destructive",
+                )}
+              />
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-56">
+            <p className="text-xs font-medium">{title}</p>
+            <p className="mt-0.5 text-[10px] text-muted-foreground">
+              {run.status.replace("_", " ")} ·{" "}
+              {new Date(run.scheduledFor).toLocaleString([], {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+            </p>
+          </TooltipContent>
+        </Tooltip>
+      ))}
+      {Array.from({ length: emptySlotCount }, (_, index) => (
+        <span
+          key={`empty-run-${index}`}
+          aria-hidden="true"
+          className="flex h-9 w-1.5 items-center justify-center"
+        >
+          <span className="h-4 w-0.5 bg-border" />
+        </span>
+      ))}
+    </div>
+  );
 }
 
 /**
@@ -93,15 +205,19 @@ function InstalledAgentCard({
   workspaceId,
   override,
   integrations,
+  runs,
   ready,
   onSave,
+  onDeploy,
 }: {
   agent: AgentDefinition;
   workspaceId: string | null;
   override: AgentOverride | undefined;
   integrations: IntegrationOption[];
+  runs: AgentRunTick[];
   ready: boolean;
   onSave: (preference: AgentPreference) => void;
+  onDeploy: () => void;
 }) {
   const enabled = override?.enabled ?? true;
   // Per-agent override wins; otherwise the workspace's chosen agent app.
@@ -112,6 +228,7 @@ function InstalledAgentCard({
   const capabilities = override?.capabilities ?? agent.capabilities ?? [];
   const assignedIntegrations =
     override?.integrations ?? integrations.map((item) => item.provider);
+  const [editing, setEditing] = useState(false);
 
   const save = (patch: {
     enabled?: boolean;
@@ -175,75 +292,146 @@ function InstalledAgentCard({
         />
       </div>
 
-      <p className="mt-3 flex-1 text-sm leading-6 text-muted-foreground">
+      <p className="mt-3 text-sm leading-6 text-muted-foreground">
         {agent.description}
       </p>
 
-      <div className="mt-4 border-t pt-3">
-        <p className="mb-2 text-[11px] text-muted-foreground">Capabilities</p>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {availableCapabilities.map((capability) => {
-            const checked = capabilities.includes(capability.id);
-            return (
-              <label
-                key={capability.id}
-                className="flex items-center justify-between gap-3 border px-3 py-2 text-xs"
-              >
-                <span>{capability.id.replace(/-/g, " ")}</span>
-                <Switch
-                  checked={checked}
-                  disabled={!ready}
-                  onCheckedChange={(next) =>
-                    save({
-                      capabilities: next
-                        ? [...capabilities, capability.id]
-                        : capabilities.filter((id) => id !== capability.id),
-                    })
-                  }
-                />
-              </label>
-            );
-          })}
+      <div className="mt-6 border-t pt-4">
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-xs font-medium">Run history</p>
+          <p className="text-[11px] text-muted-foreground">
+            {runs.length === 1 ? "1 recent run" : `${runs.length} recent runs`}
+          </p>
+        </div>
+        <AgentRunTicks runs={runs} />
+      </div>
+
+      <div className="mt-6 border-t pt-4">
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-xs font-medium">Configuration</p>
+          <button
+            type="button"
+            onClick={() => setEditing((current) => !current)}
+            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {editing ? "Done" : "Edit"}
+          </button>
+        </div>
+        <div className="grid gap-6 md:grid-cols-2">
+          <section>
+            <p className="mb-2 text-[11px] text-muted-foreground">
+              Capabilities
+            </p>
+            <div className="divide-y border">
+              {(editing
+                ? availableCapabilities
+                : availableCapabilities.filter((capability) =>
+                    capabilities.includes(capability.id),
+                  )
+              ).map((capability) => {
+                const checked = capabilities.includes(capability.id);
+                const detail = capabilityDetails[capability.id];
+                return (
+                  <label
+                    key={capability.id}
+                    className="flex min-h-14 items-center justify-between gap-4 px-3 py-2.5"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-xs font-medium">
+                        {detail.label}
+                      </span>
+                      <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
+                        {detail.description}
+                      </span>
+                    </span>
+                    {editing ? (
+                      <Switch
+                        checked={checked}
+                        disabled={!ready}
+                        onCheckedChange={(next) =>
+                          save({
+                            capabilities: next
+                              ? [...capabilities, capability.id]
+                              : capabilities.filter(
+                                  (id) => id !== capability.id,
+                                ),
+                          })
+                        }
+                      />
+                    ) : (
+                      <span className="size-1.5 shrink-0 bg-foreground" />
+                    )}
+                  </label>
+                );
+              })}
+              {!editing && capabilities.length === 0 ? (
+                <p className="px-3 py-4 text-xs text-muted-foreground">
+                  No optional capabilities
+                </p>
+              ) : null}
+            </div>
+          </section>
+
+          <section>
+            <p className="mb-2 text-[11px] text-muted-foreground">
+              Connections
+            </p>
+            <div className="divide-y border">
+              {(editing
+                ? integrations
+                : integrations.filter((integration) =>
+                    assignedIntegrations.includes(integration.provider),
+                  )
+              ).map((integration) => {
+                const checked = assignedIntegrations.includes(
+                  integration.provider,
+                );
+                return (
+                  <label
+                    key={integration.provider}
+                    className="flex min-h-14 items-center justify-between gap-4 px-3 py-2.5"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs font-medium">
+                        {integration.displayName}
+                      </span>
+                      <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                        Connected service access
+                      </span>
+                    </span>
+                    {editing ? (
+                      <Switch
+                        checked={checked}
+                        disabled={!ready}
+                        onCheckedChange={(next) =>
+                          save({
+                            integrations: next
+                              ? [...assignedIntegrations, integration.provider]
+                              : assignedIntegrations.filter(
+                                  (provider) =>
+                                    provider !== integration.provider,
+                                ),
+                          })
+                        }
+                      />
+                    ) : (
+                      <span className="size-1.5 shrink-0 bg-foreground" />
+                    )}
+                  </label>
+                );
+              })}
+              {(!editing && assignedIntegrations.length === 0) ||
+              integrations.length === 0 ? (
+                <p className="px-3 py-4 text-xs text-muted-foreground">
+                  No connected services
+                </p>
+              ) : null}
+            </div>
+          </section>
         </div>
       </div>
 
-      {integrations.length > 0 ? (
-        <div className="mt-4 border-t pt-3">
-          <p className="mb-2 text-[11px] text-muted-foreground">
-            Integration access
-          </p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {integrations.map((integration) => {
-              const checked = assignedIntegrations.includes(
-                integration.provider,
-              );
-              return (
-                <label
-                  key={integration.provider}
-                  className="flex items-center justify-between gap-3 border px-3 py-2 text-xs"
-                >
-                  <span className="truncate">{integration.displayName}</span>
-                  <Switch
-                    checked={checked}
-                    disabled={!ready}
-                    onCheckedChange={(next) =>
-                      save({
-                        integrations: next
-                          ? [...assignedIntegrations, integration.provider]
-                          : assignedIntegrations.filter(
-                              (provider) => provider !== integration.provider,
-                            ),
-                      })
-                    }
-                  />
-                </label>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
+      <div className="mt-auto flex items-center justify-between gap-3 border-t pt-3">
         <div className="flex items-center gap-2">
           <Select
             value={driver ?? undefined}
@@ -316,36 +504,51 @@ function InstalledAgentCard({
             </span>
           ) : null}
         </div>
-        <Link
-          to={`/conversations?agent=${agent.id}`}
-          className="border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          Open chat
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            to={`/conversations?agent=${agent.id}`}
+            className="border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            Open chat
+          </Link>
+          <Button size="sm" onClick={onDeploy}>
+            Deploy
+          </Button>
+        </div>
       </div>
     </div>
   );
 }
 
-function AvailableAgentCard({
+function AvailableAgentDetail({
   agent,
 }: {
   agent: (typeof availableAgents)[number];
 }) {
   return (
-    <div className="flex flex-col border border-dashed p-5">
-      <div>
-        <p className="text-sm font-medium">{agent.name}</p>
-        <p className="text-xs text-muted-foreground">{agent.role}</p>
-      </div>
-      <p className="mt-3 flex-1 text-sm leading-6 text-muted-foreground">
-        {agent.description}
-      </p>
-      <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
-        <span className="text-xs text-muted-foreground">Coming soon</span>
-        <Button size="sm" variant="outline" disabled className="h-7 text-xs">
-          Install
+    <div className="flex h-full min-h-[620px] flex-col p-7">
+      <div className="flex flex-wrap items-start justify-between gap-5 border-b pb-6">
+        <div>
+          <p className="text-xs text-muted-foreground">Available agent</p>
+          <h3 className="mt-2 font-serif text-3xl">{agent.name}</h3>
+          <p className="mt-2 text-sm text-muted-foreground">{agent.role}</p>
+        </div>
+        <Button size="sm" disabled>
+          Coming soon
         </Button>
+      </div>
+      <div className="max-w-2xl py-7">
+        <p className="text-sm leading-7 text-muted-foreground">
+          {agent.description}
+        </p>
+        <div className="mt-7 border p-4">
+          <p className="text-sm font-medium">Not installed</p>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            This specialist will appear in your team when the agent registry is
+            ready. Its playbooks and connected-service access will be visible
+            here before installation.
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -355,9 +558,152 @@ function AvailableAgentCard({
 // section in the first frame instead of popping it in after the query.
 let integrationsCache: IntegrationOption[] | undefined;
 
+function PlaybooksCatalogue() {
+  const navigate = useNavigate();
+  const [category, setCategory] = useState<PlaybookCategory | "All">("All");
+  const visible =
+    category === "All"
+      ? PLAYBOOKS
+      : PLAYBOOKS.filter((playbook) => playbook.categories.includes(category));
+  const [selectedId, setSelectedId] = useState(
+    () => visible[0]?.id ?? PLAYBOOKS[0]!.id,
+  );
+  const selected =
+    visible.find((playbook) => playbook.id === selectedId) ??
+    visible[0] ??
+    PLAYBOOKS[0]!;
+  const owner = defaultAgents.find((agent) => agent.id === selected.agentId);
+
+  const selectCategory = (next: PlaybookCategory | "All") => {
+    setCategory(next);
+    const first =
+      next === "All"
+        ? PLAYBOOKS[0]
+        : PLAYBOOKS.find((playbook) => playbook.categories.includes(next));
+    if (first) setSelectedId(first.id);
+  };
+
+  const runNow = () => {
+    const chat = createChat(selected.agentId, selected.title);
+    navigate(
+      `/conversations?agent=${selected.agentId}&chat=${chat.id}&new=1&prompt=${encodeURIComponent(playbookRunPrompt(selected))}`,
+    );
+  };
+
+  const schedule = () => {
+    const chat = createChat("cmo", `Schedule ${selected.title}`);
+    navigate(
+      `/conversations?agent=cmo&chat=${chat.id}&new=1&compose=recurring&playbook=${selected.id}`,
+    );
+  };
+
+  const checkSetup = () => {
+    const chat = createChat("setup", `Prepare ${selected.title}`);
+    navigate(
+      `/conversations?agent=setup&chat=${chat.id}&new=1&prompt=${encodeURIComponent(playbookSetupPrompt(selected))}`,
+    );
+  };
+
+  return (
+    <div className="grid h-[calc(100vh-190px)] min-h-[620px] grid-cols-[320px_minmax(0,1fr)] border bg-card">
+      <div className="flex min-h-0 flex-col border-r">
+        <div className="border-b p-3">
+          <Select
+            value={category}
+            onValueChange={(value) =>
+              selectCategory(value as PlaybookCategory | "All")
+            }
+          >
+            <SelectTrigger className="h-9 w-full text-xs">
+              {category === "All" ? "All playbooks" : category}
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectLabel>Filter playbooks</SelectLabel>
+                {(["All", ...PLAYBOOK_CATEGORIES] as const).map((item) => (
+                  <SelectItem key={item} value={item}>
+                    {item === "All" ? "All playbooks" : item}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          {visible.map((playbook) => (
+            <button
+              key={playbook.id}
+              type="button"
+              onClick={() => setSelectedId(playbook.id)}
+              className={cn(
+                "flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-accent",
+                selected.id === playbook.id && "bg-accent",
+              )}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">
+                  {playbook.title}
+                </span>
+                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                  {playbook.summary}
+                </span>
+              </span>
+              <IntegrationAvatarStack integrations={playbook.integrations} />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <article className="min-h-0 min-w-0 overflow-y-auto">
+        <div className="border-b p-7">
+          <div className="flex flex-wrap items-start justify-between gap-5">
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">
+                Playbook · {owner?.name ?? selected.agentId}
+              </p>
+              <h3 className="mt-2 font-serif text-3xl">{selected.title}</h3>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+                {selected.summary}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={schedule}>
+                Schedule
+              </Button>
+              <Button size="sm" onClick={runNow}>
+                Run now
+              </Button>
+            </div>
+          </div>
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t pt-4">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
+              <IntegrationAvatarStack
+                integrations={selected.integrations}
+                max={10}
+              />
+              <span className="text-xs text-muted-foreground">
+                {selected.integrations.map((item) => item.label).join(", ")}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={checkSetup}
+              className="text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+            >
+              Check setup
+            </button>
+          </div>
+        </div>
+        <PlaybookDocument playbook={selected} />
+      </article>
+    </div>
+  );
+}
+
 export function AgentsPage() {
   const { agents: runtimeAgents } = useRuntime();
   const { cloudOrganizationId } = useAuth();
+  const workspaceData = useWorkspaceData(cloudOrganizationId);
   const convexAuth = useConvexAuth();
   const connectedIntegrations = useQuery(
     api.integrations.listConnected,
@@ -377,12 +723,35 @@ export function AgentsPage() {
   const agentPreferences = useAgentPreferences(cloudOrganizationId);
   const overrides = agentPreferences.preferences;
   const ready = Boolean(cloudOrganizationId) && !agentPreferences.loading;
-  const [view, setView] = useState<"installed" | "available">("installed");
+  const [view, setView] = useState<"installed" | "available" | "playbooks">(
+    "installed",
+  );
   const [selectedAgentId, setSelectedAgentId] = useState(
     () => agents[0]?.id ?? "",
   );
+  const [selectedAvailableId, setSelectedAvailableId] = useState(
+    () => availableAgents[0]?.id ?? "",
+  );
+  const [deployAgentId, setDeployAgentId] = useState<string | null>(null);
   const selectedAgent =
     agents.find((agent) => agent.id === selectedAgentId) ?? agents[0];
+  const runsByAgent = useMemo(() => {
+    const workById = new Map(
+      workspaceData.recurringWork.map((work) => [work.id, work]),
+    );
+    const grouped = new Map<string, AgentRunTick[]>();
+    for (const run of workspaceData.recurringWorkRuns) {
+      const work = workById.get(run.recurringWorkId);
+      if (!work) continue;
+      const current = grouped.get(work.agentId) ?? [];
+      current.push({ run, title: work.title });
+      grouped.set(work.agentId, current);
+    }
+    for (const entries of grouped.values()) {
+      entries.sort((a, b) => b.run.scheduledFor - a.run.scheduledFor);
+    }
+    return grouped;
+  }, [workspaceData.recurringWork, workspaceData.recurringWorkRuns]);
 
   useEffect(() => {
     if (agents.some((agent) => agent.id === selectedAgentId)) return;
@@ -408,6 +777,11 @@ export function AgentsPage() {
               label: "Available",
               count: availableAgents.length,
             },
+            {
+              key: "playbooks" as const,
+              label: "Playbooks",
+              count: PLAYBOOKS.length,
+            },
           ].map((item) => (
             <button
               key={item.key}
@@ -431,12 +805,18 @@ export function AgentsPage() {
         <div className="mb-6 flex flex-wrap items-end justify-between gap-6">
           <div>
             <h2 className="font-serif text-2xl">
-              {view === "installed" ? "Your team" : "Available agents"}
+              {view === "installed"
+                ? "Your team"
+                : view === "available"
+                  ? "Available agents"
+                  : "Playbooks"}
             </h2>
             <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
               {view === "installed"
                 ? "Enable agents, choose the provider each one runs on, and open a conversation."
-                : "Specialists that can be added to the workspace as the registry expands."}
+                : view === "available"
+                  ? "Specialists that can be added to the workspace as the registry expands."
+                  : "Reusable operating instructions your agents can run now or own on a schedule."}
             </p>
           </div>
           {view === "installed" ? (
@@ -486,24 +866,31 @@ export function AgentsPage() {
                     <button
                       key={agent.id}
                       type="button"
-                      onClick={() => setSelectedAgentId(agent.id)}
+                      onClick={() => {
+                        setSelectedAgentId(agent.id);
+                        setDeployAgentId(null);
+                      }}
                       className={cn(
-                        "flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-accent",
+                        "flex w-full items-center px-3 py-2 transition-colors hover:bg-accent",
                         selected && "bg-accent",
                       )}
                     >
-                      <span
-                        className={cn(
-                          "size-1.5 shrink-0",
-                          enabled ? "bg-emerald-500" : "bg-muted-foreground/40",
-                        )}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">
-                          {agent.name}
-                        </span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {agent.role}
+                      <span className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                        <span
+                          className={cn(
+                            "size-1.5 shrink-0",
+                            enabled
+                              ? "bg-emerald-500"
+                              : "bg-muted-foreground/40",
+                          )}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">
+                            {agent.name}
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {agent.role}
+                          </span>
                         </span>
                       </span>
                     </button>
@@ -511,7 +898,12 @@ export function AgentsPage() {
                 })}
               </div>
               <div className="min-w-0">
-                {selectedAgent ? (
+                {selectedAgent && deployAgentId === selectedAgent.id ? (
+                  <AgentDeploymentPanel
+                    agent={selectedAgent}
+                    onBack={() => setDeployAgentId(null)}
+                  />
+                ) : selectedAgent ? (
                   <InstalledAgentCard
                     key={selectedAgent.id}
                     agent={selectedAgent}
@@ -520,8 +912,10 @@ export function AgentsPage() {
                       (item) => item.agentId === selectedAgent.id,
                     )}
                     integrations={integrations}
+                    runs={runsByAgent.get(selectedAgent.id) ?? []}
                     ready={ready}
                     onSave={agentPreferences.save}
+                    onDeploy={() => setDeployAgentId(selectedAgent.id)}
                   />
                 ) : null}
               </div>
@@ -532,12 +926,43 @@ export function AgentsPage() {
               </p>
             ) : null}
           </>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-            {availableAgents.map((agent) => (
-              <AvailableAgentCard key={agent.id} agent={agent} />
-            ))}
+        ) : view === "available" ? (
+          <div className="grid min-h-[620px] grid-cols-[260px_minmax(0,1fr)] border bg-card">
+            <div className="border-r p-2">
+              {availableAgents.map((agent) => (
+                <button
+                  key={agent.id}
+                  type="button"
+                  onClick={() => setSelectedAvailableId(agent.id)}
+                  className={cn(
+                    "flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-accent",
+                    selectedAvailableId === agent.id && "bg-accent",
+                  )}
+                >
+                  <span className="size-1.5 shrink-0 border border-muted-foreground/50" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">
+                      {agent.name}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {agent.role}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="min-w-0">
+              <AvailableAgentDetail
+                agent={
+                  availableAgents.find(
+                    (agent) => agent.id === selectedAvailableId,
+                  ) ?? availableAgents[0]!
+                }
+              />
+            </div>
           </div>
+        ) : (
+          <PlaybooksCatalogue />
         )}
       </main>
     </div>

@@ -356,6 +356,8 @@ export function ConversationsPage() {
                   : undefined
             }
             composerDate={params.get("date") ?? undefined}
+            composerPlaybookId={params.get("playbook") ?? undefined}
+            observeOnly={params.get("observe") === "1"}
             initialPrompt={initialPrompt}
             initialDraft={initialDraft}
             initialDriver={

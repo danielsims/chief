@@ -20,6 +20,7 @@ import { DashboardPage } from "./pages/dashboard";
 import { AnalyticsPage } from "./pages/analytics";
 import { CampaignsPage } from "./pages/campaigns";
 import { SchedulePage } from "./pages/schedule";
+import { ResultsPage } from "./pages/results";
 import { AgentsPage } from "./pages/agents";
 import { ConversationsPage } from "./pages/conversations";
 import { ProspectsPage } from "./pages/prospects";
@@ -27,7 +28,6 @@ import { TrendingPage } from "./pages/trending";
 import { SettingsLayout } from "./pages/settings/layout";
 import { ProfileSettings } from "./pages/settings/profile";
 import { WorkspaceSettings } from "./pages/settings/workspace";
-import { DeploymentSettings } from "./pages/settings/deployment";
 import {
   IntegrationSettingsDetail,
   IntegrationsSettings,
@@ -177,6 +177,7 @@ function AuthenticatedApp() {
                 <Route path="analytics" element={<AnalyticsPage />} />
                 <Route path="campaigns" element={<CampaignsPage />} />
                 <Route path="schedule" element={<SchedulePage />} />
+                <Route path="schedule/history" element={<ResultsPage />} />
                 <Route path="prospects" element={<ProspectsPage />} />
                 <Route path="trending" element={<TrendingPage />} />
                 <Route path="conversations" element={<ConversationsPage />} />
@@ -188,7 +189,10 @@ function AuthenticatedApp() {
                   />
                   <Route path="profile" element={<ProfileSettings />} />
                   <Route path="workspace" element={<WorkspaceSettings />} />
-                  <Route path="deployment" element={<DeploymentSettings />} />
+                  <Route
+                    path="deployment"
+                    element={<Navigate to="/agents" replace />}
+                  />
                   <Route
                     path="integrations"
                     element={<IntegrationsSettings />}

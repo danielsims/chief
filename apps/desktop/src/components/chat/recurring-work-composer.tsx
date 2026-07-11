@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { ArrowLeft, CalendarDays, Eye, X } from "lucide-react";
+import { Button } from "@marketer/ui/components/button";
 import { Input } from "@marketer/ui/components/input";
 import {
   Select,
@@ -7,78 +8,69 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@marketer/ui/components/select";
+import { Switch } from "@marketer/ui/components/switch";
 import { cn } from "@marketer/ui/lib/utils";
+import { IntegrationAvatarStack } from "../integrations/integration-avatar-stack";
+import { PlaybookDocument } from "../playbooks/playbook-document";
+import {
+  PLAYBOOK_CATEGORIES,
+  PLAYBOOKS,
+  playbookRunPrompt,
+  type IntegrationDependency,
+  type PlaybookCategory,
+} from "../../lib/playbooks";
 
-/**
- * Guided setup for recurring agent work: pick what the team should own and
- * when it should run, and the composer writes the brief into the message box
- * below — the user reads it, adjusts anything, and sends. Presets exist to
- * teach what proactive agents are good at, not to constrain.
- */
 interface Preset {
   id: string;
   label: string;
   description: string;
   task: string;
+  categories?: PlaybookCategory[];
+  integrations?: IntegrationDependency[];
 }
 
 const ONE_OFF_PRESETS: Preset[] = [
   {
     id: "analytics-snapshot",
-    label: "Analytics snapshot",
-    description: "How the numbers looked on this day, with context.",
-    task: "Pull an analytics snapshot for this day and explain what stands out.",
+    label: "Analytics report",
+    description: "Explain changes and next steps.",
+    task: "Pull an analytics snapshot for this day and explain what changed, why it matters, and what to do next.",
   },
   {
     id: "draft-post",
-    label: "Draft a post",
-    description: "A post drafted for this date's moment or announcement.",
+    label: "Draft content",
+    description: "Prepare a post for review.",
     task: "Draft a post for this date and save it to the schedule for my review.",
   },
   {
     id: "campaign-check",
     label: "Campaign check",
-    description: "A one-time look at how campaigns are tracking.",
+    description: "Flag spend or performance issues.",
     task: "Check how our campaigns are tracking and flag anything worth acting on.",
   },
   {
     id: "custom",
-    label: "Custom",
-    description: "Describe the one-off task in your own words.",
+    label: "Custom task",
+    description: "Write your own instructions.",
     task: "",
   },
 ];
 
-const PRESETS: Preset[] = [
-  {
-    id: "growth-brief",
-    label: "Growth brief",
-    description: "What changed in your numbers, why, and one action each.",
-    task: "Compile a growth brief from our connected analytics: what changed, why, and one action per insight.",
-  },
-  {
-    id: "prospect-scan",
-    label: "Prospect scan",
-    description: "New people and conversations worth a considered reply.",
-    task: "Find new prospects and conversations worth a considered reply, and save the good ones to the workspace.",
-  },
-  {
-    id: "content-drafts",
-    label: "Content drafts",
-    description: "Posts drafted from your recent analytics and trends.",
-    task: "Draft next period's posts from our recent analytics and trends, and schedule them as drafts for my review.",
-  },
-  {
-    id: "competitor-watch",
-    label: "Competitor watch",
-    description: "What competitors shipped or published, when it matters.",
-    task: "Check what our competitors shipped or published and summarize anything worth reacting to.",
-  },
+const RECURRING_PRESETS: Preset[] = [
+  ...PLAYBOOKS.map((playbook) => ({
+    id: playbook.id,
+    label: playbook.title,
+    description: playbook.summary,
+    task: playbookRunPrompt(playbook),
+    categories: playbook.categories,
+    integrations: playbook.integrations,
+  })),
   {
     id: "custom",
-    label: "Custom",
-    description: "Describe the recurring work in your own words.",
+    label: "Custom task",
+    description: "Write your own instructions.",
     task: "",
+    categories: PLAYBOOK_CATEGORIES,
   },
 ];
 
@@ -92,13 +84,13 @@ const FREQUENCIES: Array<{ value: Frequency; label: string }> = [
 ];
 
 const WEEKDAYS = [
-  { value: "Monday", label: "Monday" },
-  { value: "Tuesday", label: "Tuesday" },
-  { value: "Wednesday", label: "Wednesday" },
-  { value: "Thursday", label: "Thursday" },
-  { value: "Friday", label: "Friday" },
-  { value: "Saturday", label: "Saturday" },
-  { value: "Sunday", label: "Sunday" },
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
 ];
 
 function frequencyPhrase(
@@ -119,147 +111,379 @@ function timePhrase(time: string) {
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+function localDateValue(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function nextScheduleDefaults() {
+  const next = new Date();
+  next.setSeconds(0, 0);
+  next.setMinutes(Math.ceil((next.getMinutes() + 1) / 30) * 30);
+  const weekdayIndex = (next.getDay() + 6) % 7;
+  return {
+    weekday: WEEKDAYS[weekdayIndex]!,
+    dayOfMonth: String(next.getDate()),
+    time: `${String(next.getHours()).padStart(2, "0")}:${String(next.getMinutes()).padStart(2, "0")}`,
+  };
+}
+
+export interface SchedulingDraft {
+  text: string;
+  approveAfterCreation: boolean;
+}
+
 export function RecurringWorkComposer({
   mode = "recurring",
   date,
+  playbookId,
   onCompose,
+  onSubmit,
   onDismiss,
 }: {
   mode?: "recurring" | "one-off";
-  /** Prefilled date (YYYY-MM-DD) for one-off tasks from the calendar. */
   date?: string;
-  onCompose: (text: string) => void;
+  playbookId?: string;
+  onCompose: (draft: SchedulingDraft) => void;
+  onSubmit: () => void;
   onDismiss: () => void;
 }) {
   const oneOff = mode === "one-off";
-  const presets = oneOff ? ONE_OFF_PRESETS : PRESETS;
+  const presets = oneOff ? ONE_OFF_PRESETS : RECURRING_PRESETS;
+  const initialPlaybook = PLAYBOOKS.find(
+    (playbook) => !oneOff && playbook.id === playbookId,
+  );
+  const [category, setCategory] = useState<PlaybookCategory>(
+    initialPlaybook?.categories[0] ?? PLAYBOOK_CATEGORIES[0],
+  );
   const [presetId, setPresetId] = useState(
-    oneOff ? "analytics-snapshot" : "growth-brief",
+    oneOff ? "analytics-snapshot" : (initialPlaybook?.id ?? "growth-brief"),
   );
-  const [onDate, setOnDate] = useState(
-    date ?? new Date().toISOString().slice(0, 10),
-  );
+  const [onDate, setOnDate] = useState(date ?? localDateValue());
   const [customTask, setCustomTask] = useState("");
+  const [scheduleDefaults] = useState(nextScheduleDefaults);
   const [frequency, setFrequency] = useState<Frequency>("weekly");
-  const [weekday, setWeekday] = useState("Monday");
-  const [dayOfMonth, setDayOfMonth] = useState("1");
-  const [time, setTime] = useState("09:00");
+  const [weekday, setWeekday] = useState(scheduleDefaults.weekday);
+  const [dayOfMonth, setDayOfMonth] = useState(scheduleDefaults.dayOfMonth);
+  const [time, setTime] = useState(scheduleDefaults.time);
+  const [approveAfterCreation, setApproveAfterCreation] = useState(false);
+  const [viewingPlaybookId, setViewingPlaybookId] = useState<string | null>(
+    null,
+  );
 
   const preset = presets.find((item) => item.id === presetId) ?? presets[0]!;
   const task = presetId === "custom" ? customTask.trim() : preset.task;
+  const visiblePresets = oneOff
+    ? presets
+    : presets.filter((item) => item.categories?.includes(category));
+  const viewingPlaybook = PLAYBOOKS.find(
+    (playbook) => playbook.id === viewingPlaybookId,
+  );
+
+  const selectCategory = (next: PlaybookCategory) => {
+    setCategory(next);
+    const nextPresets = RECURRING_PRESETS.filter((item) =>
+      item.categories?.includes(next),
+    );
+    if (!nextPresets.some((item) => item.id === presetId)) {
+      setPresetId(nextPresets[0]!.id);
+    }
+  };
 
   useEffect(() => {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const approvalInstruction = approveAfterCreation
+      ? "I chose Create as approved in Marketer. Propose only the exact tools required; Marketer will activate it after creation."
+      : "Create one narrow approval for me to review in Schedule.";
     const text = task
       ? oneOff
-        ? `Schedule a one-off task for ${new Date(`${onDate}T00:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })} at ${timePhrase(time)} (${timezone}): ${task} It runs once on that date only. Configure everything else yourself and create one narrow approval for me to review in Schedule.`
-        : `Set up recurring work for me: ${task} Run it ${frequencyPhrase(frequency, weekday, dayOfMonth)} at ${timePhrase(time)} (${timezone}). Configure everything else yourself and create one narrow approval for me to review in Schedule.`
+        ? `Schedule a one-off task for ${new Date(`${onDate}T00:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })} at ${timePhrase(time)} (${timezone}): ${task} It runs once on that date only. Set runOnceAt to ${new Date(`${onDate}T${time}:00`).toISOString()}. Configure everything else yourself. ${approvalInstruction}`
+        : `Set up recurring work for me: ${task} Run it ${frequencyPhrase(frequency, weekday, dayOfMonth)} at ${timePhrase(time)} (${timezone}). Configure everything else yourself. ${approvalInstruction}`
       : "";
-    onCompose(text);
+    onCompose({ text, approveAfterCreation });
+    // onCompose deliberately mirrors form state into the editable chat draft.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task, frequency, weekday, dayOfMonth, time, onDate, oneOff]);
+  }, [
+    task,
+    frequency,
+    weekday,
+    dayOfMonth,
+    time,
+    onDate,
+    oneOff,
+    approveAfterCreation,
+  ]);
+
+  if (viewingPlaybook) {
+    return (
+      <div className="w-full border bg-card">
+        <div className="flex items-start justify-between gap-4 p-4">
+          <div className="min-w-0">
+            <button
+              type="button"
+              onClick={() => setViewingPlaybookId(null)}
+              className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ArrowLeft size={13} />
+              Back to playbooks
+            </button>
+            <p className="font-serif text-2xl">{viewingPlaybook.title}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {viewingPlaybook.summary}
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label="Dismiss scheduling form"
+            onClick={onDismiss}
+            className="p-1 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <X size={15} />
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 border-y px-4 py-3">
+          <IntegrationAvatarStack
+            integrations={viewingPlaybook.integrations}
+            max={10}
+          />
+          <span className="text-xs text-muted-foreground">
+            {viewingPlaybook.integrations
+              .map((integration) => integration.label)
+              .join(", ")}
+          </span>
+        </div>
+        <div className="max-h-[480px] overflow-y-auto">
+          <PlaybookDocument playbook={viewingPlaybook} compact />
+        </div>
+        <div className="flex items-center justify-between gap-3 border-t p-4">
+          <Button
+            variant="outline"
+            onClick={() => setViewingPlaybookId(null)}
+          >
+            Back
+          </Button>
+          <Button
+            onClick={() => {
+              setCategory(viewingPlaybook.categories[0]!);
+              setPresetId(viewingPlaybook.id);
+              setViewingPlaybookId(null);
+            }}
+          >
+            Use this playbook
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="border bg-card p-4">
-      <div className="flex items-start justify-between gap-3">
+    <div className="w-full border bg-card p-4">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-medium">
-            {oneOff ? "Schedule a one-off task" : "Schedule new work"}
+          <p className="font-serif text-2xl">
+            {oneOff ? "Schedule a task" : "Schedule recurring work"}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {oneOff
-              ? "Pick what should happen that day; the brief writes itself below."
-              : "Pick what your team should own; the brief writes itself below."}
+          <p className="mt-1 text-sm text-muted-foreground">
+            Choose when it runs and what it should do.
           </p>
         </div>
         <button
           type="button"
-          aria-label="Dismiss"
+          aria-label="Dismiss scheduling form"
           onClick={onDismiss}
           className="p-1 text-muted-foreground transition-colors hover:text-foreground"
         >
-          <X size={14} />
+          <X size={15} />
         </button>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-1 border p-0.5 w-fit">
-        {presets.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setPresetId(item.id)}
-            className={cn(
-              "px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground",
-              presetId === item.id && "bg-accent text-foreground",
-            )}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-      <p className="mt-2 text-xs text-muted-foreground">{preset.description}</p>
-      {presetId === "custom" ? (
-        <Input
-          value={customTask}
-          onChange={(event) => setCustomTask(event.target.value)}
-          placeholder="What should the agent do each time?"
-          className="mt-2 h-8 text-sm"
-        />
-      ) : null}
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {oneOff ? (
-          <Input
-            type="date"
-            value={onDate}
-            onChange={(event) => setOnDate(event.target.value)}
-            className="h-8 w-36 text-xs"
-          />
-        ) : (
-        <Select
-          value={frequency}
-          onValueChange={(value) => setFrequency(value as Frequency)}
+      <div className="mt-4 border-b pb-4">
+        <div className="mb-3 flex items-center gap-2">
+          <CalendarDays size={14} className="text-muted-foreground" />
+          <p className="text-xs font-medium">When should it run?</p>
+        </div>
+        <div
+          className={cn(
+            "grid gap-3",
+            oneOff ? "sm:grid-cols-2" : "sm:grid-cols-3",
+          )}
         >
-          <SelectTrigger className="h-8 w-32 text-xs">
-            {FREQUENCIES.find((item) => item.value === frequency)?.label}
-          </SelectTrigger>
-          <SelectContent>
-            {FREQUENCIES.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
+          {oneOff ? (
+            <label className="space-y-1.5 text-xs text-muted-foreground">
+              Date
+              <Input
+                type="date"
+                value={onDate}
+                onChange={(event) => setOnDate(event.target.value)}
+                className="h-10 text-sm text-foreground"
+              />
+            </label>
+          ) : (
+            <label className="space-y-1.5 text-xs text-muted-foreground">
+              Repeats
+              <Select
+                value={frequency}
+                onValueChange={(value) => setFrequency(value as Frequency)}
+              >
+                <SelectTrigger className="h-10 w-full text-sm text-foreground">
+                  {FREQUENCIES.find((item) => item.value === frequency)?.label}
+                </SelectTrigger>
+                <SelectContent>
+                  {FREQUENCIES.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+          )}
+
+          {!oneOff && frequency === "weekly" ? (
+            <label className="space-y-1.5 text-xs text-muted-foreground">
+              Day
+              <Select value={weekday} onValueChange={setWeekday}>
+                <SelectTrigger className="h-10 w-full text-sm text-foreground">
+                  {weekday}
+                </SelectTrigger>
+                <SelectContent>
+                  {WEEKDAYS.map((day) => (
+                    <SelectItem key={day} value={day}>
+                      {day}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+          ) : null}
+
+          {!oneOff && frequency === "monthly" ? (
+            <label className="space-y-1.5 text-xs text-muted-foreground">
+              Day of month
+              <Input
+                type="number"
+                min={1}
+                max={31}
+                value={dayOfMonth}
+                onChange={(event) => setDayOfMonth(event.target.value)}
+                className="h-10 text-sm text-foreground"
+              />
+            </label>
+          ) : null}
+
+          <label className="space-y-1.5 text-xs text-muted-foreground">
+            Time
+            <Input
+              type="time"
+              step={60}
+              value={time}
+              onChange={(event) => setTime(event.target.value)}
+              className="h-10 text-sm text-foreground"
+            />
+          </label>
+        </div>
+      </div>
+
+      <div className="py-4">
+        <p className="text-xs font-medium">Choose a playbook</p>
+        {!oneOff ? (
+          <div className="mt-3 flex gap-4 overflow-x-auto border-b">
+            {PLAYBOOK_CATEGORIES.map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => selectCategory(item)}
+                className={cn(
+                  "-mb-px shrink-0 border-b-2 border-transparent pb-2 text-xs text-muted-foreground transition-colors hover:text-foreground",
+                  category === item && "border-foreground text-foreground",
+                )}
+              >
+                {item}
+              </button>
             ))}
-          </SelectContent>
-        </Select>
-        )}
-        {!oneOff && frequency === "weekly" ? (
-          <Select value={weekday} onValueChange={setWeekday}>
-            <SelectTrigger className="h-8 w-32 text-xs">
-              {weekday}
-            </SelectTrigger>
-            <SelectContent>
-              {WEEKDAYS.map((item) => (
-                <SelectItem key={item.value} value={item.value}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          </div>
         ) : null}
-        {!oneOff && frequency === "monthly" ? (
+        <div className="mt-3 border">
+          {visiblePresets.map((item) => {
+            const selected = presetId === item.id;
+            const playbook = PLAYBOOKS.find(
+              (candidate) => candidate.id === item.id,
+            );
+            return (
+              <div
+                key={item.id}
+                className={cn(
+                  "flex w-full items-center justify-between gap-4 border-b px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-accent/50",
+                  selected && "bg-accent",
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => setPresetId(item.id)}
+                  className="flex min-w-0 flex-1 items-start gap-2.5 text-left"
+                >
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "mt-1.5 size-2 shrink-0 border border-muted-foreground",
+                      selected && "border-foreground bg-foreground",
+                    )}
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">
+                      {item.label}
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
+                      {item.description}
+                    </span>
+                  </span>
+                </button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <IntegrationAvatarStack integrations={item.integrations} />
+                  {playbook ? (
+                    <button
+                      type="button"
+                      onClick={() => setViewingPlaybookId(playbook.id)}
+                      className="flex items-center gap-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+                      aria-label={`View ${playbook.title} details`}
+                    >
+                      <Eye size={12} />
+                      View
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {presetId === "custom" ? (
           <Input
-            value={dayOfMonth}
-            onChange={(event) => setDayOfMonth(event.target.value)}
-            className="h-8 w-16 text-xs"
-            placeholder="Day"
+            value={customTask}
+            onChange={(event) => setCustomTask(event.target.value)}
+            placeholder="Describe the task"
+            className="mt-3 h-10 text-sm"
+            autoFocus
           />
         ) : null}
-        <Input
-          type="time"
-          value={time}
-          onChange={(event) => setTime(event.target.value)}
-          className="h-8 w-28 text-xs"
-        />
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-4 border-t pt-3">
+        <label className="flex cursor-pointer items-center gap-2.5">
+          <Switch
+            checked={approveAfterCreation}
+            onCheckedChange={setApproveAfterCreation}
+          />
+          <span>
+            <span className="block text-xs font-medium">
+              Create as approved
+            </span>
+            <span className="block text-[10px] text-muted-foreground">
+              Skip the separate approval step
+            </span>
+          </span>
+        </label>
+        <Button disabled={!task} onClick={onSubmit}>
+          {oneOff ? "Schedule task" : "Schedule work"}
+        </Button>
       </div>
     </div>
   );

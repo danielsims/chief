@@ -1,7 +1,14 @@
-import { Outlet } from "react-router";
-import { TooltipProvider } from "@marketer/ui/components/tooltip";
+import { Bell } from "lucide-react";
+import { NavLink, Outlet } from "react-router";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@marketer/ui/components/tooltip";
 import { Sidebar } from "./sidebar";
-import { useRuntime } from "../lib/runtime";
+import { useRuntime, useWorkspaceData } from "../lib/runtime";
+import { useAuth } from "../lib/auth/auth-context";
 import { cn } from "@marketer/ui/lib/utils";
 
 function ConnectionDot() {
@@ -21,17 +28,46 @@ function ConnectionDot() {
   );
 }
 
+function HistoryButton() {
+  const { cloudOrganizationId } = useAuth();
+  const { attentionItems } = useWorkspaceData(cloudOrganizationId);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <NavLink
+          to="/schedule/history"
+          aria-label="Notifications and run history"
+          className={({ isActive }) =>
+            cn(
+              "relative flex size-7 items-center justify-center text-muted-foreground transition-colors hover:text-foreground",
+              isActive && "bg-accent text-foreground",
+            )
+          }
+        >
+          <Bell size={14} />
+          {attentionItems.length > 0 ? (
+            <span className="absolute right-0 top-0 size-1.5 bg-amber-400" />
+          ) : null}
+        </NavLink>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">Notifications and run history</TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function Layout() {
   return (
     <TooltipProvider>
       <div className="min-h-screen bg-background text-foreground">
         <Sidebar />
         <div className="ml-[70px] flex min-h-screen flex-col">
-          {/* Empty drag strip; the status dot is a non-interactive overlay so
-              mousedown anywhere in the header hits the drag element. */}
+          {/* The controls sit above the drag strip so the rest of the header
+              remains available as a native window drag target. */}
           <header className="relative h-12 shrink-0">
             <div data-tauri-drag-region className="absolute inset-0" />
-            <div className="pointer-events-none absolute inset-y-0 right-6 flex items-center">
+            <div className="absolute inset-y-0 right-6 z-10 flex items-center gap-4">
+              <HistoryButton />
               <ConnectionDot />
             </div>
           </header>

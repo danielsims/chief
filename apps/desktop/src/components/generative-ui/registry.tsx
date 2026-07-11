@@ -26,7 +26,10 @@ export function renderGenerativePart(
   capabilities: readonly AgentCapabilityId[],
 ) {
   const renderer = renderers.get(part.type);
-  if (!renderer || !capabilities.includes(renderer.capability)) {
+  if (
+    !renderer ||
+    (renderer.capability && !capabilities.includes(renderer.capability))
+  ) {
     return undefined;
   }
   return renderer.render(part);

@@ -8,16 +8,6 @@ import { cn } from "@marketer/ui/lib/utils";
 import { OrgLogo } from "../components/org-logo";
 import { createChat } from "../lib/chat-log";
 import { SetupProgress } from "../components/setup-progress";
-import { RecurringWorkApprovalFlow } from "../components/recurring-work-approval-flow";
-import type {
-  AttentionItem,
-  RecurringWorkRecord,
-} from "@marketer/agent-runtime/types";
-import {
-  RunReviewDialog,
-  reviewFromAttention,
-  type RunReview,
-} from "../components/run-review-dialog";
 import { useAuth } from "../lib/auth/auth-context";
 import { useWorkspaceData } from "../lib/runtime";
 import {
@@ -155,24 +145,6 @@ export function DashboardPage() {
     (range) => range.key === "previous30d",
   );
   const attention = workspaceData.attentionItems;
-  const [approvalWork, setApprovalWork] =
-    useState<RecurringWorkRecord | null>(null);
-  // An approval-type item opens the real approval dialog directly — no
-  // intermediary. Everything else opens the run review.
-  const openAttention = (item: AttentionItem) => {
-    const workId = item.sourceId?.startsWith("automation-")
-      ? item.sourceId.slice("automation-".length)
-      : undefined;
-    const work = workId
-      ? workspaceData.recurringWork.find((entry) => entry.id === workId)
-      : undefined;
-    if (work && work.status === "draft") {
-      setApprovalWork(work);
-      return;
-    }
-    setReview(reviewFromAttention(item, workspaceData.recurringWorkRuns));
-  };
-  const [review, setReview] = useState<RunReview | null>(null);
 
   interface Widget {
     label: string;
@@ -183,8 +155,8 @@ export function DashboardPage() {
     onClick?: () => void;
     indicator?: boolean;
   }
-  // Agents flagged something: the card moves to the front, carries a live
-  // indicator, and opens the review dialog directly.
+  // Agents flagged something: the card moves to the front and opens the
+  // prioritized return-to-work inbox rather than dropping into a chat.
   const actionItems: Widget = {
     label: "Action items",
     value: workspaceData.loading ? "—" : formatNumber(attention.length),
@@ -193,10 +165,10 @@ export function DashboardPage() {
         ? attention[0]!.title
         : "Nothing flagged by agents",
     trend: null,
-    to: "/conversations?agent=cmo",
+    to: attention[0]
+      ? `/schedule/history?attention=${attention[0].id}`
+      : "/schedule/history",
     indicator: attention.length > 0,
-    onClick:
-      attention.length > 0 ? () => openAttention(attention[0]!) : undefined,
   };
   const widgets: Widget[] = [
     actionItems,
@@ -308,42 +280,6 @@ export function DashboardPage() {
       </div>
 
       <SetupProgress />
-
-      <RecurringWorkApprovalFlow
-        work={approvalWork}
-        onClose={() => setApprovalWork(null)}
-        onApprove={(work) =>
-          workspaceData.saveRecurringWork({
-            ...work,
-            status: "active",
-            grant: {
-              version: 1,
-              approvedAt: Date.now(),
-              toolPatterns: work.proposedToolPatterns,
-            },
-            updatedAt: Date.now(),
-          })
-        }
-        onReject={(work) => workspaceData.deleteRecurringWork(work.id)}
-      />
-      <RunReviewDialog
-        review={review}
-        onClose={() => setReview(null)}
-        onDismiss={(target) => {
-          if (target.attentionItemId) {
-            workspaceData.dismissAttentionItem(target.attentionItemId);
-          }
-        }}
-        onAllowAndRerun={(target) => {
-          if (target.recurringWorkId) {
-            workspaceData.expandRecurringWorkGrant(
-              target.recurringWorkId,
-              target.blockedTools,
-              true,
-            );
-          }
-        }}
-      />
 
       <div className="mx-auto w-full max-w-[680px]">
         <div className="border bg-card/80 backdrop-blur-lg">
