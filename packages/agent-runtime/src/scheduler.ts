@@ -14,6 +14,7 @@ import type {
   AgentEvent,
   RecurringWorkRecord,
   RecurringWorkRunRecord,
+  RuntimeNotice,
 } from "./types.js";
 import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
 
@@ -39,7 +40,20 @@ export class RecurringWorkScheduler {
   constructor(
     private readonly manager: SessionManager,
     private readonly onChange: (workspaceId: string) => void | Promise<void>,
+    private readonly onNotice: (
+      workspaceId: string,
+      notice: RuntimeNotice,
+    ) => void = () => {},
   ) {}
+
+  /** Notices are best-effort; they must never break a run. */
+  private notice(workspaceId: string, notice: RuntimeNotice) {
+    try {
+      this.onNotice(workspaceId, notice);
+    } catch (error) {
+      console.error("[scheduler] notice failed:", error);
+    }
+  }
 
   start() {
     if (this.timer) return;
@@ -117,6 +131,17 @@ export class RecurringWorkScheduler {
           work.title,
         );
       }
+      this.notice(workspaceId, {
+        kind:
+          status === "completed"
+            ? "run-completed"
+            : status === "needs_approval"
+              ? "run-blocked"
+              : "run-failed",
+        title: work.title,
+        detail: detail?.trim().slice(0, 140) || undefined,
+        sourceId: `automation-${work.id}`,
+      });
       if (status !== "completed") {
         await this.manager.raiseAttentionItem(workspaceId, {
           id: `attention-${work.id}-${status}`,
@@ -199,6 +224,12 @@ export class RecurringWorkScheduler {
     try {
       await this.manager.saveRecurringWorkRun(workspaceId, run);
       await this.onChange(workspaceId);
+      this.notice(workspaceId, {
+        kind: "run-started",
+        title: work.title,
+        detail: "Scheduled run starting.",
+        sourceId: `automation-${work.id}`,
+      });
       const agent = getAgent(work.agentId);
       if (!agent) throw new Error(`Unknown agent: ${work.agentId}`);
       const preference = await this.manager.agentPreference(

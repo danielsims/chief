@@ -186,7 +186,7 @@ interface PastRunEntry {
   workId: string;
   agentId: string;
   title: string;
-  status: "completed" | "failed" | "needs_approval";
+  status: "running" | "completed" | "failed" | "needs_approval";
   scheduledFor: number;
   summary?: string;
   blockedTools?: string[];
@@ -194,17 +194,27 @@ interface PastRunEntry {
 
 /** A finished occurrence stays on the calendar, quietly greyed. */
 function PastRunChip({ run }: { run: PastRunEntry }) {
+  const running = run.status === "running";
   return (
-    <div className="min-w-0 select-none border border-border/60 bg-card/50 px-2 py-1.5 opacity-60">
+    <div
+      className={cn(
+        "min-w-0 select-none border px-2 py-1.5",
+        running
+          ? "border-border bg-card"
+          : "border-border/60 bg-card/50 opacity-60",
+      )}
+    >
       <div className="flex min-w-0 items-center gap-1.5">
         <span
           className={cn(
             "size-1.5 shrink-0",
-            run.status === "completed"
-              ? "bg-muted-foreground"
-              : run.status === "failed"
-                ? "bg-destructive"
-                : "bg-amber-400",
+            running
+              ? "animate-pulse bg-emerald-500"
+              : run.status === "completed"
+                ? "bg-muted-foreground"
+                : run.status === "failed"
+                  ? "bg-destructive"
+                  : "bg-amber-400",
           )}
         />
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
@@ -212,11 +222,13 @@ function PastRunChip({ run }: { run: PastRunEntry }) {
         </span>
       </div>
       <p className="mt-1 truncate text-[10px] text-muted-foreground">
-        {run.status === "completed"
-          ? "Completed"
-          : run.status === "failed"
-            ? "Failed"
-            : "Needs approval"}
+        {running
+          ? "Running…"
+          : run.status === "completed"
+            ? "Completed"
+            : run.status === "failed"
+              ? "Failed"
+              : "Needs approval"}
       </p>
     </div>
   );
@@ -1534,7 +1546,6 @@ export function SchedulePage() {
     );
     const map = new Map<string, PastRunEntry[]>();
     for (const run of workspaceData.recurringWorkRuns) {
-      if (run.status === "running") continue;
       const key = dayKey(new Date(run.scheduledFor));
       const items = map.get(key) ?? [];
       items.push({
@@ -1653,10 +1664,8 @@ export function SchedulePage() {
             size="sm"
             onClick={() => {
               const chat = createChat("cmo", "Set up recurring work");
-              const draft =
-                "Set up recurring work for me. Ask only for the outcome or timing if you genuinely need it, configure everything else yourself, then create one narrow approval for me to review in Schedule.";
               navigate(
-                `/conversations?agent=cmo&chat=${chat.id}&new=1&prompt=${encodeURIComponent(draft)}`,
+                `/conversations?agent=cmo&chat=${chat.id}&new=1&compose=recurring`,
               );
             }}
           >
@@ -1824,23 +1833,33 @@ export function SchedulePage() {
                     title: run.title,
                     agentId: run.agentId,
                     recurringWorkId: run.workId,
-                    detail: run.summary ?? "No summary was recorded.",
+                    detail:
+                      run.status === "running"
+                        ? "Running now…"
+                        : (run.summary ?? "No summary was recorded."),
                     status: run.status,
                     at: run.scheduledFor,
                     blockedTools: run.blockedTools ?? [],
                   })
                 }
-                className="w-full border p-3 text-left opacity-60 transition-opacity hover:opacity-100"
+                className={cn(
+                  "w-full border p-3 text-left",
+                  run.status === "running"
+                    ? "opacity-100"
+                    : "opacity-60 transition-opacity hover:opacity-100",
+                )}
               >
                 <div className="flex items-start gap-2">
                   <span
                     className={cn(
                       "mt-1 size-1.5 shrink-0",
-                      run.status === "completed"
-                        ? "bg-muted-foreground"
-                        : run.status === "failed"
-                          ? "bg-destructive"
-                          : "bg-amber-400",
+                      run.status === "running"
+                        ? "animate-pulse bg-emerald-500"
+                        : run.status === "completed"
+                          ? "bg-muted-foreground"
+                          : run.status === "failed"
+                            ? "bg-destructive"
+                            : "bg-amber-400",
                     )}
                   />
                   <div className="min-w-0 flex-1">

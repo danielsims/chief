@@ -17,6 +17,7 @@ import {
 import { Input } from "@marketer/ui/components/input";
 import { useAgentConfig } from "../lib/agent-config";
 import { useAgentChat } from "../lib/runtime";
+import { StreamingMarkdown } from "./chat/streaming-markdown";
 
 /**
  * Where a run or attention item gets RESOLVED: the outcome, the exact tools
@@ -48,6 +49,7 @@ function humanizeAddress(address: string) {
 }
 
 function statusLabel(status: RunReview["status"]) {
+  if (status === "running") return "Running now";
   if (status === "completed") return "Completed";
   if (status === "failed") return "Failed";
   if (status === "needs_approval") return "Stopped for approval";
@@ -148,9 +150,9 @@ export function RunReviewDialog({
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
-              <p className="max-h-44 overflow-y-auto border p-4 text-sm leading-6 text-muted-foreground">
-                {review.detail}
-              </p>
+              <div className="chat-markdown max-h-44 overflow-y-auto border p-4 text-sm leading-6 text-muted-foreground">
+                <StreamingMarkdown>{review.detail}</StreamingMarkdown>
+              </div>
               {canAllow ? (
                 <div>
                   <p className="text-xs font-medium">What it needs</p>
@@ -216,9 +218,9 @@ export function RunReviewDialog({
                       </p>
                     )
                   ) : freshReply ? (
-                    <p className="mt-2 max-h-40 overflow-y-auto text-xs leading-5 text-muted-foreground">
-                      {freshReply}
-                    </p>
+                    <div className="chat-markdown mt-2 max-h-40 overflow-y-auto text-xs leading-5 text-muted-foreground">
+                      <StreamingMarkdown>{freshReply}</StreamingMarkdown>
+                    </div>
                   ) : null}
                 </div>
               ) : null}

@@ -118,8 +118,14 @@ export function startServer(port = PORT) {
   };
 
   let broadcastWorkspaceData = async (_workspaceId: string) => {};
-  const scheduler = new RecurringWorkScheduler(manager, (workspaceId) =>
-    broadcastWorkspaceData(workspaceId),
+  let broadcastNotice = (
+    _workspaceId: string,
+    _notice: import("./types.js").RuntimeNotice,
+  ) => {};
+  const scheduler = new RecurringWorkScheduler(
+    manager,
+    (workspaceId) => broadcastWorkspaceData(workspaceId),
+    (workspaceId, notice) => broadcastNotice(workspaceId, notice),
   );
   // Bind both loopback families — macOS clients resolving "localhost" may
   // dial ::1 or 127.0.0.1. Never bind non-loopback interfaces here.
@@ -163,6 +169,12 @@ export function startServer(port = PORT) {
       res.end(await response.text());
       if (req.method === "POST" && response.ok) {
         void broadcastWorkspaceData(workspaceId);
+        if (path === "/local-tools/attention") {
+          broadcastNotice(workspaceId, {
+            kind: "attention",
+            title: "An agent flagged something for you",
+          });
+        }
       }
       return;
     }
@@ -189,6 +201,16 @@ export function startServer(port = PORT) {
       type: "workspaceData",
       workspaceId,
       ...data,
+    });
+    for (const client of new Set([...wss.clients, ...wss6.clients])) {
+      if (client.readyState === WebSocket.OPEN) client.send(message);
+    }
+  };
+  broadcastNotice = (workspaceId, notice) => {
+    const message = JSON.stringify({
+      type: "runtimeNotice",
+      workspaceId,
+      notice,
     });
     for (const client of new Set([...wss.clients, ...wss6.clients])) {
       if (client.readyState === WebSocket.OPEN) client.send(message);
@@ -294,6 +316,16 @@ export function startServer(port = PORT) {
                 : msg.work.nextRunAt,
               updatedAt: Date.now(),
             });
+            if (active) {
+              // Approving IS the action the attention item asked for — the
+              // app knows the user acted; never make them dismiss it too.
+              for (const suffix of ["needs_approval", "failed"]) {
+                await manager.dismissAttentionItem(
+                  msg.workspaceId,
+                  `attention-${msg.work.id}-${suffix}`,
+                );
+              }
+            }
             await broadcastWorkspaceData(msg.workspaceId);
             break;
           }

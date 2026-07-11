@@ -185,7 +185,7 @@ export function DashboardPage() {
         : undefined,
   };
   const widgets: Widget[] = [
-    ...(attention.length > 0 ? [actionItems] : []),
+    actionItems,
     {
       label: "Website traffic",
       value:
@@ -222,7 +222,6 @@ export function DashboardPage() {
       ),
       to: "/analytics",
     },
-    ...(attention.length > 0 ? [] : [actionItems]),
     {
       label: "New prospects",
       value: workspaceData.loading ? "—" : formatNumber(newProspects),

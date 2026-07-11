@@ -476,9 +476,24 @@ export type ClientMessage =
       executorCapability: ExecutorCapability;
     };
 
+/** A short-lived event the app surfaces as a toast or OS notification. */
+export interface RuntimeNotice {
+  kind:
+    | "run-started"
+    | "run-completed"
+    | "run-blocked"
+    | "run-failed"
+    | "attention";
+  title: string;
+  detail?: string;
+  /** Deep-link target, e.g. `automation-<id>`. */
+  sourceId?: string;
+}
+
 export type ServerMessage =
   | { type: "agents"; agents: AgentDefinition[] }
   | { type: "models"; driver: DriverType; models: ProviderModelOption[] }
+  | { type: "runtimeNotice"; workspaceId: string; notice: RuntimeNotice }
   | {
       type: "workspaceData";
       workspaceId: string;

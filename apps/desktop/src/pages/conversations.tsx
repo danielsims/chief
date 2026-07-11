@@ -348,6 +348,9 @@ export function ConversationsPage() {
             agent={activeAgent}
             chatId={activeChatId}
             isNew={isDraftChat && !activeEntry}
+            composer={
+              params.get("compose") === "recurring" ? "recurring" : undefined
+            }
             initialPrompt={initialPrompt}
             initialDraft={initialDraft}
             initialDriver={

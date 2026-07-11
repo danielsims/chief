@@ -12,6 +12,7 @@
     "deep-link:allow-is-registered",
     "deep-link:allow-register",
     "os:default",
+    "notification:default",
     {
       "identifier": "http:default",
       "allow": [

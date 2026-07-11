@@ -25,6 +25,7 @@ import {
 } from "../../lib/integration-setup";
 import { ApprovalCard } from "./approval-card";
 import { QuestionCard } from "./question-card";
+import { RecurringWorkComposer } from "./recurring-work-composer";
 import { InputRequestSection } from "../integrations/input-request-section";
 import { Blocks } from "./message-blocks";
 import { StreamingMarkdown } from "./streaming-markdown";
@@ -54,6 +55,7 @@ export function AgentChat({
   agent,
   chatId,
   isNew,
+  composer,
   initialPrompt,
   initialDraft,
   initialDriver,
@@ -65,6 +67,8 @@ export function AgentChat({
   chatId: string;
   /** True for a draft chat with no persisted transcript to replay. */
   isNew?: boolean;
+  /** Guided inline setup rendered above the message box. */
+  composer?: "recurring";
   initialPrompt?: string;
   initialDraft?: string;
   initialDriver?: DriverType;
@@ -132,6 +136,7 @@ export function AgentChat({
     sendRaw(text);
   };
   const [draft, setDraft] = useState(initialDraft ?? "");
+  const [composerOpen, setComposerOpen] = useState(composer === "recurring");
   const bottomRef = useRef<HTMLDivElement>(null);
   const sentInitial = useRef(false);
 
@@ -276,7 +281,13 @@ export function AgentChat({
       </div>
 
       <div className="mx-auto w-full max-w-3xl space-y-2">
-        {suggestions.length > 0 && chat.status !== "running" ? (
+        {composerOpen ? (
+          <RecurringWorkComposer
+            onCompose={setDraft}
+            onDismiss={() => setComposerOpen(false)}
+          />
+        ) : null}
+        {!composerOpen && suggestions.length > 0 && chat.status !== "running" ? (
           <div className="flex flex-wrap gap-2">
             {suggestions.map((suggestion) => (
               <button

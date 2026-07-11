@@ -7,6 +7,7 @@ import {
 } from "react-router";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
 import { ConvexClientProvider } from "./lib/convex";
+import { Toaster } from "sonner";
 import { AgentConfigProvider } from "./lib/agent-config";
 import { RuntimeProvider } from "./lib/runtime";
 import {
@@ -160,6 +161,11 @@ function AuthenticatedApp() {
 
   return (
     <RuntimeProvider>
+      <Toaster
+        position="bottom-right"
+        theme="dark"
+        toastOptions={{ style: { borderRadius: 0 } }}
+      />
       <AgentConfigProvider>
         <BrowserRouter>
           <OnboardingGate>
