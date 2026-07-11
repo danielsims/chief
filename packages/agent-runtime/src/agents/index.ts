@@ -37,7 +37,11 @@ const OPERATING_RULES = `# Operating rules
   prospects, trends, content and campaigns. Investigate first; ask only for
   decisions or facts no tool can provide.
 - When you do need the user's choice between concrete options, ask with the
-  AskUserQuestion tool rather than a list in prose.`;
+  AskUserQuestion tool rather than a list in prose.
+- When something genuinely requires the user personally — a decision, an
+  approval, an external action only they can take — flag it with the
+  localTools.attentionRaise Executor tool, stating concretely what they must
+  do and why. Never flag routine output, successes, or FYIs.`;
 
 /**
  * Composes the session's system prompt: persona, shared operating rules,

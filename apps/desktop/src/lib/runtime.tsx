@@ -13,6 +13,7 @@ import type {
   AgentDefinition,
   AgentEvent,
   AgentQuestion,
+  AttentionItem,
   CampaignRecord,
   ClientMessage,
   ContentBlock,
@@ -353,6 +354,7 @@ interface WorkspaceDataState {
   campaigns: CampaignRecord[];
   recurringWork: RecurringWorkRecord[];
   recurringWorkRuns: RecurringWorkRunRecord[];
+  attentionItems: AttentionItem[];
 }
 
 const emptyWorkspaceData: WorkspaceDataState = {
@@ -362,6 +364,7 @@ const emptyWorkspaceData: WorkspaceDataState = {
   campaigns: [],
   recurringWork: [],
   recurringWorkRuns: [],
+  attentionItems: [],
 };
 
 const workspaceDataCache = new Map<string, WorkspaceDataState>();
@@ -411,6 +414,7 @@ export function useWorkspaceData(workspaceId: string | null) {
           campaigns: message.campaigns,
           recurringWork: message.recurringWork,
           recurringWorkRuns: message.recurringWorkRuns,
+          attentionItems: message.attentionItems,
         };
         workspaceDataCache.set(workspaceId, next);
         setData(next);
@@ -484,6 +488,28 @@ export function useWorkspaceData(workspaceId: string | null) {
     });
   };
 
+  const dismissAttentionItem = (attentionItemId: string) => {
+    if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
+      return;
+    }
+    setData((current) => {
+      const next = {
+        ...current,
+        attentionItems: current.attentionItems.filter(
+          (item) => item.id !== attentionItemId,
+        ),
+      };
+      workspaceDataCache.set(workspaceId, next);
+      return next;
+    });
+    client.send({
+      type: "dismissAttentionItem",
+      workspaceId,
+      attentionItemId,
+      executorCapability: capability,
+    });
+  };
+
   const deleteRecurringWork = (recurringWorkId: string) => {
     if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
       return;
@@ -513,6 +539,7 @@ export function useWorkspaceData(workspaceId: string | null) {
     saveRecurringWork,
     runRecurringWorkNow,
     deleteRecurringWork,
+    dismissAttentionItem,
   };
 }
 

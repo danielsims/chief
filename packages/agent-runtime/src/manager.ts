@@ -238,11 +238,13 @@ export class SessionManager {
       this.store.listRecurringWork(workspaceId),
       this.store.listRecurringWorkRuns(workspaceId),
     ]);
+    const attentionItems = await this.store.listAttentionItems(workspaceId);
     return {
       prospects,
       trends,
       drafts,
       campaigns,
+      attentionItems,
       recurringWork: recurringWork.map((work) => {
         try {
           const skipped = new Set(work.skipDates ?? []);
@@ -299,6 +301,31 @@ export class SessionManager {
 
   dueRecurringWork(now: number) {
     return this.store.dueRecurringWork(now);
+  }
+
+  saveTranscript(
+    context: {
+      id: string;
+      workspaceId: string;
+      agentId: string;
+      driver: import("./types.js").DriverType;
+      model?: string;
+    },
+    events: AgentEvent[],
+    titleOverride?: string,
+  ) {
+    return this.store.saveTranscript(context, events, titleOverride);
+  }
+
+  raiseAttentionItem(
+    workspaceId: string,
+    item: import("./types.js").AttentionItem,
+  ) {
+    return this.store.raiseAttentionItem(workspaceId, item);
+  }
+
+  dismissAttentionItem(workspaceId: string, id: string) {
+    return this.store.dismissAttentionItem(workspaceId, id);
   }
 
   deleteRecurringWork(workspaceId: string, id: string) {

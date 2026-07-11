@@ -177,10 +177,47 @@ function RecurringWorkChip({
   );
 }
 
+interface PastRunEntry {
+  id: string;
+  title: string;
+  status: "completed" | "failed" | "needs_approval";
+}
+
+/** A finished occurrence stays on the calendar, quietly greyed. */
+function PastRunChip({ run }: { run: PastRunEntry }) {
+  return (
+    <div className="min-w-0 select-none border border-border/60 bg-card/50 px-2 py-1.5 opacity-60">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span
+          className={cn(
+            "size-1.5 shrink-0",
+            run.status === "completed"
+              ? "bg-muted-foreground"
+              : run.status === "failed"
+                ? "bg-destructive"
+                : "bg-amber-400",
+          )}
+        />
+        <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
+          {run.title}
+        </span>
+      </div>
+      <p className="mt-1 truncate text-[10px] text-muted-foreground">
+        {run.status === "completed"
+          ? "Completed"
+          : run.status === "failed"
+            ? "Failed"
+            : "Needs approval"}
+      </p>
+    </div>
+  );
+}
+
 function DayCell({
   date,
   drafts,
   recurringWork,
+  pastRuns = [],
   today,
   selected,
   onSelect,
@@ -192,6 +229,7 @@ function DayCell({
   date: Date;
   drafts: ScheduledDraft[];
   recurringWork: RecurringWorkRecord[];
+  pastRuns?: PastRunEntry[];
   today: Date;
   selected: Date;
   onSelect: (date: Date) => void;
@@ -209,7 +247,8 @@ function DayCell({
   const isToday = key === dayKey(today);
   const isSelected = key === dayKey(selected);
   const visibleLimit = tall ? 8 : boundaryRow ? 2 : 3;
-  const draftLimit = Math.max(0, visibleLimit - recurringWork.length);
+  const workLimit = Math.max(0, visibleLimit - pastRuns.length);
+  const draftLimit = Math.max(0, workLimit - recurringWork.length);
 
   return (
     <button
@@ -236,7 +275,10 @@ function DayCell({
         {date.getDate()}
       </span>
       <div className={cn("min-w-0 space-y-1", boundaryRow ? "mt-8" : "mt-2")}>
-        {recurringWork.slice(0, visibleLimit).map((work) => (
+        {pastRuns.slice(0, visibleLimit).map((run) => (
+          <PastRunChip key={run.id} run={run} />
+        ))}
+        {recurringWork.slice(0, workLimit).map((work) => (
           <RecurringWorkChip
             key={work.id}
             work={work}
@@ -250,9 +292,15 @@ function DayCell({
         {drafts.slice(0, draftLimit).map((draft) => (
           <DraftChip key={draft.id} draft={draft} />
         ))}
-        {drafts.length + recurringWork.length > visibleLimit ? (
+        {drafts.length + recurringWork.length + pastRuns.length >
+        visibleLimit ? (
           <p className="px-1 text-[10px] text-muted-foreground">
-            +{drafts.length + recurringWork.length - visibleLimit} more
+            +
+            {drafts.length +
+              recurringWork.length +
+              pastRuns.length -
+              visibleLimit}{" "}
+            more
           </p>
         ) : null}
       </div>
@@ -339,6 +387,7 @@ function ContinuousMonthView({
   onWorkContext,
   byDay,
   recurringByDay,
+  pastRunsByDay,
   showPosts,
   showAgentWork,
   scrollRequest,
@@ -358,6 +407,7 @@ function ContinuousMonthView({
   ) => void;
   byDay: ReadonlyMap<string, ScheduledDraft[]>;
   recurringByDay: ReadonlyMap<string, RecurringWorkRecord[]>;
+  pastRunsByDay: ReadonlyMap<string, PastRunEntry[]>;
   showPosts: boolean;
   showAgentWork: boolean;
   scrollRequest: { month: Date; token: number };
@@ -466,6 +516,11 @@ function ContinuousMonthView({
                       ? (recurringByDay.get(dayKey(date)) ?? [])
                       : []
                   }
+                  pastRuns={
+                    showAgentWork
+                      ? (pastRunsByDay.get(dayKey(date)) ?? [])
+                      : []
+                  }
                   today={today}
                   selected={selected}
                   onSelect={onSelect}
@@ -497,6 +552,7 @@ function FocusedCalendarView({
   onWorkContext,
   byDay,
   recurringByDay,
+  pastRunsByDay,
   showPosts,
   showAgentWork,
 }: {
@@ -513,6 +569,7 @@ function FocusedCalendarView({
   ) => void;
   byDay: ReadonlyMap<string, ScheduledDraft[]>;
   recurringByDay: ReadonlyMap<string, RecurringWorkRecord[]>;
+  pastRunsByDay: ReadonlyMap<string, PastRunEntry[]>;
   showPosts: boolean;
   showAgentWork: boolean;
 }) {
@@ -553,6 +610,9 @@ function FocusedCalendarView({
             drafts={showPosts ? (byDay.get(dayKey(date)) ?? []) : []}
             recurringWork={
               showAgentWork ? (recurringByDay.get(dayKey(date)) ?? []) : []
+            }
+            pastRuns={
+              showAgentWork ? (pastRunsByDay.get(dayKey(date)) ?? []) : []
             }
             today={today}
             selected={selected}
@@ -1429,6 +1489,25 @@ export function SchedulePage() {
     return map;
   }, [workspaceData.recurringWork]);
 
+  const pastRunsByDay = useMemo(() => {
+    const titles = new Map(
+      workspaceData.recurringWork.map((work) => [work.id, work.title]),
+    );
+    const map = new Map<string, PastRunEntry[]>();
+    for (const run of workspaceData.recurringWorkRuns) {
+      if (run.status === "running") continue;
+      const key = dayKey(new Date(run.scheduledFor));
+      const items = map.get(key) ?? [];
+      items.push({
+        id: run.id,
+        title: titles.get(run.recurringWorkId) ?? "Automation",
+        status: run.status,
+      });
+      map.set(key, items);
+    }
+    return map;
+  }, [workspaceData.recurringWork, workspaceData.recurringWorkRuns]);
+
   const showPosts = visibleKinds.has("post");
   const showAgentWork = visibleKinds.has("agent-work");
   const selectedDrafts = showPosts ? (byDay.get(dayKey(selected)) ?? []) : [];
@@ -1634,6 +1713,7 @@ export function SchedulePage() {
               }}
               byDay={byDay}
               recurringByDay={recurringByDay}
+              pastRunsByDay={pastRunsByDay}
               showPosts={showPosts}
               showAgentWork={showAgentWork}
               scrollRequest={scrollRequest}
@@ -1653,6 +1733,7 @@ export function SchedulePage() {
               }}
               byDay={byDay}
               recurringByDay={recurringByDay}
+              pastRunsByDay={pastRunsByDay}
               showPosts={showPosts}
               showAgentWork={showAgentWork}
             />

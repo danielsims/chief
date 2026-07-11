@@ -305,6 +305,15 @@ export function startServer(port = PORT) {
               .catch((error) => console.error("[recurring-work]", error));
             break;
 
+          case "dismissAttentionItem":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            await manager.dismissAttentionItem(
+              msg.workspaceId,
+              msg.attentionItemId,
+            );
+            await broadcastWorkspaceData(msg.workspaceId);
+            break;
+
           case "deleteRecurringWork":
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             await manager.deleteRecurringWork(

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@marketer/backend/convex/_generated/api";
@@ -183,8 +183,13 @@ export function DashboardPage() {
     },
     {
       label: "Action items",
-      value: "0",
-      detail: "Nothing flagged by agents",
+      value: workspaceData.loading
+        ? "—"
+        : formatNumber(workspaceData.attentionItems.length),
+      detail:
+        workspaceData.attentionItems.length > 0
+          ? "Agents need your input"
+          : "Nothing flagged by agents",
       trend: null,
       to: "/conversations?agent=cmo",
     },
@@ -210,6 +215,23 @@ export function DashboardPage() {
       to: "/schedule",
     },
   ];
+
+  const recentRuns = useMemo(() => {
+    const since = Date.now() - 24 * 60 * 60 * 1000;
+    const titles = new Map(
+      workspaceData.recurringWork.map((work) => [work.id, work.title]),
+    );
+    return workspaceData.recurringWorkRuns
+      .filter((run) => run.status !== "running" && run.startedAt >= since)
+      .sort((a, b) => b.startedAt - a.startedAt)
+      .slice(0, 5)
+      .map((run) => ({
+        ...run,
+        title: titles.get(run.recurringWorkId) ?? "Automation",
+      }));
+  }, [workspaceData.recurringWork, workspaceData.recurringWorkRuns]);
+  const attention = workspaceData.attentionItems;
+  const showDigest = attention.length > 0 || recentRuns.length > 0;
 
   const submit = () => {
     const text = ask.trim();
@@ -253,6 +275,91 @@ export function DashboardPage() {
           </button>
         ))}
       </div>
+
+      {showDigest ? (
+        <section className="border bg-card">
+          <div className="border-b px-5 py-3">
+            <p className="text-sm font-medium">While you were away</p>
+          </div>
+          {attention.length > 0 ? (
+            <div className="divide-y border-b">
+              {attention.map((item) => (
+                <div key={item.id} className="flex items-start gap-3 px-5 py-3">
+                  <span className="mt-1.5 size-1.5 shrink-0 bg-amber-400" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">{item.title}</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      {item.reason}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2 pt-0.5">
+                    {item.sourceId?.startsWith("automation-") ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigate(
+                            `/conversations?agent=${item.agentId}&chat=${item.sourceId}`,
+                          )
+                        }
+                        className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                      >
+                        Review
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => workspaceData.dismissAttentionItem(item.id)}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {recentRuns.length > 0 ? (
+            <div className="divide-y">
+              {recentRuns.map((run) => (
+                <button
+                  key={run.id}
+                  type="button"
+                  onClick={() =>
+                    navigate(
+                      `/conversations?chat=automation-${run.recurringWorkId}`,
+                    )
+                  }
+                  className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-accent"
+                >
+                  <span
+                    className={
+                      run.status === "completed"
+                        ? "size-1.5 shrink-0 bg-emerald-500"
+                        : run.status === "failed"
+                          ? "size-1.5 shrink-0 bg-destructive"
+                          : "size-1.5 shrink-0 bg-amber-400"
+                    }
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm">{run.title}</span>
+                    {run.summary ? (
+                      <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-muted-foreground">
+                        {run.summary}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                    {new Date(run.startedAt).toLocaleTimeString([], {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <SetupProgress />
 

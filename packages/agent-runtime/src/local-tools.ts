@@ -156,6 +156,16 @@ export function localToolsOpenApi(origin: string) {
           responses: saveResponse,
         },
       },
+      "/local-tools/attention": {
+        post: {
+          operationId: "attention.raise",
+          summary: "Flag something that genuinely requires the user's attention",
+          description:
+            "Use sparingly: only for items the user must personally decide or act on. A concrete reason is required; routine output and successes must never be flagged.",
+          requestBody: body("AttentionInput"),
+          responses: saveResponse,
+        },
+      },
       "/local-tools/recurring-work": {
         get: {
           operationId: "recurringWork.list",
@@ -177,6 +187,20 @@ export function localToolsOpenApi(origin: string) {
         localWorkspaceCapability: { type: "http", scheme: "bearer" },
       },
       schemas: {
+        AttentionInput: {
+          type: "object",
+          required: ["title", "reason"],
+          properties: {
+            title: { type: "string", maxLength: 200 },
+            reason: {
+              type: "string",
+              minLength: 20,
+              maxLength: 1000,
+              description:
+                "Why this needs the user personally: the decision to make or action to take, stated concretely.",
+            },
+          },
+        },
         ProspectInput: {
           type: "object",
           additionalProperties: false,
@@ -433,6 +457,25 @@ export async function handleLocalTool(
       };
       await manager.saveRecurringWork(workspaceId, work);
       return json({ recurringWork: work, requiresUserApproval: true });
+    }
+    if (path === "/local-tools/attention") {
+      const title = value(body.title, "title", 200)!;
+      const reason = value(body.reason, "reason", 1_000)!;
+      if (reason.trim().length < 20) {
+        throw new Error(
+          "A concrete reason is required: state the decision or action the user must take.",
+        );
+      }
+      const item = {
+        id: randomUUID(),
+        agentId: value(body.agentId, "agentId", 120, false) ?? "cmo",
+        title,
+        reason,
+        status: "open" as const,
+        createdAt: Date.now(),
+      };
+      await manager.raiseAttentionItem(workspaceId, item);
+      return json({ attentionItem: item });
     }
     return json({ error: "Not found" }, 404);
   } catch (error) {

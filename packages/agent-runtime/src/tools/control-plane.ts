@@ -334,6 +334,7 @@ async function configureToolPolicies(manifest: ServerManifest) {
       "localTools.contentSave",
       "localTools.campaignsList",
       "localTools.campaignsSave",
+      "localTools.attentionRaise",
       "localTools.recurringWorkList",
       "localTools.recurringWorkPropose",
     ].map((name) => [name, "approve"] as const),

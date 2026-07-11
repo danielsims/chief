@@ -197,6 +197,16 @@ export interface RecurringWorkRunRecord {
   error?: string;
 }
 
+export interface AttentionItem {
+  id: string;
+  agentId: string;
+  title: string;
+  reason: string;
+  sourceId?: string;
+  status: "open" | "dismissed";
+  createdAt: number;
+}
+
 export type CampaignStatus =
   "draft" | "in_review" | "live" | "paused" | "completed";
 
@@ -359,6 +369,12 @@ export type ClientMessage =
       recurringWorkId: string;
       executorCapability: ExecutorCapability;
     }
+  | {
+      type: "dismissAttentionItem";
+      workspaceId: string;
+      attentionItemId: string;
+      executorCapability: ExecutorCapability;
+    }
   /** Rejecting a proposal removes the record and its run history. */
   | {
       type: "deleteRecurringWork";
@@ -461,6 +477,7 @@ export type ServerMessage =
       campaigns: CampaignRecord[];
       recurringWork: RecurringWorkRecord[];
       recurringWorkRuns: RecurringWorkRunRecord[];
+      attentionItems: AttentionItem[];
     }
   | {
       type: "agentPreferences";

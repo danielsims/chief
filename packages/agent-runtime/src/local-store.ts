@@ -150,7 +150,11 @@ export class LocalStore {
     );
   }
 
-  async saveTranscript(context: ChatContext, events: AgentEvent[]) {
+  async saveTranscript(
+    context: ChatContext,
+    events: AgentEvent[],
+    titleOverride?: string,
+  ) {
     await this.ready;
     const durable = durableEvents(events);
     const texts = userTexts(durable);
@@ -173,7 +177,7 @@ export class LocalStore {
           id: context.id,
           workspaceId: context.workspaceId,
           agentId: context.agentId,
-          title: firstText.slice(0, 72),
+          title: (titleOverride ?? firstText).slice(0, 72),
           lastText: lastText.slice(0, 200),
           driver: context.driver,
           model: context.model,
@@ -185,6 +189,7 @@ export class LocalStore {
           set: {
             workspaceId: context.workspaceId,
             agentId: context.agentId,
+            ...(titleOverride ? { title: titleOverride.slice(0, 72) } : {}),
             lastText: lastText.slice(0, 200),
             driver: context.driver,
             model: context.model,
@@ -535,6 +540,58 @@ export class LocalStore {
         and(
           eq(schema.recurringWork.id, id),
           eq(schema.recurringWork.workspaceId, workspaceId),
+        ),
+      )
+      .run();
+  }
+
+  async listAttentionItems(
+    workspaceId: string,
+  ): Promise<import("./types.js").AttentionItem[]> {
+    await this.ready;
+    const rows = await this.db
+      .select()
+      .from(schema.attentionItems)
+      .where(
+        and(
+          eq(schema.attentionItems.workspaceId, workspaceId),
+          eq(schema.attentionItems.status, "open"),
+        ),
+      )
+      .orderBy(desc(schema.attentionItems.createdAt))
+      .all();
+    return rows.map((item) => ({
+      id: item.id,
+      agentId: item.agentId,
+      title: item.title,
+      reason: item.reason,
+      sourceId: item.sourceId ?? undefined,
+      status: item.status,
+      createdAt: item.createdAt,
+    }));
+  }
+
+  async raiseAttentionItem(
+    workspaceId: string,
+    item: import("./types.js").AttentionItem,
+  ) {
+    await this.ready;
+    await this.db
+      .insert(schema.attentionItems)
+      .values({ ...item, sourceId: item.sourceId ?? null, workspaceId })
+      .onConflictDoNothing()
+      .run();
+  }
+
+  async dismissAttentionItem(workspaceId: string, id: string) {
+    await this.ready;
+    await this.db
+      .update(schema.attentionItems)
+      .set({ status: "dismissed" })
+      .where(
+        and(
+          eq(schema.attentionItems.id, id),
+          eq(schema.attentionItems.workspaceId, workspaceId),
         ),
       )
       .run();

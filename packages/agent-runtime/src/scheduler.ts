@@ -92,6 +92,51 @@ export class RecurringWorkScheduler {
     );
   }
 
+  /**
+   * A run's outcome must be reviewable: the transcript persists as a durable
+   * conversation under the automation's name, and anything short of success
+   * raises exactly one attention item with the concrete reason.
+   */
+  private async deliverRunOutcome(
+    workspaceId: string,
+    work: RecurringWorkRecord,
+    session: AgentSession | null,
+    status: "completed" | "failed" | "needs_approval",
+    detail?: string,
+  ) {
+    try {
+      if (session) {
+        await this.manager.saveTranscript(
+          {
+            id: `automation-${work.id}`,
+            workspaceId,
+            agentId: work.agentId,
+            driver: "codex",
+          },
+          session.events,
+          work.title,
+        );
+      }
+      if (status !== "completed") {
+        await this.manager.raiseAttentionItem(workspaceId, {
+          id: `attention-${work.id}-${status}`,
+          agentId: work.agentId,
+          title: work.title,
+          reason:
+            status === "needs_approval"
+              ? detail?.trim() ||
+                "The run stopped at an action outside its approved scope."
+              : detail?.trim() || "The run failed.",
+          sourceId: `automation-${work.id}`,
+          status: "open",
+          createdAt: Date.now(),
+        });
+      }
+    } catch (error) {
+      console.error("[scheduler] could not deliver run outcome:", error);
+    }
+  }
+
   private async run(
     workspaceId: string,
     work: RecurringWorkRecord,
@@ -230,6 +275,9 @@ export class RecurringWorkScheduler {
         summary,
         error: result.error,
       });
+      // Every run leaves a reviewable conversation, and a blocked run raises
+      // one concrete attention item instead of failing silently.
+      await this.deliverRunOutcome(workspaceId, work, session, status, summary);
       await this.manager.saveRecurringWork(workspaceId, {
         ...work,
         status: blocked ? "needs_approval" : "active",
@@ -246,6 +294,13 @@ export class RecurringWorkScheduler {
         finishedAt: Date.now(),
         error: message,
       });
+      await this.deliverRunOutcome(
+        workspaceId,
+        work,
+        session,
+        blocked ? "needs_approval" : "failed",
+        message,
+      );
       await this.manager.saveRecurringWork(workspaceId, {
         ...work,
         // A transient provider or network failure is recorded on the run but

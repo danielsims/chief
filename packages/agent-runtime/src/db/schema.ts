@@ -205,3 +205,26 @@ export const agentPreferences = sqliteTable(
   },
   (table) => [primaryKey({ columns: [table.workspaceId, table.agentId] })],
 );
+
+/**
+ * Items an agent explicitly flagged for the user, each with a concrete
+ * reason. This is the only source for the Overview attention surface —
+ * routine output never lands here.
+ */
+export const attentionItems = sqliteTable(
+  "attention_items",
+  {
+    id: text().primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    agentId: text("agent_id").notNull(),
+    title: text().notNull(),
+    reason: text().notNull(),
+    /** Optional deep link target, e.g. an automation or chat id. */
+    sourceId: text("source_id"),
+    status: text({ enum: ["open", "dismissed"] }).notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("attention_workspace_status_idx").on(table.workspaceId, table.status),
+  ],
+);
