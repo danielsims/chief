@@ -1,13 +1,33 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { Inter, Lato } from "next/font/google";
 import { getToken } from "../lib/auth-server";
 import { ConvexClientProvider } from "../lib/convex";
 import "./globals.css";
 
+const lato = Lato({
+  subsets: ["latin"],
+  weight: ["400", "700"],
+  variable: "--font-slack",
+  display: "swap",
+});
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-openai-fallback",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "Marketer",
+  title: "Marketer: Your marketing team, already at work.",
   description:
-    "Your marketing team, as agents. Analytics, content, prospecting and ads, orchestrated by your CMO agent and run locally on your machine.",
+    "Proactive specialist agents keep recurring marketing work on schedule and bring results and decisions back for review.",
+  openGraph: {
+    title: "Marketer: Your marketing team, already at work.",
+    description:
+      "Proactive specialist agents keep marketing work moving and bring results back for review.",
+    type: "website",
+  },
 };
 
 export default async function RootLayout({
@@ -18,7 +38,7 @@ export default async function RootLayout({
   const token = await getToken();
 
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className={`${lato.variable} ${inter.variable} dark`}>
       <body>
         <ConvexClientProvider initialToken={token}>
           {children}
