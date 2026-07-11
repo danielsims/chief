@@ -195,6 +195,8 @@ export interface RecurringWorkRunRecord {
   finishedAt?: number;
   summary?: string;
   error?: string;
+  /** Executor addresses the grant declined during this run. */
+  blockedTools?: string[];
 }
 
 export interface AttentionItem {
@@ -373,6 +375,15 @@ export type ClientMessage =
       type: "dismissAttentionItem";
       workspaceId: string;
       attentionItemId: string;
+      executorCapability: ExecutorCapability;
+    }
+  /** The user explicitly allows the exact tools a run was blocked on. */
+  | {
+      type: "expandRecurringWorkGrant";
+      workspaceId: string;
+      recurringWorkId: string;
+      addTools: string[];
+      rerun?: boolean;
       executorCapability: ExecutorCapability;
     }
   /** Rejecting a proposal removes the record and its run history. */

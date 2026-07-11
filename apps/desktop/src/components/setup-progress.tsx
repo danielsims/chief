@@ -62,7 +62,11 @@ function writeSnapshot(workspaceId: string, snapshot: SetupSnapshot | null) {
  * Completed onboarding is immutable. Open items route to their normal app
  * surface or a specialist conversation instead of reopening onboarding.
  */
-export function SetupProgress() {
+export function SetupProgress({
+  onVisibilityChange,
+}: {
+  onVisibilityChange?: (visible: boolean) => void;
+} = {}) {
   const navigate = useNavigate();
   const { cloudOrganizationId } = useAuth();
   const { isAuthenticated: convexReady } = useConvexAuth();
@@ -148,6 +152,11 @@ export function SetupProgress() {
     writeSnapshot(cloudOrganizationId, next);
     setSnapshot(next);
   }, [cloudOrganizationId, onboarding, channels]);
+
+  useEffect(() => {
+    onVisibilityChange?.(Boolean(snapshot));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot]);
 
   if (!snapshot) return null;
 

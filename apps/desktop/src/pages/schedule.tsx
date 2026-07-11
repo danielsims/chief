@@ -44,6 +44,10 @@ import {
   SelectTrigger,
 } from "@marketer/ui/components/select";
 import { useAgentConfig } from "../lib/agent-config";
+import {
+  RunReviewDialog,
+  type RunReview,
+} from "../components/run-review-dialog";
 import { useAuth } from "../lib/auth/auth-context";
 import { useAgentChat, useWorkspaceData } from "../lib/runtime";
 import { createChat } from "../lib/chat-log";
@@ -1294,7 +1298,9 @@ function RecurringWorkDetail({
       <div className="mt-3 flex gap-1.5">
         {approvalNeeded ? (
           <Button size="sm" className="flex-1" onClick={onReview}>
-            Review approval
+            {work.status === "needs_approval"
+              ? "Review run"
+              : "Review approval"}
           </Button>
         ) : (
           <>
@@ -1365,6 +1371,7 @@ export function SchedulePage() {
     () => new Set<ScheduleKind>(["post", "agent-work"]),
   );
   const [approvalWorkId, setApprovalWorkId] = useState<string | null>(null);
+  const [runReview, setRunReview] = useState<RunReview | null>(null);
   const [dateMenu, setDateMenu] = useState<{
     date: Date;
     x: number;
@@ -1405,6 +1412,33 @@ export function SchedulePage() {
     }
     return null;
   }, [revisionChat.chat.items]);
+  const openWorkReview = (work: RecurringWorkRecord) => {
+    if (work.status !== "needs_approval") {
+      setApprovalWorkId(work.id);
+      return;
+    }
+    const latest = workspaceData.recurringWorkRuns
+      .filter((run) => run.recurringWorkId === work.id)
+      .sort((a, b) => b.startedAt - a.startedAt)[0];
+    const attentionItem = workspaceData.attentionItems.find(
+      (item) => item.sourceId === `automation-${work.id}`,
+    );
+    setRunReview({
+      title: work.title,
+      agentId: work.agentId,
+      recurringWorkId: work.id,
+      attentionItemId: attentionItem?.id,
+      detail:
+        latest?.summary ??
+        latest?.error ??
+        work.lastResult ??
+        "The last run stopped before finishing.",
+      status: latest?.status ?? "needs_approval",
+      at: latest?.startedAt ?? work.lastRunAt,
+      blockedTools: latest?.blockedTools ?? [],
+    });
+  };
+
   const requestRevision = (feedback: string) => {
     if (!approvalWork) return;
     const draft = {
@@ -1514,8 +1548,10 @@ export function SchedulePage() {
   const selectedRecurringWork = showAgentWork
     ? (recurringByDay.get(dayKey(selected)) ?? [])
     : [];
+  // Initial proposals only. A run that stopped mid-flight is reviewed from
+  // the Overview digest or the automation's own card, not this list.
   const pendingApprovals = workspaceData.recurringWork.filter(
-    (work) => work.status === "draft" || work.status === "needs_approval",
+    (work) => work.status === "draft",
   );
 
   const requestMonth = (month: Date) => {
@@ -1771,7 +1807,7 @@ export function SchedulePage() {
               <RecurringWorkDetail
                 key={work.id}
                 work={work}
-                onReview={() => setApprovalWorkId(work.id)}
+                onReview={() => openWorkReview(work)}
                 onRun={() => workspaceData.runRecurringWorkNow(work.id)}
                 onToggle={() =>
                   workspaceData.saveRecurringWork({
@@ -1800,6 +1836,24 @@ export function SchedulePage() {
           </div>
         </aside>
       </div>
+      <RunReviewDialog
+        review={runReview}
+        onClose={() => setRunReview(null)}
+        onDismiss={(target) => {
+          if (target.attentionItemId) {
+            workspaceData.dismissAttentionItem(target.attentionItemId);
+          }
+        }}
+        onAllowAndRerun={(target) => {
+          if (target.recurringWorkId) {
+            workspaceData.expandRecurringWorkGrant(
+              target.recurringWorkId,
+              target.blockedTools,
+              true,
+            );
+          }
+        }}
+      />
       <RecurringWorkApprovalDialog
         work={approvalWork}
         onClose={() => setApprovalWorkId(null)}

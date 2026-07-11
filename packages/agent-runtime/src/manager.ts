@@ -328,6 +328,10 @@ export class SessionManager {
     return this.store.dismissAttentionItem(workspaceId, id);
   }
 
+  latestRunBlockedTools(workspaceId: string, recurringWorkId: string) {
+    return this.store.latestRunBlockedTools(workspaceId, recurringWorkId);
+  }
+
   deleteRecurringWork(workspaceId: string, id: string) {
     return this.store.deleteRecurringWork(workspaceId, id);
   }

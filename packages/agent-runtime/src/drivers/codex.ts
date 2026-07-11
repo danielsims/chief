@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { BaseDriver } from "./base.js";
 import type { ContentBlock, StartOptions } from "../types.js";
 import {
+  executorAddressesFromCode,
   executorAddressFromElicitation,
   grantAllowsAddress,
 } from "../recurring-work.js";
@@ -50,6 +51,10 @@ interface RpcRequest {
  * stdin/stdout (JSONL). Uses the user's existing `codex auth login`
  * credentials, so inference bills to their subscription.
  */
+function mcpTokenEnvName(serverName: string) {
+  return `MCP_${serverName.replace(/[^A-Za-z0-9]/g, "_").toUpperCase()}_TOKEN`;
+}
+
 export class CodexDriver extends BaseDriver {
   private proc: ChildProcess | null = null;
   private threadId: string | undefined;
@@ -78,7 +83,19 @@ export class CodexDriver extends BaseDriver {
     const codexHome = this.prepareCodexHome(opts);
     this.proc = spawn(findCodex(), ["app-server"], {
       cwd: opts.cwd,
-      env: { ...process.env, ...opts.env, CODEX_HOME: codexHome },
+      env: {
+        ...process.env,
+        ...opts.env,
+        ...Object.fromEntries(
+          (opts.mcpServers ?? []).flatMap((server) => {
+            const bearer =
+              server.url &&
+              server.headers?.Authorization?.match(/^Bearer (.+)$/);
+            return bearer ? [[mcpTokenEnvName(server.name), bearer[1]]] : [];
+          }),
+        ),
+        CODEX_HOME: codexHome,
+      },
       stdio: ["pipe", "pipe", "pipe"],
       // A process group lets stop() terminate Codex and every MCP child it
       // spawned. Killing only the wrapper leaks app-server/Executor processes.
@@ -208,15 +225,27 @@ export class CodexDriver extends BaseDriver {
     lines.push('model_reasoning_effort = "medium"');
     for (const server of opts.mcpServers ?? []) {
       lines.push("", `[mcp_servers.${server.name}]`);
-      lines.push(`command = ${JSON.stringify(server.command)}`);
-      lines.push(
-        `args = [${server.args.map((value) => JSON.stringify(value)).join(", ")}]`,
-      );
-      if (server.env && Object.keys(server.env).length > 0) {
-        const env = Object.entries(server.env)
-          .map(([key, value]) => `${key} = ${JSON.stringify(value)}`)
-          .join(", ");
-        lines.push(`env = { ${env} }`);
+      if (server.url) {
+        // The daemon's streamable-HTTP endpoint is the reliable transport;
+        // the stdio child has returned empty results for integration calls.
+        // Codex takes the bearer through an env var, never inline TOML.
+        lines.push(`url = ${JSON.stringify(server.url)}`);
+        if (server.headers?.Authorization?.startsWith("Bearer ")) {
+          lines.push(
+            `bearer_token_env_var = ${JSON.stringify(mcpTokenEnvName(server.name))}`,
+          );
+        }
+      } else {
+        lines.push(`command = ${JSON.stringify(server.command)}`);
+        lines.push(
+          `args = [${server.args.map((value) => JSON.stringify(value)).join(", ")}]`,
+        );
+        if (server.env && Object.keys(server.env).length > 0) {
+          const env = Object.entries(server.env)
+            .map(([key, value]) => `${key} = ${JSON.stringify(value)}`)
+            .join(", ");
+          lines.push(`env = { ${env} }`);
+        }
       }
       lines.push("startup_timeout_sec = 30");
     }
@@ -390,8 +419,61 @@ export class CodexDriver extends BaseDriver {
       case "mcpServer/elicitation/request":
         if (isServerRequest) {
           const requestId = `mcp-${msg.id}`;
-          const address = executorAddressFromElicitation(p);
           const grant = this.opts?.automationGrant;
+          // Codex's own MCP-tool-call approvals (approvalPolicy "untrusted")
+          // carry the tool and its params in _meta rather than Executor's
+          // "Approve tools.…" phrasing. For granted runs, evaluate the actual
+          // execute snippet: every referenced address must be delegated.
+          const meta = (p as { _meta?: Record<string, unknown> })?._meta;
+          if (grant && meta?.codex_approval_kind === "mcp_tool_call") {
+            const toolName = String(
+              (p as { message?: string }).message?.match(
+                /run tool "([^"]+)"/,
+              )?.[1] ?? "",
+            );
+            const params = meta.tool_params as
+              | Record<string, unknown>
+              | undefined;
+            const code = typeof params?.code === "string" ? params.code : "";
+            const addresses =
+              toolName === "execute" ? executorAddressesFromCode(code) : [];
+            const readOnlyCatalog = ["skills", "search", "describe"].includes(
+              toolName,
+            );
+            const allowed =
+              readOnlyCatalog ||
+              (toolName === "execute" &&
+                addresses.length > 0 &&
+                addresses.every((address) =>
+                  grantAllowsAddress(grant.toolPatterns, address),
+                ));
+            if (allowed) {
+              this.write({
+                jsonrpc: "2.0",
+                id: msg.id,
+                result: { action: "accept", content: {} },
+              });
+            } else {
+              const blockedAddress =
+                addresses.find(
+                  (address) =>
+                    !grantAllowsAddress(grant.toolPatterns, address),
+                ) ?? toolName;
+              this.emitEvent({
+                type: "permission",
+                requestId,
+                toolName: blockedAddress || "Executor tool",
+                input: p,
+              });
+              this.write({
+                jsonrpc: "2.0",
+                id: msg.id,
+                result: { action: "decline" },
+              });
+            }
+            return;
+          }
+          const address = executorAddressFromElicitation(p);
           if (grant && grantAllowsAddress(grant.toolPatterns, address)) {
             this.write({
               jsonrpc: "2.0",

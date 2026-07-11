@@ -8,6 +8,11 @@ import { cn } from "@marketer/ui/lib/utils";
 import { OrgLogo } from "../components/org-logo";
 import { createChat } from "../lib/chat-log";
 import { SetupProgress } from "../components/setup-progress";
+import {
+  RunReviewDialog,
+  reviewFromAttention,
+  type RunReview,
+} from "../components/run-review-dialog";
 import { useAuth } from "../lib/auth/auth-context";
 import { useWorkspaceData } from "../lib/runtime";
 import {
@@ -218,8 +223,8 @@ export function DashboardPage() {
 
   const recentRuns = useMemo(() => {
     const since = Date.now() - 24 * 60 * 60 * 1000;
-    const titles = new Map(
-      workspaceData.recurringWork.map((work) => [work.id, work.title]),
+    const works = new Map(
+      workspaceData.recurringWork.map((work) => [work.id, work]),
     );
     return workspaceData.recurringWorkRuns
       .filter((run) => run.status !== "running" && run.startedAt >= since)
@@ -227,11 +232,31 @@ export function DashboardPage() {
       .slice(0, 5)
       .map((run) => ({
         ...run,
-        title: titles.get(run.recurringWorkId) ?? "Automation",
+        title: works.get(run.recurringWorkId)?.title ?? "Automation",
+        agentId: works.get(run.recurringWorkId)?.agentId ?? "cmo",
       }));
   }, [workspaceData.recurringWork, workspaceData.recurringWorkRuns]);
   const attention = workspaceData.attentionItems;
   const showDigest = attention.length > 0 || recentRuns.length > 0;
+  const [review, setReview] = useState<RunReview | null>(null);
+  const [hasSetup, setHasSetup] = useState(false);
+  const [overviewTab, setOverviewTab] = useState<"review" | "setup">("review");
+  const showTabs = showDigest && hasSetup;
+  const openRunReview = (run: (typeof recentRuns)[number]) => {
+    const attentionItem = attention.find(
+      (item) => item.sourceId === `automation-${run.recurringWorkId}`,
+    );
+    setReview({
+      title: run.title,
+      agentId: run.agentId,
+      recurringWorkId: run.recurringWorkId,
+      attentionItemId: attentionItem?.id,
+      detail: run.summary ?? run.error ?? "No summary was recorded.",
+      status: run.status,
+      at: run.startedAt,
+      blockedTools: run.blockedTools ?? [],
+    });
+  };
 
   const submit = () => {
     const text = ask.trim();
@@ -276,7 +301,33 @@ export function DashboardPage() {
         ))}
       </div>
 
-      {showDigest ? (
+      {showTabs ? (
+        <div className="flex justify-center">
+          <div className="flex border p-0.5">
+            {(
+              [
+                { key: "review", label: "Review" },
+                { key: "setup", label: "Setup" },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setOverviewTab(tab.key)}
+                className={
+                  overviewTab === tab.key
+                    ? "bg-accent px-3 py-1.5 text-xs text-foreground"
+                    : "px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                }
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {showDigest && (!showTabs || overviewTab === "review") ? (
         <section className="border bg-card">
           <div className="border-b px-5 py-3">
             <p className="text-sm font-medium">While you were away</p>
@@ -286,26 +337,38 @@ export function DashboardPage() {
               {attention.map((item) => (
                 <div key={item.id} className="flex items-start gap-3 px-5 py-3">
                   <span className="mt-1.5 size-1.5 shrink-0 bg-amber-400" />
-                  <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setReview(
+                        reviewFromAttention(
+                          item,
+                          workspaceData.recurringWorkRuns,
+                        ),
+                      )
+                    }
+                    className="min-w-0 flex-1 text-left"
+                  >
                     <p className="text-sm font-medium">{item.title}</p>
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">
                       {item.reason}
                     </p>
-                  </div>
+                  </button>
                   <div className="flex shrink-0 items-center gap-2 pt-0.5">
-                    {item.sourceId?.startsWith("automation-") ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          navigate(
-                            `/conversations?agent=${item.agentId}&chat=${item.sourceId}`,
-                          )
-                        }
-                        className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-                      >
-                        Review
-                      </button>
-                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setReview(
+                          reviewFromAttention(
+                            item,
+                            workspaceData.recurringWorkRuns,
+                          ),
+                        )
+                      }
+                      className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                    >
+                      Review
+                    </button>
                     <button
                       type="button"
                       onClick={() => workspaceData.dismissAttentionItem(item.id)}
@@ -324,11 +387,7 @@ export function DashboardPage() {
                 <button
                   key={run.id}
                   type="button"
-                  onClick={() =>
-                    navigate(
-                      `/conversations?chat=automation-${run.recurringWorkId}`,
-                    )
-                  }
+                  onClick={() => openRunReview(run)}
                   className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-accent"
                 >
                   <span
@@ -361,7 +420,32 @@ export function DashboardPage() {
         </section>
       ) : null}
 
-      <SetupProgress />
+      <div
+        className={
+          showTabs && overviewTab !== "setup" ? "hidden" : undefined
+        }
+      >
+        <SetupProgress onVisibilityChange={setHasSetup} />
+      </div>
+
+      <RunReviewDialog
+        review={review}
+        onClose={() => setReview(null)}
+        onDismiss={(target) => {
+          if (target.attentionItemId) {
+            workspaceData.dismissAttentionItem(target.attentionItemId);
+          }
+        }}
+        onAllowAndRerun={(target) => {
+          if (target.recurringWorkId) {
+            workspaceData.expandRecurringWorkGrant(
+              target.recurringWorkId,
+              target.blockedTools,
+              true,
+            );
+          }
+        }}
+      />
 
       <div className="mx-auto w-full max-w-[680px]">
         <div className="border bg-card/80 backdrop-blur-lg">

@@ -1,0 +1,200 @@
+import { useNavigate } from "react-router";
+import { ShieldCheck } from "lucide-react";
+import type {
+  AttentionItem,
+  RecurringWorkRunRecord,
+} from "@marketer/agent-runtime/types";
+import { Button } from "@marketer/ui/components/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+} from "@marketer/ui/components/dialog";
+
+/**
+ * What the reviewer needs to act on a run or attention item: the outcome,
+ * the exact tools it was blocked on (prepared as a one-click approval), and
+ * the conversation for anything deeper. Opens from the Overview digest and
+ * the Schedule page — never dumps the user straight into a chat.
+ */
+export interface RunReview {
+  title: string;
+  agentId: string;
+  /** The automation id when this review concerns a recurring run. */
+  recurringWorkId?: string;
+  /** Attention item to clear on dismiss, when one raised this review. */
+  attentionItemId?: string;
+  detail: string;
+  status?: RecurringWorkRunRecord["status"];
+  at?: number;
+  blockedTools: string[];
+}
+
+function humanizeAddress(address: string) {
+  return (
+    address
+      .split(".")
+      .at(-1)
+      ?.replace(/([A-Z])/g, " $1")
+      .replace(/^./, (character) => character.toUpperCase()) ?? address
+  );
+}
+
+function statusLabel(status: RunReview["status"]) {
+  if (status === "completed") return "Completed";
+  if (status === "failed") return "Failed";
+  if (status === "needs_approval") return "Stopped for approval";
+  return null;
+}
+
+export function RunReviewDialog({
+  review,
+  onClose,
+  onDismiss,
+  onAllowAndRerun,
+}: {
+  review: RunReview | null;
+  onClose: () => void;
+  onDismiss: (review: RunReview) => void;
+  onAllowAndRerun: (review: RunReview) => void;
+}) {
+  const navigate = useNavigate();
+  const openConversation = (target: RunReview) => {
+    onClose();
+    navigate(
+      `/conversations?agent=${target.agentId}&chat=automation-${target.recurringWorkId}`,
+    );
+  };
+  const canAllow = Boolean(
+    review?.recurringWorkId && review.blockedTools.length > 0,
+  );
+  const hasConversation = Boolean(review?.recurringWorkId);
+
+  return (
+    <Dialog open={Boolean(review)} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-lg">
+        {review ? (
+          <>
+            <DialogHeader>
+              <DialogTitle className="font-serif text-2xl">
+                {review.title}
+              </DialogTitle>
+              <DialogDescription>
+                {[
+                  statusLabel(review.status),
+                  review.at
+                    ? new Date(review.at).toLocaleString([], {
+                        weekday: "long",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "Flagged by your agents"}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <p className="border p-4 text-sm leading-6 text-muted-foreground">
+                {review.detail}
+              </p>
+              {canAllow ? (
+                <div>
+                  <p className="text-xs font-medium">What it needs</p>
+                  <div className="mt-2 space-y-1.5">
+                    {review.blockedTools.map((address) => (
+                      <div
+                        key={address}
+                        className="flex items-center gap-2 border px-3 py-2"
+                      >
+                        <ShieldCheck
+                          size={13}
+                          className="shrink-0 text-amber-400"
+                        />
+                        <span className="min-w-0 truncate text-xs">
+                          {humanizeAddress(address)}
+                        </span>
+                        <span className="ml-auto max-w-56 truncate font-mono text-[9px] text-muted-foreground">
+                          {address}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    Allowing adds exactly these tools to the automation's
+                    approval.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+            <DialogFooter className="items-center">
+              {review.attentionItemId ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDismiss(review);
+                    onClose();
+                  }}
+                  className="mr-auto text-xs text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Dismiss
+                </button>
+              ) : null}
+              {hasConversation && canAllow ? (
+                <Button variant="outline" onClick={() => openConversation(review)}>
+                  Open conversation
+                </Button>
+              ) : null}
+              {canAllow ? (
+                <Button
+                  onClick={() => {
+                    onAllowAndRerun(review);
+                    onClose();
+                  }}
+                >
+                  Allow and rerun
+                </Button>
+              ) : hasConversation ? (
+                <Button onClick={() => openConversation(review)}>
+                  Open conversation
+                </Button>
+              ) : (
+                <Button variant="outline" onClick={onClose}>
+                  Close
+                </Button>
+              )}
+            </DialogFooter>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Builds a review from an attention item plus the automation's run data. */
+export function reviewFromAttention(
+  item: AttentionItem,
+  runs: RecurringWorkRunRecord[],
+): RunReview {
+  const recurringWorkId = item.sourceId?.startsWith("automation-")
+    ? item.sourceId.slice("automation-".length)
+    : undefined;
+  const latest = recurringWorkId
+    ? runs
+        .filter((run) => run.recurringWorkId === recurringWorkId)
+        .sort((a, b) => b.startedAt - a.startedAt)[0]
+    : undefined;
+  return {
+    title: item.title,
+    agentId: item.agentId,
+    recurringWorkId,
+    attentionItemId: item.id,
+    detail: item.reason,
+    status: latest?.status,
+    at: latest?.startedAt ?? item.createdAt,
+    blockedTools: latest?.blockedTools ?? [],
+  };
+}

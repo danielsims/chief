@@ -49,6 +49,18 @@ export function upcomingRuns(
   return expression.take(count).map((date) => date.toDate().getTime());
 }
 
+/**
+ * Executor tool addresses referenced by an execute-snippet, excluding the
+ * read-only catalog helpers (search/describe) that any run may use.
+ */
+export function executorAddressesFromCode(code: string): string[] {
+  return [
+    ...new Set(
+      [...code.matchAll(/tools\.[A-Za-z0-9_.-]+/g)].map((match) => match[0]),
+    ),
+  ].filter((address) => !/^tools\.(search|describe)(\.|$)/.test(address));
+}
+
 export function executorAddressFromElicitation(input: unknown) {
   const message = findElicitationMessage(input);
   return message.match(/Approve\s+(tools\.[^\s?]+)\??/)?.[1] ?? null;

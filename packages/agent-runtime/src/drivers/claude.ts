@@ -102,12 +102,18 @@ export class ClaudeDriver extends BaseDriver {
         mcpServers: Object.fromEntries(
           (opts.mcpServers ?? []).map((server) => [
             server.name,
-            {
-              type: "stdio" as const,
-              command: server.command,
-              args: server.args,
-              env: server.env ?? {},
-            },
+            server.url
+              ? {
+                  type: "http" as const,
+                  url: server.url,
+                  headers: server.headers ?? {},
+                }
+              : {
+                  type: "stdio" as const,
+                  command: server.command,
+                  args: server.args,
+                  env: server.env ?? {},
+                },
           ]),
         ),
         resume: this.sessionId,

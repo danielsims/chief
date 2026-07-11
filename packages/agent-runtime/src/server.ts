@@ -314,6 +314,65 @@ export function startServer(port = PORT) {
             await broadcastWorkspaceData(msg.workspaceId);
             break;
 
+          case "expandRecurringWorkGrant": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const work = await manager.recurringWorkById(
+              msg.workspaceId,
+              msg.recurringWorkId,
+            );
+            if (!work?.grant) {
+              throw new Error("Only approved automations can be widened.");
+            }
+            const blocked = await manager.latestRunBlockedTools(
+              msg.workspaceId,
+              msg.recurringWorkId,
+            );
+            const addTools = [...new Set(msg.addTools)];
+            const valid =
+              addTools.length > 0 &&
+              addTools.every(
+                (address) =>
+                  /^tools\.[A-Za-z0-9_.-]+$/.test(address) &&
+                  blocked.includes(address),
+              );
+            if (!valid) {
+              throw new Error(
+                "Only tools a run was actually blocked on can be allowed.",
+              );
+            }
+            await manager.saveRecurringWork(msg.workspaceId, {
+              ...work,
+              nextRunAt: nextRunAt(work.cron, work.timezone),
+              proposedToolPatterns: [
+                ...new Set([...work.proposedToolPatterns, ...addTools]),
+              ],
+              // The user clicked a button naming these exact addresses —
+              // that is the explicit re-approval this widening requires.
+              grant: {
+                ...work.grant,
+                approvedAt: Date.now(),
+                toolPatterns: [
+                  ...new Set([...work.grant.toolPatterns, ...addTools]),
+                ],
+              },
+              status: "active",
+              updatedAt: Date.now(),
+            });
+            for (const suffix of ["needs_approval", "failed"]) {
+              await manager.dismissAttentionItem(
+                msg.workspaceId,
+                `attention-${msg.recurringWorkId}-${suffix}`,
+              );
+            }
+            await broadcastWorkspaceData(msg.workspaceId);
+            if (msg.rerun) {
+              void scheduler
+                .runNow(msg.workspaceId, msg.recurringWorkId)
+                .catch((error) => console.error("[recurring-work]", error));
+            }
+            break;
+          }
+
           case "deleteRecurringWork":
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             await manager.deleteRecurringWork(

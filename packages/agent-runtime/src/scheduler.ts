@@ -195,6 +195,7 @@ export class RecurringWorkScheduler {
 
     let session: AgentSession | null = null;
     let blocked = false;
+    const blockedTools: string[] = [];
     try {
       await this.manager.saveRecurringWorkRun(workspaceId, run);
       await this.onChange(workspaceId);
@@ -240,7 +241,15 @@ export class RecurringWorkScheduler {
           );
           timeout.unref();
           session!.on("event", (event: AgentEvent) => {
-            if (event.type === "permission") blocked = true;
+            if (event.type === "permission") {
+              blocked = true;
+              if (
+                event.toolName.startsWith("tools.") &&
+                !blockedTools.includes(event.toolName)
+              ) {
+                blockedTools.push(event.toolName);
+              }
+            }
             if (event.type === "result") {
               clearTimeout(timeout);
               resolve({ ok: event.ok, error: event.error });
@@ -274,6 +283,7 @@ export class RecurringWorkScheduler {
         finishedAt: Date.now(),
         summary,
         error: result.error,
+        blockedTools: blockedTools.length > 0 ? blockedTools : undefined,
       });
       // Every run leaves a reviewable conversation, and a blocked run raises
       // one concrete attention item instead of failing silently.

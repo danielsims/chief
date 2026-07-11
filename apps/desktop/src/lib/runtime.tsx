@@ -488,6 +488,24 @@ export function useWorkspaceData(workspaceId: string | null) {
     });
   };
 
+  const expandRecurringWorkGrant = (
+    recurringWorkId: string,
+    addTools: string[],
+    rerun: boolean,
+  ) => {
+    if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
+      return;
+    }
+    client.send({
+      type: "expandRecurringWorkGrant",
+      workspaceId,
+      recurringWorkId,
+      addTools,
+      rerun,
+      executorCapability: capability,
+    });
+  };
+
   const dismissAttentionItem = (attentionItemId: string) => {
     if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
       return;
@@ -540,6 +558,7 @@ export function useWorkspaceData(workspaceId: string | null) {
     runRecurringWorkNow,
     deleteRecurringWork,
     dismissAttentionItem,
+    expandRecurringWorkGrant,
   };
 }
 

@@ -182,6 +182,8 @@ export const recurringWorkRuns = sqliteTable(
     finishedAt: integer("finished_at"),
     summary: text(),
     error: text(),
+    /** Executor addresses the grant declined during this run. */
+    blockedTools: text("blocked_tools", { mode: "json" }).$type<string[]>(),
   },
   (table) => [
     index("recurring_runs_workspace_started").on(

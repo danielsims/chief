@@ -656,6 +656,7 @@ export class LocalStore {
         finishedAt: schema.recurringWorkRuns.finishedAt,
         summary: schema.recurringWorkRuns.summary,
         error: schema.recurringWorkRuns.error,
+        blockedTools: schema.recurringWorkRuns.blockedTools,
       })
       .from(schema.recurringWorkRuns)
       .where(eq(schema.recurringWorkRuns.workspaceId, workspaceId))
@@ -668,8 +669,32 @@ export class LocalStore {
           finishedAt: run.finishedAt ?? undefined,
           summary: run.summary ?? undefined,
           error: run.error ?? undefined,
+          blockedTools: run.blockedTools ?? undefined,
         })),
       );
+  }
+
+  /** Union of Executor addresses recent runs of this automation declined. */
+  async latestRunBlockedTools(
+    workspaceId: string,
+    recurringWorkId: string,
+  ): Promise<string[]> {
+    await this.ready;
+    const rows = await this.db
+      .select({ blockedTools: schema.recurringWorkRuns.blockedTools })
+      .from(schema.recurringWorkRuns)
+      .where(
+        and(
+          eq(schema.recurringWorkRuns.workspaceId, workspaceId),
+          eq(schema.recurringWorkRuns.recurringWorkId, recurringWorkId),
+        ),
+      )
+      .orderBy(desc(schema.recurringWorkRuns.startedAt))
+      .limit(10)
+      .all();
+    return [
+      ...new Set(rows.flatMap((row) => row.blockedTools ?? [])),
+    ];
   }
 
   async saveRecurringWorkRun(workspaceId: string, run: RecurringWorkRunRecord) {
@@ -682,6 +707,7 @@ export class LocalStore {
         set: {
           status: run.status,
           finishedAt: run.finishedAt,
+          blockedTools: run.blockedTools ?? null,
           summary: run.summary,
           error: run.error,
         },
