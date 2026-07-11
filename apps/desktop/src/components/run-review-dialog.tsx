@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { ShieldCheck } from "lucide-react";
 import type {
@@ -13,12 +14,15 @@ import {
   DialogFooter,
   DialogTitle,
 } from "@marketer/ui/components/dialog";
+import { Input } from "@marketer/ui/components/input";
+import { useAgentConfig } from "../lib/agent-config";
+import { useAgentChat } from "../lib/runtime";
 
 /**
- * What the reviewer needs to act on a run or attention item: the outcome,
- * the exact tools it was blocked on (prepared as a one-click approval), and
- * the conversation for anything deeper. Opens from the Overview digest and
- * the Schedule page — never dumps the user straight into a chat.
+ * Where a run or attention item gets RESOLVED: the outcome, the exact tools
+ * it was blocked on (one-click approval), and a reply box that speaks
+ * straight into the automation's conversation — read, act, move on, without
+ * ever opening the chat.
  */
 export interface RunReview {
   title: string;
@@ -62,6 +66,52 @@ export function RunReviewDialog({
   onAllowAndRerun: (review: RunReview) => void;
 }) {
   const navigate = useNavigate();
+  const agentConfig = useAgentConfig();
+  const driver = agentConfig.forAgent(review?.agentId ?? "cmo").driver;
+  const chatId = review?.recurringWorkId
+    ? `automation-${review.recurringWorkId}`
+    : undefined;
+  const { chat, send, sessionReady } = useAgentChat(
+    review && chatId && driver ? review.agentId : null,
+    driver,
+    chatId,
+    "full",
+  );
+  const [reply, setReply] = useState("");
+  // Only show replies from THIS review session, not the whole history.
+  const openedAtItems = useRef(0);
+  const [sentAny, setSentAny] = useState(false);
+  useEffect(() => {
+    if (review) {
+      setReply("");
+      setSentAny(false);
+    }
+  }, [review]);
+  useEffect(() => {
+    if (sessionReady && !sentAny) openedAtItems.current = chat.items.length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionReady]);
+  const freshReply = useMemo(() => {
+    for (let i = chat.items.length - 1; i >= openedAtItems.current; i -= 1) {
+      const item = chat.items[i];
+      if (!item || item.kind !== "assistant") continue;
+      const text = item.event.content
+        .flatMap((block) => (block.type === "text" ? [block.text] : []))
+        .join(" ")
+        .trim();
+      if (text) return text;
+    }
+    return null;
+  }, [chat.items]);
+
+  const submitReply = () => {
+    const text = reply.trim();
+    if (!text || chat.status === "running") return;
+    setReply("");
+    setSentAny(true);
+    send(text);
+  };
+
   const openConversation = (target: RunReview) => {
     onClose();
     navigate(
@@ -98,7 +148,7 @@ export function RunReviewDialog({
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
-              <p className="border p-4 text-sm leading-6 text-muted-foreground">
+              <p className="max-h-44 overflow-y-auto border p-4 text-sm leading-6 text-muted-foreground">
                 {review.detail}
               </p>
               {canAllow ? (
@@ -129,6 +179,49 @@ export function RunReviewDialog({
                   </p>
                 </div>
               ) : null}
+              {hasConversation && driver ? (
+                <div className="border-t pt-3">
+                  <div className="flex gap-2">
+                    <Input
+                      value={reply}
+                      onChange={(event) => setReply(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          submitReply();
+                        }
+                      }}
+                      placeholder={`Tell ${review.agentId} what to do…`}
+                      disabled={chat.status === "running"}
+                      className="h-8 text-sm"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      disabled={!reply.trim() || chat.status === "running"}
+                      onClick={submitReply}
+                    >
+                      Send
+                    </Button>
+                  </div>
+                  {chat.status === "running" ? (
+                    chat.streaming ? (
+                      <p className="mt-2 max-h-32 overflow-y-auto text-xs leading-5 text-muted-foreground">
+                        {chat.streaming.slice(-600)}
+                      </p>
+                    ) : (
+                      <p className="agent-working mt-2 font-mono text-xs">
+                        working…
+                      </p>
+                    )
+                  ) : freshReply ? (
+                    <p className="mt-2 max-h-40 overflow-y-auto text-xs leading-5 text-muted-foreground">
+                      {freshReply}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
             <DialogFooter className="items-center">
               {review.attentionItemId ? (
@@ -143,8 +236,11 @@ export function RunReviewDialog({
                   Dismiss
                 </button>
               ) : null}
-              {hasConversation && canAllow ? (
-                <Button variant="outline" onClick={() => openConversation(review)}>
+              {hasConversation ? (
+                <Button
+                  variant="outline"
+                  onClick={() => openConversation(review)}
+                >
                   Open conversation
                 </Button>
               ) : null}
@@ -156,10 +252,6 @@ export function RunReviewDialog({
                   }}
                 >
                   Allow and rerun
-                </Button>
-              ) : hasConversation ? (
-                <Button onClick={() => openConversation(review)}>
-                  Open conversation
                 </Button>
               ) : (
                 <Button variant="outline" onClick={onClose}>

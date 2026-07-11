@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@marketer/backend/convex/_generated/api";
@@ -149,7 +149,43 @@ export function DashboardPage() {
   const previous30 = analytics?.rangeMetrics?.find(
     (range) => range.key === "previous30d",
   );
-  const widgets = [
+  const attention = workspaceData.attentionItems;
+  const [review, setReview] = useState<RunReview | null>(null);
+
+  interface Widget {
+    label: string;
+    value: string;
+    detail: string;
+    trend: number | null;
+    to: string;
+    onClick?: () => void;
+    indicator?: boolean;
+  }
+  // Agents flagged something: the card moves to the front, carries a live
+  // indicator, and opens the review dialog directly.
+  const actionItems: Widget = {
+    label: "Action items",
+    value: workspaceData.loading ? "—" : formatNumber(attention.length),
+    detail:
+      attention.length > 0
+        ? attention[0]!.title
+        : "Nothing flagged by agents",
+    trend: null,
+    to: "/conversations?agent=cmo",
+    indicator: attention.length > 0,
+    onClick:
+      attention.length > 0
+        ? () =>
+            setReview(
+              reviewFromAttention(
+                attention[0]!,
+                workspaceData.recurringWorkRuns,
+              ),
+            )
+        : undefined,
+  };
+  const widgets: Widget[] = [
+    ...(attention.length > 0 ? [actionItems] : []),
     {
       label: "Website traffic",
       value:
@@ -186,18 +222,7 @@ export function DashboardPage() {
       ),
       to: "/analytics",
     },
-    {
-      label: "Action items",
-      value: workspaceData.loading
-        ? "—"
-        : formatNumber(workspaceData.attentionItems.length),
-      detail:
-        workspaceData.attentionItems.length > 0
-          ? "Agents need your input"
-          : "Nothing flagged by agents",
-      trend: null,
-      to: "/conversations?agent=cmo",
-    },
+    ...(attention.length > 0 ? [] : [actionItems]),
     {
       label: "New prospects",
       value: workspaceData.loading ? "—" : formatNumber(newProspects),
@@ -220,43 +245,6 @@ export function DashboardPage() {
       to: "/schedule",
     },
   ];
-
-  const recentRuns = useMemo(() => {
-    const since = Date.now() - 24 * 60 * 60 * 1000;
-    const works = new Map(
-      workspaceData.recurringWork.map((work) => [work.id, work]),
-    );
-    return workspaceData.recurringWorkRuns
-      .filter((run) => run.status !== "running" && run.startedAt >= since)
-      .sort((a, b) => b.startedAt - a.startedAt)
-      .slice(0, 5)
-      .map((run) => ({
-        ...run,
-        title: works.get(run.recurringWorkId)?.title ?? "Automation",
-        agentId: works.get(run.recurringWorkId)?.agentId ?? "cmo",
-      }));
-  }, [workspaceData.recurringWork, workspaceData.recurringWorkRuns]);
-  const attention = workspaceData.attentionItems;
-  const showDigest = attention.length > 0 || recentRuns.length > 0;
-  const [review, setReview] = useState<RunReview | null>(null);
-  const [hasSetup, setHasSetup] = useState(false);
-  const [overviewTab, setOverviewTab] = useState<"review" | "setup">("review");
-  const showTabs = showDigest && hasSetup;
-  const openRunReview = (run: (typeof recentRuns)[number]) => {
-    const attentionItem = attention.find(
-      (item) => item.sourceId === `automation-${run.recurringWorkId}`,
-    );
-    setReview({
-      title: run.title,
-      agentId: run.agentId,
-      recurringWorkId: run.recurringWorkId,
-      attentionItemId: attentionItem?.id,
-      detail: run.summary ?? run.error ?? "No summary was recorded.",
-      status: run.status,
-      at: run.startedAt,
-      blockedTools: run.blockedTools ?? [],
-    });
-  };
 
   const submit = () => {
     const text = ask.trim();
@@ -284,10 +272,15 @@ export function DashboardPage() {
         {widgets.map((w) => (
           <button
             key={w.label}
-            onClick={() => navigate(w.to)}
+            onClick={w.onClick ?? (() => navigate(w.to))}
             className="flex min-h-[110px] flex-col justify-between border bg-card p-5 text-left transition-all duration-300 hover:bg-accent"
           >
-            <span className="text-xs text-muted-foreground">{w.label}</span>
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              {w.label}
+              {w.indicator ? (
+                <span className="size-1.5 animate-pulse bg-amber-400" />
+              ) : null}
+            </span>
             <span>
               <span className="flex items-center gap-2">
                 <span className="block text-xl font-medium">{w.value}</span>
@@ -301,132 +294,7 @@ export function DashboardPage() {
         ))}
       </div>
 
-      {showTabs ? (
-        <div className="flex justify-center">
-          <div className="flex border p-0.5">
-            {(
-              [
-                { key: "review", label: "Review" },
-                { key: "setup", label: "Setup" },
-              ] as const
-            ).map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setOverviewTab(tab.key)}
-                className={
-                  overviewTab === tab.key
-                    ? "bg-accent px-3 py-1.5 text-xs text-foreground"
-                    : "px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-                }
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {showDigest && (!showTabs || overviewTab === "review") ? (
-        <section className="border bg-card">
-          <div className="border-b px-5 py-3">
-            <p className="text-sm font-medium">While you were away</p>
-          </div>
-          {attention.length > 0 ? (
-            <div className="divide-y border-b">
-              {attention.map((item) => (
-                <div key={item.id} className="flex items-start gap-3 px-5 py-3">
-                  <span className="mt-1.5 size-1.5 shrink-0 bg-amber-400" />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setReview(
-                        reviewFromAttention(
-                          item,
-                          workspaceData.recurringWorkRuns,
-                        ),
-                      )
-                    }
-                    className="min-w-0 flex-1 text-left"
-                  >
-                    <p className="text-sm font-medium">{item.title}</p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      {item.reason}
-                    </p>
-                  </button>
-                  <div className="flex shrink-0 items-center gap-2 pt-0.5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setReview(
-                          reviewFromAttention(
-                            item,
-                            workspaceData.recurringWorkRuns,
-                          ),
-                        )
-                      }
-                      className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-                    >
-                      Review
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => workspaceData.dismissAttentionItem(item.id)}
-                      className="text-xs text-muted-foreground hover:text-foreground"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          {recentRuns.length > 0 ? (
-            <div className="divide-y">
-              {recentRuns.map((run) => (
-                <button
-                  key={run.id}
-                  type="button"
-                  onClick={() => openRunReview(run)}
-                  className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-accent"
-                >
-                  <span
-                    className={
-                      run.status === "completed"
-                        ? "size-1.5 shrink-0 bg-emerald-500"
-                        : run.status === "failed"
-                          ? "size-1.5 shrink-0 bg-destructive"
-                          : "size-1.5 shrink-0 bg-amber-400"
-                    }
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm">{run.title}</span>
-                    {run.summary ? (
-                      <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-muted-foreground">
-                        {run.summary}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground">
-                    {new Date(run.startedAt).toLocaleTimeString([], {
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </section>
-      ) : null}
-
-      <div
-        className={
-          showTabs && overviewTab !== "setup" ? "hidden" : undefined
-        }
-      >
-        <SetupProgress onVisibilityChange={setHasSetup} />
-      </div>
+      <SetupProgress />
 
       <RunReviewDialog
         review={review}

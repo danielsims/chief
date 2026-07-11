@@ -183,8 +183,13 @@ function RecurringWorkChip({
 
 interface PastRunEntry {
   id: string;
+  workId: string;
+  agentId: string;
   title: string;
   status: "completed" | "failed" | "needs_approval";
+  scheduledFor: number;
+  summary?: string;
+  blockedTools?: string[];
 }
 
 /** A finished occurrence stays on the calendar, quietly greyed. */
@@ -1524,8 +1529,8 @@ export function SchedulePage() {
   }, [workspaceData.recurringWork]);
 
   const pastRunsByDay = useMemo(() => {
-    const titles = new Map(
-      workspaceData.recurringWork.map((work) => [work.id, work.title]),
+    const works = new Map(
+      workspaceData.recurringWork.map((work) => [work.id, work]),
     );
     const map = new Map<string, PastRunEntry[]>();
     for (const run of workspaceData.recurringWorkRuns) {
@@ -1534,8 +1539,13 @@ export function SchedulePage() {
       const items = map.get(key) ?? [];
       items.push({
         id: run.id,
-        title: titles.get(run.recurringWorkId) ?? "Automation",
+        workId: run.recurringWorkId,
+        agentId: works.get(run.recurringWorkId)?.agentId ?? "cmo",
+        title: works.get(run.recurringWorkId)?.title ?? "Automation",
         status: run.status,
+        scheduledFor: run.scheduledFor,
+        summary: run.summary ?? run.error ?? undefined,
+        blockedTools: run.blockedTools,
       });
       map.set(key, items);
     }
@@ -1547,6 +1557,11 @@ export function SchedulePage() {
   const selectedDrafts = showPosts ? (byDay.get(dayKey(selected)) ?? []) : [];
   const selectedRecurringWork = showAgentWork
     ? (recurringByDay.get(dayKey(selected)) ?? [])
+    : [];
+  const selectedPastRuns = showAgentWork
+    ? [...(pastRunsByDay.get(dayKey(selected)) ?? [])].sort(
+        (a, b) => a.scheduledFor - b.scheduledFor,
+      )
     : [];
   // Initial proposals only. A run that stopped mid-flight is reviewed from
   // the Overview digest or the automation's own card, not this list.
@@ -1800,6 +1815,55 @@ export function SchedulePage() {
             {selected.toLocaleDateString([], { month: "long", day: "numeric" })}
           </h2>
           <div className="mt-6 space-y-2">
+            {selectedPastRuns.map((run) => (
+              <button
+                key={run.id}
+                type="button"
+                onClick={() =>
+                  setRunReview({
+                    title: run.title,
+                    agentId: run.agentId,
+                    recurringWorkId: run.workId,
+                    detail: run.summary ?? "No summary was recorded.",
+                    status: run.status,
+                    at: run.scheduledFor,
+                    blockedTools: run.blockedTools ?? [],
+                  })
+                }
+                className="w-full border p-3 text-left opacity-60 transition-opacity hover:opacity-100"
+              >
+                <div className="flex items-start gap-2">
+                  <span
+                    className={cn(
+                      "mt-1 size-1.5 shrink-0",
+                      run.status === "completed"
+                        ? "bg-muted-foreground"
+                        : run.status === "failed"
+                          ? "bg-destructive"
+                          : "bg-amber-400",
+                    )}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="truncate text-xs font-medium">
+                        {run.title}
+                      </p>
+                      <p className="shrink-0 text-[10px] text-muted-foreground">
+                        {new Date(run.scheduledFor).toLocaleTimeString([], {
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
+                    {run.summary ? (
+                      <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+                        {run.summary}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </button>
+            ))}
             {selectedDrafts.map((draft) => (
               <DraftChip key={draft.id} draft={draft} />
             ))}
@@ -1825,7 +1889,8 @@ export function SchedulePage() {
                 }
               />
             ))}
-            {selectedDrafts.length === 0 &&
+            {selectedPastRuns.length === 0 &&
+            selectedDrafts.length === 0 &&
             selectedRecurringWork.length === 0 ? (
               <div className="flex min-h-[420px] items-center justify-center text-center">
                 <p className="text-sm text-muted-foreground">
