@@ -9,7 +9,10 @@ import type {
   TrendRecord,
 } from "./types.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
-import { readWorkspaceContext } from "./workspace-context.js";
+import {
+  readWorkspaceContext,
+  writeWorkspaceBrandProfile,
+} from "./workspace-context.js";
 import {
   googleAnalyticsMetadata,
   googleAnalyticsProperties,
@@ -184,6 +187,16 @@ export function localToolsOpenApi(origin: string) {
           responses: saveResponse,
         },
       },
+      "/local-tools/brand-profile": {
+        post: {
+          operationId: "brandProfile.save",
+          summary: "Save the workspace brand profile",
+          description:
+            "Stores a researched or user-supplied brand profile so every agent receives it in future sessions and runs.",
+          requestBody: body("BrandProfileInput"),
+          responses: saveResponse,
+        },
+      },
       "/local-tools/recurring-work": {
         get: {
           operationId: "recurringWork.list",
@@ -246,6 +259,18 @@ export function localToolsOpenApi(origin: string) {
               maxLength: 1000,
               description:
                 "Why this needs the user personally: the decision to make or action to take, stated concretely.",
+            },
+          },
+        },
+        BrandProfileInput: {
+          type: "object",
+          additionalProperties: false,
+          required: ["markdown"],
+          properties: {
+            markdown: {
+              type: "string",
+              minLength: 100,
+              maxLength: 20000,
             },
           },
         },
@@ -387,6 +412,11 @@ export function localToolsOpenApi(origin: string) {
           ],
           properties: {
             id: { type: "string" },
+            playbookId: {
+              type: "string",
+              description:
+                "Starter playbook approved during onboarding, required for automatic activation",
+            },
             agentId: { type: "string" },
             title: { type: "string" },
             instructions: { type: "string" },
@@ -438,6 +468,9 @@ export async function handleLocalTool(
     if (path === "/local-tools/content") return json({ drafts: data.drafts });
     if (path === "/local-tools/campaigns") {
       return json({ campaigns: data.campaigns });
+    }
+    if (path === "/local-tools/brand-profile") {
+      return json({ configured: Boolean(readWorkspaceContext(workspaceId)) });
     }
     if (path === "/local-tools/recurring-work") {
       return json({ recurringWork: data.recurringWork });
@@ -574,6 +607,14 @@ export async function handleLocalTool(
       };
       await manager.saveCampaign(workspaceId, campaign);
       return json({ campaign });
+    }
+    if (path === "/local-tools/brand-profile") {
+      const markdown = value(body.markdown, "markdown", 20_000)!;
+      if (markdown.length < 100) {
+        throw new Error("brand profile must contain at least 100 characters.");
+      }
+      writeWorkspaceBrandProfile(workspaceId, markdown);
+      return json({ saved: true });
     }
     if (path === "/local-tools/recurring-work") {
       const now = Date.now();

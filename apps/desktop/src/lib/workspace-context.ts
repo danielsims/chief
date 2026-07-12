@@ -35,6 +35,7 @@ export async function buildWorkspaceContext(
   const monitoring = record(onboarding.monitoring);
   const analytics = record(onboarding.analytics);
   const automation = record(onboarding.automation);
+  const brand = record(onboarding.brand);
 
   const lines: string[] = [];
   const website = text(metadata.websiteUrl);
@@ -43,10 +44,19 @@ export async function buildWorkspaceContext(
   if (selling) lines.push(`What they sell: ${selling}`);
   const audience = text(goals.audience);
   if (audience) lines.push(`Ideal customer: ${audience}`);
-  const success = text(goals.success);
+  const success = Array.isArray(goals.success)
+    ? goals.success
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .join(", ")
+    : text(goals.success);
   if (success) lines.push(`Success looks like: ${success}`);
+  const brandNotes = text(brand.notes);
+  if (brandNotes) lines.push(`Brand notes from onboarding: ${brandNotes}`);
   const timeBudget = text(goals.timeBudget);
-  if (timeBudget) lines.push(`Time the user can spend on marketing: ${timeBudget}`);
+  if (timeBudget)
+    lines.push(`Time the user can spend on marketing: ${timeBudget}`);
   const budget = text(ads.budget);
   if (budget) lines.push(`Paid ads: ${budget}`);
   const channels = Array.isArray(monitoring.channels)
@@ -77,14 +87,16 @@ export async function buildWorkspaceContext(
         .map((item) => record(item))
         .filter((item) => item.enabled === true)
     : [];
-  const plan = enabledPlan.map((item) => {
-          const title = text(item.title);
-          const frequency = text(item.frequency);
-          const time = text(item.time);
-          return title
-            ? `${title}: ${frequency || "scheduled"}${time ? ` at ${time}` : ""}${timezone ? ` (${timezone})` : ""}`
-            : "";
-        }).filter(Boolean);
+  const plan = enabledPlan
+    .map((item) => {
+      const title = text(item.title);
+      const frequency = text(item.frequency);
+      const time = text(item.time);
+      return title
+        ? `${title}: ${frequency || "scheduled"}${time ? ` at ${time}` : ""}${timezone ? ` (${timezone})` : ""}`
+        : "";
+    })
+    .filter(Boolean);
   if (plan.length > 0) {
     lines.push(`Approved starter schedule:\n- ${plan.join("\n- ")}`);
   }

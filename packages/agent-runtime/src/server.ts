@@ -1,4 +1,6 @@
 import { createServer } from "node:http";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import { SessionManager } from "./manager.js";
 import {
@@ -20,7 +22,7 @@ import type {
   InputRequest,
   ServerMessage,
 } from "./types.js";
-import { workspaceSecrets } from "./workspace-secrets.js";
+import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
 import {
   readWorkspaceContext,
   writeWorkspaceContext,
@@ -262,6 +264,137 @@ export function startServer(port = PORT) {
               ...(await manager.workspaceData(msg.workspaceId)),
             });
             break;
+
+          case "bootstrapOnboardingWork": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            if (msg.workspaceContext?.trim()) {
+              writeWorkspaceContext(
+                msg.workspaceId,
+                msg.workspaceContext.slice(0, 40_000),
+              );
+            }
+            const now = Date.now();
+            const jobs = msg.jobs.slice(0, 8);
+            for (const job of jobs) {
+              if (!/^[a-z0-9][a-z0-9_-]{2,96}$/i.test(job.id)) {
+                throw new Error("Invalid onboarding job id.");
+              }
+              const runAt = Math.max(job.runAt, now + 60_000);
+              let instructions = job.instructions.trim().slice(0, 40_000);
+              const attachments = (job.attachments ?? []).slice(0, 4);
+              if (attachments.length > 0) {
+                const directory = join(
+                  workspaceRoot(msg.workspaceId),
+                  "onboarding",
+                  job.id,
+                );
+                mkdirSync(directory, { recursive: true, mode: 0o700 });
+                const saved: string[] = [];
+                let totalBytes = 0;
+                for (const attachment of attachments) {
+                  const match = /^data:[^;]+;base64,(.+)$/.exec(
+                    attachment.dataUrl,
+                  );
+                  if (!match) continue;
+                  const bytes = Buffer.from(match[1]!, "base64");
+                  totalBytes += bytes.byteLength;
+                  if (totalBytes > 6 * 1024 * 1024) {
+                    throw new Error("Onboarding attachments exceed 6 MB.");
+                  }
+                  const safeName = basename(attachment.name).replace(
+                    /[^a-zA-Z0-9._-]+/g,
+                    "-",
+                  );
+                  const path = join(directory, safeName || "brand-file");
+                  writeFileSync(path, bytes, { mode: 0o600 });
+                  saved.push(path);
+                }
+                if (saved.length > 0) {
+                  instructions += `\n\nFiles supplied during onboarding:\n${saved.map((path) => `- ${path}`).join("\n")}`;
+                }
+              }
+              const toolPatterns = Array.from(
+                new Set(
+                  job.proposedToolPatterns
+                    .filter((pattern) => pattern.startsWith("tools."))
+                    .slice(0, 24),
+                ),
+              );
+              const existing = await manager.recurringWorkById(
+                msg.workspaceId,
+                job.id,
+              );
+              await manager.saveRecurringWork(msg.workspaceId, {
+                id: job.id,
+                agentId: job.agentId,
+                title: job.title.trim().slice(0, 160),
+                instructions,
+                cron: "0 0 1 1 *",
+                timezone: job.timezone,
+                runOnceAt: runAt,
+                status: "active",
+                placement: "local",
+                approvalSummary:
+                  "Approved during onboarding and queued to run after setup completes.",
+                proposedToolPatterns: toolPatterns,
+                grant: {
+                  version: 1,
+                  approvedAt: now,
+                  toolPatterns,
+                },
+                nextRunAt: runAt,
+                createdAt: existing?.createdAt ?? now,
+                updatedAt: now,
+              });
+            }
+            for (const schedule of (msg.schedules ?? []).slice(0, 8)) {
+              if (!/^[a-z0-9][a-z0-9_-]{2,96}$/i.test(schedule.id)) {
+                throw new Error("Invalid onboarding schedule id.");
+              }
+              validateCron(schedule.cron, schedule.timezone);
+              const existing = await manager.recurringWorkById(
+                msg.workspaceId,
+                schedule.id,
+              );
+              const toolPatterns = Array.from(
+                new Set(
+                  schedule.proposedToolPatterns
+                    .filter((pattern) => pattern.startsWith("tools."))
+                    .slice(0, 24),
+                ),
+              );
+              await manager.saveRecurringWork(msg.workspaceId, {
+                id: schedule.id,
+                agentId: schedule.agentId,
+                title: schedule.title.trim().slice(0, 160),
+                instructions: schedule.instructions.trim().slice(0, 40_000),
+                cron: schedule.cron,
+                timezone: schedule.timezone,
+                status: schedule.status,
+                placement: "local",
+                approvalSummary: schedule.approvalSummary
+                  .trim()
+                  .slice(0, 2_000),
+                proposedToolPatterns: toolPatterns,
+                grant:
+                  schedule.status === "active"
+                    ? { version: 1, approvedAt: now, toolPatterns }
+                    : undefined,
+                nextRunAt:
+                  schedule.status === "active"
+                    ? nextRunAt(schedule.cron, schedule.timezone)
+                    : undefined,
+                createdAt: existing?.createdAt ?? now,
+                updatedAt: now,
+              });
+            }
+            await broadcastWorkspaceData(msg.workspaceId);
+            send({
+              type: "onboardingWorkBootstrapped",
+              workspaceId: msg.workspaceId,
+            });
+            break;
+          }
 
           case "saveCampaign":
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);

@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@marketer/backend/convex/_generated/api";
-import type { DriverType } from "@marketer/agent-runtime/types";
+import type {
+  DriverType,
+  OnboardingWorkJob,
+} from "@marketer/agent-runtime/types";
 import {
   siInstagram,
   siReddit,
@@ -14,6 +17,12 @@ import {
 import { Button } from "@marketer/ui/components/button";
 import { Input } from "@marketer/ui/components/input";
 import { PrefixedInput } from "@marketer/ui/components/prefixed-input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@marketer/ui/components/select";
 import { SuccessCheck } from "@marketer/ui/components/success-check";
 import { cn } from "@marketer/ui/lib/utils";
 import { Claude, OpenAI, Vercel } from "@lobehub/icons";
@@ -43,7 +52,12 @@ import {
 } from "../lib/auth/better-auth-client";
 import { SOCIAL_PLATFORMS, type SocialPlatform } from "../lib/social-platforms";
 import { setWorkspaceProvider } from "../lib/agent-overrides";
-import { useRuntime } from "../lib/runtime";
+import { useRuntime, useWorkspaceData } from "../lib/runtime";
+import { buildWorkspaceContext } from "../lib/workspace-context";
+import {
+  buildOnboardingSchedules,
+  buildScheduleProvisioningJob,
+} from "../lib/onboarding-schedules";
 import {
   hasWorkspaceAccess,
   openWorkspaceCheckout,
@@ -59,8 +73,6 @@ import {
   searchIntegrations,
   type IntegrationSearchResult,
 } from "../lib/integrations";
-import { createChat } from "../lib/chat-log";
-import { getPlaybook, playbookInstructions } from "../lib/playbooks";
 
 type AutomationMode = "automatic" | "review" | "manual";
 type AutomationFrequency = "weekdays" | "weekly";
@@ -76,11 +88,18 @@ interface OnboardingAutomationItem {
   time: string;
 }
 
+interface OnboardingBrandFile {
+  name: string;
+  type: string;
+  dataUrl: string;
+}
+
 type StepKey =
   | "mode"
   | "inference"
   | "health"
   | "context"
+  | "brand"
   | "socials"
   | "selling"
   | "audience"
@@ -106,10 +125,16 @@ interface OnboardingDraft {
   /** Null until the user explicitly picks an agent app, never defaulted. */
   provider: DriverType | "vercel" | null;
   cloudDeploymentUrl: string;
+  billingPlan: BillingPlan;
+  brand: {
+    mode: "research" | "upload" | "skip";
+    notes: string;
+    files: OnboardingBrandFile[];
+  };
   goals: {
     selling: string;
     audience: string;
-    success: string;
+    success: string[];
     timeBudget: string;
   };
   monitoring: {
@@ -141,6 +166,7 @@ const steps: StepKey[] = [
   "inference",
   "health",
   "context",
+  "brand",
   "socials",
   "selling",
   "audience",
@@ -164,21 +190,26 @@ const questions: Record<StepKey, string> = {
   health: "Quick check before we teach Marketer about your business.",
   context:
     "I'll set this workspace up around one company, so the agents know exactly who they're working for. What's your company and website?",
+  brand:
+    "How should the Setup agent learn your brand voice and visual guidelines?",
   socials:
     "Nice. Now add the public accounts the agents should learn from and write for.",
   selling: "Describe what you're selling in a few short words.",
   audience: "Who is your ideal customer?",
   success: "What would make the next 90 days feel like this is working?",
   time: "How much time can you spend on marketing each week?",
-  monitoring: "Where should your agents look for prospects and mentions?",
+  monitoring:
+    "Where should your agents proactively search for prospects, buying signals and relevant conversations?",
   analytics: "Which analytics platforms do you use today?",
-  analyticsConnect: "Got it. Let me set up those analytics sources for you.",
+  analyticsConnect:
+    "Great. I'll connect these analytics sources after onboarding, so you can keep moving.",
   ads: "Where do you run paid ads today?",
-  adsConnect: "Got it. Let me connect those ads accounts for you.",
+  adsConnect:
+    "Great. I'll connect these ad accounts after onboarding, so you can keep moving.",
   adsBudget: "No ads today. Want your agents to run them for you?",
   aeo: "One more thing. Want to know when ChatGPT, Claude or Perplexity send you customers?",
   automation:
-    "I've drafted a starter rhythm around your goals. Choose what should run and how much freedom your agents should have.",
+    "Here is the recurring work I recommend starting with. Review the schedule, then activate what you want.",
   pricing: "Choose how this workspace is billed.",
   finish: "You're in.",
 };
@@ -221,6 +252,17 @@ const weekDays = [
   "Saturday",
 ];
 
+const scheduleTimeOptions = Array.from({ length: 48 }, (_, index) => {
+  const hour = Math.floor(index / 2);
+  const minute = index % 2 === 0 ? "00" : "30";
+  const value = `${String(hour).padStart(2, "0")}:${minute}`;
+  const label = new Date(2000, 0, 1, hour, Number(minute)).toLocaleTimeString(
+    [],
+    { hour: "numeric", minute: "2-digit" },
+  );
+  return { value, label };
+});
+
 function defaultAutomationPlan(): OnboardingAutomationItem[] {
   return [
     {
@@ -256,40 +298,77 @@ function defaultAutomationPlan(): OnboardingAutomationItem[] {
   ];
 }
 
-function automationCron(item: OnboardingAutomationItem) {
-  const [hour = "09", minute = "00"] = item.time.split(":");
-  return item.frequency === "weekdays"
-    ? `${Number(minute)} ${Number(hour)} * * 1-5`
-    : `${Number(minute)} ${Number(hour)} * * ${item.day}`;
-}
+function onboardingWorkJobs(draft: OnboardingDraft): OnboardingWorkJob[] {
+  const now = Date.now();
+  const jobs: OnboardingWorkJob[] = [];
+  const commonSetupTools = [
+    "tools.search",
+    "tools.executor.coreTools.connections.list",
+    "tools.marketer.org.workspace.agentTools.sourcesList",
+    "tools.marketer-local.org.localworkspace.localTools.attentionRaise",
+  ];
 
-function onboardingAutomationPrompt(draft: OnboardingDraft) {
-  const enabled = draft.automation.plan.filter((item) => item.enabled);
-  const activate = draft.automation.mode === "automatic";
-  const jobs = enabled
-    .map((item) => {
-      const playbook = getPlaybook(item.playbookId);
-      return [
-        `## ${item.title}`,
-        `Owner: ${item.agentId}`,
-        `Schedule: ${automationCron(item)} in ${draft.automation.timezone}`,
-        `Purpose: ${item.purpose}`,
-        playbook ? playbookInstructions(playbook) : undefined,
+  if (draft.brand.mode !== "skip") {
+    jobs.push({
+      id: "onboarding-brand-setup",
+      agentId: "setup",
+      title: "Build brand profile",
+      runAt: now + 2 * 60_000,
+      timezone: draft.automation.timezone,
+      proposedToolPatterns: [
+        ...commonSetupTools,
+        "tools.marketer-local.org.localworkspace.localTools.brandProfileSave",
+      ],
+      attachments: draft.brand.files,
+      instructions: [
+        "Build a practical brand profile for every agent in this workspace.",
+        `Company: ${draft.companyName}`,
+        `Website: ${draft.websiteUrl}`,
+        draft.brand.mode === "research"
+          ? "Research the public website and other first-party public pages. Infer the voice from real copy and clearly label anything uncertain."
+          : "Read the files supplied during onboarding, then use the public website to fill only genuine gaps.",
+        draft.brand.notes ? `User notes: ${draft.brand.notes}` : undefined,
+        "Save a concise Markdown profile with voice principles, vocabulary, claims that are supported, claims to avoid, visual cues, audience, and three representative writing examples. Use brandProfileSave so future agents receive it automatically.",
+        "Work proactively. Ask the user only if a missing fact would make the profile unsafe or materially misleading.",
       ]
         .filter(Boolean)
-        .join("\n\n");
-    })
-    .join("\n\n");
-  return [
-    "Set up the starter recurring-work plan I approved during onboarding.",
-    `Scheduling authority: ${draft.automation.mode}.`,
-    activate
-      ? "For each selected job, call recurringWorkPropose with activate: true and its exact playbookId after discovering the narrow tool paths it needs."
-      : "For each selected job, create one narrow recurringWorkPropose draft for me to review in Schedule. Do not activate it.",
-    "Check existing recurring work first. Reuse or update a matching schedule instead of creating duplicates. Configure all remaining details yourself. Scheduling authority does not approve publishing, outreach, spend changes, or other external mutations.",
-    `Workspace goal: ${draft.goals.success}. The company sells ${draft.goals.selling} to ${draft.goals.audience}.`,
-    jobs,
-  ].join("\n\n");
+        .join("\n\n"),
+    });
+  }
+
+  const setupJob = (
+    category: "analytics" | "ads",
+    integrations: IntegrationSearchResult[],
+    delayMinutes: number,
+  ) => {
+    if (integrations.length === 0) return;
+    const names = integrations.map((item) => item.name).join(", ");
+    jobs.push({
+      id: `onboarding-${category}-setup`,
+      agentId: "setup",
+      title: `Connect ${category} tools`,
+      runAt: now + delayMinutes * 60_000,
+      timezone: draft.automation.timezone,
+      proposedToolPatterns: [
+        ...commonSetupTools,
+        "tools.marketer-local.org.localworkspace.localTools.googleAnalyticsProperties",
+        "tools.marketer-local.org.localworkspace.localTools.googleAnalyticsMetadata",
+        "tools.marketer-local.org.localworkspace.localTools.googleAnalyticsRunReport",
+      ],
+      instructions: [
+        `Set up the ${category} integrations selected during onboarding: ${names}.`,
+        `Selected services and domains: ${integrations.map((item) => `${item.name} (${item.domain})`).join(", ")}.`,
+        "Reuse existing connections and machine credentials before asking for anything. Verify each connection with the smallest read-only request available.",
+        "If browser consent, an account choice, or a secret genuinely requires the user, create one clear attention item describing the exact next action. Do not create a chat and do not report a generic failure.",
+      ].join("\n\n"),
+    });
+  };
+  setupJob("analytics", draft.analytics.integrations, 5);
+  setupJob("ads", draft.ads.integrations, 8);
+
+  const provisioningJob = buildScheduleProvisioningJob(draft.automation);
+  if (provisioningJob) jobs.push(provisioningJob);
+  return jobs;
 }
 
 const monitoringOptions = [
@@ -457,10 +536,16 @@ function baseDraft(): OnboardingDraft {
     providerMode: "local",
     provider: null,
     cloudDeploymentUrl: "",
+    billingPlan: "monthly",
+    brand: {
+      mode: "research",
+      notes: "",
+      files: [],
+    },
     goals: {
       selling: "",
       audience: "",
-      success: "$5k MRR",
+      success: ["$5k MRR with signal"],
       timeBudget: "5-10 hours",
     },
     monitoring: {
@@ -479,9 +564,10 @@ function baseDraft(): OnboardingDraft {
       trackAiReferrals: true,
     },
     automation: {
-      mode: "review",
+      mode: "automatic",
       timezone:
-        Intl.DateTimeFormat().resolvedOptions().timeZone || "Australia/Brisbane",
+        Intl.DateTimeFormat().resolvedOptions().timeZone ||
+        "Australia/Brisbane",
       plan: defaultAutomationPlan(),
     },
     step: "mode",
@@ -575,6 +661,10 @@ function draftFromOrg(
     onboarding.aeo && typeof onboarding.aeo === "object"
       ? (onboarding.aeo as Partial<OnboardingDraft["aeo"]>)
       : {};
+  const brand =
+    onboarding.brand && typeof onboarding.brand === "object"
+      ? (onboarding.brand as Record<string, unknown>)
+      : {};
   const automation =
     onboarding.automation && typeof onboarding.automation === "object"
       ? (onboarding.automation as Partial<OnboardingDraft["automation"]>)
@@ -606,10 +696,25 @@ function draftFromOrg(
       typeof onboarding.cloudDeploymentUrl === "string"
         ? onboarding.cloudDeploymentUrl
         : "",
+    billingPlan: onboarding.billingPlan === "annual" ? "annual" : "monthly",
+    brand: {
+      mode:
+        brand.mode === "upload" || brand.mode === "skip"
+          ? brand.mode
+          : "research",
+      notes: typeof brand.notes === "string" ? brand.notes : "",
+      files: [],
+    },
     goals: {
       selling: typeof goals.selling === "string" ? goals.selling : "",
       audience: typeof goals.audience === "string" ? goals.audience : "",
-      success: typeof goals.success === "string" ? goals.success : "$5k MRR",
+      success: Array.isArray(goals.success)
+        ? goals.success.filter(
+            (item): item is string => typeof item === "string",
+          )
+        : typeof goals.success === "string"
+          ? [goals.success]
+          : ["$5k MRR with signal"],
       timeBudget:
         typeof goals.timeBudget === "string" ? goals.timeBudget : "5-10 hours",
     },
@@ -663,9 +768,10 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
       Partial<OnboardingDraft["analytics"]> | undefined;
     const parsedAds = parsed.ads as Partial<OnboardingDraft["ads"]> | undefined;
     const parsedAeo = parsed.aeo as Partial<OnboardingDraft["aeo"]> | undefined;
+    const parsedBrand = parsed.brand as
+      Partial<OnboardingDraft["brand"]> | undefined;
     const parsedAutomation = parsed.automation as
-      | Partial<OnboardingDraft["automation"]>
-      | undefined;
+      Partial<OnboardingDraft["automation"]> | undefined;
     return {
       ...base,
       ...parsed,
@@ -684,7 +790,39 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
           ? parsed.provider
           : base.provider,
       cloudDeploymentUrl: parsed.cloudDeploymentUrl ?? base.cloudDeploymentUrl,
-      goals: { ...base.goals, ...(parsed.goals ?? {}) },
+      billingPlan:
+        parsed.billingPlan === "annual" ? "annual" : base.billingPlan,
+      brand: {
+        mode:
+          parsedBrand?.mode === "upload" || parsedBrand?.mode === "skip"
+            ? parsedBrand.mode
+            : base.brand.mode,
+        notes:
+          typeof parsedBrand?.notes === "string"
+            ? parsedBrand.notes
+            : base.brand.notes,
+        files: Array.isArray(parsedBrand?.files)
+          ? parsedBrand.files.filter((file): file is OnboardingBrandFile =>
+              Boolean(
+                file &&
+                typeof file.name === "string" &&
+                typeof file.type === "string" &&
+                typeof file.dataUrl === "string",
+              ),
+            )
+          : [],
+      },
+      goals: {
+        ...base.goals,
+        ...(parsed.goals ?? {}),
+        success: Array.isArray(parsed.goals?.success)
+          ? parsed.goals.success.filter(
+              (item): item is string => typeof item === "string",
+            )
+          : typeof parsed.goals?.success === "string"
+            ? [parsed.goals.success]
+            : base.goals.success,
+      },
       monitoring: {
         ...base.monitoring,
         ...(parsed.monitoring ?? {}),
@@ -934,6 +1072,25 @@ function AnswerPreview({
     );
   }
 
+  if (step === "brand") {
+    return (
+      <UserBubble>
+        <span className="block font-medium">
+          {draft.brand.mode === "research"
+            ? "Build it from our website"
+            : draft.brand.mode === "upload"
+              ? "Use our brand kit"
+              : "Skip for now"}
+        </span>
+        {draft.brand.files.length > 0 ? (
+          <span className="mt-1 block text-muted-foreground">
+            {draft.brand.files.map((file) => file.name).join(", ")}
+          </span>
+        ) : null}
+      </UserBubble>
+    );
+  }
+
   if (step === "socials") {
     const selected = SOCIAL_PLATFORMS.filter(
       (def) => draft.socials[def.platform],
@@ -982,7 +1139,9 @@ function AnswerPreview({
     );
   }
 
-  if (step === "success") return <UserBubble>{draft.goals.success}</UserBubble>;
+  if (step === "success") {
+    return <UserBubble>{draft.goals.success.join(", ")}</UserBubble>;
+  }
   if (step === "time") return <UserBubble>{draft.goals.timeBudget}</UserBubble>;
 
   if (step === "monitoring") {
@@ -1078,7 +1237,7 @@ function AnswerPreview({
   if (step === "pricing") {
     return (
       <UserBubble>
-        {draft.providerMode === "deployed" ? "Annual plan" : "Monthly plan"}
+        {draft.billingPlan === "annual" ? "Annual plan" : "Monthly plan"}
       </UserBubble>
     );
   }
@@ -1118,6 +1277,7 @@ function StepFrame({
   saving,
   continueLabel = "Continue",
   actionsLeft,
+  actionsAlign = "left",
 }: {
   children: React.ReactNode;
   onContinue: () => void;
@@ -1125,12 +1285,20 @@ function StepFrame({
   saving?: boolean;
   continueLabel?: string;
   actionsLeft?: React.ReactNode;
+  actionsAlign?: "left" | "right";
 }) {
   return (
     <div className="w-full border bg-card/60 p-5 shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]">
       {children}
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-        <div className="flex flex-wrap items-center gap-2">{actionsLeft}</div>
+        <div
+          className={cn(
+            "flex flex-wrap items-center gap-2",
+            actionsAlign === "right" && "ml-auto",
+          )}
+        >
+          {actionsLeft}
+        </div>
         <Button
           type="button"
           onClick={() => void onContinue()}
@@ -1260,6 +1428,142 @@ function ContextControl({
           />
         </label>
       </div>
+    </StepFrame>
+  );
+}
+
+function BrandControl({
+  draft,
+  setBrand,
+  onContinue,
+  saving,
+}: {
+  draft: OnboardingDraft;
+  setBrand: (patch: Partial<OnboardingDraft["brand"]>) => void;
+  onContinue: () => void;
+  saving: boolean;
+}) {
+  const [fileError, setFileError] = useState<string | null>(null);
+  const choices: Array<{
+    mode: OnboardingDraft["brand"]["mode"];
+    label: string;
+    detail: string;
+  }> = [
+    {
+      mode: "research",
+      label: "Build it for me",
+      detail: "The Setup agent will study your website and public profiles.",
+    },
+    {
+      mode: "upload",
+      label: "I have a brand kit",
+      detail: "Add guidelines, examples, logos or reference material.",
+    },
+    {
+      mode: "skip",
+      label: "Not yet",
+      detail: "Continue without a saved brand profile.",
+    },
+  ];
+
+  const addFiles = async (files: FileList | null) => {
+    if (!files) return;
+    const selected = Array.from(files).slice(0, 4);
+    const totalBytes = selected.reduce((sum, file) => sum + file.size, 0);
+    if (totalBytes > 4 * 1024 * 1024) {
+      setFileError("Keep the selected files under 4 MB in total.");
+      return;
+    }
+    setFileError(null);
+    const encoded = await Promise.all(
+      selected.map(
+        (file) =>
+          new Promise<OnboardingBrandFile>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () =>
+              resolve({
+                name: file.name,
+                type: file.type || "application/octet-stream",
+                dataUrl: String(reader.result ?? ""),
+              });
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+          }),
+      ),
+    );
+    setBrand({ mode: "upload", files: encoded });
+  };
+
+  return (
+    <StepFrame onContinue={onContinue} saving={saving}>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {choices.map((choice) => (
+          <button
+            key={choice.mode}
+            type="button"
+            onClick={() => setBrand({ mode: choice.mode })}
+            className={cn(
+              "border bg-background p-3 text-left transition-colors hover:border-foreground",
+              draft.brand.mode === choice.mode && "border-foreground bg-accent",
+            )}
+          >
+            <span className="block text-xs font-medium">{choice.label}</span>
+            <span className="mt-1 block text-[10px] leading-4 text-muted-foreground">
+              {choice.detail}
+            </span>
+          </button>
+        ))}
+      </div>
+      {draft.brand.mode !== "skip" ? (
+        <div className="mt-4 border bg-background p-4">
+          <label className="text-xs font-medium" htmlFor="brand-notes">
+            Anything the agent should preserve
+          </label>
+          <textarea
+            id="brand-notes"
+            value={draft.brand.notes}
+            onChange={(event) => setBrand({ notes: event.target.value })}
+            placeholder="Claims, phrases, visual rules, examples or links"
+            className="mt-2 min-h-20 w-full resize-y border bg-background px-3 py-2 text-xs leading-5 outline-none placeholder:text-muted-foreground focus:border-foreground"
+          />
+          {draft.brand.mode === "upload" ? (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <label className="inline-flex h-8 cursor-pointer items-center border bg-foreground px-3 text-xs text-background hover:bg-foreground/90">
+                Add files
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.doc,.docx,.txt,.md,.json,image/*"
+                  className="hidden"
+                  onChange={(event) => void addFiles(event.target.files)}
+                />
+              </label>
+              <span className="text-[10px] text-muted-foreground">
+                Up to four files, 4 MB total
+              </span>
+            </div>
+          ) : null}
+          {draft.brand.files.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {draft.brand.files.map((file) => (
+                <span
+                  key={file.name}
+                  className="border px-2 py-1 text-[10px] text-muted-foreground"
+                >
+                  {file.name}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {fileError ? (
+            <p className="mt-2 text-[10px] text-destructive">{fileError}</p>
+          ) : null}
+        </div>
+      ) : null}
+      <p className="mt-3 text-[10px] leading-4 text-muted-foreground">
+        This runs after onboarding and appears in Run History. It will not hold
+        up setup.
+      </p>
     </StepFrame>
   );
 }
@@ -1602,22 +1906,32 @@ function SuccessControl({
   onContinue: () => void;
   saving: boolean;
 }) {
-  const isPreset = successOptions.includes(draft.goals.success);
-  const [customSuccess, setCustomSuccess] = useState(
-    Boolean(draft.goals.success) && !isPreset,
-  );
+  const customValue =
+    draft.goals.success.find((item) => !successOptions.includes(item)) ?? "";
+  const [customSuccess, setCustomSuccess] = useState(Boolean(customValue));
+  const toggle = (option: string) => {
+    setGoals({
+      success: draft.goals.success.includes(option)
+        ? draft.goals.success.filter((item) => item !== option)
+        : [...draft.goals.success, option],
+    });
+  };
 
   return (
-    <StepFrame onContinue={onContinue} saving={saving}>
+    <StepFrame
+      onContinue={onContinue}
+      saving={saving}
+      disabled={draft.goals.success.length === 0}
+    >
+      <p className="mb-3 text-xs leading-5 text-muted-foreground">
+        Choose every outcome that would make Marketer feel worthwhile.
+      </p>
       <div className="grid gap-2 sm:grid-cols-2">
         {successOptions.map((option) => (
           <Chip
             key={option}
-            selected={!customSuccess && draft.goals.success === option}
-            onClick={() => {
-              setCustomSuccess(false);
-              setGoals({ success: option });
-            }}
+            selected={draft.goals.success.includes(option)}
+            onClick={() => toggle(option)}
           >
             {option}
           </Chip>
@@ -1625,8 +1939,15 @@ function SuccessControl({
         <Chip
           selected={customSuccess}
           onClick={() => {
-            setCustomSuccess(true);
-            if (isPreset) setGoals({ success: "" });
+            const next = !customSuccess;
+            setCustomSuccess(next);
+            if (!next && customValue) {
+              setGoals({
+                success: draft.goals.success.filter(
+                  (item) => item !== customValue,
+                ),
+              });
+            }
           }}
         >
           Something else
@@ -1635,8 +1956,16 @@ function SuccessControl({
       <Input
         className={cn("mt-4", !customSuccess && "hidden")}
         autoFocus={customSuccess}
-        value={draft.goals.success}
-        onChange={(event) => setGoals({ success: event.target.value })}
+        value={customValue}
+        onChange={(event) => {
+          const nextValue = event.target.value;
+          const presetValues = draft.goals.success.filter((item) =>
+            successOptions.includes(item),
+          );
+          setGoals({
+            success: nextValue ? [...presetValues, nextValue] : presetValues,
+          });
+        }}
         placeholder="Describe the outcome"
       />
     </StepFrame>
@@ -1691,7 +2020,9 @@ function AutomationControl({
   onContinue: () => void;
   saving: boolean;
 }) {
-  const enabledCount = draft.automation.plan.filter((item) => item.enabled).length;
+  const enabledCount = draft.automation.plan.filter(
+    (item) => item.enabled,
+  ).length;
   const updateItem = (
     playbookId: string,
     patch: Partial<OnboardingAutomationItem>,
@@ -1715,12 +2046,12 @@ function AutomationControl({
     {
       mode: "automatic",
       label: "Activate selected",
-      detail: "Start these schedules after setup.",
+      detail: "Start after onboarding.",
     },
     {
       mode: "review",
-      label: "Review first",
-      detail: "Send drafts to Schedule for approval.",
+      label: "Save for later",
+      detail: "Add to Schedule without activating.",
     },
     {
       mode: "manual",
@@ -1736,9 +2067,9 @@ function AutomationControl({
       disabled={draft.automation.mode !== "manual" && enabledCount === 0}
       continueLabel={
         draft.automation.mode === "automatic"
-          ? `Activate ${enabledCount}`
+          ? "Activate selected"
           : draft.automation.mode === "review"
-            ? `Review ${enabledCount}`
+            ? "Save selected"
             : "Skip for now"
       }
     >
@@ -1766,13 +2097,14 @@ function AutomationControl({
         <div className="mt-4">
           <div className="mb-2 flex items-center justify-between gap-4">
             <div>
-              <p className="text-xs font-medium">Suggested starter plan</p>
+              <p className="text-xs font-medium">Recommended recurring work</p>
               <p className="mt-0.5 text-[10px] text-muted-foreground">
-                Based on your goal, channels and available time.
+                A practical starting point for a new workspace.
               </p>
             </div>
             <span className="text-[10px] text-muted-foreground">
-              {draft.automation.timezone}
+              {draft.automation.timezone.split("/").at(-1)?.replace(/_/g, " ")}{" "}
+              time
             </span>
           </div>
           <div className="divide-y border bg-background">
@@ -1793,14 +2125,17 @@ function AutomationControl({
                     }
                     className={cn(
                       "mt-0.5 flex size-5 shrink-0 items-center justify-center border transition-colors",
-                      item.enabled && "border-foreground bg-foreground text-background",
+                      item.enabled &&
+                        "border-foreground bg-foreground text-background",
                     )}
                   >
                     {item.enabled ? <Check size={12} /> : null}
                   </button>
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <p className="truncate text-xs font-medium">{item.title}</p>
+                      <p className="truncate text-xs font-medium">
+                        {item.title}
+                      </p>
                       <span className="text-[10px] text-muted-foreground">
                         {agentLabels[item.agentId] ?? item.agentId}
                       </span>
@@ -1811,56 +2146,85 @@ function AutomationControl({
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 pl-8 sm:pl-0">
-                  <select
-                    aria-label={`${item.title} frequency`}
+                  <Select
                     value={item.frequency}
-                    disabled={!item.enabled}
-                    onChange={(event) =>
+                    onValueChange={(value) =>
                       updateItem(item.playbookId, {
-                        frequency: event.target.value as AutomationFrequency,
+                        frequency: value as AutomationFrequency,
                       })
                     }
-                    className="h-8 border bg-background px-2 text-[10px] outline-none disabled:cursor-not-allowed"
                   >
-                    <option value="weekdays">Weekdays</option>
-                    <option value="weekly">Weekly</option>
-                  </select>
-                  {item.frequency === "weekly" ? (
-                    <select
-                      aria-label={`${item.title} day`}
-                      value={item.day}
+                    <SelectTrigger
+                      aria-label={`${item.title} frequency`}
                       disabled={!item.enabled}
-                      onChange={(event) =>
+                      className="h-8 w-24 bg-background text-[10px]"
+                    >
+                      <span>
+                        {item.frequency === "weekdays" ? "Weekdays" : "Weekly"}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="weekdays">Weekdays</SelectItem>
+                      <SelectItem value="weekly">Weekly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {item.frequency === "weekly" ? (
+                    <Select
+                      value={String(item.day)}
+                      onValueChange={(value) =>
                         updateItem(item.playbookId, {
-                          day: Number(event.target.value),
+                          day: Number(value),
                         })
                       }
-                      className="h-8 border bg-background px-2 text-[10px] outline-none disabled:cursor-not-allowed"
                     >
-                      {weekDays.map((day, index) => (
-                        <option key={day} value={index}>
-                          {day.slice(0, 3)}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger
+                        aria-label={`${item.title} day`}
+                        disabled={!item.enabled}
+                        className="h-8 w-20 bg-background text-[10px]"
+                      >
+                        <span>{weekDays[item.day]?.slice(0, 3)}</span>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {weekDays.map((day, index) => (
+                          <SelectItem key={day} value={String(index)}>
+                            {day}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   ) : null}
-                  <input
-                    aria-label={`${item.title} time`}
-                    type="time"
+                  <Select
                     value={item.time}
-                    disabled={!item.enabled}
-                    onChange={(event) =>
-                      updateItem(item.playbookId, { time: event.target.value })
+                    onValueChange={(time) =>
+                      updateItem(item.playbookId, { time })
                     }
-                    className="h-8 w-[92px] border bg-background px-2 text-[10px] outline-none disabled:cursor-not-allowed"
-                  />
+                  >
+                    <SelectTrigger
+                      aria-label={`${item.title} time`}
+                      disabled={!item.enabled}
+                      className="h-8 w-[92px] bg-background text-[10px]"
+                    >
+                      <span>
+                        {scheduleTimeOptions.find(
+                          (option) => option.value === item.time,
+                        )?.label ?? item.time}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {scheduleTimeOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             ))}
           </div>
           <p className="mt-3 text-[10px] leading-4 text-muted-foreground">
-            Scheduling authority applies only to these agent jobs. Publishing,
-            outreach and spend still require their own approval.
+            This only activates the schedules above. Publishing, outreach and
+            spend still need approval.
           </p>
         </div>
       ) : null}
@@ -1906,17 +2270,43 @@ function MonitoringControl({
           </Chip>
         ))}
       </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <Input
-          value={draft.monitoring.keywords}
-          onChange={(event) => setMonitoring({ keywords: event.target.value })}
-          placeholder="Keywords, pain points or competitor names"
-        />
-        <Input
-          value={draft.monitoring.details}
-          onChange={(event) => setMonitoring({ details: event.target.value })}
-          placeholder="Specific communities or searches"
-        />
+      <div className="mt-5 border bg-background p-4">
+        <div className="max-w-xl">
+          <p className="text-xs font-medium">What should agents look for?</p>
+          <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+            Add the problems customers describe and competitors worth watching.
+            This gives your agents a useful place to start.
+          </p>
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-[1.15fr_0.85fr]">
+          <label htmlFor="monitoring-signals" className="block">
+            <span className="mb-1.5 block text-[10px] font-medium text-foreground">
+              Signals to watch
+            </span>
+            <Input
+              id="monitoring-signals"
+              value={draft.monitoring.keywords}
+              onChange={(event) =>
+                setMonitoring({ keywords: event.target.value })
+              }
+              placeholder="e.g. slow video editing, content backlog, Descript"
+            />
+          </label>
+          <label htmlFor="monitoring-places" className="block">
+            <span className="mb-1.5 block text-[10px] font-medium text-foreground">
+              Places to focus{" "}
+              <span className="text-muted-foreground">(optional)</span>
+            </span>
+            <Input
+              id="monitoring-places"
+              value={draft.monitoring.details}
+              onChange={(event) =>
+                setMonitoring({ details: event.target.value })
+              }
+              placeholder='e.g. r/VideoEditing, "best video editor"'
+            />
+          </label>
+        </div>
       </div>
     </StepFrame>
   );
@@ -2080,13 +2470,14 @@ function IntegrationPickerControl({
       saving={saving}
       disabled={!selected.length}
       continueLabel="Continue"
+      actionsAlign="right"
       actionsLeft={
         <>
-          <Button type="button" variant="ghost" onClick={onEmptySelection}>
-            {emptySelectionLabel}
-          </Button>
           <Button type="button" variant="ghost" onClick={onSkip}>
             {skipLabel}
+          </Button>
+          <Button type="button" onClick={onEmptySelection}>
+            {emptySelectionLabel}
           </Button>
         </>
       }
@@ -2111,6 +2502,72 @@ function IntegrationPickerControl({
             onClick={() => toggle(integration)}
           />
         ))}
+      </div>
+    </StepFrame>
+  );
+}
+
+function DeferredIntegrationSetupControl({
+  category,
+  integrations,
+  onAddAnother,
+  onRemove,
+  onContinue,
+  saving,
+}: {
+  category: "analytics" | "ads";
+  integrations: IntegrationSearchResult[];
+  onAddAnother: () => void;
+  onRemove: (integration: IntegrationSearchResult) => void;
+  onContinue: () => void;
+  saving: boolean;
+}) {
+  return (
+    <StepFrame
+      onContinue={onContinue}
+      saving={saving}
+      continueLabel="Continue"
+      actionsLeft={
+        <Button type="button" variant="ghost" onClick={onAddAnother}>
+          Add another
+        </Button>
+      }
+    >
+      <div className="border bg-background">
+        <div className="border-b px-4 py-3">
+          <p className="text-xs font-medium">Ready to connect</p>
+          <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+            Setup starts automatically after onboarding. You can follow its
+            progress in Run History.
+          </p>
+        </div>
+        <div className="divide-y">
+          {integrations.map((integration) => (
+            <div
+              key={integration.domain}
+              className="flex items-center gap-3 px-4 py-3"
+            >
+              <IntegrationLogo integration={integration} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-medium">
+                  {integration.name}
+                </span>
+                <span className="mt-0.5 block text-[10px] text-muted-foreground">
+                  {category === "analytics"
+                    ? "Analytics connection"
+                    : "Advertising connection"}
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => onRemove(integration)}
+                className="text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
     </StepFrame>
   );
@@ -2173,7 +2630,7 @@ function QueuedIntegrationRow({
   );
 }
 
-function IntegrationConnectQueueControl({
+export function IntegrationConnectQueueControl({
   category,
   integrations,
   workspaceMode,
@@ -2535,6 +2992,7 @@ function CompletionControl({
 export function OnboardingPage() {
   const { cloudOrganizationId, user, signOut } = useAuth();
   const { status: runtimeStatus } = useRuntime();
+  const workspaceData = useWorkspaceData(cloudOrganizationId);
   const { isAuthenticated: convexReady } = useConvexAuth();
   const upsertSocial = useMutation(api.socialAccounts.upsert);
   const removeSocial = useMutation(api.socialAccounts.remove);
@@ -2566,7 +3024,6 @@ export function OnboardingPage() {
   const [draft, setDraft] = useState<OnboardingDraft | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [checkoutPlan, setCheckoutPlan] = useState<BillingPlan>("monthly");
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connectingAnalytics, setConnectingAnalytics] = useState(false);
@@ -2692,6 +3149,12 @@ export function OnboardingPage() {
   const setGoals = useCallback((patch: Partial<OnboardingDraft["goals"]>) => {
     setDraft((current) =>
       current ? { ...current, goals: { ...current.goals, ...patch } } : current,
+    );
+  }, []);
+
+  const setBrand = useCallback((patch: Partial<OnboardingDraft["brand"]>) => {
+    setDraft((current) =>
+      current ? { ...current, brand: { ...current.brand, ...patch } } : current,
     );
   }, []);
 
@@ -2877,6 +3340,15 @@ export function OnboardingPage() {
             providerMode: draft.providerMode,
             workspaceMode: draft.workspaceMode,
             cloudDeploymentUrl: draft.cloudDeploymentUrl.trim(),
+            billingPlan: draft.billingPlan,
+            brand: {
+              mode: draft.brand.mode,
+              notes: draft.brand.notes,
+              files: draft.brand.files.map(({ name, type }) => ({
+                name,
+                type,
+              })),
+            },
             goals: draft.goals,
             monitoring: draft.monitoring,
             analytics: draft.analytics,
@@ -2887,19 +3359,18 @@ export function OnboardingPage() {
           },
         },
       });
-      localStorage.removeItem(storageKey(org.id));
-      const enabledAutomation = draft.automation.plan.some(
-        (item) => item.enabled,
-      );
-      if (draft.automation.mode === "manual" || !enabledAutomation) {
-        window.location.assign("/");
-        return;
+      const jobs = onboardingWorkJobs(draft);
+      const schedules = buildOnboardingSchedules(draft.automation);
+      const workspaceContext = await buildWorkspaceContext(org.id);
+      if (jobs.length > 0 || schedules.length > 0) {
+        workspaceData.bootstrapOnboardingWork(
+          jobs,
+          schedules,
+          workspaceContext,
+        );
       }
-      const chat = createChat("cmo", "Set up starter automations");
-      const prompt = onboardingAutomationPrompt(draft);
-      window.location.assign(
-        `/conversations?agent=cmo&chat=${encodeURIComponent(chat.id)}&new=1&prompt=${encodeURIComponent(prompt)}`,
-      );
+      localStorage.removeItem(storageKey(org.id));
+      window.location.assign("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -2912,6 +3383,7 @@ export function OnboardingPage() {
     persistContext,
     persistProvider,
     persistSocials,
+    workspaceData,
   ]);
 
   const advance = useCallback(async () => {
@@ -3007,7 +3479,8 @@ export function OnboardingPage() {
     setSaving(true);
     setNotice(null);
     setError(null);
-    const result = await openWorkspaceCheckout(checkoutPlan);
+    if (!draft) return;
+    const result = await openWorkspaceCheckout(draft.billingPlan);
     setSaving(false);
     if (result.status === "unavailable") {
       setNotice("Billing is not set up yet.");
@@ -3017,7 +3490,7 @@ export function OnboardingPage() {
       setError(result.message);
       return;
     }
-  }, [checkoutPlan]);
+  }, [draft]);
 
   const currentControl = useMemo(() => {
     if (!draft) return null;
@@ -3078,6 +3551,7 @@ export function OnboardingPage() {
 
       return channels;
     };
+    void channelsInCategory;
 
     if (step === "mode") {
       return (
@@ -3115,6 +3589,16 @@ export function OnboardingPage() {
         <ContextControl
           draft={draft}
           setField={setField}
+          onContinue={advance}
+          saving={saving}
+        />
+      );
+    }
+    if (step === "brand") {
+      return (
+        <BrandControl
+          draft={draft}
+          setBrand={setBrand}
           onContinue={advance}
           saving={saving}
         />
@@ -3200,16 +3684,9 @@ export function OnboardingPage() {
     }
     if (step === "analyticsConnect") {
       return (
-        <IntegrationConnectQueueControl
+        <DeferredIntegrationSetupControl
           category="analytics"
           integrations={draft.analytics.integrations}
-          workspaceMode={draft.workspaceMode}
-          provider={
-            draft.provider === "claude" || draft.provider === "codex"
-              ? draft.provider
-              : null
-          }
-          channels={channelsInCategory("analytics")}
           onAddAnother={() =>
             setDraft((current) =>
               current ? { ...current, step: "analytics" } : current,
@@ -3222,14 +3699,6 @@ export function OnboardingPage() {
               ),
             )
           }
-          connectedForIntegration={(integration) =>
-            connectedForIntegration(integration, true, "analytics")
-          }
-          configStatus={analyticsConfigStatus}
-          connecting={connectingAnalytics}
-          notice={notice}
-          onConnect={() => void startAnalyticsConnect()}
-          onSetupResult={(result) => handleSetupResult(result, "analytics")}
           onContinue={advance}
           saving={saving}
         />
@@ -3254,16 +3723,9 @@ export function OnboardingPage() {
     }
     if (step === "adsConnect") {
       return (
-        <IntegrationConnectQueueControl
+        <DeferredIntegrationSetupControl
           category="ads"
           integrations={draft.ads.integrations}
-          workspaceMode={draft.workspaceMode}
-          provider={
-            draft.provider === "claude" || draft.provider === "codex"
-              ? draft.provider
-              : null
-          }
-          channels={channelsInCategory("ads")}
           onAddAnother={() =>
             setDraft((current) =>
               current ? { ...current, step: "ads" } : current,
@@ -3276,14 +3738,6 @@ export function OnboardingPage() {
               ),
             )
           }
-          connectedForIntegration={(integration) =>
-            connectedForIntegration(integration, false, "ads")
-          }
-          configStatus={undefined}
-          connecting={false}
-          notice={null}
-          onConnect={() => undefined}
-          onSetupResult={(result) => handleSetupResult(result, "ads")}
           onContinue={advance}
           saving={saving}
         />
@@ -3325,8 +3779,8 @@ export function OnboardingPage() {
     if (step === "pricing") {
       return (
         <PricingControl
-          plan={checkoutPlan}
-          setPlan={setCheckoutPlan}
+          plan={draft.billingPlan}
+          setPlan={(billingPlan) => setField({ billingPlan })}
           onCheckout={startCheckout}
           saving={saving}
         />
@@ -3342,7 +3796,6 @@ export function OnboardingPage() {
     advance,
     analyticsConnection?.channel?.displayName,
     analyticsConfigStatus,
-    checkoutPlan,
     completeOnboarding,
     connectedAnalytics,
     connectedChannels,
@@ -3356,6 +3809,7 @@ export function OnboardingPage() {
     runtimeStatus,
     saving,
     setField,
+    setBrand,
     setGoals,
     setAeo,
     setAutomation,

@@ -21,6 +21,8 @@ import type {
   DriverType,
   ExecutorCapability,
   InputRequest,
+  OnboardingSchedule,
+  OnboardingWorkJob,
   ProspectRecord,
   ProviderModelOption,
   RecurringWorkRecord,
@@ -392,6 +394,10 @@ const emptyWorkspaceData: WorkspaceDataState = {
 
 const workspaceDataCache = new Map<string, WorkspaceDataState>();
 
+function onboardingJobsStorageKey(workspaceId: string) {
+  return `marketer:onboarding-work:${workspaceId}`;
+}
+
 export function useWorkspaceData(workspaceId: string | null) {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
@@ -443,12 +449,40 @@ export function useWorkspaceData(workspaceId: string | null) {
         setData(next);
         setLoading(false);
       }
+      if (
+        message.type === "onboardingWorkBootstrapped" &&
+        message.workspaceId === workspaceId
+      ) {
+        window.localStorage.removeItem(onboardingJobsStorageKey(workspaceId));
+      }
     });
     client.send({
       type: "listWorkspaceData",
       workspaceId,
       executorCapability: capability,
     });
+    const pendingJobs = window.localStorage.getItem(
+      onboardingJobsStorageKey(workspaceId),
+    );
+    if (pendingJobs) {
+      try {
+        const pending = JSON.parse(pendingJobs) as {
+          jobs: OnboardingWorkJob[];
+          schedules?: OnboardingSchedule[];
+          workspaceContext?: string;
+        };
+        client.send({
+          type: "bootstrapOnboardingWork",
+          workspaceId,
+          jobs: pending.jobs,
+          schedules: pending.schedules ?? [],
+          workspaceContext: pending.workspaceContext,
+          executorCapability: capability,
+        });
+      } catch {
+        window.localStorage.removeItem(onboardingJobsStorageKey(workspaceId));
+      }
+    }
     return () => {
       unsubscribe();
     };
@@ -475,6 +509,31 @@ export function useWorkspaceData(workspaceId: string | null) {
       campaign,
       executorCapability: capability,
     });
+  };
+
+  const bootstrapOnboardingWork = (
+    jobs: OnboardingWorkJob[],
+    schedules: OnboardingSchedule[],
+    workspaceContext?: string,
+  ) => {
+    if (workspaceId) {
+      window.localStorage.setItem(
+        onboardingJobsStorageKey(workspaceId),
+        JSON.stringify({ jobs, schedules, workspaceContext }),
+      );
+    }
+    if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
+      return false;
+    }
+    client.send({
+      type: "bootstrapOnboardingWork",
+      workspaceId,
+      jobs,
+      schedules,
+      workspaceContext,
+      executorCapability: capability,
+    });
+    return true;
   };
 
   const saveRecurringWork = (work: RecurringWorkRecord) => {
@@ -598,6 +657,7 @@ export function useWorkspaceData(workspaceId: string | null) {
   return {
     ...data,
     loading,
+    bootstrapOnboardingWork,
     saveCampaign,
     saveRecurringWork,
     runRecurringWorkNow,

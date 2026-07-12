@@ -335,6 +335,7 @@ async function configureToolPolicies(manifest: ServerManifest) {
       "localTools.campaignsList",
       "localTools.campaignsSave",
       "localTools.attentionRaise",
+      "localTools.brandProfileSave",
       "localTools.recurringWorkList",
       "localTools.recurringWorkPropose",
       "localTools.googleAnalyticsMetadata",

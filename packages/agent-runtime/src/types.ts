@@ -201,6 +201,34 @@ export interface RecurringWorkRecord {
   upcomingRuns?: number[];
 }
 
+export interface OnboardingWorkJob {
+  id: string;
+  agentId: string;
+  title: string;
+  instructions: string;
+  runAt: number;
+  timezone: string;
+  proposedToolPatterns: string[];
+  attachments?: Array<{
+    name: string;
+    type: string;
+    dataUrl: string;
+  }>;
+}
+
+export interface OnboardingSchedule {
+  id: string;
+  playbookId: string;
+  agentId: string;
+  title: string;
+  instructions: string;
+  cron: string;
+  timezone: string;
+  status: "active" | "draft";
+  approvalSummary: string;
+  proposedToolPatterns: string[];
+}
+
 export interface RecurringWorkRunRecord {
   id: string;
   recurringWorkId: string;
@@ -368,6 +396,14 @@ export type ClientMessage =
       executorCapability: ExecutorCapability;
     }
   | {
+      type: "bootstrapOnboardingWork";
+      workspaceId: string;
+      jobs: OnboardingWorkJob[];
+      schedules: OnboardingSchedule[];
+      workspaceContext?: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
       type: "listAgentPreferences";
       workspaceId: string;
       executorCapability: ExecutorCapability;
@@ -531,6 +567,7 @@ export type ServerMessage =
   | { type: "agents"; agents: AgentDefinition[] }
   | { type: "models"; driver: DriverType; models: ProviderModelOption[] }
   | { type: "runtimeNotice"; workspaceId: string; notice: RuntimeNotice }
+  | { type: "onboardingWorkBootstrapped"; workspaceId: string }
   | {
       type: "workspaceData";
       workspaceId: string;

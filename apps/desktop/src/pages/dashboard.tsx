@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@marketer/backend/convex/_generated/api";
@@ -10,6 +10,12 @@ import { createChat } from "../lib/chat-log";
 import { SetupProgress } from "../components/setup-progress";
 import { useAuth } from "../lib/auth/auth-context";
 import { useWorkspaceData } from "../lib/runtime";
+import { buildWorkspaceContext } from "../lib/workspace-context";
+import {
+  buildOnboardingSchedules,
+  buildScheduleProvisioningJob,
+  onboardingSchedulePlanFromMetadata,
+} from "../lib/onboarding-schedules";
 import {
   listAuthOrganizations,
   parseOrganizationMetadata,
@@ -116,6 +122,10 @@ function WorkspaceIndicator() {
 export function DashboardPage() {
   const navigate = useNavigate();
   const [ask, setAsk] = useState("");
+  const [organization, setOrganization] = useState<AuthOrganization | null>(
+    null,
+  );
+  const scheduleRecoveryAttempted = useRef(false);
   const { cloudOrganizationId } = useAuth();
   const convexAuth = useConvexAuth();
   const canQuery = convexAuth.isAuthenticated && Boolean(cloudOrganizationId);
@@ -124,12 +134,18 @@ export function DashboardPage() {
     canQuery ? {} : "skip",
   ) as DashboardSnapshot[] | undefined;
   const workspaceData = useWorkspaceData(cloudOrganizationId);
-  const scheduledCount = workspaceData.drafts.filter(
-    (draft) =>
-      draft.status === "scheduled" &&
-      draft.scheduledFor !== undefined &&
-      draft.scheduledFor >= Date.now(),
-  ).length;
+  const agentSchedules = workspaceData.recurringWork.filter(
+    (work) =>
+      work.runOnceAt === undefined &&
+      (work.status === "active" || work.status === "draft"),
+  );
+  const activeAgentSchedules = agentSchedules.filter(
+    (work) => work.status === "active",
+  );
+  const nextAgentRun = activeAgentSchedules
+    .map((work) => work.nextRunAt)
+    .filter((value): value is number => typeof value === "number")
+    .sort((a, b) => a - b)[0];
   const newProspects = workspaceData.prospects.filter(
     (prospect) => prospect.status === "new",
   ).length;
@@ -146,6 +162,60 @@ export function DashboardPage() {
   );
   const attention = workspaceData.attentionItems;
 
+  useEffect(() => {
+    let cancelled = false;
+    void listAuthOrganizations().then((organizations) => {
+      if (cancelled) return;
+      setOrganization(
+        organizations.find(
+          (candidate) => candidate.id === cloudOrganizationId,
+        ) ??
+          organizations[0] ??
+          null,
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudOrganizationId]);
+
+  useEffect(() => {
+    scheduleRecoveryAttempted.current = false;
+  }, [cloudOrganizationId]);
+
+  useEffect(() => {
+    if (
+      !organization ||
+      !cloudOrganizationId ||
+      organization.id !== cloudOrganizationId ||
+      workspaceData.loading ||
+      scheduleRecoveryAttempted.current
+    ) {
+      return;
+    }
+    scheduleRecoveryAttempted.current = true;
+    const metadata = parseOrganizationMetadata(organization);
+    const onboarding =
+      metadata.onboarding && typeof metadata.onboarding === "object"
+        ? (metadata.onboarding as Record<string, unknown>)
+        : null;
+    const plan = onboardingSchedulePlanFromMetadata(onboarding?.automation);
+    if (!plan) return;
+    const missing = buildOnboardingSchedules(plan).filter(
+      (schedule) =>
+        !workspaceData.recurringWork.some((work) => work.id === schedule.id),
+    );
+    if (missing.length === 0) return;
+    const provisioningJob = buildScheduleProvisioningJob(plan);
+    void buildWorkspaceContext(cloudOrganizationId).then((workspaceContext) =>
+      workspaceData.bootstrapOnboardingWork(
+        provisioningJob ? [provisioningJob] : [],
+        missing,
+        workspaceContext,
+      ),
+    );
+  }, [cloudOrganizationId, organization, workspaceData]);
+
   interface Widget {
     label: string;
     value: string;
@@ -161,9 +231,7 @@ export function DashboardPage() {
     label: "Action items",
     value: workspaceData.loading ? "—" : formatNumber(attention.length),
     detail:
-      attention.length > 0
-        ? attention[0]!.title
-        : "Nothing flagged by agents",
+      attention.length > 0 ? attention[0]!.title : "Nothing flagged by agents",
     trend: null,
     to: attention[0]
       ? `/schedule/history?attention=${attention[0].id}`
@@ -223,9 +291,18 @@ export function DashboardPage() {
       to: "/trending",
     },
     {
-      label: "Scheduled posts",
-      value: workspaceData.loading ? "—" : formatNumber(scheduledCount),
-      detail: scheduledCount > 0 ? "Upcoming content" : "Nothing scheduled",
+      label: "Agent schedules",
+      value: workspaceData.loading ? "—" : formatNumber(agentSchedules.length),
+      detail:
+        agentSchedules.length === 0
+          ? "No recurring work yet"
+          : nextAgentRun
+            ? `Next run ${new Date(nextAgentRun).toLocaleString([], {
+                weekday: "short",
+                hour: "numeric",
+                minute: "2-digit",
+              })}`
+            : `${agentSchedules.length} ready to review`,
       trend: null,
       to: "/schedule",
     },
