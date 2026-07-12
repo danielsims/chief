@@ -31,3 +31,4 @@ apps/desktop/src-tauri/gen/
 
 # local agent working notes
 docs/
+.codex/
