@@ -28,3 +28,6 @@ apps/desktop/src-tauri/gen/
 *.log
 .vercel
 .pnpm-store/
+
+# local agent working notes
+docs/
