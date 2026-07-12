@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <clipPath id="macos-icon-shape">
+      <path d="M168 102H856C896 102 922 132 922 180V844C922 892 892 922 844 922H180C132 922 102 892 102 844V180C102 132 128 102 168 102Z" />
+    </clipPath>
+  </defs>
+  <image
+    x="0"
+    y="0"
+    width="1024"
+    height="1024"
+    clip-path="url(#macos-icon-shape)"
+    preserveAspectRatio="xMidYMid slice"
+    xlink:href="icon-source.png"
+  />
+</svg>
