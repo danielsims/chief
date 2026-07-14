@@ -1,0 +1,53 @@
+export const emailStyles = {
+  greeting: {
+    color: "#e2e2de",
+    fontSize: "17px",
+    fontWeight: "400",
+    lineHeight: "27px",
+    margin: 0,
+  },
+  heading: {
+    color: "#f5f5f2",
+    fontFamily: 'Georgia, "Times New Roman", serif',
+    fontSize: "38px",
+    fontWeight: "400",
+    letterSpacing: "-0.045em",
+    lineHeight: "44px",
+    margin: 0,
+  },
+  intro: {
+    color: "#e2e2de",
+    fontSize: "17px",
+    lineHeight: "27px",
+    margin: "24px 0 0",
+  },
+  copy: {
+    color: "#b9b9b4",
+    fontSize: "15px",
+    lineHeight: "24px",
+    margin: "16px 0 0",
+  },
+  sectionHeading: {
+    color: "#f1f1ee",
+    fontSize: "15px",
+    fontWeight: "700",
+    lineHeight: "22px",
+    margin: "30px 0 0",
+  },
+  button: {
+    backgroundColor: "#f1f1ee",
+    color: "#111111",
+    display: "inline-block",
+    fontSize: "14px",
+    fontWeight: "600",
+    marginTop: "30px",
+    padding: "13px 18px",
+    textDecoration: "none",
+  },
+  signature: {
+    color: "#d7d7d2",
+    fontSize: "15px",
+    lineHeight: "23px",
+    margin: "30px 0 0",
+  },
+} as const;

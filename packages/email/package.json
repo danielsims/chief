@@ -1,0 +1,29 @@
+{
+  "name": "@chief/email",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./cloudflare": "./src/cloudflare.ts",
+    "./render": "./src/render.ts",
+    "./templates/chief-email": "./src/templates/chief-email.tsx"
+  },
+  "scripts": {
+    "dev": "email dev --dir ./emails --port 3001",
+    "email": "email",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-email/components": "1.0.12",
+    "@react-email/render": "2.1.0",
+    "react": "^19.1.0"
+  },
+  "devDependencies": {
+    "@react-email/ui": "6.7.0",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.8",
+    "react-email": "6.7.0",
+    "typescript": "~5.8.3"
+  }
+}
