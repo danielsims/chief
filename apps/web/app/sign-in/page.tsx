@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useConvexAuth } from "convex/react";
 
-import { Button } from "@marketer/ui/components/button";
+import { Button } from "@chief/ui/components/button";
 
 import { authClient } from "../../lib/auth-client";
 import { GoogleLogo } from "./google-logo";
@@ -29,7 +29,7 @@ function SignInContent() {
   const codeChallenge = searchParams.get("code_challenge");
   const codeChallengeMethod = searchParams.get("code_challenge_method");
   const state = searchParams.get("state");
-  const isDesktopFlow = clientId === "marketer-desktop";
+  const isDesktopFlow = clientId === "chief-desktop";
 
   // Redirect if already logged in (only for web flow)
   useEffect(() => {
@@ -50,7 +50,7 @@ function SignInContent() {
       // Desktop PKCE flow: call signIn.social with PKCE params as query string
       // so the server after-hook can read them and store in the transfer cookie.
       // We construct the URL directly to ensure the PKCE params are in the query string.
-      const successUrl = `/auth/success?redirectTo=${encodeURIComponent("marketer-desktop://")}`;
+      const successUrl = `/auth/success?redirectTo=${encodeURIComponent("chief-desktop://")}`;
 
       const params = new URLSearchParams({
         client_id: clientId,
@@ -111,15 +111,17 @@ function SignInContent() {
   return (
     <main className="flex min-h-screen w-full flex-col bg-background text-foreground">
       <header className="p-8">
-        <span className="font-serif text-2xl italic leading-none select-none">
-          m.
-        </span>
+        <img
+          alt="Chief"
+          className="h-8 w-8"
+          src="/brand/chief-mark-sharp-open-white.svg"
+        />
       </header>
 
       <div className="flex flex-1 items-center justify-center px-8 pb-24">
         <div className="mx-auto flex w-full max-w-sm flex-col text-center">
           <h1 className="font-serif text-3xl leading-tight">
-            {isDesktopFlow ? "Connect the desktop app" : "Sign in to Marketer"}
+            {isDesktopFlow ? "Connect the desktop app" : "Sign in to Chief"}
           </h1>
           <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
             {isDesktopFlow

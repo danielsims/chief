@@ -3,6 +3,8 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
+import { BrandMark } from "./brand-mark";
+
 const calendarPosts = [
   { day: 2, title: "Founder story", platform: "LinkedIn", tone: "blue" },
   { day: 4, title: "Behind the scenes", platform: "Instagram", tone: "pink" },
@@ -75,7 +77,7 @@ export function SocialCalendarDemo() {
       ref={calendarRef}
     >
       <aside className="calendar-sidebar">
-        <strong>m.</strong>
+        <BrandMark className="calendar-brand-mark" size={20} />
         <nav>
           <span>
             <MiniIcon path="M4 4h4v4H4zM12 4h4v4h-4zM4 12h4v4H4zM12 12h4v4h-4z" />
@@ -295,7 +297,7 @@ export function ConnectionGrid() {
   return (
     <div
       className="integration-field"
-      aria-label="Services that can be connected to Marketer"
+      aria-label="Services that can be connected to Chief"
     >
       {providerRows.map((providers, rowIndex) => (
         <div className={`integration-row row-${rowIndex + 1}`} key={rowIndex}>
@@ -467,10 +469,10 @@ export function ProactiveDemo() {
         />
       </div>
       <div className="proactive-notification">
-        <MarketerNotificationMark />
+        <ChiefNotificationMark />
         <div className="notification-copy">
           <div className="notification-app">
-            <strong>Marketer</strong>
+            <strong>Chief</strong>
             <time>now</time>
           </div>
           <b>Your weekly review is ready</b>
@@ -481,6 +483,14 @@ export function ProactiveDemo() {
   );
 }
 
-function MarketerNotificationMark() {
-  return <span className="notification-mark">m.</span>;
+function ChiefNotificationMark() {
+  return (
+    <span className="notification-mark">
+      <BrandMark
+        className="notification-brand-mark"
+        size={22}
+        tone="black"
+      />
+    </span>
+  );
 }

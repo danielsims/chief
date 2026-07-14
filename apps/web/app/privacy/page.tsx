@@ -7,8 +7,8 @@ import {
 import { RailsLayout } from "../rails-layout";
 
 export const metadata: Metadata = {
-  title: "Privacy | Marketer",
-  description: "Privacy Policy for Marketer by Latent Supply Pty Ltd.",
+  title: "Privacy | Chief",
+  description: "Privacy Policy for Chief by Latent Supply Pty Ltd.",
 };
 
 export default function PrivacyPage() {
@@ -22,20 +22,20 @@ export default function PrivacyPage() {
         >
           <h2>1. Who we are</h2>
           <p>
-            Marketer is developed and operated by Latent Supply Pty Ltd (ABN 38
-            694 551 490), Australia.
+            Chief is developed and operated by Latent Supply Pty Ltd (ABN 38 694
+            551 490), Australia.
           </p>
           <h2>2. Information we collect</h2>
           <p>
             We collect the information needed to provide the service, including
             account details, workspace and company information, billing status,
             support correspondence, and technical information required to
-            operate and secure Marketer.
+            operate and secure Chief.
           </p>
           <h2>3. Connected services</h2>
           <p>
             When you connect a service such as an analytics, advertising,
-            social, communication, or storage provider, Marketer accesses the
+            social, communication, or storage provider, Chief accesses the
             information you authorise for the work you request. The available
             data and permissions depend on that provider and your selected
             approval settings.
@@ -51,8 +51,8 @@ export default function PrivacyPage() {
           </ul>
           <h2>5. Local and cloud processing</h2>
           <p>
-            Marketer can run work locally on your device and, when enabled,
-            through hosted infrastructure. Local credentials are stored using
+            Chief can run work locally on your device and, when enabled, through
+            hosted infrastructure. Local credentials are stored using
             operating-system security facilities where supported. Information
             sent to a connected AI or third-party service is also governed by
             that provider&apos;s terms and privacy policy.
@@ -65,10 +65,10 @@ export default function PrivacyPage() {
           </p>
           <h2>7. Retention and security</h2>
           <p>
-            We retain information for as long as needed to provide Marketer,
-            meet legal obligations, resolve disputes, and protect the service.
-            We use reasonable technical and organisational safeguards, but no
-            system is completely secure.
+            We retain information for as long as needed to provide Chief, meet
+            legal obligations, resolve disputes, and protect the service. We use
+            reasonable technical and organisational safeguards, but no system is
+            completely secure.
           </p>
           <h2>8. Your choices and rights</h2>
           <p>
@@ -79,8 +79,8 @@ export default function PrivacyPage() {
           </p>
           <h2>9. Changes</h2>
           <p>
-            We may update this policy as Marketer changes. The current version
-            and effective date will remain available on this page.
+            We may update this policy as Chief changes. The current version and
+            effective date will remain available on this page.
           </p>
           <h2>10. Contact</h2>
           <p>

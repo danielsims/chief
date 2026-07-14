@@ -7,8 +7,8 @@ import {
 import { RailsLayout } from "../rails-layout";
 
 export const metadata: Metadata = {
-  title: "Terms | Marketer",
-  description: "Terms of Service for Marketer by Latent Supply Pty Ltd.",
+  title: "Terms | Chief",
+  description: "Terms of Service for Chief by Latent Supply Pty Ltd.",
 };
 
 export default function TermsPage() {
@@ -22,13 +22,12 @@ export default function TermsPage() {
         >
           <h2>1. Agreement</h2>
           <p>
-            By downloading, accessing, or using Marketer, you agree to these
-            terms. Marketer is operated by Latent Supply Pty Ltd (ABN 38 694 551
-            490).
+            By downloading, accessing, or using Chief, you agree to these terms.
+            Chief is operated by Latent Supply Pty Ltd (ABN 38 694 551 490).
           </p>
           <h2>2. The service</h2>
           <p>
-            Marketer provides AI-assisted marketing agents, integrations,
+            Chief provides AI-assisted marketing agents, integrations,
             schedules, reports, content drafts, and related workspace tools.
             Features may run locally or through hosted services depending on
             your configuration.
@@ -49,21 +48,21 @@ export default function TermsPage() {
           </p>
           <h2>5. Acceptable use</h2>
           <p>
-            You must not use Marketer to break the law, violate third-party
-            rights or platform rules, send unlawful or deceptive communications,
-            gain unauthorised access, or interfere with the service.
+            You must not use Chief to break the law, violate third-party rights
+            or platform rules, send unlawful or deceptive communications, gain
+            unauthorised access, or interfere with the service.
           </p>
           <h2>6. Your content</h2>
           <p>
             You retain ownership of content and data you provide. You grant us
             the limited rights necessary to process that material and operate
-            Marketer. You are responsible for reviewing and approving anything
+            Chief. You are responsible for reviewing and approving anything
             published or sent through your connected services.
           </p>
           <h2>7. Intellectual property</h2>
           <p>
-            Marketer, its software, design, and branding are owned by Latent
-            Supply Pty Ltd and its licensors. These terms grant a limited,
+            Chief, its software, design, and branding are owned by Latent Supply
+            Pty Ltd and its licensors. These terms grant a limited,
             non-exclusive, non-transferable right to use the service.
           </p>
           <h2>8. Third-party services</h2>
@@ -74,7 +73,7 @@ export default function TermsPage() {
           </p>
           <h2>9. Disclaimers and liability</h2>
           <p>
-            Marketer is provided on an &quot;as is&quot; and &quot;as
+            Chief is provided on an &quot;as is&quot; and &quot;as
             available&quot; basis. To the maximum extent permitted by law,
             Latent Supply Pty Ltd excludes implied warranties and is not liable
             for indirect, incidental, special, consequential, or lost-profit
@@ -82,7 +81,7 @@ export default function TermsPage() {
           </p>
           <h2>10. Termination</h2>
           <p>
-            You may stop using Marketer at any time. We may suspend or terminate
+            You may stop using Chief at any time. We may suspend or terminate
             access when necessary to protect the service, comply with law, or
             address a material breach of these terms.
           </p>

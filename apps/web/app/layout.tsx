@@ -19,11 +19,12 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Marketer: Your marketing team, already at work.",
+  metadataBase: new URL("https://heychief.sh"),
+  title: "Chief: Your marketing team, already at work.",
   description:
     "Proactive specialist agents keep recurring marketing work on schedule and bring results and decisions back for review.",
   openGraph: {
-    title: "Marketer: Your marketing team, already at work.",
+    title: "Chief: Your marketing team, already at work.",
     description:
       "Proactive specialist agents keep marketing work moving and bring results back for review.",
     type: "website",

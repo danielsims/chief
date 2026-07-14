@@ -11,7 +11,7 @@ const DESKTOP_ORIGINS = [
   "https://tauri.localhost", // Tauri production (Windows)
 ];
 
-export const DEEP_LINK_SCHEME = "marketer-desktop";
+export const DEEP_LINK_SCHEME = "chief-desktop";
 
 /**
  * Returns CORS headers if the request origin is a known desktop origin.

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const TEN_MINUTES = 10 * 60 * 1000;
-const STORE_PATH = path.join("/tmp", "marketer-desktop-pkce.json");
+const STORE_PATH = path.join("/tmp", "chief-desktop-pkce.json");
 
 interface PendingDesktopPkce {
   redirectToken: string;

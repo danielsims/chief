@@ -4,7 +4,7 @@ import { RailsLayout } from "../rails-layout";
 import { PricingOffer } from "./pricing-offer";
 
 export const metadata: Metadata = {
-  title: "Pricing | Marketer",
+  title: "Pricing | Chief",
   description:
     "Simple pricing for a proactive marketing team of specialist agents.",
 };

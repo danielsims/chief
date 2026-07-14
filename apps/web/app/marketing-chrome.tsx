@@ -10,8 +10,8 @@ export function AppleIcon() {
 
 export function Wordmark() {
   return (
-    <a className="wordmark" href="/" aria-label="Marketer home">
-      <strong>marketer</strong>
+    <a className="wordmark" href="/" aria-label="Chief home">
+      <strong>Chief</strong>
     </a>
   );
 }

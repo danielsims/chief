@@ -51,10 +51,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section
-          className="hero-product"
-          aria-label="Marketer desktop workspace"
-        >
+        <section className="hero-product" aria-label="Chief desktop workspace">
           <HeroWorkspace />
         </section>
 
@@ -62,7 +59,7 @@ export default function Home() {
           <div className="feature-copy">
             <h2>Keep every channel moving.</h2>
             <p>
-              Marketer builds the content plan, creates channel-ready drafts and
+              Chief builds the content plan, creates channel-ready drafts and
               fills the calendar. Nothing publishes until the approval rules you
               set are satisfied.
             </p>
@@ -118,9 +115,9 @@ export default function Home() {
           <div className="feature-copy">
             <h2>And meets you where you already work.</h2>
             <p>
-              Use Marketer in Slack, Claude or ChatGPT, and receive a weekly
-              digest by email. Results, sources and approvals stay together in
-              the workspace.
+              Use Chief in Slack, Claude or ChatGPT, and receive a weekly digest
+              by email. Results, sources and approvals stay together in the
+              workspace.
             </p>
           </div>
           <WorkChannels />
@@ -128,8 +125,8 @@ export default function Home() {
 
         <section className="closing">
           <h2>
-            <span>Download marketer and</span>
-            <span>let the work begin.</span>
+            <span>Download the Chief app</span>
+            <span>and let the work begin.</span>
           </h2>
           <a className="button button-primary" href="/download">
             Download for macOS <AppleIcon />

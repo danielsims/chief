@@ -1,5 +1,5 @@
 {
-  "name": "@marketer/web",
+  "name": "@chief/web",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -11,8 +11,8 @@
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.3",
-    "@marketer/backend": "workspace:*",
-    "@marketer/ui": "workspace:*",
+    "@chief/backend": "workspace:*",
+    "@chief/ui": "workspace:*",
     "better-auth": "1.6.16",
     "convex": "^1.31.6",
     "next": "^15.4.2",

@@ -15,8 +15,8 @@ function SuccessContent() {
     if (!redirectBase) return;
 
     // Desktop PKCE flow: poll for the authorization code cookie
-    if (redirectBase.startsWith("marketer-desktop://")) {
-      const cookieName = "better-auth.marketer-desktop";
+    if (redirectBase.startsWith("chief-desktop://")) {
+      const cookieName = "better-auth.chief-desktop";
       const startTime = Date.now();
       const TIMEOUT = 10_000; // 10 seconds
       const INTERVAL = 100; // 100ms
@@ -47,7 +47,7 @@ function SuccessContent() {
               // query token because Windows protocol activation can drop URL
               // fragments before the desktop app receives the link.
               const encodedCode = encodeURIComponent(authorizationCode);
-              const url = `marketer-desktop:///auth?token=${encodedCode}#token=${encodedCode}`;
+              const url = `chief-desktop:///auth?token=${encodedCode}#token=${encodedCode}`;
               setDeepLinkUrl(url);
               setStatus("ready");
 
@@ -76,9 +76,11 @@ function SuccessContent() {
   return (
     <main className="flex min-h-screen w-full flex-col bg-background text-foreground">
       <header className="p-8">
-        <span className="font-serif text-2xl italic leading-none select-none">
-          m.
-        </span>
+        <img
+          alt="Chief"
+          className="h-8 w-8"
+          src="/brand/chief-mark-sharp-open-white.svg"
+        />
       </header>
 
       <div className="flex flex-1 items-center justify-center px-8 pb-24">
@@ -102,7 +104,7 @@ function SuccessContent() {
               href={deepLinkUrl}
               className="mt-12 inline-flex h-11 w-full items-center justify-center bg-primary px-8 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
-              Open Marketer
+              Open Chief
             </a>
           ) : null}
         </div>
@@ -141,9 +143,7 @@ function decodeBase64Url(str: string): string {
 
 export default function AuthSuccessPage() {
   return (
-    <Suspense
-      fallback={<main className="min-h-screen bg-background" />}
-    >
+    <Suspense fallback={<main className="min-h-screen bg-background" />}>
       <SuccessContent />
     </Suspense>
   );

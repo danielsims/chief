@@ -2,9 +2,9 @@
 
 import { Suspense, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { SuccessCheck } from "@marketer/ui/components/success-check";
+import { SuccessCheck } from "@chief/ui/components/success-check";
 
-const DEEP_LINK = "marketer-desktop:///billing/success";
+const DEEP_LINK = "chief-desktop:///billing/success";
 
 function BillingReturnContent() {
   const searchParams = useSearchParams();
@@ -24,9 +24,11 @@ function BillingReturnContent() {
   return (
     <main className="flex min-h-screen w-full flex-col bg-background text-foreground">
       <header className="p-8">
-        <span className="font-serif text-2xl italic leading-none select-none">
-          m.
-        </span>
+        <img
+          alt="Chief"
+          className="h-8 w-8"
+          src="/brand/chief-mark-sharp-open-white.svg"
+        />
       </header>
 
       <div className="flex flex-1 items-center justify-center px-8 pb-24">
@@ -39,14 +41,14 @@ function BillingReturnContent() {
                   You&rsquo;re in.
                 </h1>
                 <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-                  Your workspace is ready. Marketer is opening now. You can
-                  close this tab.
+                  Your workspace is ready. Chief is opening now. You can close
+                  this tab.
                 </p>
                 <a
                   href={DEEP_LINK}
                   className="mt-12 inline-flex h-11 w-full items-center justify-center bg-primary px-8 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
                 >
-                  Open Marketer
+                  Open Chief
                 </a>
               </div>
             </>
@@ -56,14 +58,13 @@ function BillingReturnContent() {
                 Checkout canceled.
               </h1>
               <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-                Nothing was charged. Return to Marketer when you&rsquo;re
-                ready.
+                Nothing was charged. Return to Chief when you&rsquo;re ready.
               </p>
               <a
                 href={DEEP_LINK}
                 className="mt-12 inline-flex h-11 w-full items-center justify-center border text-sm font-medium transition-colors hover:bg-accent"
               >
-                Return to Marketer
+                Return to Chief
               </a>
             </>
           )}

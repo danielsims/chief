@@ -7,9 +7,9 @@ import {
 import { RailsLayout } from "../rails-layout";
 
 export const metadata: Metadata = {
-  title: "Download Marketer",
+  title: "Download Chief",
   description:
-    "Download Marketer for macOS or Windows, or use it in your browser.",
+    "Download Chief for macOS or Windows, or use it in your browser.",
 };
 
 function AppleIcon() {
@@ -37,8 +37,8 @@ function BrowserIcon() {
   );
 }
 
-const macUrl = process.env.MARKETER_MACOS_DOWNLOAD_URL;
-const windowsUrl = process.env.MARKETER_WINDOWS_DOWNLOAD_URL;
+const macUrl = process.env.CHIEF_MACOS_DOWNLOAD_URL;
+const windowsUrl = process.env.CHIEF_WINDOWS_DOWNLOAD_URL;
 
 const options = [
   {
@@ -62,7 +62,7 @@ const options = [
     description: "Open your workspace without installing the desktop app.",
     detail: "Works in modern browsers",
     href: "/sign-in",
-    label: "Open Marketer",
+    label: "Open Chief",
     icon: <BrowserIcon />,
   },
 ];
@@ -74,7 +74,7 @@ export default function DownloadPage() {
         <MarketingHeader />
         <ContentRail
           className="download-content-rail"
-          title="Download Marketer."
+          title="Download Chief."
           description="Use the desktop app on macOS or Windows, or open your workspace in the browser."
         >
           <div className="download-grid">

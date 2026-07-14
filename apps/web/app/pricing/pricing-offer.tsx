@@ -1,6 +1,6 @@
 "use client";
 
-import { api } from "@marketer/backend/convex/_generated/api";
+import { api } from "@chief/backend/convex/_generated/api";
 import { useAction, useConvexAuth } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppleIcon } from "../marketing-chrome";
@@ -30,7 +30,7 @@ const capabilities = [
 const faqs = [
   [
     "What is included?",
-    "Every specialist agent, playbook, schedule, integration surface and approval control available in Marketer is included in one workspace.",
+    "Every specialist agent, playbook, schedule, integration surface and approval control available in Chief is included in one workspace.",
   ],
   [
     "Is there a free trial?",
@@ -41,12 +41,12 @@ const faqs = [
     "A run is a piece of work completed by an agent, such as a growth report, prospect search, campaign review or content brief. Runs keep their evidence and outputs.",
   ],
   [
-    "Does Marketer publish automatically?",
-    "No. Marketer is review-first by design. It keeps the marketing operation moving by researching, planning and drafting work for you to approve. Automated posting can reduce reach on some platforms, so publishing stays under your control.",
+    "Does Chief publish automatically?",
+    "No. Chief is review-first by design. It keeps the marketing operation moving by researching, planning and drafting work for you to approve. Automated posting can reduce reach on some platforms, so publishing stays under your control.",
   ],
   [
     "Can it use my existing tools?",
-    "Yes. Marketer can work with connected analytics, advertising, social and workspace services, limited to the permissions you grant.",
+    "Yes. Chief can work with connected analytics, advertising, social and workspace services, limited to the permissions you grant.",
   ],
   [
     "Does it run with my laptop closed?",
@@ -103,8 +103,8 @@ export function PricingOffer() {
             <span>One clear price.</span>
           </h1>
           <p>
-            More than a scheduler. Marketer gives every recurring marketing job
-            a specialist owner, the tools to do it, and a place to bring the
+            More than a scheduler. Chief gives every recurring marketing job a
+            specialist owner, the tools to do it, and a place to bring the
             result back.
           </p>
         </div>
