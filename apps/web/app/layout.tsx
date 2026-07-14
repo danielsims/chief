@@ -29,7 +29,24 @@ export const metadata: Metadata = {
     title: "Chief: Your marketing team, already at work.",
     description:
       "Proactive specialist agents keep marketing work moving and bring results back for review.",
+    url: "/",
+    siteName: "Chief",
+    images: [
+      {
+        url: "/brand/chief-social-card.png",
+        width: 1600,
+        height: 800,
+        alt: "Chief",
+      },
+    ],
     type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Chief: Your marketing team, already at work.",
+    description:
+      "Proactive specialist agents keep marketing work moving and bring results back for review.",
+    images: ["/brand/chief-social-card.png"],
   },
 };
 
