@@ -32,11 +32,18 @@
       "desktop": {
         "schemes": ["chief-desktop"]
       }
+    },
+    "updater": {
+      "endpoints": [
+        "https://heychief.sh/api/update?target={{target}}&arch={{arch}}&current_version={{current_version}}"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJFMDIwRjY3Mjk5NjAxNDQKUlVSRUFaWXBadzhDTHQ2RkhkYkVtT0ljQjRHclViWDRHeG10QUEzWnBYN3loY3VmdVNWMDZHeTAK"
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "externalBin": ["binaries/chief-agent-runtime"],
     "resources": {
       "resources/agent-runtime.tar.gz": "agent-runtime.tar.gz",

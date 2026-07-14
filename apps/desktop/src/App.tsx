@@ -1,3 +1,6 @@
+import type { ErrorInfo, ReactNode } from "react";
+import { Component, useEffect, useRef, useState } from "react";
+import { useAction, useConvexAuth, useQuery } from "convex/react";
 import {
   BrowserRouter,
   Navigate,
@@ -5,57 +8,56 @@ import {
   Routes,
   useLocation,
 } from "react-router";
-import { AuthProvider, useAuth } from "./lib/auth/auth-context";
-import { ConvexClientProvider } from "./lib/convex";
 import { Toaster } from "sonner";
+
+import { api } from "@chief/backend/convex/_generated/api";
+import { Button } from "@chief/ui/components/button";
+
+import { EntryState } from "./components/entry-state";
+import { Layout } from "./components/layout";
 import { AgentConfigProvider } from "./lib/agent-config";
-import { RuntimeProvider } from "./lib/runtime";
+import { AuthProvider, useAuth } from "./lib/auth/auth-context";
 import {
   listAuthOrganizations,
   parseOrganizationMetadata,
 } from "./lib/auth/better-auth-client";
-import { Layout } from "./components/layout";
-import { EntryState } from "./components/entry-state";
-import { DashboardPage } from "./pages/dashboard";
+import { hasWorkspaceAccess, openWorkspaceCheckout } from "./lib/billing";
+import { missingDesktopConfiguration } from "./lib/config";
+import { ConvexClientProvider } from "./lib/convex";
+import { RuntimeProvider } from "./lib/runtime";
+import { AgentsPage } from "./pages/agents";
 import { AnalyticsPage } from "./pages/analytics";
 import { CampaignsPage } from "./pages/campaigns";
-import { SchedulePage } from "./pages/schedule";
-import { ResultsPage } from "./pages/results";
-import { AgentsPage } from "./pages/agents";
 import { ConversationsPage } from "./pages/conversations";
+import { DashboardPage } from "./pages/dashboard";
+import { OnboardingPage } from "./pages/onboarding";
 import { ProspectsPage } from "./pages/prospects";
-import { TrendingPage } from "./pages/trending";
-import { SettingsLayout } from "./pages/settings/layout";
-import { ProfileSettings } from "./pages/settings/profile";
-import { WorkspaceSettings } from "./pages/settings/workspace";
+import { ResultsPage } from "./pages/results";
+import { SchedulePage } from "./pages/schedule";
 import {
   IntegrationSettingsDetail,
   IntegrationsSettings,
 } from "./pages/settings/integrations";
+import { SettingsLayout } from "./pages/settings/layout";
+import { ProfileSettings } from "./pages/settings/profile";
+import { WorkspaceSettings } from "./pages/settings/workspace";
 import { SignInScreen } from "./pages/sign-in";
+import { TrendingPage } from "./pages/trending";
 import { CreateWorkspacePage } from "./pages/workspace-new";
-import { OnboardingPage } from "./pages/onboarding";
-import { useEffect, useState, type ReactNode } from "react";
-import { useConvexAuth, useQuery } from "convex/react";
-import { api } from "@chief/backend/convex/_generated/api";
-import { hasWorkspaceAccess } from "./lib/billing";
-import { openWorkspaceCheckout } from "./lib/billing";
-import { Button } from "@chief/ui/components/button";
-import { missingDesktopConfiguration } from "./lib/config";
 
 function ConfigurationRequired() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
-      <section className="w-full max-w-lg border bg-card p-8">
+    <main className="bg-background text-foreground flex min-h-screen items-center justify-center px-6">
+      <section className="bg-card w-full max-w-lg border p-8">
         <h1 className="font-serif text-3xl">Configure this build</h1>
-        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+        <p className="text-muted-foreground mt-3 text-sm leading-6">
           This copy of Chief is not connected to a backend. Add the missing
           development values, then restart the app.
         </p>
-        <div className="mt-6 whitespace-pre-line border px-4 py-3 font-mono text-xs leading-6 text-muted-foreground">
+        <div className="text-muted-foreground mt-6 border px-4 py-3 font-mono text-xs leading-6 whitespace-pre-line">
           {missingDesktopConfiguration.join("\n")}
         </div>
-        <p className="mt-4 text-xs leading-5 text-muted-foreground">
+        <p className="text-muted-foreground mt-4 text-xs leading-5">
           Start with apps/desktop/.env.example. Official Chief releases receive
           their configuration from the private release environment.
         </p>
@@ -79,10 +81,10 @@ function WorkspaceAccessRequired() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
-      <div className="w-full max-w-md border bg-card p-8 text-center">
+    <div className="bg-background text-foreground flex min-h-screen items-center justify-center px-6">
+      <div className="bg-card w-full max-w-md border p-8 text-center">
         <h1 className="font-serif text-3xl">Continue with Chief</h1>
-        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+        <p className="text-muted-foreground mt-3 text-sm leading-6">
           Your workspace is already set up. Renew access to return to it.
         </p>
         <Button
@@ -93,7 +95,7 @@ function WorkspaceAccessRequired() {
           {opening ? "Opening checkout..." : "Continue to checkout"}
         </Button>
         {error ? (
-          <p className="mt-3 text-xs text-destructive">{error}</p>
+          <p className="text-destructive mt-3 text-xs">{error}</p>
         ) : null}
       </div>
     </div>
@@ -107,8 +109,13 @@ function OnboardingGate({ children }: { children: ReactNode }) {
   const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
   const subscriptionQuery = useQuery(
     api.billing.getSubscription,
-    convexReady && cloudOrganizationId ? {} : "skip",
+    // A cached Better Auth session can outlive its server-side session. Never
+    // let an authenticated query race Convex's token confirmation: a rejected
+    // query throws before the auth provider can return the user to sign-in.
+    cloudOrganizationId && convexReady ? {} : "skip",
   );
+  const reconcileSubscription = useAction(api.billing.reconcileSubscription);
+  const reconciledWorkspaceRef = useRef<string | null>(null);
   // Latch the last resolved subscription so a re-subscribe (auth refresh,
   // org revalidation) revalidates behind the mounted app instead of tearing
   // the whole tree down to a loading screen. Convex pushes real status
@@ -122,6 +129,34 @@ function OnboardingGate({ children }: { children: ReactNode }) {
   }, [subscriptionQuery]);
   const subscription =
     subscriptionQuery === undefined ? knownSubscription : subscriptionQuery;
+
+  useEffect(() => {
+    if (!cloudOrganizationId || !convexReady) return;
+
+    const reconcile = (sessionId?: string | null) => {
+      void reconcileSubscription({
+        ...(sessionId ? { sessionId } : {}),
+      }).catch((error) => {
+        console.warn("[Billing] Subscription reconciliation failed", error);
+      });
+    };
+    const onBillingSuccess = (event: Event) => {
+      // A new Checkout may complete after startup reconciliation, so always
+      // run again when the browser returns through the desktop deep link.
+      const detail = (event as CustomEvent<{ sessionId?: string | null }>)
+        .detail;
+      reconcile(detail?.sessionId);
+    };
+
+    window.addEventListener("chief:billing-success", onBillingSuccess);
+    if (reconciledWorkspaceRef.current !== cloudOrganizationId) {
+      reconciledWorkspaceRef.current = cloudOrganizationId;
+      reconcile();
+    }
+    return () => {
+      window.removeEventListener("chief:billing-success", onBillingSuccess);
+    };
+  }, [cloudOrganizationId, convexReady, reconcileSubscription]);
 
   useEffect(() => {
     let cancelled = false;
@@ -149,6 +184,14 @@ function OnboardingGate({ children }: { children: ReactNode }) {
     };
   }, [cloudOrganizationId]);
 
+  useEffect(() => {
+    const complete = () => setNeedsOnboarding(false);
+    window.addEventListener("chief:onboarding-complete", complete);
+    return () => {
+      window.removeEventListener("chief:onboarding-complete", complete);
+    };
+  }, []);
+
   if (location.pathname === "/workspaces/new") {
     return children;
   }
@@ -174,8 +217,84 @@ function OnboardingGate({ children }: { children: ReactNode }) {
   return children;
 }
 
+class AppErrorBoundary extends Component<
+  {
+    children: ReactNode;
+    onAuthenticationLost?: () => void;
+    resetKey?: string;
+  },
+  { error: Error | null }
+> {
+  state = { error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[Chief] Unhandled render error", error, info);
+    if (
+      error.message.includes("UNAUTHENTICATED") ||
+      error.message.includes("You must be signed in")
+    ) {
+      this.props.onAuthenticationLost?.();
+    }
+  }
+
+  componentDidUpdate(
+    previousProps: Readonly<{
+      children: ReactNode;
+      onAuthenticationLost?: () => void;
+      resetKey?: string;
+    }>,
+  ) {
+    if (this.state.error && previousProps.resetKey !== this.props.resetKey) {
+      this.setState({ error: null });
+    }
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <main className="bg-background text-foreground flex min-h-screen items-center justify-center px-6">
+        <section className="bg-card w-full max-w-md border p-8">
+          <h1 className="font-serif text-3xl">Chief hit a problem</h1>
+          <p className="text-muted-foreground mt-3 text-sm leading-6">
+            Your work is safe. Reload the app to reconnect to this workspace.
+          </p>
+          <Button className="mt-6" onClick={() => window.location.reload()}>
+            Reload Chief
+          </Button>
+          <details className="text-muted-foreground mt-6 text-xs">
+            <summary className="cursor-pointer">Technical details</summary>
+            <p className="mt-2 font-mono leading-5 break-words">
+              {this.state.error.message}
+            </p>
+          </details>
+        </section>
+      </main>
+    );
+  }
+}
+
+function AuthSessionBoundary({ children }: { children: ReactNode }) {
+  const { invalidateSession, sessionToken } = useAuth();
+  return (
+    <AppErrorBoundary
+      onAuthenticationLost={invalidateSession}
+      resetKey={sessionToken ?? "signed-out"}
+    >
+      {children}
+    </AppErrorBoundary>
+  );
+}
+
 function AuthenticatedApp() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <EntryState />;
+  }
 
   if (!isAuthenticated) {
     return <SignInScreen />;
@@ -239,10 +358,14 @@ export default function App() {
   }
 
   return (
-    <AuthProvider>
-      <ConvexClientProvider>
-        <AuthenticatedApp />
-      </ConvexClientProvider>
-    </AuthProvider>
+    <AppErrorBoundary>
+      <AuthProvider>
+        <AuthSessionBoundary>
+          <ConvexClientProvider>
+            <AuthenticatedApp />
+          </ConvexClientProvider>
+        </AuthSessionBoundary>
+      </AuthProvider>
+    </AppErrorBoundary>
   );
 }

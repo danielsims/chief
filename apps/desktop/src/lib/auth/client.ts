@@ -113,9 +113,17 @@ async function handleDeepLink(url: string, options: SetupOptions) {
 
     const parsedUrl = new URL(url);
 
-    // Billing completion links only need to launch and focus the app. They do
-    // not carry an auth token and must not enter the PKCE error path below.
-    if (parsedUrl.pathname === "/billing/success") return;
+    // Billing completion links do not carry an auth token and must not enter
+    // the PKCE path below. Notify the mounted billing gate so it can reconcile
+    // directly with Stripe instead of depending on webhook delivery timing.
+    if (parsedUrl.pathname === "/billing/success") {
+      window.dispatchEvent(
+        new CustomEvent("chief:billing-success", {
+          detail: { sessionId: parsedUrl.searchParams.get("session_id") },
+        }),
+      );
+      return;
+    }
 
     const directSessionToken = parsedUrl.searchParams.get("session_token");
     if (directSessionToken) {

@@ -55,13 +55,16 @@ interface AuthState {
   authError: string | null;
   signIn: () => void;
   signOut: () => void;
+  invalidateSession: () => void;
   updateProfileImage: (image: string | null) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(() =>
+    Boolean(getStoredSession()?.token),
+  );
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [storedSession, setStoredSessionState] = useState<StoredSession | null>(
@@ -69,6 +72,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
   const authFlowCleanupRef = useRef<(() => void) | null>(null);
   const authFlowCompletedRef = useRef(false);
+
+  const invalidateSession = useCallback(() => {
+    authFlowCleanupRef.current?.();
+    authFlowCleanupRef.current = null;
+    authFlowCompletedRef.current = false;
+    clearStoredSession();
+    setStoredSessionState(null);
+    setIsSigningIn(false);
+    setIsLoading(false);
+    setAuthError("Your session expired. Sign in again.");
+  }, []);
 
   // Deep link handler — receives chief-desktop:///auth#token=xxx
   // from the success page, exchanges the PKCE code for a session token.
@@ -121,18 +135,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // so the user gets a clear re-login prompt instead of a half-broken session.
   useEffect(() => {
     const token = storedSession?.token;
-    if (!token) return;
+    if (!token) {
+      setIsLoading(false);
+      return;
+    }
 
     let cancelled = false;
+    setIsLoading(true);
     void validateStoredSession(token).then((result) => {
       if (cancelled) return;
       if (result.status === "invalid") {
         console.warn("[Auth] Stored session rejected by server, signing out");
-        clearStoredSession();
-        setStoredSessionState(null);
+        invalidateSession();
         return;
       }
-      if (result.status !== "valid") return;
+      if (result.status !== "valid") {
+        setIsLoading(false);
+        return;
+      }
 
       setStoredSessionState((current) => {
         if (!current || current.token !== token) return current;
@@ -145,11 +165,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setStoredSession(next);
         return next;
       });
+      setIsLoading(false);
     });
     return () => {
       cancelled = true;
     };
-  }, [storedSession?.token]);
+  }, [invalidateSession, storedSession?.token]);
 
   // ─── Actions ─────────────────────────────────────────────────────────
 
@@ -243,12 +264,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       authError,
       signIn,
       signOut,
+      invalidateSession,
       updateProfileImage,
     }),
     [
       authError,
       isLoading,
       isSigningIn,
+      invalidateSession,
       signIn,
       signOut,
       storedSession,
@@ -273,6 +296,7 @@ export function useAuth(): AuthState {
       authError: null,
       signIn: () => {},
       signOut: () => {},
+      invalidateSession: () => {},
       updateProfileImage: async () => {},
     };
   }

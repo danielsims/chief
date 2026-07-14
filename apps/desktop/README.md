@@ -34,3 +34,8 @@ pnpm --filter @chief/desktop build:app
 ```
 
 Tauri writes installers to `src-tauri/target/release/bundle`. Official signing and notarization values are supplied by the private release environment, not stored in this repository.
+
+Release builds also create signed updater artifacts. Forge must provide the
+same Tauri updater signing key used by the public verification key in
+`src-tauri/tauri.conf.json`; the private key must never be committed. Published
+GitHub releases are discovered through `https://heychief.sh/api/update`.

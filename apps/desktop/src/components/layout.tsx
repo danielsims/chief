@@ -1,25 +1,27 @@
 import { Bell } from "lucide-react";
 import { NavLink, Outlet } from "react-router";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@chief/ui/components/tooltip";
-import { Sidebar } from "./sidebar";
-import { useRuntime, useWorkspaceData } from "../lib/runtime";
-import { useAuth } from "../lib/auth/auth-context";
 import { cn } from "@chief/ui/lib/utils";
+
+import { useAuth } from "../lib/auth/auth-context";
+import { useRuntime, useWorkspaceData } from "../lib/runtime";
+import { Sidebar } from "./sidebar";
 
 function ConnectionDot() {
   const { status } = useRuntime();
   return (
-    <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+    <div className="text-muted-foreground flex items-center gap-2 text-[11px]">
       <span
         className={cn(
           "inline-block h-1.5 w-1.5",
           status === "connected" && "bg-emerald-500",
-          status === "connecting" && "bg-amber-500",
+          status === "connecting" && "animate-pulse bg-blue-500",
           status === "disconnected" && "bg-destructive",
         )}
       />
@@ -40,15 +42,17 @@ function HistoryButton() {
           aria-label="Notifications and run history"
           className={({ isActive }) =>
             cn(
-              "relative flex size-7 items-center justify-center text-muted-foreground transition-colors hover:text-foreground",
+              "text-muted-foreground hover:text-foreground relative flex size-7 items-center justify-center transition-colors",
               isActive && "bg-accent text-foreground",
             )
           }
         >
-          <Bell size={14} />
-          {attentionItems.length > 0 ? (
-            <span className="absolute right-0 top-0 size-1.5 bg-amber-400" />
-          ) : null}
+          <span className="relative inline-flex">
+            <Bell size={14} />
+            {attentionItems.length > 0 ? (
+              <span className="absolute -top-0.5 -right-0.5 size-1.5 bg-amber-400" />
+            ) : null}
+          </span>
         </NavLink>
       </TooltipTrigger>
       <TooltipContent side="bottom">
@@ -61,7 +65,7 @@ function HistoryButton() {
 export function Layout() {
   return (
     <TooltipProvider>
-      <div className="min-h-screen bg-background text-foreground">
+      <div className="bg-background text-foreground min-h-screen">
         <Sidebar />
         <div className="ml-[70px] flex min-h-screen flex-col">
           {/* The controls sit above the drag strip so the rest of the header

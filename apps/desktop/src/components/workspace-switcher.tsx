@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router";
 import { Check, Plus } from "lucide-react";
+import { useNavigate } from "react-router";
+
 import {
   Popover,
   PopoverContent,
@@ -12,12 +13,13 @@ import {
   TooltipTrigger,
 } from "@chief/ui/components/tooltip";
 import { cn } from "@chief/ui/lib/utils";
+
+import type { AuthOrganization } from "../lib/auth/better-auth-client";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   listAuthOrganizations,
   parseOrganizationMetadata,
   setActiveAuthOrganization,
-  type AuthOrganization,
 } from "../lib/auth/better-auth-client";
 import { OrgLogo } from "./org-logo";
 
@@ -73,7 +75,7 @@ export function WorkspaceSwitcher() {
         <TooltipTrigger asChild>
           {/* PopoverTrigger renders a plain button; keep className a plain
               string (Radix Slot/asChild stringifies function classNames). */}
-          <PopoverTrigger className="block h-10 w-10 border border-transparent text-muted-foreground transition-colors hover:text-foreground data-[state=open]:border-border data-[state=open]:text-foreground">
+          <PopoverTrigger className="text-muted-foreground hover:text-foreground data-[state=open]:border-border data-[state=open]:text-foreground block h-10 w-10 border border-transparent transition-colors">
             {activeOrg ? (
               <OrgLogo
                 name={activeOrg.name}
@@ -84,7 +86,7 @@ export function WorkspaceSwitcher() {
                 className="h-full w-full text-base"
               />
             ) : (
-              <span className="flex h-full w-full items-center justify-center border bg-accent">
+              <span className="bg-accent flex h-full w-full items-center justify-center border">
                 <Plus size={16} strokeWidth={1.75} />
               </span>
             )}
@@ -107,7 +109,7 @@ export function WorkspaceSwitcher() {
                     onClick={() => void handleSwitch(org)}
                     disabled={switchingTo !== null}
                     className={cn(
-                      "flex w-full items-center gap-2.5 px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent disabled:opacity-50",
+                      "hover:bg-accent flex w-full items-center gap-2.5 px-2 py-1.5 text-left text-sm transition-colors disabled:opacity-50",
                       switchingTo === org.id && "opacity-50",
                     )}
                   >
@@ -124,7 +126,7 @@ export function WorkspaceSwitcher() {
                       <Check
                         size={14}
                         strokeWidth={1.75}
-                        className="shrink-0 text-muted-foreground"
+                        className="text-muted-foreground shrink-0"
                       />
                     ) : null}
                   </button>
@@ -139,7 +141,7 @@ export function WorkspaceSwitcher() {
               setOpen(false);
               navigate("/workspaces/new");
             }}
-            className="flex w-full items-center gap-2.5 px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground flex w-full items-center gap-2.5 px-2 py-1.5 text-left text-sm transition-colors"
           >
             <span className="flex h-6 w-6 shrink-0 items-center justify-center border">
               <Plus size={13} strokeWidth={1.75} />

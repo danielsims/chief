@@ -1,5 +1,7 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
+
 import { api } from "@chief/backend/convex/_generated/api";
+
 import { AUTH_BASE_URL } from "./auth/better-auth-client";
 import { convex } from "./convex";
 

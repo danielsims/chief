@@ -4,8 +4,8 @@ import { organizationClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 
 import type { StoredSession } from "./session";
-import { getStoredSession, setStoredSession } from "./session";
 import { AUTH_BASE_URL } from "../config";
+import { getStoredSession, setStoredSession } from "./session";
 
 export { AUTH_BASE_URL } from "../config";
 
@@ -28,7 +28,7 @@ const fetchImpl: typeof fetch = async (input, init) => {
       ? input
       : input instanceof URL
         ? input.toString()
-        : (input as Request).url;
+        : input.url;
   console.log("[Auth Fetch]", init?.method ?? "GET", url);
 
   const nextInit = {

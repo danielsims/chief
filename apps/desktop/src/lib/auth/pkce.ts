@@ -6,7 +6,10 @@
  */
 
 // In-memory storage for PKCE verifiers keyed by state
-const verifierStore = new Map<string, { verifier: string; createdAt: number }>();
+const verifierStore = new Map<
+  string,
+  { verifier: string; createdAt: number }
+>();
 
 // Clean up verifiers older than 10 minutes
 const VERIFIER_TTL_MS = 10 * 60 * 1000;
@@ -76,5 +79,8 @@ export function clearPkceVerifier(state: string): void {
 
 function base64UrlEncode(bytes: Uint8Array): string {
   const binary = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }

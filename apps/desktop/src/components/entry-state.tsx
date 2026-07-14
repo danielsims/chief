@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+
 import { Button } from "@chief/ui/components/button";
+
 import { ChiefMark } from "./chief-mark";
 
 /**
@@ -16,15 +18,15 @@ export function EntryState({ timeoutMs = 12_000 }: { timeoutMs?: number }) {
   }, [timeoutMs]);
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background text-foreground">
-      <ChiefMark className="h-10 w-10 text-foreground" />
-      <div className="mt-6 h-px w-24 overflow-hidden bg-border">
-        <div className="entry-progress h-full w-1/3 bg-foreground/50" />
+    <div className="bg-background text-foreground flex min-h-screen flex-col items-center justify-center">
+      <ChiefMark className="text-foreground h-10 w-10" />
+      <div className="bg-border mt-6 h-px w-24 overflow-hidden">
+        <div className="entry-progress bg-foreground/50 h-full w-1/3" />
       </div>
       <div className="flex h-24 flex-col items-center justify-start gap-3 pt-8 text-center">
         {stalled ? (
           <>
-            <p className="max-w-xs text-sm text-muted-foreground">
+            <p className="text-muted-foreground max-w-xs text-sm">
               Reaching your workspace is taking longer than expected.
             </p>
             <Button
