@@ -8,18 +8,29 @@
     "./convex/*": "./convex/*.ts"
   },
   "scripts": {
+    "clean": "git clean -xdf .cache .turbo dist node_modules",
     "dev": "convex dev",
     "deploy": "convex deploy",
+    "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
+    "lint": "eslint --flag unstable_native_nodejs_ts_config",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.3",
+    "@t3-oss/env-core": "^0.13.8",
     "better-auth": "1.6.16",
     "convex": "^1.31.6",
-    "stripe": "^22.3.0"
+    "stripe": "^22.3.0",
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "@types/node": "^22.15.0",
-    "typescript": "~5.8.3"
-  }
+    "@chief/eslint-config": "workspace:*",
+    "@chief/prettier-config": "workspace:*",
+    "@chief/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "prettier": "catalog:",
+    "typescript": "catalog:"
+  },
+  "prettier": "@chief/prettier-config"
 }

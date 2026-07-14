@@ -1,20 +1,59 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
+  "globalEnv": [
+    "AUTH_*",
+    "BASE_URL",
+    "CHIEF_*",
+    "CLOUDFLARE_*",
+    "CODEX_PATH",
+    "CONVEX_SITE_URL",
+    "EXECUTOR_*",
+    "GOOGLE_*",
+    "MARKETER_*",
+    "OPENCODE_PATH",
+    "STRIPE_*",
+    "TAURI_*",
+    "VITE_*",
+    "WORKSPACE_MODEL"
+  ],
+  "globalPassThroughEnv": [
+    "APPLE_SIGNING_IDENTITY",
+    "CI",
+    "NODE_ENV",
+    "npm_lifecycle_event"
+  ],
   "tasks": {
+    "topo": {
+      "dependsOn": ["^topo"]
+    },
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**", "!.next/cache/**", ".output/**"]
+      "outputs": [
+        ".cache/tsbuildinfo.json",
+        "dist/**",
+        ".next/**",
+        "!.next/cache/**",
+        ".output/**"
+      ]
     },
     "dev": {
       "cache": false,
       "persistent": true
     },
+    "format": {
+      "outputs": [".cache/.prettiercache"]
+    },
     "lint": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["topo", "^build"],
+      "outputs": [".cache/.eslintcache"]
     },
     "typecheck": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["topo", "^build"],
+      "outputs": [".cache/tsbuildinfo.json"]
+    },
+    "clean": {
+      "cache": false
     }
   }
 }

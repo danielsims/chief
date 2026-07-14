@@ -1,0 +1,5 @@
+**/.eve/**
+**/.output/**
+**/convex/_generated/**
+**/convex/betterAuth/_generated/**
+**/drizzle/**/snapshot.json

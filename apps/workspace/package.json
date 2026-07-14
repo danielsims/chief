@@ -7,6 +7,9 @@
     "generate": "tsx scripts/generate.ts",
     "dev": "eve dev",
     "build": "eve build",
+    "clean": "git clean -xdf .cache .turbo dist node_modules",
+    "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
+    "lint": "eslint --flag unstable_native_nodejs_ts_config",
     "start": "eve start",
     "typecheck": "tsc --noEmit"
   },
@@ -17,9 +20,15 @@
   },
   "devDependencies": {
     "@chief/agent-runtime": "workspace:*",
-    "@types/node": "^22.20.0",
+    "@chief/eslint-config": "workspace:*",
+    "@chief/prettier-config": "workspace:*",
+    "@chief/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
     "microsandbox": "^0.6.6",
+    "prettier": "catalog:",
     "tsx": "^4.23.0",
-    "typescript": "^5.8.3"
-  }
+    "typescript": "catalog:"
+  },
+  "prettier": "@chief/prettier-config"
 }

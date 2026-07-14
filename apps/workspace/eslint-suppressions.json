@@ -1,0 +1,12 @@
+{
+  "agent/connections/executor.ts": {
+    "@typescript-eslint/require-await": {
+      "count": 1
+    }
+  },
+  "scripts/generate.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    }
+  }
+}

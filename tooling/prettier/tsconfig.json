@@ -1,0 +1,4 @@
+{
+  "extends": "@chief/tsconfig/base.json",
+  "include": ["index.js"]
+}

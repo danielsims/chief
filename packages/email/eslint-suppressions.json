@@ -1,0 +1,7 @@
+{
+  "src/cloudflare.ts": {
+    "@typescript-eslint/no-unnecessary-condition": {
+      "count": 1
+    }
+  }
+}

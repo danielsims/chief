@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",
+    "clean": "git clean -xdf .cache .next .turbo node_modules",
+    "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
+    "lint": "eslint --flag unstable_native_nodejs_ts_config",
     "start": "next start",
     "typecheck": "tsc --noEmit"
   },
@@ -13,18 +16,26 @@
     "@convex-dev/better-auth": "^0.12.3",
     "@chief/backend": "workspace:*",
     "@chief/ui": "workspace:*",
+    "@t3-oss/env-nextjs": "^0.13.8",
     "better-auth": "1.6.16",
     "convex": "^1.31.6",
     "next": "^15.4.2",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "zod": "catalog:"
   },
   "devDependencies": {
+    "@chief/eslint-config": "workspace:*",
+    "@chief/prettier-config": "workspace:*",
+    "@chief/tsconfig": "workspace:*",
     "@tailwindcss/postcss": "^4.1.11",
-    "@types/node": "^22.15.0",
-    "@types/react": "^19.1.8",
-    "@types/react-dom": "^19.1.6",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "eslint": "catalog:",
+    "prettier": "catalog:",
     "tailwindcss": "^4.1.11",
-    "typescript": "~5.8.3"
-  }
+    "typescript": "catalog:"
+  },
+  "prettier": "@chief/prettier-config"
 }

@@ -11,7 +11,10 @@
   },
   "scripts": {
     "build:desktop-sidecar": "node scripts/build-desktop-sidecar.mjs",
+    "clean": "git clean -xdf .cache .turbo dist node_modules",
     "dev": "tsx watch src/server.ts",
+    "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
+    "lint": "eslint --flag unstable_native_nodejs_ts_config",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit"
@@ -31,12 +34,18 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/node": "^22.15.0",
+    "@chief/eslint-config": "workspace:*",
+    "@chief/prettier-config": "workspace:*",
+    "@chief/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
     "@types/ws": "^8.18.1",
     "drizzle-kit": "1.0.0-rc.4",
     "esbuild": "0.27.0",
+    "eslint": "catalog:",
+    "prettier": "catalog:",
     "tar": "^7.5.20",
     "tsx": "^4.20.3",
-    "typescript": "~5.8.3"
-  }
+    "typescript": "catalog:"
+  },
+  "prettier": "@chief/prettier-config"
 }
