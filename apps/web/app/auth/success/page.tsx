@@ -74,7 +74,7 @@ function SuccessContent() {
   }, [redirectBase]);
 
   return (
-    <main className="flex min-h-screen w-full flex-col bg-background text-foreground">
+    <main className="bg-background text-foreground flex min-h-screen w-full flex-col">
       <header className="p-8">
         <img
           alt="Chief"
@@ -92,7 +92,7 @@ function SuccessContent() {
                 ? "Sign-in timed out"
                 : "Signed in"}
           </h1>
-          <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+          <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
             {status === "polling"
               ? "Returning you to the app."
               : status === "timeout"
@@ -102,7 +102,7 @@ function SuccessContent() {
           {deepLinkUrl ? (
             <a
               href={deepLinkUrl}
-              className="mt-12 inline-flex h-11 w-full items-center justify-center bg-primary px-8 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 mt-12 inline-flex h-11 w-full items-center justify-center px-8 text-sm font-medium transition-colors"
             >
               Open Chief
             </a>
@@ -143,7 +143,7 @@ function decodeBase64Url(str: string): string {
 
 export default function AuthSuccessPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-background" />}>
+    <Suspense fallback={<main className="bg-background min-h-screen" />}>
       <SuccessContent />
     </Suspense>
   );

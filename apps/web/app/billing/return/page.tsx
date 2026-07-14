@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
+
 import { SuccessCheck } from "@chief/ui/components/success-check";
 
 const DEEP_LINK = "chief-desktop:///billing/success";
@@ -9,6 +10,10 @@ const DEEP_LINK = "chief-desktop:///billing/success";
 function BillingReturnContent() {
   const searchParams = useSearchParams();
   const success = searchParams.get("status") === "success";
+  const sessionId = searchParams.get("session_id");
+  const deepLink = sessionId
+    ? `${DEEP_LINK}?session_id=${encodeURIComponent(sessionId)}`
+    : DEEP_LINK;
 
   // Hand the moment back to the app once the check has landed, the same way
   // sign-in returns through the desktop deep link. The button stays as the
@@ -16,13 +21,13 @@ function BillingReturnContent() {
   useEffect(() => {
     if (!success) return;
     const timer = setTimeout(() => {
-      window.location.href = DEEP_LINK;
+      window.location.href = deepLink;
     }, 1800);
     return () => clearTimeout(timer);
-  }, [success]);
+  }, [deepLink, success]);
 
   return (
-    <main className="flex min-h-screen w-full flex-col bg-background text-foreground">
+    <main className="bg-background text-foreground flex min-h-screen w-full flex-col">
       <header className="p-8">
         <img
           alt="Chief"
@@ -40,13 +45,13 @@ function BillingReturnContent() {
                 <h1 className="font-serif text-4xl leading-tight">
                   You&rsquo;re in.
                 </h1>
-                <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+                <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
                   Your workspace is ready. Chief is opening now. You can close
                   this tab.
                 </p>
                 <a
-                  href={DEEP_LINK}
-                  className="mt-12 inline-flex h-11 w-full items-center justify-center bg-primary px-8 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                  href={deepLink}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90 mt-12 inline-flex h-11 w-full items-center justify-center px-8 text-sm font-medium transition-colors"
                 >
                   Open Chief
                 </a>
@@ -57,12 +62,12 @@ function BillingReturnContent() {
               <h1 className="font-serif text-4xl leading-tight">
                 Checkout canceled.
               </h1>
-              <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+              <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
                 Nothing was charged. Return to Chief when you&rsquo;re ready.
               </p>
               <a
-                href={DEEP_LINK}
-                className="mt-12 inline-flex h-11 w-full items-center justify-center border text-sm font-medium transition-colors hover:bg-accent"
+                href={deepLink}
+                className="hover:bg-accent mt-12 inline-flex h-11 w-full items-center justify-center border text-sm font-medium transition-colors"
               >
                 Return to Chief
               </a>
@@ -76,7 +81,7 @@ function BillingReturnContent() {
 
 export default function BillingReturnPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-background" />}>
+    <Suspense fallback={<main className="bg-background min-h-screen" />}>
       <BillingReturnContent />
     </Suspense>
   );

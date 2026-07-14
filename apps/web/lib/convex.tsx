@@ -4,8 +4,8 @@ import type { ReactNode } from "react";
 import { ConvexBetterAuthProvider } from "@convex-dev/better-auth/react";
 import { ConvexReactClient } from "convex/react";
 
-import { env } from "./env";
 import { authClient } from "./auth-client";
+import { env } from "./env";
 
 // Create a singleton Convex client
 const convex = new ConvexReactClient(env.NEXT_PUBLIC_CONVEX_URL);

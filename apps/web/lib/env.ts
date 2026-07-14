@@ -1,16 +1,21 @@
-/**
- * Web app environment variables.
- *
- * NEXT_PUBLIC_* vars are inlined at build time by Next.js. Keep access
- * centralized here so the rest of the code imports `env` like the reference.
- */
+import { createEnv } from "@t3-oss/env-nextjs";
+import { z } from "zod/v4";
 
-export const env = {
-  /** Central Convex deployment URL (https://<deployment>.convex.cloud) */
-  NEXT_PUBLIC_CONVEX_URL: process.env.NEXT_PUBLIC_CONVEX_URL ?? "",
-  /**
-   * Convex HTTP actions URL (https://<deployment>.convex.site).
-   * Optional — derived from NEXT_PUBLIC_CONVEX_URL when unset.
-   */
-  NEXT_PUBLIC_CONVEX_SITE_URL: process.env.NEXT_PUBLIC_CONVEX_SITE_URL,
-};
+export const env = createEnv({
+  server: {
+    CHIEF_MACOS_DOWNLOAD_URL: z.url().optional(),
+    CHIEF_WINDOWS_DOWNLOAD_URL: z.url().optional(),
+    GITHUB_TOKEN: z.string().min(1).optional(),
+  },
+  client: {
+    NEXT_PUBLIC_CONVEX_SITE_URL: z.url().optional(),
+    NEXT_PUBLIC_CONVEX_URL: z.url(),
+  },
+  experimental__runtimeEnv: {
+    NEXT_PUBLIC_CONVEX_SITE_URL: process.env.NEXT_PUBLIC_CONVEX_SITE_URL,
+    NEXT_PUBLIC_CONVEX_URL: process.env.NEXT_PUBLIC_CONVEX_URL,
+  },
+  emptyStringAsUndefined: true,
+  skipValidation:
+    Boolean(process.env.CI) || process.env.npm_lifecycle_event === "lint",
+});

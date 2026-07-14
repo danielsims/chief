@@ -109,7 +109,7 @@ function SignInContent() {
   };
 
   return (
-    <main className="flex min-h-screen w-full flex-col bg-background text-foreground">
+    <main className="bg-background text-foreground flex min-h-screen w-full flex-col">
       <header className="p-8">
         <img
           alt="Chief"
@@ -123,7 +123,7 @@ function SignInContent() {
           <h1 className="font-serif text-3xl leading-tight">
             {isDesktopFlow ? "Connect the desktop app" : "Sign in to Chief"}
           </h1>
-          <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+          <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
             {isDesktopFlow
               ? "You'll be sent back to the app after signing in."
               : "Sign in to continue to your workspace."}
@@ -144,7 +144,7 @@ function SignInContent() {
             )}
             {isLoading ? "Loading…" : "Continue with Google"}
           </Button>
-          <p className="mt-6 text-xs leading-relaxed text-muted-foreground/60">
+          <p className="text-muted-foreground/60 mt-6 text-xs leading-relaxed">
             Your data and agents stay on your machine.
           </p>
         </div>
@@ -155,7 +155,7 @@ function SignInContent() {
 
 export default function SignInPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-background" />}>
+    <Suspense fallback={<main className="bg-background min-h-screen" />}>
       <SignInContent />
     </Suspense>
   );
