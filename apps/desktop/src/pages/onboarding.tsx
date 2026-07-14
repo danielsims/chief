@@ -1,28 +1,7 @@
+import type { SimpleIcon } from "simple-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Navigate, useSearchParams } from "react-router";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { api } from "@chief/backend/convex/_generated/api";
-import type { DriverType, OnboardingWorkJob } from "@chief/agent-runtime/types";
-import {
-  siInstagram,
-  siReddit,
-  siTiktok,
-  siX,
-  siYoutube,
-  type SimpleIcon,
-} from "simple-icons";
-import { Button } from "@chief/ui/components/button";
-import { Input } from "@chief/ui/components/input";
-import { PrefixedInput } from "@chief/ui/components/prefixed-input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@chief/ui/components/select";
-import { SuccessCheck } from "@chief/ui/components/success-check";
-import { cn } from "@chief/ui/lib/utils";
 import { Claude, OpenAI, Vercel } from "@lobehub/icons";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import {
   Check,
   CheckCircle2,
@@ -38,41 +17,56 @@ import {
   Twitter,
   Youtube,
 } from "lucide-react";
+import { Navigate, useNavigate, useSearchParams } from "react-router";
+import { siInstagram, siReddit, siTiktok, siX, siYoutube } from "simple-icons";
+
+import type { DriverType, OnboardingWorkJob } from "@chief/agent-runtime/types";
+import { api } from "@chief/backend/convex/_generated/api";
+import { Button } from "@chief/ui/components/button";
+import { Input } from "@chief/ui/components/input";
+import { PrefixedInput } from "@chief/ui/components/prefixed-input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@chief/ui/components/select";
+import { SuccessCheck } from "@chief/ui/components/success-check";
+import { cn } from "@chief/ui/lib/utils";
+
+import type { AuthOrganization } from "../lib/auth/better-auth-client";
+import type { BillingPlan } from "../lib/billing";
+import type { SetupResult } from "../lib/integration-setup";
+import type { IntegrationSearchResult } from "../lib/integrations";
+import type { SocialPlatform } from "../lib/social-platforms";
+import { GoogleLogo } from "../components/google-logo";
+import { IntegrationAvatarStack } from "../components/integrations/integration-avatar-stack";
+import { IntegrationConnect } from "../components/integrations/integration-connect";
+import { resolveFaviconUrl } from "../components/org-logo";
+import { setWorkspaceProvider } from "../lib/agent-overrides";
 import { useAuth } from "../lib/auth/auth-context";
 import {
-  type AuthOrganization,
   createAuthOrganization,
   listAuthOrganizations,
   parseOrganizationMetadata,
   setActiveAuthOrganization,
   updateAuthOrganization,
 } from "../lib/auth/better-auth-client";
-import { SOCIAL_PLATFORMS, type SocialPlatform } from "../lib/social-platforms";
-import { setWorkspaceProvider } from "../lib/agent-overrides";
-import { useRuntime, useWorkspaceData } from "../lib/runtime";
-import { buildWorkspaceContext } from "../lib/workspace-context";
+import { hasWorkspaceAccess, openWorkspaceCheckout } from "../lib/billing";
+import { connectGoogleAnalytics } from "../lib/google-analytics";
+import { persistSetupResult } from "../lib/integration-setup";
+import { integrationLogoUrl, searchIntegrations } from "../lib/integrations";
 import {
   buildOnboardingSchedules,
   buildScheduleProvisioningJob,
 } from "../lib/onboarding-schedules";
-import {
-  hasWorkspaceAccess,
-  openWorkspaceCheckout,
-  type BillingPlan,
-} from "../lib/billing";
-import { connectGoogleAnalytics } from "../lib/google-analytics";
-import { persistSetupResult, type SetupResult } from "../lib/integration-setup";
-import { IntegrationConnect } from "../components/integrations/integration-connect";
-import { resolveFaviconUrl } from "../components/org-logo";
-import { GoogleLogo } from "../components/google-logo";
-import {
-  integrationLogoUrl,
-  searchIntegrations,
-  type IntegrationSearchResult,
-} from "../lib/integrations";
+import { getPlaybook } from "../lib/playbooks";
+import { useRuntime, useWorkspaceData } from "../lib/runtime";
+import { SOCIAL_PLATFORMS } from "../lib/social-platforms";
+import { buildWorkspaceContext } from "../lib/workspace-context";
 
 type AutomationMode = "automatic" | "review" | "manual";
-type AutomationFrequency = "weekdays" | "weekly";
+type AutomationFrequency = "daily" | "weekly";
 
 interface OnboardingAutomationItem {
   playbookId: string;
@@ -151,6 +145,7 @@ interface OnboardingDraft {
     trackAiReferrals: boolean;
   };
   automation: {
+    defaultsVersion: number;
     mode: AutomationMode;
     timezone: string;
     plan: OnboardingAutomationItem[];
@@ -199,10 +194,9 @@ const questions: Record<StepKey, string> = {
     "Where should your agents proactively search for prospects, buying signals and relevant conversations?",
   analytics: "Which analytics platforms do you use today?",
   analyticsConnect:
-    "Great. I'll connect these analytics sources after onboarding, so you can keep moving.",
+    "Great. I'll connect these analytics sources after onboarding.",
   ads: "Where do you run paid ads today?",
-  adsConnect:
-    "Great. I'll connect these ad accounts after onboarding, so you can keep moving.",
+  adsConnect: "Great. I'll connect these ad accounts after onboarding.",
   adsBudget: "No ads today. Want your agents to run them for you?",
   aeo: "One more thing. Want to know when ChatGPT, Claude or Perplexity send you customers?",
   automation:
@@ -268,7 +262,7 @@ function defaultAutomationPlan(): OnboardingAutomationItem[] {
       agentId: "prospector",
       purpose: "Surface people already describing the problem you solve.",
       enabled: true,
-      frequency: "weekdays",
+      frequency: "daily",
       day: 1,
       time: "09:00",
     },
@@ -280,6 +274,16 @@ function defaultAutomationPlan(): OnboardingAutomationItem[] {
       enabled: true,
       frequency: "weekly",
       day: 2,
+      time: "10:00",
+    },
+    {
+      playbookId: "brand-content",
+      title: "Brand content",
+      agentId: "content",
+      purpose: "Draft useful brand-led posts from product and customer proof.",
+      enabled: true,
+      frequency: "weekly",
+      day: 4,
       time: "10:00",
     },
     {
@@ -310,7 +314,7 @@ function onboardingWorkJobs(draft: OnboardingDraft): OnboardingWorkJob[] {
       id: "onboarding-brand-setup",
       agentId: "setup",
       title: "Build brand profile",
-      runAt: now + 2 * 60_000,
+      runAt: now + 3_000,
       timezone: draft.automation.timezone,
       proposedToolPatterns: [
         ...commonSetupTools,
@@ -336,7 +340,7 @@ function onboardingWorkJobs(draft: OnboardingDraft): OnboardingWorkJob[] {
   const setupJob = (
     category: "analytics" | "ads",
     integrations: IntegrationSearchResult[],
-    delayMinutes: number,
+    delayMs: number,
   ) => {
     if (integrations.length === 0) return;
     const names = integrations.map((item) => item.name).join(", ");
@@ -344,7 +348,7 @@ function onboardingWorkJobs(draft: OnboardingDraft): OnboardingWorkJob[] {
       id: `onboarding-${category}-setup`,
       agentId: "setup",
       title: `Connect ${category} tools`,
-      runAt: now + delayMinutes * 60_000,
+      runAt: now + delayMs,
       timezone: draft.automation.timezone,
       proposedToolPatterns: [
         ...commonSetupTools,
@@ -360,8 +364,8 @@ function onboardingWorkJobs(draft: OnboardingDraft): OnboardingWorkJob[] {
       ].join("\n\n"),
     });
   };
-  setupJob("analytics", draft.analytics.integrations, 5);
-  setupJob("ads", draft.ads.integrations, 8);
+  setupJob("analytics", draft.analytics.integrations, 6_000);
+  setupJob("ads", draft.ads.integrations, 9_000);
 
   const provisioningJob = buildScheduleProvisioningJob(draft.automation);
   if (provisioningJob) jobs.push(provisioningJob);
@@ -483,7 +487,7 @@ function BrandIcon({
     return (
       <span
         className={cn(
-          "flex h-6 w-6 items-center justify-center border bg-background text-[10px] text-muted-foreground",
+          "bg-background text-muted-foreground flex h-6 w-6 items-center justify-center border text-[10px]",
           className,
         )}
       >
@@ -495,7 +499,7 @@ function BrandIcon({
   return (
     <span
       className={cn(
-        "flex h-6 w-6 items-center justify-center border bg-background text-foreground",
+        "bg-background text-foreground flex h-6 w-6 items-center justify-center border",
         className,
       )}
       aria-label={icon.title}
@@ -561,6 +565,7 @@ function baseDraft(): OnboardingDraft {
       trackAiReferrals: true,
     },
     automation: {
+      defaultsVersion: 2,
       mode: "automatic",
       timezone:
         Intl.DateTimeFormat().resolvedOptions().timeZone ||
@@ -609,14 +614,18 @@ function normaliseAutomationPlan(value: unknown): OnboardingAutomationItem[] {
         typeof item === "object" &&
         (item as { playbookId?: unknown }).playbookId === fallback.playbookId,
     ) as Partial<OnboardingAutomationItem> | undefined;
+    const savedFrequency = (saved as { frequency?: unknown } | undefined)
+      ?.frequency;
     return {
       ...fallback,
       enabled:
         typeof saved?.enabled === "boolean" ? saved.enabled : fallback.enabled,
       frequency:
-        saved?.frequency === "weekdays" || saved?.frequency === "weekly"
-          ? saved.frequency
-          : fallback.frequency,
+        savedFrequency === "daily" || savedFrequency === "weekly"
+          ? savedFrequency
+          : savedFrequency === "weekdays"
+            ? "daily"
+            : fallback.frequency,
       day:
         typeof saved?.day === "number" && saved.day >= 0 && saved.day <= 6
           ? saved.day
@@ -736,12 +745,13 @@ function draftFromOrg(
         typeof aeo.trackAiReferrals === "boolean" ? aeo.trackAiReferrals : true,
     },
     automation: {
+      defaultsVersion: 2,
       mode:
-        automation.mode === "automatic" ||
-        automation.mode === "review" ||
-        automation.mode === "manual"
+        automation.mode === "automatic" || automation.mode === "manual"
           ? automation.mode
-          : "review",
+          : automation.mode === "review" && automation.defaultsVersion === 2
+            ? "review"
+            : "automatic",
       timezone:
         typeof automation.timezone === "string" && automation.timezone
           ? automation.timezone
@@ -852,12 +862,15 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
             : base.aeo.trackAiReferrals,
       },
       automation: {
+        defaultsVersion: 2,
         mode:
           parsedAutomation?.mode === "automatic" ||
-          parsedAutomation?.mode === "review" ||
           parsedAutomation?.mode === "manual"
             ? parsedAutomation.mode
-            : base.automation.mode,
+            : parsedAutomation?.mode === "review" &&
+                parsedAutomation.defaultsVersion === 2
+              ? "review"
+              : base.automation.mode,
         timezone:
           typeof parsedAutomation?.timezone === "string" &&
           parsedAutomation.timezone
@@ -909,10 +922,10 @@ function AgentBubble({ text, current }: { text: string; current?: boolean }) {
   const typed = useTypedQuestion(text);
   return (
     <div className="flex justify-start">
-      <div className="max-w-[680px] text-[15px] leading-7 text-foreground">
+      <div className="text-foreground max-w-[680px] text-[15px] leading-7">
         {current ? typed.visible : text}
         {current && !typed.complete ? (
-          <span className="ml-0.5 inline-block h-4 w-px translate-y-0.5 animate-pulse bg-foreground" />
+          <span className="bg-foreground ml-0.5 inline-block h-4 w-px translate-y-0.5 animate-pulse" />
         ) : null}
       </div>
     </div>
@@ -922,7 +935,7 @@ function AgentBubble({ text, current }: { text: string; current?: boolean }) {
 function UserBubble({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[620px] border bg-muted/40 px-3 py-2 text-sm leading-6 text-foreground">
+      <div className="bg-muted/40 text-foreground max-w-[620px] border px-3 py-2 text-sm leading-6">
         {children}
       </div>
     </div>
@@ -945,22 +958,22 @@ function UserIndicator({
   const initial = label.charAt(0).toUpperCase();
 
   return (
-    <div className="fixed left-4 top-10 z-50 flex items-center gap-2">
-      <span className="flex size-7 shrink-0 items-center justify-center overflow-hidden border bg-muted text-[11px] font-medium text-muted-foreground">
+    <div className="fixed top-10 left-4 z-50 flex items-center gap-2">
+      <span className="bg-muted text-muted-foreground flex size-7 shrink-0 items-center justify-center overflow-hidden border text-[11px] font-medium">
         {user.image ? (
           <img src={user.image} alt="" className="h-full w-full object-cover" />
         ) : (
           initial
         )}
       </span>
-      <span className="max-w-[180px] truncate text-[13px] text-muted-foreground">
+      <span className="text-muted-foreground max-w-[180px] truncate text-[13px]">
         {label}
       </span>
-      <span className="text-[13px] text-muted-foreground/40">·</span>
+      <span className="text-muted-foreground/40 text-[13px]">·</span>
       <button
         type="button"
         onClick={onSignOut}
-        className="cursor-pointer text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+        className="text-muted-foreground hover:text-foreground cursor-pointer text-[13px] transition-colors"
       >
         Sign out
       </button>
@@ -1085,7 +1098,7 @@ function AnswerPreview({
               : "Skip for now"}
         </span>
         {draft.brand.files.length > 0 ? (
-          <span className="mt-1 block text-muted-foreground">
+          <span className="text-muted-foreground mt-1 block">
             {draft.brand.files.map((file) => file.name).join(", ")}
           </span>
         ) : null}
@@ -1104,7 +1117,7 @@ function AnswerPreview({
             {selected.map((def) => (
               <span
                 key={def.platform}
-                className="inline-flex items-center gap-2 border bg-background px-2 py-1"
+                className="bg-background inline-flex items-center gap-2 border px-2 py-1"
               >
                 <SocialIcon label={def.label} platform={def.platform} />
                 {def.prefix}
@@ -1151,13 +1164,13 @@ function AnswerPreview({
       <UserBubble>
         <div className="flex flex-wrap gap-2">
           {draft.monitoring.channels.map((channel) => (
-            <span key={channel} className="border bg-background px-2 py-1">
+            <span key={channel} className="bg-background border px-2 py-1">
               {channel}
             </span>
           ))}
         </div>
         {draft.monitoring.keywords || draft.monitoring.details ? (
-          <p className="mt-2 text-muted-foreground">
+          <p className="text-muted-foreground mt-2">
             {draft.monitoring.keywords || draft.monitoring.details}
           </p>
         ) : null}
@@ -1228,7 +1241,7 @@ function AnswerPreview({
       <UserBubble>
         <span className="block font-medium">{modeLabel}</span>
         {enabled.length > 0 && draft.automation.mode !== "manual" ? (
-          <span className="mt-1 block text-muted-foreground">
+          <span className="text-muted-foreground mt-1 block">
             {enabled.map((item) => item.title).join(", ")}
           </span>
         ) : null}
@@ -1261,7 +1274,7 @@ function Chip({
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex min-h-9 items-center gap-2 border px-3 py-1.5 text-sm transition-colors hover:border-foreground",
+        "hover:border-foreground inline-flex min-h-9 items-center gap-2 border px-3 py-1.5 text-sm transition-colors",
         selected
           ? "border-foreground bg-accent text-foreground"
           : "bg-background text-muted-foreground",
@@ -1290,7 +1303,7 @@ function StepFrame({
   actionsAlign?: "left" | "right";
 }) {
   return (
-    <div className="w-full border bg-card/60 p-5 shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]">
+    <div className="bg-card/60 w-full border p-5 shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]">
       {children}
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
         <div
@@ -1344,7 +1357,7 @@ function ModeControl({
 
   const cardClass = (selected: boolean) =>
     cn(
-      "border bg-background p-4 text-left transition-colors hover:border-foreground",
+      "bg-background hover:border-foreground border p-4 text-left transition-colors",
       selected && "border-foreground bg-muted",
     );
 
@@ -1357,12 +1370,12 @@ function ModeControl({
           onClick={() => selectMode("local")}
         >
           <div className="flex items-start gap-3">
-            <span className="flex size-8 shrink-0 items-center justify-center border bg-background">
+            <span className="bg-background flex size-8 shrink-0 items-center justify-center border">
               <Laptop size={16} />
             </span>
             <span>
               <span className="block text-sm font-medium">This Mac</span>
-              <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+              <span className="text-muted-foreground mt-1 block text-xs leading-5">
                 Use the Claude or Codex app you already have. Good when you want
                 work, data and connector secrets to stay close to this machine.
               </span>
@@ -1376,12 +1389,12 @@ function ModeControl({
           onClick={() => selectMode("cloud")}
         >
           <div className="flex items-start gap-3">
-            <span className="flex size-8 shrink-0 items-center justify-center border bg-background">
+            <span className="bg-background flex size-8 shrink-0 items-center justify-center border">
               <Cloud size={16} />
             </span>
             <span>
               <span className="block text-sm font-medium">Cloud workspace</span>
-              <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+              <span className="text-muted-foreground mt-1 block text-xs leading-5">
                 Run agents from a dedicated cloud workspace, with isolated
                 storage for this company and room to work while your Mac is
                 offline.
@@ -1413,7 +1426,7 @@ function ContextControl({
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="space-y-1.5">
-          <span className="text-xs text-muted-foreground">Company</span>
+          <span className="text-muted-foreground text-xs">Company</span>
           <Input
             autoFocus
             value={draft.companyName}
@@ -1422,7 +1435,7 @@ function ContextControl({
           />
         </label>
         <label className="space-y-1.5">
-          <span className="text-xs text-muted-foreground">Website</span>
+          <span className="text-muted-foreground text-xs">Website</span>
           <Input
             value={draft.websiteUrl}
             onChange={(event) => setField({ websiteUrl: event.target.value })}
@@ -1446,11 +1459,11 @@ function BrandControl({
   saving: boolean;
 }) {
   const [fileError, setFileError] = useState<string | null>(null);
-  const choices: Array<{
+  const choices: {
     mode: OnboardingDraft["brand"]["mode"];
     label: string;
     detail: string;
-  }> = [
+  }[] = [
     {
       mode: "research",
       label: "Build it for me",
@@ -1505,19 +1518,19 @@ function BrandControl({
             type="button"
             onClick={() => setBrand({ mode: choice.mode })}
             className={cn(
-              "border bg-background p-3 text-left transition-colors hover:border-foreground",
+              "bg-background hover:border-foreground border p-3 text-left transition-colors",
               draft.brand.mode === choice.mode && "border-foreground bg-accent",
             )}
           >
             <span className="block text-xs font-medium">{choice.label}</span>
-            <span className="mt-1 block text-[10px] leading-4 text-muted-foreground">
+            <span className="text-muted-foreground mt-1 block text-[10px] leading-4">
               {choice.detail}
             </span>
           </button>
         ))}
       </div>
       {draft.brand.mode !== "skip" ? (
-        <div className="mt-4 border bg-background p-4">
+        <div className="bg-background mt-4 border p-4">
           <label className="text-xs font-medium" htmlFor="brand-notes">
             Anything the agent should preserve
           </label>
@@ -1526,11 +1539,11 @@ function BrandControl({
             value={draft.brand.notes}
             onChange={(event) => setBrand({ notes: event.target.value })}
             placeholder="Claims, phrases, visual rules, examples or links"
-            className="mt-2 min-h-20 w-full resize-y border bg-background px-3 py-2 text-xs leading-5 outline-none placeholder:text-muted-foreground focus:border-foreground"
+            className="bg-background placeholder:text-muted-foreground focus:border-foreground mt-2 min-h-20 w-full resize-y border px-3 py-2 text-xs leading-5 outline-none"
           />
           {draft.brand.mode === "upload" ? (
             <div className="mt-3 flex flex-wrap items-center gap-3">
-              <label className="inline-flex h-8 cursor-pointer items-center border bg-foreground px-3 text-xs text-background hover:bg-foreground/90">
+              <label className="bg-foreground text-background hover:bg-foreground/90 inline-flex h-8 cursor-pointer items-center border px-3 text-xs">
                 Add files
                 <input
                   type="file"
@@ -1540,7 +1553,7 @@ function BrandControl({
                   onChange={(event) => void addFiles(event.target.files)}
                 />
               </label>
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-muted-foreground text-[10px]">
                 Up to four files, 4 MB total
               </span>
             </div>
@@ -1550,7 +1563,7 @@ function BrandControl({
               {draft.brand.files.map((file) => (
                 <span
                   key={file.name}
-                  className="border px-2 py-1 text-[10px] text-muted-foreground"
+                  className="text-muted-foreground border px-2 py-1 text-[10px]"
                 >
                   {file.name}
                 </span>
@@ -1558,11 +1571,11 @@ function BrandControl({
             </div>
           ) : null}
           {fileError ? (
-            <p className="mt-2 text-[10px] text-destructive">{fileError}</p>
+            <p className="text-destructive mt-2 text-[10px]">{fileError}</p>
           ) : null}
         </div>
       ) : null}
-      <p className="mt-3 text-[10px] leading-4 text-muted-foreground">
+      <p className="text-muted-foreground mt-3 text-[10px] leading-4">
         This runs after onboarding and appears in Run History. It will not hold
         up setup.
       </p>
@@ -1591,7 +1604,7 @@ function SocialsControl({
             key={def.platform}
             className="grid gap-2 sm:grid-cols-[7rem_1fr] sm:items-center"
           >
-            <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="text-muted-foreground inline-flex items-center gap-2 text-xs">
               <SocialIcon label={def.label} platform={def.platform} />
               {def.label}
             </span>
@@ -1622,7 +1635,7 @@ function ProviderControl({
 }) {
   const optionClass = (selected: boolean) =>
     cn(
-      "flex min-h-[112px] items-start gap-3 border bg-background p-4 text-left transition-colors hover:border-foreground",
+      "bg-background hover:border-foreground flex min-h-[112px] items-start gap-3 border p-4 text-left transition-colors",
       selected && "border-foreground bg-muted",
     );
 
@@ -1642,7 +1655,7 @@ function ProviderControl({
               <span className="block text-sm font-medium">
                 Cloud deployment
               </span>
-              <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+              <span className="text-muted-foreground mt-1 block text-xs leading-5">
                 Connect the hosted agent service for this workspace. Each
                 company gets its own working area for data and connector
                 secrets.
@@ -1651,7 +1664,7 @@ function ProviderControl({
           </button>
 
           <label className="block space-y-1.5">
-            <span className="text-xs text-muted-foreground">
+            <span className="text-muted-foreground text-xs">
               Agent endpoint
             </span>
             <Input
@@ -1662,7 +1675,7 @@ function ProviderControl({
               placeholder="https://your-agent-service.vercel.app"
             />
           </label>
-          <p className="text-xs leading-5 text-muted-foreground">
+          <p className="text-muted-foreground text-xs leading-5">
             You can leave this blank while setup continues. The workspace will
             remember that agents should run from the cloud.
           </p>
@@ -1690,7 +1703,7 @@ function ProviderControl({
           <Claude.Color size={18} className="mt-0.5 shrink-0" />
           <span>
             <span className="block text-sm font-medium">Claude</span>
-            <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+            <span className="text-muted-foreground mt-1 block text-xs leading-5">
               Uses your existing Claude subscription on this Mac. Good for
               strategy, research and writing work.
             </span>
@@ -1706,7 +1719,7 @@ function ProviderControl({
           <OpenAI size={18} className="mt-0.5 shrink-0" />
           <span>
             <span className="block text-sm font-medium">Codex</span>
-            <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+            <span className="text-muted-foreground mt-1 block text-xs leading-5">
               Uses your existing Codex setup. Good when the agent needs to work
               in repos, files and local tools.
             </span>
@@ -1740,7 +1753,7 @@ function ReadinessRow({
       </span>
       <span className="min-w-0">
         <span className="block text-sm font-medium">{label}</span>
-        <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+        <span className="text-muted-foreground mt-1 block text-xs leading-5">
           {detail}
         </span>
       </span>
@@ -1780,7 +1793,7 @@ function HealthControl({
       saving={saving}
       continueLabel="Start business setup"
     >
-      <div className="divide-y border bg-background px-4">
+      <div className="bg-background divide-y border px-4">
         <ReadinessRow
           icon={Server}
           label="Account"
@@ -1817,7 +1830,7 @@ function HealthControl({
         />
       </div>
       {!runtimeReady ? (
-        <p className="mt-4 text-xs leading-5 text-muted-foreground">
+        <p className="text-muted-foreground mt-4 text-xs leading-5">
           You can continue now. Chief will keep the workspace setup moving while
           the agent connection finishes coming online.
         </p>
@@ -1854,7 +1867,7 @@ function SellingControl({
         }}
         placeholder="AI marketing agents for early-stage teams"
       />
-      <p className="mt-3 text-xs leading-5 text-muted-foreground">
+      <p className="text-muted-foreground mt-3 text-xs leading-5">
         Keep it short. The agents use this as the plain-English version of the
         offer.
       </p>
@@ -1890,7 +1903,7 @@ function AudienceControl({
         }}
         placeholder="Solo founders who need pipeline but hate manual outreach"
       />
-      <p className="mt-3 text-xs leading-5 text-muted-foreground">
+      <p className="text-muted-foreground mt-3 text-xs leading-5">
         A real person or team type is better than a market category.
       </p>
     </StepFrame>
@@ -1925,7 +1938,7 @@ function SuccessControl({
       saving={saving}
       disabled={draft.goals.success.length === 0}
     >
-      <p className="mb-3 text-xs leading-5 text-muted-foreground">
+      <p className="text-muted-foreground mb-3 text-xs leading-5">
         Choose every outcome that would make Chief feel worthwhile.
       </p>
       <div className="grid gap-2 sm:grid-cols-2">
@@ -2000,9 +2013,9 @@ function TimeControl({
           onChange={(event) =>
             setGoals({ timeBudget: timeOptions[Number(event.target.value)] })
           }
-          className="mt-6 h-1 w-full cursor-pointer appearance-none bg-border accent-white [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-thumb]:-mt-1 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-white"
+          className="bg-border [&::-webkit-slider-runnable-track]:bg-border mt-6 h-1 w-full cursor-pointer appearance-none accent-white [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-thumb]:-mt-1 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-white"
         />
-        <div className="mt-4 flex justify-between text-xs text-muted-foreground">
+        <div className="text-muted-foreground mt-4 flex justify-between text-xs">
           <span>Less</span>
           <span>More</span>
         </div>
@@ -2040,11 +2053,11 @@ function AutomationControl({
     content: "Content Writer",
     prospector: "Prospector",
   };
-  const modes: Array<{
+  const modes: {
     mode: AutomationMode;
     label: string;
     detail: string;
-  }> = [
+  }[] = [
     {
       mode: "automatic",
       label: "Activate selected",
@@ -2082,13 +2095,13 @@ function AutomationControl({
             type="button"
             onClick={() => setAutomation({ mode: option.mode })}
             className={cn(
-              "border bg-background p-3 text-left transition-colors hover:border-foreground",
+              "bg-background hover:border-foreground border p-3 text-left transition-colors",
               draft.automation.mode === option.mode &&
                 "border-foreground bg-accent",
             )}
           >
-            <span className="block text-xs font-medium">{option.label}</span>
-            <span className="mt-1 block text-[10px] leading-4 text-muted-foreground">
+            <span className="block text-sm font-medium">{option.label}</span>
+            <span className="text-muted-foreground mt-1 block text-xs leading-5">
               {option.detail}
             </span>
           </button>
@@ -2099,132 +2112,141 @@ function AutomationControl({
         <div className="mt-4">
           <div className="mb-2 flex items-center justify-between gap-4">
             <div>
-              <p className="text-xs font-medium">Recommended recurring work</p>
-              <p className="mt-0.5 text-[10px] text-muted-foreground">
+              <p className="text-sm font-medium">Recommended recurring work</p>
+              <p className="text-muted-foreground mt-1 text-xs leading-5">
                 A practical starting point for a new workspace.
               </p>
             </div>
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-muted-foreground text-xs">
               {draft.automation.timezone.split("/").at(-1)?.replace(/_/g, " ")}{" "}
               time
             </span>
           </div>
-          <div className="divide-y border bg-background">
-            {draft.automation.plan.map((item) => (
-              <div
-                key={item.playbookId}
-                className={cn(
-                  "grid gap-3 px-3 py-3 transition-opacity sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center",
-                  !item.enabled && "opacity-50",
-                )}
-              >
-                <div className="flex min-w-0 items-start gap-3">
-                  <button
-                    type="button"
-                    aria-label={`${item.enabled ? "Remove" : "Add"} ${item.title}`}
-                    onClick={() =>
-                      updateItem(item.playbookId, { enabled: !item.enabled })
-                    }
-                    className={cn(
-                      "mt-0.5 flex size-5 shrink-0 items-center justify-center border transition-colors",
-                      item.enabled &&
-                        "border-foreground bg-foreground text-background",
-                    )}
-                  >
-                    {item.enabled ? <Check size={12} /> : null}
-                  </button>
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <p className="truncate text-xs font-medium">
-                        {item.title}
-                      </p>
-                      <span className="text-[10px] text-muted-foreground">
-                        {agentLabels[item.agentId] ?? item.agentId}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
-                      {item.purpose}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5 pl-8 sm:pl-0">
-                  <Select
-                    value={item.frequency}
-                    onValueChange={(value) =>
-                      updateItem(item.playbookId, {
-                        frequency: value as AutomationFrequency,
-                      })
-                    }
-                  >
-                    <SelectTrigger
-                      aria-label={`${item.title} frequency`}
-                      disabled={!item.enabled}
-                      className="h-8 w-24 bg-background text-[10px]"
+          <div className="bg-background divide-y border">
+            {draft.automation.plan.map((item) => {
+              const playbook = getPlaybook(item.playbookId);
+              return (
+                <div
+                  key={item.playbookId}
+                  className={cn(
+                    "grid gap-4 px-4 py-4 transition-opacity sm:grid-cols-[minmax(0,1fr)_304px] sm:items-center",
+                    !item.enabled && "opacity-50",
+                  )}
+                >
+                  <div className="flex min-w-0 items-start gap-3">
+                    <button
+                      type="button"
+                      aria-label={`${item.enabled ? "Remove" : "Add"} ${item.title}`}
+                      onClick={() =>
+                        updateItem(item.playbookId, { enabled: !item.enabled })
+                      }
+                      className={cn(
+                        "mt-0.5 flex size-5 shrink-0 items-center justify-center border transition-colors",
+                        item.enabled &&
+                          "border-foreground bg-foreground text-background",
+                      )}
                     >
-                      <span>
-                        {item.frequency === "weekdays" ? "Weekdays" : "Weekly"}
-                      </span>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="weekdays">Weekdays</SelectItem>
-                      <SelectItem value="weekly">Weekly</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {item.frequency === "weekly" ? (
+                      {item.enabled ? <Check size={12} /> : null}
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <p className="min-w-0 truncate text-sm font-medium">
+                          {item.title}
+                        </p>
+                        <IntegrationAvatarStack
+                          integrations={playbook?.integrations}
+                          max={4}
+                        />
+                      </div>
+                      <p className="text-muted-foreground mt-1 text-[11px]">
+                        {agentLabels[item.agentId] ?? item.agentId}
+                      </p>
+                      <p className="text-muted-foreground mt-1.5 text-xs leading-5">
+                        {item.purpose}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 pl-8 sm:w-[304px] sm:justify-end sm:pl-0">
                     <Select
-                      value={String(item.day)}
+                      value={item.frequency}
                       onValueChange={(value) =>
                         updateItem(item.playbookId, {
-                          day: Number(value),
+                          frequency: value as AutomationFrequency,
                         })
                       }
                     >
                       <SelectTrigger
-                        aria-label={`${item.title} day`}
+                        aria-label={`${item.title} frequency`}
                         disabled={!item.enabled}
-                        className="h-8 w-20 bg-background text-[10px]"
+                        className="bg-background h-8 w-24 text-xs"
                       >
-                        <span>{weekDays[item.day]?.slice(0, 3)}</span>
+                        <span className="whitespace-nowrap">
+                          {item.frequency === "daily" ? "Daily" : "Weekly"}
+                        </span>
                       </SelectTrigger>
                       <SelectContent>
-                        {weekDays.map((day, index) => (
-                          <SelectItem key={day} value={String(index)}>
-                            {day}
+                        <SelectItem value="daily">Daily</SelectItem>
+                        <SelectItem value="weekly">Weekly</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {item.frequency === "weekly" ? (
+                      <Select
+                        value={String(item.day)}
+                        onValueChange={(value) =>
+                          updateItem(item.playbookId, {
+                            day: Number(value),
+                          })
+                        }
+                      >
+                        <SelectTrigger
+                          aria-label={`${item.title} day`}
+                          disabled={!item.enabled}
+                          className="bg-background h-8 w-20 text-xs"
+                        >
+                          <span className="whitespace-nowrap">
+                            {weekDays[item.day]?.slice(0, 3)}
+                          </span>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {weekDays.map((day, index) => (
+                            <SelectItem key={day} value={String(index)}>
+                              {day}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : null}
+                    <Select
+                      value={item.time}
+                      onValueChange={(time) =>
+                        updateItem(item.playbookId, { time })
+                      }
+                    >
+                      <SelectTrigger
+                        aria-label={`${item.title} time`}
+                        disabled={!item.enabled}
+                        className="bg-background h-8 w-28 text-xs"
+                      >
+                        <span className="whitespace-nowrap">
+                          {scheduleTimeOptions.find(
+                            (option) => option.value === item.time,
+                          )?.label ?? item.time}
+                        </span>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {scheduleTimeOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                  ) : null}
-                  <Select
-                    value={item.time}
-                    onValueChange={(time) =>
-                      updateItem(item.playbookId, { time })
-                    }
-                  >
-                    <SelectTrigger
-                      aria-label={`${item.title} time`}
-                      disabled={!item.enabled}
-                      className="h-8 w-[92px] bg-background text-[10px]"
-                    >
-                      <span>
-                        {scheduleTimeOptions.find(
-                          (option) => option.value === item.time,
-                        )?.label ?? item.time}
-                      </span>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {scheduleTimeOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
-          <p className="mt-3 text-[10px] leading-4 text-muted-foreground">
+          <p className="text-muted-foreground mt-3 text-xs leading-5">
             This only activates the schedules above. Publishing, outreach and
             spend still need approval.
           </p>
@@ -2272,17 +2294,17 @@ function MonitoringControl({
           </Chip>
         ))}
       </div>
-      <div className="mt-5 border bg-background p-4">
+      <div className="bg-background mt-5 border p-4">
         <div className="max-w-xl">
-          <p className="text-xs font-medium">What should agents look for?</p>
-          <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+          <p className="text-sm font-medium">What should agents look for?</p>
+          <p className="text-muted-foreground mt-1.5 text-xs leading-5">
             Add the problems customers describe and competitors worth watching.
             This gives your agents a useful place to start.
           </p>
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-[1.15fr_0.85fr]">
           <label htmlFor="monitoring-signals" className="block">
-            <span className="mb-1.5 block text-[10px] font-medium text-foreground">
+            <span className="text-foreground mb-2 block text-xs font-medium">
               Signals to watch
             </span>
             <Input
@@ -2295,7 +2317,7 @@ function MonitoringControl({
             />
           </label>
           <label htmlFor="monitoring-places" className="block">
-            <span className="mb-1.5 block text-[10px] font-medium text-foreground">
+            <span className="text-foreground mb-2 block text-xs font-medium">
               Places to focus{" "}
               <span className="text-muted-foreground">(optional)</span>
             </span>
@@ -2322,7 +2344,7 @@ function IntegrationLogo({
   const [failed, setFailed] = useState(false);
   if (integration.domain.endsWith(".googleapis.com")) {
     return (
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center border bg-background">
+      <span className="bg-background flex h-7 w-7 shrink-0 items-center justify-center border">
         <GoogleLogo className="h-4 w-4" />
       </span>
     );
@@ -2330,14 +2352,14 @@ function IntegrationLogo({
 
   if (integration.domain === "none" || failed) {
     return (
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center border bg-background text-[10px] text-muted-foreground">
+      <span className="bg-background text-muted-foreground flex h-7 w-7 shrink-0 items-center justify-center border text-[10px]">
         {integration.name.slice(0, 1)}
       </span>
     );
   }
 
   return (
-    <span className="flex h-7 w-7 shrink-0 items-center justify-center border bg-background">
+    <span className="bg-background flex h-7 w-7 shrink-0 items-center justify-center border">
       <img
         src={integrationLogoUrl(integration.domain)}
         alt=""
@@ -2363,7 +2385,7 @@ function IntegrationCard({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex min-h-[100px] items-start gap-3 border bg-background p-4 text-left transition-colors hover:border-foreground",
+        "bg-background hover:border-foreground flex min-h-[100px] items-start gap-3 border p-4 text-left transition-colors",
         selected && "border-foreground bg-muted",
       )}
     >
@@ -2372,7 +2394,7 @@ function IntegrationCard({
         <span className="block truncate text-sm font-medium">
           {integration.name}
         </span>
-        <span className="mt-1 block line-clamp-2 text-xs leading-5 text-muted-foreground">
+        <span className="text-muted-foreground mt-1 line-clamp-2 block text-xs leading-5">
           {integration.description || integration.domain}
         </span>
         {integration.kinds.length ? (
@@ -2380,7 +2402,7 @@ function IntegrationCard({
             {integration.kinds.slice(0, 3).map((kind) => (
               <span
                 key={kind}
-                className="border px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground"
+                className="text-muted-foreground border px-1.5 py-0.5 text-[10px] uppercase"
               >
                 {kind}
               </span>
@@ -2478,9 +2500,11 @@ function IntegrationPickerControl({
           <Button type="button" variant="ghost" onClick={onSkip}>
             {skipLabel}
           </Button>
-          <Button type="button" onClick={onEmptySelection}>
-            {emptySelectionLabel}
-          </Button>
+          {selected.length === 0 ? (
+            <Button type="button" onClick={onEmptySelection}>
+              {emptySelectionLabel}
+            </Button>
+          ) : null}
         </>
       }
     >
@@ -2489,7 +2513,7 @@ function IntegrationPickerControl({
         onChange={(event) => setQuery(event.target.value)}
         placeholder={searchPlaceholder}
       />
-      <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+      <div className="text-muted-foreground mt-3 flex items-center justify-between text-xs">
         <span>Powered by integrations.sh</span>
         <span>{loading ? "Searching..." : `${options.length} options`}</span>
       </div>
@@ -2535,10 +2559,10 @@ function DeferredIntegrationSetupControl({
         </Button>
       }
     >
-      <div className="border bg-background">
+      <div className="bg-background border">
         <div className="border-b px-4 py-3">
           <p className="text-xs font-medium">Ready to connect</p>
-          <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+          <p className="text-muted-foreground mt-1 text-[10px] leading-4">
             Setup starts automatically after onboarding. You can follow its
             progress in Run History.
           </p>
@@ -2554,7 +2578,7 @@ function DeferredIntegrationSetupControl({
                 <span className="block truncate text-xs font-medium">
                   {integration.name}
                 </span>
-                <span className="mt-0.5 block text-[10px] text-muted-foreground">
+                <span className="text-muted-foreground mt-0.5 block text-[10px]">
                   {category === "analytics"
                     ? "Analytics connection"
                     : "Advertising connection"}
@@ -2563,7 +2587,7 @@ function DeferredIntegrationSetupControl({
               <button
                 type="button"
                 onClick={() => onRemove(integration)}
-                className="text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground text-[10px] transition-colors"
               >
                 Remove
               </button>
@@ -2575,11 +2599,11 @@ function DeferredIntegrationSetupControl({
   );
 }
 
-type ConnectedChannel = {
+interface ConnectedChannel {
   provider: string;
   displayName: string;
   category?: string;
-};
+}
 
 function ConnectedIntegrationRow({ channel }: { channel: ConnectedChannel }) {
   const providerIntegration = integrationFromProvider(channel.provider);
@@ -2591,11 +2615,11 @@ function ConnectedIntegrationRow({ channel }: { channel: ConnectedChannel }) {
         <span className="block truncate text-sm font-medium">
           {providerIntegration.name}
         </span>
-        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+        <span className="text-muted-foreground mt-0.5 block truncate text-xs">
           {channel.displayName}
         </span>
       </span>
-      <span className="ml-auto inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+      <span className="text-muted-foreground ml-auto inline-flex shrink-0 items-center gap-1.5 text-xs">
         <CheckCircle2 size={15} className="text-emerald-500" />
         Connected
       </span>
@@ -2611,20 +2635,20 @@ function QueuedIntegrationRow({
   onRemove: () => void;
 }) {
   return (
-    <div className="flex items-center gap-3 border bg-background p-3 opacity-60">
+    <div className="bg-background flex items-center gap-3 border p-3 opacity-60">
       <IntegrationLogo integration={integration} />
       <span className="min-w-0">
         <span className="block truncate text-sm font-medium">
           {integration.name}
         </span>
-        <span className="mt-0.5 block text-xs text-muted-foreground">
+        <span className="text-muted-foreground mt-0.5 block text-xs">
           Up next
         </span>
       </span>
       <button
         type="button"
         onClick={onRemove}
-        className="ml-auto shrink-0 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        className="text-muted-foreground hover:text-foreground ml-auto shrink-0 text-xs transition-colors"
       >
         Remove
       </button>
@@ -2727,7 +2751,7 @@ export function IntegrationConnectQueueControl({
     >
       <div className="space-y-3">
         {connectedRows.length ? (
-          <div className="divide-y border bg-background px-4">
+          <div className="bg-background divide-y border px-4">
             {connectedRows.map(({ integration, channel }) => (
               <ConnectedIntegrationRow
                 key={`${integration.domain}:${channel.provider}:${channel.displayName}`}
@@ -2739,18 +2763,18 @@ export function IntegrationConnectQueueControl({
 
         {firstOpenIntegration ? (
           <div className="space-y-3">
-            <div className="flex items-start gap-3 border bg-background p-4">
+            <div className="bg-background flex items-start gap-3 border p-4">
               <IntegrationLogo integration={firstOpenIntegration} />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium">
                   {firstOpenIntegration.name}
                 </p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                <p className="text-muted-foreground mt-1 text-xs leading-5">
                   {firstOpenIntegration.description}
                 </p>
                 {firstOpenIntegration.url ? (
                   <a
-                    className="mt-2 inline-block text-xs text-muted-foreground hover:text-foreground"
+                    className="text-muted-foreground hover:text-foreground mt-2 inline-block text-xs"
                     href={firstOpenIntegration.url}
                     target="_blank"
                     rel="noreferrer"
@@ -2762,7 +2786,7 @@ export function IntegrationConnectQueueControl({
               <button
                 type="button"
                 onClick={() => onRemove(firstOpenIntegration)}
-                className="shrink-0 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground shrink-0 text-xs transition-colors"
               >
                 Remove
               </button>
@@ -2777,7 +2801,7 @@ export function IntegrationConnectQueueControl({
               />
             ) : cloudGoogleAnalyticsSetup ? (
               <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-                <p className="text-xs leading-5 text-muted-foreground">
+                <p className="text-muted-foreground text-xs leading-5">
                   {oauthStatusText}
                 </p>
                 {canConnectGoogleAnalytics ? (
@@ -2791,7 +2815,7 @@ export function IntegrationConnectQueueControl({
                 ) : null}
               </div>
             ) : (
-              <p className="border-t pt-4 text-xs leading-5 text-muted-foreground">
+              <p className="text-muted-foreground border-t pt-4 text-xs leading-5">
                 Saved as this workspace&apos;s {category} source.
               </p>
             )}
@@ -2815,14 +2839,14 @@ export function IntegrationConnectQueueControl({
         ) : null}
 
         {!integrations.length ? (
-          <p className="text-xs leading-5 text-muted-foreground">
+          <p className="text-muted-foreground text-xs leading-5">
             No sources are queued.
           </p>
         ) : null}
       </div>
 
       {notice ? (
-        <p className="mt-4 text-xs text-muted-foreground">{notice}</p>
+        <p className="text-muted-foreground mt-4 text-xs">{notice}</p>
       ) : null}
     </StepFrame>
   );
@@ -2842,7 +2866,7 @@ function AdsBudgetControl({
   const index = Math.max(0, adsBudgetOptions.indexOf(budget));
   return (
     <StepFrame onContinue={onContinue} saving={saving}>
-      <p className="max-w-xl text-sm leading-6 text-muted-foreground">
+      <p className="text-muted-foreground max-w-xl text-sm leading-6">
         You don't have to run ads yourself. Your agents can plan them, launch
         them and keep an eye on the spend, and nothing goes live without your
         OK. Roughly what could you put toward ads each month?
@@ -2857,9 +2881,9 @@ function AdsBudgetControl({
           onChange={(event) =>
             setBudget(adsBudgetOptions[Number(event.target.value)]!)
           }
-          className="mt-6 h-1 w-full cursor-pointer appearance-none bg-border accent-white [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-thumb]:-mt-1 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-white"
+          className="bg-border [&::-webkit-slider-runnable-track]:bg-border mt-6 h-1 w-full cursor-pointer appearance-none accent-white [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-thumb]:-mt-1 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-white"
         />
-        <div className="mt-4 flex justify-between text-xs text-muted-foreground">
+        <div className="text-muted-foreground mt-4 flex justify-between text-xs">
           <span>Not yet</span>
           <span>More</span>
         </div>
@@ -2883,7 +2907,7 @@ function AeoControl({
 }) {
   return (
     <StepFrame onContinue={onContinue} saving={saving}>
-      <p className="text-sm leading-6 text-muted-foreground">
+      <p className="text-muted-foreground text-sm leading-6">
         AI assistants increasingly recommend products before buyers visit your
         site. Chief watches analytics for AI referrals and reports what is
         sending traffic.
@@ -2897,7 +2921,7 @@ function AeoControl({
         </Chip>
       </div>
       {analyticsConnected ? (
-        <p className="mt-4 text-xs leading-5 text-muted-foreground">
+        <p className="text-muted-foreground mt-4 text-xs leading-5">
           Uses your existing analytics connection, so there is nothing else to
           set up.
         </p>
@@ -2917,19 +2941,19 @@ function PricingControl({
   saving: boolean;
 }) {
   return (
-    <div className="border bg-card p-5">
+    <div className="bg-card border p-5">
       <div className="grid gap-3 sm:grid-cols-2">
         <button
           type="button"
           onClick={() => setPlan("monthly")}
           className={cn(
-            "border p-5 text-left transition-colors hover:border-foreground",
+            "hover:border-foreground border p-5 text-left transition-colors",
             plan === "monthly" && "border-foreground",
           )}
         >
           <span className="text-sm font-medium">Monthly</span>
           <span className="mt-4 block font-serif text-3xl">$49/mo</span>
-          <span className="mt-2 block text-xs leading-5 text-muted-foreground">
+          <span className="text-muted-foreground mt-2 block text-xs leading-5">
             Per workspace. Card required for the free trial.
           </span>
         </button>
@@ -2937,13 +2961,13 @@ function PricingControl({
           type="button"
           onClick={() => setPlan("annual")}
           className={cn(
-            "border p-5 text-left transition-colors hover:border-foreground",
+            "hover:border-foreground border p-5 text-left transition-colors",
             plan === "annual" && "border-foreground",
           )}
         >
           <span className="text-sm font-medium">Annual</span>
           <span className="mt-4 block font-serif text-3xl">$44/mo</span>
-          <span className="mt-2 block text-xs leading-5 text-muted-foreground">
+          <span className="text-muted-foreground mt-2 block text-xs leading-5">
             10% off. Billed yearly at $529.
           </span>
         </button>
@@ -2969,12 +2993,12 @@ function CompletionControl({
   saving: boolean;
 }) {
   return (
-    <div className="flex min-h-[480px] w-full items-center justify-center border bg-card px-6 py-14">
+    <div className="bg-card flex min-h-[480px] w-full items-center justify-center border px-6 py-14">
       <div className="flex max-w-sm flex-col items-center text-center">
         <SuccessCheck className="mb-8" />
         <div className="success-copy flex flex-col items-center">
           <h2 className="font-serif text-4xl leading-none">You're in.</h2>
-          <p className="mt-4 text-sm leading-6 text-muted-foreground">
+          <p className="text-muted-foreground mt-4 text-sm leading-6">
             Your workspace is ready. Your agents have what they need to begin.
           </p>
           <Button
@@ -2992,6 +3016,7 @@ function CompletionControl({
 }
 
 export function OnboardingPage() {
+  const navigate = useNavigate();
   const { cloudOrganizationId, user, signOut } = useAuth();
   const { status: runtimeStatus } = useRuntime();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
@@ -3084,7 +3109,7 @@ export function OnboardingPage() {
       if (!current) return current;
       const nextSocials = { ...current.socials };
       for (const account of socialAccounts) {
-        nextSocials[account.platform as SocialPlatform] = account.handle;
+        nextSocials[account.platform] = account.handle;
       }
       return { ...current, socials: nextSocials };
     });
@@ -3336,7 +3361,7 @@ export function OnboardingPage() {
           websiteUrl: draft.websiteUrl.trim(),
           onboarding: {
             ...(metadata.onboarding && typeof metadata.onboarding === "object"
-              ? (metadata.onboarding as Record<string, unknown>)
+              ? metadata.onboarding
               : {}),
             provider: draft.provider,
             providerMode: draft.providerMode,
@@ -3372,7 +3397,11 @@ export function OnboardingPage() {
         );
       }
       localStorage.removeItem(storageKey(org.id));
-      window.location.assign("/");
+      // Keep the mounted Tauri webview alive. A full document navigation at
+      // this boundary can leave the custom protocol on an empty document,
+      // which presented as a completely black window after onboarding.
+      window.dispatchEvent(new Event("chief:onboarding-complete"));
+      navigate("/", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -3386,6 +3415,7 @@ export function OnboardingPage() {
     persistProvider,
     persistSocials,
     workspaceData,
+    navigate,
   ]);
 
   const advance = useCallback(async () => {
@@ -3830,7 +3860,7 @@ export function OnboardingPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+      <div className="bg-background text-muted-foreground flex min-h-screen items-center justify-center text-sm">
         Loading workspace...
       </div>
     );
@@ -3839,7 +3869,7 @@ export function OnboardingPage() {
   if (!draft) return <Navigate to="/workspaces/new" replace />;
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
+    <div className="bg-background text-foreground flex h-screen flex-col">
       <UserIndicator user={user} onSignOut={signOut} />
       <header data-tauri-drag-region className="h-[72px] shrink-0" />
       <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-6 pb-6">
@@ -3871,10 +3901,10 @@ export function OnboardingPage() {
             <div className="w-full max-w-[720px]">{currentControl}</div>
             <div className="min-h-5">
               {notice && step !== "analytics" ? (
-                <p className="text-xs text-muted-foreground">{notice}</p>
+                <p className="text-muted-foreground text-xs">{notice}</p>
               ) : null}
               {error ? (
-                <p className="break-words text-xs text-destructive">{error}</p>
+                <p className="text-destructive text-xs break-words">{error}</p>
               ) : null}
             </div>
           </div>

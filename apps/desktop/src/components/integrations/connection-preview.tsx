@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+
 import { LineChartCard } from "../charts/line-chart-card";
 
 const RANGE_CONFIG = {
@@ -47,7 +48,7 @@ export function shortAnalyticsDate(raw: string) {
 }
 
 function buildSeries(
-  source: Array<{ date: string; value: number }>,
+  source: { date: string; value: number }[],
   days: number,
   bucketSize: number,
 ) {
@@ -71,7 +72,7 @@ function buildSeries(
   });
   if (bucketSize === 1) return daily;
 
-  const buckets: Array<{ date: string; value: number }> = [];
+  const buckets: { date: string; value: number }[] = [];
   for (let index = 0; index < daily.length; index += bucketSize) {
     const slice = daily.slice(index, index + bucketSize);
     buckets.push({
@@ -94,7 +95,7 @@ export function ConnectionPreview({
   name: string;
   metricLabel?: string;
   title?: string;
-  series: Array<{ date: string; value: number }>;
+  series: { date: string; value: number }[];
   rangeKey: string;
 }) {
   const range =

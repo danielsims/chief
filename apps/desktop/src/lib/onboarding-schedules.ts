@@ -2,6 +2,7 @@ import type {
   OnboardingSchedule,
   OnboardingWorkJob,
 } from "@chief/agent-runtime/types";
+
 import { getPlaybook, playbookInstructions } from "./playbooks";
 
 export interface StarterScheduleItem {
@@ -10,7 +11,7 @@ export interface StarterScheduleItem {
   agentId: string;
   purpose: string;
   enabled: boolean;
-  frequency: "weekdays" | "weekly";
+  frequency: "daily" | "weekly";
   day: number;
   time: string;
 }
@@ -33,8 +34,8 @@ const weekDays = [
 
 function cron(item: StarterScheduleItem) {
   const [hour = "09", minute = "00"] = item.time.split(":");
-  return item.frequency === "weekdays"
-    ? `${Number(minute)} ${Number(hour)} * * 1-5`
+  return item.frequency === "daily"
+    ? `${Number(minute)} ${Number(hour)} * * *`
     : `${Number(minute)} ${Number(hour)} * * ${item.day}`;
 }
 
@@ -50,7 +51,7 @@ function toolPatterns(playbookId: string) {
       "tools.chief.org.workspace.agentTools.uiPresentChart",
     ];
   }
-  if (playbookId === "founder-content") {
+  if (playbookId === "founder-content" || playbookId === "brand-content") {
     return [
       ...sources,
       "tools.chief-local.org.localworkspace.localTools.contentList",
@@ -96,7 +97,7 @@ export function buildOnboardingSchedules(
           automation.mode === "automatic"
             ? ("active" as const)
             : ("draft" as const),
-        approvalSummary: `${item.title} will run ${item.frequency === "weekdays" ? "every weekday" : `every ${weekDays[item.day]}`} at ${timeLabel(item.time)} (${automation.timezone}).`,
+        approvalSummary: `${item.title} will run ${item.frequency === "daily" ? "every day" : `every ${weekDays[item.day]}`} at ${timeLabel(item.time)} (${automation.timezone}).`,
         proposedToolPatterns: toolPatterns(item.playbookId),
       };
     });
@@ -124,7 +125,7 @@ export function buildScheduleProvisioningJob(
     id: "onboarding-starter-automations",
     agentId: "cmo",
     title: "Prepare starter schedules",
-    runAt: Date.now() + 60_000,
+    runAt: Date.now() + 1_000,
     timezone: automation.timezone,
     proposedToolPatterns: [
       "tools.search",
@@ -155,18 +156,35 @@ export function onboardingSchedulePlanFromMetadata(
     return null;
   }
   if (!Array.isArray(automation.plan)) return null;
-  const plan = automation.plan.filter((item): item is StarterScheduleItem => {
-    return Boolean(
-      item &&
-      typeof item.playbookId === "string" &&
-      typeof item.title === "string" &&
-      typeof item.agentId === "string" &&
-      typeof item.purpose === "string" &&
-      typeof item.enabled === "boolean" &&
-      (item.frequency === "weekdays" || item.frequency === "weekly") &&
-      typeof item.day === "number" &&
-      typeof item.time === "string",
-    );
+  const plan = automation.plan.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const candidate = item as unknown as Record<string, unknown>;
+    const frequency =
+      candidate.frequency === "weekdays" ? "daily" : candidate.frequency;
+    if (
+      typeof candidate.playbookId !== "string" ||
+      typeof candidate.title !== "string" ||
+      typeof candidate.agentId !== "string" ||
+      typeof candidate.purpose !== "string" ||
+      typeof candidate.enabled !== "boolean" ||
+      (frequency !== "daily" && frequency !== "weekly") ||
+      typeof candidate.day !== "number" ||
+      typeof candidate.time !== "string"
+    ) {
+      return [];
+    }
+    return [
+      {
+        playbookId: candidate.playbookId,
+        title: candidate.title,
+        agentId: candidate.agentId,
+        purpose: candidate.purpose,
+        enabled: candidate.enabled,
+        frequency,
+        day: candidate.day,
+        time: candidate.time,
+      } satisfies StarterScheduleItem,
+    ];
   });
   return { mode: automation.mode, timezone: automation.timezone, plan };
 }

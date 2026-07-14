@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
 import { useConvexAuth, useQuery } from "convex/react";
-import { api } from "@chief/backend/convex/_generated/api";
 import { CheckCircle2, Circle } from "lucide-react";
+import { useNavigate } from "react-router";
+
+import { api } from "@chief/backend/convex/_generated/api";
+
 import { useAuth } from "../lib/auth/auth-context";
 import {
   listAuthOrganizations,
   parseOrganizationMetadata,
 } from "../lib/auth/better-auth-client";
 import { createChat } from "../lib/chat-log";
+import { useWorkspaceData } from "../lib/runtime";
 
 interface SetupItem {
   key: string;
@@ -16,6 +19,8 @@ interface SetupItem {
   detail: string;
   done: boolean;
   action: "analytics" | "ads";
+  automationStatus?: "queued" | "running";
+  runId?: string;
 }
 
 /** Resolved card state: null means "everything done, render nothing". */
@@ -69,6 +74,7 @@ export function SetupProgress({
 } = {}) {
   const navigate = useNavigate();
   const { cloudOrganizationId } = useAuth();
+  const workspaceData = useWorkspaceData(cloudOrganizationId);
   const { isAuthenticated: convexReady } = useConvexAuth();
   const channels = useQuery(
     api.integrations.listConnected,
@@ -115,6 +121,21 @@ export function SetupProgress({
     const adsConnected = channels.some((channel) => channel.category === "ads");
     const adsBudgetPlanned =
       typeof ads.budget === "string" && ads.budget !== "No budget yet";
+    const setupState = (id: string) => {
+      const run = workspaceData.recurringWorkRuns.find(
+        (candidate) =>
+          candidate.recurringWorkId === id && candidate.status === "running",
+      );
+      if (run) {
+        return { automationStatus: "running" as const, runId: run.id };
+      }
+      const work = workspaceData.recurringWork.find(
+        (candidate) => candidate.id === id && candidate.status === "active",
+      );
+      return work ? { automationStatus: "queued" as const } : {};
+    };
+    const analyticsSetup = setupState("onboarding-analytics-setup");
+    const adsSetup = setupState("onboarding-ads-setup");
 
     const items: SetupItem[] = [
       {
@@ -122,20 +143,30 @@ export function SetupProgress({
         label: "Analytics",
         detail: analyticsConnected
           ? "Connected"
-          : "Connect a source so your agents can read real numbers",
+          : analyticsSetup.automationStatus === "running"
+            ? "Setup agent is connecting this now"
+            : analyticsSetup.automationStatus === "queued"
+              ? "Setup agent starts shortly"
+              : "Connect a source so your agents can read real numbers",
         done: analyticsConnected,
         action: "analytics",
+        ...analyticsSetup,
       },
       {
         key: "ads",
         label: "Ads",
         detail: adsConnected
           ? "Connected"
-          : adsBudgetPlanned
-            ? `Budget planned: ${String(ads.budget)}`
-            : "Connect an ads account or set a budget for agent-run ads",
+          : adsSetup.automationStatus === "running"
+            ? "Setup agent is connecting this now"
+            : adsSetup.automationStatus === "queued"
+              ? "Setup agent starts shortly"
+              : adsBudgetPlanned
+                ? `Budget planned: ${String(ads.budget)}`
+                : "Connect an ads account or set a budget for agent-run ads",
         done: adsConnected,
         action: "ads",
+        ...adsSetup,
       },
     ];
     const doneCount = items.filter((item) => item.done).length;
@@ -149,7 +180,13 @@ export function SetupProgress({
           };
     writeSnapshot(cloudOrganizationId, next);
     setSnapshot(next);
-  }, [cloudOrganizationId, onboarding, channels]);
+  }, [
+    cloudOrganizationId,
+    onboarding,
+    channels,
+    workspaceData.recurringWork,
+    workspaceData.recurringWorkRuns,
+  ]);
 
   useEffect(() => {
     onVisibilityChange?.(Boolean(snapshot));
@@ -159,6 +196,14 @@ export function SetupProgress({
   if (!snapshot) return null;
 
   const startSetup = (item: SetupItem) => {
+    if (item.runId) {
+      navigate(`/schedule/history?run=${encodeURIComponent(item.runId)}`);
+      return;
+    }
+    if (item.automationStatus === "queued") {
+      navigate("/schedule");
+      return;
+    }
     if (item.action === "analytics") {
       navigate("/analytics");
       return;
@@ -172,10 +217,10 @@ export function SetupProgress({
   };
 
   return (
-    <div className="border bg-card">
+    <div className="bg-card border">
       <div className="flex items-center justify-between border-b px-5 py-3">
         <p className="text-sm font-medium">Finish setting up</p>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-muted-foreground text-xs">
           {Math.round((snapshot.doneCount / snapshot.items.length) * 100)}%
           complete
         </p>
@@ -186,11 +231,11 @@ export function SetupProgress({
             {item.done ? (
               <CheckCircle2 size={15} className="shrink-0 text-emerald-500" />
             ) : (
-              <Circle size={15} className="shrink-0 text-muted-foreground/50" />
+              <Circle size={15} className="text-muted-foreground/50 shrink-0" />
             )}
             <span className="min-w-0 flex-1">
               <span className="block text-sm">{item.label}</span>
-              <span className="block truncate text-xs text-muted-foreground">
+              <span className="text-muted-foreground block truncate text-xs">
                 {item.detail}
               </span>
             </span>
@@ -198,9 +243,9 @@ export function SetupProgress({
               <button
                 type="button"
                 onClick={() => startSetup(item)}
-                className="shrink-0 cursor-pointer text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+                className="text-muted-foreground hover:text-foreground shrink-0 cursor-pointer text-xs underline-offset-2 transition-colors hover:underline"
               >
-                Set up
+                {item.automationStatus ? "View" : "Set up"}
               </button>
             ) : null}
           </div>

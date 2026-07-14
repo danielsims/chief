@@ -1,7 +1,9 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
+
 import { api } from "@chief/backend/convex/_generated/api";
-import { convex } from "./convex";
+
 import { CONVEX_URL } from "./config";
+import { convex } from "./convex";
 
 export type GoogleAnalyticsConnectResult =
   | { status: "opened" }

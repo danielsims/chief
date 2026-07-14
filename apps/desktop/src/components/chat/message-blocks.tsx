@@ -1,10 +1,12 @@
 import { Fragment, useEffect, useState } from "react";
+import { ChevronDown } from "lucide-react";
+
 import type {
   AgentCapabilityId,
   ContentBlock,
 } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
-import { ChevronDown } from "lucide-react";
+
 import { renderGenerativePart } from "../generative-ui/registry";
 import { StreamingMarkdown } from "./streaming-markdown";
 
@@ -150,7 +152,7 @@ function ToolCard({
 
   if (kind === "skill") {
     return (
-      <div className="flex min-w-0 max-w-full items-center gap-2.5 border bg-card/50 px-3 py-2 text-xs">
+      <div className="bg-card/50 flex max-w-full min-w-0 items-center gap-2.5 border px-3 py-2 text-xs">
         <span
           className={cn(
             "size-2 shrink-0 rounded-full",
@@ -160,12 +162,12 @@ function ToolCard({
           )}
         />
         <span className="shrink-0 font-medium">Skill</span>
-        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+        <span className="text-muted-foreground min-w-0 flex-1 truncate">
           {label}
         </span>
         <span
           className={cn(
-            "shrink-0 text-[10px] text-muted-foreground",
+            "text-muted-foreground shrink-0 text-[10px]",
             result?.is_error && "text-red-500",
           )}
         >
@@ -182,7 +184,7 @@ function ToolCard({
   }
 
   return (
-    <details className="group min-w-0 max-w-full overflow-hidden border bg-card/50">
+    <details className="group bg-card/50 max-w-full min-w-0 overflow-hidden border">
       <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3 py-2 text-xs [&::-webkit-details-marker]:hidden">
         <span
           className={cn(
@@ -195,7 +197,7 @@ function ToolCard({
           )}
         />
         <span className="shrink-0 font-medium">{label}</span>
-        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+        <span className="text-muted-foreground min-w-0 flex-1 truncate">
           {summary}
         </span>
         {result ? (
@@ -208,11 +210,11 @@ function ToolCard({
             {result.is_error ? "Failed" : "Done"}
           </span>
         ) : active ? (
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-muted-foreground text-[10px]">
             {elapsed >= 30 ? "Still working" : "Running"} · {elapsed}s
           </span>
         ) : (
-          <span className="text-[10px] text-muted-foreground">Stopped</span>
+          <span className="text-muted-foreground text-[10px]">Stopped</span>
         )}
         <ChevronDown
           size={12}
@@ -221,14 +223,14 @@ function ToolCard({
       </summary>
       <div className="space-y-3 border-t px-3 py-3">
         {input && input !== "{}" ? (
-          <pre className="max-h-40 max-w-full overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+          <pre className="text-muted-foreground max-h-40 max-w-full overflow-auto font-mono text-[11px] leading-5 [overflow-wrap:anywhere] break-all whitespace-pre-wrap">
             {input}
           </pre>
         ) : null}
         {shownOutput ? (
           <pre
             className={cn(
-              "max-h-56 max-w-full overflow-auto whitespace-pre-wrap break-all border-t pt-3 font-mono text-[11px] leading-5 text-muted-foreground [overflow-wrap:anywhere]",
+              "text-muted-foreground max-h-56 max-w-full overflow-auto border-t pt-3 font-mono text-[11px] leading-5 [overflow-wrap:anywhere] break-all whitespace-pre-wrap",
               result?.is_error && "text-red-500",
             )}
           >
@@ -261,7 +263,7 @@ export function Blocks({
   );
 
   return (
-    <div className="min-w-0 max-w-full space-y-3 overflow-hidden">
+    <div className="max-w-full min-w-0 space-y-3 overflow-hidden">
       {blocks.map((block, index) => {
         const generativePart = renderGenerativePart(block, capabilities);
         if (generativePart !== undefined) {
@@ -272,7 +274,7 @@ export function Blocks({
             return (
               <div
                 key={index}
-                className="chat-markdown min-w-0 max-w-full overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]"
+                className="chat-markdown max-w-full min-w-0 overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]"
               >
                 <StreamingMarkdown>{block.text}</StreamingMarkdown>
               </div>
@@ -284,7 +286,7 @@ export function Blocks({
             return (
               <details
                 key={index}
-                className="group text-xs text-muted-foreground"
+                className="group text-muted-foreground text-xs"
               >
                 <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
                   <span className="inline-flex items-center gap-1.5">
@@ -295,7 +297,7 @@ export function Blocks({
                     />
                   </span>
                 </summary>
-                <p className="mt-2 max-w-full whitespace-pre-wrap break-all border-l pl-3 leading-5 text-muted-foreground/80 [overflow-wrap:anywhere]">
+                <p className="text-muted-foreground/80 mt-2 max-w-full border-l pl-3 leading-5 [overflow-wrap:anywhere] break-all whitespace-pre-wrap">
                   {block.thinking}
                 </p>
               </details>
@@ -330,7 +332,7 @@ export function Blocks({
               <pre
                 key={index}
                 className={cn(
-                  "max-h-56 max-w-full overflow-auto whitespace-pre-wrap break-all border bg-card/50 px-3 py-2 font-mono text-[11px] leading-5 text-muted-foreground [overflow-wrap:anywhere]",
+                  "bg-card/50 text-muted-foreground max-h-56 max-w-full overflow-auto border px-3 py-2 font-mono text-[11px] leading-5 [overflow-wrap:anywhere] break-all whitespace-pre-wrap",
                   block.is_error && "border-red-500/40 text-red-500",
                 )}
               >

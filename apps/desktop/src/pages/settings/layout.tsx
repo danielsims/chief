@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from "react-router";
+
 import { cn } from "@chief/ui/lib/utils";
 
 const sections = [
@@ -14,7 +15,7 @@ export function SettingsLayout() {
     <div className="mx-auto max-w-5xl pt-10">
       <div>
         <h1 className="font-serif text-3xl">Settings</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <p className="text-muted-foreground mt-2 text-sm">
           Manage your account and workspace.
         </p>
       </div>
@@ -26,7 +27,7 @@ export function SettingsLayout() {
               to={section.to}
               className={({ isActive }) =>
                 cn(
-                  "block border border-transparent px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground",
+                  "text-muted-foreground hover:text-foreground block border border-transparent px-3 py-1.5 text-sm transition-colors",
                   isActive && "border-border bg-accent text-foreground",
                 )
               }

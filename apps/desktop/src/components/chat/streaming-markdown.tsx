@@ -15,10 +15,10 @@ export function StreamingMarkdown({
   streaming?: boolean;
 }) {
   return (
-    <div className="min-w-0 max-w-full overflow-hidden [overflow-wrap:anywhere] [&_a]:break-all [&_code]:break-all [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
+    <div className="max-w-full min-w-0 overflow-hidden [overflow-wrap:anywhere] [&_a]:break-all [&_code]:break-all [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
       <Suspense
         fallback={
-          <div className="max-w-full whitespace-pre-wrap break-all [overflow-wrap:anywhere]">
+          <div className="max-w-full [overflow-wrap:anywhere] break-all whitespace-pre-wrap">
             {children}
           </div>
         }

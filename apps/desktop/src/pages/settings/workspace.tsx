@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
+
 import { api } from "@chief/backend/convex/_generated/api";
+import { Button } from "@chief/ui/components/button";
 import {
   Card,
   CardContent,
@@ -8,9 +10,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@chief/ui/components/card";
-import { Button } from "@chief/ui/components/button";
-import { Input } from "@chief/ui/components/input";
-import { PrefixedInput } from "@chief/ui/components/prefixed-input";
 import {
   Dialog,
   DialogContent,
@@ -19,21 +18,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@chief/ui/components/dialog";
+import { Input } from "@chief/ui/components/input";
+import { PrefixedInput } from "@chief/ui/components/prefixed-input";
+
+import type { AuthOrganization } from "../../lib/auth/better-auth-client";
+import type { SocialPlatformDef } from "../../lib/social-platforms";
 import { OrgLogo, resolveFaviconUrl } from "../../components/org-logo";
 import { useAuth } from "../../lib/auth/auth-context";
 import {
-  type AuthOrganization,
   deleteAuthOrganization,
   listAuthOrganizations,
   parseOrganizationMetadata,
   setActiveAuthOrganization,
   updateAuthOrganization,
 } from "../../lib/auth/better-auth-client";
-import {
-  SOCIAL_PLATFORMS,
-  type SocialPlatformDef,
-} from "../../lib/social-platforms";
 import { removeImageAsset, uploadImageAsset } from "../../lib/image-upload";
+import { SOCIAL_PLATFORMS } from "../../lib/social-platforms";
 
 function LogoPreview({
   logo,
@@ -88,7 +88,7 @@ function SocialAccountRow({
 
   return (
     <div className="flex items-center gap-3">
-      <span className="w-20 shrink-0 text-xs text-muted-foreground">
+      <span className="text-muted-foreground w-20 shrink-0 text-xs">
         {def.label}
       </span>
       <PrefixedInput
@@ -121,8 +121,9 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
       const remaining = (await listAuthOrganizations()).filter(
         (candidate) => candidate.id !== org.id,
       );
-      if (remaining.length > 0) {
-        await setActiveAuthOrganization(remaining[0].id);
+      const [nextOrganization] = remaining;
+      if (nextOrganization) {
+        await setActiveAuthOrganization(nextOrganization.id);
         window.location.assign("/");
       } else {
         signOut();
@@ -143,7 +144,7 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
       </CardHeader>
       <CardContent>
         <div className="flex items-center justify-between py-1">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-muted-foreground text-xs">
             You'll be moved to another workspace, or signed out if this is your
             last one.
           </p>
@@ -175,7 +176,7 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
             onChange={(event) => setConfirmation(event.target.value)}
             placeholder={org.name}
           />
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {error && <p className="text-destructive text-xs">{error}</p>}
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
               Cancel
@@ -380,17 +381,17 @@ export function WorkspaceSettings() {
                   </Button>
                 ) : null}
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">
+              <p className="text-muted-foreground mt-2 text-xs">
                 Upload an image to override the website favicon.
               </p>
               {logoError ? (
-                <p className="mt-1 text-xs text-destructive">{logoError}</p>
+                <p className="text-destructive mt-1 text-xs">{logoError}</p>
               ) : null}
             </div>
           </div>
           <div className="space-y-1.5">
             <label
-              className="text-xs text-muted-foreground"
+              className="text-muted-foreground text-xs"
               htmlFor="workspace-name"
             >
               Company name
@@ -405,7 +406,7 @@ export function WorkspaceSettings() {
           </div>
           <div className="space-y-1.5">
             <label
-              className="text-xs text-muted-foreground"
+              className="text-muted-foreground text-xs"
               htmlFor="workspace-website"
             >
               Website URL
@@ -420,10 +421,10 @@ export function WorkspaceSettings() {
           </div>
           <div className="flex items-center justify-end gap-3 border-t pt-4">
             {saveState === "saved" && (
-              <span className="text-xs text-muted-foreground">Saved</span>
+              <span className="text-muted-foreground text-xs">Saved</span>
             )}
             {saveState === "error" && (
-              <span className="text-xs text-destructive">Save failed</span>
+              <span className="text-destructive text-xs">Save failed</span>
             )}
             <Button
               size="sm"
@@ -453,7 +454,7 @@ export function WorkspaceSettings() {
             />
           ))}
           {!convexReady && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-muted-foreground text-xs">
               Connecting to your workspace…
             </p>
           )}

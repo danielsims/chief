@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { ShieldCheck } from "lucide-react";
+
 import type { RecurringWorkRecord } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 import {
@@ -11,6 +12,7 @@ import {
   DialogTitle,
 } from "@chief/ui/components/dialog";
 import { Input } from "@chief/ui/components/input";
+
 import { useAgentConfig } from "../lib/agent-config";
 import { useAgentChat } from "../lib/runtime";
 
@@ -95,10 +97,10 @@ export function RecurringWorkApprovalFlow({
             <div className="space-y-4">
               <div className="border p-4">
                 <p className="text-sm font-medium">{work.title}</p>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                <p className="text-muted-foreground mt-2 text-sm leading-6">
                   {work.approvalSummary}
                 </p>
-                <p className="mt-3 font-mono text-[11px] text-muted-foreground">
+                <p className="text-muted-foreground mt-3 font-mono text-[11px]">
                   {work.cron} · {work.timezone}
                 </p>
               </div>
@@ -121,13 +123,13 @@ export function RecurringWorkApprovalFlow({
                             .at(-1)
                             ?.replace(/([A-Z])/g, " $1")}
                         </span>
-                        <span className="ml-auto max-w-56 truncate font-mono text-[9px] text-muted-foreground">
+                        <span className="text-muted-foreground ml-auto max-w-56 truncate font-mono text-[9px]">
                           {pattern}
                         </span>
                       </div>
                     ))
                   ) : (
-                    <p className="border px-3 py-2 text-xs text-muted-foreground">
+                    <p className="text-muted-foreground border px-3 py-2 text-xs">
                       Read connected data and save no external changes.
                     </p>
                   )}
@@ -163,7 +165,7 @@ export function RecurringWorkApprovalFlow({
                     updating the plan…
                   </p>
                 ) : revisionNote ? (
-                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                  <p className="text-muted-foreground mt-2 text-xs leading-5">
                     {revisionNote}
                   </p>
                 ) : null}
@@ -176,7 +178,7 @@ export function RecurringWorkApprovalFlow({
                   onReject(work);
                   onClose();
                 }}
-                className="mr-auto text-xs text-muted-foreground transition-colors hover:text-destructive"
+                className="text-muted-foreground hover:text-destructive mr-auto text-xs transition-colors"
               >
                 Reject
               </button>

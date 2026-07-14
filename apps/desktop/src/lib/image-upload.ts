@@ -1,7 +1,9 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { api } from "@chief/backend/convex/_generated/api";
+
 import type { Id } from "@chief/backend/convex/_generated/dataModel";
+import { api } from "@chief/backend/convex/_generated/api";
+
 import { convex } from "./convex";
 
 const MAX_SOURCE_BYTES = 10 * 1024 * 1024;

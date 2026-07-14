@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Square } from "lucide-react";
+
 import type { AgentDefinition, DriverType } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 import {
@@ -8,31 +9,30 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@chief/ui/components/select";
+
+import type { SchedulingDraft } from "./recurring-work-composer";
+import { useAgentConfig } from "../../lib/agent-config";
+import {
+  getWorkspaceProvider,
+  setWorkspaceProvider,
+} from "../../lib/agent-overrides";
+import { useAuth } from "../../lib/auth/auth-context";
+import {
+  findPendingInputRequest,
+  withoutMarkerLines,
+} from "../../lib/integration-setup";
+import { PROVIDER_META } from "../../lib/providers";
 import {
   useAgentChat,
   useProviderModels,
   useRuntime,
   useWorkspaceData,
 } from "../../lib/runtime";
-import { useAuth } from "../../lib/auth/auth-context";
-import { useAgentConfig } from "../../lib/agent-config";
-import {
-  getWorkspaceProvider,
-  setWorkspaceProvider,
-} from "../../lib/agent-overrides";
-import { PROVIDER_META } from "../../lib/providers";
-import {
-  findPendingInputRequest,
-  withoutMarkerLines,
-} from "../../lib/integration-setup";
-import { ApprovalCard } from "./approval-card";
-import { QuestionCard } from "./question-card";
-import {
-  RecurringWorkComposer,
-  type SchedulingDraft,
-} from "./recurring-work-composer";
 import { InputRequestSection } from "../integrations/input-request-section";
+import { ApprovalCard } from "./approval-card";
 import { Blocks } from "./message-blocks";
+import { QuestionCard } from "./question-card";
+import { RecurringWorkComposer } from "./recurring-work-composer";
 import { StreamingMarkdown } from "./streaming-markdown";
 
 // The local runtime only runs CLI-backed providers.
@@ -58,8 +58,8 @@ const CHAT_SUGGESTIONS: Record<string, string[]> = {
 
 function UserMessage({ text }: { text: string }) {
   return (
-    <div className="mx-auto flex w-full min-w-0 max-w-3xl justify-end">
-      <div className="chat-markdown max-w-[80%] overflow-hidden border bg-accent px-3 py-2 text-sm leading-6 [overflow-wrap:anywhere]">
+    <div className="mx-auto flex w-full max-w-3xl min-w-0 justify-end">
+      <div className="chat-markdown bg-accent max-w-[80%] overflow-hidden border px-3 py-2 text-sm leading-6 [overflow-wrap:anywhere]">
         <StreamingMarkdown>{text}</StreamingMarkdown>
       </div>
     </div>
@@ -282,7 +282,7 @@ export function AgentChat({
   return (
     <div className="flex h-full min-w-0 flex-col overflow-hidden">
       {observeOnly ? (
-        <div className="shrink-0 border-b py-2 text-center text-xs text-muted-foreground">
+        <div className="text-muted-foreground shrink-0 border-b py-2 text-center text-xs">
           Scheduled run · live view
         </div>
       ) : null}
@@ -309,11 +309,11 @@ export function AgentChat({
         !showOptimisticInitialPrompt ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <p className="font-serif text-3xl">{agent.name}</p>
-            <p className="max-w-md text-sm text-muted-foreground">
+            <p className="text-muted-foreground max-w-md text-sm">
               {agent.description}
             </p>
             {runtimeStatus !== "connected" && (
-              <p className="mt-4 border border-dashed px-3 py-2 text-xs text-muted-foreground">
+              <p className="text-muted-foreground mt-4 border border-dashed px-3 py-2 text-xs">
                 Agent runtime not connected. Run <code>pnpm dev</code> in the
                 repo root.
               </p>
@@ -327,7 +327,7 @@ export function AgentChat({
           item.kind === "user" ? (
             <UserMessage key={i} text={item.text} />
           ) : (
-            <div key={i} className="mx-auto w-full min-w-0 max-w-3xl">
+            <div key={i} className="mx-auto w-full max-w-3xl min-w-0">
               <Blocks
                 blocks={withoutMarkerLines(item.event.content)}
                 progress={chat.toolProgress}
@@ -338,7 +338,7 @@ export function AgentChat({
           ),
         )}
         {chat.streaming ? (
-          <div className="chat-markdown mx-auto w-full min-w-0 max-w-3xl overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]">
+          <div className="chat-markdown mx-auto w-full max-w-3xl min-w-0 overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]">
             <StreamingMarkdown streaming>{chat.streaming}</StreamingMarkdown>
           </div>
         ) : null}
@@ -378,7 +378,7 @@ export function AgentChat({
             </div>
           )}
         {chat.error && (
-          <p className="mx-auto max-w-3xl border border-destructive/40 px-3 py-2 text-xs text-destructive">
+          <p className="border-destructive/40 text-destructive mx-auto max-w-3xl border px-3 py-2 text-xs">
             {chat.error}
           </p>
         )}
@@ -406,14 +406,14 @@ export function AgentChat({
                   key={suggestion}
                   type="button"
                   onClick={() => setDraft(suggestion)}
-                  className="border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  className="text-muted-foreground hover:bg-accent hover:text-foreground border px-2.5 py-1.5 text-xs transition-colors"
                 >
                   {suggestion}
                 </button>
               ))}
             </div>
           ) : null}
-          <div className="border bg-card/80 backdrop-blur-lg">
+          <div className="bg-card/80 border backdrop-blur-lg">
             <textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
@@ -425,7 +425,7 @@ export function AgentChat({
               }}
               placeholder={`Message ${agent.name}…`}
               rows={2}
-              className="w-full resize-none bg-transparent px-3 pt-3 text-sm leading-6 outline-none placeholder:text-muted-foreground"
+              className="placeholder:text-muted-foreground w-full resize-none bg-transparent px-3 pt-3 text-sm leading-6 outline-none"
             />
             <div className="flex items-center justify-between px-3 pb-2">
               <div className="flex items-center gap-3">
@@ -446,7 +446,7 @@ export function AgentChat({
                     }
                   }}
                 >
-                  <SelectTrigger className="h-6 w-auto gap-1.5 border-transparent px-1 text-xs text-muted-foreground hover:text-foreground data-[state=open]:text-foreground">
+                  <SelectTrigger className="text-muted-foreground hover:text-foreground data-[state=open]:text-foreground h-6 w-auto gap-1.5 border-transparent px-1 text-xs">
                     {activeMeta ? (
                       <span className="flex items-center gap-1.5">
                         <activeMeta.Icon size={13} />
@@ -472,7 +472,7 @@ export function AgentChat({
                 </Select>
                 {driver ? (
                   <>
-                    <span className="text-xs text-muted-foreground/50">/</span>
+                    <span className="text-muted-foreground/50 text-xs">/</span>
                     <Select
                       value={model || "__auto__"}
                       onValueChange={(value) => {
@@ -481,7 +481,7 @@ export function AgentChat({
                         savePreferences(driver, next);
                       }}
                     >
-                      <SelectTrigger className="h-6 w-auto max-w-48 gap-1.5 border-transparent px-1 text-xs text-muted-foreground hover:text-foreground data-[state=open]:text-foreground">
+                      <SelectTrigger className="text-muted-foreground hover:text-foreground data-[state=open]:text-foreground h-6 w-auto max-w-48 gap-1.5 border-transparent px-1 text-xs">
                         <span className="truncate">
                           {providerModels.loading
                             ? "Loading models…"

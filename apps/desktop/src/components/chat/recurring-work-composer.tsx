@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, CalendarDays, Eye, X } from "lucide-react";
+
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
 import {
@@ -10,15 +11,18 @@ import {
 } from "@chief/ui/components/select";
 import { Switch } from "@chief/ui/components/switch";
 import { cn } from "@chief/ui/lib/utils";
-import { IntegrationAvatarStack } from "../integrations/integration-avatar-stack";
-import { PlaybookDocument } from "../playbooks/playbook-document";
+
+import type {
+  IntegrationDependency,
+  PlaybookCategory,
+} from "../../lib/playbooks";
 import {
   PLAYBOOK_CATEGORIES,
-  PLAYBOOKS,
   playbookRunPrompt,
-  type IntegrationDependency,
-  type PlaybookCategory,
+  PLAYBOOKS,
 } from "../../lib/playbooks";
+import { IntegrationAvatarStack } from "../integrations/integration-avatar-stack";
+import { PlaybookDocument } from "../playbooks/playbook-document";
 
 interface Preset {
   id: string;
@@ -76,7 +80,7 @@ const RECURRING_PRESETS: Preset[] = [
 
 type Frequency = "daily" | "weekdays" | "weekly" | "monthly";
 
-const FREQUENCIES: Array<{ value: Frequency; label: string }> = [
+const FREQUENCIES: { value: Frequency; label: string }[] = [
   { value: "daily", label: "Every day" },
   { value: "weekdays", label: "Weekdays" },
   { value: "weekly", label: "Weekly" },
@@ -153,7 +157,7 @@ export function RecurringWorkComposer({
     (playbook) => !oneOff && playbook.id === playbookId,
   );
   const [category, setCategory] = useState<PlaybookCategory>(
-    initialPlaybook?.categories[0] ?? PLAYBOOK_CATEGORIES[0],
+    initialPlaybook?.categories[0] ?? "Find customers",
   );
   const [presetId, setPresetId] = useState(
     oneOff ? "analytics-snapshot" : (initialPlaybook?.id ?? "growth-brief"),
@@ -215,19 +219,19 @@ export function RecurringWorkComposer({
 
   if (viewingPlaybook) {
     return (
-      <div className="w-full border bg-card">
+      <div className="bg-card w-full border">
         <div className="flex items-start justify-between gap-4 p-4">
           <div className="min-w-0">
             <button
               type="button"
               onClick={() => setViewingPlaybookId(null)}
-              className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              className="text-muted-foreground hover:text-foreground mb-3 flex items-center gap-1.5 text-xs transition-colors"
             >
               <ArrowLeft size={13} />
               Back to playbooks
             </button>
             <p className="font-serif text-2xl">{viewingPlaybook.title}</p>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="text-muted-foreground mt-1 text-sm">
               {viewingPlaybook.summary}
             </p>
           </div>
@@ -235,7 +239,7 @@ export function RecurringWorkComposer({
             type="button"
             aria-label="Dismiss scheduling form"
             onClick={onDismiss}
-            className="p-1 text-muted-foreground transition-colors hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground p-1 transition-colors"
           >
             <X size={15} />
           </button>
@@ -245,7 +249,7 @@ export function RecurringWorkComposer({
             integrations={viewingPlaybook.integrations}
             max={10}
           />
-          <span className="text-xs text-muted-foreground">
+          <span className="text-muted-foreground text-xs">
             {viewingPlaybook.integrations
               .map((integration) => integration.label)
               .join(", ")}
@@ -273,13 +277,13 @@ export function RecurringWorkComposer({
   }
 
   return (
-    <div className="w-full border bg-card p-4">
+    <div className="bg-card w-full border p-4">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="font-serif text-2xl">
             {oneOff ? "Schedule a task" : "Schedule recurring work"}
           </p>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="text-muted-foreground mt-1 text-sm">
             Choose when it runs and what it should do.
           </p>
         </div>
@@ -287,7 +291,7 @@ export function RecurringWorkComposer({
           type="button"
           aria-label="Dismiss scheduling form"
           onClick={onDismiss}
-          className="p-1 text-muted-foreground transition-colors hover:text-foreground"
+          className="text-muted-foreground hover:text-foreground p-1 transition-colors"
         >
           <X size={15} />
         </button>
@@ -305,23 +309,23 @@ export function RecurringWorkComposer({
           )}
         >
           {oneOff ? (
-            <label className="space-y-1.5 text-xs text-muted-foreground">
+            <label className="text-muted-foreground space-y-1.5 text-xs">
               Date
               <Input
                 type="date"
                 value={onDate}
                 onChange={(event) => setOnDate(event.target.value)}
-                className="h-10 text-sm text-foreground"
+                className="text-foreground h-10 text-sm"
               />
             </label>
           ) : (
-            <label className="space-y-1.5 text-xs text-muted-foreground">
+            <label className="text-muted-foreground space-y-1.5 text-xs">
               Repeats
               <Select
                 value={frequency}
                 onValueChange={(value) => setFrequency(value as Frequency)}
               >
-                <SelectTrigger className="h-10 w-full text-sm text-foreground">
+                <SelectTrigger className="text-foreground h-10 w-full text-sm">
                   {FREQUENCIES.find((item) => item.value === frequency)?.label}
                 </SelectTrigger>
                 <SelectContent>
@@ -336,10 +340,10 @@ export function RecurringWorkComposer({
           )}
 
           {!oneOff && frequency === "weekly" ? (
-            <label className="space-y-1.5 text-xs text-muted-foreground">
+            <label className="text-muted-foreground space-y-1.5 text-xs">
               Day
               <Select value={weekday} onValueChange={setWeekday}>
-                <SelectTrigger className="h-10 w-full text-sm text-foreground">
+                <SelectTrigger className="text-foreground h-10 w-full text-sm">
                   {weekday}
                 </SelectTrigger>
                 <SelectContent>
@@ -354,7 +358,7 @@ export function RecurringWorkComposer({
           ) : null}
 
           {!oneOff && frequency === "monthly" ? (
-            <label className="space-y-1.5 text-xs text-muted-foreground">
+            <label className="text-muted-foreground space-y-1.5 text-xs">
               Day of month
               <Input
                 type="number"
@@ -362,19 +366,19 @@ export function RecurringWorkComposer({
                 max={31}
                 value={dayOfMonth}
                 onChange={(event) => setDayOfMonth(event.target.value)}
-                className="h-10 text-sm text-foreground"
+                className="text-foreground h-10 text-sm"
               />
             </label>
           ) : null}
 
-          <label className="space-y-1.5 text-xs text-muted-foreground">
+          <label className="text-muted-foreground space-y-1.5 text-xs">
             Time
             <Input
               type="time"
               step={60}
               value={time}
               onChange={(event) => setTime(event.target.value)}
-              className="h-10 text-sm text-foreground"
+              className="text-foreground h-10 text-sm"
             />
           </label>
         </div>
@@ -390,7 +394,7 @@ export function RecurringWorkComposer({
                 type="button"
                 onClick={() => selectCategory(item)}
                 className={cn(
-                  "-mb-px shrink-0 border-b-2 border-transparent pb-2 text-xs text-muted-foreground transition-colors hover:text-foreground",
+                  "text-muted-foreground hover:text-foreground -mb-px shrink-0 border-b-2 border-transparent pb-2 text-xs transition-colors",
                   category === item && "border-foreground text-foreground",
                 )}
               >
@@ -409,7 +413,7 @@ export function RecurringWorkComposer({
               <div
                 key={item.id}
                 className={cn(
-                  "flex w-full items-center justify-between gap-4 border-b px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-accent/50",
+                  "hover:bg-accent/50 flex w-full items-center justify-between gap-4 border-b px-3 py-2 text-left transition-colors last:border-b-0",
                   selected && "bg-accent",
                 )}
               >
@@ -421,7 +425,7 @@ export function RecurringWorkComposer({
                   <span
                     aria-hidden
                     className={cn(
-                      "mt-1.5 size-2 shrink-0 border border-muted-foreground",
+                      "border-muted-foreground mt-1.5 size-2 shrink-0 border",
                       selected && "border-foreground bg-foreground",
                     )}
                   />
@@ -429,7 +433,7 @@ export function RecurringWorkComposer({
                     <span className="block text-sm font-medium">
                       {item.label}
                     </span>
-                    <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
+                    <span className="text-muted-foreground mt-0.5 block text-xs leading-4">
                       {item.description}
                     </span>
                   </span>
@@ -440,7 +444,7 @@ export function RecurringWorkComposer({
                     <button
                       type="button"
                       onClick={() => setViewingPlaybookId(playbook.id)}
-                      className="flex items-center gap-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+                      className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-[10px] transition-colors"
                       aria-label={`View ${playbook.title} details`}
                     >
                       <Eye size={12} />
@@ -473,7 +477,7 @@ export function RecurringWorkComposer({
             <span className="block text-xs font-medium">
               Create as approved
             </span>
-            <span className="block text-[10px] text-muted-foreground">
+            <span className="text-muted-foreground block text-[10px]">
               Skip the separate approval step
             </span>
           </span>

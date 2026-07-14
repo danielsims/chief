@@ -1,9 +1,9 @@
 import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   isPermissionGranted,
   requestPermission,
 } from "@tauri-apps/plugin-notification";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 
 // One permission round-trip per app session, resolved lazily on first use.
 let permission: Promise<boolean> | null = null;

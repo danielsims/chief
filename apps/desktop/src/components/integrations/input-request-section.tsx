@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { ArrowUpRight, CircleAlert } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { ArrowUpRight, CircleAlert } from "lucide-react";
+
 import type { InputRequest } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
@@ -12,7 +13,7 @@ import { cn } from "@chief/ui/lib/utils";
 function inline(text: string) {
   return text.split(/\*\*(.+?)\*\*/g).map((part, index) =>
     index % 2 === 1 ? (
-      <span key={index} className="font-medium text-foreground">
+      <span key={index} className="text-foreground font-medium">
         {part}
       </span>
     ) : (
@@ -52,14 +53,14 @@ export function InputRequestSection({
   return (
     // Setup is paused on this; the label carries the urgency, the card stays
     // neutral.
-    <div className="border bg-card p-5">
+    <div className="bg-card border p-5">
       <p className="text-xs text-blue-400">
         <CircleAlert size={13} className="mr-1.5 inline-block align-[-2px]" />
         Setup is paused until you finish this
       </p>
       <p className="mt-3 font-serif text-xl">{request.title}</p>
       {request.reason ? (
-        <p className="mt-1.5 max-w-xl text-sm leading-6 text-muted-foreground">
+        <p className="text-muted-foreground mt-1.5 max-w-xl text-sm leading-6">
           {request.reason}
         </p>
       ) : null}
@@ -71,16 +72,16 @@ export function InputRequestSection({
               key={index}
               className="flex items-baseline gap-3 text-sm leading-6"
             >
-              <span className="shrink-0 text-xs text-muted-foreground">
+              <span className="text-muted-foreground shrink-0 text-xs">
                 {index + 1}
               </span>
-              <span className="min-w-0 text-muted-foreground">
+              <span className="text-muted-foreground min-w-0">
                 {inline(step.text)}
                 {step.url ? (
                   <button
                     type="button"
                     onClick={() => void openUrl(step.url!)}
-                    className="ml-2 inline-flex cursor-pointer items-center gap-0.5 text-foreground underline underline-offset-2"
+                    className="text-foreground ml-2 inline-flex cursor-pointer items-center gap-0.5 underline underline-offset-2"
                   >
                     Open
                     <ArrowUpRight size={12} />
@@ -101,7 +102,7 @@ export function InputRequestSection({
               field.type === "multiline" && "sm:col-span-2",
             )}
           >
-            <span className="text-xs text-muted-foreground">{field.label}</span>
+            <span className="text-muted-foreground text-xs">{field.label}</span>
             {field.type === "multiline" ? (
               <textarea
                 value={values[field.key] ?? ""}
@@ -109,7 +110,7 @@ export function InputRequestSection({
                   setValues((v) => ({ ...v, [field.key]: event.target.value }))
                 }
                 rows={3}
-                className="w-full resize-none border bg-transparent px-3 py-2 font-mono text-xs leading-5 outline-none placeholder:text-muted-foreground"
+                className="placeholder:text-muted-foreground w-full resize-none border bg-transparent px-3 py-2 font-mono text-xs leading-5 outline-none"
               />
             ) : (
               <Input
@@ -125,7 +126,7 @@ export function InputRequestSection({
         ))}
       </div>
       <div className="mt-3 flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
+        <p className="text-muted-foreground text-xs">
           Stored on this Mac only.
         </p>
         <Button type="button" size="sm" disabled={!ready} onClick={submit}>

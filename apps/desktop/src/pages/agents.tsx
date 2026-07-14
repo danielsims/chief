@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { Link, useNavigate } from "react-router";
-import { defaultAgents } from "@chief/agent-runtime/agents";
-import { availableCapabilities } from "@chief/agent-runtime/capabilities";
+
 import type {
   AgentCapabilityId,
   AgentDefinition,
@@ -9,6 +9,9 @@ import type {
   DriverType,
   RecurringWorkRunRecord,
 } from "@chief/agent-runtime/types";
+import { defaultAgents } from "@chief/agent-runtime/agents";
+import { availableCapabilities } from "@chief/agent-runtime/capabilities";
+import { api } from "@chief/backend/convex/_generated/api";
 import { Button } from "@chief/ui/components/button";
 import {
   Select,
@@ -25,34 +28,34 @@ import {
   TooltipTrigger,
 } from "@chief/ui/components/tooltip";
 import { cn } from "@chief/ui/lib/utils";
-import { api } from "@chief/backend/convex/_generated/api";
-import { useConvexAuth, useQuery } from "convex/react";
+
+import type { AgentOverride as LocalAgentOverride } from "../lib/agent-overrides";
+import type { PlaybookCategory } from "../lib/playbooks";
+import type { Provider } from "../lib/providers";
+import { AgentDeploymentPanel } from "../components/agents/agent-deployment-panel";
+import { IntegrationAvatarStack } from "../components/integrations/integration-avatar-stack";
+import { PlaybookDocument } from "../components/playbooks/playbook-document";
+import { useAgentConfig } from "../lib/agent-config";
+import {
+  getWorkspaceProvider,
+  setAgentOverride,
+  setWorkspaceProvider,
+} from "../lib/agent-overrides";
+import { useAuth } from "../lib/auth/auth-context";
+import { createChat } from "../lib/chat-log";
+import {
+  PLAYBOOK_CATEGORIES,
+  playbookRunPrompt,
+  PLAYBOOKS,
+  playbookSetupPrompt,
+} from "../lib/playbooks";
+import { PROVIDER_META } from "../lib/providers";
 import {
   useAgentPreferences,
   useProviderModels,
   useRuntime,
   useWorkspaceData,
 } from "../lib/runtime";
-import { useAuth } from "../lib/auth/auth-context";
-import {
-  type AgentOverride as LocalAgentOverride,
-  getWorkspaceProvider,
-  setAgentOverride,
-  setWorkspaceProvider,
-} from "../lib/agent-overrides";
-import { useAgentConfig } from "../lib/agent-config";
-import { PROVIDER_META, type Provider } from "../lib/providers";
-import { createChat } from "../lib/chat-log";
-import {
-  PLAYBOOKS,
-  PLAYBOOK_CATEGORIES,
-  playbookRunPrompt,
-  playbookSetupPrompt,
-  type PlaybookCategory,
-} from "../lib/playbooks";
-import { IntegrationAvatarStack } from "../components/integrations/integration-avatar-stack";
-import { AgentDeploymentPanel } from "../components/agents/agent-deployment-panel";
-import { PlaybookDocument } from "../components/playbooks/playbook-document";
 
 type AgentOverride = AgentPreference;
 
@@ -133,7 +136,7 @@ function AgentRunTicks({
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-56">
             <p className="text-xs font-medium">{title}</p>
-            <p className="mt-0.5 text-[10px] text-muted-foreground">
+            <p className="text-muted-foreground mt-0.5 text-[10px]">
               {run.status.replace("_", " ")} ·{" "}
               {new Date(run.scheduledFor).toLocaleString([], {
                 month: "short",
@@ -151,7 +154,7 @@ function AgentRunTicks({
           aria-hidden="true"
           className="flex h-9 w-1.5 items-center justify-center"
         >
-          <span className="h-4 w-0.5 bg-border" />
+          <span className="bg-border h-4 w-0.5" />
         </span>
       ))}
     </div>
@@ -272,7 +275,7 @@ function InstalledAgentCard({
   return (
     <div
       className={cn(
-        "flex min-h-full flex-col bg-card p-6",
+        "bg-card flex min-h-full flex-col p-6",
         !enabled && "opacity-60",
       )}
     >
@@ -281,12 +284,12 @@ function InstalledAgentCard({
           <p className="truncate text-sm font-medium">
             {agent.name}
             {agent.delegates && (
-              <span className="ml-2 text-xs font-normal text-muted-foreground">
+              <span className="text-muted-foreground ml-2 text-xs font-normal">
                 Orchestrator
               </span>
             )}
           </p>
-          <p className="truncate text-xs text-muted-foreground">{agent.role}</p>
+          <p className="text-muted-foreground truncate text-xs">{agent.role}</p>
         </div>
         <Switch
           checked={enabled}
@@ -295,14 +298,14 @@ function InstalledAgentCard({
         />
       </div>
 
-      <p className="mt-3 text-sm leading-6 text-muted-foreground">
+      <p className="text-muted-foreground mt-3 text-sm leading-6">
         {agent.description}
       </p>
 
       <div className="mt-6 border-t pt-4">
         <div className="flex items-center justify-between gap-4">
           <p className="text-xs font-medium">Run history</p>
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-muted-foreground text-[11px]">
             {runs.length === 1 ? "1 recent run" : `${runs.length} recent runs`}
           </p>
         </div>
@@ -315,14 +318,14 @@ function InstalledAgentCard({
           <button
             type="button"
             onClick={() => setEditing((current) => !current)}
-            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground text-xs transition-colors"
           >
             {editing ? "Done" : "Edit"}
           </button>
         </div>
         <div className="grid gap-6 md:grid-cols-2">
           <section>
-            <p className="mb-2 text-[11px] text-muted-foreground">
+            <p className="text-muted-foreground mb-2 text-[11px]">
               Capabilities
             </p>
             <div className="divide-y border">
@@ -343,7 +346,7 @@ function InstalledAgentCard({
                       <span className="block text-xs font-medium">
                         {detail.label}
                       </span>
-                      <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
+                      <span className="text-muted-foreground mt-0.5 block text-[11px] leading-4">
                         {detail.description}
                       </span>
                     </span>
@@ -362,13 +365,13 @@ function InstalledAgentCard({
                         }
                       />
                     ) : (
-                      <span className="size-1.5 shrink-0 bg-foreground" />
+                      <span className="bg-foreground size-1.5 shrink-0" />
                     )}
                   </label>
                 );
               })}
               {!editing && capabilities.length === 0 ? (
-                <p className="px-3 py-4 text-xs text-muted-foreground">
+                <p className="text-muted-foreground px-3 py-4 text-xs">
                   No optional capabilities
                 </p>
               ) : null}
@@ -376,7 +379,7 @@ function InstalledAgentCard({
           </section>
 
           <section>
-            <p className="mb-2 text-[11px] text-muted-foreground">
+            <p className="text-muted-foreground mb-2 text-[11px]">
               Connections
             </p>
             <div className="divide-y border">
@@ -398,7 +401,7 @@ function InstalledAgentCard({
                       <span className="block truncate text-xs font-medium">
                         {integration.displayName}
                       </span>
-                      <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                      <span className="text-muted-foreground mt-0.5 block text-[11px]">
                         Connected service access
                       </span>
                     </span>
@@ -418,14 +421,14 @@ function InstalledAgentCard({
                         }
                       />
                     ) : (
-                      <span className="size-1.5 shrink-0 bg-foreground" />
+                      <span className="bg-foreground size-1.5 shrink-0" />
                     )}
                   </label>
                 );
               })}
               {(!editing && assignedIntegrations.length === 0) ||
               integrations.length === 0 ? (
-                <p className="px-3 py-4 text-xs text-muted-foreground">
+                <p className="text-muted-foreground px-3 py-4 text-xs">
                   No connected services
                 </p>
               ) : null}
@@ -443,7 +446,7 @@ function InstalledAgentCard({
               save({ driver: value as DriverType, model: "" })
             }
           >
-            <SelectTrigger className="h-7 w-auto gap-1.5 border-transparent px-1 text-xs text-muted-foreground hover:text-foreground data-[state=open]:text-foreground">
+            <SelectTrigger className="text-muted-foreground hover:text-foreground data-[state=open]:text-foreground h-7 w-auto gap-1.5 border-transparent px-1 text-xs">
               {meta ? (
                 <span className="flex items-center gap-1.5">
                   <meta.Icon size={13} />
@@ -476,7 +479,7 @@ function InstalledAgentCard({
                 save({ model: value === "__auto__" ? "" : value })
               }
             >
-              <SelectTrigger className="h-7 w-auto max-w-40 gap-1.5 border-transparent px-1 text-xs text-muted-foreground hover:text-foreground">
+              <SelectTrigger className="text-muted-foreground hover:text-foreground h-7 w-auto max-w-40 gap-1.5 border-transparent px-1 text-xs">
                 <span className="truncate">
                   {models.loading
                     ? "Loading…"
@@ -502,7 +505,7 @@ function InstalledAgentCard({
             </Select>
           ) : null}
           {meta ? (
-            <span className="text-xs text-muted-foreground">
+            <span className="text-muted-foreground text-xs">
               {meta.location}
             </span>
           ) : null}
@@ -510,7 +513,7 @@ function InstalledAgentCard({
         <div className="flex items-center gap-2">
           <Link
             to={`/conversations?agent=${agent.id}`}
-            className="border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground border px-2.5 py-1 text-xs transition-colors"
           >
             Open chat
           </Link>
@@ -532,21 +535,21 @@ function AvailableAgentDetail({
     <div className="flex h-full min-h-[620px] flex-col p-7">
       <div className="flex flex-wrap items-start justify-between gap-5 border-b pb-6">
         <div>
-          <p className="text-xs text-muted-foreground">Available agent</p>
+          <p className="text-muted-foreground text-xs">Available agent</p>
           <h3 className="mt-2 font-serif text-3xl">{agent.name}</h3>
-          <p className="mt-2 text-sm text-muted-foreground">{agent.role}</p>
+          <p className="text-muted-foreground mt-2 text-sm">{agent.role}</p>
         </div>
         <Button size="sm" disabled>
           Coming soon
         </Button>
       </div>
       <div className="max-w-2xl py-7">
-        <p className="text-sm leading-7 text-muted-foreground">
+        <p className="text-muted-foreground text-sm leading-7">
           {agent.description}
         </p>
         <div className="mt-7 border p-4">
           <p className="text-sm font-medium">Not installed</p>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+          <p className="text-muted-foreground mt-1 text-sm leading-6">
             This specialist will appear in your team when the agent registry is
             ready. Its playbooks and connected-service access will be visible
             here before installation.
@@ -608,7 +611,7 @@ function PlaybooksCatalogue() {
   };
 
   return (
-    <div className="grid h-[calc(100vh-190px)] min-h-[620px] grid-cols-[320px_minmax(0,1fr)] border bg-card">
+    <div className="bg-card grid h-[calc(100vh-190px)] min-h-[620px] grid-cols-[320px_minmax(0,1fr)] border">
       <div className="flex min-h-0 flex-col border-r">
         <div className="border-b p-3">
           <Select
@@ -639,7 +642,7 @@ function PlaybooksCatalogue() {
               type="button"
               onClick={() => setSelectedId(playbook.id)}
               className={cn(
-                "flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-accent",
+                "hover:bg-accent flex w-full items-center gap-3 px-3 py-3 text-left transition-colors",
                 selected.id === playbook.id && "bg-accent",
               )}
             >
@@ -647,7 +650,7 @@ function PlaybooksCatalogue() {
                 <span className="block truncate text-sm font-medium">
                   {playbook.title}
                 </span>
-                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                <span className="text-muted-foreground mt-0.5 block truncate text-xs">
                   {playbook.summary}
                 </span>
               </span>
@@ -661,11 +664,11 @@ function PlaybooksCatalogue() {
         <div className="border-b p-7">
           <div className="flex flex-wrap items-start justify-between gap-5">
             <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 Playbook · {owner?.name ?? selected.agentId}
               </p>
               <h3 className="mt-2 font-serif text-3xl">{selected.title}</h3>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+              <p className="text-muted-foreground mt-2 max-w-2xl text-sm leading-6">
                 {selected.summary}
               </p>
             </div>
@@ -684,14 +687,14 @@ function PlaybooksCatalogue() {
                 integrations={selected.integrations}
                 max={10}
               />
-              <span className="text-xs text-muted-foreground">
+              <span className="text-muted-foreground text-xs">
                 {selected.integrations.map((item) => item.label).join(", ")}
               </span>
             </div>
             <button
               type="button"
               onClick={checkSetup}
-              className="text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+              className="text-muted-foreground hover:text-foreground text-xs underline-offset-4 transition-colors hover:underline"
             >
               Check setup
             </button>
@@ -791,12 +794,12 @@ export function AgentsPage() {
               type="button"
               onClick={() => setView(item.key)}
               className={cn(
-                "flex w-full items-center justify-between px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+                "text-muted-foreground hover:bg-accent hover:text-foreground flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors",
                 view === item.key && "bg-accent text-foreground",
               )}
             >
               <span>{item.label}</span>
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-muted-foreground text-[11px]">
                 {item.count}
               </span>
             </button>
@@ -804,7 +807,7 @@ export function AgentsPage() {
         </nav>
       </aside>
 
-      <main className="min-w-0 flex-1 px-6 pb-8 pt-10">
+      <main className="min-w-0 flex-1 px-6 pt-10 pb-8">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-6">
           <div>
             <h2 className="font-serif text-2xl">
@@ -814,7 +817,7 @@ export function AgentsPage() {
                   ? "Available agents"
                   : "Playbooks"}
             </h2>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
+            <p className="text-muted-foreground mt-2 max-w-xl text-sm leading-6">
               {view === "installed"
                 ? "Enable agents, choose the provider each one runs on, and open a conversation."
                 : view === "available"
@@ -825,7 +828,7 @@ export function AgentsPage() {
           {view === "installed" ? (
             <div className="flex items-center gap-3">
               <span
-                className="text-xs text-muted-foreground"
+                className="text-muted-foreground text-xs"
                 title="Automatic lets agents run their tools without asking; Ask first pauses every mutating tool call for your approval."
               >
                 Tool approvals
@@ -842,7 +845,7 @@ export function AgentsPage() {
                     type="button"
                     onClick={() => agentConfig.setApprovals(mode)}
                     className={cn(
-                      "px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground",
+                      "text-muted-foreground hover:text-foreground px-3 py-1.5 text-xs transition-colors",
                       agentConfig.approvals === mode &&
                         "bg-accent text-foreground",
                     )}
@@ -857,7 +860,7 @@ export function AgentsPage() {
 
         {view === "installed" ? (
           <>
-            <div className="grid min-h-[620px] grid-cols-[260px_minmax(0,1fr)] border bg-card">
+            <div className="bg-card grid min-h-[620px] grid-cols-[260px_minmax(0,1fr)] border">
               <div className="border-r p-2">
                 {agents.map((agent) => {
                   const override = overrides.find(
@@ -874,7 +877,7 @@ export function AgentsPage() {
                         setDeployAgentId(null);
                       }}
                       className={cn(
-                        "flex w-full items-center px-3 py-2 transition-colors hover:bg-accent",
+                        "hover:bg-accent flex w-full items-center px-3 py-2 transition-colors",
                         selected && "bg-accent",
                       )}
                     >
@@ -891,7 +894,7 @@ export function AgentsPage() {
                           <span className="block truncate text-sm font-medium">
                             {agent.name}
                           </span>
-                          <span className="block truncate text-xs text-muted-foreground">
+                          <span className="text-muted-foreground block truncate text-xs">
                             {agent.role}
                           </span>
                         </span>
@@ -924,13 +927,13 @@ export function AgentsPage() {
               </div>
             </div>
             {!ready ? (
-              <p className="mt-3 text-xs text-muted-foreground">
+              <p className="text-muted-foreground mt-3 text-xs">
                 Connecting to your workspace…
               </p>
             ) : null}
           </>
         ) : view === "available" ? (
-          <div className="grid min-h-[620px] grid-cols-[260px_minmax(0,1fr)] border bg-card">
+          <div className="bg-card grid min-h-[620px] grid-cols-[260px_minmax(0,1fr)] border">
             <div className="border-r p-2">
               {availableAgents.map((agent) => (
                 <button
@@ -938,16 +941,16 @@ export function AgentsPage() {
                   type="button"
                   onClick={() => setSelectedAvailableId(agent.id)}
                   className={cn(
-                    "flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-accent",
+                    "hover:bg-accent flex w-full items-center gap-3 px-3 py-3 text-left transition-colors",
                     selectedAvailableId === agent.id && "bg-accent",
                   )}
                 >
-                  <span className="size-1.5 shrink-0 border border-muted-foreground/50" />
+                  <span className="border-muted-foreground/50 size-1.5 shrink-0 border" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium">
                       {agent.name}
                     </span>
-                    <span className="block truncate text-xs text-muted-foreground">
+                    <span className="text-muted-foreground block truncate text-xs">
                       {agent.role}
                     </span>
                   </span>

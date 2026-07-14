@@ -1,13 +1,15 @@
 import { useCallback, useState } from "react";
 import { useNavigate } from "react-router";
+
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
+
+import { resolveFaviconUrl } from "../components/org-logo";
 import {
   createAuthOrganization,
   setActiveAuthOrganization,
   updateAuthOrganization,
 } from "../lib/auth/better-auth-client";
-import { resolveFaviconUrl } from "../components/org-logo";
 
 /**
  * Full-page workspace creation. Visually this is step one of onboarding.
@@ -61,7 +63,7 @@ export function CreateWorkspacePage() {
   );
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
+    <div className="bg-background text-foreground flex min-h-screen flex-col">
       {/* Drag strip under the macOS window controls */}
       <header data-tauri-drag-region className="h-[92px] shrink-0" />
 
@@ -70,16 +72,16 @@ export function CreateWorkspacePage() {
           <h1 className="font-serif text-3xl leading-tight">
             Create a workspace
           </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="text-muted-foreground mt-2 text-sm">
             A workspace holds one company and its agents.
           </p>
           <form
             onSubmit={handleSubmit}
-            className="mt-8 space-y-5 border bg-card p-5"
+            className="bg-card mt-8 space-y-5 border p-5"
           >
             <div className="space-y-1.5">
               <label
-                className="text-xs text-muted-foreground"
+                className="text-muted-foreground text-xs"
                 htmlFor="new-workspace-name"
               >
                 Company name
@@ -95,7 +97,7 @@ export function CreateWorkspacePage() {
             </div>
             <div className="space-y-1.5">
               <label
-                className="text-xs text-muted-foreground"
+                className="text-muted-foreground text-xs"
                 htmlFor="new-workspace-website"
               >
                 Company website
@@ -107,12 +109,12 @@ export function CreateWorkspacePage() {
                 placeholder="acme.com"
                 disabled={isCreating}
               />
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 The workspace logo defaults to this site's favicon.
               </p>
             </div>
             {error ? (
-              <p className="text-xs text-destructive break-words">{error}</p>
+              <p className="text-destructive text-xs break-words">{error}</p>
             ) : null}
             <Button
               type="submit"
@@ -126,7 +128,7 @@ export function CreateWorkspacePage() {
             type="button"
             onClick={() => navigate(-1)}
             disabled={isCreating}
-            className="mt-4 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground mt-4 text-xs transition-colors"
           >
             Cancel
           </button>

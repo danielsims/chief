@@ -1,8 +1,10 @@
 import { useState } from "react";
+
 import type { AgentQuestion } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
 import { cn } from "@chief/ui/lib/utils";
+
 import type { PendingQuestion } from "../../lib/runtime";
 
 const OTHER = "__other__";
@@ -49,7 +51,7 @@ function QuestionBlock({
     <div className="space-y-2.5">
       <div>
         {question.header ? (
-          <p className="text-xs text-muted-foreground">{question.header}</p>
+          <p className="text-muted-foreground text-xs">{question.header}</p>
         ) : null}
         <p className="mt-0.5 text-sm font-medium">{question.question}</p>
       </div>
@@ -62,13 +64,13 @@ function QuestionBlock({
               type="button"
               onClick={() => toggle(option.label)}
               className={cn(
-                "border px-3 py-2 text-left transition-colors hover:bg-accent",
+                "hover:bg-accent border px-3 py-2 text-left transition-colors",
                 active && "border-foreground/40 bg-accent",
               )}
             >
               <span className="block text-sm">{option.label}</span>
               {option.description ? (
-                <span className="mt-0.5 block text-xs text-muted-foreground">
+                <span className="text-muted-foreground mt-0.5 block text-xs">
                   {option.description}
                 </span>
               ) : null}
@@ -125,7 +127,7 @@ export function QuestionCard({
   const complete = answers.every((answer) => answer.length > 0);
 
   return (
-    <div className="space-y-5 border bg-card p-5">
+    <div className="bg-card space-y-5 border p-5">
       {pending.questions.map((question, index) => (
         <QuestionBlock
           key={`${pending.requestId}-${index}`}
@@ -142,7 +144,7 @@ export function QuestionCard({
         <button
           type="button"
           onClick={onDismiss}
-          className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="text-muted-foreground hover:text-foreground text-xs transition-colors"
         >
           Skip these questions
         </button>

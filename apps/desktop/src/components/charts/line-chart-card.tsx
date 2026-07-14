@@ -1,4 +1,5 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+
 import type { GenerativeChartSeries } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
 
@@ -31,7 +32,7 @@ function niceMaximum(value: number) {
   return Math.ceil(value / magnitude) * magnitude;
 }
 
-function linePath(points: Array<{ x: number; y: number }>) {
+function linePath(points: { x: number; y: number }[]) {
   return points
     .map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point.y}`)
     .join(" ");
@@ -107,29 +108,29 @@ export function LineChartCard({
     new Set([0, Math.floor((primary.length - 1) / 2), primary.length - 1]),
   ).filter((index) => index >= 0);
   const hoveredX =
-    hoveredIndex === null ? null : coordinates[0]?.[hoveredIndex]?.x;
+    hoveredIndex === null ? null : (coordinates[0]?.[hoveredIndex]?.x ?? null);
   const hoveredTop =
     hoveredIndex === null
       ? null
       : Math.min(
           ...coordinates.flatMap((item) =>
-            item[hoveredIndex] ? [item[hoveredIndex]!.y] : [],
+            item[hoveredIndex] ? [item[hoveredIndex].y] : [],
           ),
         );
 
   if (pointCount < 2) return null;
 
   return (
-    <div className="border bg-card">
+    <div className="bg-card border">
       <div className="flex min-h-[66px] items-start justify-between gap-4 px-5 pt-5">
         <div>
           <p className="text-sm font-medium">{title}</p>
           {subtitle ? (
-            <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
+            <p className="text-muted-foreground mt-1 text-xs">{subtitle}</p>
           ) : null}
         </div>
         {contextLabel ? (
-          <p className="text-xs text-muted-foreground">{contextLabel}</p>
+          <p className="text-muted-foreground text-xs">{contextLabel}</p>
         ) : null}
       </div>
 
@@ -279,14 +280,14 @@ export function LineChartCard({
         hoveredX !== null &&
         Number.isFinite(hoveredTop) ? (
           <div
-            className="pointer-events-none absolute z-20 min-w-48 border bg-background px-3 py-2 shadow-lg"
+            className="bg-background pointer-events-none absolute z-20 min-w-48 border px-3 py-2 shadow-lg"
             style={{
               left: `${(hoveredX / width) * 100}%`,
               top: `${((hoveredTop ?? dataTop) / height) * 100}%`,
               transform: `translate(${hoveredX > width * 0.72 ? "-100%" : hoveredX < width * 0.28 ? "0" : "-50%"}, calc(-100% - 10px))`,
             }}
           >
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-muted-foreground text-[11px]">
               {formatX(primary[hoveredIndex]?.x ?? "")}
             </p>
             <div className="mt-1.5 space-y-1">
@@ -297,7 +298,7 @@ export function LineChartCard({
                     key={item.id}
                     className="flex items-center justify-between gap-5 text-xs"
                   >
-                    <span className="max-w-44 truncate text-muted-foreground">
+                    <span className="text-muted-foreground max-w-44 truncate">
                       {item.label}
                     </span>
                     <span className="font-medium">
@@ -316,7 +317,7 @@ export function LineChartCard({
           return (
             <span
               key={item.id}
-              className="inline-flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground"
+              className="text-muted-foreground inline-flex min-w-0 items-center gap-2 text-[11px]"
             >
               <span
                 className={cn("w-6 border-t-2", style.legend)}

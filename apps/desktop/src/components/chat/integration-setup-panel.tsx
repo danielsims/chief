@@ -1,19 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Square } from "lucide-react";
+
 import type { DriverType } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
-import { useAgentChat, useRuntime } from "../../lib/runtime";
+
+import type { SetupResult } from "../../lib/integration-setup";
 import {
-  SETUP_AGENT_ID,
   findPendingInputRequest,
   parseSetupResult,
+  SETUP_AGENT_ID,
   setupChatId,
   stripSetupResult,
   withoutMarkerLines,
-  type SetupResult,
 } from "../../lib/integration-setup";
-import { ApprovalCard } from "./approval-card";
+import { useAgentChat, useRuntime } from "../../lib/runtime";
 import { InputRequestSection } from "../integrations/input-request-section";
+import { ApprovalCard } from "./approval-card";
 import { Blocks } from "./message-blocks";
 
 /**
@@ -102,7 +104,6 @@ export function IntegrationSetupPanel({
         onResult(result);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat.items, onResult]);
 
   const items = useMemo(
@@ -131,7 +132,7 @@ export function IntegrationSetupPanel({
 
   if (runtimeStatus !== "connected") {
     return (
-      <div className="border border-dashed px-3 py-2 text-xs text-muted-foreground">
+      <div className="text-muted-foreground border border-dashed px-3 py-2 text-xs">
         Waiting for the local agent service before setup can start.
       </div>
     );
@@ -139,13 +140,13 @@ export function IntegrationSetupPanel({
 
   return (
     <div className="space-y-3">
-      <div className="border bg-background">
+      <div className="bg-background border">
         <div
           ref={feedRef}
           className="max-h-72 space-y-3 overflow-y-auto px-3 py-3"
         >
           {items.length === 0 && !chat.streaming ? (
-            <p className="animate-pulse font-mono text-xs text-muted-foreground">
+            <p className="text-muted-foreground animate-pulse font-mono text-xs">
               starting setup…
             </p>
           ) : null}
@@ -153,7 +154,7 @@ export function IntegrationSetupPanel({
             item.kind === "user" ? (
               i === 0 || item.text.startsWith("[auto]") ? null : (
                 <div key={i} className="flex justify-end">
-                  <div className="max-w-[85%] border bg-accent px-2.5 py-1.5 text-xs whitespace-pre-wrap">
+                  <div className="bg-accent max-w-[85%] border px-2.5 py-1.5 text-xs whitespace-pre-wrap">
                     {item.text}
                   </div>
                 </div>
@@ -165,9 +166,9 @@ export function IntegrationSetupPanel({
             ),
           )}
           {chat.streaming ? (
-            <p className="whitespace-pre-wrap text-sm leading-6">
+            <p className="text-sm leading-6 whitespace-pre-wrap">
               {stripSetupResult(chat.streaming)}
-              <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-foreground align-text-bottom" />
+              <span className="bg-foreground ml-0.5 inline-block h-4 w-2 animate-pulse align-text-bottom" />
             </p>
           ) : null}
           {!allowRest
@@ -183,12 +184,12 @@ export function IntegrationSetupPanel({
           {chat.status === "running" &&
           !chat.streaming &&
           chat.approvals.length === 0 ? (
-            <p className="animate-pulse font-mono text-xs text-muted-foreground">
+            <p className="text-muted-foreground animate-pulse font-mono text-xs">
               working…
             </p>
           ) : null}
           {chat.error ? (
-            <p className="border border-destructive/40 px-2.5 py-1.5 text-xs text-destructive">
+            <p className="border-destructive/40 text-destructive border px-2.5 py-1.5 text-xs">
               {chat.error}
             </p>
           ) : null}
@@ -204,7 +205,7 @@ export function IntegrationSetupPanel({
               }
             }}
             placeholder="Reply to the setup agent…"
-            className="h-7 min-w-0 flex-1 bg-transparent px-1 text-xs outline-none placeholder:text-muted-foreground"
+            className="placeholder:text-muted-foreground h-7 min-w-0 flex-1 bg-transparent px-1 text-xs outline-none"
           />
           {chat.status === "running" ? (
             <Button

@@ -5,12 +5,7 @@
  * stored URLs server-side.
  */
 export type SocialPlatform =
-  | "x"
-  | "instagram"
-  | "linkedin"
-  | "tiktok"
-  | "youtube"
-  | "reddit";
+  "x" | "instagram" | "linkedin" | "tiktok" | "youtube" | "reddit";
 
 export interface SocialPlatformDef {
   platform: SocialPlatform;

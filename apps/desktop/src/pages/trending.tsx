@@ -1,8 +1,9 @@
 import { useState } from "react";
+import { ExternalLink } from "lucide-react";
 import { Link } from "react-router";
+
 import type { TrendRecord } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
-import { ExternalLink } from "lucide-react";
 
 import { useAuth } from "../lib/auth/auth-context";
 import { useWorkspaceData } from "../lib/runtime";
@@ -25,10 +26,10 @@ export function TrendingPage() {
 
   return (
     <div className="-mx-8 -mb-8 min-h-[calc(100vh-48px)]">
-      <header className="flex items-end justify-between gap-6 border-b px-8 pb-5 pt-4">
+      <header className="flex items-end justify-between gap-6 border-b px-8 pt-4 pb-5">
         <div>
           <h1 className="font-serif text-3xl">Trending</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="text-muted-foreground mt-2 text-sm">
             Signals worth watching across your market and channels.
           </p>
         </div>
@@ -39,7 +40,7 @@ export function TrendingPage() {
               type="button"
               onClick={() => setFilter(item)}
               className={cn(
-                "px-3 py-1.5 text-xs capitalize text-muted-foreground transition-colors hover:text-foreground",
+                "text-muted-foreground hover:text-foreground px-3 py-1.5 text-xs capitalize transition-colors",
                 filter === item && "bg-accent text-foreground",
               )}
             >
@@ -56,7 +57,7 @@ export function TrendingPage() {
       ) : visible.length > 0 ? (
         <div className="px-8 py-6">
           <div className="border">
-            <div className="grid grid-cols-[minmax(220px,1.2fr)_120px_100px_minmax(280px,2fr)_110px] border-b bg-card px-4 py-2.5 text-[11px] text-muted-foreground">
+            <div className="bg-card text-muted-foreground grid grid-cols-[minmax(220px,1.2fr)_120px_100px_minmax(280px,2fr)_110px] border-b px-4 py-2.5 text-[11px]">
               <span>Trend</span>
               <span>Source</span>
               <span>Signal</span>
@@ -77,32 +78,32 @@ export function TrendingPage() {
                       href={trend.sourceUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                      className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
                     >
                       {trend.source}
                       <ExternalLink size={11} />
                     </a>
                   ) : (
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-muted-foreground text-xs">
                       {trend.source}
                     </span>
                   )}
                 </div>
-                <span className="inline-flex items-center gap-2 text-xs capitalize text-muted-foreground">
+                <span className="text-muted-foreground inline-flex items-center gap-2 text-xs capitalize">
                   <span className={cn("size-1.5", signalClass(trend.signal))} />
                   {trend.signal}
                 </span>
-                <p className="pr-6 text-xs leading-5 text-muted-foreground">
+                <p className="text-muted-foreground pr-6 text-xs leading-5">
                   {trend.summary}
                 </p>
                 <div>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-muted-foreground text-xs">
                     {new Date(trend.foundAt).toLocaleDateString([], {
                       month: "short",
                       day: "numeric",
                     })}
                   </p>
-                  <p className="mt-1 text-[10px] capitalize text-muted-foreground/70">
+                  <p className="text-muted-foreground/70 mt-1 text-[10px] capitalize">
                     {trend.status}
                   </p>
                 </div>
@@ -114,13 +115,13 @@ export function TrendingPage() {
         <div className="flex min-h-[calc(100vh-170px)] items-center justify-center px-8 text-center">
           <div className="max-w-sm">
             <p className="font-serif text-2xl">No trends yet</p>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            <p className="text-muted-foreground mt-2 text-sm leading-6">
               The Prospector saves supported market signals here, with the
               source and why each one matters.
             </p>
             <Link
               to="/conversations?agent=prospector"
-              className="mt-5 inline-block border px-3 py-2 text-xs transition-colors hover:bg-accent"
+              className="hover:bg-accent mt-5 inline-block border px-3 py-2 text-xs transition-colors"
             >
               Open Prospector
             </Link>

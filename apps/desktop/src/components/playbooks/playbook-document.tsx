@@ -1,4 +1,5 @@
 import { cn } from "@chief/ui/lib/utils";
+
 import type { Playbook } from "../../lib/playbooks";
 
 export function PlaybookDocument({
@@ -15,15 +16,15 @@ export function PlaybookDocument({
         compact ? "space-y-6 p-5" : "space-y-8 p-8",
       )}
     >
-      <p className="border-l-2 border-foreground/70 pl-4 text-base leading-7 text-foreground">
+      <p className="border-foreground/70 text-foreground border-l-2 pl-4 text-base leading-7">
         {playbook.goal}
       </p>
       <section>
         <h4 className="font-serif text-xl">What it needs</h4>
-        <ul className="mt-3 space-y-2 text-muted-foreground">
+        <ul className="text-muted-foreground mt-3 space-y-2">
           {playbook.inputs.map((input) => (
             <li key={input} className="flex gap-3">
-              <span className="mt-3 size-1 shrink-0 bg-muted-foreground" />
+              <span className="bg-muted-foreground mt-3 size-1 shrink-0" />
               <span>{input}</span>
             </li>
           ))}
@@ -37,7 +38,7 @@ export function PlaybookDocument({
               key={step}
               className="grid grid-cols-[24px_minmax(0,1fr)] gap-3"
             >
-              <span className="text-xs text-muted-foreground">{index + 1}</span>
+              <span className="text-muted-foreground text-xs">{index + 1}</span>
               <span>{step}</span>
             </li>
           ))}
@@ -45,10 +46,10 @@ export function PlaybookDocument({
       </section>
       <section className="border-t pt-6">
         <h4 className="font-serif text-xl">What you get</h4>
-        <ul className="mt-3 space-y-2 text-muted-foreground">
+        <ul className="text-muted-foreground mt-3 space-y-2">
           {playbook.deliverables.map((deliverable) => (
             <li key={deliverable} className="flex gap-3">
-              <span className="mt-3 size-1 shrink-0 bg-foreground" />
+              <span className="bg-foreground mt-3 size-1 shrink-0" />
               <span>{deliverable}</span>
             </li>
           ))}
@@ -56,7 +57,7 @@ export function PlaybookDocument({
       </section>
       <section className="border-t pt-6">
         <h4 className="font-serif text-xl">Access and limits</h4>
-        <div className="mt-3 space-y-3 text-muted-foreground">
+        <div className="text-muted-foreground mt-3 space-y-3">
           {playbook.accessNotes.map((note) => (
             <p key={note}>{note}</p>
           ))}
@@ -64,10 +65,10 @@ export function PlaybookDocument({
       </section>
       <section className="border-t pt-6">
         <h4 className="font-serif text-xl">Guardrails</h4>
-        <ul className="mt-3 space-y-2 text-muted-foreground">
+        <ul className="text-muted-foreground mt-3 space-y-2">
           {playbook.guardrails.map((guardrail) => (
             <li key={guardrail} className="flex gap-3">
-              <span className="mt-3 size-1 shrink-0 border border-muted-foreground" />
+              <span className="border-muted-foreground mt-3 size-1 shrink-0 border" />
               <span>{guardrail}</span>
             </li>
           ))}

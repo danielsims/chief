@@ -1,6 +1,6 @@
+import type { GenerativePartRenderer } from "../types";
 import { LineChartCard } from "../../charts/line-chart-card";
 import { shortAnalyticsDate } from "../../integrations/connection-preview";
-import type { GenerativePartRenderer } from "../types";
 
 const analyticsChartRenderer: GenerativePartRenderer = {
   capability: "analytics-chart",

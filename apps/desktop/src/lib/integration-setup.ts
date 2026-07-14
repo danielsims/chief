@@ -3,6 +3,7 @@
 // results, structured input requests).
 
 import type { ContentBlock, InputRequest } from "@chief/agent-runtime/types";
+
 import type { ChatItem } from "./runtime";
 
 export const SETUP_AGENT_ID = "setup";
@@ -23,7 +24,7 @@ export interface SetupResult {
   propertyName?: string;
   accountName?: string;
   /** Up to 14 daily points of a headline metric, for the live data preview. */
-  series?: Array<{ date: string; value: number }>;
+  series?: { date: string; value: number }[];
   metricLabel?: string;
   [key: string]: unknown;
 }
@@ -42,8 +43,8 @@ export interface AnalyticsSnapshotInput {
   conversions?: number;
   revenue?: number;
   metricLabel?: string;
-  series?: Array<{ date: string; value: number }>;
-  rangeMetrics?: Array<{
+  series?: { date: string; value: number }[];
+  rangeMetrics?: {
     key: string;
     period: string;
     activeUsers?: number;
@@ -51,7 +52,7 @@ export interface AnalyticsSnapshotInput {
     pageViews?: number;
     conversions?: number;
     revenue?: number;
-  }>;
+  }[];
 }
 
 export function setupChatId(domain: string) {
@@ -325,7 +326,7 @@ export async function persistSetupResult(
   }
 
   const numeric = (key: string) =>
-    typeof result[key] === "number" ? (result[key] as number) : undefined;
+    typeof result[key] === "number" ? result[key] : undefined;
   const series = Array.isArray(result.series) ? result.series : undefined;
   if (
     deps.saveSnapshot &&

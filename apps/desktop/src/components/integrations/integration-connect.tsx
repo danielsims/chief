@@ -1,12 +1,16 @@
 import { useMemo, useState } from "react";
+
 import type { DriverType } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
+
+import type {
+  SetupIntegration,
+  SetupResult,
+} from "../../lib/integration-setup";
 import {
   integrationSetupTask,
   preConnectRequirement,
   requirementEnvKeys,
-  type SetupIntegration,
-  type SetupResult,
 } from "../../lib/integration-setup";
 import { useStoredInputs } from "../../lib/runtime";
 import { IntegrationSetupPanel } from "../chat/integration-setup-panel";
@@ -57,7 +61,7 @@ export function IntegrationConnect({
     // Until the runtime has answered, don't flash the wrong state.
     if (present === null) {
       return (
-        <p className="animate-pulse text-xs text-muted-foreground">
+        <p className="text-muted-foreground animate-pulse text-xs">
           Checking what this needs...
         </p>
       );
@@ -75,7 +79,7 @@ export function IntegrationConnect({
   return (
     <div className="space-y-3">
       {connected ? (
-        <p className="text-xs leading-5 text-muted-foreground">
+        <p className="text-muted-foreground text-xs leading-5">
           {`${connectedLabel ?? integration.name} connected.`}
         </p>
       ) : null}

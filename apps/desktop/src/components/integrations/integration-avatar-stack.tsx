@@ -1,5 +1,5 @@
-import { integrationLogoUrl } from "../../lib/integrations";
 import type { IntegrationDependency } from "../../lib/playbooks";
+import { integrationLogoUrl } from "../../lib/integrations";
 
 export function IntegrationAvatarStack({
   integrations,
@@ -24,7 +24,7 @@ export function IntegrationAvatarStack({
           key={integration.domain}
           title={integration.label}
           aria-hidden="true"
-          className="relative flex size-5 items-center justify-center overflow-hidden rounded-full border border-border bg-card text-[8px] font-medium text-muted-foreground"
+          className="border-border bg-card text-muted-foreground relative flex size-5 items-center justify-center overflow-hidden rounded-full border text-[8px] font-medium"
         >
           {integration.label.slice(0, 1).toUpperCase()}
           <img
@@ -40,7 +40,7 @@ export function IntegrationAvatarStack({
       {remaining > 0 ? (
         <span
           aria-hidden="true"
-          className="relative flex size-5 items-center justify-center rounded-full border border-border bg-card text-[8px] font-medium text-muted-foreground"
+          className="border-border bg-card text-muted-foreground relative flex size-5 items-center justify-center rounded-full border text-[8px] font-medium"
         >
           +{remaining}
         </span>

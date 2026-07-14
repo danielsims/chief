@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
+import { ArrowUpDown, Plus, Search, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router";
+
 import type {
   CampaignRecord,
   CampaignStatus,
@@ -13,13 +15,13 @@ import {
   SelectTrigger,
 } from "@chief/ui/components/select";
 import { cn } from "@chief/ui/lib/utils";
-import { ArrowUpDown, Plus, Search, Sparkles } from "lucide-react";
+
 import { ProviderLogo } from "../components/provider-logo";
 import { useAuth } from "../lib/auth/auth-context";
 import { createChat } from "../lib/chat-log";
 import { useWorkspaceData } from "../lib/runtime";
 
-const statuses: Array<{ value: CampaignStatus; label: string }> = [
+const statuses: { value: CampaignStatus; label: string }[] = [
   { value: "draft", label: "Draft" },
   { value: "in_review", label: "In review" },
   { value: "live", label: "Live" },
@@ -123,7 +125,7 @@ export function CampaignsPage() {
       <header className="flex items-center justify-between border-b px-8 pt-4 pb-5">
         <div>
           <h1 className="font-serif text-3xl">Campaigns</h1>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="text-muted-foreground mt-1 text-xs">
             Plan, review and monitor paid acquisition.
           </p>
         </div>
@@ -135,9 +137,9 @@ export function CampaignsPage() {
 
       <div className="border-b px-8">
         <div className="flex h-11 items-end">
-          <div className="flex h-11 items-center gap-2 border-b border-foreground text-sm">
+          <div className="border-foreground flex h-11 items-center gap-2 border-b text-sm">
             Campaigns
-            <span className="text-xs text-muted-foreground">
+            <span className="text-muted-foreground text-xs">
               {workspace.campaigns.length}
             </span>
           </div>
@@ -145,7 +147,7 @@ export function CampaignsPage() {
       </div>
 
       <div className="px-8 py-5">
-        <div className="border bg-card">
+        <div className="bg-card border">
           <div className="flex min-h-14 flex-wrap items-center gap-2 border-b px-3 py-2">
             <Select
               value={status}
@@ -155,7 +157,7 @@ export function CampaignsPage() {
             >
               <SelectTrigger
                 aria-label="Filter campaigns by status"
-                className="h-8 w-40 bg-background text-xs"
+                className="bg-background h-8 w-40 text-xs"
               >
                 <span>
                   {status === "all"
@@ -183,7 +185,7 @@ export function CampaignsPage() {
             <div className="relative ml-auto w-56">
               <Search
                 size={13}
-                className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
+                className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 -translate-y-1/2"
               />
               <Input
                 value={query}
@@ -201,7 +203,7 @@ export function CampaignsPage() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[900px] border-collapse text-left">
               <thead>
-                <tr className="h-10 border-b text-xs text-muted-foreground">
+                <tr className="text-muted-foreground h-10 border-b text-xs">
                   <th className="w-[28%] px-4 font-normal">Campaign</th>
                   <th className="px-4 font-normal">Channel</th>
                   <th className="px-4 font-normal">Status</th>
@@ -215,12 +217,12 @@ export function CampaignsPage() {
                 {visibleCampaigns.map((campaign) => (
                   <tr
                     key={campaign.id}
-                    className="h-12 border-b text-sm last:border-b-0 hover:bg-accent/40"
+                    className="hover:bg-accent/40 h-12 border-b text-sm last:border-b-0"
                   >
                     <td className="px-4">
                       <p className="font-medium">{campaign.name}</p>
                       {campaign.objective ? (
-                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                        <p className="text-muted-foreground mt-0.5 truncate text-[11px]">
                           {campaign.objective}
                         </p>
                       ) : null}
@@ -250,7 +252,7 @@ export function CampaignsPage() {
                     <td className="px-4 text-right tabular-nums">
                       {money(campaign.revenue, campaign.currency)}
                     </td>
-                    <td className="px-4 text-right text-xs text-muted-foreground">
+                    <td className="text-muted-foreground px-4 text-right text-xs">
                       {new Date(campaign.updatedAt).toLocaleDateString()}
                     </td>
                   </tr>
@@ -267,7 +269,7 @@ export function CampaignsPage() {
                     ? "No campaigns yet"
                     : "No matching campaigns"}
                 </h2>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                <p className="text-muted-foreground mt-2 text-sm leading-6">
                   {workspace.campaigns.length === 0
                     ? "Work with Ads Manager to turn your budget and goals into a campaign draft."
                     : "Try a different search or status filter."}

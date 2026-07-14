@@ -1,23 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
 import { ChevronRight, MoreVertical, Plus, Trash2 } from "lucide-react";
-import { defaultAgents } from "@chief/agent-runtime/agents";
+import { useSearchParams } from "react-router";
+
 import type { AgentDefinition } from "@chief/agent-runtime/types";
-import { cn } from "@chief/ui/lib/utils";
+import { defaultAgents } from "@chief/agent-runtime/agents";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@chief/ui/components/popover";
-import { useAgentPreferences, useLocalChats, useRuntime } from "../lib/runtime";
-import { useAuth } from "../lib/auth/auth-context";
-import {
-  clearLegacyChatCache,
-  createChat,
-  type ChatLogEntry,
-} from "../lib/chat-log";
-import { getAgentOverride } from "../lib/agent-overrides";
+import { cn } from "@chief/ui/lib/utils";
+
+import type { ChatLogEntry } from "../lib/chat-log";
 import { AgentChat } from "../components/chat/agent-chat";
+import { getAgentOverride } from "../lib/agent-overrides";
+import { useAuth } from "../lib/auth/auth-context";
+import { clearLegacyChatCache, createChat } from "../lib/chat-log";
+import { useAgentPreferences, useLocalChats, useRuntime } from "../lib/runtime";
 
 function useRunningChats(): Record<string, boolean> {
   const { client } = useRuntime();
@@ -70,7 +69,7 @@ function ConversationRow({
   return (
     <div
       className={cn(
-        "group/row flex w-full items-center text-sm transition-colors hover:bg-accent",
+        "group/row hover:bg-accent flex w-full items-center text-sm transition-colors",
         active && "bg-accent text-foreground",
       )}
     >
@@ -87,7 +86,7 @@ function ConversationRow({
       <Popover open={menuOpen} onOpenChange={setMenuOpen}>
         <PopoverTrigger
           aria-label={`Manage ${entry.title}`}
-          className="mr-1 flex size-7 shrink-0 items-center justify-center text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/row:opacity-100 data-[state=open]:opacity-100"
+          className="text-muted-foreground hover:text-foreground mr-1 flex size-7 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover/row:opacity-100 data-[state=open]:opacity-100"
         >
           <MoreVertical size={14} />
         </PopoverTrigger>
@@ -98,7 +97,7 @@ function ConversationRow({
               setMenuOpen(false);
               onDelete();
             }}
-            className="flex w-full items-center gap-2 px-2 py-2 text-left text-xs text-destructive transition-colors hover:bg-destructive/10"
+            className="text-destructive hover:bg-destructive/10 flex w-full items-center gap-2 px-2 py-2 text-left text-xs transition-colors"
           >
             <Trash2 size={13} />
             Delete chat
@@ -133,7 +132,7 @@ function AgentGroup({
         <button
           type="button"
           onClick={() => setCollapsed((current) => !current)}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+          className="text-muted-foreground hover:text-foreground flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-medium transition-colors"
         >
           <ChevronRight
             size={12}
@@ -148,7 +147,7 @@ function AgentGroup({
           type="button"
           aria-label={`New ${agent.name} conversation`}
           onClick={onCreate}
-          className="p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 focus:opacity-100"
+          className="text-muted-foreground hover:text-foreground p-1 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
         >
           <Plus size={13} />
         </button>
@@ -181,7 +180,7 @@ function NewConversationMenu({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         aria-label="New conversation"
-        className="border p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        className="text-muted-foreground hover:bg-accent hover:text-foreground border p-2 transition-colors"
       >
         <Plus size={14} />
       </PopoverTrigger>
@@ -194,10 +193,10 @@ function NewConversationMenu({
               setOpen(false);
               onPick(agent);
             }}
-            className="w-full px-2 py-2 text-left transition-colors hover:bg-accent"
+            className="hover:bg-accent w-full px-2 py-2 text-left transition-colors"
           >
             <span className="block text-sm">{agent.name}</span>
-            <span className="block text-xs text-muted-foreground">
+            <span className="text-muted-foreground block text-xs">
               {agent.role}
             </span>
           </button>
@@ -379,7 +378,7 @@ export function ConversationsPage() {
             }}
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
             Start a conversation with an agent.
           </div>
         )}

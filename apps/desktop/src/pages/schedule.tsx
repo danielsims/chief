@@ -1,18 +1,29 @@
+import type { MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type MouseEvent,
-} from "react";
+  CalendarPlus,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  FilePlus2,
+  MessageSquare,
+  Pause,
+  Pencil,
+  Play,
+  Plus,
+  Repeat2,
+  ShieldCheck,
+  SlidersHorizontal,
+  Trash2,
+} from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useNavigate } from "react-router";
+
 import type {
   ContentDraftRecord,
   RecurringWorkRecord,
   RecurringWorkRunRecord,
 } from "@chief/agent-runtime/types";
-import { useNavigate } from "react-router";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Button } from "@chief/ui/components/button";
 import {
   Dialog,
@@ -22,43 +33,26 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@chief/ui/components/dialog";
+import { Input } from "@chief/ui/components/input";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@chief/ui/components/popover";
-import { cn } from "@chief/ui/lib/utils";
-import {
-  Check,
-  CalendarPlus,
-  ChevronLeft,
-  ChevronRight,
-  FilePlus2,
-  MessageSquare,
-  Pause,
-  Pencil,
-  Play,
-  Plus,
-  Trash2,
-  Repeat2,
-  ShieldCheck,
-  SlidersHorizontal,
-} from "lucide-react";
-import { Input } from "@chief/ui/components/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
 } from "@chief/ui/components/select";
+import { cn } from "@chief/ui/lib/utils";
+
+import type { RunReview } from "../components/run-review-dialog";
+import { RunReviewDialog } from "../components/run-review-dialog";
 import { useAgentConfig } from "../lib/agent-config";
-import {
-  RunReviewDialog,
-  type RunReview,
-} from "../components/run-review-dialog";
 import { useAuth } from "../lib/auth/auth-context";
-import { useAgentChat, useWorkspaceData } from "../lib/runtime";
 import { createChat } from "../lib/chat-log";
+import { useAgentChat, useWorkspaceData } from "../lib/runtime";
 
 type ScheduledDraft = ContentDraftRecord;
 type CalendarView = "month" | "week" | "day";
@@ -110,7 +104,7 @@ function monthLabel(date: Date) {
   return date.toLocaleDateString([], { month: "long", year: "numeric" });
 }
 
-function buildMonthCells(month: Date): Array<Date | null> {
+function buildMonthCells(month: Date): (Date | null)[] {
   const first = new Date(month.getFullYear(), month.getMonth(), 1);
   const leading = (first.getDay() + 6) % 7;
   const days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
@@ -138,14 +132,14 @@ function DraftChip({ draft }: { draft: ScheduledDraft }) {
       })
     : "";
   return (
-    <div className="min-w-0 select-none border bg-background px-2 py-1.5">
+    <div className="bg-background min-w-0 border px-2 py-1.5 select-none">
       <div className="flex min-w-0 items-center gap-1.5">
         <span className={cn("size-1.5 shrink-0", statusClass(draft.status))} />
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
           {draft.title}
         </span>
       </div>
-      <p className="mt-1 truncate text-[10px] text-muted-foreground">
+      <p className="text-muted-foreground mt-1 truncate text-[10px]">
         {time} · {draft.platform}
       </p>
     </div>
@@ -169,7 +163,7 @@ function RecurringWorkChip({
         event.stopPropagation();
         onContextMenu(work, event.clientX, event.clientY);
       }}
-      className="min-w-0 select-none border bg-card px-2 py-1.5"
+      className="bg-card min-w-0 border px-2 py-1.5 select-none"
     >
       <div className="flex min-w-0 items-center gap-1.5">
         <span
@@ -182,7 +176,7 @@ function RecurringWorkChip({
           {work.title}
         </span>
       </div>
-      <p className="mt-1 truncate text-[10px] text-muted-foreground">
+      <p className="text-muted-foreground mt-1 truncate text-[10px]">
         {work.status === "draft" ? "Approval needed" : work.agentId}
       </p>
     </div>
@@ -237,7 +231,7 @@ function PastRunChip({
         onContextMenu(run, event.clientX, event.clientY);
       }}
       className={cn(
-        "min-w-0 select-none border px-2 py-1.5",
+        "min-w-0 border px-2 py-1.5 select-none",
         running
           ? "border-border bg-card"
           : "border-border/60 bg-card/50 opacity-60",
@@ -260,7 +254,7 @@ function PastRunChip({
           {run.title}
         </span>
       </div>
-      <p className="mt-1 truncate text-[10px] text-muted-foreground">
+      <p className="text-muted-foreground mt-1 truncate text-[10px]">
         {running
           ? "Running…"
           : run.status === "completed"
@@ -304,12 +298,12 @@ function PastRunContextMenu({
 
   if (!context) return null;
   const { run } = context;
-  const items: Array<{
+  const items: {
     label: string;
     detail: string;
     action: () => void;
     destructive?: boolean;
-  }> = [
+  }[] = [
     {
       label: "Review",
       detail: "Outcome and follow-up",
@@ -337,13 +331,13 @@ function PastRunContextMenu({
     <div
       role="menu"
       onPointerDown={(event) => event.stopPropagation()}
-      className="fixed z-50 w-64 border bg-popover p-1.5 text-popover-foreground shadow-md"
+      className="bg-popover text-popover-foreground fixed z-50 w-64 border p-1.5 shadow-md"
       style={{
         left: Math.min(context.x, window.innerWidth - 272),
         top: Math.min(context.y, window.innerHeight - 200),
       }}
     >
-      <p className="truncate px-2 py-1.5 text-[10px] text-muted-foreground">
+      <p className="text-muted-foreground truncate px-2 py-1.5 text-[10px]">
         {run.title}
       </p>
       {items.map((item, index) => (
@@ -356,7 +350,7 @@ function PastRunContextMenu({
             onClose();
           }}
           className={cn(
-            "flex w-full flex-col px-2 py-2 text-left transition-colors hover:bg-accent",
+            "hover:bg-accent flex w-full flex-col px-2 py-2 text-left transition-colors",
             item.destructive && index === 2 && "mt-1 border-t pt-2.5",
           )}
         >
@@ -368,7 +362,7 @@ function PastRunContextMenu({
           >
             {item.label}
           </span>
-          <span className="mt-0.5 text-[10px] text-muted-foreground">
+          <span className="text-muted-foreground mt-0.5 text-[10px]">
             {item.detail}
           </span>
         </button>
@@ -428,7 +422,7 @@ function DayCell({
         onContextMenu(date, event.clientX, event.clientY);
       }}
       className={cn(
-        "min-h-28 min-w-0 border-b border-r p-2 text-left align-top transition-colors hover:bg-accent/30",
+        "hover:bg-accent/30 min-h-28 min-w-0 border-r border-b p-2 text-left align-top transition-colors",
         tall && "min-h-[420px]",
         isSelected && "bg-accent/40",
       )}
@@ -437,7 +431,7 @@ function DayCell({
         className={cn(
           "relative block text-right text-xs leading-none",
           isToday &&
-            "font-medium after:absolute after:-bottom-1 after:right-0 after:h-px after:w-3 after:bg-foreground",
+            "after:bg-foreground font-medium after:absolute after:right-0 after:-bottom-1 after:h-px after:w-3",
         )}
       >
         {date.getDate()}
@@ -467,7 +461,7 @@ function DayCell({
         ))}
         {drafts.length + recurringWork.length + pastRuns.length >
         visibleLimit ? (
-          <p className="px-1 text-[10px] text-muted-foreground">
+          <p className="text-muted-foreground px-1 text-[10px]">
             +
             {drafts.length +
               recurringWork.length +
@@ -488,12 +482,12 @@ function ScheduleFilters({
   visibleKinds: ReadonlySet<ScheduleKind>;
   onToggle: (kind: ScheduleKind) => void;
 }) {
-  const options: Array<{
+  const options: {
     kind: ScheduleKind;
     label: string;
     detail: string;
     color: string;
-  }> = [
+  }[] = [
     {
       kind: "post",
       label: "Posts",
@@ -517,7 +511,7 @@ function ScheduleFilters({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-64 p-1.5">
-        <p className="px-2 py-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+        <p className="text-muted-foreground px-2 py-1.5 text-[10px] tracking-wide uppercase">
           Show on schedule
         </p>
         {options.map((option) => {
@@ -527,14 +521,14 @@ function ScheduleFilters({
               key={option.kind}
               type="button"
               onClick={() => onToggle(option.kind)}
-              className="flex w-full items-center gap-3 px-2 py-2 text-left transition-colors hover:bg-accent"
+              className="hover:bg-accent flex w-full items-center gap-3 px-2 py-2 text-left transition-colors"
             >
               <span className={cn("size-2 shrink-0", option.color)} />
               <span className="min-w-0 flex-1">
                 <span className="block text-xs font-medium">
                   {option.label}
                 </span>
-                <span className="block text-[10px] text-muted-foreground">
+                <span className="text-muted-foreground block text-[10px]">
                   {option.detail}
                 </span>
               </span>
@@ -649,11 +643,11 @@ function ContinuousMonthView({
       onScroll={handleScroll}
       className="relative h-full min-w-0 overflow-y-auto overscroll-contain"
     >
-      <div className="sticky top-0 z-30 grid h-9 grid-cols-7 border-b bg-background/95 backdrop-blur-lg">
+      <div className="bg-background/95 sticky top-0 z-30 grid h-9 grid-cols-7 border-b backdrop-blur-lg">
         {WEEKDAYS.map((weekday) => (
           <div
             key={weekday}
-            className="border-r px-3 py-2 text-[11px] text-muted-foreground last:border-r-0"
+            className="text-muted-foreground border-r px-3 py-2 text-[11px] last:border-r-0"
           >
             {weekday}
           </div>
@@ -674,7 +668,7 @@ function ContinuousMonthView({
           >
             <p
               className={cn(
-                "pointer-events-none absolute left-3 top-2 z-10 font-serif text-xl transition-opacity duration-300",
+                "pointer-events-none absolute top-2 left-3 z-10 font-serif text-xl transition-opacity duration-300",
                 // The page header already names the active month; the in-grid
                 // label fades away instead of duplicating it.
                 sameMonth(month, activeMonth) && "opacity-0",
@@ -709,7 +703,7 @@ function ContinuousMonthView({
                 <div
                   key={`empty-${index}`}
                   aria-hidden="true"
-                  className="min-h-28 border-b border-r bg-muted/[0.025]"
+                  className="bg-muted/[0.025] min-h-28 border-r border-b"
                 />
               ),
             )}
@@ -765,14 +759,14 @@ function FocusedCalendarView({
     <div className="h-full min-w-0 overflow-y-auto">
       <div
         className={cn(
-          "sticky top-0 z-20 grid h-9 border-b bg-background/95 backdrop-blur-lg",
+          "bg-background/95 sticky top-0 z-20 grid h-9 border-b backdrop-blur-lg",
           view === "week" ? "grid-cols-7" : "grid-cols-1",
         )}
       >
         {dates.map((date) => (
           <div
             key={dayKey(date)}
-            className="border-r px-3 py-2 text-[11px] text-muted-foreground last:border-r-0"
+            className="text-muted-foreground border-r px-3 py-2 text-[11px] last:border-r-0"
           >
             {date.toLocaleDateString([], { weekday: "short" })}
           </div>
@@ -836,12 +830,12 @@ function CalendarContextMenu({
   }, [context, onClose]);
 
   if (!context) return null;
-  const actions: Array<{
+  const actions: {
     id: DateMenuAction;
     label: string;
     detail: string;
     Icon: typeof CalendarPlus;
-  }> = [
+  }[] = [
     {
       id: "event",
       label: "Add a one-off event",
@@ -872,13 +866,13 @@ function CalendarContextMenu({
     <div
       role="menu"
       onPointerDown={(event) => event.stopPropagation()}
-      className="fixed z-50 w-64 border bg-popover p-1.5 text-popover-foreground shadow-md"
+      className="bg-popover text-popover-foreground fixed z-50 w-64 border p-1.5 shadow-md"
       style={{
         left: Math.min(context.x, window.innerWidth - 272),
         top: Math.min(context.y, window.innerHeight - 238),
       }}
     >
-      <p className="px-2 py-1.5 text-[10px] text-muted-foreground">
+      <p className="text-muted-foreground px-2 py-1.5 text-[10px]">
         {context.date.toLocaleDateString([], {
           weekday: "long",
           month: "long",
@@ -894,12 +888,12 @@ function CalendarContextMenu({
             onAction(id, context.date);
             onClose();
           }}
-          className="flex w-full items-start gap-3 px-2 py-2 text-left transition-colors hover:bg-accent"
+          className="hover:bg-accent flex w-full items-start gap-3 px-2 py-2 text-left transition-colors"
         >
           <Icon size={14} className="mt-0.5 shrink-0" />
           <span>
             <span className="block text-xs font-medium">{label}</span>
-            <span className="mt-0.5 block text-[10px] text-muted-foreground">
+            <span className="text-muted-foreground mt-0.5 block text-[10px]">
               {detail}
             </span>
           </span>
@@ -948,13 +942,13 @@ function RecurringWorkContextMenu({
     <div
       role="menu"
       onPointerDown={(event) => event.stopPropagation()}
-      className="fixed z-50 w-64 border bg-popover p-1.5 text-popover-foreground shadow-md"
+      className="bg-popover text-popover-foreground fixed z-50 w-64 border p-1.5 shadow-md"
       style={{
         left: Math.min(context.x, window.innerWidth - 272),
         top: Math.min(context.y, window.innerHeight - 190),
       }}
     >
-      <p className="truncate px-2 py-1.5 text-[10px] text-muted-foreground">
+      <p className="text-muted-foreground truncate px-2 py-1.5 text-[10px]">
         {work.title}
       </p>
       {canSkip ? (
@@ -965,14 +959,14 @@ function RecurringWorkContextMenu({
             onSkip(work, date);
             onClose();
           }}
-          className="flex w-full items-start gap-3 px-2 py-2 text-left transition-colors hover:bg-accent"
+          className="hover:bg-accent flex w-full items-start gap-3 px-2 py-2 text-left transition-colors"
         >
           <Pause size={14} className="mt-0.5 shrink-0" />
           <span>
             <span className="block text-xs font-medium">
               Skip this occurrence
             </span>
-            <span className="mt-0.5 block text-[10px] text-muted-foreground">
+            <span className="text-muted-foreground mt-0.5 block text-[10px]">
               {date.toLocaleDateString([], {
                 weekday: "long",
                 month: "long",
@@ -990,12 +984,12 @@ function RecurringWorkContextMenu({
           onEdit(work);
           onClose();
         }}
-        className="flex w-full items-start gap-3 px-2 py-2 text-left transition-colors hover:bg-accent"
+        className="hover:bg-accent flex w-full items-start gap-3 px-2 py-2 text-left transition-colors"
       >
         <Pencil size={14} className="mt-0.5 shrink-0" />
         <span>
           <span className="block text-xs font-medium">Edit schedule</span>
-          <span className="mt-0.5 block text-[10px] text-muted-foreground">
+          <span className="text-muted-foreground mt-0.5 block text-[10px]">
             Change the title or timing directly
           </span>
         </span>
@@ -1007,14 +1001,14 @@ function RecurringWorkContextMenu({
           onCancelSeries(work);
           onClose();
         }}
-        className="flex w-full items-start gap-3 px-2 py-2 text-left transition-colors hover:bg-accent"
+        className="hover:bg-accent flex w-full items-start gap-3 px-2 py-2 text-left transition-colors"
       >
-        <Trash2 size={14} className="mt-0.5 shrink-0 text-destructive" />
+        <Trash2 size={14} className="text-destructive mt-0.5 shrink-0" />
         <span>
-          <span className="block text-xs font-medium text-destructive">
+          <span className="text-destructive block text-xs font-medium">
             Cancel series
           </span>
-          <span className="mt-0.5 block text-[10px] text-muted-foreground">
+          <span className="text-muted-foreground mt-0.5 block text-[10px]">
             Removes the automation and its history
           </span>
         </span>
@@ -1139,7 +1133,7 @@ function RecurringWorkEditDialog({
   const patch = (next: Partial<ScheduleFields>) =>
     setFields((current) => ({ ...current, ...next }));
 
-  const frequencies: Array<{ value: ScheduleFrequency; label: string }> = [
+  const frequencies: { value: ScheduleFrequency; label: string }[] = [
     { value: "daily", label: "Every day" },
     { value: "weekdays", label: "Weekdays" },
     { value: "weekly", label: "Weekly" },
@@ -1163,14 +1157,14 @@ function RecurringWorkEditDialog({
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground">Title</label>
+                <label className="text-muted-foreground text-xs">Title</label>
                 <Input
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground">Repeats</label>
+                <label className="text-muted-foreground text-xs">Repeats</label>
                 <div className="flex flex-wrap gap-2">
                   <Select
                     value={fields.frequency}
@@ -1243,18 +1237,18 @@ function RecurringWorkEditDialog({
                       className="font-mono"
                       placeholder="0 8 * * 1"
                     />
-                    <p className="text-[10px] text-muted-foreground">
+                    <p className="text-muted-foreground text-[10px]">
                       minute · hour · day of month · month · day of week
                     </p>
                   </div>
                 ) : (
-                  <p className="font-mono text-[10px] text-muted-foreground">
+                  <p className="text-muted-foreground font-mono text-[10px]">
                     {cron}
                   </p>
                 )}
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground">
+                <label className="text-muted-foreground text-xs">
                   Timezone
                 </label>
                 <Input
@@ -1339,10 +1333,10 @@ function RecurringWorkApprovalDialog({
             <div className="space-y-4">
               <div className="border p-4">
                 <p className="text-sm font-medium">{work.title}</p>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                <p className="text-muted-foreground mt-2 text-sm leading-6">
                   {work.approvalSummary}
                 </p>
-                <p className="mt-3 font-mono text-[11px] text-muted-foreground">
+                <p className="text-muted-foreground mt-3 font-mono text-[11px]">
                   {work.cron} · {work.timezone}
                 </p>
               </div>
@@ -1365,19 +1359,19 @@ function RecurringWorkApprovalDialog({
                             .at(-1)
                             ?.replace(/([A-Z])/g, " $1")}
                         </span>
-                        <span className="ml-auto max-w-56 truncate font-mono text-[9px] text-muted-foreground">
+                        <span className="text-muted-foreground ml-auto max-w-56 truncate font-mono text-[9px]">
                           {pattern}
                         </span>
                       </div>
                     ))
                   ) : (
-                    <p className="border px-3 py-2 text-xs text-muted-foreground">
+                    <p className="text-muted-foreground border px-3 py-2 text-xs">
                       Read connected data and save no external changes.
                     </p>
                   )}
                 </div>
               </div>
-              <p className="text-xs leading-5 text-muted-foreground">
+              <p className="text-muted-foreground text-xs leading-5">
                 New integration actions are blocked automatically. Chief will
                 ask you to approve an expanded scope before they can run.
               </p>
@@ -1412,7 +1406,7 @@ function RecurringWorkApprovalDialog({
                       updating the plan…
                     </p>
                   ) : revision.note ? (
-                    <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    <p className="text-muted-foreground mt-2 text-xs leading-5">
                       {revision.note}
                     </p>
                   ) : null}
@@ -1426,7 +1420,7 @@ function RecurringWorkApprovalDialog({
                   onReject(work);
                   onClose();
                 }}
-                className="mr-auto text-xs text-muted-foreground transition-colors hover:text-destructive"
+                className="text-muted-foreground hover:text-destructive mr-auto text-xs transition-colors"
               >
                 Reject
               </button>
@@ -1470,16 +1464,16 @@ function RecurringWorkDetail({
   return (
     <div className="border p-3" onContextMenu={onContextMenu}>
       <div className="flex items-start gap-2">
-        <span className="mt-1 size-1.5 shrink-0 bg-foreground" />
+        <span className="bg-foreground mt-1 size-1.5 shrink-0" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-medium">{work.title}</p>
-          <p className="mt-1 text-[10px] capitalize text-muted-foreground">
+          <p className="text-muted-foreground mt-1 text-[10px] capitalize">
             {work.agentId} · {work.status.replace("_", " ")}
           </p>
         </div>
       </div>
       {work.lastResult ? (
-        <p className="mt-3 line-clamp-3 text-xs leading-5 text-muted-foreground">
+        <p className="text-muted-foreground mt-3 line-clamp-3 text-xs leading-5">
           {work.lastResult}
         </p>
       ) : null}
@@ -1509,7 +1503,7 @@ function RecurringWorkDetail({
       </div>
       {!approvalNeeded && onPlacement ? (
         <div className="mt-3 flex items-center justify-between gap-2 border-t pt-2.5">
-          <span className="text-[10px] text-muted-foreground">Runs on</span>
+          <span className="text-muted-foreground text-[10px]">Runs on</span>
           <div className="flex border p-0.5">
             {(
               [
@@ -1522,7 +1516,7 @@ function RecurringWorkDetail({
                 type="button"
                 onClick={() => onPlacement(option.value)}
                 className={cn(
-                  "px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground",
+                  "text-muted-foreground hover:text-foreground px-2 py-0.5 text-[10px] transition-colors",
                   work.placement === option.value &&
                     "bg-accent text-foreground",
                 )}
@@ -1534,7 +1528,7 @@ function RecurringWorkDetail({
         </div>
       ) : null}
       {work.placement === "cloud" && !approvalNeeded ? (
-        <p className="mt-1.5 text-[10px] text-muted-foreground">
+        <p className="text-muted-foreground mt-1.5 text-[10px]">
           Takes effect on the next workspace deploy.
         </p>
       ) : null}
@@ -1865,10 +1859,10 @@ export function SchedulePage() {
 
   return (
     <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
-      <header className="flex shrink-0 flex-wrap items-end justify-between gap-5 border-b px-8 pb-5 pt-4">
+      <header className="flex shrink-0 flex-wrap items-end justify-between gap-5 border-b px-8 pt-4 pb-5">
         <div>
           <h1 className="font-serif text-3xl">Schedule</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="text-muted-foreground mt-2 text-sm">
             Planned content and recurring agent work.
           </p>
         </div>
@@ -1914,7 +1908,7 @@ export function SchedulePage() {
                 type="button"
                 onClick={() => setView(option)}
                 className={cn(
-                  "px-3 py-1.5 text-xs capitalize text-muted-foreground transition-colors hover:text-foreground",
+                  "text-muted-foreground hover:text-foreground px-3 py-1.5 text-xs capitalize transition-colors",
                   view === option && "bg-accent text-foreground",
                 )}
               >
@@ -2021,7 +2015,7 @@ export function SchedulePage() {
         <aside className="min-h-0 overflow-y-auto border-l p-5">
           {pendingApprovals.length > 0 ? (
             <div className="mb-6 space-y-2 border-b pb-5">
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 Needs your approval
               </p>
               {pendingApprovals.map((work) => (
@@ -2035,7 +2029,7 @@ export function SchedulePage() {
               ))}
             </div>
           ) : null}
-          <p className="text-xs text-muted-foreground">
+          <p className="text-muted-foreground text-xs">
             {selected.toLocaleDateString([], { weekday: "long" })}
           </p>
           <h2 className="mt-1 font-serif text-2xl">
@@ -2076,7 +2070,7 @@ export function SchedulePage() {
                       <p className="truncate text-xs font-medium">
                         {run.title}
                       </p>
-                      <p className="shrink-0 text-[10px] text-muted-foreground">
+                      <p className="text-muted-foreground shrink-0 text-[10px]">
                         {new Date(run.scheduledFor).toLocaleTimeString([], {
                           hour: "numeric",
                           minute: "2-digit",
@@ -2084,7 +2078,7 @@ export function SchedulePage() {
                       </p>
                     </div>
                     {run.summary ? (
-                      <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+                      <p className="text-muted-foreground mt-1 line-clamp-2 text-[11px] leading-4">
                         {previewText(run.summary)}
                       </p>
                     ) : null}
@@ -2131,7 +2125,7 @@ export function SchedulePage() {
             selectedDrafts.length === 0 &&
             selectedRecurringWork.length === 0 ? (
               <div className="flex min-h-[420px] items-center justify-center text-center">
-                <p className="text-sm text-muted-foreground">
+                <p className="text-muted-foreground text-sm">
                   Nothing scheduled
                 </p>
               </div>

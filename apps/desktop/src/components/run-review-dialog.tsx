@@ -1,5 +1,6 @@
-import { useNavigate } from "react-router";
 import { ShieldCheck } from "lucide-react";
+import { useNavigate } from "react-router";
+
 import type {
   AttentionItem,
   RecurringWorkRunRecord,
@@ -9,10 +10,11 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogHeader,
   DialogFooter,
+  DialogHeader,
   DialogTitle,
 } from "@chief/ui/components/dialog";
+
 import { StreamingMarkdown } from "./chat/streaming-markdown";
 
 /**
@@ -114,18 +116,18 @@ export function RunReviewDialog({
                   <p className="text-sm font-medium">
                     Live analytics was not read
                   </p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  <p className="text-muted-foreground mt-2 text-sm leading-6">
                     The Analyst chose the cached report path instead of the live
                     Google Analytics tool this task already has approval to use.
                     No Google permission was removed and nothing was changed.
                   </p>
-                  <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                  <p className="text-muted-foreground mt-3 text-xs leading-5">
                     Reconnect Google Analytics if prompted, then rerun this
                     report. It does not need broader access.
                   </p>
                 </div>
               ) : (
-                <div className="chat-markdown max-h-44 overflow-y-auto border p-4 text-sm leading-6 text-muted-foreground">
+                <div className="chat-markdown text-muted-foreground max-h-44 overflow-y-auto border p-4 text-sm leading-6">
                   <StreamingMarkdown>{review.detail}</StreamingMarkdown>
                 </div>
               )}
@@ -145,13 +147,13 @@ export function RunReviewDialog({
                         <span className="min-w-0 truncate text-xs">
                           {humanizeAddress(address)}
                         </span>
-                        <span className="ml-auto max-w-56 truncate font-mono text-[9px] text-muted-foreground">
+                        <span className="text-muted-foreground ml-auto max-w-56 truncate font-mono text-[9px]">
                           {address}
                         </span>
                       </div>
                     ))}
                   </div>
-                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                  <p className="text-muted-foreground mt-2 text-xs leading-5">
                     Nothing ran through these tools. Allowing them expands only
                     this automation, then reruns it.
                   </p>
@@ -166,7 +168,7 @@ export function RunReviewDialog({
                     onDismiss(review);
                     onClose();
                   }}
-                  className="mr-auto text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  className="text-muted-foreground hover:text-foreground mr-auto text-xs transition-colors"
                 >
                   Dismiss
                 </button>

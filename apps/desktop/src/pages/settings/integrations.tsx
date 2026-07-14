@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
+import { ChevronLeft } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router";
+
 import { api } from "@chief/backend/convex/_generated/api";
 import { Button } from "@chief/ui/components/button";
-import { ChevronLeft } from "lucide-react";
+
 import { ProviderLogo } from "../../components/provider-logo";
 import {
   GOOGLE_ANALYTICS_PROVIDER,
@@ -27,7 +29,7 @@ export function IntegrationsSettings() {
   return (
     <section>
       <h2 className="text-sm font-medium">Integrations</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
+      <p className="text-muted-foreground mt-1 text-sm">
         Connected services available to your agents.
       </p>
       <div className="mt-6 divide-y border">
@@ -37,7 +39,7 @@ export function IntegrationsSettings() {
             <Link
               key={channel._id}
               to={`/settings/integrations/${encodeURIComponent(channel.provider)}`}
-              className="flex items-center gap-4 p-4 transition-colors hover:bg-accent/50"
+              className="hover:bg-accent/50 flex items-center gap-4 p-4 transition-colors"
             >
               <ProviderLogo
                 domain={details.productDomain}
@@ -48,16 +50,16 @@ export function IntegrationsSettings() {
                 <span className="block text-sm font-medium">
                   {details.product}
                 </span>
-                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                <span className="text-muted-foreground mt-0.5 block truncate text-xs">
                   {channel.displayName}
                 </span>
               </span>
-              <span className="text-xs text-muted-foreground">Manage</span>
+              <span className="text-muted-foreground text-xs">Manage</span>
             </Link>
           );
         })}
         {channels?.length === 0 ? (
-          <p className="p-5 text-sm text-muted-foreground">
+          <p className="text-muted-foreground p-5 text-sm">
             No integrations connected.
           </p>
         ) : null}
@@ -94,7 +96,7 @@ export function IntegrationSettingsDetail() {
 
   if (channels === undefined) {
     return (
-      <p className="text-sm text-muted-foreground">Loading integration…</p>
+      <p className="text-muted-foreground text-sm">Loading integration…</p>
     );
   }
 
@@ -103,12 +105,12 @@ export function IntegrationSettingsDetail() {
       <section>
         <Link
           to="/settings/integrations"
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
         >
           <ChevronLeft size={13} />
           Integrations
         </Link>
-        <p className="mt-6 text-sm text-muted-foreground">
+        <p className="text-muted-foreground mt-6 text-sm">
           This integration is not connected.
         </p>
       </section>
@@ -119,7 +121,7 @@ export function IntegrationSettingsDetail() {
     <section>
       <Link
         to="/settings/integrations"
-        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
       >
         <ChevronLeft size={13} />
         Integrations
@@ -132,7 +134,7 @@ export function IntegrationSettingsDetail() {
         />
         <div>
           <h2 className="text-base font-medium">{details.product}</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
+          <p className="text-muted-foreground mt-0.5 text-xs">
             Connected to {channel.displayName}
           </p>
         </div>
@@ -161,9 +163,9 @@ export function IntegrationSettingsDetail() {
         ) : null}
       </dl>
 
-      <div className="mt-8 border border-destructive/40 bg-destructive/5 p-5">
+      <div className="border-destructive/40 bg-destructive/5 mt-8 border p-5">
         <h3 className="text-sm font-medium">Disconnect integration</h3>
-        <p className="mt-1 max-w-lg text-xs leading-5 text-muted-foreground">
+        <p className="text-muted-foreground mt-1 max-w-lg text-xs leading-5">
           Chief will stop reading this source. Existing reports remain in your
           workspace.
         </p>

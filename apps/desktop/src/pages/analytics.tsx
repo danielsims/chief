@@ -1,33 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
+import { BarChart3, RefreshCw, Sparkles } from "lucide-react";
+import { useNavigate } from "react-router";
+
 import { api } from "@chief/backend/convex/_generated/api";
 import { Button } from "@chief/ui/components/button";
 import { cn } from "@chief/ui/lib/utils";
-import { BarChart3, RefreshCw, Sparkles } from "lucide-react";
-import { useNavigate } from "react-router";
-import { useAuth } from "../lib/auth/auth-context";
-import { useAgentConfig } from "../lib/agent-config";
-import {
-  SETUP_RESULT_MARKER,
-  parseSetupResult,
-  persistSetupResult,
-  type AnalyticsSnapshotInput,
-  type SetupIntegration,
-  type SetupResult,
+
+import type {
+  AnalyticsSnapshotInput,
+  SetupIntegration,
+  SetupResult,
 } from "../lib/integration-setup";
+import { ConnectionPreview } from "../components/integrations/connection-preview";
+import { IntegrationConnect } from "../components/integrations/integration-connect";
+import { ProviderLogo } from "../components/provider-logo";
+import { useAgentConfig } from "../lib/agent-config";
+import { useAuth } from "../lib/auth/auth-context";
 import {
   listAuthOrganizations,
   parseOrganizationMetadata,
 } from "../lib/auth/better-auth-client";
-import { useAgentChat, useRuntime } from "../lib/runtime";
-import { IntegrationConnect } from "../components/integrations/integration-connect";
-import { ConnectionPreview } from "../components/integrations/connection-preview";
-import { ProviderLogo } from "../components/provider-logo";
 import { createChat } from "../lib/chat-log";
+import {
+  parseSetupResult,
+  persistSetupResult,
+  SETUP_RESULT_MARKER,
+} from "../lib/integration-setup";
 import {
   GOOGLE_ANALYTICS_PROVIDER,
   providerDetails,
 } from "../lib/provider-details";
+import { useAgentChat, useRuntime } from "../lib/runtime";
 
 interface AnalyticsChannel {
   _id: string;
@@ -82,9 +86,9 @@ function MetricCell({
 }) {
   return (
     <div className="min-h-[110px] border-r border-b p-4 last:border-r-0">
-      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-muted-foreground text-xs">{label}</p>
       <p className="mt-3 text-2xl font-medium tracking-normal">{value}</p>
-      <p className="mt-5 text-xs text-muted-foreground">{period}</p>
+      <p className="text-muted-foreground mt-5 text-xs">{period}</p>
     </div>
   );
 }
@@ -93,12 +97,12 @@ function AnalyticsLoadingState() {
   return (
     <div className="space-y-5 px-8 py-6" aria-busy="true">
       <div className="flex h-8 items-center justify-between">
-        <span className="h-8 w-28 border bg-card" />
-        <span className="h-8 w-24 border bg-card" />
+        <span className="bg-card h-8 w-28 border" />
+        <span className="bg-card h-8 w-24 border" />
       </div>
-      <div className="h-[154px] border bg-card" />
-      <div className="h-[274px] border bg-card" />
-      <div className="h-[348px] border bg-card" />
+      <div className="bg-card h-[154px] border" />
+      <div className="bg-card h-[274px] border" />
+      <div className="bg-card h-[348px] border" />
     </div>
   );
 }
@@ -148,7 +152,7 @@ function usePreferredAnalyticsIntegration(): SetupIntegration {
 
 function reportFromResult(result: SetupResult): ReportData | null {
   const number = (key: string) =>
-    typeof result[key] === "number" ? (result[key] as number) : undefined;
+    typeof result[key] === "number" ? result[key] : undefined;
   const series = Array.isArray(result.series) ? result.series : undefined;
   const hasMetrics = [
     "activeUsers",
@@ -549,7 +553,7 @@ export function AnalyticsPage() {
 
   return (
     <div className="-mx-8 -mb-8 min-h-[calc(100vh-48px)]">
-      <div className="border-b px-8 pb-0 pt-4">
+      <div className="border-b px-8 pt-4 pb-0">
         <h1 className="font-serif text-3xl">Analytics</h1>
         <div className="mt-5 flex items-center gap-5">
           {tabs.map((item) => (
@@ -558,7 +562,7 @@ export function AnalyticsPage() {
               type="button"
               onClick={() => setTab(item.key)}
               className={cn(
-                "flex items-center gap-2 border-b border-transparent pb-3 text-sm text-muted-foreground transition-colors hover:text-foreground",
+                "text-muted-foreground hover:text-foreground flex items-center gap-2 border-b border-transparent pb-3 text-sm transition-colors",
                 tab === item.key && "border-foreground text-foreground",
               )}
             >
@@ -588,7 +592,7 @@ export function AnalyticsPage() {
 
       {!canUseWorkspaceAnalytics ? (
         <div className="px-8 pt-6">
-          <div className="border bg-card p-8">
+          <div className="bg-card border p-8">
             <p className="text-sm font-medium">
               {convexAuth.isLoading
                 ? "Loading workspace..."
@@ -612,7 +616,7 @@ export function AnalyticsPage() {
             </Button>
             <div className="flex items-center gap-3">
               {report?.capturedAt || selectedChannel?.lastSyncAt ? (
-                <span className="text-xs text-muted-foreground">
+                <span className="text-muted-foreground text-xs">
                   Updated{" "}
                   {new Date(
                     report?.capturedAt ?? selectedChannel!.lastSyncAt!,
@@ -634,7 +638,7 @@ export function AnalyticsPage() {
             </div>
           </div>
 
-          <div className="border bg-card">
+          <div className="bg-card border">
             <div className="flex items-center gap-3 px-5 py-3">
               <ProviderLogo
                 domain={visibleDetails.familyDomain}
@@ -652,14 +656,14 @@ export function AnalyticsPage() {
                     className="size-10"
                   />
                   <div className="min-w-0">
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-muted-foreground text-xs">
                       {visibleDetails.product}
                     </p>
                     <p className="mt-1 truncate text-sm font-medium">
                       {sourceName}
                     </p>
                     {selectedChannel?.externalId ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className="text-muted-foreground mt-1 text-xs">
                         Property {selectedChannel.externalId}
                       </p>
                     ) : null}
@@ -689,7 +693,7 @@ export function AnalyticsPage() {
                       onResult={handleSetupResult}
                     />
                   ) : (
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-muted-foreground text-xs">
                       Choose an agent app before connecting a source.
                     </p>
                   )}
@@ -699,11 +703,11 @@ export function AnalyticsPage() {
           </div>
 
           {notice ? (
-            <p className="text-xs text-muted-foreground">{notice}</p>
+            <p className="text-muted-foreground text-xs">{notice}</p>
           ) : null}
 
           {metrics.length > 0 ? (
-            <div className="overflow-hidden border bg-card">
+            <div className="bg-card overflow-hidden border">
               <div className="flex items-center justify-between border-b px-4 py-3">
                 <p className="text-xs font-medium">Performance</p>
                 <div className="flex border p-0.5">
@@ -713,7 +717,7 @@ export function AnalyticsPage() {
                       type="button"
                       onClick={() => setMetricRange(range.key)}
                       className={cn(
-                        "px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground",
+                        "text-muted-foreground hover:text-foreground px-2.5 py-1 text-[11px] transition-colors",
                         metricRange === range.key &&
                           "bg-accent text-foreground",
                       )}
@@ -748,19 +752,19 @@ export function AnalyticsPage() {
           {!report && selectedChannel ? (
             reportPending ? (
               <div
-                className="min-h-64 border bg-card"
+                className="bg-card min-h-64 border"
                 aria-busy="true"
                 aria-label="Loading report"
               />
             ) : (
-              <div className="flex min-h-64 items-center justify-center border bg-card px-6 py-12 text-center">
+              <div className="bg-card flex min-h-64 items-center justify-center border px-6 py-12 text-center">
                 <div className="max-w-sm">
                   <h2 className="font-serif text-2xl">
                     {refreshing
                       ? "Pulling your first report..."
                       : "No report yet"}
                   </h2>
-                  <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                  <p className="text-muted-foreground mt-3 text-sm leading-6">
                     {refreshing
                       ? `Reading ${sourceName} through the connection on this Mac.`
                       : "Refresh to pull current analytics from this source."}

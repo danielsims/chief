@@ -1,4 +1,6 @@
 import { useState } from "react";
+
+import { Button } from "@chief/ui/components/button";
 import {
   Card,
   CardContent,
@@ -6,8 +8,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@chief/ui/components/card";
-import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
+
 import { useAuth } from "../../lib/auth/auth-context";
 import { removeImageAsset, uploadImageAsset } from "../../lib/image-upload";
 
@@ -62,7 +64,7 @@ export function ProfileSettings() {
           <div className="flex items-center justify-between py-3">
             <div>
               <p className="text-sm font-medium">Not signed in</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 Sign-in opens in your browser.
               </p>
             </div>
@@ -86,7 +88,7 @@ export function ProfileSettings() {
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="flex items-center gap-4">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden border bg-background">
+          <span className="bg-background flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden border">
             {user.image ? (
               <img
                 src={user.image}
@@ -101,7 +103,7 @@ export function ProfileSettings() {
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">{user.name}</p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-muted-foreground text-xs">
               {user.emailVerified ? "Verified" : "Unverified"}
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -133,13 +135,13 @@ export function ProfileSettings() {
               ) : null}
             </div>
             {imageError ? (
-              <p className="mt-2 text-xs text-destructive">{imageError}</p>
+              <p className="text-destructive mt-2 text-xs">{imageError}</p>
             ) : null}
           </div>
         </div>
         <div className="space-y-1.5">
           <label
-            className="text-xs text-muted-foreground"
+            className="text-muted-foreground text-xs"
             htmlFor="profile-name"
           >
             Name
@@ -148,7 +150,7 @@ export function ProfileSettings() {
         </div>
         <div className="space-y-1.5">
           <label
-            className="text-xs text-muted-foreground"
+            className="text-muted-foreground text-xs"
             htmlFor="profile-email"
           >
             Email
@@ -156,7 +158,7 @@ export function ProfileSettings() {
           <Input id="profile-email" value={user.email} readOnly />
         </div>
         <div className="flex items-center justify-between border-t pt-4">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-muted-foreground text-xs">
             Signing out keeps local data on this machine.
           </p>
           <Button variant="outline" size="sm" onClick={signOut}>

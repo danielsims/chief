@@ -5,10 +5,10 @@ const resultTableRenderer: GenerativePartRenderer = {
   render(part) {
     if (part.type !== "data-table") return undefined;
     return (
-      <section className="border bg-card">
+      <section className="bg-card border">
         <div className="border-b px-4 py-3">
           <p className="text-sm font-medium">{part.data.title}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="text-muted-foreground mt-1 text-xs">
             {part.data.subtitle ??
               `${part.data.rows.length} ${part.data.rows.length === 1 ? "item" : "items"}`}
           </p>

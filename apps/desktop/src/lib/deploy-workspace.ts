@@ -1,10 +1,10 @@
+import { env } from "../env";
+
 export type DeployTarget = "vercel";
 
 export const AGENT_DEPLOY_PROVIDER = "agent-deploy";
 
-const APP_PATH =
-  (import.meta.env.VITE_WORKSPACE_APP_PATH as string | undefined) ??
-  "apps/workspace";
+const APP_PATH = env.VITE_WORKSPACE_APP_PATH ?? "apps/workspace";
 
 export interface DeployablePlaybook {
   id: string;

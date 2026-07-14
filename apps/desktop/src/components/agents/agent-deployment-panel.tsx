@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
+
 import type { AgentDefinition } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 import { cn } from "@chief/ui/lib/utils";
 
-import { IntegrationSetupPanel } from "../chat/integration-setup-panel";
+import type { AuthOrganization } from "../../lib/auth/better-auth-client";
+import type { DeployTarget } from "../../lib/deploy-workspace";
+import type { SetupResult } from "../../lib/integration-setup";
 import { useAgentConfig } from "../../lib/agent-config";
 import { useAuth } from "../../lib/auth/auth-context";
 import {
-  type AuthOrganization,
   listAuthOrganizations,
   parseOrganizationMetadata,
   updateAuthOrganization,
@@ -15,11 +17,10 @@ import {
 import {
   AGENT_DEPLOY_PROVIDER,
   deployAgentTask,
-  type DeployTarget,
 } from "../../lib/deploy-workspace";
-import type { SetupResult } from "../../lib/integration-setup";
-import { PLAYBOOKS, playbookInstructions } from "../../lib/playbooks";
+import { playbookInstructions, PLAYBOOKS } from "../../lib/playbooks";
 import { useWorkspaceData } from "../../lib/runtime";
+import { IntegrationSetupPanel } from "../chat/integration-setup-panel";
 
 interface AgentDeployment {
   url: string;
@@ -78,8 +79,8 @@ function FileRow({ depth = 0, name }: { depth?: number; name: string }) {
       className="flex h-7 items-center gap-2 text-xs"
       style={{ paddingLeft: depth * 16 }}
     >
-      <span className="size-1 shrink-0 bg-muted-foreground/60" />
-      <span className="truncate font-mono text-muted-foreground">{name}</span>
+      <span className="bg-muted-foreground/60 size-1 shrink-0" />
+      <span className="text-muted-foreground truncate font-mono">{name}</span>
     </div>
   );
 }
@@ -169,18 +170,18 @@ export function AgentDeploymentPanel({
   };
 
   return (
-    <div className="flex min-h-[620px] flex-col bg-card">
+    <div className="bg-card flex min-h-[620px] flex-col">
       <div className="flex flex-wrap items-start justify-between gap-5 border-b p-6">
         <div>
           <button
             type="button"
             onClick={onBack}
-            className="mb-4 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground mb-4 text-xs transition-colors"
           >
             Back to {agent.name}
           </button>
           <h3 className="font-serif text-3xl">Deploy {agent.name}</h3>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="text-muted-foreground mt-2 text-sm">
             Deploy this agent as its own Eve project.
           </p>
         </div>
@@ -207,7 +208,7 @@ export function AgentDeploymentPanel({
               href={deployment.url}
               target="_blank"
               rel="noreferrer"
-              className="mt-1 block max-w-72 truncate text-xs text-muted-foreground hover:text-foreground"
+              className="text-muted-foreground hover:text-foreground mt-1 block max-w-72 truncate text-xs"
             >
               {deployment.url}
             </a>
@@ -219,7 +220,7 @@ export function AgentDeploymentPanel({
         <div className="space-y-7">
           <section className="border p-4">
             <p className="text-sm font-medium">Vercel</p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="text-muted-foreground mt-1 text-xs">
               Managed Eve runtime.
             </p>
           </section>
@@ -241,10 +242,10 @@ export function AgentDeploymentPanel({
             />
           ) : null}
 
-          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          {error ? <p className="text-destructive text-xs">{error}</p> : null}
 
           <div className="flex items-center justify-between gap-4 border-t pt-5">
-            <p className="text-xs text-muted-foreground">
+            <p className="text-muted-foreground text-xs">
               {driver
                 ? "Setup handles sign-in and verifies the live agent."
                 : "Choose an agent app before deploying."}

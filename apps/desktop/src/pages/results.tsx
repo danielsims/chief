@@ -1,26 +1,28 @@
 import { useMemo, useState } from "react";
+import { Check, MoreVertical, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
+
 import type {
   AttentionItem,
   RecurringWorkRecord,
   RecurringWorkRunRecord,
   RunResultArtifact,
 } from "@chief/agent-runtime/types";
+import { defaultAgents } from "@chief/agent-runtime/agents";
 import { Button } from "@chief/ui/components/button";
-import { cn } from "@chief/ui/lib/utils";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@chief/ui/components/popover";
-import { Check, MoreVertical, SlidersHorizontal, Trash2 } from "lucide-react";
-import { defaultAgents } from "@chief/agent-runtime/agents";
-import { useAuth } from "../lib/auth/auth-context";
-import { useWorkspaceData } from "../lib/runtime";
+import { cn } from "@chief/ui/lib/utils";
+
 import { AgentChat } from "../components/chat/agent-chat";
-import { createChat } from "../lib/chat-log";
 import { StreamingMarkdown } from "../components/chat/streaming-markdown";
 import { renderGenerativePart } from "../components/generative-ui/registry";
+import { useAuth } from "../lib/auth/auth-context";
+import { createChat } from "../lib/chat-log";
+import { useWorkspaceData } from "../lib/runtime";
 
 function statusLabel(status: RecurringWorkRunRecord["status"]) {
   if (status === "running") return "Running";
@@ -95,12 +97,12 @@ function RunHistoryFilters({
   visibleOutcomes: ReadonlySet<RunOutcome>;
   onToggle: (outcome: RunOutcome) => void;
 }) {
-  const options: Array<{
+  const options: {
     outcome: RunOutcome;
     label: string;
     detail: string;
     color: string;
-  }> = [
+  }[] = [
     {
       outcome: "successful",
       label: "Successful",
@@ -120,14 +122,14 @@ function RunHistoryFilters({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="flex h-7 items-center gap-1.5 px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground"
+          className="text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground flex h-7 items-center gap-1.5 px-2 text-xs transition-colors"
         >
           <SlidersHorizontal size={12} />
           Filter
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 p-1.5">
-        <p className="px-2 py-1.5 text-[10px] text-muted-foreground">
+        <p className="text-muted-foreground px-2 py-1.5 text-[10px]">
           Show runs
         </p>
         {options.map((option) => {
@@ -137,14 +139,14 @@ function RunHistoryFilters({
               key={option.outcome}
               type="button"
               onClick={() => onToggle(option.outcome)}
-              className="flex w-full items-center gap-3 px-2 py-2 text-left transition-colors hover:bg-accent"
+              className="hover:bg-accent flex w-full items-center gap-3 px-2 py-2 text-left transition-colors"
             >
               <span className={cn("size-1.5 shrink-0", option.color)} />
               <span className="min-w-0 flex-1">
                 <span className="block text-xs font-medium">
                   {option.label}
                 </span>
-                <span className="block text-[10px] text-muted-foreground">
+                <span className="text-muted-foreground block text-[10px]">
                   {option.detail}
                 </span>
               </span>
@@ -173,7 +175,7 @@ function RunIssue({
   const requiresAccess = Boolean(run.blockedTools?.length);
   return (
     <div className="flex flex-wrap items-start justify-between gap-5 border-b py-5">
-      <div className="flex min-w-0 max-w-3xl items-start gap-3">
+      <div className="flex max-w-3xl min-w-0 items-start gap-3">
         <span
           className={cn(
             "mt-2 size-1.5 shrink-0",
@@ -184,7 +186,7 @@ function RunIssue({
           <p className="text-sm font-medium">
             {run.status === "failed" ? "Run failed" : "Run stopped"}
           </p>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+          <p className="text-muted-foreground mt-1 text-sm leading-6">
             {reason}
           </p>
         </div>
@@ -194,7 +196,7 @@ function RunIssue({
           <button
             type="button"
             onClick={onDismiss}
-            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground text-xs transition-colors"
           >
             Dismiss
           </button>
@@ -350,9 +352,9 @@ export function ResultsPage() {
 
   return (
     <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
-      <header className="shrink-0 border-b px-8 pb-5 pt-4">
+      <header className="shrink-0 border-b px-8 pt-4 pb-5">
         <h1 className="font-serif text-3xl">Run history</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <p className="text-muted-foreground mt-2 text-sm">
           See what ran and retry anything that stopped.
         </p>
       </header>
@@ -362,7 +364,7 @@ export function ResultsPage() {
           <aside className="min-h-0 overflow-y-auto border-r p-4">
             {standaloneAttentionItems.length > 0 ? (
               <div className="mb-5">
-                <p className="mb-2 px-3 text-xs font-medium text-muted-foreground">
+                <p className="text-muted-foreground mb-2 px-3 text-xs font-medium">
                   Needs attention
                 </p>
                 <div className="space-y-1">
@@ -375,7 +377,7 @@ export function ResultsPage() {
                         setSelectedRunId(null);
                       }}
                       className={cn(
-                        "flex w-full items-start gap-2.5 border border-transparent px-3 py-2.5 text-left transition-colors hover:bg-accent/50",
+                        "hover:bg-accent/50 flex w-full items-start gap-2.5 border border-transparent px-3 py-2.5 text-left transition-colors",
                         selectedStandaloneAttention?.id === item.id &&
                           "border-border bg-accent",
                       )}
@@ -385,7 +387,7 @@ export function ResultsPage() {
                         <span className="block truncate text-sm font-medium">
                           {item.title}
                         </span>
-                        <span className="mt-1 block text-xs text-muted-foreground">
+                        <span className="text-muted-foreground mt-1 block text-xs">
                           {new Date(item.createdAt).toLocaleString([], {
                             month: "short",
                             day: "numeric",
@@ -401,7 +403,7 @@ export function ResultsPage() {
               </div>
             ) : null}
             <div className="mb-2 flex items-center justify-between gap-3 px-3">
-              <p className="text-xs font-medium text-muted-foreground">
+              <p className="text-muted-foreground text-xs font-medium">
                 Recent work
               </p>
               <RunHistoryFilters
@@ -429,7 +431,7 @@ export function ResultsPage() {
                   <div
                     key={run.id}
                     className={cn(
-                      "group/run flex w-full items-start border border-transparent transition-colors hover:bg-accent/50",
+                      "group/run hover:bg-accent/50 flex w-full items-start border border-transparent transition-colors",
                       active && "border-border bg-accent",
                     )}
                   >
@@ -456,7 +458,7 @@ export function ResultsPage() {
                         <span className="block truncate text-sm font-medium">
                           {runTitle(work)}
                         </span>
-                        <span className="mt-1 block text-xs text-muted-foreground">
+                        <span className="text-muted-foreground mt-1 block text-xs">
                           {new Date(run.scheduledFor).toLocaleString([], {
                             month: "short",
                             day: "numeric",
@@ -466,7 +468,7 @@ export function ResultsPage() {
                           {work ? ` · ${work.agentId}` : ""}
                         </span>
                         {attemptCount > 1 ? (
-                          <span className="mt-1 block text-[10px] text-muted-foreground/70">
+                          <span className="text-muted-foreground/70 mt-1 block text-[10px]">
                             {attemptCount - 1} earlier{" "}
                             {attemptCount === 2 ? "attempt" : "attempts"}
                           </span>
@@ -474,7 +476,7 @@ export function ResultsPage() {
                         {isNew || needsAttention ? (
                           <span className="mt-2 flex flex-wrap gap-1.5">
                             {isNew ? (
-                              <span className="border border-border px-1.5 py-0.5 text-[10px] font-medium text-foreground">
+                              <span className="border-border text-foreground border px-1.5 py-0.5 text-[10px] font-medium">
                                 New
                               </span>
                             ) : null}
@@ -490,7 +492,7 @@ export function ResultsPage() {
                     <Popover>
                       <PopoverTrigger
                         aria-label={`Manage ${runTitle(work)}`}
-                        className="mr-1 mt-1.5 flex size-7 shrink-0 items-center justify-center text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/run:opacity-100 data-[state=open]:opacity-100"
+                        className="text-muted-foreground hover:text-foreground mt-1.5 mr-1 flex size-7 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover/run:opacity-100 data-[state=open]:opacity-100"
                       >
                         <MoreVertical size={14} />
                       </PopoverTrigger>
@@ -503,7 +505,7 @@ export function ResultsPage() {
                               setSelectedRunId(null);
                             }
                           }}
-                          className="flex w-full items-center gap-2 px-2 py-2 text-left text-xs text-destructive transition-colors hover:bg-destructive/10"
+                          className="text-destructive hover:bg-destructive/10 flex w-full items-center gap-2 px-2 py-2 text-left text-xs transition-colors"
                         >
                           <Trash2 size={13} />
                           Delete run
@@ -514,7 +516,7 @@ export function ResultsPage() {
                 );
               })}
               {visibleRunGroups.length === 0 ? (
-                <p className="px-3 py-6 text-xs text-muted-foreground">
+                <p className="text-muted-foreground px-3 py-6 text-xs">
                   No runs match these filters.
                 </p>
               ) : null}
@@ -526,13 +528,13 @@ export function ResultsPage() {
               <div className="mx-auto max-w-6xl">
                 <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-5">
                   <div>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-muted-foreground text-xs">
                       Needs attention · {selectedStandaloneAttention.agentId}
                     </p>
                     <h2 className="mt-2 font-serif text-3xl">
                       {selectedStandaloneAttention.title}
                     </h2>
-                    <p className="mt-2 text-xs text-muted-foreground">
+                    <p className="text-muted-foreground mt-2 text-xs">
                       {new Date(
                         selectedStandaloneAttention.createdAt,
                       ).toLocaleString([], {
@@ -582,7 +584,7 @@ export function ResultsPage() {
                   </div>
                 </div>
                 <article className="chat-markdown mx-auto max-w-3xl py-7 text-sm leading-7">
-                  <p className="mb-3 text-xs font-medium text-muted-foreground">
+                  <p className="text-muted-foreground mb-3 text-xs font-medium">
                     Action item
                   </p>
                   <StreamingMarkdown>
@@ -594,14 +596,14 @@ export function ResultsPage() {
               <div className="mx-auto max-w-6xl">
                 <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-5">
                   <div>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-muted-foreground text-xs">
                       {statusLabel(selectedRun.status)}
                       {selectedWork ? ` · ${selectedWork.agentId}` : ""}
                     </p>
                     <h2 className="mt-2 font-serif text-3xl">
                       {runTitle(selectedWork)}
                     </h2>
-                    <p className="mt-2 text-xs text-muted-foreground">
+                    <p className="text-muted-foreground mt-2 text-xs">
                       {new Date(selectedRun.scheduledFor).toLocaleString([], {
                         weekday: "long",
                         year: "numeric",
@@ -683,7 +685,7 @@ export function ResultsPage() {
                   >
                     {!selectedHasIssue ? (
                       <article className="chat-markdown text-sm leading-7">
-                        <p className="mb-3 text-xs font-medium text-muted-foreground">
+                        <p className="text-muted-foreground mb-3 text-xs font-medium">
                           Analysis
                         </p>
                         <StreamingMarkdown>
@@ -700,7 +702,7 @@ export function ResultsPage() {
                             "xl:sticky xl:top-0 xl:self-start",
                         )}
                       >
-                        <p className="text-xs font-medium text-muted-foreground">
+                        <p className="text-muted-foreground text-xs font-medium">
                           Evidence
                         </p>
                         {selectedArtifacts.map((artifact) => (
@@ -715,7 +717,7 @@ export function ResultsPage() {
                 )}
               </div>
             ) : (
-              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
                 No runs match these filters.
               </div>
             )}
@@ -725,7 +727,7 @@ export function ResultsPage() {
         <div className="flex flex-1 items-center justify-center px-8 text-center">
           <div>
             <p className="font-serif text-2xl">No results yet</p>
-            <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
+            <p className="text-muted-foreground mt-2 max-w-sm text-sm leading-6">
               Reports and other scheduled output will appear here after the
               first run.
             </p>

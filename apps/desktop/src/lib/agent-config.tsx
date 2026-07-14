@@ -1,20 +1,15 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import type { ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+
 import type {
   AccessMode,
   AgentCapabilityId,
   AgentPreference,
   DriverType,
 } from "@chief/agent-runtime/types";
+
+import type { AgentOverride, ApprovalMode } from "./agent-overrides";
 import {
-  type AgentOverride,
-  type ApprovalMode,
   getAgentOverride,
   getToolApprovals,
   getWorkspaceProvider,
@@ -22,8 +17,8 @@ import {
   setAgentOverride,
   setToolApprovals,
 } from "./agent-overrides";
-import { useAgentPreferences } from "./runtime";
 import { useAuth } from "./auth/auth-context";
+import { useAgentPreferences } from "./runtime";
 
 export interface ResolvedAgentConfig {
   driver: DriverType | null;

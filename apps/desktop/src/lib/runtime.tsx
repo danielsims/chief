@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   createContext,
   useContext,
@@ -5,13 +6,15 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
+import { useAction } from "convex/react";
+import { toast } from "sonner";
+
 import type {
   AccessMode,
-  AgentPreference,
   AgentDefinition,
   AgentEvent,
+  AgentPreference,
   AgentQuestion,
   AttentionItem,
   CampaignRecord,
@@ -30,13 +33,12 @@ import type {
   ServerMessage,
   TrendRecord,
 } from "@chief/agent-runtime/types";
-import { toast } from "sonner";
 import { api } from "@chief/backend/convex/_generated/api";
-import { useAction } from "convex/react";
+
 import { getAgentOverride } from "./agent-overrides";
 import { useAuth } from "./auth/auth-context";
-import { buildWorkspaceContext } from "./workspace-context";
 import { navigateApp, notifySystem } from "./notifications";
+import { buildWorkspaceContext } from "./workspace-context";
 
 // "localhost" (not 127.0.0.1) — macOS ATS only exempts the literal
 // localhost hostname for insecure websockets inside WKWebView.
@@ -240,6 +242,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
             : undefined;
         toast(msg.notice.title, {
           description: msg.notice.detail,
+          duration: 60_000,
           action: route
             ? {
                 label:

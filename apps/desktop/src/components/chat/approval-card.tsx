@@ -1,4 +1,5 @@
 import { Button } from "@chief/ui/components/button";
+
 import type { PendingApproval } from "../../lib/runtime";
 import { toolSummary } from "./message-blocks";
 
@@ -17,14 +18,14 @@ export function ApprovalCard({
   onAllowAll?: () => void;
 }) {
   return (
-    <div className="border bg-background">
-      <div className="flex items-baseline gap-2 border-b bg-accent/50 px-3 py-1.5 font-mono text-xs text-muted-foreground">
+    <div className="bg-background border">
+      <div className="bg-accent/50 text-muted-foreground flex items-baseline gap-2 border-b px-3 py-1.5 font-mono text-xs">
         <span className="text-foreground">?</span>
         <span className="shrink-0">{approval.toolName}</span>
         <span className="truncate">{toolSummary(approval.input)}</span>
       </div>
       <div className="flex items-center justify-between gap-2 px-3 py-2">
-        <p className="text-xs text-muted-foreground">
+        <p className="text-muted-foreground text-xs">
           The agent wants to run this.
         </p>
         <div className="flex items-center gap-2">
@@ -32,7 +33,7 @@ export function ApprovalCard({
             <button
               type="button"
               onClick={onAllowAll}
-              className="cursor-pointer text-xs text-muted-foreground transition-colors hover:text-foreground"
+              className="text-muted-foreground hover:text-foreground cursor-pointer text-xs transition-colors"
             >
               Allow the rest
             </button>
