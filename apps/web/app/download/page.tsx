@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 
-import { env } from "../../lib/env";
 import {
   ContentRail,
   MarketingFooter,
@@ -25,47 +24,30 @@ function AppleIcon() {
 function WindowsIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M1 4.2 10.3 3v8.4H1V4.2Zm10.5-1.4L23 1.2v10.2H11.5V2.8ZM1 12.6h9.3V21L1 19.8v-7.2Zm10.5 0H23v10.2l-11.5-1.6v-8.6Z" />
+      <path
+        d="M2 2h9v9H2V2Zm11 0h9v9h-9V2ZM2 13h9v9H2v-9Zm11 0h9v9h-9v-9Z"
+        style={{ stroke: "none" }}
+      />
     </svg>
   );
 }
-
-function BrowserIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
-      <rect x="2" y="3" width="20" height="18" />
-      <path d="M2 8h20M6 5.5h.01M9 5.5h.01" />
-    </svg>
-  );
-}
-
-const macUrl = env.CHIEF_MACOS_DOWNLOAD_URL;
-const windowsUrl = env.CHIEF_WINDOWS_DOWNLOAD_URL;
 
 const options = [
   {
     name: "macOS",
-    description: "The desktop workspace for Apple Silicon and Intel Macs.",
-    detail: "macOS 12 or later",
-    href: macUrl ?? "/sign-in?intent=desktop&platform=macos",
-    label: macUrl ? "Download for macOS" : "Join desktop early access",
+    description: "The desktop workspace for Apple silicon Macs.",
+    detail: "Apple silicon · macOS 12 or later",
+    href: "/api/download/macos",
+    label: "Download for macOS",
     icon: <AppleIcon />,
   },
   {
     name: "Windows",
     description: "The desktop workspace for Windows PCs.",
     detail: "Windows 10 or later",
-    href: windowsUrl ?? "/sign-in?intent=desktop&platform=windows",
-    label: windowsUrl ? "Download for Windows" : "Join desktop early access",
+    href: "/api/download/windows",
+    label: "Download for Windows",
     icon: <WindowsIcon />,
-  },
-  {
-    name: "Browser",
-    description: "Open your workspace without installing the desktop app.",
-    detail: "Works in modern browsers",
-    href: "/sign-in",
-    label: "Open Chief",
-    icon: <BrowserIcon />,
   },
 ];
 
@@ -77,7 +59,7 @@ export default function DownloadPage() {
         <ContentRail
           className="download-content-rail"
           title="Download Chief."
-          description="Use the desktop app on macOS or Windows, or open your workspace in the browser."
+          description="Choose the desktop app for your computer."
         >
           <div className="download-grid">
             {options.map((option) => (
@@ -93,12 +75,6 @@ export default function DownloadPage() {
               </article>
             ))}
           </div>
-          {!macUrl || !windowsUrl ? (
-            <p className="download-note">
-              Desktop builds are in early access. Sign in and we&apos;ll route
-              you to the right build when it is available for your workspace.
-            </p>
-          ) : null}
         </ContentRail>
         <MarketingFooter />
       </RailsLayout>
