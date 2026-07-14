@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { BrandMark } from "./brand-mark";
+
 export function AppleIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
@@ -11,6 +13,7 @@ export function AppleIcon() {
 export function Wordmark() {
   return (
     <a className="wordmark" href="/" aria-label="Chief home">
+      <BrandMark className="wordmark-mark" size={18} />
       <strong>Chief</strong>
     </a>
   );
@@ -45,6 +48,13 @@ export function MarketingFooter() {
         <a href="/pricing">Pricing</a>
         <a href="/privacy">Privacy</a>
         <a href="/terms">Terms</a>
+        <a
+          href="https://github.com/danielsims/chief"
+          rel="noreferrer"
+          target="_blank"
+        >
+          Open source
+        </a>
         <a href="/download">Download</a>
       </div>
       <span>© 2026 Latent Supply Pty Ltd</span>
