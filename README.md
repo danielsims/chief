@@ -1,16 +1,12 @@
 <p align="center">
   <a href="https://heychief.sh">
-    <img src="./.github/assets/chief-readme-hero.png" alt="Chief running a proactive marketing team" width="1280" />
+    <img src="./.github/assets/chief-readme-hero.png" alt="Chief" width="1280" />
   </a>
 </p>
 
 # Chief
 
-Your marketing team. Already at work.
-
-Chief is a product of Latent Supply Pty Ltd.
-
-Chief is a desktop workspace for building, running, and supervising proactive AI agents. Give the team an outcome, connect the tools it needs, and let recurring work continue in the background. Chief brings completed work, evidence, and decisions back for review instead of filling your day with another chat window.
+Chief is a workspace for building, running, and supervising proactive AI agents. It combines agent instructions, tools, playbooks, schedules, runs, and review surfaces in a local-first desktop app.
 
 Chief is in early preview. The current product is focused on marketing teams, with desktop apps for macOS and Windows.
 
@@ -97,14 +93,6 @@ pnpm --filter @chief/desktop build:app
 ## Release security
 
 The repository contains sanitized development examples only. Official signing certificates, notarization credentials, updater keys, and release configuration are supplied by a private build environment and are never committed. Forks must provide and use their own release identity.
-
-## Product principles
-
-- Agents should attempt the work before handing a problem back to the user.
-- Missing evidence must be reported honestly, never invented or silently replaced.
-- Scheduled runs are work records, not conversations.
-- External changes remain reviewable unless the user has granted narrow authority.
-- The interface should make it obvious what finished, what changed, and what needs attention.
 
 ## Contributing
 

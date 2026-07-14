@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="800" viewBox="0 0 1600 800" fill="none">
   <rect width="1600" height="800" fill="#090909"/>
 
-  <g stroke="#202020" stroke-width="1">
+  <g stroke="#343434" stroke-width="1">
     <rect x="0.5" y="0.5" width="1599" height="799"/>
     <path d="M80 0V800M1520 0V800M0 72H1600M0 728H1600"/>
   </g>
