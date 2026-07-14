@@ -885,9 +885,7 @@ body {
   font-weight: 400;
 }
 .calendar-brand-mark {
-  width: 20px;
-  height: 57px;
-  padding-block: 18px;
+  margin: 18px 0 19px;
   object-fit: contain;
 }
 .calendar-sidebar nav {
