@@ -1,4 +1,5 @@
 import * as React from "react";
+
 import { cn } from "../lib/utils";
 
 /**
@@ -20,11 +21,10 @@ export function sanitizeHandle(raw: string, prefix?: string): string {
   return value.replace(/\/+$/, "");
 }
 
-export interface PrefixedInputProps
-  extends Omit<
-    React.InputHTMLAttributes<HTMLInputElement>,
-    "prefix" | "value" | "onChange"
-  > {
+export interface PrefixedInputProps extends Omit<
+  React.InputHTMLAttributes<HTMLInputElement>,
+  "prefix" | "value" | "onChange"
+> {
   /** Fixed label rendered left of the input, e.g. "x.com/". */
   prefix: string;
   value: string;
@@ -44,11 +44,11 @@ export const PrefixedInput = React.forwardRef<
   return (
     <div
       className={cn(
-        "flex h-9 w-full border bg-transparent text-sm transition-colors focus-within:border-ring",
+        "focus-within:border-ring flex h-9 w-full border bg-transparent text-sm transition-colors",
         className,
       )}
     >
-      <span className="flex select-none items-center border-r bg-muted px-3 text-muted-foreground">
+      <span className="bg-muted text-muted-foreground flex items-center border-r px-3 select-none">
         {prefix}
       </span>
       <input
@@ -57,7 +57,7 @@ export const PrefixedInput = React.forwardRef<
         autoCapitalize="none"
         autoCorrect="off"
         spellCheck={false}
-        className="min-w-0 flex-1 bg-transparent px-3 py-1 placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent px-3 py-1 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
         value={value}
         onChange={(event) =>
           onValueChange(sanitizeHandle(event.target.value, prefix))

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
+
 import { cn } from "../lib/utils";
 
 export const Popover = PopoverPrimitive.Root;
@@ -18,7 +19,7 @@ export const PopoverContent = React.forwardRef<
       align={align}
       sideOffset={sideOffset}
       className={cn(
-        "z-50 w-64 border bg-popover p-1 text-popover-foreground shadow-md outline-none backdrop-blur-lg",
+        "bg-popover text-popover-foreground z-50 w-64 border p-1 shadow-md backdrop-blur-lg outline-none",
         className,
       )}
       {...props}

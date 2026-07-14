@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import * as SwitchPrimitive from "@radix-ui/react-switch";
+
 import { cn } from "../lib/utils";
 
 /**
@@ -15,14 +16,14 @@ export const Switch = React.forwardRef<
   <SwitchPrimitive.Root
     ref={ref}
     className={cn(
-      "peer inline-flex h-4 w-7 shrink-0 cursor-pointer items-center rounded-full transition-colors focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-foreground data-[state=unchecked]:bg-muted",
+      "peer data-[state=checked]:bg-foreground data-[state=unchecked]:bg-muted inline-flex h-4 w-7 shrink-0 cursor-pointer items-center rounded-full transition-colors focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
       className,
     )}
     {...props}
   >
     <SwitchPrimitive.Thumb
       className={cn(
-        "pointer-events-none block h-3 w-3 rounded-full transition-transform data-[state=checked]:translate-x-[14px] data-[state=checked]:bg-background data-[state=unchecked]:translate-x-[2px] data-[state=unchecked]:bg-foreground",
+        "data-[state=checked]:bg-background data-[state=unchecked]:bg-foreground pointer-events-none block h-3 w-3 rounded-full transition-transform data-[state=checked]:translate-x-[14px] data-[state=unchecked]:translate-x-[2px]",
       )}
     />
   </SwitchPrimitive.Root>

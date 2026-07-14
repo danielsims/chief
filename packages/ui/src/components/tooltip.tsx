@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+
 import { cn } from "../lib/utils";
 
 export const TooltipProvider = TooltipPrimitive.Provider;
@@ -17,7 +18,7 @@ export const TooltipContent = React.forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        "z-50 overflow-hidden border bg-popover px-3 py-1.5 text-xs text-popover-foreground backdrop-blur-lg",
+        "bg-popover text-popover-foreground z-50 overflow-hidden border px-3 py-1.5 text-xs backdrop-blur-lg",
         className,
       )}
       {...props}

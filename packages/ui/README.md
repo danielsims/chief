@@ -6,6 +6,7 @@ Shared interface components, typography, design tokens, and global styles used b
 
 ```tsx
 import { Button } from "@chief/ui/components/button";
+
 import "@chief/ui/globals.css";
 ```
 
