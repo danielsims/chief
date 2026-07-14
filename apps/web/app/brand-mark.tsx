@@ -1,14 +1,10 @@
-type BrandMarkProps = {
+interface BrandMarkProps {
   className?: string;
   size: number;
   tone?: "black" | "white";
-};
+}
 
-export function BrandMark({
-  className,
-  size,
-  tone = "white",
-}: BrandMarkProps) {
+export function BrandMark({ className, size, tone = "white" }: BrandMarkProps) {
   return (
     <img
       alt=""

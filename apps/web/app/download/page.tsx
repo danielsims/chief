@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+
+import { env } from "../../lib/env";
 import {
   ContentRail,
   MarketingFooter,
@@ -37,8 +39,8 @@ function BrowserIcon() {
   );
 }
 
-const macUrl = process.env.CHIEF_MACOS_DOWNLOAD_URL;
-const windowsUrl = process.env.CHIEF_WINDOWS_DOWNLOAD_URL;
+const macUrl = env.CHIEF_MACOS_DOWNLOAD_URL;
+const windowsUrl = env.CHIEF_WINDOWS_DOWNLOAD_URL;
 
 const options = [
   {

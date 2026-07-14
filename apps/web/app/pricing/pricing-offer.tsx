@@ -1,8 +1,10 @@
 "use client";
 
-import { api } from "@chief/backend/convex/_generated/api";
-import { useAction, useConvexAuth } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useAction, useConvexAuth } from "convex/react";
+
+import { api } from "@chief/backend/convex/_generated/api";
+
 import { AppleIcon } from "../marketing-chrome";
 
 const agents = [
@@ -91,8 +93,8 @@ export function PricingOffer() {
     const plan = new URLSearchParams(window.location.search).get("checkout");
     if (plan !== "yearly" && plan !== "monthly") return;
     resumedCheckout.current = true;
-    setBilling(plan);
-    void startCheckout(plan);
+    const timer = window.setTimeout(() => void startCheckout(plan), 0);
+    return () => window.clearTimeout(timer);
   }, [isAuthenticated, startCheckout]);
   return (
     <>

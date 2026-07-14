@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+
 import { MarketingFooter, MarketingHeader } from "../marketing-chrome";
 import { RailsLayout } from "../rails-layout";
 import { PricingOffer } from "./pricing-offer";

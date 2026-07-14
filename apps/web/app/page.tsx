@@ -1,18 +1,19 @@
+import type { LandingPlaybook } from "./team-playbooks";
 import { PLAYBOOKS } from "../../desktop/src/lib/playbooks";
+import { HeroWorkspace } from "./hero-workspace";
 import {
   ConnectionGrid,
   ProactiveDemo,
   RuntimeDemo,
   SocialCalendarDemo,
 } from "./landing-demos";
-import { HeroWorkspace } from "./hero-workspace";
 import {
   AppleIcon,
   MarketingFooter,
   MarketingHeader,
 } from "./marketing-chrome";
 import { RailsLayout } from "./rails-layout";
-import { TeamPlaybooks, type LandingPlaybook } from "./team-playbooks";
+import { TeamPlaybooks } from "./team-playbooks";
 import { WorkChannels } from "./work-channels";
 
 const landingPlaybooks: LandingPlaybook[] = PLAYBOOKS.map((playbook) => ({

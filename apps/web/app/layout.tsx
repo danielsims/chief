@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Inter, Lato } from "next/font/google";
+
 import { getToken } from "../lib/auth-server";
 import { ConvexClientProvider } from "../lib/convex";
+
 import "./globals.css";
 
 const lato = Lato({

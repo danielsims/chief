@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 
 import { BrandMark } from "./brand-mark";
 
@@ -51,7 +52,7 @@ const baseDashboard = {
   scheduledDetail: "Upcoming content",
 };
 
-const demoEvents: DemoEvent[] = [
+const demoEvents: [DemoEvent, ...DemoEvent[]] = [
   {
     id: "buying-signals",
     agent: "Prospector",
@@ -241,18 +242,19 @@ function MetricCard({ children }: { children: ReactNode }) {
 export function HeroWorkspace() {
   const [demo, setDemo] = useState({
     eventIndex: 0,
-    actionCount: demoEvents[0]!.actionIncrease,
+    actionCount: demoEvents[0].actionIncrease,
   });
 
   useEffect(() => {
     const timer = window.setInterval(() => {
       setDemo((current) => {
         const eventIndex = (current.eventIndex + 1) % demoEvents.length;
+        const nextEvent = demoEvents[eventIndex] ?? demoEvents[0];
         return {
           eventIndex,
           actionCount: Math.min(
             4,
-            current.actionCount + demoEvents[eventIndex]!.actionIncrease,
+            current.actionCount + nextEvent.actionIncrease,
           ),
         };
       });
@@ -260,7 +262,7 @@ export function HeroWorkspace() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const event = demoEvents[demo.eventIndex]!;
+  const event = demoEvents[demo.eventIndex] ?? demoEvents[0];
   const dashboard = event.dashboard;
 
   return (

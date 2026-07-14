@@ -1,7 +1,7 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 
 import { BrandMark } from "./brand-mark";
 
@@ -73,7 +73,7 @@ export function SocialCalendarDemo() {
 
   return (
     <div
-      className={`calendar-demo${calendarAnimation.inView ? " is-visible" : ""}`}
+      className={`calendar-demo${calendarAnimation.inView ? "is-visible" : ""}`}
       ref={calendarRef}
     >
       <aside className="calendar-sidebar">
@@ -177,13 +177,13 @@ export function SocialCalendarDemo() {
   );
 }
 
-type Provider = {
+interface Provider {
   domain: string;
   name: string;
   localIcon?: "analytics" | "gmail" | "google-ads";
   white?: boolean;
   lightBackground?: boolean;
-};
+}
 
 const providerRows: Provider[][] = [
   [
@@ -275,7 +275,7 @@ function IntegrationMark({ provider }: { provider: Provider }) {
   return (
     <div className="integration-mark">
       <span
-        className={`integration-logo${provider.lightBackground ? " light-background" : ""}`}
+        className={`integration-logo${provider.lightBackground ? "light-background" : ""}`}
       >
         {provider.localIcon ? (
           <GoogleProductIcon type={provider.localIcon} />
@@ -486,11 +486,7 @@ export function ProactiveDemo() {
 function ChiefNotificationMark() {
   return (
     <span className="notification-mark">
-      <BrandMark
-        className="notification-brand-mark"
-        size={22}
-        tone="black"
-      />
+      <BrandMark className="notification-brand-mark" size={22} tone="black" />
     </span>
   );
 }

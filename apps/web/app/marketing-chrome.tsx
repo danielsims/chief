@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 
 import { BrandMark } from "./brand-mark";
 
@@ -12,10 +13,10 @@ export function AppleIcon() {
 
 export function Wordmark() {
   return (
-    <a className="wordmark" href="/" aria-label="Chief home">
+    <Link className="wordmark" href="/" aria-label="Chief home">
       <BrandMark className="wordmark-mark" size={18} />
       <strong>Chief</strong>
-    </a>
+    </Link>
   );
 }
 
@@ -25,13 +26,13 @@ export function MarketingHeader() {
       <nav aria-label="Main navigation">
         <Wordmark />
         <div className="nav-links">
-          <a href="/#product">Product</a>
-          <a href="/#team">The team</a>
-          <a href="/pricing">Pricing</a>
+          <Link href="/#product">Product</Link>
+          <Link href="/#team">The team</Link>
+          <Link href="/pricing">Pricing</Link>
         </div>
         <div className="nav-actions">
-          <a href="/sign-in">Sign in</a>
-          <a href="/download">Download</a>
+          <Link href="/sign-in">Sign in</Link>
+          <Link href="/download">Download</Link>
         </div>
       </nav>
     </header>
@@ -43,11 +44,11 @@ export function MarketingFooter() {
     <footer>
       <Wordmark />
       <div>
-        <a href="/#product">Product</a>
-        <a href="/#team">The team</a>
-        <a href="/pricing">Pricing</a>
-        <a href="/privacy">Privacy</a>
-        <a href="/terms">Terms</a>
+        <Link href="/#product">Product</Link>
+        <Link href="/#team">The team</Link>
+        <Link href="/pricing">Pricing</Link>
+        <Link href="/privacy">Privacy</Link>
+        <Link href="/terms">Terms</Link>
         <a
           href="https://github.com/danielsims/chief"
           rel="noreferrer"
@@ -55,7 +56,7 @@ export function MarketingFooter() {
         >
           Open source
         </a>
-        <a href="/download">Download</a>
+        <Link href="/download">Download</Link>
       </div>
       <span>© 2026 Latent Supply Pty Ltd</span>
     </footer>
