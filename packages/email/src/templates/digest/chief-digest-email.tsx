@@ -1,3 +1,4 @@
+import type { CSSProperties, ReactNode } from "react";
 import {
   Button,
   Column,
@@ -7,7 +8,8 @@ import {
   Section,
   Text,
 } from "@react-email/components";
-import type { CSSProperties, ReactNode } from "react";
+
+import { PREVIEW_EMAIL_LOGO_URL } from "../../branding";
 import { EmailShell } from "../../components/email-shell";
 
 export interface DigestIntegration {
@@ -77,7 +79,7 @@ export function ChiefDigestEmail({
   frequency = "weekly",
   periodLabel = "This week",
   dashboardUrl = "https://heychief.sh",
-  logoUrl = "https://heychief.sh/brand/chief-mark-white.png",
+  logoUrl,
   completedRuns = [],
   attentionItems = [],
   upcomingWork = [],
@@ -173,7 +175,7 @@ function digestIntro({
       ? "One item needs you."
       : attentionCount > 1
         ? `${attentionCount} items need you.`
-      : "Nothing needs your attention.";
+        : "Nothing needs your attention.";
   const savedText = saved.length > 0 ? ` and saved ${sentenceList(saved)}` : "";
   return `${greeting} Your agents completed ${completed}${savedText}. ${attention}`;
 }
@@ -320,9 +322,7 @@ function IntegrationStack({
           width="22"
         />
       ))}
-      {remaining > 0 ? (
-        <span style={integrationMore}>+{remaining}</span>
-      ) : null}
+      {remaining > 0 ? <span style={integrationMore}>+{remaining}</span> : null}
     </Section>
   );
 }
@@ -466,7 +466,7 @@ export const digestPreviewProps = {
   firstName: "Alex",
   frequency: "weekly",
   periodLabel: "7–13 July 2026",
-  logoUrl: "http://localhost:3001/static/chief-mark-white.png",
+  logoUrl: PREVIEW_EMAIL_LOGO_URL,
   completedRuns: [
     {
       id: "growth-report",
@@ -490,14 +490,7 @@ export const digestPreviewProps = {
       title: "Founder content",
       summary:
         "Prepared three drafts from recent product work. Nothing was published.",
-      integrations: [
-        googleAnalytics,
-        x,
-        linkedIn,
-        instagram,
-        tiktok,
-        youtube,
-      ],
+      integrations: [googleAnalytics, x, linkedIn, instagram, tiktok, youtube],
     },
   ],
   attentionItems: [

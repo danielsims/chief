@@ -1,3 +1,4 @@
+import { PREVIEW_EMAIL_LOGO_URL } from "../src/branding";
 import {
   ChiefDigestEmail,
   digestPreviewProps,
@@ -7,7 +8,7 @@ export function DigestPreview() {
   return (
     <ChiefDigestEmail
       {...digestPreviewProps}
-      logoUrl="http://localhost:3001/static/chief-mark-white.png"
+      logoUrl={PREVIEW_EMAIL_LOGO_URL}
     />
   );
 }

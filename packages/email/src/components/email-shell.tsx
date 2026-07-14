@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   Body,
   Column,
@@ -10,8 +11,8 @@ import {
   Row,
   Text,
 } from "@react-email/components";
-import type { ReactNode } from "react";
-import { getEmailBranding } from "../branding";
+
+import { DEFAULT_EMAIL_LOGO_URL, getEmailBranding } from "../branding";
 
 export interface EmailShellProps {
   children: ReactNode;
@@ -28,7 +29,7 @@ export function EmailShell({
   applicationName,
   companyName,
   footerNote,
-  logoUrl = "https://heychief.sh/brand/chief-mark-white.png",
+  logoUrl = DEFAULT_EMAIL_LOGO_URL,
 }: EmailShellProps) {
   const branding = getEmailBranding();
   const resolvedApplicationName = applicationName ?? branding.applicationName;

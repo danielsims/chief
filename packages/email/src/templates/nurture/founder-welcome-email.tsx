@@ -1,5 +1,7 @@
-import { Button, Text } from "@react-email/components";
 import type { CSSProperties } from "react";
+import { Button, Text } from "@react-email/components";
+
+import { PREVIEW_EMAIL_LOGO_URL } from "../../branding";
 import { EmailShell } from "../../components/email-shell";
 import { emailStyles } from "../../components/email-styles";
 
@@ -12,7 +14,7 @@ export interface FounderWelcomeEmailProps {
 export function FounderWelcomeEmail({
   firstName,
   dashboardUrl = "https://heychief.sh",
-  logoUrl = "https://heychief.sh/brand/chief-mark-white.png",
+  logoUrl,
 }: FounderWelcomeEmailProps) {
   const greeting = firstName ? `Hey ${firstName},` : "Hey there,";
 
@@ -121,7 +123,7 @@ const sectionHeading: CSSProperties = {
 FounderWelcomeEmail.PreviewProps = {
   firstName: "Alex",
   dashboardUrl: "https://heychief.sh",
-  logoUrl: "http://localhost:3001/static/chief-mark-white.png",
+  logoUrl: PREVIEW_EMAIL_LOGO_URL,
 } satisfies FounderWelcomeEmailProps;
 
 export default FounderWelcomeEmail;

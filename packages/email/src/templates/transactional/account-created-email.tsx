@@ -1,4 +1,6 @@
 import { Button, Text } from "@react-email/components";
+
+import { PREVIEW_EMAIL_LOGO_URL } from "../../branding";
 import { EmailShell } from "../../components/email-shell";
 import { emailStyles } from "../../components/email-styles";
 
@@ -12,7 +14,7 @@ export interface AccountCreatedEmailProps {
 export function AccountCreatedEmail({
   firstName,
   dashboardUrl = "https://heychief.sh",
-  logoUrl = "https://heychief.sh/brand/chief-mark-white.png",
+  logoUrl,
   supportEmail = "hello@heychief.sh",
 }: AccountCreatedEmailProps) {
   const greeting = firstName ? `Hey ${firstName},` : "Hey there,";
@@ -47,7 +49,7 @@ export function AccountCreatedEmail({
 AccountCreatedEmail.PreviewProps = {
   firstName: "Alex",
   dashboardUrl: "https://heychief.sh",
-  logoUrl: "http://localhost:3001/static/chief-mark-white.png",
+  logoUrl: PREVIEW_EMAIL_LOGO_URL,
 } satisfies AccountCreatedEmailProps;
 
 export default AccountCreatedEmail;

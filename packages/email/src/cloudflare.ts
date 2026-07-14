@@ -33,7 +33,7 @@ export interface SendEmailInput {
   html?: string;
   text?: string;
   headers?: Record<string, string>;
-  attachments?: Array<EmailAttachment | InlineEmailAttachment>;
+  attachments?: (EmailAttachment | InlineEmailAttachment)[];
 }
 
 export interface CloudflareEmailResult {
