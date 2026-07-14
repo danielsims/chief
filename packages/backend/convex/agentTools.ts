@@ -203,7 +203,7 @@ export const openApiSpec = httpAction(async (_ctx, request) => {
   return json({
     openapi: "3.1.0",
     info: {
-      title: "Marketer Agent Tools",
+      title: "Chief Agent Tools",
       version: "1.0.0",
       description:
         "Workspace-scoped marketing data exposed to agents through Executor.",
@@ -269,7 +269,7 @@ export const openApiSpec = httpAction(async (_ctx, request) => {
           operationId: "ui.presentChart",
           summary: "Present a line chart in the conversation",
           description:
-            "Returns a typed chart UI part for Marketer to render inline in chat. Use this instead of creating SVG, HTML, image, or other chart files.",
+            "Returns a typed chart UI part for Chief to render inline in chat. Use this instead of creating SVG, HTML, image, or other chart files.",
           requestBody: {
             required: true,
             content: {

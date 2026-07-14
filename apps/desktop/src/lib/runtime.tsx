@@ -29,9 +29,9 @@ import type {
   RecurringWorkRunRecord,
   ServerMessage,
   TrendRecord,
-} from "@marketer/agent-runtime/types";
+} from "@chief/agent-runtime/types";
 import { toast } from "sonner";
-import { api } from "@marketer/backend/convex/_generated/api";
+import { api } from "@chief/backend/convex/_generated/api";
 import { useAction } from "convex/react";
 import { getAgentOverride } from "./agent-overrides";
 import { useAuth } from "./auth/auth-context";
@@ -41,12 +41,19 @@ import { navigateApp, notifySystem } from "./notifications";
 // "localhost" (not 127.0.0.1) — macOS ATS only exempts the literal
 // localhost hostname for insecure websockets inside WKWebView.
 const RUNTIME_URL = "ws://localhost:4318";
-const EXECUTOR_CAPABILITY_PREFIX = "marketer:executor-capability:";
+const EXECUTOR_CAPABILITY_PREFIX = "chief:executor-capability:";
+const LEGACY_EXECUTOR_CAPABILITY_PREFIX = "marketer:executor-capability:";
 const workspaceCapabilityCache = new Map<string, ExecutorCapability>();
 
 function workspaceCapabilityToken(organizationId: string): string {
   const key = `${EXECUTOR_CAPABILITY_PREFIX}${organizationId}`;
-  const existing = window.localStorage.getItem(key);
+  const legacyKey = `${LEGACY_EXECUTOR_CAPABILITY_PREFIX}${organizationId}`;
+  const existing =
+    window.localStorage.getItem(key) ?? window.localStorage.getItem(legacyKey);
+  if (existing && !window.localStorage.getItem(key)) {
+    window.localStorage.setItem(key, existing);
+    window.localStorage.removeItem(legacyKey);
+  }
   if (existing && /^[A-Za-z0-9_-]{43,128}$/.test(existing)) return existing;
 
   const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -120,7 +127,7 @@ export class RuntimeClient {
   private reconnectDelayMs = 1000;
   onStatus: (status: RuntimeStatus) => void = () => {};
 
-  connect() {
+  connect(announceConnecting = true) {
     if (
       this.ws?.readyState === WebSocket.OPEN ||
       this.ws?.readyState === WebSocket.CONNECTING
@@ -132,7 +139,7 @@ export class RuntimeClient {
       this.reconnectTimer = null;
     }
     this.closed = false;
-    this.onStatus("connecting");
+    if (announceConnecting) this.onStatus("connecting");
     try {
       this.ws = new WebSocket(RUNTIME_URL);
     } catch {
@@ -168,7 +175,10 @@ export class RuntimeClient {
     this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 5000);
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
-      this.connect();
+      // Keep the visible state stable while retrying. The previous loop
+      // alternated disconnected and connecting on every retry, which made a
+      // stopped local runtime look like an intermittent connection.
+      this.connect(false);
     }, delay);
   }
 
@@ -395,7 +405,20 @@ const emptyWorkspaceData: WorkspaceDataState = {
 const workspaceDataCache = new Map<string, WorkspaceDataState>();
 
 function onboardingJobsStorageKey(workspaceId: string) {
-  return `marketer:onboarding-work:${workspaceId}`;
+  return `chief:onboarding-work:${workspaceId}`;
+}
+
+function readOnboardingJobs(workspaceId: string) {
+  const currentKey = onboardingJobsStorageKey(workspaceId);
+  const current = window.localStorage.getItem(currentKey);
+  if (current !== null) return current;
+  const legacyKey = `marketer:onboarding-work:${workspaceId}`;
+  const legacy = window.localStorage.getItem(legacyKey);
+  if (legacy !== null) {
+    window.localStorage.setItem(currentKey, legacy);
+    window.localStorage.removeItem(legacyKey);
+  }
+  return legacy;
 }
 
 export function useWorkspaceData(workspaceId: string | null) {
@@ -461,9 +484,7 @@ export function useWorkspaceData(workspaceId: string | null) {
       workspaceId,
       executorCapability: capability,
     });
-    const pendingJobs = window.localStorage.getItem(
-      onboardingJobsStorageKey(workspaceId),
-    );
+    const pendingJobs = readOnboardingJobs(workspaceId);
     if (pendingJobs) {
       try {
         const pending = JSON.parse(pendingJobs) as {
@@ -1066,7 +1087,7 @@ export function useAgentChat(
   chatIdOverride?: string,
   access?: AccessMode,
   model?: string,
-  capabilities?: import("@marketer/agent-runtime/types").AgentCapabilityId[],
+  capabilities?: import("@chief/agent-runtime/types").AgentCapabilityId[],
   integrations?: string[],
   observeOnly = false,
 ) {

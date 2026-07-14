@@ -1,4 +1,4 @@
-import { Button } from "@marketer/ui/components/button";
+import { Button } from "@chief/ui/components/button";
 import type { PendingApproval } from "../../lib/runtime";
 import { toolSummary } from "./message-blocks";
 

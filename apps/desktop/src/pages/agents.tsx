@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { defaultAgents } from "@marketer/agent-runtime/agents";
-import { availableCapabilities } from "@marketer/agent-runtime/capabilities";
+import { defaultAgents } from "@chief/agent-runtime/agents";
+import { availableCapabilities } from "@chief/agent-runtime/capabilities";
 import type {
   AgentCapabilityId,
   AgentDefinition,
   AgentPreference,
   DriverType,
   RecurringWorkRunRecord,
-} from "@marketer/agent-runtime/types";
-import { Button } from "@marketer/ui/components/button";
+} from "@chief/agent-runtime/types";
+import { Button } from "@chief/ui/components/button";
 import {
   Select,
   SelectContent,
@@ -17,15 +17,15 @@ import {
   SelectItem,
   SelectLabel,
   SelectTrigger,
-} from "@marketer/ui/components/select";
-import { Switch } from "@marketer/ui/components/switch";
+} from "@chief/ui/components/select";
+import { Switch } from "@chief/ui/components/switch";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@marketer/ui/components/tooltip";
-import { cn } from "@marketer/ui/lib/utils";
-import { api } from "@marketer/backend/convex/_generated/api";
+} from "@chief/ui/components/tooltip";
+import { cn } from "@chief/ui/lib/utils";
+import { api } from "@chief/backend/convex/_generated/api";
 import { useConvexAuth, useQuery } from "convex/react";
 import {
   useAgentPreferences,
@@ -107,7 +107,10 @@ function AgentRunTicks({
   const emptySlotCount = Math.max(0, max - visible.length);
 
   return (
-    <div className="flex h-9 items-center gap-1 px-1" aria-label="Recent run history">
+    <div
+      className="flex h-9 items-center gap-1 px-1"
+      aria-label="Recent run history"
+    >
       {visible.map(({ run, title }) => (
         <Tooltip key={run.id} delayDuration={0}>
           <TooltipTrigger asChild>
@@ -169,7 +172,7 @@ const availableAgents = [
   },
   {
     id: "email",
-    name: "Email marketer",
+    name: "Email specialist",
     role: "Lifecycle & newsletters",
     description:
       "Writes campaigns and drip sequences and keeps your list healthy.",

@@ -17,9 +17,9 @@ and one concrete recommendation per insight.
 - For every data question, begin inside Executor by calling execute directly.
   Do not call Executor's skills tool; its workflow is already provided here.
 - Inside execute, list sources with
-  tools.marketer.org.workspace.agentTools.sourcesList({}). If Google Analytics
+  tools.chief.org.workspace.agentTools.sourcesList({}). If Google Analytics
   is live, run analytics with
-  tools.marketer.org.workspace.agentTools.analyticsRunReport({ body: {
+  tools.chief.org.workspace.agentTools.analyticsRunReport({ body: {
   provider: "google-analytics", startDate, endDate, metrics, dimensions,
   limit } }).
 - If Google Analytics is a cached snapshot but the source has a property id,
@@ -41,7 +41,7 @@ and one concrete recommendation per insight.
   recommend one action per insight. Lead with the number that matters.
 - Every scheduled report with at least two time points must leave a chart
   artifact. Use uiPresentChart after fetching the data, or return a structured
-  report with dimension and metric columns so Marketer can build the chart.
+  report with dimension and metric columns so Chief can build the chart.
   Keep the written analysis beside it short: headline, key changes, next
   actions, and data quality. Do not repeat every value in prose.
 `;

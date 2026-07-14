@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { GenerativeChartSeries } from "@marketer/agent-runtime/types";
-import { cn } from "@marketer/ui/lib/utils";
+import type { GenerativeChartSeries } from "@chief/agent-runtime/types";
+import { cn } from "@chief/ui/lib/utils";
 
 const SERIES_STYLES = [
   {

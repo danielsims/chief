@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Square } from "lucide-react";
-import type { DriverType } from "@marketer/agent-runtime/types";
-import { Button } from "@marketer/ui/components/button";
+import type { DriverType } from "@chief/agent-runtime/types";
+import { Button } from "@chief/ui/components/button";
 import { useAgentChat, useRuntime } from "../../lib/runtime";
 import {
   SETUP_AGENT_ID,
@@ -19,7 +19,7 @@ import { Blocks } from "./message-blocks";
 /**
  * Inline agent session that performs an integration's setup and streams its
  * work terminal-style. Fires onResult when the agent emits the verified
- * MARKETER_SETUP_RESULT line.
+ * CHIEF_SETUP_RESULT line.
  */
 export function IntegrationSetupPanel({
   domain,
@@ -140,87 +140,87 @@ export function IntegrationSetupPanel({
   return (
     <div className="space-y-3">
       <div className="border bg-background">
-      <div
-        ref={feedRef}
-        className="max-h-72 space-y-3 overflow-y-auto px-3 py-3"
-      >
-        {items.length === 0 && !chat.streaming ? (
-          <p className="animate-pulse font-mono text-xs text-muted-foreground">
-            starting setup…
-          </p>
-        ) : null}
-        {items.map((item, i) =>
-          item.kind === "user" ? (
-            i === 0 || item.text.startsWith("[auto]") ? null : (
-              <div key={i} className="flex justify-end">
-                <div className="max-w-[85%] border bg-accent px-2.5 py-1.5 text-xs whitespace-pre-wrap">
-                  {item.text}
+        <div
+          ref={feedRef}
+          className="max-h-72 space-y-3 overflow-y-auto px-3 py-3"
+        >
+          {items.length === 0 && !chat.streaming ? (
+            <p className="animate-pulse font-mono text-xs text-muted-foreground">
+              starting setup…
+            </p>
+          ) : null}
+          {items.map((item, i) =>
+            item.kind === "user" ? (
+              i === 0 || item.text.startsWith("[auto]") ? null : (
+                <div key={i} className="flex justify-end">
+                  <div className="max-w-[85%] border bg-accent px-2.5 py-1.5 text-xs whitespace-pre-wrap">
+                    {item.text}
+                  </div>
                 </div>
+              )
+            ) : (
+              <div key={i} className="text-sm">
+                <Blocks blocks={item.blocks} />
               </div>
-            )
+            ),
+          )}
+          {chat.streaming ? (
+            <p className="whitespace-pre-wrap text-sm leading-6">
+              {stripSetupResult(chat.streaming)}
+              <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-foreground align-text-bottom" />
+            </p>
+          ) : null}
+          {!allowRest
+            ? chat.approvals.map((approval) => (
+                <ApprovalCard
+                  key={approval.requestId}
+                  approval={approval}
+                  onRespond={respondPermission}
+                  onAllowAll={() => setAllowRest(true)}
+                />
+              ))
+            : null}
+          {chat.status === "running" &&
+          !chat.streaming &&
+          chat.approvals.length === 0 ? (
+            <p className="animate-pulse font-mono text-xs text-muted-foreground">
+              working…
+            </p>
+          ) : null}
+          {chat.error ? (
+            <p className="border border-destructive/40 px-2.5 py-1.5 text-xs text-destructive">
+              {chat.error}
+            </p>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2 border-t px-2 py-1.5">
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            placeholder="Reply to the setup agent…"
+            className="h-7 min-w-0 flex-1 bg-transparent px-1 text-xs outline-none placeholder:text-muted-foreground"
+          />
+          {chat.status === "running" ? (
+            <Button
+              size="icon"
+              variant="outline"
+              className="h-6 w-6"
+              onClick={interrupt}
+            >
+              <Square size={10} />
+            </Button>
           ) : (
-            <div key={i} className="text-sm">
-              <Blocks blocks={item.blocks} />
-            </div>
-          ),
-        )}
-        {chat.streaming ? (
-          <p className="whitespace-pre-wrap text-sm leading-6">
-            {stripSetupResult(chat.streaming)}
-            <span className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-foreground align-text-bottom" />
-          </p>
-        ) : null}
-        {!allowRest
-          ? chat.approvals.map((approval) => (
-              <ApprovalCard
-                key={approval.requestId}
-                approval={approval}
-                onRespond={respondPermission}
-                onAllowAll={() => setAllowRest(true)}
-              />
-            ))
-          : null}
-        {chat.status === "running" &&
-        !chat.streaming &&
-        chat.approvals.length === 0 ? (
-          <p className="animate-pulse font-mono text-xs text-muted-foreground">
-            working…
-          </p>
-        ) : null}
-        {chat.error ? (
-          <p className="border border-destructive/40 px-2.5 py-1.5 text-xs text-destructive">
-            {chat.error}
-          </p>
-        ) : null}
-      </div>
-      <div className="flex items-center gap-2 border-t px-2 py-1.5">
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          placeholder="Reply to the setup agent…"
-          className="h-7 min-w-0 flex-1 bg-transparent px-1 text-xs outline-none placeholder:text-muted-foreground"
-        />
-        {chat.status === "running" ? (
-          <Button
-            size="icon"
-            variant="outline"
-            className="h-6 w-6"
-            onClick={interrupt}
-          >
-            <Square size={10} />
-          </Button>
-        ) : (
-          <Button size="icon" className="h-6 w-6" onClick={submit}>
-            <ArrowUp size={12} />
-          </Button>
-        )}
-      </div>
+            <Button size="icon" className="h-6 w-6" onClick={submit}>
+              <ArrowUp size={12} />
+            </Button>
+          )}
+        </div>
       </div>
 
       {pendingInput ? (

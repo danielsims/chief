@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Button } from "@marketer/ui/components/button";
+import { Button } from "@chief/ui/components/button";
+import { ChiefMark } from "./chief-mark";
 
 /**
  * Full-screen state for app entry while workspace access resolves. One stable
@@ -16,7 +17,7 @@ export function EntryState({ timeoutMs = 12_000 }: { timeoutMs?: number }) {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background text-foreground">
-      <span className="font-serif text-3xl italic">m.</span>
+      <ChiefMark className="h-10 w-10 text-foreground" />
       <div className="mt-6 h-px w-24 overflow-hidden bg-border">
         <div className="entry-progress h-full w-1/3 bg-foreground/50" />
       </div>

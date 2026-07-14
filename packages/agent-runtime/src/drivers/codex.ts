@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BaseDriver } from "./base.js";
+import { agentEnvironment } from "./environment.js";
 import type { ContentBlock, StartOptions } from "../types.js";
 import {
   executorAddressesFromCode,
@@ -19,10 +20,16 @@ import {
   grantAllowsAddress,
 } from "../recurring-work.js";
 
+const moduleDirectory =
+  typeof __dirname === "string"
+    ? __dirname
+    : dirname(fileURLToPath(import.meta.url));
+
 function findCodex(): string {
   if (process.env.CODEX_PATH) return process.env.CODEX_PATH;
+  if (process.env.CHIEF_CODEX_BINARY) return process.env.CHIEF_CODEX_BINARY;
   const packageCodex = join(
-    dirname(fileURLToPath(import.meta.url)),
+    moduleDirectory,
     "..",
     "..",
     "node_modules",
@@ -96,11 +103,11 @@ export class CodexDriver extends BaseDriver {
       // non-fatal
     }
     const codexHome = this.prepareCodexHome(opts);
+    const environment = agentEnvironment(opts.env);
     this.proc = spawn(findCodex(), ["app-server"], {
       cwd: opts.cwd,
       env: {
-        ...process.env,
-        ...opts.env,
+        ...environment,
         ...Object.fromEntries(
           (opts.mcpServers ?? []).flatMap((server) => {
             const bearer =
@@ -153,7 +160,7 @@ export class CodexDriver extends BaseDriver {
     });
 
     await this.rpc("initialize", {
-      clientInfo: { name: "marketer", version: "0.1.0" },
+      clientInfo: { name: "chief", version: "0.1.0" },
     });
     this.notify("initialized", {});
 
@@ -218,14 +225,14 @@ export class CodexDriver extends BaseDriver {
 
   private prepareCodexHome(opts: StartOptions) {
     const safeName = opts.cwd.replace(/[^a-z0-9_-]/gi, "-").slice(-80);
-    const target = join(homedir(), ".marketer", "codex", safeName);
+    const target = join(homedir(), ".chief", "codex", safeName);
     mkdirSync(target, { recursive: true });
     const userHome = join(homedir(), ".codex");
     const auth = join(userHome, "auth.json");
     if (existsSync(auth)) copyFileSync(auth, join(target, "auth.json"));
 
     // Reuse the user's transcript store so persisted thread ids can resume,
-    // while keeping Marketer's MCP configuration isolated from global Codex.
+    // while keeping Chief's MCP configuration isolated from global Codex.
     for (const name of ["sessions", "session_index.jsonl"]) {
       const source = join(userHome, name);
       const destination = join(target, name);

@@ -5,16 +5,16 @@ import type {
   RecurringWorkRecord,
   RecurringWorkRunRecord,
   RunResultArtifact,
-} from "@marketer/agent-runtime/types";
-import { Button } from "@marketer/ui/components/button";
-import { cn } from "@marketer/ui/lib/utils";
+} from "@chief/agent-runtime/types";
+import { Button } from "@chief/ui/components/button";
+import { cn } from "@chief/ui/lib/utils";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@marketer/ui/components/popover";
+} from "@chief/ui/components/popover";
 import { Check, MoreVertical, SlidersHorizontal, Trash2 } from "lucide-react";
-import { defaultAgents } from "@marketer/agent-runtime/agents";
+import { defaultAgents } from "@chief/agent-runtime/agents";
 import { useAuth } from "../lib/auth/auth-context";
 import { useWorkspaceData } from "../lib/runtime";
 import { AgentChat } from "../components/chat/agent-chat";
@@ -212,12 +212,19 @@ export function ResultsPage() {
   const [params] = useSearchParams();
   const { cloudOrganizationId } = useAuth();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
-  const viewedStorageKey = `marketer:run-history:viewed:${cloudOrganizationId ?? "local"}`;
+  const viewedStorageKey = `chief:run-history:viewed:${cloudOrganizationId ?? "local"}`;
+  const legacyViewedStorageKey = `marketer:run-history:viewed:${cloudOrganizationId ?? "local"}`;
   const [viewedRunIds, setViewedRunIds] = useState<Set<string>>(() => {
     try {
-      return new Set(
-        JSON.parse(localStorage.getItem(viewedStorageKey) ?? "[]") as string[],
-      );
+      const stored =
+        localStorage.getItem(viewedStorageKey) ??
+        localStorage.getItem(legacyViewedStorageKey) ??
+        "[]";
+      if (!localStorage.getItem(viewedStorageKey) && stored !== "[]") {
+        localStorage.setItem(viewedStorageKey, stored);
+        localStorage.removeItem(legacyViewedStorageKey);
+      }
+      return new Set(JSON.parse(stored) as string[]);
     } catch {
       return new Set();
     }
@@ -308,14 +315,11 @@ export function ResultsPage() {
       : undefined);
   const selectedRun = selectedStandaloneAttention
     ? undefined
-    :
-    visibleRunGroups.find(({ run }) => run.id === selectedRunId)?.run ??
+    : (visibleRunGroups.find(({ run }) => run.id === selectedRunId)?.run ??
       allRuns.find((run) => run.id === requestedRunId) ??
-      allRuns.find(
-        (run) => run.recurringWorkId === requestedAttentionWorkId,
-      ) ??
+      allRuns.find((run) => run.recurringWorkId === requestedAttentionWorkId) ??
       allRuns.find((run) => run.recurringWorkId === requestedWorkId) ??
-      visibleRunGroups[0]?.run;
+      visibleRunGroups[0]?.run);
   const selectedWork = selectedRun
     ? workById.get(selectedRun.recurringWorkId)
     : undefined;
@@ -678,31 +682,34 @@ export function ResultsPage() {
                     )}
                   >
                     {!selectedHasIssue ? (
-                    <article className="chat-markdown text-sm leading-7">
-                      <p className="mb-3 text-xs font-medium text-muted-foreground">
-                        Analysis
-                      </p>
-                      <StreamingMarkdown>
-                        {resultText(selectedRun)}
-                      </StreamingMarkdown>
-                    </article>
+                      <article className="chat-markdown text-sm leading-7">
+                        <p className="mb-3 text-xs font-medium text-muted-foreground">
+                          Analysis
+                        </p>
+                        <StreamingMarkdown>
+                          {resultText(selectedRun)}
+                        </StreamingMarkdown>
+                      </article>
                     ) : null}
                     {selectedArtifacts.length ? (
-                    <aside
-                      aria-label="Report evidence"
-                      className={cn(
-                        "min-w-0 space-y-4",
-                        selectedArtifacts.length === 1 &&
-                          "xl:sticky xl:top-0 xl:self-start",
-                      )}
-                    >
-                      <p className="text-xs font-medium text-muted-foreground">
-                        Evidence
-                      </p>
-                      {selectedArtifacts.map((artifact) => (
-                        <ResultArtifact key={artifact.id} artifact={artifact} />
-                      ))}
-                    </aside>
+                      <aside
+                        aria-label="Report evidence"
+                        className={cn(
+                          "min-w-0 space-y-4",
+                          selectedArtifacts.length === 1 &&
+                            "xl:sticky xl:top-0 xl:self-start",
+                        )}
+                      >
+                        <p className="text-xs font-medium text-muted-foreground">
+                          Evidence
+                        </p>
+                        {selectedArtifacts.map((artifact) => (
+                          <ResultArtifact
+                            key={artifact.id}
+                            artifact={artifact}
+                          />
+                        ))}
+                      </aside>
                     ) : null}
                   </div>
                 )}

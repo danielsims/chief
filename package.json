@@ -1,10 +1,12 @@
 {
-  "name": "marketer",
+  "name": "chief",
   "private": true,
+  "license": "AGPL-3.0-only",
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
-    "desktop": "turbo dev --filter=@marketer/desktop",
+    "desktop": "turbo dev --filter=@chief/desktop",
+    "email": "pnpm --filter=@chief/email dev",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\""
@@ -16,12 +18,14 @@
   },
   "packageManager": "pnpm@10.17.1",
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"],
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ],
     "overrides": {
       "better-auth>zod": "4.3.6"
     }
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   }
 }

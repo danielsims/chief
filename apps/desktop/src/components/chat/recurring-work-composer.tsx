@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, CalendarDays, Eye, X } from "lucide-react";
-import { Button } from "@marketer/ui/components/button";
-import { Input } from "@marketer/ui/components/input";
+import { Button } from "@chief/ui/components/button";
+import { Input } from "@chief/ui/components/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-} from "@marketer/ui/components/select";
-import { Switch } from "@marketer/ui/components/switch";
-import { cn } from "@marketer/ui/lib/utils";
+} from "@chief/ui/components/select";
+import { Switch } from "@chief/ui/components/switch";
+import { cn } from "@chief/ui/lib/utils";
 import { IntegrationAvatarStack } from "../integrations/integration-avatar-stack";
 import { PlaybookDocument } from "../playbooks/playbook-document";
 import {
@@ -192,7 +192,7 @@ export function RecurringWorkComposer({
   useEffect(() => {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const approvalInstruction = approveAfterCreation
-      ? "I chose Create as approved in Marketer. Propose only the exact tools required; Marketer will activate it after creation."
+      ? "I chose Create as approved in Chief. Propose only the exact tools required; Chief will activate it after creation."
       : "Create one narrow approval for me to review in Schedule.";
     const text = task
       ? oneOff
@@ -255,10 +255,7 @@ export function RecurringWorkComposer({
           <PlaybookDocument playbook={viewingPlaybook} compact />
         </div>
         <div className="flex items-center justify-between gap-3 border-t p-4">
-          <Button
-            variant="outline"
-            onClick={() => setViewingPlaybookId(null)}
-          >
+          <Button variant="outline" onClick={() => setViewingPlaybookId(null)}>
             Back
           </Button>
           <Button

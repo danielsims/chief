@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { ShieldCheck } from "lucide-react";
-import type { RecurringWorkRecord } from "@marketer/agent-runtime/types";
-import { Button } from "@marketer/ui/components/button";
+import type { RecurringWorkRecord } from "@chief/agent-runtime/types";
+import { Button } from "@chief/ui/components/button";
 import {
   Dialog,
   DialogContent,
@@ -9,8 +9,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@marketer/ui/components/dialog";
-import { Input } from "@marketer/ui/components/input";
+} from "@chief/ui/components/dialog";
+import { Input } from "@chief/ui/components/input";
 import { useAgentConfig } from "../lib/agent-config";
 import { useAgentChat } from "../lib/runtime";
 

@@ -5,11 +5,13 @@ import { createAuthClient } from "better-auth/react";
 
 import type { StoredSession } from "./session";
 import { getStoredSession, setStoredSession } from "./session";
+import { AUTH_BASE_URL } from "../config";
 
-export const AUTH_BASE_URL =
-  (import.meta.env.VITE_AUTH_BASE_URL as string | undefined) ??
-  (globalThis as unknown as { __AUTH_BASE_URL__?: string }).__AUTH_BASE_URL__ ??
-  "http://localhost:3000";
+export { AUTH_BASE_URL } from "../config";
+
+// App.tsx blocks unconfigured production builds before auth can run. The
+// loopback fallback keeps client construction safe during module evaluation.
+const authClientBaseUrl = AUTH_BASE_URL ?? "http://127.0.0.1:3000";
 
 // Always use Tauri's native HTTP fetch when in Tauri context.
 // Tauri's native fetch bypasses CORS in both dev and production.
@@ -39,7 +41,7 @@ const fetchImpl: typeof fetch = async (input, init) => {
 };
 
 export const authClient = createAuthClient({
-  baseURL: AUTH_BASE_URL,
+  baseURL: authClientBaseUrl,
   basePath: "/api/auth",
   plugins: [organizationClient()],
   fetchOptions: {
@@ -77,7 +79,7 @@ export async function validateStoredSession(
 ): Promise<SessionValidationResult> {
   try {
     const fetcher = isTauri() ? tauriFetch : fetch;
-    const response = await fetcher(`${AUTH_BASE_URL}/api/auth/get-session`, {
+    const response = await fetcher(`${AUTH_BASE_URL!}/api/auth/get-session`, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
@@ -187,7 +189,7 @@ export async function listAuthOrganizations(
 
   const promise = (async () => {
     try {
-      const url = `${AUTH_BASE_URL}/api/auth/organization/list`;
+      const url = `${AUTH_BASE_URL!}/api/auth/organization/list`;
       const fetcher = isTauri() ? tauriFetch : fetch;
       const response = await fetcher(url, {
         headers: {
@@ -224,7 +226,7 @@ export async function setActiveAuthOrganization(
   const storedSession = getStoredSession();
   if (!storedSession?.token) throw new Error("Not authenticated");
 
-  const url = `${AUTH_BASE_URL}/api/auth/organization/set-active`;
+  const url = `${AUTH_BASE_URL!}/api/auth/organization/set-active`;
   const fetcher = isTauri() ? tauriFetch : fetch;
   const response = await fetcher(url, {
     method: "POST",

@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
-import { api } from "@marketer/backend/convex/_generated/api";
-import { Button } from "@marketer/ui/components/button";
+import { api } from "@chief/backend/convex/_generated/api";
+import { Button } from "@chief/ui/components/button";
 import { ChevronLeft } from "lucide-react";
 import { ProviderLogo } from "../../components/provider-logo";
 import {
@@ -164,8 +164,8 @@ export function IntegrationSettingsDetail() {
       <div className="mt-8 border border-destructive/40 bg-destructive/5 p-5">
         <h3 className="text-sm font-medium">Disconnect integration</h3>
         <p className="mt-1 max-w-lg text-xs leading-5 text-muted-foreground">
-          Marketer will stop reading this source. Existing reports remain in
-          your workspace.
+          Chief will stop reading this source. Existing reports remain in your
+          workspace.
         </p>
         <div className="mt-4 flex items-center gap-2">
           {confirming ? (

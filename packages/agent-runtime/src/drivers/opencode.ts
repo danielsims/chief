@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { BaseDriver } from "./base.js";
+import { agentEnvironment } from "./environment.js";
 import type { ContentBlock, StartOptions } from "../types.js";
 
 interface PendingRpc {
@@ -80,7 +81,7 @@ export class OpenCodeDriver extends BaseDriver {
     this.cwd = options.cwd;
     this.sessionId = options.resumeSessionId;
     writeFileSync(join(options.cwd, "AGENTS.md"), options.instructions);
-    const env = { ...process.env, ...options.env };
+    const env = agentEnvironment(options.env);
     this.environment = env;
     if (options.model) {
       env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ model: options.model });
@@ -118,7 +119,7 @@ export class OpenCodeDriver extends BaseDriver {
           fs: { readTextFile: true, writeTextFile: true },
           terminal: true,
         },
-        clientInfo: { name: "marketer", version: "0.1.0" },
+        clientInfo: { name: "chief", version: "0.1.0" },
       }),
     );
     const capabilities = record(initialized.agentCapabilities);

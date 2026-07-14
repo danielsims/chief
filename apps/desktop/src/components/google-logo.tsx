@@ -1,4 +1,4 @@
-import { cn } from "@marketer/ui/lib/utils";
+import { cn } from "@chief/ui/lib/utils";
 
 export function GoogleLogo({ className }: { className?: string }) {
   return (

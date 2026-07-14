@@ -5,13 +5,13 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@marketer/ui/components/popover";
+} from "@chief/ui/components/popover";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@marketer/ui/components/tooltip";
-import { cn } from "@marketer/ui/lib/utils";
+} from "@chief/ui/components/tooltip";
+import { cn } from "@chief/ui/lib/utils";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   listAuthOrganizations,

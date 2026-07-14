@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useNavigate } from "react-router";
-import { Button } from "@marketer/ui/components/button";
-import { Input } from "@marketer/ui/components/input";
+import { Button } from "@chief/ui/components/button";
+import { Input } from "@chief/ui/components/input";
 import {
   createAuthOrganization,
   setActiveAuthOrganization,

@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router";
-import { cn } from "@marketer/ui/lib/utils";
+import { cn } from "@chief/ui/lib/utils";
 
 const sections = [
   { to: "/settings/profile", label: "Profile" },

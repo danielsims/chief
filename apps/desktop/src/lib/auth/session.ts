@@ -8,7 +8,8 @@
  * authenticate. That Rust command doesn't exist here yet — see the TODOs.
  */
 
-const SESSION_KEY = "marketer-auth-session";
+const SESSION_KEY = "chief-auth-session";
+const LEGACY_SESSION_KEY = "marketer-auth-session";
 
 export interface StoredSession {
   /** BetterAuth session token */
@@ -29,10 +30,16 @@ export interface StoredSession {
 
 export function getStoredSession(): StoredSession | null {
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
+    const raw =
+      localStorage.getItem(SESSION_KEY) ??
+      localStorage.getItem(LEGACY_SESSION_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as StoredSession;
     if (!parsed.token || !parsed.user?.id) return null;
+    if (!localStorage.getItem(SESSION_KEY)) {
+      localStorage.setItem(SESSION_KEY, raw);
+      localStorage.removeItem(LEGACY_SESSION_KEY);
+    }
     return parsed;
   } catch {
     return null;
@@ -49,6 +56,7 @@ export function setStoredSession(session: StoredSession): void {
 
 export function clearStoredSession(): void {
   localStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(LEGACY_SESSION_KEY);
 
   // TODO: clear the cli-identity.json file once a `clear_cli_identity`
   // Tauri command exists. No-op for now.

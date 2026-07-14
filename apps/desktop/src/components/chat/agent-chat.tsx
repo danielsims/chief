@@ -1,16 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Square } from "lucide-react";
-import type {
-  AgentDefinition,
-  DriverType,
-} from "@marketer/agent-runtime/types";
-import { Button } from "@marketer/ui/components/button";
+import type { AgentDefinition, DriverType } from "@chief/agent-runtime/types";
+import { Button } from "@chief/ui/components/button";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-} from "@marketer/ui/components/select";
+} from "@chief/ui/components/select";
 import {
   useAgentChat,
   useProviderModels,
@@ -265,10 +262,9 @@ export function AgentChat({
   const suggestions = CHAT_SUGGESTIONS[agent.id] ?? [];
   const showOptimisticInitialPrompt = Boolean(
     optimisticInitialPrompt &&
-      !chat.items.some(
-        (item) =>
-          item.kind === "user" && item.text === optimisticInitialPrompt,
-      ),
+    !chat.items.some(
+      (item) => item.kind === "user" && item.text === optimisticInitialPrompt,
+    ),
   );
 
   const savePreferences = (nextDriver: DriverType, nextModel: string) => {

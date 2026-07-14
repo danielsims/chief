@@ -3,8 +3,8 @@ import { ShieldCheck } from "lucide-react";
 import type {
   AttentionItem,
   RecurringWorkRunRecord,
-} from "@marketer/agent-runtime/types";
-import { Button } from "@marketer/ui/components/button";
+} from "@chief/agent-runtime/types";
+import { Button } from "@chief/ui/components/button";
 import {
   Dialog,
   DialogContent,
@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogFooter,
   DialogTitle,
-} from "@marketer/ui/components/dialog";
+} from "@chief/ui/components/dialog";
 import { StreamingMarkdown } from "./chat/streaming-markdown";
 
 /**
@@ -80,7 +80,7 @@ export function RunReviewDialog({
   const hasRun = Boolean(review?.runId || review?.recurringWorkId);
   const analyticsRouteMismatch = Boolean(
     review?.blockedTools.includes(
-      "tools.marketer.org.workspace.agentTools.analyticsRunReport",
+      "tools.chief.org.workspace.agentTools.analyticsRunReport",
     ),
   );
 

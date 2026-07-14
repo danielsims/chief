@@ -1,7 +1,7 @@
 import type {
   AgentCapabilityId,
   ContentBlock,
-} from "@marketer/agent-runtime/types";
+} from "@chief/agent-runtime/types";
 import type { GenerativePartModule, GenerativePartRenderer } from "./types";
 
 // Vite discovers one renderer per file. Adding a new generative component no

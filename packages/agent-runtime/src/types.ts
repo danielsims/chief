@@ -31,22 +31,22 @@ export interface GenerativeTableData {
 }
 
 /**
- * Marketer's persistent custom UI parts follow AI SDK 7's typed `data-*`
+ * Chief's persistent custom UI parts follow AI SDK 7's typed `data-*`
  * contract. The websocket transport remains provider-neutral; every driver
  * can emit the same chart part and every client can render it consistently.
  */
-export type MarketerUIMessage = UIMessage<
+export type ChiefUIMessage = UIMessage<
   unknown,
   { chart: GenerativeChartData; table: GenerativeTableData }
 >;
 
 export type GenerativeChartBlock = Extract<
-  MarketerUIMessage["parts"][number],
+  ChiefUIMessage["parts"][number],
   { type: "data-chart" }
 >;
 
 export type GenerativeTableBlock = Extract<
-  MarketerUIMessage["parts"][number],
+  ChiefUIMessage["parts"][number],
   { type: "data-table" }
 >;
 
@@ -368,7 +368,7 @@ export interface InputField {
 }
 
 /**
- * Emitted by agents as a MARKETER_INPUT_REQUEST line and rendered by the app
+ * Emitted by agents as a CHIEF_INPUT_REQUEST line and rendered by the app
  * as a form: title, web-only steps (each ideally a single click via `url`),
  * and the fewest paste fields possible.
  */

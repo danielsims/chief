@@ -3,7 +3,7 @@
 @import "@fontsource-variable/newsreader";
 
 /*
- * Marketer design tokens.
+ * Chief design tokens.
  * Structure follows the Midday convention — warm neutrals in light mode,
  * cool near-black in dark mode, flat square surfaces, 1px token borders,
  * no shadows. Values are our own.
@@ -115,8 +115,12 @@
 }
 
 @keyframes agent-working-shimmer {
-  0% { background-position: 140% 0; }
-  100% { background-position: -40% 0; }
+  0% {
+    background-position: 140% 0;
+  }
+  100% {
+    background-position: -40% 0;
+  }
 }
 
 @layer utilities {

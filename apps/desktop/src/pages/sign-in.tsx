@@ -1,5 +1,6 @@
-import { Button } from "@marketer/ui/components/button";
+import { Button } from "@chief/ui/components/button";
 import { useAuth } from "../lib/auth/auth-context";
+import { ChiefMark } from "../components/chief-mark";
 
 /**
  * Full-window sign-in screen shown while signed out. Auth happens in the
@@ -15,11 +16,9 @@ export function SignInScreen() {
 
       <main className="flex flex-1 items-center justify-center px-8 pb-[92px]">
         <div className="flex w-full max-w-xs flex-col items-center text-center">
-          <span className="font-serif text-3xl italic leading-none select-none">
-            m.
-          </span>
+          <ChiefMark className="h-10 w-10 text-foreground" />
           <h1 className="mt-12 font-serif text-3xl leading-tight">
-            Sign in to Marketer
+            Sign in to Chief
           </h1>
           <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
             Your agents and data stay on this machine.

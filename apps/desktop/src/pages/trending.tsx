@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import type { TrendRecord } from "@marketer/agent-runtime/types";
-import { cn } from "@marketer/ui/lib/utils";
+import type { TrendRecord } from "@chief/agent-runtime/types";
+import { cn } from "@chief/ui/lib/utils";
 import { ExternalLink } from "lucide-react";
 
 import { useAuth } from "../lib/auth/auth-context";

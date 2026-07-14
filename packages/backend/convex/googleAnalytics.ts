@@ -510,7 +510,7 @@ export const oauthCallback = httpAction(async (ctx, request) => {
     });
 
     return new Response(
-      "Google Analytics is connected. You can return to Marketer.",
+      "Google Analytics is connected. You can return to Chief.",
       { status: 200 },
     );
   } catch (err) {

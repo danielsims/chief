@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { homedir } from "node:os";
@@ -10,8 +11,8 @@ import type { ExecutorCapability } from "../types.js";
 import { executorBinary } from "./spec.js";
 
 const execFileAsync = promisify(execFile);
-const MARKETER_INTEGRATION = "marketer";
-const LOCAL_INTEGRATION = "marketer-local";
+const CHIEF_INTEGRATION = "chief";
+const LOCAL_INTEGRATION = "chief-local";
 const CONNECTION_NAME = "workspace";
 const LOCAL_CONNECTION_NAME = "localworkspace";
 
@@ -72,13 +73,10 @@ function capabilityKey(
 }
 
 function pathsForWorkspace(workspaceId: string): ExecutorWorkspace {
-  const root = join(
-    homedir(),
-    ".marketer",
-    "executor",
-    "workspaces",
-    workspaceKey(workspaceId),
-  );
+  const relative = join("executor", "workspaces", workspaceKey(workspaceId));
+  const current = join(homedir(), ".chief", relative);
+  const legacy = join(homedir(), ".marketer", relative);
+  const root = !existsSync(current) && existsSync(legacy) ? legacy : current;
   return { scopeDir: join(root, "scope"), dataDir: join(root, "data") };
 }
 
@@ -187,21 +185,17 @@ async function configureIntegration(
   const specUrl = `${capability.apiBaseUrl.replace(/\/$/, "")}/agent-tools/openapi.json`;
   const integrations = await request<Integration[]>(manifest, "/integrations");
   const exists = integrations.some(
-    (integration) => integration.slug === MARKETER_INTEGRATION,
+    (integration) => integration.slug === CHIEF_INTEGRATION,
   );
 
   if (exists) {
+    await request(manifest, `/openapi/integrations/${CHIEF_INTEGRATION}/spec`, {
+      method: "POST",
+      body: JSON.stringify({ spec: { kind: "url", url: specUrl } }),
+    });
     await request(
       manifest,
-      `/openapi/integrations/${MARKETER_INTEGRATION}/spec`,
-      {
-        method: "POST",
-        body: JSON.stringify({ spec: { kind: "url", url: specUrl } }),
-      },
-    );
-    await request(
-      manifest,
-      `/openapi/integrations/${MARKETER_INTEGRATION}/config`,
+      `/openapi/integrations/${CHIEF_INTEGRATION}/config`,
       {
         method: "POST",
         body: JSON.stringify({
@@ -216,11 +210,11 @@ async function configureIntegration(
       method: "POST",
       body: JSON.stringify({
         spec: { kind: "url", url: specUrl },
-        slug: MARKETER_INTEGRATION,
-        name: "Marketer",
+        slug: CHIEF_INTEGRATION,
+        name: "Chief",
         description:
-          "Connected data and actions for the current Marketer workspace.",
-        family: "marketer",
+          "Connected data and actions for the current Chief workspace.",
+        family: "chief",
         baseUrl: capability.apiBaseUrl,
         authenticationTemplate: bearerAuthentication,
       }),
@@ -261,9 +255,9 @@ async function configureLocalIntegration(
       body: JSON.stringify({
         spec: { kind: "url", url: specUrl },
         slug: LOCAL_INTEGRATION,
-        name: "Marketer local workspace",
+        name: "Chief local workspace",
         description: "Private prospects, trends and content on this Mac.",
-        family: "marketer",
+        family: "chief",
         baseUrl,
         authenticationTemplate: bearerAuthentication,
       }),
@@ -274,7 +268,7 @@ async function configureLocalIntegration(
 async function replaceConnection(
   manifest: ServerManifest,
   capability: ExecutorCapability,
-  integration = MARKETER_INTEGRATION,
+  integration = CHIEF_INTEGRATION,
   connectionName = CONNECTION_NAME,
 ) {
   const connections = await request<Connection[]>(
@@ -304,7 +298,7 @@ async function replaceConnection(
       integration,
       template: "workspace",
       value: capability.token,
-      identityLabel: "Current Marketer workspace",
+      identityLabel: "Current Chief workspace",
     }),
   });
 }
@@ -313,7 +307,7 @@ async function configureToolPolicies(manifest: ServerManifest) {
   const [cloudTools, localTools] = await Promise.all([
     request<Tool[]>(
       manifest,
-      `/tools?integration=${MARKETER_INTEGRATION}&owner=org&connection=${CONNECTION_NAME}&includeAnnotations=true`,
+      `/tools?integration=${CHIEF_INTEGRATION}&owner=org&connection=${CONNECTION_NAME}&includeAnnotations=true`,
     ),
     request<Tool[]>(
       manifest,
@@ -432,7 +426,7 @@ export function existingExecutorWorkspace(workspaceId: string) {
   return pathsForWorkspace(workspaceId);
 }
 
-/** Idempotently prepares one isolated Executor tenant per Marketer workspace. */
+/** Idempotently prepares one isolated Executor tenant per Chief workspace. */
 export function ensureExecutorWorkspace(
   workspaceId: string,
   capability: ExecutorCapability,

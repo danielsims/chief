@@ -1,6 +1,7 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { api } from "@marketer/backend/convex/_generated/api";
-import { CONVEX_URL, convex } from "./convex";
+import { api } from "@chief/backend/convex/_generated/api";
+import { convex } from "./convex";
+import { CONVEX_URL } from "./config";
 
 export type GoogleAnalyticsConnectResult =
   | { status: "opened" }
@@ -31,5 +32,8 @@ export async function connectGoogleAnalytics(): Promise<GoogleAnalyticsConnectRe
 }
 
 export function googleAnalyticsRedirectUri() {
+  if (!CONVEX_URL) {
+    throw new Error("Chief is missing VITE_CONVEX_URL.");
+  }
   return `${CONVEX_URL.replace(".convex.cloud", ".convex.site")}/google-analytics/callback`;
 }

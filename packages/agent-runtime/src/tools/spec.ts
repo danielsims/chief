@@ -5,9 +5,31 @@ import { fileURLToPath } from "node:url";
 import type { McpServerSpec } from "../types.js";
 import type { ExecutorWorkspace } from "./control-plane.js";
 
+const moduleDirectory =
+  typeof __dirname === "string"
+    ? __dirname
+    : dirname(fileURLToPath(import.meta.url));
+
 export function executorBinary(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return join(here, "..", "..", "node_modules", ".bin", "executor");
+  if (process.env.CHIEF_EXECUTOR_BINARY) {
+    return process.env.CHIEF_EXECUTOR_BINARY;
+  }
+  if (process.env.CHIEF_RUNTIME_ROOT) {
+    return join(
+      process.env.CHIEF_RUNTIME_ROOT,
+      "node_modules",
+      ".bin",
+      "executor",
+    );
+  }
+  return join(
+    moduleDirectory,
+    "..",
+    "..",
+    "node_modules",
+    ".bin",
+    "executor",
+  );
 }
 
 /**

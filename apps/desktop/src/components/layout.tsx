@@ -5,11 +5,11 @@ import {
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@marketer/ui/components/tooltip";
+} from "@chief/ui/components/tooltip";
 import { Sidebar } from "./sidebar";
 import { useRuntime, useWorkspaceData } from "../lib/runtime";
 import { useAuth } from "../lib/auth/auth-context";
-import { cn } from "@marketer/ui/lib/utils";
+import { cn } from "@chief/ui/lib/utils";
 
 function ConnectionDot() {
   const { status } = useRuntime();
@@ -51,7 +51,9 @@ function HistoryButton() {
           ) : null}
         </NavLink>
       </TooltipTrigger>
-      <TooltipContent side="bottom">Notifications and run history</TooltipContent>
+      <TooltipContent side="bottom">
+        Notifications and run history
+      </TooltipContent>
     </Tooltip>
   );
 }

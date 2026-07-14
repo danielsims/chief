@@ -17,6 +17,11 @@ import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
 
 import * as schema from "./db/schema.js";
+
+const moduleDirectory =
+  typeof __dirname === "string"
+    ? __dirname
+    : dirname(fileURLToPath(import.meta.url));
 import type {
   AgentEvent,
   AgentPreference,
@@ -28,6 +33,21 @@ import type {
   RecurringWorkRunRecord,
   TrendRecord,
 } from "./types.js";
+
+const CHIEF_DATABASE_PATH = join(homedir(), ".chief", "chief.sqlite");
+const LEGACY_DATABASE_PATH = join(homedir(), ".marketer", "marketer.sqlite");
+const CHIEF_KEYCHAIN_SERVICE = "com.danielsims.chief.local-database";
+const LEGACY_KEYCHAIN_SERVICE = "com.danielsims.marketer.local-database";
+
+function defaultDatabasePath() {
+  return (
+    process.env.CHIEF_DATABASE_PATH ??
+    process.env.MARKETER_DATABASE_PATH ??
+    (!existsSync(CHIEF_DATABASE_PATH) && existsSync(LEGACY_DATABASE_PATH)
+      ? LEGACY_DATABASE_PATH
+      : CHIEF_DATABASE_PATH)
+  );
+}
 
 export interface LocalChatSummary {
   id: string;
@@ -60,20 +80,35 @@ function userTexts(events: AgentEvent[]) {
   return texts;
 }
 
+function isLegacyLauncherError(event: AgentEvent) {
+  if (event.type !== "error") return false;
+  return (
+    event.message === "Codex exited unexpectedly with code 127." ||
+    event.message.includes(
+      "Failed to spawn Claude Code process: spawn node ENOENT",
+    )
+  );
+}
+
 function durableEvents(events: AgentEvent[]) {
   return events.filter(
     (event) =>
-      event.type === "message" ||
-      event.type === "result" ||
-      event.type === "error" ||
-      event.type === "permissionResolved",
+      !isLegacyLauncherError(event) &&
+      (event.type === "message" ||
+        event.type === "result" ||
+        event.type === "error" ||
+        event.type === "permissionResolved"),
   );
 }
 
 function encryptionKey(directory: string) {
-  const configured = process.env.MARKETER_DATABASE_ENCRYPTION_KEY;
+  const configured =
+    process.env.CHIEF_DATABASE_ENCRYPTION_KEY ??
+    process.env.MARKETER_DATABASE_ENCRYPTION_KEY;
   if (configured) return configured;
-  const service = "com.danielsims.marketer.local-database";
+  const service = directory.startsWith(join(homedir(), ".marketer"))
+    ? LEGACY_KEYCHAIN_SERVICE
+    : CHIEF_KEYCHAIN_SERVICE;
   const account = "default";
   if (process.platform === "darwin") {
     try {
@@ -104,13 +139,13 @@ export class LocalStore {
   private readonly db: LibSQLDatabase;
   private readonly ready: Promise<void>;
 
-  constructor(
-    path = process.env.MARKETER_DATABASE_PATH ??
-      join(homedir(), ".marketer", "marketer.sqlite"),
-  ) {
+  constructor(path = defaultDatabasePath()) {
     const directory = dirname(path);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
-    if (directory.startsWith(join(homedir(), ".marketer"))) {
+    if (
+      directory.startsWith(join(homedir(), ".chief")) ||
+      directory.startsWith(join(homedir(), ".marketer"))
+    ) {
       chmodSync(directory, 0o700);
     }
     const client = createClient({
@@ -126,7 +161,7 @@ export class LocalStore {
       await client.execute("PRAGMA foreign_keys = ON");
       await migrate(db, {
         migrationsFolder: join(
-          dirname(fileURLToPath(import.meta.url)),
+          moduleDirectory,
           "..",
           "drizzle",
         ),
@@ -224,15 +259,17 @@ export class LocalStore {
       .where(eq(schema.chats.workspaceId, workspaceId))
       .orderBy(desc(schema.chats.updatedAt))
       .all();
-    return rows.filter((chat) => !chat.id.startsWith("automation-")).map((chat) => ({
-      id: chat.id,
-      agentId: chat.agentId,
-      title: chat.title,
-      lastText: chat.lastText,
-      lastAt: chat.updatedAt,
-      driver: chat.driver,
-      model: chat.model ?? undefined,
-    }));
+    return rows
+      .filter((chat) => !chat.id.startsWith("automation-"))
+      .map((chat) => ({
+        id: chat.id,
+        agentId: chat.agentId,
+        title: chat.title,
+        lastText: chat.lastText,
+        lastAt: chat.updatedAt,
+        driver: chat.driver,
+        model: chat.model ?? undefined,
+      }));
   }
 
   async transcript(workspaceId: string, chatId: string): Promise<AgentEvent[]> {
@@ -256,7 +293,8 @@ export class LocalStore {
       .all();
     return rows.flatMap(({ eventJson }) => {
       try {
-        return [JSON.parse(eventJson) as AgentEvent];
+        const event = JSON.parse(eventJson) as AgentEvent;
+        return isLegacyLauncherError(event) ? [] : [event];
       } catch {
         return [];
       }

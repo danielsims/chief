@@ -6,6 +6,11 @@ import { fileURLToPath } from "node:url";
 
 import type { DriverType, ProviderModelOption } from "./types.js";
 
+const moduleDirectory =
+  typeof __dirname === "string"
+    ? __dirname
+    : dirname(fileURLToPath(import.meta.url));
+
 const CACHE_TTL_MS = 30_000;
 const cache = new Map<
   DriverType,
@@ -14,8 +19,10 @@ const cache = new Map<
 
 function binary(name: DriverType) {
   const upper = name.toUpperCase();
+  const bundledBinary =
+    name === "codex" ? process.env.CHIEF_CODEX_BINARY : undefined;
   const packageCodex = join(
-    dirname(fileURLToPath(import.meta.url)),
+    moduleDirectory,
     "..",
     "node_modules",
     ".bin",
@@ -23,6 +30,7 @@ function binary(name: DriverType) {
   );
   const candidates = [
     process.env[`${upper}_PATH`],
+    bundledBinary,
     name === "codex" ? packageCodex : undefined,
     join(homedir(), `.${name}`, "bin", name),
     join(homedir(), ".local", "bin", name),
@@ -220,7 +228,7 @@ function codexModels(): Promise<ProviderModelOption[]> {
       void (async () => {
         try {
           await request("initialize", {
-            clientInfo: { name: "marketer", version: "0.1.0" },
+            clientInfo: { name: "chief", version: "0.1.0" },
           });
           child.stdin.write(
             `${JSON.stringify({ method: "initialized", params: {} })}\n`,

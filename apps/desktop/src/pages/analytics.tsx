@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
-import { api } from "@marketer/backend/convex/_generated/api";
-import { Button } from "@marketer/ui/components/button";
-import { cn } from "@marketer/ui/lib/utils";
+import { api } from "@chief/backend/convex/_generated/api";
+import { Button } from "@chief/ui/components/button";
+import { cn } from "@chief/ui/lib/utils";
 import { BarChart3, RefreshCw, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router";
 import { useAuth } from "../lib/auth/auth-context";

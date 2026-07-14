@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import type { AgentDefinition } from "@marketer/agent-runtime/types";
-import { Button } from "@marketer/ui/components/button";
-import { cn } from "@marketer/ui/lib/utils";
+import type { AgentDefinition } from "@chief/agent-runtime/types";
+import { Button } from "@chief/ui/components/button";
+import { cn } from "@chief/ui/lib/utils";
 
 import { IntegrationSetupPanel } from "../chat/integration-setup-panel";
 import { useAgentConfig } from "../../lib/agent-config";
@@ -118,8 +118,11 @@ export function AgentDeploymentPanel({
   const deployment = readAgentDeployment(org, agent.id);
   const health = useDeploymentHealth(deployment?.url ?? null);
   const driver =
-    agentConfig.forAgent("setup").driver ?? agentConfig.forAgent(agent.id).driver;
-  const playbooks = PLAYBOOKS.filter((playbook) => playbook.agentId === agent.id);
+    agentConfig.forAgent("setup").driver ??
+    agentConfig.forAgent(agent.id).driver;
+  const playbooks = PLAYBOOKS.filter(
+    (playbook) => playbook.agentId === agent.id,
+  );
   const schedules = workspaceData.recurringWork.filter(
     (work) => work.agentId === agent.id && work.placement === "cloud",
   );
@@ -277,10 +280,7 @@ export function AgentDeploymentPanel({
                 ))}
               </>
             ) : null}
-            <FileRow
-              depth={2}
-              name={`schedules/ (${schedules.length})`}
-            />
+            <FileRow depth={2} name={`schedules/ (${schedules.length})`} />
             <FileRow depth={2} name="connections/executor.ts" />
             <FileRow depth={1} name="workspace-input/context.md" />
           </div>

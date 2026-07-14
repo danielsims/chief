@@ -1,5 +1,5 @@
 {
-  "name": "@marketer/workspace",
+  "name": "@chief/workspace",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -16,7 +16,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@marketer/agent-runtime": "workspace:*",
+    "@chief/agent-runtime": "workspace:*",
     "@types/node": "^22.20.0",
     "microsandbox": "^0.6.6",
     "tsx": "^4.23.0",

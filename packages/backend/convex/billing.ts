@@ -178,16 +178,16 @@ export const billingReturnPage = httpAction(async (_ctx, request) => {
   const success = status === "success";
   const heading = success ? "You're in." : "Checkout canceled.";
   const body = success
-    ? "Your workspace is ready. Head back to Marketer to get started."
-    : "Nothing was charged. Return to Marketer when you're ready.";
-  const buttonLabel = success ? "Open Marketer" : "Return to Marketer";
+    ? "Your workspace is ready. Head back to Chief to get started."
+    : "Nothing was charged. Return to Chief when you're ready.";
+  const buttonLabel = success ? "Open Chief" : "Return to Chief";
   return new Response(
     `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${heading} | Marketer</title>
+  <title>${heading} | Chief</title>
   <style>
     * { box-sizing: border-box; }
     html, body { min-height: 100%; }
@@ -204,9 +204,9 @@ export const billingReturnPage = httpAction(async (_ctx, request) => {
       top: 32px;
       left: 32px;
       color: #f5f5f5;
-      font-family: Georgia, serif;
       font-size: 24px;
-      font-style: italic;
+      font-weight: 650;
+      letter-spacing: -0.04em;
       line-height: 1;
     }
     main {
@@ -250,12 +250,12 @@ export const billingReturnPage = httpAction(async (_ctx, request) => {
   </style>
 </head>
 <body>
-  <span class="brand" aria-hidden="true">m.</span>
+  <span class="brand" aria-hidden="true">C</span>
   <main>
     <div class="content">
       <h1>${heading}</h1>
       <p>${body}</p>
-      <a href="marketer-desktop:///billing/success">${buttonLabel}</a>
+      <a href="chief-desktop:///billing/success">${buttonLabel}</a>
     </div>
   </main>
 </body>
@@ -301,7 +301,7 @@ async function ensureStripeCustomer(
       email: identity.email,
       metadata: { organizationId: identity.organizationId },
     },
-    { idempotencyKey: `marketer_org_customer_${identity.organizationId}` },
+    { idempotencyKey: `chief_org_customer_${identity.organizationId}` },
   );
 
   await ctx.runMutation(setStripeCustomerForOrgRef, {
@@ -397,12 +397,12 @@ async function resolveOrganizationId(
 
 const PLAN_PRICES = {
   monthly: {
-    lookupKey: "marketer_workspace_monthly_v1",
+    lookupKey: "chief_workspace_monthly_v1",
     unitAmount: 4900,
     interval: "month" as const,
   },
   annual: {
-    lookupKey: "marketer_workspace_annual_v1",
+    lookupKey: "chief_workspace_annual_v1",
     unitAmount: 52900,
     interval: "year" as const,
   },
@@ -424,14 +424,14 @@ async function ensurePlanPrice(
   if (existing.data[0]) return existing.data[0].id;
 
   const products = await stripe.products.search({
-    query: 'metadata["marketerProduct"]:"workspace"',
+    query: 'metadata["chiefProduct"]:"workspace"',
     limit: 1,
   });
   const product =
     products.data[0] ??
     (await stripe.products.create({
-      name: "Marketer workspace",
-      metadata: { marketerProduct: "workspace" },
+      name: "Chief workspace",
+      metadata: { chiefProduct: "workspace" },
     }));
 
   const price = await stripe.prices.create({

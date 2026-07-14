@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useConvexAuth, useQuery } from "convex/react";
-import { api } from "@marketer/backend/convex/_generated/api";
+import { api } from "@chief/backend/convex/_generated/api";
 import { ArrowDownRight, ArrowUp, ArrowUpRight } from "lucide-react";
-import { Button } from "@marketer/ui/components/button";
-import { cn } from "@marketer/ui/lib/utils";
+import { Button } from "@chief/ui/components/button";
+import { cn } from "@chief/ui/lib/utils";
 import { OrgLogo } from "../components/org-logo";
 import { createChat } from "../lib/chat-log";
 import { SetupProgress } from "../components/setup-progress";

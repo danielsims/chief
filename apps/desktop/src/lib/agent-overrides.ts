@@ -3,10 +3,7 @@
  * settings UI (writes) and the chat runtime (reads). The runtime libSQL store
  * is durable; this tiny localStorage mirror keeps session opening synchronous.
  */
-import type {
-  AgentCapabilityId,
-  DriverType,
-} from "@marketer/agent-runtime/types";
+import type { AgentCapabilityId, DriverType } from "@chief/agent-runtime/types";
 
 export interface AgentOverride {
   driver?: DriverType;
@@ -18,10 +15,30 @@ export interface AgentOverride {
 
 export type AgentOverrides = Record<string, AgentOverride>;
 
-const KEY = "marketer-agent-overrides";
-const PROVIDER_KEY = "marketer-workspace-provider";
-const APPROVALS_KEY = "marketer-tool-approvals";
-const EVENT = "marketer-agent-overrides-changed";
+const KEY = "chief-agent-overrides";
+const PROVIDER_KEY = "chief-workspace-provider";
+const APPROVALS_KEY = "chief-tool-approvals";
+const EVENT = "chief-agent-overrides-changed";
+const LEGACY_KEY = "marketer-agent-overrides";
+const LEGACY_PROVIDER_KEY = "marketer-workspace-provider";
+const LEGACY_APPROVALS_KEY = "marketer-tool-approvals";
+
+function migratedValue(
+  currentBase: string,
+  legacyBase: string,
+  workspaceId: string,
+) {
+  const currentKey = workspaceKey(currentBase, workspaceId);
+  const current = localStorage.getItem(currentKey);
+  if (current !== null) return current;
+  const legacyKey = workspaceKey(legacyBase, workspaceId);
+  const legacy = localStorage.getItem(legacyKey);
+  if (legacy !== null) {
+    localStorage.setItem(currentKey, legacy);
+    localStorage.removeItem(legacyKey);
+  }
+  return legacy;
+}
 
 /**
  * Workspace-level tool approvals. "auto" (the default) opens sessions with
@@ -34,7 +51,7 @@ export function getToolApprovals(
   workspaceId: string | null | undefined,
 ): ApprovalMode {
   if (!workspaceId) return "auto";
-  const value = localStorage.getItem(workspaceKey(APPROVALS_KEY, workspaceId));
+  const value = migratedValue(APPROVALS_KEY, LEGACY_APPROVALS_KEY, workspaceId);
   return value === "ask" ? "ask" : "auto";
 }
 
@@ -56,6 +73,8 @@ function workspaceKey(base: string, workspaceId: string) {
 function retireLegacyGlobalState() {
   localStorage.removeItem(KEY);
   localStorage.removeItem(PROVIDER_KEY);
+  localStorage.removeItem(LEGACY_KEY);
+  localStorage.removeItem(LEGACY_PROVIDER_KEY);
 }
 
 export function getWorkspaceProvider(
@@ -63,7 +82,7 @@ export function getWorkspaceProvider(
 ): DriverType | null {
   if (!workspaceId) return null;
   retireLegacyGlobalState();
-  const value = localStorage.getItem(workspaceKey(PROVIDER_KEY, workspaceId));
+  const value = migratedValue(PROVIDER_KEY, LEGACY_PROVIDER_KEY, workspaceId);
   return value === "claude" || value === "codex" || value === "opencode"
     ? value
     : null;
@@ -78,9 +97,7 @@ export function setWorkspaceProvider(workspaceId: string, driver: DriverType) {
 export function getAgentOverrides(workspaceId: string): AgentOverrides {
   retireLegacyGlobalState();
   try {
-    return JSON.parse(
-      localStorage.getItem(workspaceKey(KEY, workspaceId)) ?? "{}",
-    );
+    return JSON.parse(migratedValue(KEY, LEGACY_KEY, workspaceId) ?? "{}");
   } catch {
     return {};
   }

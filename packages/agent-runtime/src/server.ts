@@ -27,7 +27,7 @@ import {
   readWorkspaceContext,
   writeWorkspaceContext,
 } from "./workspace-context.js";
-import { createMarketerMcpHandler } from "./mcp-server.js";
+import { createChiefMcpHandler } from "./mcp-server.js";
 import { loadSlackGatewayConfig } from "./channels/slack-config.js";
 import { SlackGateway } from "./channels/slack-gateway.js";
 import { RecurringWorkScheduler } from "./scheduler.js";
@@ -59,7 +59,7 @@ async function storeInputValues(
   return saved;
 }
 
-const PORT = Number(process.env.MARKETER_RUNTIME_PORT ?? 4318);
+const PORT = Number(process.env.CHIEF_RUNTIME_PORT ?? 4318);
 
 /**
  * The agent service. Binds loopback-only; clients (desktop app today,
@@ -184,7 +184,7 @@ export function startServer(port = PORT) {
     res.writeHead(204, { "access-control-allow-origin": "*" });
     res.end();
   };
-  const handleMcp = createMarketerMcpHandler({
+  const handleMcp = createChiefMcpHandler({
     manager,
     authorize: authorizeWorkspace,
   });
@@ -220,8 +220,8 @@ export function startServer(port = PORT) {
   };
 
   wss.on("connection", (ws, req) => {
-    console.log(`[marketer] client connected (${req.socket.remoteAddress})`);
-    ws.on("close", () => console.log("[marketer] client disconnected"));
+    console.log(`[chief] client connected (${req.socket.remoteAddress})`);
+    ws.on("close", () => console.log("[chief] client disconnected"));
     const send = (msg: ServerMessage) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
     };
@@ -914,12 +914,12 @@ export function startServer(port = PORT) {
   // that actually owns the port may run it — a second runtime (stale watcher,
   // installed app next to dev) polling the same database must stay passive.
   http4.on("listening", () => {
-    console.log(`[marketer] agent runtime listening on ws://127.0.0.1:${port}`);
+    console.log(`[chief] agent runtime listening on ws://127.0.0.1:${port}`);
     scheduler.start();
   });
   http4.on("error", (error) => {
     console.error(
-      `[marketer] could not bind port ${port} (another runtime running?); scheduler stays off:`,
+      `[chief] could not bind port ${port} (another runtime running?); scheduler stays off:`,
       error,
     );
   });

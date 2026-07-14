@@ -7,11 +7,11 @@ export interface ChatLogEntry {
   /** Last message the user sent, shown as the row preview. */
   lastText: string;
   lastAt: number;
-  driver?: import("@marketer/agent-runtime/types").DriverType;
+  driver?: import("@chief/agent-runtime/types").DriverType;
   model?: string;
 }
 
-const KEY = "marketer-chat-log";
+const KEY = "chief-chat-log";
 
 /** Remove the retired browser-global index after the libSQL migration. */
 export function clearLegacyChatCache() {

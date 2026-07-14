@@ -6,7 +6,7 @@ import { defineMcpClientConnection } from "eve/connections";
 export default defineMcpClientConnection({
   url: process.env.EXECUTOR_MCP_URL ?? "http://localhost:4788/mcp",
   description:
-    "Connected marketing integrations and analytics for this Marketer workspace.",
+    "Connected marketing integrations and analytics for this Chief workspace.",
   auth: {
     getToken: async () => ({ token: process.env.EXECUTOR_MCP_TOKEN ?? "" }),
   },

@@ -11,7 +11,7 @@ import type {
   AgentCapabilityId,
   AgentPreference,
   DriverType,
-} from "@marketer/agent-runtime/types";
+} from "@chief/agent-runtime/types";
 import {
   type AgentOverride,
   type ApprovalMode,

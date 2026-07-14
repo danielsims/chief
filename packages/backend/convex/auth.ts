@@ -56,12 +56,12 @@ export const { onCreate, onUpdate, onDelete } = authComponent.triggersApi();
  * 3. After auth callback, plugin stores PKCE params in a signed transfer cookie
  * 4. When newSession is created, plugin creates a verification record and
  *    sets a non-httpOnly cookie with the authorization code
- * 5. Success page reads cookie and redirects to marketer-desktop:///auth#token=...
+ * 5. Success page reads cookie and redirects to chief-desktop:///auth#token=...
  * 6. Desktop extracts token, exchanges it via POST /desktop/token with code_verifier
  * 7. Server validates PKCE and returns a session token
  */
-const TAURI_SCHEME = "marketer-desktop";
-const DESKTOP_CLIENT_ID = "marketer-desktop";
+const TAURI_SCHEME = "chief-desktop";
+const DESKTOP_CLIENT_ID = "chief-desktop";
 const DESKTOP_COOKIE_PREFIX = "better-auth";
 const CODE_EXPIRES_IN = 300; // 5 minutes
 
@@ -434,7 +434,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       userCodeLength: 8, // e.g., "ABCD-1234"
       validateClient: (clientId) => {
         // Only allow our CLI client
-        return clientId === "marketer-cli";
+        return clientId === "chief-cli";
       },
     }),
   ];
@@ -460,7 +460,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
   );
 
   return {
-    appName: "Marketer",
+    appName: "Chief",
     baseURL: env.BASE_URL,
     secret: env.AUTH_SECRET,
     database: adapter,

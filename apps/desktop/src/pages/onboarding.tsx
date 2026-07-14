@@ -1,11 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { api } from "@marketer/backend/convex/_generated/api";
-import type {
-  DriverType,
-  OnboardingWorkJob,
-} from "@marketer/agent-runtime/types";
+import { api } from "@chief/backend/convex/_generated/api";
+import type { DriverType, OnboardingWorkJob } from "@chief/agent-runtime/types";
 import {
   siInstagram,
   siReddit,
@@ -14,17 +11,17 @@ import {
   siYoutube,
   type SimpleIcon,
 } from "simple-icons";
-import { Button } from "@marketer/ui/components/button";
-import { Input } from "@marketer/ui/components/input";
-import { PrefixedInput } from "@marketer/ui/components/prefixed-input";
+import { Button } from "@chief/ui/components/button";
+import { Input } from "@chief/ui/components/input";
+import { PrefixedInput } from "@chief/ui/components/prefixed-input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-} from "@marketer/ui/components/select";
-import { SuccessCheck } from "@marketer/ui/components/success-check";
-import { cn } from "@marketer/ui/lib/utils";
+} from "@chief/ui/components/select";
+import { SuccessCheck } from "@chief/ui/components/success-check";
+import { cn } from "@chief/ui/lib/utils";
 import { Claude, OpenAI, Vercel } from "@lobehub/icons";
 import {
   Check,
@@ -186,8 +183,8 @@ const steps: StepKey[] = [
 
 const questions: Record<StepKey, string> = {
   mode: "First, where should this workspace run?",
-  inference: "Which agent app should Marketer use?",
-  health: "Quick check before we teach Marketer about your business.",
+  inference: "Which agent app should Chief use?",
+  health: "Quick check before we teach Chief about your business.",
   context:
     "I'll set this workspace up around one company, so the agents know exactly who they're working for. What's your company and website?",
   brand:
@@ -304,8 +301,8 @@ function onboardingWorkJobs(draft: OnboardingDraft): OnboardingWorkJob[] {
   const commonSetupTools = [
     "tools.search",
     "tools.executor.coreTools.connections.list",
-    "tools.marketer.org.workspace.agentTools.sourcesList",
-    "tools.marketer-local.org.localworkspace.localTools.attentionRaise",
+    "tools.chief.org.workspace.agentTools.sourcesList",
+    "tools.chief-local.org.localworkspace.localTools.attentionRaise",
   ];
 
   if (draft.brand.mode !== "skip") {
@@ -317,7 +314,7 @@ function onboardingWorkJobs(draft: OnboardingDraft): OnboardingWorkJob[] {
       timezone: draft.automation.timezone,
       proposedToolPatterns: [
         ...commonSetupTools,
-        "tools.marketer-local.org.localworkspace.localTools.brandProfileSave",
+        "tools.chief-local.org.localworkspace.localTools.brandProfileSave",
       ],
       attachments: draft.brand.files,
       instructions: [
@@ -351,9 +348,9 @@ function onboardingWorkJobs(draft: OnboardingDraft): OnboardingWorkJob[] {
       timezone: draft.automation.timezone,
       proposedToolPatterns: [
         ...commonSetupTools,
-        "tools.marketer-local.org.localworkspace.localTools.googleAnalyticsProperties",
-        "tools.marketer-local.org.localworkspace.localTools.googleAnalyticsMetadata",
-        "tools.marketer-local.org.localworkspace.localTools.googleAnalyticsRunReport",
+        "tools.chief-local.org.localworkspace.localTools.googleAnalyticsProperties",
+        "tools.chief-local.org.localworkspace.localTools.googleAnalyticsMetadata",
+        "tools.chief-local.org.localworkspace.localTools.googleAnalyticsRunReport",
       ],
       instructions: [
         `Set up the ${category} integrations selected during onboarding: ${names}.`,
@@ -511,7 +508,7 @@ function BrandIcon({
 }
 
 function storageKey(orgId: string) {
-  return `marketer-onboarding:${orgId}`;
+  return `chief-onboarding:${orgId}`;
 }
 
 function pendingStorageKey() {
@@ -757,8 +754,13 @@ function draftFromOrg(
 
 function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
   try {
-    const stored = localStorage.getItem(key);
+    const legacyKey = key.replace(/^chief-onboarding:/, "marketer-onboarding:");
+    const stored = localStorage.getItem(key) ?? localStorage.getItem(legacyKey);
     if (!stored) return base;
+    if (!localStorage.getItem(key)) {
+      localStorage.setItem(key, stored);
+      localStorage.removeItem(legacyKey);
+    }
     const parsed = JSON.parse(stored) as Partial<OnboardingDraft>;
     const hasSetupMode =
       parsed.workspaceMode === "local" || parsed.workspaceMode === "cloud";
@@ -1416,7 +1418,7 @@ function ContextControl({
             autoFocus
             value={draft.companyName}
             onChange={(event) => setField({ companyName: event.target.value })}
-            placeholder="Marketer"
+            placeholder="Acme"
           />
         </label>
         <label className="space-y-1.5">
@@ -1424,7 +1426,7 @@ function ContextControl({
           <Input
             value={draft.websiteUrl}
             onChange={(event) => setField({ websiteUrl: event.target.value })}
-            placeholder="marketer.com"
+            placeholder="acme.com"
           />
         </label>
       </div>
@@ -1816,8 +1818,8 @@ function HealthControl({
       </div>
       {!runtimeReady ? (
         <p className="mt-4 text-xs leading-5 text-muted-foreground">
-          You can continue now. Marketer will keep the workspace setup moving
-          while the agent connection finishes coming online.
+          You can continue now. Chief will keep the workspace setup moving while
+          the agent connection finishes coming online.
         </p>
       ) : null}
     </StepFrame>
@@ -1924,7 +1926,7 @@ function SuccessControl({
       disabled={draft.goals.success.length === 0}
     >
       <p className="mb-3 text-xs leading-5 text-muted-foreground">
-        Choose every outcome that would make Marketer feel worthwhile.
+        Choose every outcome that would make Chief feel worthwhile.
       </p>
       <div className="grid gap-2 sm:grid-cols-2">
         {successOptions.map((option) => (
@@ -2883,7 +2885,7 @@ function AeoControl({
     <StepFrame onContinue={onContinue} saving={saving}>
       <p className="text-sm leading-6 text-muted-foreground">
         AI assistants increasingly recommend products before buyers visit your
-        site. Marketer watches analytics for AI referrals and reports what is
+        site. Chief watches analytics for AI referrals and reports what is
         sending traffic.
       </p>
       <div className="mt-4 flex flex-wrap gap-2">

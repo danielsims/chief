@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { cn } from "@marketer/ui/lib/utils";
+import { cn } from "@chief/ui/lib/utils";
 
 /**
  * Square workspace logo-or-initial tile, shared by the workspace switcher,

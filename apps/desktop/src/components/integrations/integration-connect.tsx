@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import type { DriverType } from "@marketer/agent-runtime/types";
-import { Button } from "@marketer/ui/components/button";
+import type { DriverType } from "@chief/agent-runtime/types";
+import { Button } from "@chief/ui/components/button";
 import {
   integrationSetupTask,
   preConnectRequirement,

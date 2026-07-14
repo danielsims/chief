@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { useConvexAuth, useQuery } from "convex/react";
-import { api } from "@marketer/backend/convex/_generated/api";
+import { api } from "@chief/backend/convex/_generated/api";
 import { CheckCircle2, Circle } from "lucide-react";
 import { useAuth } from "../lib/auth/auth-context";
 import {
@@ -25,7 +25,7 @@ interface SetupSnapshot {
   adsBudget: string | null;
 }
 
-const SNAPSHOT_KEY = "marketer-setup-progress";
+const SNAPSHOT_KEY = "chief-setup-progress";
 
 function snapshotKey(workspaceId: string) {
   return `${SNAPSHOT_KEY}:${workspaceId}`;
@@ -112,9 +112,7 @@ export function SetupProgress({
     const analyticsConnected = channels.some(
       (channel) => channel.category === "analytics",
     );
-    const adsConnected = channels.some(
-      (channel) => channel.category === "ads",
-    );
+    const adsConnected = channels.some((channel) => channel.category === "ads");
     const adsBudgetPlanned =
       typeof ads.budget === "string" && ads.budget !== "No budget yet";
 

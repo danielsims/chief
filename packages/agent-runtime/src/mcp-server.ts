@@ -69,12 +69,12 @@ function toolError(content: string) {
 }
 
 /**
- * Marketer's own MCP surface: any MCP client (Claude Code, Claude Desktop)
+ * Chief's own MCP surface: any MCP client (Claude Code, Claude Desktop)
  * can list the workspace's agent team and talk to it. Sessions run on the
  * same local runtime path as the app — the user's own agent apps and
  * subscriptions, primed with the workspace context.
  */
-export function createMarketerMcpHandler(deps: {
+export function createChiefMcpHandler(deps: {
   manager: SessionManager;
   authorize: (
     workspaceId: string,
@@ -82,13 +82,13 @@ export function createMarketerMcpHandler(deps: {
   ) => Promise<void>;
 }): (req: IncomingMessage, res: ServerResponse) => Promise<boolean> {
   const buildServer = (workspaceId: string) => {
-    const server = new McpServer({ name: "marketer", version: "0.1.0" });
+    const server = new McpServer({ name: "chief", version: "0.1.0" });
 
     server.registerTool(
       "list_agents",
       {
         description:
-          "List this Marketer workspace's agent team: who they are and what each one does.",
+          "List this Chief workspace's agent team: who they are and what each one does.",
       },
       async () => {
         const roster = defaultAgents
@@ -135,7 +135,7 @@ export function createMarketerMcpHandler(deps: {
         );
         if (!preference?.driver) {
           return toolError(
-            `No agent app is configured for ${agent.name}. Open Marketer and choose one on the Agents page first.`,
+            `No agent app is configured for ${agent.name}. Open Chief and choose one on the Agents page first.`,
           );
         }
 
@@ -237,14 +237,12 @@ export function createMarketerMcpHandler(deps: {
   };
 
   return async (req, res) => {
-    const path = req.url
-      ? new URL(req.url, "http://localhost").pathname
-      : "/";
+    const path = req.url ? new URL(req.url, "http://localhost").pathname : "/";
     if (path !== "/mcp") return false;
 
     const authorization = req.headers.authorization;
-    const workspaceId = req.headers["x-marketer-workspace"];
-    const capabilityUrl = req.headers["x-marketer-capability-url"];
+    const workspaceId = req.headers["x-chief-workspace"];
+    const capabilityUrl = req.headers["x-chief-capability-url"];
     const token = authorization?.startsWith("Bearer ")
       ? authorization.slice("Bearer ".length).trim()
       : undefined;
@@ -252,7 +250,7 @@ export function createMarketerMcpHandler(deps: {
       jsonRpcError(
         res,
         401,
-        "Send Authorization: Bearer <workspace capability token> and x-marketer-workspace: <organization id>.",
+        "Send Authorization: Bearer <workspace capability token> and x-chief-workspace: <organization id>.",
       );
       return true;
     }
@@ -269,7 +267,7 @@ export function createMarketerMcpHandler(deps: {
       const hint =
         typeof capabilityUrl === "string" && capabilityUrl
           ? ""
-          : " If this is the first request since the runtime started, also send x-marketer-capability-url: <workspace agent-tools base URL>.";
+          : " If this is the first request since the runtime started, also send x-chief-capability-url: <workspace agent-tools base URL>.";
       jsonRpcError(res, 401, `${reason}${hint}`);
       return true;
     }

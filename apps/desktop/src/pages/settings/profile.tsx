@@ -5,9 +5,9 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@marketer/ui/components/card";
-import { Button } from "@marketer/ui/components/button";
-import { Input } from "@marketer/ui/components/input";
+} from "@chief/ui/components/card";
+import { Button } from "@chief/ui/components/button";
+import { Input } from "@chief/ui/components/input";
 import { useAuth } from "../../lib/auth/auth-context";
 import { removeImageAsset, uploadImageAsset } from "../../lib/image-upload";
 

@@ -6,12 +6,7 @@
  *   automations.json  — approved recurring work placed in the cloud
  *   deployment.json   — optional single-agent deployment selection
  */
-import {
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,7 +14,7 @@ import {
   composeWorkspaceInstructions,
   defaultAgents,
   getAgent,
-} from "@marketer/agent-runtime/agents";
+} from "@chief/agent-runtime/agents";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const input = (name: string) => join(root, "workspace-input", name);

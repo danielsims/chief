@@ -57,7 +57,8 @@ function chunkText(text: string): string[] {
   while (rest.length > SLACK_MESSAGE_LIMIT) {
     const window = rest.slice(0, SLACK_MESSAGE_LIMIT);
     const breakAt = window.lastIndexOf("\n");
-    const cut = breakAt > SLACK_MESSAGE_LIMIT / 2 ? breakAt : SLACK_MESSAGE_LIMIT;
+    const cut =
+      breakAt > SLACK_MESSAGE_LIMIT / 2 ? breakAt : SLACK_MESSAGE_LIMIT;
     chunks.push(rest.slice(0, cut));
     rest = rest.slice(cut);
   }
@@ -183,7 +184,7 @@ export class SlackGateway {
     const instructions = `${composeWorkspaceInstructions(
       cmo.instructions,
       readWorkspaceContext(this.config.workspaceId),
-    )}\n\nYou are replying inside Slack; keep replies concise, use Slack formatting (no markdown headers), and never emit MARKETER_* protocol lines.`;
+    )}\n\nYou are replying inside Slack; keep replies concise, use Slack formatting (no markdown headers), and never emit CHIEF_* protocol lines.`;
 
     const session = await this.manager.ensure(
       { ...cmo, instructions },

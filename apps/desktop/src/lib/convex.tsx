@@ -15,12 +15,13 @@ import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
 
 import { AUTH_BASE_URL } from "./auth/better-auth-client";
 import { useAuth } from "./auth/auth-context";
+import { CONVEX_URL } from "./config";
 
-export const CONVEX_URL =
-  (import.meta.env.VITE_CONVEX_URL as string | undefined) ??
-  "https://colorful-mockingbird-638.convex.cloud";
-
-export const convex = new ConvexReactClient(CONVEX_URL);
+// App.tsx prevents an unconfigured build from rendering. This loopback URL
+// exists only so imports remain side-effect safe before that check runs.
+export const convex = new ConvexReactClient(
+  CONVEX_URL ?? "http://127.0.0.1:3210",
+);
 
 function useConvexAuthFromDesktop() {
   const { isAuthenticated, sessionToken } = useAuth();
@@ -30,7 +31,7 @@ function useConvexAuthFromDesktop() {
     try {
       // Tauri's native fetch bypasses webview CORS, same as the auth client.
       const fetcher = isTauri() ? tauriFetch : fetch;
-      const response = await fetcher(`${AUTH_BASE_URL}/api/auth/convex/token`, {
+      const response = await fetcher(`${AUTH_BASE_URL!}/api/auth/convex/token`, {
         headers: { Authorization: `Bearer ${sessionToken}` },
       });
       if (!response.ok) return null;

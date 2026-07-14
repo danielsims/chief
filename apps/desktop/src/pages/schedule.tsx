@@ -10,10 +10,10 @@ import type {
   ContentDraftRecord,
   RecurringWorkRecord,
   RecurringWorkRunRecord,
-} from "@marketer/agent-runtime/types";
+} from "@chief/agent-runtime/types";
 import { useNavigate } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Button } from "@marketer/ui/components/button";
+import { Button } from "@chief/ui/components/button";
 import {
   Dialog,
   DialogContent,
@@ -21,13 +21,13 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@marketer/ui/components/dialog";
+} from "@chief/ui/components/dialog";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@marketer/ui/components/popover";
-import { cn } from "@marketer/ui/lib/utils";
+} from "@chief/ui/components/popover";
+import { cn } from "@chief/ui/lib/utils";
 import {
   Check,
   CalendarPlus,
@@ -44,13 +44,13 @@ import {
   ShieldCheck,
   SlidersHorizontal,
 } from "lucide-react";
-import { Input } from "@marketer/ui/components/input";
+import { Input } from "@chief/ui/components/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-} from "@marketer/ui/components/select";
+} from "@chief/ui/components/select";
 import { useAgentConfig } from "../lib/agent-config";
 import {
   RunReviewDialog,
@@ -1378,7 +1378,7 @@ function RecurringWorkApprovalDialog({
                 </div>
               </div>
               <p className="text-xs leading-5 text-muted-foreground">
-                New integration actions are blocked automatically. Marketer will
+                New integration actions are blocked automatically. Chief will
                 ask you to approve an expanded scope before they can run.
               </p>
               {revision.available ? (

@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { ArrowUpRight, CircleAlert } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { InputRequest } from "@marketer/agent-runtime/types";
-import { Button } from "@marketer/ui/components/button";
-import { Input } from "@marketer/ui/components/input";
-import { cn } from "@marketer/ui/lib/utils";
+import type { InputRequest } from "@chief/agent-runtime/types";
+import { Button } from "@chief/ui/components/button";
+import { Input } from "@chief/ui/components/input";
+import { cn } from "@chief/ui/lib/utils";
 
 /** Renders **bold** spans from agent-authored step text: the exact things
  * the user clicks or types read in the foreground color, everything else
@@ -125,7 +125,9 @@ export function InputRequestSection({
         ))}
       </div>
       <div className="mt-3 flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">Stored on this Mac only.</p>
+        <p className="text-xs text-muted-foreground">
+          Stored on this Mac only.
+        </p>
         <Button type="button" size="sm" disabled={!ready} onClick={submit}>
           Save and continue
         </Button>

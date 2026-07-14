@@ -70,7 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const authFlowCleanupRef = useRef<(() => void) | null>(null);
   const authFlowCompletedRef = useRef(false);
 
-  // Deep link handler — receives marketer-desktop:///auth#token=xxx
+  // Deep link handler — receives chief-desktop:///auth#token=xxx
   // from the success page, exchanges the PKCE code for a session token.
   const completeDesktopAuth = useCallback((storedSession: StoredSession) => {
     if (authFlowCompletedRef.current) return;
@@ -173,7 +173,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       const signInUrl = new URL(`${AUTH_BASE_URL}/sign-in`);
-      signInUrl.searchParams.set("client_id", "marketer-desktop");
+      signInUrl.searchParams.set("client_id", "chief-desktop");
       signInUrl.searchParams.set("code_challenge", codeChallenge);
       signInUrl.searchParams.set("code_challenge_method", "S256");
       signInUrl.searchParams.set("state", state);

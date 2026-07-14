@@ -7,7 +7,7 @@
  * 2. User signs in via Google OAuth in the browser
  * 3. Server creates a verification record with the PKCE code_challenge
  * 4. Success page reads the authorization code cookie and redirects to deep link
- * 5. Deep link handler (this file) receives marketer-desktop:///auth#token=xxx
+ * 5. Deep link handler (this file) receives chief-desktop:///auth#token=xxx
  * 6. Decodes the token to get {identifier, state}
  * 7. Retrieves the stored code_verifier using the state
  * 8. Exchanges the code for a session token via POST /desktop/token
@@ -20,7 +20,7 @@ import type { StoredSession } from "./session";
 import { AUTH_BASE_URL } from "./better-auth-client";
 import { clearPkceVerifier, getPkceVerifier } from "./pkce";
 
-export const DEEP_LINK_SCHEME = "marketer-desktop";
+export const DEEP_LINK_SCHEME = "chief-desktop";
 
 let isTauriEnv: boolean | null = null;
 
@@ -126,8 +126,8 @@ async function handleDeepLink(url: string, options: SetupOptions) {
     }
 
     // Parse either:
-    // - marketer-desktop:///auth?token=xxx (Windows-safe)
-    // - marketer-desktop:///auth#token=xxx (legacy macOS path)
+    // - chief-desktop:///auth?token=xxx (Windows-safe)
+    // - chief-desktop:///auth#token=xxx (legacy macOS path)
     const encodedToken =
       parsedUrl.searchParams.get("token") ?? getHashParam(url, "token");
 

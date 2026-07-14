@@ -37,10 +37,32 @@ import { CreateWorkspacePage } from "./pages/workspace-new";
 import { OnboardingPage } from "./pages/onboarding";
 import { useEffect, useState, type ReactNode } from "react";
 import { useConvexAuth, useQuery } from "convex/react";
-import { api } from "@marketer/backend/convex/_generated/api";
+import { api } from "@chief/backend/convex/_generated/api";
 import { hasWorkspaceAccess } from "./lib/billing";
 import { openWorkspaceCheckout } from "./lib/billing";
-import { Button } from "@marketer/ui/components/button";
+import { Button } from "@chief/ui/components/button";
+import { missingDesktopConfiguration } from "./lib/config";
+
+function ConfigurationRequired() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
+      <section className="w-full max-w-lg border bg-card p-8">
+        <h1 className="font-serif text-3xl">Configure this build</h1>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+          This copy of Chief is not connected to a backend. Add the missing
+          development values, then restart the app.
+        </p>
+        <div className="mt-6 whitespace-pre-line border px-4 py-3 font-mono text-xs leading-6 text-muted-foreground">
+          {missingDesktopConfiguration.join("\n")}
+        </div>
+        <p className="mt-4 text-xs leading-5 text-muted-foreground">
+          Start with apps/desktop/.env.example. Official Chief releases receive
+          their configuration from the private release environment.
+        </p>
+      </section>
+    </main>
+  );
+}
 
 function WorkspaceAccessRequired() {
   const [opening, setOpening] = useState(false);
@@ -59,7 +81,7 @@ function WorkspaceAccessRequired() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
       <div className="w-full max-w-md border bg-card p-8 text-center">
-        <h1 className="font-serif text-3xl">Continue with Marketer</h1>
+        <h1 className="font-serif text-3xl">Continue with Chief</h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
           Your workspace is already set up. Renew access to return to it.
         </p>
@@ -212,6 +234,10 @@ function AuthenticatedApp() {
 }
 
 export default function App() {
+  if (missingDesktopConfiguration.length > 0) {
+    return <ConfigurationRequired />;
+  }
+
   return (
     <AuthProvider>
       <ConvexClientProvider>

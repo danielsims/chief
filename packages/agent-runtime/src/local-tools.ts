@@ -116,7 +116,7 @@ export function localToolsOpenApi(origin: string) {
   return {
     openapi: "3.1.0",
     info: {
-      title: "Marketer Local Workspace Tools",
+      title: "Chief Local Workspace Tools",
       version: "1.0.0",
       description:
         "Private, runtime-local workspace records for proactive marketing agents.",

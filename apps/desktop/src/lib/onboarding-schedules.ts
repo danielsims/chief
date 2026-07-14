@@ -1,7 +1,7 @@
 import type {
   OnboardingSchedule,
   OnboardingWorkJob,
-} from "@marketer/agent-runtime/types";
+} from "@chief/agent-runtime/types";
 import { getPlaybook, playbookInstructions } from "./playbooks";
 
 export interface StarterScheduleItem {
@@ -41,28 +41,28 @@ function cron(item: StarterScheduleItem) {
 function toolPatterns(playbookId: string) {
   const sources = [
     "tools.search",
-    "tools.marketer.org.workspace.agentTools.sourcesList",
+    "tools.chief.org.workspace.agentTools.sourcesList",
   ];
   if (playbookId === "growth-brief") {
     return [
       ...sources,
-      "tools.marketer-local.org.localworkspace.localTools.googleAnalyticsRunReport",
-      "tools.marketer.org.workspace.agentTools.uiPresentChart",
+      "tools.chief-local.org.localworkspace.localTools.googleAnalyticsRunReport",
+      "tools.chief.org.workspace.agentTools.uiPresentChart",
     ];
   }
   if (playbookId === "founder-content") {
     return [
       ...sources,
-      "tools.marketer-local.org.localworkspace.localTools.contentList",
-      "tools.marketer-local.org.localworkspace.localTools.contentSave",
+      "tools.chief-local.org.localworkspace.localTools.contentList",
+      "tools.chief-local.org.localworkspace.localTools.contentSave",
     ];
   }
   return [
     ...sources,
-    "tools.marketer-local.org.localworkspace.localTools.prospectsList",
-    "tools.marketer-local.org.localworkspace.localTools.prospectsSave",
-    "tools.marketer-local.org.localworkspace.localTools.trendsList",
-    "tools.marketer-local.org.localworkspace.localTools.trendsSave",
+    "tools.chief-local.org.localworkspace.localTools.prospectsList",
+    "tools.chief-local.org.localworkspace.localTools.prospectsSave",
+    "tools.chief-local.org.localworkspace.localTools.trendsList",
+    "tools.chief-local.org.localworkspace.localTools.trendsSave",
   ];
 }
 
@@ -128,7 +128,7 @@ export function buildScheduleProvisioningJob(
     timezone: automation.timezone,
     proposedToolPatterns: [
       "tools.search",
-      "tools.marketer-local.org.localworkspace.localTools.recurringWorkPropose",
+      "tools.chief-local.org.localworkspace.localTools.recurringWorkPropose",
     ],
     instructions: [
       "Finish preparing the recurring schedules the user activated during onboarding.",

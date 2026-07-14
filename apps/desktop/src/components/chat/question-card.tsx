@@ -1,8 +1,8 @@
 import { useState } from "react";
-import type { AgentQuestion } from "@marketer/agent-runtime/types";
-import { Button } from "@marketer/ui/components/button";
-import { Input } from "@marketer/ui/components/input";
-import { cn } from "@marketer/ui/lib/utils";
+import type { AgentQuestion } from "@chief/agent-runtime/types";
+import { Button } from "@chief/ui/components/button";
+import { Input } from "@chief/ui/components/input";
+import { cn } from "@chief/ui/lib/utils";
 import type { PendingQuestion } from "../../lib/runtime";
 
 const OTHER = "__other__";

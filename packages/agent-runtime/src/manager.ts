@@ -7,7 +7,13 @@ import { LocalStore } from "./local-store.js";
 import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
 import { runDateKey, upcomingRuns } from "./recurring-work.js";
 
-const HOME = join(homedir(), ".marketer");
+const CURRENT_HOME = join(homedir(), ".chief");
+const LEGACY_HOME = join(homedir(), ".marketer");
+const HOME =
+  !existsSync(join(CURRENT_HOME, "sessions.json")) &&
+  existsSync(join(LEGACY_HOME, "sessions.json"))
+    ? LEGACY_HOME
+    : CURRENT_HOME;
 
 function workspaceChatKey(workspaceId: string, chatId: string) {
   return `${workspaceId}\0${chatId}`;
@@ -21,7 +27,7 @@ interface PersistedSession {
 
 /**
  * One live session per chatId. Backend-native session ids are persisted to
- * ~/.marketer/sessions.json so chats resume across service restarts — the
+ * ~/.chief/sessions.json so chats resume across service restarts — the
  * CLI's own transcripts remain the source of truth for history.
  */
 export class SessionManager {

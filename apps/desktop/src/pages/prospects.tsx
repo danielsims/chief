@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import type { ProspectRecord } from "@marketer/agent-runtime/types";
-import { cn } from "@marketer/ui/lib/utils";
+import type { ProspectRecord } from "@chief/agent-runtime/types";
+import { cn } from "@chief/ui/lib/utils";
 import { ExternalLink } from "lucide-react";
 
 import { useAuth } from "../lib/auth/auth-context";

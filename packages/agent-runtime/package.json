@@ -1,5 +1,5 @@
 {
-  "name": "@marketer/agent-runtime",
+  "name": "@chief/agent-runtime",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -10,6 +10,7 @@
     "./capabilities": "./src/capabilities/index.ts"
   },
   "scripts": {
+    "build:desktop-sidecar": "node scripts/build-desktop-sidecar.mjs",
     "dev": "tsx watch src/server.ts",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
     "start": "tsx src/server.ts",
@@ -33,6 +34,8 @@
     "@types/node": "^22.15.0",
     "@types/ws": "^8.18.1",
     "drizzle-kit": "1.0.0-rc.4",
+    "esbuild": "0.27.0",
+    "tar": "^7.5.20",
     "tsx": "^4.20.3",
     "typescript": "~5.8.3"
   }

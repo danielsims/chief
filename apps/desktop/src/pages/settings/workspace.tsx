@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { api } from "@marketer/backend/convex/_generated/api";
+import { api } from "@chief/backend/convex/_generated/api";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@marketer/ui/components/card";
-import { Button } from "@marketer/ui/components/button";
-import { Input } from "@marketer/ui/components/input";
-import { PrefixedInput } from "@marketer/ui/components/prefixed-input";
+} from "@chief/ui/components/card";
+import { Button } from "@chief/ui/components/button";
+import { Input } from "@chief/ui/components/input";
+import { PrefixedInput } from "@chief/ui/components/prefixed-input";
 import {
   Dialog,
   DialogContent,
@@ -18,7 +18,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@marketer/ui/components/dialog";
+} from "@chief/ui/components/dialog";
 import { OrgLogo, resolveFaviconUrl } from "../../components/org-logo";
 import { useAuth } from "../../lib/auth/auth-context";
 import {

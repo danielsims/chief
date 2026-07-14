@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { composeWorkspaceInstructions, getAgent } from "./agents.js";
-import { runDateKey } from "./recurring-work.js";
+import { canonicalExecutorAddress, runDateKey } from "./recurring-work.js";
 import { readWorkspaceContext } from "./workspace-context.js";
 import { SessionManager } from "./manager.js";
 import { nextRunAt } from "./recurring-work.js";
@@ -33,7 +33,7 @@ function lastAssistantText(events: readonly AgentEvent[]) {
 
 function reportedRequiredDataFailure(summary: string | undefined) {
   if (!summary) return false;
-  return /MARKETER_RUN_FAILED|tool_not_found|live analytics report unavailable|analytics (?:data|report) (?:is |was )?(?:not available|unavailable)|analytics (?:has|have) not (?:yet )?populated|no reliable .*data .*available/i.test(
+  return /(?:CHIEF|MARKETER)_RUN_FAILED|tool_not_found|live analytics report unavailable|analytics (?:data|report) (?:is |was )?(?:not available|unavailable)|analytics (?:has|have) not (?:yet )?populated|no reliable .*data .*available/i.test(
     summary,
   );
 }
@@ -41,7 +41,7 @@ function reportedRequiredDataFailure(summary: string | undefined) {
 function blockedRunSummary(blockedTools: readonly string[]) {
   if (
     blockedTools.includes(
-      "tools.marketer.org.workspace.agentTools.analyticsRunReport",
+      "tools.chief.org.workspace.agentTools.analyticsRunReport",
     )
   ) {
     return "Live analytics was not read. The Analyst selected the cached workspace report path instead of this task's approved live Google Analytics path. No Google permission was removed and nothing was changed. Reconnect Google Analytics if prompted, then rerun the report.";
@@ -399,29 +399,29 @@ export class RecurringWorkScheduler {
       }
 
       const executor = existingExecutorWorkspace(workspaceId);
-      const approved = work.grant.toolPatterns;
+      const approved = work.grant.toolPatterns.map(canonicalExecutorAddress);
       const liveGoogleAnalyticsApproved = approved.some((address) =>
         [
-          "tools.marketer.org.workspace.agentTools.analyticsRunReport",
-          "tools.marketer-local.org.localworkspace.localTools.googleAnalyticsRunReport",
+          "tools.chief.org.workspace.agentTools.analyticsRunReport",
+          "tools.chief-local.org.localworkspace.localTools.googleAnalyticsRunReport",
         ].includes(address),
       );
       const effectiveApproved = liveGoogleAnalyticsApproved
         ? [
             ...new Set([
               ...approved,
-              "tools.marketer-local.org.localworkspace.localTools.googleAnalyticsRunReport",
+              "tools.chief-local.org.localworkspace.localTools.googleAnalyticsRunReport",
             ]),
           ]
         : approved;
       const unattendedAccessRules =
         work.agentId === "setup"
           ? "This is an approved onboarding setup run. Work proactively and use the local shell, browser, existing machine credentials, and Executor when they help complete the selected setup. Never expose secrets. Ask for browser consent, an account choice, or a missing credential only when it genuinely requires the user."
-          : "This is an unattended recurring run that the user approved in Marketer. Use Executor only; do not use shell commands or edit files.";
+          : "This is an unattended recurring run that the user approved in Chief. Use Executor only; do not use shell commands or edit files.";
       const scheduledAgent = {
         ...agent,
         instructions: composeWorkspaceInstructions(
-          `${agent.instructions}\n\n${unattendedAccessRules} You may call only these exact delegated Executor tool addresses: ${effectiveApproved.length > 0 ? effectiveApproved.join(", ") : "read-only tools that Executor already allows"}. Do not substitute a similarly named tool from another integration.${liveGoogleAnalyticsApproved ? " The live local Google Analytics report tool is approved. Always call tools.marketer-local.org.localworkspace.localTools.googleAnalyticsRunReport for Google Analytics, even when an older task instruction names tools.marketer.org.workspace.agentTools.analyticsRunReport or the workspace source says cached. The cached source is discovery metadata, not the report to analyze. Call the local report tool with body: { propertyId, startDate, endDate, metrics: [string], dimensions: [string], limit }. Never use dateRanges or objects with a name property." : ""} If the task needs any other mutation, stop and explain what additional approval is required. Produce a decision-ready result, not only prose. Present numeric time series as focused charts. Multiple charts are encouraged when the evidence covers different questions. Each chart must contain only directly comparable series, use one measurement scale, and order time points chronologically. Never combine daily traffic, acquisition groups, landing pages, and events into one chart. Make created or updated campaigns, prospects, signals, and content explicit so Marketer can show them as tables. Put concise analysis beside the artifact. Never publish connector errors, tool names, authorization details, missing-data complaints, or debugging instructions as a report. If required evidence is unavailable, retry the approved live read tool once. If it still fails, return only MARKETER_RUN_FAILED followed by one short plain-language cause. Use direct sales-style language and never use an em dash character.`,
+          `${agent.instructions}\n\n${unattendedAccessRules} You may call only these exact delegated Executor tool addresses: ${effectiveApproved.length > 0 ? effectiveApproved.join(", ") : "read-only tools that Executor already allows"}. Do not substitute a similarly named tool from another integration.${liveGoogleAnalyticsApproved ? " The live local Google Analytics report tool is approved. Always call tools.chief-local.org.localworkspace.localTools.googleAnalyticsRunReport for Google Analytics, even when an older task instruction names tools.chief.org.workspace.agentTools.analyticsRunReport or the workspace source says cached. The cached source is discovery metadata, not the report to analyze. Call the local report tool with body: { propertyId, startDate, endDate, metrics: [string], dimensions: [string], limit }. Never use dateRanges or objects with a name property." : ""} If the task needs any other mutation, stop and explain what additional approval is required. Produce a decision-ready result, not only prose. Present numeric time series as focused charts. Multiple charts are encouraged when the evidence covers different questions. Each chart must contain only directly comparable series, use one measurement scale, and order time points chronologically. Never combine daily traffic, acquisition groups, landing pages, and events into one chart. Make created or updated campaigns, prospects, signals, and content explicit so Chief can show them as tables. Put concise analysis beside the artifact. Never publish connector errors, tool names, authorization details, missing-data complaints, or debugging instructions as a report. If required evidence is unavailable, retry the approved live read tool once. If it still fails, return only CHIEF_RUN_FAILED followed by one short plain-language cause. Use direct sales-style language and never use an em dash character.`,
           readWorkspaceContext(workspaceId),
         ),
       };

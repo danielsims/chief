@@ -14,9 +14,10 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@marketer/ui/components/tooltip";
-import { cn } from "@marketer/ui/lib/utils";
+} from "@chief/ui/components/tooltip";
+import { cn } from "@chief/ui/lib/utils";
 import { WorkspaceSwitcher } from "./workspace-switcher";
+import { ChiefMark } from "./chief-mark";
 
 const items = [
   { to: "/", label: "Overview", icon: LayoutGrid },
@@ -70,9 +71,7 @@ export function Sidebar() {
           wordmark is a pointer-events-none overlay. */}
       <div className="relative h-[92px] w-full shrink-0 border-b">
         <div data-tauri-drag-region className="absolute inset-0" />
-        <span className="pointer-events-none absolute inset-x-0 bottom-[24px] text-center font-serif text-xl italic leading-none select-none">
-          m.
-        </span>
+        <ChiefMark className="pointer-events-none absolute bottom-[21px] left-1/2 h-6 w-6 -translate-x-1/2 text-foreground" />
       </div>
       <nav className="flex flex-1 flex-col items-center gap-2 pt-4">
         {items.map((item) => (

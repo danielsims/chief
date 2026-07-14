@@ -2,8 +2,8 @@ import { Fragment, useEffect, useState } from "react";
 import type {
   AgentCapabilityId,
   ContentBlock,
-} from "@marketer/agent-runtime/types";
-import { cn } from "@marketer/ui/lib/utils";
+} from "@chief/agent-runtime/types";
+import { cn } from "@chief/ui/lib/utils";
 import { ChevronDown } from "lucide-react";
 import { renderGenerativePart } from "../generative-ui/registry";
 import { StreamingMarkdown } from "./streaming-markdown";

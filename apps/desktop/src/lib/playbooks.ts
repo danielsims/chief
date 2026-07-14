@@ -1,9 +1,5 @@
 export type PlaybookCategory =
-  | "Find customers"
-  | "Content"
-  | "Search"
-  | "Conversion"
-  | "Research";
+  "Find customers" | "Content" | "Search" | "Conversion" | "Research";
 
 export interface IntegrationDependency {
   domain: string;
@@ -70,7 +66,11 @@ export const INTEGRATIONS = {
     note: "Owned-account data; broad public research requires separate eligibility",
   },
   youtube: { domain: "youtube.com", label: "YouTube", access: "connected" },
-  gmail: { domain: "gmail.googleapis.com", label: "Gmail", access: "connected" },
+  gmail: {
+    domain: "gmail.googleapis.com",
+    label: "Gmail",
+    access: "connected",
+  },
   hubspot: { domain: "api.hubapi.com", label: "HubSpot", access: "connected" },
   productHunt: {
     domain: "api.producthunt.com",
@@ -84,14 +84,26 @@ export const INTEGRATIONS = {
   },
   semrush: { domain: "semrush.com", label: "Semrush", access: "connected" },
   openai: { domain: "openai.com", label: "OpenAI", access: "connected" },
-  perplexity: { domain: "perplexity.ai", label: "Perplexity", access: "connected" },
-  anthropic: { domain: "anthropic.com", label: "Anthropic", access: "connected" },
+  perplexity: {
+    domain: "perplexity.ai",
+    label: "Perplexity",
+    access: "connected",
+  },
+  anthropic: {
+    domain: "anthropic.com",
+    label: "Anthropic",
+    access: "connected",
+  },
   googleAds: {
     domain: "googleads.googleapis.com",
     label: "Google Ads",
     access: "connected",
   },
-  meta: { domain: "graph.facebook.com", label: "Meta Ads", access: "connected" },
+  meta: {
+    domain: "graph.facebook.com",
+    label: "Meta Ads",
+    access: "connected",
+  },
   linkedInAds: {
     domain: "linkedin.com",
     label: "LinkedIn Ads",
@@ -184,6 +196,51 @@ export const PLAYBOOKS: Playbook[] = [
       "TikTok commercial integrations normally expose the authorized account; broad public-content querying is restricted to approved research use cases.",
     ],
     guardrails: sharedGuardrails,
+  },
+  {
+    id: "social-account-setup",
+    title: "Set up social accounts",
+    summary: "Find a consistent handle and prepare each profile.",
+    task: "Find a distinctive, brand-aligned social handle we can use consistently, verify the strongest options across our priority platforms, and prepare the accounts for setup. Do not claim a handle or create an account without my approval.",
+    agentId: "prospector",
+    categories: ["Research"],
+    integrations: [
+      INTEGRATIONS.x,
+      INTEGRATIONS.instagram,
+      INTEGRATIONS.tiktok,
+      INTEGRATIONS.linkedin,
+      INTEGRATIONS.youtube,
+      INTEGRATIONS.facebook,
+    ],
+    goal: "Secure a recognizable social identity without forcing the brand into a weak platform-specific variation.",
+    inputs: [
+      "The brand name, website, positioning, and words the handle should avoid.",
+      "Priority platforms and any existing accounts that must be preserved.",
+      "The preferred balance between a short brand handle and a descriptive fallback.",
+    ],
+    workflow: [
+      "Generate a small set of pronounceable handles that feel native to the brand, then reject generic suffixes and confusing spellings.",
+      "Check the exact profile URL and platform search for every candidate on each priority network.",
+      "Treat a missing profile only as an availability signal. Confirm availability in the platform signup flow before recommending a claim.",
+      "Rank candidates by cross-platform consistency, memorability, pronunciation, and collision risk.",
+      "Prepare the chosen display name, bio, website link, avatar, and recovery checklist for each platform.",
+      "Hand account creation or an unavailable credential to the Setup agent, preserving the approved handle and profile details.",
+    ],
+    deliverables: [
+      "A cross-platform availability matrix with evidence links and the time checked.",
+      "One lead handle, two fallbacks, and a concise reason for the ranking.",
+      "A platform-by-platform setup checklist with consistent profile copy.",
+      "A clear approval step before any account is created or handle is claimed.",
+    ],
+    accessNotes: [
+      "Public profile pages can indicate that a handle is unused, but only the platform signup flow can confirm it is claimable.",
+      "Creating accounts may require the user's login, email or phone verification, CAPTCHA, or acceptance of platform terms.",
+    ],
+    guardrails: [
+      ...sharedGuardrails,
+      "Never create an account, accept terms, reserve a handle, or change an existing profile without explicit approval.",
+      "Do not call a handle available solely because a public profile returns not found.",
+    ],
   },
   {
     id: "founder-content",
@@ -407,7 +464,8 @@ export const PLAYBOOKS: Playbook[] = [
   {
     id: "launch-cycle",
     title: "Keep the launch alive",
-    summary: "Plan the next launch angle instead of treating launch as one day.",
+    summary:
+      "Plan the next launch angle instead of treating launch as one day.",
     task: "Review recent product changes, previous launch material, and audience response. Build the next focused launch angle with a clear hook, proof, channel plan, and the drafts needed for my review.",
     agentId: "content",
     categories: ["Content"],
@@ -519,7 +577,11 @@ export const PLAYBOOKS: Playbook[] = [
     task: "Check how our product and category appear across relevant AI search questions. Record where we are absent or misrepresented, identify the source content likely to improve the answer, and recommend one concrete update.",
     agentId: "cmo",
     categories: ["Search"],
-    integrations: [INTEGRATIONS.openai, INTEGRATIONS.perplexity, INTEGRATIONS.anthropic],
+    integrations: [
+      INTEGRATIONS.openai,
+      INTEGRATIONS.perplexity,
+      INTEGRATIONS.anthropic,
+    ],
     goal: "Understand how major assistants describe the category and whether the product appears accurately in buyer-relevant answers.",
     inputs: [
       "A stable question set representing discovery, comparison, and buying intent.",
@@ -550,7 +612,11 @@ export const PLAYBOOKS: Playbook[] = [
     task: "Find credible backlink opportunities in our niche where our product, data, or expertise would genuinely improve an existing resource. Save only relevant opportunities with the page, contact path, and a non-spammy pitch angle.",
     agentId: "prospector",
     categories: ["Search", "Find customers"],
-    integrations: [INTEGRATIONS.searchConsole, INTEGRATIONS.semrush, INTEGRATIONS.gmail],
+    integrations: [
+      INTEGRATIONS.searchConsole,
+      INTEGRATIONS.semrush,
+      INTEGRATIONS.gmail,
+    ],
     goal: "Find editorially credible link opportunities based on genuine usefulness, not volume outreach.",
     inputs: [
       "A target topic, market, and acceptable site-quality threshold.",

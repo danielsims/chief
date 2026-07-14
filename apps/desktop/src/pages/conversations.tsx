@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { ChevronRight, MoreVertical, Plus, Trash2 } from "lucide-react";
-import { defaultAgents } from "@marketer/agent-runtime/agents";
-import type { AgentDefinition } from "@marketer/agent-runtime/types";
-import { cn } from "@marketer/ui/lib/utils";
+import { defaultAgents } from "@chief/agent-runtime/agents";
+import type { AgentDefinition } from "@chief/agent-runtime/types";
+import { cn } from "@chief/ui/lib/utils";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "@marketer/ui/components/popover";
+} from "@chief/ui/components/popover";
 import { useAgentPreferences, useLocalChats, useRuntime } from "../lib/runtime";
 import { useAuth } from "../lib/auth/auth-context";
 import {

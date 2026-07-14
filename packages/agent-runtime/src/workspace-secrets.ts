@@ -15,7 +15,8 @@ import { basename, join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const KEYCHAIN_SERVICE = "com.latentsupply.marketer.workspace-secrets";
+const KEYCHAIN_SERVICE = "com.latentsupply.chief.workspace-secrets";
+const LEGACY_KEYCHAIN_SERVICE = "com.latentsupply.marketer.workspace-secrets";
 const ENV_KEY_PATTERN = /^[A-Z][A-Z0-9_]{0,127}$/;
 
 interface SecretIndex {
@@ -28,7 +29,10 @@ export function workspaceKey(workspaceId: string): string {
 }
 
 export function workspaceRoot(workspaceId: string): string {
-  return join(homedir(), ".marketer", "workspaces", workspaceKey(workspaceId));
+  const key = workspaceKey(workspaceId);
+  const current = join(homedir(), ".chief", "workspaces", key);
+  const legacy = join(homedir(), ".marketer", "workspaces", key);
+  return !existsSync(current) && existsSync(legacy) ? legacy : current;
 }
 
 function ensurePrivateDirectory(path: string) {
@@ -70,23 +74,19 @@ function account(workspaceId: string, kind: "env" | "file", name: string) {
 }
 
 async function keychainRead(accountName: string): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync(
-      "/usr/bin/security",
-      [
-        "find-generic-password",
-        "-a",
-        accountName,
-        "-s",
-        KEYCHAIN_SERVICE,
-        "-w",
-      ],
-      { encoding: "utf8", maxBuffer: 2 * 1024 * 1024 },
-    );
-    return stdout.replace(/\n$/, "");
-  } catch {
-    return null;
+  for (const service of [KEYCHAIN_SERVICE, LEGACY_KEYCHAIN_SERVICE]) {
+    try {
+      const { stdout } = await execFileAsync(
+        "/usr/bin/security",
+        ["find-generic-password", "-a", accountName, "-s", service, "-w"],
+        { encoding: "utf8", maxBuffer: 2 * 1024 * 1024 },
+      );
+      return stdout.replace(/\n$/, "");
+    } catch {
+      // Existing installs stored workspace secrets under the previous service.
+    }
   }
+  return null;
 }
 
 async function keychainWrite(accountName: string, value: string) {
@@ -200,6 +200,11 @@ class WorkspaceSecrets {
         (entry): entry is readonly [string, string] => entry[1] !== null,
       ),
     );
+    for (const [key, value] of Object.entries(environment)) {
+      if (key.startsWith("MARKETER_")) {
+        environment[`CHIEF_${key.slice("MARKETER_".length)}`] ??= value;
+      }
+    }
     const envPath = join(runtime, "secrets.env");
     const temporary = `${envPath}.tmp`;
     writeFileSync(
@@ -225,8 +230,8 @@ class WorkspaceSecrets {
     const adc = join(gcloud, "application_default_credentials.json");
     return {
       ...environment,
-      MARKETER_WORKSPACE_DIR: root,
-      MARKETER_SECRETS_FILE: envPath,
+      CHIEF_WORKSPACE_DIR: root,
+      CHIEF_SECRETS_FILE: envPath,
       CLOUDSDK_CONFIG: gcloud,
       GOOGLE_APPLICATION_CREDENTIALS: adc,
     };
@@ -247,16 +252,20 @@ class WorkspaceSecrets {
   }
 
   lockAll() {
-    const root = join(homedir(), ".marketer", "workspaces");
-    if (!existsSync(root)) return;
-    // Avoid retaining a registry of workspace ids. Each hashed directory can
-    // be locked without reversing its source organization id.
-    for (const entry of readdirSync(root, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        rmSync(join(root, entry.name, ".runtime"), {
-          recursive: true,
-          force: true,
-        });
+    for (const root of [
+      join(homedir(), ".chief", "workspaces"),
+      join(homedir(), ".marketer", "workspaces"),
+    ]) {
+      if (!existsSync(root)) continue;
+      // Avoid retaining a registry of workspace ids. Each hashed directory can
+      // be locked without reversing its source organization id.
+      for (const entry of readdirSync(root, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          rmSync(join(root, entry.name, ".runtime"), {
+            recursive: true,
+            force: true,
+          });
+        }
       }
     }
   }

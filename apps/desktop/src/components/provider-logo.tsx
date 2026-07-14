@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { cn } from "@marketer/ui/lib/utils";
+import { cn } from "@chief/ui/lib/utils";
 import { integrationLogoUrl } from "../lib/integrations";
 import { GoogleLogo } from "./google-logo";
 

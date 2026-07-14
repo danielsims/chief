@@ -3,16 +3,16 @@ import { useNavigate } from "react-router";
 import type {
   CampaignRecord,
   CampaignStatus,
-} from "@marketer/agent-runtime/types";
-import { Button } from "@marketer/ui/components/button";
-import { Input } from "@marketer/ui/components/input";
+} from "@chief/agent-runtime/types";
+import { Button } from "@chief/ui/components/button";
+import { Input } from "@chief/ui/components/input";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-} from "@marketer/ui/components/select";
-import { cn } from "@marketer/ui/lib/utils";
+} from "@chief/ui/components/select";
+import { cn } from "@chief/ui/lib/utils";
 import { ArrowUpDown, Plus, Search, Sparkles } from "lucide-react";
 import { ProviderLogo } from "../components/provider-logo";
 import { useAuth } from "../lib/auth/auth-context";

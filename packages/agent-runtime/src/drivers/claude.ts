@@ -7,6 +7,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { randomUUID } from "node:crypto";
 import { BaseDriver } from "./base.js";
+import { agentEnvironment } from "./environment.js";
 import { evaluateToolUse } from "../approvals.js";
 import type {
   AgentQuestion,
@@ -88,7 +89,7 @@ export class ClaudeDriver extends BaseDriver {
     // Strip nested-session markers so the CLI doesn't think it's running
     // inside another Claude Code session (matters when the service itself
     // was launched from one).
-    const env = { ...process.env, ...opts.env } as Record<string, string>;
+    const env = agentEnvironment(opts.env);
     delete env.CLAUDECODE;
     delete env.CLAUDE_CODE_ENTRYPOINT;
     delete env.CLAUDE_CODE_SESSION_ID;
