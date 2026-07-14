@@ -1,11 +1,13 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
-import { AgentSession, type SessionConfig } from "./session.js";
+
+import type { SessionConfig } from "./session.js";
 import type { AgentDefinition, AgentEvent } from "./types.js";
 import { LocalStore } from "./local-store.js";
-import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
 import { runDateKey, upcomingRuns } from "./recurring-work.js";
+import { AgentSession } from "./session.js";
+import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
 
 const CURRENT_HOME = join(homedir(), ".chief");
 const LEGACY_HOME = join(homedir(), ".marketer");

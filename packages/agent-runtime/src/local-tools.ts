@@ -8,16 +8,16 @@ import type {
   RecurringWorkRecord,
   TrendRecord,
 } from "./types.js";
-import { nextRunAt, validateCron } from "./recurring-work.js";
-import {
-  readWorkspaceContext,
-  writeWorkspaceBrandProfile,
-} from "./workspace-context.js";
 import {
   googleAnalyticsMetadata,
   googleAnalyticsProperties,
   googleAnalyticsRunReport,
 } from "./google-analytics-local.js";
+import { nextRunAt, validateCron } from "./recurring-work.js";
+import {
+  readWorkspaceContext,
+  writeWorkspaceBrandProfile,
+} from "./workspace-context.js";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -643,12 +643,12 @@ export async function handleLocalTool(
       const agentId = value(body.agentId, "agentId", 120)!;
       const playbookId = value(body.playbookId, "playbookId", 120, false);
       if (activate) {
-        let scope: Array<{
+        let scope: {
           playbookId?: string;
           agentId?: string;
           cron?: string;
           timezone?: string;
-        }> = [];
+        }[] = [];
         try {
           const encoded = workspaceContext?.match(
             /^Automatic schedule scope:\s*(.+)$/im,

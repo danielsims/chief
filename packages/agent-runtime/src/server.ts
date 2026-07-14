@@ -1,37 +1,38 @@
-import { createServer } from "node:http";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { basename, join } from "node:path";
-import { WebSocketServer, WebSocket } from "ws";
-import { SessionManager } from "./manager.js";
-import {
-  composeWorkspaceInstructions,
-  defaultAgents,
-  getAgent,
-} from "./agents.js";
-import { ensureExecutorWorkspace } from "./tools/control-plane.js";
-import { executorToolServer } from "./tools/spec.js";
-import { listModels } from "./models.js";
-import { handleLocalTool, localToolsOpenApi } from "./local-tools.js";
-import {
-  availableCapabilities,
-  composeAgentCapabilities,
-} from "./capabilities/index.js";
+import { WebSocket, WebSocketServer } from "ws";
+
 import type {
   ClientMessage,
   ExecutorCapability,
   InputRequest,
   ServerMessage,
 } from "./types.js";
-import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
+import {
+  composeWorkspaceInstructions,
+  defaultAgents,
+  getAgent,
+} from "./agents.js";
+import {
+  availableCapabilities,
+  composeAgentCapabilities,
+} from "./capabilities/index.js";
+import { loadSlackGatewayConfig } from "./channels/slack-config.js";
+import { SlackGateway } from "./channels/slack-gateway.js";
+import { handleLocalTool, localToolsOpenApi } from "./local-tools.js";
+import { SessionManager } from "./manager.js";
+import { createChiefMcpHandler } from "./mcp-server.js";
+import { listModels } from "./models.js";
+import { nextRunAt, validateCron } from "./recurring-work.js";
+import { RecurringWorkScheduler } from "./scheduler.js";
+import { ensureExecutorWorkspace } from "./tools/control-plane.js";
+import { executorToolServer } from "./tools/spec.js";
 import {
   readWorkspaceContext,
   writeWorkspaceContext,
 } from "./workspace-context.js";
-import { createChiefMcpHandler } from "./mcp-server.js";
-import { loadSlackGatewayConfig } from "./channels/slack-config.js";
-import { SlackGateway } from "./channels/slack-gateway.js";
-import { RecurringWorkScheduler } from "./scheduler.js";
-import { nextRunAt, validateCron } from "./recurring-work.js";
+import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
 
 /**
  * Stores submitted values per each field's save target and returns
@@ -148,7 +149,7 @@ export function startServer(port = PORT) {
     }
     if (path.startsWith("/local-tools/")) {
       const authorization = req.headers.authorization ?? "";
-      const token = authorization.match(/^Bearer (.+)$/)?.[1];
+      const token = /^Bearer (.+)$/.exec(authorization)?.[1];
       const workspaceId = token ? localCapabilities.get(token) : undefined;
       if (!workspaceId) {
         res.writeHead(401, { "content-type": "application/json" });
@@ -279,7 +280,10 @@ export function startServer(port = PORT) {
               if (!/^[a-z0-9][a-z0-9_-]{2,96}$/i.test(job.id)) {
                 throw new Error("Invalid onboarding job id.");
               }
-              const runAt = Math.max(job.runAt, now + 60_000);
+              // Onboarding should visibly come to life as soon as the user
+              // reaches the dashboard. Keep a tiny dispatch buffer so the
+              // bootstrap response and first workspace update land first.
+              const runAt = Math.max(job.runAt, now + 1_000);
               let instructions = job.instructions.trim().slice(0, 40_000);
               const attachments = (job.attachments ?? []).slice(0, 4);
               if (attachments.length > 0) {

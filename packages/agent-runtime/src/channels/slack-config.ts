@@ -2,8 +2,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { DriverType } from "../types.js";
-import { workspaceRoot, workspaceSecrets } from "../workspace-secrets.js";
 import type { SlackGatewayConfig } from "./slack-gateway.js";
+import { workspaceRoot, workspaceSecrets } from "../workspace-secrets.js";
 
 /**
  * Per-workspace Slack gateway settings. Only the toggle and driver choice

@@ -68,7 +68,7 @@ export function executorAddressesFromCode(code: string): string[] {
 
 export function executorAddressFromElicitation(input: unknown) {
   const message = findElicitationMessage(input);
-  return message.match(/Approve\s+(tools\.[^\s?]+)\??/)?.[1] ?? null;
+  return /Approve\s+(tools\.[^\s?]+)\??/.exec(message)?.[1] ?? null;
 }
 
 function findElicitationMessage(input: unknown, depth = 0): string {

@@ -1,8 +1,8 @@
+import type { DriverType } from "../types.js";
 import { BaseDriver } from "./base.js";
 import { ClaudeDriver } from "./claude.js";
 import { CodexDriver } from "./codex.js";
 import { OpenCodeDriver } from "./opencode.js";
-import type { DriverType } from "../types.js";
 
 /**
  * Driver registry — the seam between the transport-agnostic session layer

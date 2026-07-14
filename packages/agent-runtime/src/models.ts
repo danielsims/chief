@@ -58,7 +58,7 @@ function label(value: string) {
 function claudeModels(): ProviderModelOption[] {
   const root = join(homedir(), ".claude", "projects");
   if (!existsSync(root)) return [];
-  const files: Array<{ path: string; modified: number }> = [];
+  const files: { path: string; modified: number }[] = [];
   for (const project of readdirSync(root)) {
     const directory = join(root, project);
     let names: string[] = [];

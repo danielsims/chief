@@ -1,16 +1,16 @@
 import { SocketModeClient } from "@slack/socket-mode";
 import { WebClient } from "@slack/web-api";
 
+import type { SessionManager } from "../manager.js";
+import type { AgentSession } from "../session.js";
+import type { AgentEvent, DriverType } from "../types.js";
 import {
   composeWorkspaceInstructions,
   defaultAgents,
   getAgent,
 } from "../agents/index.js";
-import type { SessionManager } from "../manager.js";
-import type { AgentSession } from "../session.js";
 import { existingExecutorWorkspace } from "../tools/control-plane.js";
 import { executorToolServer } from "../tools/spec.js";
-import type { AgentEvent, DriverType } from "../types.js";
 import { readWorkspaceContext } from "../workspace-context.js";
 
 export interface SlackGatewayConfig {
@@ -101,7 +101,7 @@ export class SlackGateway {
 
   async start(): Promise<void> {
     const identity = await this.web.auth.test();
-    this.botUserId = identity.user_id as string | undefined;
+    this.botUserId = identity.user_id;
 
     // SocketModeClient reconnects itself (autoReconnectEnabled defaults to
     // true, with backoff); we only log transitions.
@@ -162,7 +162,7 @@ export class SlackGateway {
   }
 
   private route(text: string): string {
-    const match = text.match(/^@?([a-z-]+):?\s+/i);
+    const match = /^@?([a-z-]+):?\s+/i.exec(text);
     const specialist = match
       ? SPECIALIST_IDS.find((id) => id === match[1]!.toLowerCase())
       : undefined;

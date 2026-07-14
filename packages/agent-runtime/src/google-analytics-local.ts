@@ -160,21 +160,21 @@ export async function googleAnalyticsMetadata(input: {
 }) {
   const id = propertyId(input.propertyId);
   const result = await googleRequest<{
-    dimensions?: Array<{
+    dimensions?: {
       apiName?: string;
       uiName?: string;
       description?: string;
       category?: string;
       deprecatedApiNames?: string[];
-    }>;
-    metrics?: Array<{
+    }[];
+    metrics?: {
       apiName?: string;
       uiName?: string;
       description?: string;
       category?: string;
       type?: string;
       deprecatedApiNames?: string[];
-    }>;
+    }[];
   }>(`https://analyticsdata.googleapis.com/v1beta/properties/${id}/metadata`);
   const query = String(input.query ?? "")
     .trim()
@@ -286,15 +286,15 @@ export async function googleAnalyticsMetadata(input: {
 
 export async function googleAnalyticsProperties() {
   const result = await googleRequest<{
-    accountSummaries?: Array<{
+    accountSummaries?: {
       account?: string;
       displayName?: string;
-      propertySummaries?: Array<{
+      propertySummaries?: {
         property?: string;
         displayName?: string;
         propertyType?: string;
-      }>;
-    }>;
+      }[];
+    }[];
   }>(
     "https://analyticsadmin.googleapis.com/v1beta/accountSummaries?pageSize=200",
   );
@@ -344,12 +344,12 @@ export async function googleAnalyticsRunReport(input: {
     throw new Error("limit must be an integer from 1 to 10000.");
   }
   const result = await googleRequest<{
-    dimensionHeaders?: Array<{ name?: string }>;
-    metricHeaders?: Array<{ name?: string; type?: string }>;
-    rows?: Array<{
-      dimensionValues?: Array<{ value?: string }>;
-      metricValues?: Array<{ value?: string }>;
-    }>;
+    dimensionHeaders?: { name?: string }[];
+    metricHeaders?: { name?: string; type?: string }[];
+    rows?: {
+      dimensionValues?: { value?: string }[];
+      metricValues?: { value?: string }[];
+    }[];
     rowCount?: number;
     metadata?: Record<string, unknown>;
   }>(`https://analyticsdata.googleapis.com/v1beta/properties/${id}:runReport`, {

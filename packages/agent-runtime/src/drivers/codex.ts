@@ -1,5 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
-import { createInterface } from "node:readline";
+import { spawn } from "node:child_process";
 import {
   copyFileSync,
   existsSync,
@@ -10,15 +9,18 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { BaseDriver } from "./base.js";
-import { agentEnvironment } from "./environment.js";
+import type { ChildProcess } from "node:child_process";
+
 import type { ContentBlock, StartOptions } from "../types.js";
 import {
   executorAddressesFromCode,
   executorAddressFromElicitation,
   grantAllowsAddress,
 } from "../recurring-work.js";
+import { BaseDriver } from "./base.js";
+import { agentEnvironment } from "./environment.js";
 
 const moduleDirectory =
   typeof __dirname === "string"
@@ -218,7 +220,7 @@ export class CodexDriver extends BaseDriver {
     }
     this.emitEvent({
       type: "init",
-      sessionId: this.threadId!,
+      sessionId: this.threadId,
       model: opts.model,
     });
   }
@@ -285,7 +287,7 @@ export class CodexDriver extends BaseDriver {
         join(homedir(), ".codex", "config.toml"),
         "utf8",
       );
-      return config.match(new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, "m"))?.[1];
+      return new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, "m").exec(config)?.[1];
     } catch {
       return undefined;
     }

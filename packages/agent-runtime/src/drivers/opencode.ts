@@ -1,12 +1,13 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { ChildProcess } from "node:child_process";
 
+import type { ContentBlock, StartOptions } from "../types.js";
 import { BaseDriver } from "./base.js";
 import { agentEnvironment } from "./environment.js";
-import type { ContentBlock, StartOptions } from "../types.js";
 
 interface PendingRpc {
   resolve: (value: unknown) => void;
@@ -129,9 +130,9 @@ export class OpenCodeDriver extends BaseDriver {
     // passed natively only when the agent declares stdio support.
     const mcpCapabilities = record(capabilities.mcpCapabilities);
     const supportsStdio = mcpCapabilities.stdio === true;
-    const mcpServers: Array<Record<string, unknown>> = (
+    const mcpServers: Record<string, unknown>[] = (
       options.mcpServers ?? []
-    ).flatMap((server): Array<Record<string, unknown>> => {
+    ).flatMap((server): Record<string, unknown>[] => {
       if (server.url) {
         return [
           {

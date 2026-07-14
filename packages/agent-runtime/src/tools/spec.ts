@@ -22,14 +22,7 @@ export function executorBinary(): string {
       "executor",
     );
   }
-  return join(
-    moduleDirectory,
-    "..",
-    "..",
-    "node_modules",
-    ".bin",
-    "executor",
-  );
+  return join(moduleDirectory, "..", "..", "node_modules", ".bin", "executor");
 }
 
 /**

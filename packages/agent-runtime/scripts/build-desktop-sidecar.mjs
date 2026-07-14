@@ -13,7 +13,6 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-
 import { build } from "esbuild";
 import { create as createTar } from "tar";
 
@@ -22,10 +21,7 @@ const repoRoot = resolve(packageRoot, "../..");
 const tauriRoot = join(repoRoot, "apps/desktop/src-tauri");
 const runtimeRoot = join(tauriRoot, "resources/agent-runtime");
 const runtimeArchive = join(tauriRoot, "resources/agent-runtime.tar.gz");
-const runtimeVersionFile = join(
-  tauriRoot,
-  "resources/agent-runtime.version",
-);
+const runtimeVersionFile = join(tauriRoot, "resources/agent-runtime.version");
 const binariesRoot = join(tauriRoot, "binaries");
 const macEntitlements = join(tauriRoot, "Entitlements.plist");
 

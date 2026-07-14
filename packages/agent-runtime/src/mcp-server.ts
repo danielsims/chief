@@ -1,9 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 
+import type { SessionManager } from "./manager.js";
+import type { AgentEvent, ExecutorCapability } from "./types.js";
 import {
   composeWorkspaceInstructions,
   defaultAgents,
@@ -13,10 +14,8 @@ import {
   availableCapabilities,
   composeAgentCapabilities,
 } from "./capabilities/index.js";
-import type { SessionManager } from "./manager.js";
 import { existingExecutorWorkspace } from "./tools/control-plane.js";
 import { executorToolServer } from "./tools/spec.js";
-import type { AgentEvent, ExecutorCapability } from "./types.js";
 import { readWorkspaceContext } from "./workspace-context.js";
 
 const ASK_TIMEOUT_MS = 5 * 60_000;

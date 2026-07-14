@@ -1,19 +1,16 @@
-import {
-  query,
-  type PermissionResult,
-  type Query,
-  type SDKMessage,
-  type SDKUserMessage,
-} from "@anthropic-ai/claude-agent-sdk";
 import { randomUUID } from "node:crypto";
+import type {
+  PermissionResult,
+  Query,
+  SDKMessage,
+  SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
+import { query } from "@anthropic-ai/claude-agent-sdk";
+
+import type { AgentQuestion, ContentBlock, StartOptions } from "../types.js";
+import { evaluateToolUse } from "../approvals.js";
 import { BaseDriver } from "./base.js";
 import { agentEnvironment } from "./environment.js";
-import { evaluateToolUse } from "../approvals.js";
-import type {
-  AgentQuestion,
-  ContentBlock,
-  StartOptions,
-} from "../types.js";
 
 function parseQuestions(input: Record<string, unknown>): AgentQuestion[] {
   if (!Array.isArray(input.questions)) return [];

@@ -10,18 +10,13 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-
-import { createClient, type Client } from "@libsql/client";
+import type { Client } from "@libsql/client";
+import type { LibSQLDatabase } from "drizzle-orm/libsql";
+import { createClient } from "@libsql/client";
 import { and, desc, eq, isNotNull, lte } from "drizzle-orm";
-import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
+import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
 
-import * as schema from "./db/schema.js";
-
-const moduleDirectory =
-  typeof __dirname === "string"
-    ? __dirname
-    : dirname(fileURLToPath(import.meta.url));
 import type {
   AgentEvent,
   AgentPreference,
@@ -33,6 +28,12 @@ import type {
   RecurringWorkRunRecord,
   TrendRecord,
 } from "./types.js";
+import * as schema from "./db/schema.js";
+
+const moduleDirectory =
+  typeof __dirname === "string"
+    ? __dirname
+    : dirname(fileURLToPath(import.meta.url));
 
 const CHIEF_DATABASE_PATH = join(homedir(), ".chief", "chief.sqlite");
 const LEGACY_DATABASE_PATH = join(homedir(), ".marketer", "marketer.sqlite");
@@ -160,11 +161,7 @@ export class LocalStore {
       await client.execute("PRAGMA journal_mode = WAL");
       await client.execute("PRAGMA foreign_keys = ON");
       await migrate(db, {
-        migrationsFolder: join(
-          moduleDirectory,
-          "..",
-          "drizzle",
-        ),
+        migrationsFolder: join(moduleDirectory, "..", "drizzle"),
       });
       chmodSync(path, 0o600);
       for (const suffix of ["-wal", "-shm"]) {

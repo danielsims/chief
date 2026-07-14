@@ -26,8 +26,8 @@ export interface GenerativeChartData {
 export interface GenerativeTableData {
   title: string;
   subtitle?: string;
-  columns: Array<{ key: string; label: string }>;
-  rows: Array<Record<string, string | number | boolean | null>>;
+  columns: { key: string; label: string }[];
+  rows: Record<string, string | number | boolean | null>[];
 }
 
 /**
@@ -209,11 +209,11 @@ export interface OnboardingWorkJob {
   runAt: number;
   timezone: string;
   proposedToolPatterns: string[];
-  attachments?: Array<{
+  attachments?: {
     name: string;
     type: string;
     dataUrl: string;
-  }>;
+  }[];
 }
 
 export interface OnboardingSchedule {
@@ -376,7 +376,7 @@ export interface InputRequest {
   id: string;
   title: string;
   reason?: string;
-  steps?: Array<{ text: string; url?: string }>;
+  steps?: { text: string; url?: string }[];
   fields: InputField[];
 }
 
@@ -587,7 +587,7 @@ export type ServerMessage =
   | {
       type: "chats";
       workspaceId: string;
-      chats: Array<{
+      chats: {
         id: string;
         agentId: string;
         title: string;
@@ -595,7 +595,7 @@ export type ServerMessage =
         lastAt: number;
         driver?: DriverType;
         model?: string;
-      }>;
+      }[];
     }
   | { type: "sessionOpened"; chatId: string; agentId: string }
   | { type: "event"; chatId: string; event: AgentEvent }

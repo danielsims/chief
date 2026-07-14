@@ -1,13 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import { composeWorkspaceInstructions, getAgent } from "./agents.js";
-import { canonicalExecutorAddress, runDateKey } from "./recurring-work.js";
-import { readWorkspaceContext } from "./workspace-context.js";
-import { SessionManager } from "./manager.js";
-import { nextRunAt } from "./recurring-work.js";
-import { AgentSession } from "./session.js";
-import { existingExecutorWorkspace } from "./tools/control-plane.js";
-import { executorToolServer } from "./tools/spec.js";
+import type { SessionManager } from "./manager.js";
+import type { AgentSession } from "./session.js";
 import type {
   AgentEvent,
   RecurringWorkRecord,
@@ -15,8 +9,19 @@ import type {
   RunResultArtifact,
   RuntimeNotice,
 } from "./types.js";
+import { composeWorkspaceInstructions, getAgent } from "./agents.js";
+import {
+  canonicalExecutorAddress,
+  nextRunAt,
+  runDateKey,
+} from "./recurring-work.js";
+import { existingExecutorWorkspace } from "./tools/control-plane.js";
+import { executorToolServer } from "./tools/spec.js";
+import { readWorkspaceContext } from "./workspace-context.js";
 
-const POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_MS = 5_000;
+const ONBOARDING_RETRY_DELAY_MS = 15_000;
+const MAX_ONBOARDING_ATTEMPTS = 3;
 
 function lastAssistantText(events: readonly AgentEvent[]) {
   return events
@@ -53,6 +58,19 @@ function blockedRunSummary(blockedTools: readonly string[]) {
   return count === 1
     ? "The run stopped before using one tool outside its approved scope. Nothing was changed. Review that tool, then rerun."
     : `The run stopped before using ${count} tools outside its approved scope. Nothing was changed. Review those tools, then rerun.`;
+}
+
+function onboardingRetryAvailable(
+  work: RecurringWorkRecord,
+  runs: readonly RecurringWorkRunRecord[],
+) {
+  if (!work.id.startsWith("onboarding-") || work.runOnceAt === undefined) {
+    return false;
+  }
+  const priorAttempts = runs.filter(
+    (run) => run.recurringWorkId === work.id,
+  ).length;
+  return priorAttempts + 1 < MAX_ONBOARDING_ATTEMPTS;
 }
 
 type ArtifactWorkspaceData = Awaited<
@@ -388,6 +406,16 @@ export class RecurringWorkScheduler {
     try {
       await this.manager.saveRecurringWorkRun(workspaceId, run);
       await this.onChange(workspaceId);
+      this.notice(workspaceId, {
+        kind: "run-started",
+        title: work.title,
+        detail: "Your agent is working on this now.",
+        sourceId: `automation-${work.id}`,
+        agentId: work.agentId,
+        chatId: `automation-run-${run.id}`,
+        runId: run.id,
+        recurringWorkId: work.id,
+      });
       const agent = getAgent(work.agentId);
       if (!agent) throw new Error(`Unknown agent: ${work.agentId}`);
       const preference = await this.manager.agentPreference(
@@ -414,10 +442,13 @@ export class RecurringWorkScheduler {
             ]),
           ]
         : approved;
-      const unattendedAccessRules =
-        work.agentId === "setup"
-          ? "This is an approved onboarding setup run. Work proactively and use the local shell, browser, existing machine credentials, and Executor when they help complete the selected setup. Never expose secrets. Ask for browser consent, an account choice, or a missing credential only when it genuinely requires the user."
-          : "This is an unattended recurring run that the user approved in Chief. Use Executor only; do not use shell commands or edit files.";
+      const isOnboardingSetup =
+        work.agentId === "setup" &&
+        work.id.startsWith("onboarding-") &&
+        work.runOnceAt !== undefined;
+      const unattendedAccessRules = isOnboardingSetup
+        ? "This is an approved onboarding setup run. Work proactively and use the local shell, browser, existing machine credentials, and Executor when they help complete the selected setup. Never expose secrets. Ask for browser consent, an account choice, or a missing credential only when it genuinely requires the user."
+        : "This is an unattended recurring run that the user approved in Chief. Use Executor only; do not use shell commands or edit files.";
       const scheduledAgent = {
         ...agent,
         instructions: composeWorkspaceInstructions(
@@ -432,7 +463,11 @@ export class RecurringWorkScheduler {
           // Codex currently exposes Executor's native MCP elicitation to the
           // host, allowing this grant to be enforced before every mutation.
           driver: "codex",
-          access: "guarded",
+          // Setup work is explicitly selected during onboarding. It needs
+          // local browser, credential and shell access to complete OAuth and
+          // machine setup rather than immediately declining those actions.
+          // Executor still enforces the automation's narrow tool grant.
+          access: isOnboardingSetup ? "full" : "guarded",
           workspaceId,
           model: preference?.model,
           mcpServers: [executorToolServer(executor)],
@@ -449,11 +484,11 @@ export class RecurringWorkScheduler {
           timeout.unref();
           session!.on("event", (event: AgentEvent) => {
             if (event.type === "permission") {
-              blocked = true;
               if (
                 event.toolName.startsWith("tools.") &&
                 !blockedTools.includes(event.toolName)
               ) {
+                blocked = true;
                 blockedTools.push(event.toolName);
               }
             }
@@ -481,16 +516,6 @@ export class RecurringWorkScheduler {
               session!.events,
               work.title,
             );
-            this.notice(workspaceId, {
-              kind: "run-started",
-              title: work.title,
-              detail: "Scheduled run starting.",
-              sourceId: `automation-${work.id}`,
-              agentId: work.agentId,
-              chatId: `automation-run-${run.id}`,
-              runId: run.id,
-              recurringWorkId: work.id,
-            });
           } catch (error) {
             clearTimeout(timeout);
             reject(error);
@@ -516,6 +541,9 @@ export class RecurringWorkScheduler {
         : dataFailure
           ? "Analytics data was unavailable for this run. Nothing was changed. Try again."
           : agentSummary;
+      const retrying =
+        status === "failed" &&
+        onboardingRetryAvailable(work, beforeData.recurringWorkRuns);
       await this.manager.saveRecurringWorkRun(workspaceId, {
         ...run,
         status,
@@ -527,14 +555,16 @@ export class RecurringWorkScheduler {
       });
       // Every run leaves a reviewable transcript, and a blocked run raises
       // one concrete attention item instead of failing silently.
-      await this.deliverRunOutcome(
-        workspaceId,
-        work,
-        session,
-        status,
-        run.id,
-        summary,
-      );
+      if (!retrying) {
+        await this.deliverRunOutcome(
+          workspaceId,
+          work,
+          session,
+          status,
+          run.id,
+          summary,
+        );
+      }
       if (status === "completed") {
         for (const suffix of ["approval", "needs_approval", "failed"]) {
           await this.manager.dismissAttentionItem(
@@ -545,13 +575,16 @@ export class RecurringWorkScheduler {
       }
       await this.manager.saveRecurringWork(workspaceId, {
         ...work,
-        status: blocked
-          ? "needs_approval"
+        status: retrying
+          ? "active"
+          : blocked
+            ? "needs_approval"
+            : work.runOnceAt === undefined
+              ? "active"
+              : "paused",
+        nextRunAt: retrying
+          ? Date.now() + ONBOARDING_RETRY_DELAY_MS
           : work.runOnceAt === undefined
-            ? "active"
-            : "paused",
-        nextRunAt:
-          work.runOnceAt === undefined
             ? nextRunAt(work.cron, work.timezone, scheduleFrom())
             : undefined,
         lastRunAt: Date.now(),
@@ -575,28 +608,37 @@ export class RecurringWorkScheduler {
         error: message,
         artifacts: artifacts.length > 0 ? artifacts : undefined,
       });
-      await this.deliverRunOutcome(
-        workspaceId,
-        work,
-        session,
-        blocked ? "needs_approval" : "failed",
-        run.id,
-        message,
-      );
+      const retrying =
+        !blocked &&
+        onboardingRetryAvailable(work, beforeData.recurringWorkRuns);
+      if (!retrying) {
+        await this.deliverRunOutcome(
+          workspaceId,
+          work,
+          session,
+          blocked ? "needs_approval" : "failed",
+          run.id,
+          message,
+        );
+      }
       await this.manager.saveRecurringWork(workspaceId, {
         ...work,
         // A transient provider or network failure is recorded on the run but
         // does not silently disable an automation the user approved forever.
-        status: blocked
-          ? "needs_approval"
-          : work.runOnceAt === undefined
-            ? "active"
-            : "error",
-        nextRunAt: blocked
-          ? work.nextRunAt
-          : work.runOnceAt === undefined
-            ? nextRunAt(work.cron, work.timezone, scheduleFrom())
-            : undefined,
+        status: retrying
+          ? "active"
+          : blocked
+            ? "needs_approval"
+            : work.runOnceAt === undefined
+              ? "active"
+              : "error",
+        nextRunAt: retrying
+          ? Date.now() + ONBOARDING_RETRY_DELAY_MS
+          : blocked
+            ? work.nextRunAt
+            : work.runOnceAt === undefined
+              ? nextRunAt(work.cron, work.timezone, scheduleFrom())
+              : undefined,
         lastRunAt: Date.now(),
         lastResult: message,
         updatedAt: Date.now(),

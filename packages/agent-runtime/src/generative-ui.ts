@@ -12,7 +12,7 @@ interface ReportColumn {
 
 interface ReportData {
   columns: ReportColumn[];
-  rows: Array<Record<string, unknown>>;
+  rows: Record<string, unknown>[];
   range?: { startDate?: string; endDate?: string };
   source?: { provider?: string };
 }
@@ -54,7 +54,7 @@ function parseJsonCandidates(text: string): unknown[] {
     candidates.add(trimmed);
   }
   for (const line of text.split("\n")) {
-    const log = line.match(/^\s*\[log\]\s+(.+)\s*$/)?.[1];
+    const log = /^\s*\[log\]\s+(.+)\s*$/.exec(line)?.[1];
     if (log) candidates.add(log);
   }
 
@@ -106,7 +106,7 @@ function reportLabel(key: string, report: ReportData) {
 function collectReports(
   value: unknown,
   key = "series",
-  reports: Array<{ key: string; data: ReportData }> = [],
+  reports: { key: string; data: ReportData }[] = [],
 ) {
   if (Array.isArray(value)) {
     value.forEach((item, index) =>

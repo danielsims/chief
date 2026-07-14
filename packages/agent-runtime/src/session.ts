@@ -1,7 +1,6 @@
 import { EventEmitter } from "node:events";
-import { BaseDriver } from "./drivers/base.js";
-import { createDriver } from "./drivers/index.js";
-import { withGenerativeDataParts } from "./generative-ui.js";
+
+import type { BaseDriver } from "./drivers/base.js";
 import type {
   AccessMode,
   AgentDefinition,
@@ -9,6 +8,8 @@ import type {
   DriverType,
   McpServerSpec,
 } from "./types.js";
+import { createDriver } from "./drivers/index.js";
+import { withGenerativeDataParts } from "./generative-ui.js";
 
 /** Per-session execution config: which backend runs the persona and how much it may do unprompted. */
 export interface SessionConfig {

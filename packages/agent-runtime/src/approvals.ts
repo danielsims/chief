@@ -57,7 +57,7 @@ const SAFE_COMMAND_PATTERNS: RegExp[] = [
 
 function stripWrappers(command: string): string {
   // Drivers commonly wrap commands in a login shell; evaluate what actually runs.
-  const match = command.match(/^\/bin\/(?:z|ba)?sh\s+-l?c\s+'([\s\S]*)'$/);
+  const match = /^\/bin\/(?:z|ba)?sh\s+-l?c\s+'([\s\S]*)'$/.exec(command);
   return (match?.[1] ?? command).trim();
 }
 
