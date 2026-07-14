@@ -860,8 +860,8 @@ body {
 }
 .calendar-demo {
   width: 100%;
-  display: flex;
-  align-items: stretch;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid #292929;
   background: #0d0d0d;
@@ -869,8 +869,6 @@ body {
   color: #eee;
 }
 .calendar-sidebar {
-  width: 52px;
-  flex: 0 0 52px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -928,7 +926,6 @@ body {
   background: #fff;
 }
 .calendar-main {
-  flex: 1 1 auto;
   min-width: 0;
 }
 .calendar-toolbar {
@@ -3189,12 +3186,14 @@ footer > span {
   .hero-workspace-indicator {
     margin-bottom: 9px;
   }
-  .hero-workspace-indicator,
-  .hero-dashboard-heading h2 {
+  .hero-workspace-indicator {
     display: none;
   }
   .hero-dashboard-heading {
-    padding-top: 66px;
+    padding-top: 52px;
+  }
+  .hero-dashboard-heading h2 {
+    font-size: 24px;
   }
   .hero-dashboard-heading p {
     margin-top: 0;
