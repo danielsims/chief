@@ -1,0 +1,24 @@
+name: Feature request
+description: Propose a focused improvement to Chief.
+title: ""
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem should Chief solve?
+      description: Describe the user problem before proposing an interface or implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What would a good outcome look like?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add examples, constraints, or prior art that clarify the request.
