@@ -860,8 +860,8 @@ body {
 }
 .calendar-demo {
   width: 100%;
-  display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
+  display: flex;
+  align-items: stretch;
   overflow: hidden;
   border: 1px solid #292929;
   background: #0d0d0d;
@@ -869,6 +869,8 @@ body {
   color: #eee;
 }
 .calendar-sidebar {
+  width: 52px;
+  flex: 0 0 52px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -926,6 +928,7 @@ body {
   background: #fff;
 }
 .calendar-main {
+  flex: 1 1 auto;
   min-width: 0;
 }
 .calendar-toolbar {
