@@ -3465,8 +3465,6 @@ footer > span {
   width: 25px;
   height: 25px;
   fill: currentColor;
-  stroke: currentColor;
-  stroke-width: 1.25;
 }
 .download-grid h2 {
   margin: 68px 0 12px;
