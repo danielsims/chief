@@ -4,6 +4,7 @@ agent/subagents/
 agent/schedules/
 agent/lib/roster.ts
 .eve/
+.workflow-data/
 .vercel/
 .vercel
 .env*

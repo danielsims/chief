@@ -8,16 +8,20 @@ dist/
 build/
 .next/
 out/
+.output/
 .turbo/
 target/
 
 # tauri
 apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/binaries/chief-agent-runtime-*
+apps/desktop/src-tauri/resources/agent-runtime/
+apps/desktop/src-tauri/resources/agent-runtime.tar.gz
+apps/desktop/src-tauri/resources/agent-runtime.version
 
 # env
-.env
-.env.local
-.env*.local
+.env*
+!**/.env.example
 
 # convex
 .convex/
@@ -25,10 +29,21 @@ apps/desktop/src-tauri/gen/
 # misc
 .DS_Store
 *.pem
+*.p12
+*.pfx
+*.key
 *.log
+*.tsbuildinfo
 .vercel
 .pnpm-store/
+
+# React Email preview output
+packages/email/.react-email/
 
 # local agent working notes
 docs/
 .codex/
+.claude/
+
+# local workflow runtime state
+apps/workspace/.workflow-data/
