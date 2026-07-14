@@ -7,13 +7,18 @@ import { v } from "convex/values";
 import Stripe from "stripe";
 
 import {
+  action,
   httpAction,
   internalMutation,
   internalQuery,
   query,
-  action,
 } from "./_generated/server";
-import { stripeSecretKey, stripeTrialDays, stripeWebhookSecret } from "./env";
+import {
+  convexSiteUrl,
+  stripeSecretKey,
+  stripeTrialDays,
+  stripeWebhookSecret,
+} from "./env";
 import { requireOrganizationId } from "./lib/auth";
 
 type BillingStatus =
@@ -167,14 +172,23 @@ function validateRedirectUrl(url: string): string {
   return parsed.toString();
 }
 
+function checkoutSuccessUrl(url: string): string {
+  const validated = validateRedirectUrl(url);
+  const separator = validated.includes("?") ? "&" : "?";
+  return `${validated}${separator}session_id={CHECKOUT_SESSION_ID}`;
+}
+
 function billingReturnUrl(status: string): string {
-  const siteUrl = process.env.CONVEX_SITE_URL;
-  if (!siteUrl) throw new Error("Missing CONVEX_SITE_URL");
-  return `${siteUrl}/billing/return?status=${status}`;
+  return `${convexSiteUrl()}/billing/return?status=${status}`;
 }
 
 export const billingReturnPage = httpAction(async (_ctx, request) => {
-  const status = new URL(request.url).searchParams.get("status");
+  const returnUrl = new URL(request.url);
+  const status = returnUrl.searchParams.get("status");
+  const sessionId = returnUrl.searchParams.get("session_id");
+  const desktopUrl = sessionId
+    ? `chief-desktop:///billing/success?session_id=${encodeURIComponent(sessionId)}`
+    : "chief-desktop:///billing/success";
   const success = status === "success";
   const heading = success ? "You're in." : "Checkout canceled.";
   const body = success
@@ -255,7 +269,7 @@ export const billingReturnPage = httpAction(async (_ctx, request) => {
     <div class="content">
       <h1>${heading}</h1>
       <p>${body}</p>
-      <a href="chief-desktop:///billing/success">${buttonLabel}</a>
+      <a href="${desktopUrl}">${buttonLabel}</a>
     </div>
   </main>
 </body>
@@ -473,7 +487,7 @@ export const createCheckoutSession = action({
           plan: args.plan,
         },
       },
-      success_url: validateRedirectUrl(
+      success_url: checkoutSuccessUrl(
         args.successUrl ?? billingReturnUrl("success"),
       ),
       cancel_url: validateRedirectUrl(
@@ -518,6 +532,81 @@ export const getSubscription = query({
         q.eq("organizationId", organizationId),
       )
       .unique();
+  },
+});
+
+/**
+ * Reconciles the signed-in workspace with Stripe.
+ *
+ * Webhooks remain the primary source of subscription updates. This action is
+ * the recovery path used when the app regains focus after Checkout or starts
+ * while an event is delayed. The Stripe customer id comes from the current
+ * workspace's server-side record, and the subscription must carry the same
+ * organization id, so a client cannot claim another customer's access.
+ */
+export const reconcileSubscription = action({
+  args: { sessionId: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ status: BillingStatus } | null> => {
+    const identity = await requireActionIdentity(ctx);
+    const existing = await ctx.runQuery(getByOrganizationIdRef, {
+      organizationId: identity.organizationId,
+    });
+    if (!existing?.stripeCustomerId) return null;
+
+    const stripe = getStripe();
+    const customer = await stripe.customers.retrieve(existing.stripeCustomerId);
+    if (
+      customer.deleted ||
+      customer.metadata.organizationId !== identity.organizationId
+    ) {
+      throw new Error("Stripe customer does not belong to this workspace");
+    }
+
+    let subscription: Stripe.Subscription | undefined;
+    if (args.sessionId) {
+      const session = await stripe.checkout.sessions.retrieve(args.sessionId, {
+        expand: ["subscription"],
+      });
+      const sessionCustomerId =
+        typeof session.customer === "string"
+          ? session.customer
+          : session.customer?.id;
+      const sessionOrganizationId =
+        session.client_reference_id ?? session.metadata?.organizationId;
+      if (
+        session.mode !== "subscription" ||
+        session.status !== "complete" ||
+        sessionCustomerId !== existing.stripeCustomerId ||
+        sessionOrganizationId !== identity.organizationId
+      ) {
+        throw new Error("Checkout Session does not belong to this workspace");
+      }
+      subscription =
+        typeof session.subscription === "string"
+          ? await stripe.subscriptions.retrieve(session.subscription)
+          : (session.subscription ?? undefined);
+    } else {
+      const subscriptions = await stripe.subscriptions.list({
+        customer: existing.stripeCustomerId,
+        status: "all",
+        limit: 10,
+      });
+      subscription = subscriptions.data.find(
+        (candidate) =>
+          candidate.metadata.organizationId === identity.organizationId,
+      );
+    }
+    if (!subscription) return { status: existing.status };
+    if (subscription.metadata.organizationId !== identity.organizationId) {
+      throw new Error("Stripe subscription does not belong to this workspace");
+    }
+
+    const status = mapStripeStatus(subscription.status);
+    await ctx.runMutation(
+      upsertSubscriptionFromStripeRef,
+      subscriptionToUpsertArgs(subscription, identity.organizationId),
+    );
+    return { status };
   },
 });
 

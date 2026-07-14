@@ -7,6 +7,7 @@ import {
   internalMutation,
   internalQuery,
 } from "./_generated/server";
+import { convexSiteUrl } from "./env";
 
 const CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43,128}$/;
 
@@ -32,9 +33,7 @@ async function sha256(value: string): Promise<string> {
 }
 
 function siteUrl(): string {
-  const value = process.env.CONVEX_SITE_URL;
-  if (!value) throw new Error("CONVEX_SITE_URL is unavailable.");
-  return value.replace(/\/$/, "");
+  return convexSiteUrl().replace(/\/$/, "");
 }
 
 /**
@@ -179,9 +178,10 @@ async function organizationFromRequest(
 ): Promise<string | null> {
   const authorization = request.headers.get("Authorization") ?? "";
   const match = /^Bearer ([A-Za-z0-9_-]{43,128})$/.exec(authorization);
-  if (!match) return null;
+  const token = match?.[1];
+  if (!token) return null;
   return ctx.runQuery(internal.agentTools.organizationForToken, {
-    tokenHash: await sha256(match[1]!),
+    tokenHash: await sha256(token),
   });
 }
 

@@ -1,7 +1,8 @@
 import { v } from "convex/values";
-import { internalMutation } from "./_generated/server";
-import { components } from "./_generated/api";
+
 import type { TableNames } from "./_generated/dataModel";
+import { components } from "./_generated/api";
+import { internalMutation } from "./_generated/server";
 
 /**
  * Dev-only full reset: wipes every app table and all better-auth data

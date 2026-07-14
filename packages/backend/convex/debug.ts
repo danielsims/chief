@@ -17,12 +17,15 @@ export const probeGoogleToken = internalAction({
         const res = await fetch(url, {
           method: url.endsWith("/token") ? "POST" : "GET",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: url.endsWith("/token") ? "grant_type=authorization_code" : undefined,
+          body: url.endsWith("/token")
+            ? "grant_type=authorization_code"
+            : undefined,
         });
         const text = await res.text();
         results[url] = `HTTP ${res.status}: ${text.slice(0, 120)}`;
       } catch (error) {
-        results[url] = `FETCH ERROR: ${error instanceof Error ? error.message : String(error)}`;
+        results[url] =
+          `FETCH ERROR: ${error instanceof Error ? error.message : String(error)}`;
       }
     }
     return results;

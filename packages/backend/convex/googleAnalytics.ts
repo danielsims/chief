@@ -1,4 +1,7 @@
 import { v } from "convex/values";
+
+import type { ActionCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import {
   action,
   httpAction,
@@ -8,40 +11,36 @@ import {
   mutation,
   query,
 } from "./_generated/server";
-import { internal } from "./_generated/api";
-import type { ActionCtx } from "./_generated/server";
+import { googleAnalyticsEnv } from "./env";
 import { requireOrganizationId } from "./lib/auth";
 
 const PROVIDER = "google-analytics";
 const ANALYTICS_SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
 
-function requiredEnv(name: string): string {
-  const value = process.env[name];
+function requiredEnv(
+  name:
+    | "GOOGLE_ANALYTICS_CLIENT_ID"
+    | "GOOGLE_ANALYTICS_CLIENT_SECRET"
+    | "GOOGLE_ANALYTICS_REDIRECT_URI",
+): string {
+  const value = googleAnalyticsEnv()[name];
   if (!value) throw new Error(`Missing ${name}`);
   return value;
-}
-
-function optionalEnv(name: string): string | null {
-  return process.env[name] ?? null;
 }
 
 function defaultRedirectUri(): string | null {
   // CONVEX_SITE_URL is provided by the Convex runtime for every deployment,
   // so the callback URL can always be derived without manual configuration.
-  const siteUrl = optionalEnv("CONVEX_SITE_URL");
+  const siteUrl = googleAnalyticsEnv().CONVEX_SITE_URL;
   return siteUrl ? `${siteUrl}/google-analytics/callback` : null;
 }
 
 function googleOAuthConfig() {
+  const env = googleAnalyticsEnv();
   return {
-    clientId:
-      optionalEnv("GOOGLE_ANALYTICS_CLIENT_ID") ??
-      optionalEnv("AUTH_GOOGLE_ID"),
-    clientSecret:
-      optionalEnv("GOOGLE_ANALYTICS_CLIENT_SECRET") ??
-      optionalEnv("AUTH_GOOGLE_SECRET"),
-    redirectUri:
-      optionalEnv("GOOGLE_ANALYTICS_REDIRECT_URI") ?? defaultRedirectUri(),
+    clientId: env.GOOGLE_ANALYTICS_CLIENT_ID ?? env.AUTH_GOOGLE_ID,
+    clientSecret: env.GOOGLE_ANALYTICS_CLIENT_SECRET ?? env.AUTH_GOOGLE_SECRET,
+    redirectUri: env.GOOGLE_ANALYTICS_REDIRECT_URI ?? defaultRedirectUri(),
   };
 }
 
@@ -87,10 +86,10 @@ async function getFirstAnalyticsProperty(accessToken: string): Promise<{
   );
   if (!response.ok) return {};
   const data = (await response.json()) as {
-    accountSummaries?: Array<{
+    accountSummaries?: {
       displayName?: string;
-      propertySummaries?: Array<{ property?: string; displayName?: string }>;
-    }>;
+      propertySummaries?: { property?: string; displayName?: string }[];
+    }[];
   };
 
   for (const account of data.accountSummaries ?? []) {
@@ -586,9 +585,9 @@ export const summary = action({
     if (!token?.accessToken || !token.propertyId) return null;
 
     const data = await fetchJson<{
-      rows?: Array<{
-        metricValues?: Array<{ value?: string }>;
-      }>;
+      rows?: {
+        metricValues?: { value?: string }[];
+      }[];
     }>(
       `https://analyticsdata.googleapis.com/v1beta/properties/${token.propertyId}:runReport`,
       {
@@ -674,15 +673,15 @@ export const runReport = action({
   },
 });
 
-type ReportArgs = {
+interface ReportArgs {
   startDate: string;
   endDate: string;
   metrics: string[];
   dimensions: string[];
   limit: number;
-};
+}
 
-type ReportResult = {
+interface ReportResult {
   source: {
     provider: string;
     id: string | null;
@@ -690,10 +689,10 @@ type ReportResult = {
     capturedAt?: number;
   };
   range: { startDate: string; endDate: string };
-  columns: Array<{ name: string; kind: string; type?: string }>;
-  rows: Array<Record<string, string | number>>;
+  columns: { name: string; kind: string; type?: string }[];
+  rows: Record<string, string | number>[];
   rowCount: number;
-};
+}
 
 function compactDate(date: Date): string {
   return date.toISOString().slice(0, 10).replace(/-/g, "");
@@ -730,7 +729,7 @@ async function reportFromSnapshot(
     internal.analyticsSnapshots.getForOrganization,
     { organizationId, provider: PROVIDER },
   )) as {
-    series?: Array<{ date: string; value: number }>;
+    series?: { date: string; value: number }[];
     capturedAt: number;
   } | null;
   const series = snapshot?.series ?? [];
@@ -799,12 +798,12 @@ async function executeReport(
     throw new Error("Google Analytics is not connected to this workspace.");
   }
   const data = await fetchJson<{
-    dimensionHeaders?: Array<{ name: string }>;
-    metricHeaders?: Array<{ name: string; type?: string }>;
-    rows?: Array<{
-      dimensionValues?: Array<{ value?: string }>;
-      metricValues?: Array<{ value?: string }>;
-    }>;
+    dimensionHeaders?: { name: string }[];
+    metricHeaders?: { name: string; type?: string }[];
+    rows?: {
+      dimensionValues?: { value?: string }[];
+      metricValues?: { value?: string }[];
+    }[];
     rowCount?: number;
   }>(
     `https://analyticsdata.googleapis.com/v1beta/properties/${token.propertyId}:runReport`,

@@ -1,5 +1,7 @@
 import { v } from "convex/values";
-import { mutation, type MutationCtx } from "./_generated/server";
+
+import type { MutationCtx } from "./_generated/server";
+import { mutation } from "./_generated/server";
 
 const kind = v.union(v.literal("profile"), v.literal("workspace"));
 
