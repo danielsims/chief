@@ -6,7 +6,7 @@
   "scripts": {
     "generate": "tsx scripts/generate.ts",
     "dev": "eve dev",
-    "build": "eve build",
+    "build": "pnpm generate && eve build",
     "clean": "git clean -xdf .cache .turbo dist node_modules",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
     "lint": "eslint --flag unstable_native_nodejs_ts_config",

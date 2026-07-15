@@ -18,12 +18,9 @@ Copy the sanitized example:
 cp apps/web/.env.example apps/web/.env.local
 ```
 
-The download URLs are optional. Without them, the download page shows the early-access action.
-
-The desktop updater reads signed release artifacts from GitHub through
-`/api/update`. Public releases need no GitHub credentials. While the repository
-is private, or to raise the GitHub API rate limit, set `GITHUB_TOKEN` to a
-fine-grained token with read-only access to repository contents.
+The download page and desktop updater read signed release artifacts from GitHub.
+Because the repository is private, set `GITHUB_TOKEN` to a fine-grained token
+with read-only access to repository contents.
 
 ## Build
 

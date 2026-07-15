@@ -40,10 +40,7 @@ function MiniIcon({ path }: { path: string }) {
 
 export function SocialCalendarDemo() {
   const calendarRef = useRef<HTMLDivElement>(null);
-  const [calendarAnimation, setCalendarAnimation] = useState({
-    inView: false,
-    run: 0,
-  });
+  const [isCalendarVisible, setIsCalendarVisible] = useState(false);
   const currentMonth = new Intl.DateTimeFormat("en-US", {
     month: "long",
     year: "numeric",
@@ -55,16 +52,11 @@ export function SocialCalendarDemo() {
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (!entry) return;
-        setCalendarAnimation((current) => {
-          if (entry.isIntersecting === current.inView) return current;
-          return {
-            inView: entry.isIntersecting,
-            run: entry.isIntersecting ? current.run + 1 : current.run,
-          };
-        });
+        if (!entry?.isIntersecting) return;
+        setIsCalendarVisible(true);
+        observer.disconnect();
       },
-      { threshold: 0.28 },
+      { threshold: 0.12 },
     );
 
     observer.observe(calendar);
@@ -73,7 +65,9 @@ export function SocialCalendarDemo() {
 
   return (
     <div
-      className={`calendar-demo${calendarAnimation.inView ? "is-visible" : ""}`}
+      className={
+        isCalendarVisible ? "calendar-demo is-visible" : "calendar-demo"
+      }
       ref={calendarRef}
     >
       <aside className="calendar-sidebar">
@@ -97,7 +91,7 @@ export function SocialCalendarDemo() {
         </nav>
         <i />
       </aside>
-      <div className="calendar-main" key={calendarAnimation.run}>
+      <div className="calendar-main">
         <header className="calendar-toolbar">
           <strong>{currentMonth}</strong>
           <div>

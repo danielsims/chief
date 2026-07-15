@@ -3,8 +3,6 @@ import { z } from "zod/v4";
 
 export const env = createEnv({
   server: {
-    CHIEF_MACOS_DOWNLOAD_URL: z.url().optional(),
-    CHIEF_WINDOWS_DOWNLOAD_URL: z.url().optional(),
     GITHUB_TOKEN: z.string().min(1).optional(),
   },
   client: {

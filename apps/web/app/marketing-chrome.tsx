@@ -31,7 +31,6 @@ export function MarketingHeader() {
           <Link href="/pricing">Pricing</Link>
         </div>
         <div className="nav-actions">
-          <Link href="/sign-in">Sign in</Link>
           <Link href="/download">Download</Link>
         </div>
       </nav>

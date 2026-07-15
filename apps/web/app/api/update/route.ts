@@ -1,10 +1,10 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-import { env } from "../../../lib/env";
-
-const GITHUB_TOKEN = env.GITHUB_TOKEN;
-const REPOSITORY = "danielsims/chief";
+import {
+  getLatestRelease,
+  getReleaseAssetDownloadUrl,
+} from "../../../lib/github-releases";
 
 const PLATFORM_ASSETS: Record<string, { asset: RegExp; signature: RegExp }> = {
   "darwin-universal": {
@@ -29,26 +29,6 @@ const PLATFORM_ASSETS: Record<string, { asset: RegExp; signature: RegExp }> = {
   },
 };
 
-interface GitHubAsset {
-  id: number;
-  name: string;
-}
-
-interface GitHubRelease {
-  tag_name: string;
-  body: string | null;
-  published_at: string;
-  assets: GitHubAsset[];
-}
-
-function githubHeaders(accept: string) {
-  return {
-    Accept: accept,
-    "User-Agent": "Chief update service",
-    ...(GITHUB_TOKEN ? { Authorization: `Bearer ${GITHUB_TOKEN}` } : {}),
-  };
-}
-
 export async function GET(request: NextRequest) {
   const target = request.nextUrl.searchParams.get("target") ?? "";
   const arch = request.nextUrl.searchParams.get("arch") ?? "";
@@ -58,17 +38,8 @@ export async function GET(request: NextRequest) {
 
   if (!patterns) return new NextResponse(null, { status: 204 });
 
-  const releaseResponse = await fetch(
-    `https://api.github.com/repos/${REPOSITORY}/releases/latest`,
-    {
-      headers: githubHeaders("application/vnd.github+json"),
-      next: { revalidate: 300 },
-    },
-  );
-
-  if (!releaseResponse.ok) return new NextResponse(null, { status: 204 });
-
-  const release = (await releaseResponse.json()) as GitHubRelease;
+  const release = await getLatestRelease();
+  if (!release) return new NextResponse(null, { status: 204 });
   const version = release.tag_name.replace(/^v/, "");
   if (version === currentVersion) {
     return new NextResponse(null, { status: 204 });
@@ -82,16 +53,12 @@ export async function GET(request: NextRequest) {
     return new NextResponse(null, { status: 204 });
   }
 
-  const signatureResponse = await fetch(
-    `https://api.github.com/repos/${REPOSITORY}/releases/assets/${signatureAsset.id}`,
-    {
-      headers: githubHeaders("application/octet-stream"),
-      cache: "no-store",
-    },
-  );
-  if (!signatureResponse.ok) {
+  const signatureUrl = await getReleaseAssetDownloadUrl(signatureAsset.id);
+  if (!signatureUrl) {
     return new NextResponse(null, { status: 204 });
   }
+  const signatureResponse = await fetch(signatureUrl, { cache: "no-store" });
+  if (!signatureResponse.ok) return new NextResponse(null, { status: 204 });
 
   const downloadUrl = new URL(
     `/api/update/download/${asset.id}`,

@@ -165,12 +165,13 @@ for (const name of ["codex", "executor"]) {
 signDarwinNativePayloads(runtimeRoot);
 
 rmSync(runtimeArchive, { force: true });
-await createTar(
+createTar(
   {
     cwd: runtimeRoot,
     file: runtimeArchive,
     gzip: true,
     portable: true,
+    sync: true,
   },
   ["."],
 );
