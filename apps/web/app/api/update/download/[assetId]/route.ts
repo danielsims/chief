@@ -1,10 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-import { env } from "../../../../../lib/env";
-
-const GITHUB_TOKEN = env.GITHUB_TOKEN;
-const REPOSITORY = "danielsims/chief";
+import { getReleaseAssetDownloadUrl } from "../../../../../lib/github-releases";
 
 export async function GET(
   _request: NextRequest,
@@ -15,19 +12,7 @@ export async function GET(
     return NextResponse.json({ error: "Invalid asset" }, { status: 400 });
   }
 
-  const assetResponse = await fetch(
-    `https://api.github.com/repos/${REPOSITORY}/releases/assets/${assetId}`,
-    {
-      headers: {
-        Accept: "application/octet-stream",
-        "User-Agent": "Chief update service",
-        ...(GITHUB_TOKEN ? { Authorization: `Bearer ${GITHUB_TOKEN}` } : {}),
-      },
-      redirect: "manual",
-      cache: "no-store",
-    },
-  );
-  const location = assetResponse.headers.get("location");
+  const location = await getReleaseAssetDownloadUrl(Number(assetId));
 
   if (!location) {
     return NextResponse.json(

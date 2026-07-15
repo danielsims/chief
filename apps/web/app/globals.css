@@ -885,9 +885,7 @@ body {
   font-weight: 400;
 }
 .calendar-brand-mark {
-  width: 20px;
-  height: 57px;
-  padding-block: 18px;
+  margin: 18px 0 19px;
   object-fit: contain;
 }
 .calendar-sidebar nav {
@@ -3188,12 +3186,14 @@ footer > span {
   .hero-workspace-indicator {
     margin-bottom: 9px;
   }
-  .hero-workspace-indicator,
-  .hero-dashboard-heading h2 {
+  .hero-workspace-indicator {
     display: none;
   }
   .hero-dashboard-heading {
-    padding-top: 66px;
+    padding-top: 52px;
+  }
+  .hero-dashboard-heading h2 {
+    font-size: 24px;
   }
   .hero-dashboard-heading p {
     margin-top: 0;
@@ -3441,9 +3441,12 @@ footer > span {
 .download-content-rail > article {
   width: min(960px, 100%);
 }
+.download-content-rail article > header {
+  border-bottom: 0;
+}
 .download-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   border-top: 1px solid #292929;
   border-left: 1px solid #292929;
 }
@@ -3461,17 +3464,16 @@ footer > span {
   height: 36px;
   display: grid;
   place-items: center;
+  margin-top: 10px;
   color: #d7d7d3;
 }
 .download-icon svg {
   width: 25px;
   height: 25px;
   fill: currentColor;
-  stroke: currentColor;
-  stroke-width: 1.25;
 }
 .download-grid h2 {
-  margin: 68px 0 12px;
+  margin: 10px 0 12px;
   font-size: 19px;
   font-weight: 460;
 }
@@ -3487,20 +3489,35 @@ footer > span {
   font-size: 10px;
 }
 .download-grid article > a {
-  min-height: 43px;
+  min-height: 44px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
+  gap: 10px;
   margin-top: auto;
-  padding-inline: 14px;
+  padding-inline: 24px;
   border: 1px solid #333;
-  border-radius: 5px;
+  border-radius: 8px;
   color: #e5e5e1;
-  font-size: 11px;
+  font-size: 14px;
+  font-weight: 500;
   text-decoration: none;
+  transition: opacity 0.15s ease;
 }
 .download-grid article > a:hover {
-  background: #171717;
+  opacity: 0.9;
+}
+.download-grid article > a svg {
+  width: 18px;
+  height: 18px;
+}
+.download-grid article > a.preferred-download {
+  border-color: #eee;
+  background: #eee;
+  color: #101010;
+}
+.download-grid article > a.preferred-download:hover {
+  background: #fff;
 }
 .content-body .download-note {
   max-width: 700px;
@@ -3572,8 +3589,5 @@ footer > span {
   }
   .download-grid article {
     min-height: 330px;
-  }
-  .download-grid h2 {
-    margin-top: 44px;
   }
 }
