@@ -91,27 +91,11 @@
       "count": 1
     }
   },
-  "src/local-store.ts": {
-    "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 1
-    }
-  },
   "src/local-tools.ts": {
     "@typescript-eslint/no-non-null-assertion": {
       "count": 22
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
-  "src/manager.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 11
-    },
-    "@typescript-eslint/prefer-optional-chain": {
       "count": 1
     }
   },
@@ -172,9 +156,6 @@
   "src/server.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 1
-    },
-    "@typescript-eslint/no-misused-promises": {
-      "count": 7
     },
     "@typescript-eslint/no-non-null-assertion": {
       "count": 2

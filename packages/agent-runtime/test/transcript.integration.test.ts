@@ -15,24 +15,33 @@ void test("automation transcript metadata remains addressable and workspace-scop
   const events = [
     {
       type: "message" as const,
+      id: "growth-report-request",
       role: "user" as const,
       content: [{ type: "text" as const, text: "Run the growth report." }],
     },
   ];
 
   try {
+    await store.createChat({
+      id: "schedule-chat",
+      workspaceId: "workspace-a",
+      visibility: "user",
+      agent: "cmo",
+      provider: "codex",
+      title: "Growth report",
+    });
     await store.saveTranscript(
       {
-        id: "automation-run-1",
+        id: "schedule-chat",
         workspaceId: "workspace-a",
-        agentId: "analyst",
+        agentId: "cmo",
         driver: "codex",
       },
       events,
       "Growth report",
     );
 
-    const chat = await store.chat("workspace-a", "automation-run-1");
+    const chat = await store.chat("workspace-a", "schedule-chat");
     assert.ok(chat);
     assert.equal(chat.driver, "codex");
     assert.equal(chat.title, "Growth report");
@@ -40,9 +49,9 @@ void test("automation transcript metadata remains addressable and workspace-scop
     await assert.rejects(
       store.saveTranscript(
         {
-          id: "automation-run-1",
+          id: "schedule-chat",
           workspaceId: "workspace-b",
-          agentId: "analyst",
+          agentId: "cmo",
           driver: "codex",
         },
         [
@@ -53,14 +62,14 @@ void test("automation transcript metadata remains addressable and workspace-scop
           },
         ],
       ),
-      /different workspace/,
+      /identity does not match stored state/,
     );
     assert.deepEqual(
-      await store.transcript("workspace-a", "automation-run-1"),
+      await store.transcript("workspace-a", "schedule-chat"),
       events,
     );
     assert.deepEqual(
-      await store.transcript("workspace-b", "automation-run-1"),
+      await store.transcript("workspace-b", "schedule-chat"),
       [],
     );
   } finally {

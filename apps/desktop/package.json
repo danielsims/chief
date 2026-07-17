@@ -17,6 +17,7 @@
     "runtime:bundle": "pnpm --dir ../.. --filter @chief/agent-runtime build:desktop-sidecar"
   },
   "dependencies": {
+    "@ai-sdk/react": "4.0.33",
     "@chief/agent-runtime": "workspace:*",
     "@chief/backend": "workspace:*",
     "@chief/ui": "workspace:*",
@@ -39,6 +40,7 @@
     "@tiptap/react": "^2.27.2",
     "@tiptap/starter-kit": "^2.27.2",
     "@tiptap/suggestion": "^2.27.2",
+    "ai": "7.0.30",
     "better-auth": "1.6.16",
     "convex": "^1.31.6",
     "lucide-react": "^0.525.0",

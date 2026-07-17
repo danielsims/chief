@@ -104,10 +104,10 @@ export function CampaignsPage() {
   }, [newestFirst, query, status, workspace.campaigns]);
 
   const planCampaign = () => {
-    const conversation = createChat("ads", "Plan a campaign");
+    const conversation = createChat("Plan a campaign");
     navigate(
-      `/conversations?agent=ads&chat=${conversation.id}&new=1&draft=${encodeURIComponent(
-        "Help me plan a paid campaign. Start with the objective, audience, channel and budget, then save a draft campaign for my review. Do not launch anything without my approval.",
+      `/conversations?chat=${conversation.id}&draft=${encodeURIComponent(
+        "Help me plan a paid campaign. Consult the Ads Manager specialist. Start with the objective, audience, channel and budget, then save a draft campaign for my review. Do not launch anything without my approval.",
       )}`,
     );
   };
@@ -131,7 +131,7 @@ export function CampaignsPage() {
         </div>
         <Button variant="outline" size="sm" onClick={planCampaign}>
           <Sparkles size={14} />
-          Ask Ads Manager
+          Ask Chief
         </Button>
       </header>
 
@@ -271,7 +271,7 @@ export function CampaignsPage() {
                 </h2>
                 <p className="text-muted-foreground mt-2 text-sm leading-6">
                   {workspace.campaigns.length === 0
-                    ? "Work with Ads Manager to turn your budget and goals into a campaign draft."
+                    ? "Ask Chief to turn your budget and goals into a campaign draft."
                     : "Try a different search or status filter."}
                 </p>
                 {workspace.campaigns.length === 0 ? (

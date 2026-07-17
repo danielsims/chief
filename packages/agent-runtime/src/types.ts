@@ -75,8 +75,28 @@ export interface GenerativeDocumentData {
  * contract. The websocket transport remains provider-neutral; every driver
  * can emit the same chart part and every client can render it consistently.
  */
+export type ChiefMessageEventMetadata =
+  | {
+      type: "result";
+      ok: boolean;
+      costUsd?: number;
+      durationMs?: number;
+      error?: string;
+    }
+  | { type: "error"; message: string }
+  | {
+      type: "permissionResolved";
+      requestId: string;
+      behavior: "allow" | "deny";
+    };
+
+export interface ChiefMessageMetadata {
+  createdAt: number;
+  event?: ChiefMessageEventMetadata;
+}
+
 export type ChiefUIMessage = UIMessage<
-  unknown,
+  ChiefMessageMetadata,
   {
     chart: GenerativeChartData;
     table: GenerativeTableData;
@@ -126,7 +146,12 @@ export type AgentEvent =
       toolUseId: string;
       text: string;
     }
-  | { type: "message"; role: "assistant" | "user"; content: ContentBlock[] }
+  | {
+      type: "message";
+      id?: string;
+      role: "assistant" | "user";
+      content: ContentBlock[];
+    }
   | {
       type: "result";
       ok: boolean;
@@ -229,6 +254,9 @@ export interface AutomationGrant {
 
 export interface RecurringWorkRecord {
   id: string;
+  /** Durable top-level CMO chat used by every occurrence of this schedule. */
+  chatId: string;
+  /** Optional specialist routing hint. The CMO still owns and executes work. */
   agentId: string;
   title: string;
   instructions: string;
@@ -284,6 +312,8 @@ export interface OnboardingSchedule {
 export interface RecurringWorkRunRecord {
   id: string;
   recurringWorkId: string;
+  /** The actual durable root chat containing this run's transcript. */
+  chatId: string;
   status: "running" | "completed" | "waiting" | "failed" | "needs_approval";
   scheduledFor: number;
   startedAt: number;
@@ -373,7 +403,7 @@ export interface ExecutorCapability {
 
 /**
  * A provider-agnostic persona. Which driver/model executes it is workspace
- * state, resolved per session at openSession time — never part of the
+ * state, resolved when the runtime opens a chat, never part of the
  * definition.
  */
 export interface AgentDefinition {
@@ -458,7 +488,6 @@ export type AgentDeploymentStatus =
 export interface AgentDeploymentRecord {
   id: string;
   workspaceId: string;
-  agentId: string;
   target: "vercel";
   projectName: string;
   teamId?: string;
@@ -596,61 +625,61 @@ export type ClientMessage =
       executorCapability: ExecutorCapability;
     }
   | {
-      type: "setChatPreferences";
-      workspaceId: string;
-      chatId: string;
-      driver: DriverType;
-      model?: string;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "openSession";
+      type: "openChat";
       /** Brand/setup context markdown composed into the system prompt. */
       workspaceContext?: string;
-      agentId: string;
-      chatId: string;
-      resumeSessionId?: string;
-      /** Resolved by the client: per-chat choice > per-agent override > workspace provider. Never defaulted by the runtime. */
-      driver: DriverType;
-      model?: string;
-      capabilities?: AgentCapabilityId[];
-      /** Connected integration ids assigned to this agent. */
-      integrations?: string[];
-      /** Defaults to "guarded" (approval policy applies). */
-      access?: AccessMode;
-      /** Better Auth organization id used to isolate Executor's workspace. */
-      workspaceId?: string;
-      /** Opaque workspace credential stored by Executor, never sent to a model. */
-      executorCapability?: ExecutorCapability;
-    }
-  | {
-      type: "observeSession";
-      agentId: string;
       chatId: string;
       workspaceId: string;
       executorCapability: ExecutorCapability;
     }
-  | { type: "prompt"; chatId: string; text: string }
-  | { type: "closeSession"; chatId: string }
   | {
-      type: "deleteSession";
+      type: "observeChat";
       chatId: string;
       workspaceId: string;
       executorCapability: ExecutorCapability;
     }
-  | { type: "interrupt"; chatId: string }
+  | {
+      type: "sendMessage";
+      workspaceId: string;
+      chatId: string;
+      messageId: string;
+      text: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "closeChat";
+      workspaceId: string;
+      chatId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "deleteChat";
+      chatId: string;
+      workspaceId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "interruptChat";
+      workspaceId: string;
+      chatId: string;
+      executorCapability: ExecutorCapability;
+    }
   | {
       type: "respondPermission";
+      workspaceId: string;
       chatId: string;
       requestId: string;
       behavior: "allow" | "deny";
+      executorCapability: ExecutorCapability;
     }
   /** Answers for an agent question, keyed by question text; null dismisses. */
   | {
       type: "respondQuestion";
+      workspaceId: string;
       chatId: string;
       requestId: string;
       answers: Record<string, string> | null;
+      executorCapability: ExecutorCapability;
     }
   /** User submitted values for an agent's input request; the runtime stores
    * them per each field's `save` target and tells the agent where. */
@@ -659,10 +688,8 @@ export type ClientMessage =
       chatId: string;
       request: InputRequest;
       values: Record<string, string>;
-      /** Read-only run transcripts can save input and resume their work even
-       * after the original agent process has exited. */
-      workspaceId?: string;
-      executorCapability?: ExecutorCapability;
+      workspaceId: string;
+      executorCapability: ExecutorCapability;
       recurringWorkId?: string;
     }
   /** Which of these secret env keys already exist for this workspace?
@@ -714,7 +741,6 @@ export type ClientMessage =
   | {
       type: "startAgentDeployment";
       workspaceId: string;
-      agentId: string;
       projectName: string;
       teamId?: string;
       playbooks: AgentDeploymentPlaybook[];
@@ -808,7 +834,6 @@ export type ServerMessage =
       workspaceId: string;
       chats: {
         id: string;
-        agentId: string;
         title: string;
         lastText: string;
         lastAt: number;
@@ -816,10 +841,28 @@ export type ServerMessage =
         model?: string;
       }[];
     }
-  | { type: "sessionOpened"; chatId: string; agentId: string }
-  | { type: "event"; chatId: string; event: AgentEvent }
+  | {
+      type: "chatOpened";
+      workspaceId: string;
+      chatId: string;
+      visibility: "user" | "private";
+      parentId?: string;
+    }
+  | { type: "event"; workspaceId: string; chatId: string; event: AgentEvent }
   /** Buffered transcript replayed on (re)open so clients resume mid-run. */
-  | { type: "history"; chatId: string; events: AgentEvent[] }
+  | {
+      type: "history";
+      workspaceId: string;
+      chatId: string;
+      messages: ChiefUIMessage[];
+      events: AgentEvent[];
+    }
+  | {
+      type: "message";
+      workspaceId: string;
+      chatId: string;
+      message: ChiefUIMessage;
+    }
   /** Secret env keys currently present for the authenticated workspace. */
   | { type: "inputsStatus"; workspaceId: string; present: string[] }
   | {

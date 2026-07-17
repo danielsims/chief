@@ -1,6 +1,5 @@
 import { useState } from "react";
 
-import type { DriverType } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 
 import type {
@@ -13,19 +12,17 @@ import { IntegrationSetupPanel } from "../chat/integration-setup-panel";
 /**
  * The one way any integration gets connected, wherever it appears
  * (onboarding, analytics, future surfaces). A Connect button hands the work
- * to the setup agent and streams its progress inline. If user input becomes
- * unavoidable, the agent emits one structured request only after it has
+ * to Chief, who consults the setup specialist and streams progress inline. If
+ * user input becomes unavoidable, Chief emits one structured request after
  * finished every machine-only preparation step.
  */
 export function IntegrationConnect({
   integration,
-  driver,
   connected,
   connectedLabel,
   onResult,
 }: {
   integration: SetupIntegration;
-  driver: DriverType;
   connected: boolean;
   /** Shown once connected; defaults to the integration name. */
   connectedLabel?: string;
@@ -42,9 +39,7 @@ export function IntegrationConnect({
       ) : null}
       {started ? (
         <IntegrationSetupPanel
-          domain={integration.domain}
           prompt={integrationSetupTask(integration)}
-          driver={driver}
           onResult={onResult}
         />
       ) : !connected ? (

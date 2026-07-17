@@ -823,6 +823,7 @@ export async function handleLocalTool(
       const proposedToolPatterns = toolAddressList(body.proposedToolPatterns);
       const work: RecurringWorkRecord = {
         id,
+        chatId: existing?.chatId ?? randomUUID(),
         agentId,
         title: value(body.title, "title", 200)!,
         instructions: value(body.instructions, "instructions", 8_000)!,
@@ -844,6 +845,7 @@ export async function handleLocalTool(
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       };
+      await manager.createRootChat(workspaceId, work.chatId, work.title);
       await manager.saveRecurringWork(workspaceId, work);
       if (!activate) {
         // The proposal itself is the action item; agents must not raise a

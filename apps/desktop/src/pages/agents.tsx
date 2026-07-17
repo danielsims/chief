@@ -223,7 +223,7 @@ function InstalledAgentCard({
   runs: AgentRunTick[];
   ready: boolean;
   onSave: (preference: AgentPreference) => void;
-  onDeploy: () => void;
+  onDeploy?: () => void;
 }) {
   const enabled = override?.enabled ?? true;
   // Per-agent override wins; otherwise the workspace's chosen agent app.
@@ -512,14 +512,16 @@ function InstalledAgentCard({
         </div>
         <div className="flex items-center gap-2">
           <Link
-            to={`/conversations?agent=${agent.id}`}
+            to="/conversations"
             className="text-muted-foreground hover:bg-accent hover:text-foreground border px-2.5 py-1 text-xs transition-colors"
           >
-            Open chat
+            Ask Chief
           </Link>
-          <Button size="sm" onClick={onDeploy}>
-            Deploy
-          </Button>
+          {onDeploy ? (
+            <Button size="sm" onClick={onDeploy}>
+              Deploy Chief
+            </Button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -590,23 +592,23 @@ function PlaybooksCatalogue() {
   };
 
   const runNow = () => {
-    const chat = createChat(selected.agentId, selected.title);
+    const chat = createChat(selected.title);
     navigate(
-      `/conversations?agent=${selected.agentId}&chat=${chat.id}&new=1&prompt=${encodeURIComponent(playbookRunPrompt(selected))}`,
+      `/conversations?chat=${chat.id}&prompt=${encodeURIComponent(`Run this playbook. Consult the ${owner?.name ?? selected.agentId} specialist.\n\n${playbookRunPrompt(selected)}`)}`,
     );
   };
 
   const schedule = () => {
-    const chat = createChat("cmo", `Schedule ${selected.title}`);
+    const chat = createChat(`Schedule ${selected.title}`);
     navigate(
-      `/conversations?agent=cmo&chat=${chat.id}&new=1&compose=recurring&playbook=${selected.id}`,
+      `/conversations?chat=${chat.id}&compose=recurring&playbook=${selected.id}`,
     );
   };
 
   const checkSetup = () => {
-    const chat = createChat("setup", `Prepare ${selected.title}`);
+    const chat = createChat(`Prepare ${selected.title}`);
     navigate(
-      `/conversations?agent=setup&chat=${chat.id}&new=1&prompt=${encodeURIComponent(playbookSetupPrompt(selected))}`,
+      `/conversations?chat=${chat.id}&prompt=${encodeURIComponent(`Prepare this playbook. Consult the setup specialist.\n\n${playbookSetupPrompt(selected)}`)}`,
     );
   };
 
@@ -738,7 +740,7 @@ export function AgentsPage() {
   const [selectedAvailableId, setSelectedAvailableId] = useState(
     () => availableAgents[0]?.id ?? "",
   );
-  const [deployAgentId, setDeployAgentId] = useState<string | null>(null);
+  const [deploymentOpen, setDeploymentOpen] = useState(false);
   const selectedAgent =
     agents.find((agent) => agent.id === selectedAgentId) ?? agents[0];
   const runsByAgent = useMemo(() => {
@@ -874,7 +876,7 @@ export function AgentsPage() {
                       type="button"
                       onClick={() => {
                         setSelectedAgentId(agent.id);
-                        setDeployAgentId(null);
+                        setDeploymentOpen(false);
                       }}
                       className={cn(
                         "hover:bg-accent flex w-full items-center px-3 py-2 transition-colors",
@@ -904,10 +906,9 @@ export function AgentsPage() {
                 })}
               </div>
               <div className="min-w-0">
-                {selectedAgent && deployAgentId === selectedAgent.id ? (
+                {deploymentOpen ? (
                   <AgentDeploymentPanel
-                    agent={selectedAgent}
-                    onBack={() => setDeployAgentId(null)}
+                    onBack={() => setDeploymentOpen(false)}
                   />
                 ) : selectedAgent ? (
                   <InstalledAgentCard
@@ -921,7 +922,11 @@ export function AgentsPage() {
                     runs={runsByAgent.get(selectedAgent.id) ?? []}
                     ready={ready}
                     onSave={agentPreferences.save}
-                    onDeploy={() => setDeployAgentId(selectedAgent.id)}
+                    onDeploy={
+                      selectedAgent.id === "cmo"
+                        ? () => setDeploymentOpen(true)
+                        : undefined
+                    }
                   />
                 ) : null}
               </div>

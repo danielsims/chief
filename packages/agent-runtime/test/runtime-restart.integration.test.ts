@@ -17,6 +17,7 @@ process.env.CHIEF_DATABASE_ENCRYPTION_KEY =
 function oneOffWork(scheduledFor: number): RecurringWorkRecord {
   return {
     id: "growth-report",
+    chatId: "schedule-chat",
     agentId: "analyst",
     title: "Growth report",
     instructions: "Create the report.",
@@ -42,10 +43,23 @@ function runningAttempt(scheduledFor: number): RecurringWorkRunRecord {
   return {
     id: randomUUID(),
     recurringWorkId: "growth-report",
+    chatId: "schedule-chat",
     status: "running",
     scheduledFor,
     startedAt: scheduledFor + 1,
   };
+}
+
+async function saveInitialWork(store: LocalStore, scheduledFor: number) {
+  await store.createChat({
+    id: "schedule-chat",
+    workspaceId: "workspace",
+    visibility: "user",
+    agent: "cmo",
+    provider: "codex",
+    title: "Growth report",
+  });
+  await store.saveRecurringWork("workspace", oneOffWork(scheduledFor));
 }
 
 void test("claim and attempt creation are atomic across runtime processes", async () => {
@@ -55,7 +69,7 @@ void test("claim and attempt creation are atomic across runtime processes", asyn
   const scheduledFor = Date.now() - 1_000;
 
   try {
-    await first.saveRecurringWork("workspace", oneOffWork(scheduledFor));
+    await saveInitialWork(first, scheduledFor);
     const second = new LocalStore(path);
     try {
       const results = await Promise.all([
@@ -93,7 +107,7 @@ void test("runtime restart closes an interrupted occurrence without replaying it
   let store = new LocalStore(path);
 
   try {
-    await store.saveRecurringWork("workspace", oneOffWork(scheduledFor));
+    await saveInitialWork(store, scheduledFor);
     assert.equal(
       await store.startRecurringWorkRun(
         "workspace",
@@ -130,7 +144,7 @@ void test("pause wins a race with a stale scheduled claim", async () => {
   const scheduledFor = Date.now() - 1_000;
   const work = oneOffWork(scheduledFor);
   try {
-    await store.saveRecurringWork("workspace", work);
+    await saveInitialWork(store, scheduledFor);
     await store.saveRecurringWork("workspace", {
       ...work,
       status: "paused",
@@ -160,7 +174,7 @@ void test("terminal run and work state commit atomically", async () => {
   const work = oneOffWork(scheduledFor);
   const run = runningAttempt(scheduledFor);
   try {
-    await store.saveRecurringWork("workspace", work);
+    await saveInitialWork(store, scheduledFor);
     await store.startRecurringWorkRun("workspace", run, {
       expectedNextRunAt: scheduledFor,
       nextRunAt: null,
@@ -203,16 +217,16 @@ void test("restart never replays an interrupted run that used tools", async () =
   const scheduledFor = Date.now() - 1_000;
   const run = runningAttempt(scheduledFor);
   try {
-    await store.saveRecurringWork("workspace", oneOffWork(scheduledFor));
+    await saveInitialWork(store, scheduledFor);
     await store.startRecurringWorkRun("workspace", run, {
       expectedNextRunAt: scheduledFor,
       nextRunAt: null,
     });
     await store.saveTranscript(
       {
-        id: `automation-run-${run.id}`,
+        id: run.chatId,
         workspaceId: "workspace",
-        agentId: "analyst",
+        agentId: "cmo",
         driver: "codex",
       },
       [

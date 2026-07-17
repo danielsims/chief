@@ -2,11 +2,11 @@
 // agent, and parsing of the machine-readable lines it emits (verified
 // results, structured input requests).
 
-import type { ContentBlock, InputRequest } from "@chief/agent-runtime/types";
-
-import type { ChatItem } from "./runtime";
-
-export const SETUP_AGENT_ID = "setup";
+import type {
+  ChiefUIMessage,
+  ContentBlock,
+  InputRequest,
+} from "@chief/agent-runtime/types";
 
 export const SETUP_RESULT_MARKER = "CHIEF_SETUP_RESULT";
 
@@ -53,10 +53,6 @@ export interface AnalyticsSnapshotInput {
     conversions?: number;
     revenue?: number;
   }[];
-}
-
-export function setupChatId(domain: string) {
-  return `setup-${domain}`;
 }
 
 /** Extracts the machine-readable result line from an assistant message, if present. */
@@ -134,18 +130,22 @@ export function parseInputRequest(text: string): InputRequest | null {
  * that turn) or it was answered locally this mount.
  */
 export function findPendingInputRequest(
-  items: ChatItem[],
+  messages: ChiefUIMessage[],
   answered: ReadonlySet<string>,
 ): InputRequest | null {
   let pending: InputRequest | null = null;
-  for (const item of items) {
-    if (item.kind === "user") {
-      if (item.text.startsWith(INPUT_PROVIDED_PREFIX)) pending = null;
+  for (const message of messages) {
+    const texts = message.parts.flatMap((part) =>
+      part.type === "text" ? [part.text] : [],
+    );
+    if (message.role === "user") {
+      if (texts.some((text) => text.startsWith(INPUT_PROVIDED_PREFIX))) {
+        pending = null;
+      }
       continue;
     }
-    for (const block of item.event.content) {
-      if (block.type !== "text") continue;
-      const request = parseInputRequest(block.text);
+    for (const text of texts) {
+      const request = parseInputRequest(text);
       if (request && !answered.has(request.id)) pending = request;
     }
   }

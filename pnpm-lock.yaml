@@ -7,8 +7,8 @@ settings:
 catalogs:
   default:
     "@types/node":
-      specifier: ^22.15.0
-      version: 22.20.0
+      specifier: ^24.13.0
+      version: 24.13.3
     "@types/react":
       specifier: ^19.1.8
       version: 19.2.17
@@ -30,6 +30,8 @@ catalogs:
 
 overrides:
   better-auth>zod: 4.3.6
+
+packageExtensionsChecksum: sha256-MUAuF02PghV0xMkieFn/2KiPdr+SojsO/pk/QuniT1Q=
 
 importers:
   .:
@@ -55,6 +57,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      "@ai-sdk/react":
+        specifier: 4.0.33
+        version: 4.0.33(react@19.2.7)(zod@4.4.3)
       "@chief/agent-runtime":
         specifier: workspace:*
         version: link:../../packages/agent-runtime
@@ -121,6 +126,9 @@ importers:
       "@tiptap/suggestion":
         specifier: ^2.27.2
         version: 2.27.2(@tiptap/core@2.27.2(@tiptap/pm@2.27.2))(@tiptap/pm@2.27.2)
+      ai:
+        specifier: 7.0.30
+        version: 7.0.30(zod@4.4.3)
       better-auth:
         specifier: 1.6.16
         version: 1.6.16(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -172,13 +180,13 @@ importers:
         version: link:../../tooling/typescript
       "@tailwindcss/vite":
         specifier: ^4.1.11
-        version: 4.3.2(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 4.3.2(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
       "@tauri-apps/cli":
         specifier: ^2
         version: 2.11.4
       "@types/node":
         specifier: "catalog:"
-        version: 22.20.0
+        version: 24.13.3
       "@types/react":
         specifier: "catalog:"
         version: 19.2.17
@@ -187,7 +195,7 @@ importers:
         version: 19.2.3(@types/react@19.2.17)
       "@vitejs/plugin-react":
         specifier: ^4.6.0
-        version: 4.7.0(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
+        version: 4.7.0(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
       eslint:
         specifier: "catalog:"
         version: 9.39.5(jiti@2.7.0)
@@ -202,7 +210,7 @@ importers:
         version: 5.9.3
       vite:
         specifier: ^7.0.4
-        version: 7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)
+        version: 7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)
 
   apps/web:
     dependencies:
@@ -251,7 +259,7 @@ importers:
         version: 4.3.2
       "@types/node":
         specifier: "catalog:"
-        version: 22.20.0
+        version: 24.13.3
       "@types/react":
         specifier: "catalog:"
         version: 19.2.17
@@ -275,13 +283,16 @@ importers:
     dependencies:
       "@vercel/connect":
         specifier: ^0.3.2
-        version: 0.3.2(ai@7.0.19(zod@4.4.3))(better-auth@1.6.16(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(eve@0.22.4(@libsql/client@0.17.4)(ai@7.0.19(zod@4.4.3))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
+        version: 0.3.2(@ai-sdk/mcp@2.0.14(zod@4.4.3))(ai@7.0.30(zod@4.4.3))(better-auth@1.6.16(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(eve@0.24.6(@libsql/client@0.17.4)(ai@7.0.30(zod@4.4.3))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
       ai:
-        specifier: 7.0.19
-        version: 7.0.19(zod@4.4.3)
+        specifier: 7.0.30
+        version: 7.0.30(zod@4.4.3)
       eve:
-        specifier: 0.22.4
-        version: 0.22.4(@libsql/client@0.17.4)(ai@7.0.19(zod@4.4.3))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
+        specifier: 0.24.6
+        version: 0.24.6(@libsql/client@0.17.4)(ai@7.0.30(zod@4.4.3))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
+      microsandbox:
+        specifier: 0.6.6
+        version: 0.6.6
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -290,14 +301,11 @@ importers:
         specifier: ^9.38.0
         version: 9.39.5
       "@types/node":
-        specifier: ^22.15.0
-        version: 22.20.0
+        specifier: ^24.13.0
+        version: 24.13.3
       eslint:
         specifier: ^9.38.0
         version: 9.39.5(jiti@2.7.0)
-      microsandbox:
-        specifier: ^0.6.6
-        version: 0.6.6
       prettier:
         specifier: ^3.6.2
         version: 3.9.4
@@ -342,10 +350,10 @@ importers:
         version: 7.19.0
       "@vercel/connect":
         specifier: ^0.3.2
-        version: 0.3.2(ai@7.0.19(zod@3.25.76))(better-auth@1.6.16(better-sqlite3@12.4.1)(drizzle-kit@1.0.0-rc.4)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(eve@0.22.4(@libsql/client@0.17.4)(ai@7.0.19(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
+        version: 0.3.2(@ai-sdk/mcp@2.0.14(zod@3.25.76))(ai@7.0.30(zod@3.25.76))(better-auth@1.6.16(better-sqlite3@12.4.1)(drizzle-kit@1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)))(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(eve@0.24.6(@libsql/client@0.17.4)(ai@7.0.30(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
       ai:
-        specifier: 7.0.19
-        version: 7.0.19(zod@3.25.76)
+        specifier: 7.0.30
+        version: 7.0.30(zod@3.25.76)
       cron-parser:
         specifier: 5.6.1
         version: 5.6.1
@@ -353,11 +361,14 @@ importers:
         specifier: 1.0.0-rc.4
         version: 1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)
       eve:
-        specifier: 0.22.4
-        version: 0.22.4(@libsql/client@0.17.4)(ai@7.0.19(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
+        specifier: 0.24.6
+        version: 0.24.6(@libsql/client@0.17.4)(ai@7.0.30(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
       executor:
         specifier: 1.5.30
         version: 1.5.30
+      microsandbox:
+        specifier: 0.6.6
+        version: 0.6.6
       react:
         specifier: ^19.1.0
         version: 19.2.7
@@ -379,13 +390,13 @@ importers:
         version: link:../../tooling/typescript
       "@types/node":
         specifier: "catalog:"
-        version: 22.20.0
+        version: 24.13.3
       "@types/ws":
         specifier: ^8.18.1
         version: 8.18.1
       drizzle-kit:
         specifier: 1.0.0-rc.4
-        version: 1.0.0-rc.4
+        version: 1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))
       esbuild:
         specifier: 0.27.0
         version: 0.27.0
@@ -421,7 +432,7 @@ importers:
         version: 1.42.1(react@19.2.7)
       stripe:
         specifier: ^22.3.0
-        version: 22.3.0(@types/node@22.20.0)
+        version: 22.3.0(@types/node@24.13.3)
       zod:
         specifier: "catalog:"
         version: 4.4.3
@@ -437,7 +448,7 @@ importers:
         version: link:../../tooling/typescript
       "@types/node":
         specifier: "catalog:"
-        version: 22.20.0
+        version: 24.13.3
       eslint:
         specifier: "catalog:"
         version: 9.39.5(jiti@2.7.0)
@@ -474,7 +485,7 @@ importers:
         version: 6.7.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       "@types/node":
         specifier: "catalog:"
-        version: 22.20.0
+        version: 24.13.3
       "@types/react":
         specifier: "catalog:"
         version: 19.2.17
@@ -602,7 +613,7 @@ importers:
         version: link:../typescript
       "@types/node":
         specifier: "catalog:"
-        version: 22.20.0
+        version: 24.13.3
       eslint:
         specifier: "catalog:"
         version: 9.39.5(jiti@2.7.0)
@@ -632,7 +643,7 @@ importers:
         version: link:../typescript
       "@types/node":
         specifier: "catalog:"
-        version: 22.20.0
+        version: 24.13.3
       typescript:
         specifier: "catalog:"
         version: 5.9.3
@@ -640,19 +651,28 @@ importers:
   tooling/typescript: {}
 
 packages:
-  "@ai-sdk/gateway@4.0.15":
+  "@ai-sdk/gateway@4.0.22":
     resolution:
       {
-        integrity: sha512-JHvgCU4SR6OdjOI+8rxIF3zhIboFAkQ1vEa+QOIdkK5VyME1ONx8SbgM2YtnSY1DOsCtUyhd+EG876pYpRjopg==,
+        integrity: sha512-KdXJLa6O25fltJC/Lh8gnB1VaYMdX2mEKIalkohuItS+Ig523XxwK9e/Uuc66AvtrLIf7G51cDg3rDpP9mrxwQ==,
       }
     engines: { node: ">=22" }
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  "@ai-sdk/provider-utils@5.0.7":
+  "@ai-sdk/mcp@2.0.14":
     resolution:
       {
-        integrity: sha512-OSm5/5kdrHa11WIOo5LYgDKnxYWp5aB/wx5EXRHi0jpUGduMDeB6oht9U6p+UNNWIP3F/EqPpV8d7vdP/iRnqg==,
+        integrity: sha512-Vf2THTWylnOiPUZgPEzTcbin+6pIBKMdJnDNAMHD0u+upNoO5747HMMFUJJnNNjk8eroAPomaVmF0w8gadA4WA==,
+      }
+    engines: { node: ">=22" }
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  "@ai-sdk/provider-utils@5.0.10":
+    resolution:
+      {
+        integrity: sha512-uPyec0+85dwxZYXtb8qe8gCjhjDfxP4LCDo/uRQS/iG+FIgYbHPRhr/ys281udG90bTaE18+5cxWraYaf8oHCw==,
       }
     engines: { node: ">=22" }
     peerDependencies:
@@ -664,6 +684,15 @@ packages:
         integrity: sha512-e0CpNWJUY7OxAFAnCZkw+ri9QOHWwTs1tXP42782KFGCU07qt8NiXCrCVowyCB5dP2r5/Uls+g2oPd8kOJn9dw==,
       }
     engines: { node: ">=22" }
+
+  "@ai-sdk/react@4.0.33":
+    resolution:
+      {
+        integrity: sha512-THPfbAeW8kJo6x3rBbovVhUJA5AyUwKjQ8qehQ3qciD9BwJ9dnPl5yt3P5tH26WEWoZdgPbtK+NRu4UR9NV3yw==,
+      }
+    engines: { node: ">=22" }
+    peerDependencies:
+      react: ^18 || ~19.0.1 || ~19.1.2 || ^19.2.1
 
   "@alloc/quick-lru@5.2.0":
     resolution:
@@ -6256,10 +6285,10 @@ packages:
         integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==,
       }
 
-  "@types/node@22.20.0":
+  "@types/node@24.13.3":
     resolution:
       {
-        integrity: sha512-QWlFW2wf3nTjC13/DqRnBpR4ZO36VJH/JVBkA/vcnmbTBNQIlnObqyqZE1tUR7+Ni23Lda8R1BxMfbXRpCUx5g==,
+        integrity: sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q==,
       }
 
   "@types/parse-json@4.0.2":
@@ -6547,10 +6576,10 @@ packages:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
-  ai@7.0.19:
+  ai@7.0.30:
     resolution:
       {
-        integrity: sha512-7kxMNiy6JqCvruCY2qGMNzeqEt9Ey3XqrtYGHWyipDJTXHFN7gOyO1UR2UIXhw112vAUkrO+OJJzemKJD8P3bA==,
+        integrity: sha512-tm0gTAHSWBdDfW4P2mj+LlglGCUQTSA9ktyS2PsPgVhxNO9gYWTSnRAehiJ3h1lYsJBp1Zgbz3RH2lezJXagiw==,
       }
     engines: { node: ">=22" }
     peerDependencies:
@@ -7902,6 +7931,8 @@ packages:
         integrity: sha512-KZCpjRyu+oYHLj/UJogfFlOkWhHVkaEI2EOT1U3NDVXUzLoTyPjqwFxwOrlQxsY6jzRyxcz4EacqboGfhEeYrA==,
       }
     hasBin: true
+    peerDependencies:
+      drizzle-orm: 1.0.0-rc.4
 
   drizzle-orm@0.45.2:
     resolution:
@@ -8618,16 +8649,16 @@ packages:
       }
     engines: { node: ">= 0.6" }
 
-  eve@0.22.4:
+  eve@0.24.6:
     resolution:
       {
-        integrity: sha512-BWrq2IRUtA2zsWeA/lk9jhUPrFnvNrdmFtUz3f3fOYSbNOlrVJxadG8VoSdQzYqbfeS3seDlfwektaRSgSeKRA==,
+        integrity: sha512-/WuGD6gAzv7DviM0bN0y4813bJSbBTeiTHVUR1GAOIH7PUCOCFY7lXbrDOG7Wk/mTa2IBmT4Om3L+nudCc+02g==,
       }
     engines: { node: ">=24" }
     hasBin: true
     peerDependencies:
       "@opentelemetry/api": ^1.0.0
-      ai: ^7.0.0
+      ai: ^7.0.26
       braintrust: ^3.0.0
       just-bash: ^3.0.0
       microsandbox: ^0.5.0
@@ -13062,6 +13093,13 @@ packages:
       }
     engines: { node: ">=12.22" }
 
+  throttleit@2.1.0:
+    resolution:
+      {
+        integrity: sha512-nt6AMGKW1p/70DF/hGBdJB57B8Tspmbp5gfJ8ilhLnt7kkr2ye7hzD6NVG8GGErk2HWF34igrL2CXmNIkzKqKw==,
+      }
+    engines: { node: ">=18" }
+
   tiny-invariant@1.3.3:
     resolution:
       {
@@ -13284,10 +13322,10 @@ packages:
       }
     engines: { node: ">= 0.4" }
 
-  undici-types@6.21.0:
+  undici-types@7.18.2:
     resolution:
       {
-        integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==,
+        integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==,
       }
 
   unenv@2.0.0-rc.24:
@@ -13826,21 +13864,36 @@ packages:
       }
 
 snapshots:
-  "@ai-sdk/gateway@4.0.15(zod@3.25.76)":
+  "@ai-sdk/gateway@4.0.22(zod@3.25.76)":
     dependencies:
       "@ai-sdk/provider": 4.0.3
-      "@ai-sdk/provider-utils": 5.0.7(zod@3.25.76)
+      "@ai-sdk/provider-utils": 5.0.10(zod@3.25.76)
       "@vercel/oidc": 3.2.0
       zod: 3.25.76
 
-  "@ai-sdk/gateway@4.0.15(zod@4.4.3)":
+  "@ai-sdk/gateway@4.0.22(zod@4.4.3)":
     dependencies:
       "@ai-sdk/provider": 4.0.3
-      "@ai-sdk/provider-utils": 5.0.7(zod@4.4.3)
+      "@ai-sdk/provider-utils": 5.0.10(zod@4.4.3)
       "@vercel/oidc": 3.2.0
       zod: 4.4.3
 
-  "@ai-sdk/provider-utils@5.0.7(zod@3.25.76)":
+  "@ai-sdk/mcp@2.0.14(zod@3.25.76)":
+    dependencies:
+      "@ai-sdk/provider": 4.0.3
+      "@ai-sdk/provider-utils": 5.0.10(zod@3.25.76)
+      pkce-challenge: 5.0.1
+      zod: 3.25.76
+    optional: true
+
+  "@ai-sdk/mcp@2.0.14(zod@4.4.3)":
+    dependencies:
+      "@ai-sdk/provider": 4.0.3
+      "@ai-sdk/provider-utils": 5.0.10(zod@4.4.3)
+      pkce-challenge: 5.0.1
+      zod: 4.4.3
+
+  "@ai-sdk/provider-utils@5.0.10(zod@3.25.76)":
     dependencies:
       "@ai-sdk/provider": 4.0.3
       "@standard-schema/spec": 1.1.0
@@ -13848,7 +13901,7 @@ snapshots:
       eventsource-parser: 3.1.0
       zod: 3.25.76
 
-  "@ai-sdk/provider-utils@5.0.7(zod@4.4.3)":
+  "@ai-sdk/provider-utils@5.0.10(zod@4.4.3)":
     dependencies:
       "@ai-sdk/provider": 4.0.3
       "@standard-schema/spec": 1.1.0
@@ -13859,6 +13912,18 @@ snapshots:
   "@ai-sdk/provider@4.0.3":
     dependencies:
       json-schema: 0.4.0
+
+  "@ai-sdk/react@4.0.33(react@19.2.7)(zod@4.4.3)":
+    dependencies:
+      "@ai-sdk/mcp": 2.0.14(zod@4.4.3)
+      "@ai-sdk/provider": 4.0.3
+      "@ai-sdk/provider-utils": 5.0.10(zod@4.4.3)
+      ai: 7.0.30(zod@4.4.3)
+      react: 19.2.7
+      swr: 2.4.2(react@19.2.7)
+      throttleit: 2.1.0
+    transitivePeerDependencies:
+      - zod
 
   "@alloc/quick-lru@5.2.0": {}
 
@@ -16551,13 +16616,13 @@ snapshots:
 
   "@slack/logger@4.0.1":
     dependencies:
-      "@types/node": 22.20.0
+      "@types/node": 24.13.3
 
   "@slack/socket-mode@2.0.7":
     dependencies:
       "@slack/logger": 4.0.1
       "@slack/web-api": 7.19.0
-      "@types/node": 22.20.0
+      "@types/node": 24.13.3
       "@types/ws": 8.18.1
       eventemitter3: 5.0.4
       ws: 8.21.0
@@ -16573,7 +16638,7 @@ snapshots:
     dependencies:
       "@slack/logger": 4.0.1
       "@slack/types": 2.22.0
-      "@types/node": 22.20.0
+      "@types/node": 24.13.3
       "@types/retry": 0.12.0
       axios: 1.18.1
       eventemitter3: 5.0.4
@@ -16702,12 +16767,12 @@ snapshots:
       postcss: 8.5.16
       tailwindcss: 4.3.2
 
-  "@tailwindcss/vite@4.3.2(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))":
+  "@tailwindcss/vite@4.3.2(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))":
     dependencies:
       "@tailwindcss/node": 4.3.2
       "@tailwindcss/oxide": 4.3.2
       tailwindcss: 4.3.2
-      vite: 7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)
+      vite: 7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)
 
   "@tauri-apps/api@2.11.1": {}
 
@@ -17009,12 +17074,12 @@ snapshots:
 
   "@types/better-sqlite3@7.6.13":
     dependencies:
-      "@types/node": 22.20.0
+      "@types/node": 24.13.3
     optional: true
 
   "@types/cors@2.8.19":
     dependencies:
-      "@types/node": 22.20.0
+      "@types/node": 24.13.3
 
   "@types/d3-array@3.2.2": {}
 
@@ -17183,9 +17248,9 @@ snapshots:
 
   "@types/ms@2.1.0": {}
 
-  "@types/node@22.20.0":
+  "@types/node@24.13.3":
     dependencies:
-      undici-types: 6.21.0
+      undici-types: 7.18.2
 
   "@types/parse-json@4.0.2": {}
 
@@ -17209,7 +17274,7 @@ snapshots:
 
   "@types/ws@8.18.1":
     dependencies:
-      "@types/node": 22.20.0
+      "@types/node": 24.13.3
 
   "@typescript-eslint/eslint-plugin@8.64.0(@typescript-eslint/parser@8.64.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)":
     dependencies:
@@ -17325,21 +17390,23 @@ snapshots:
     dependencies:
       execa: 5.1.1
 
-  "@vercel/connect@0.3.2(ai@7.0.19(zod@3.25.76))(better-auth@1.6.16(better-sqlite3@12.4.1)(drizzle-kit@1.0.0-rc.4)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(eve@0.22.4(@libsql/client@0.17.4)(ai@7.0.19(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))":
+  "@vercel/connect@0.3.2(@ai-sdk/mcp@2.0.14(zod@3.25.76))(ai@7.0.30(zod@3.25.76))(better-auth@1.6.16(better-sqlite3@12.4.1)(drizzle-kit@1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)))(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(eve@0.24.6(@libsql/client@0.17.4)(ai@7.0.30(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))":
     dependencies:
       "@vercel/oidc": 3.8.0
     optionalDependencies:
-      ai: 7.0.19(zod@3.25.76)
-      better-auth: 1.6.16(better-sqlite3@12.4.1)(drizzle-kit@1.0.0-rc.4)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      eve: 0.22.4(@libsql/client@0.17.4)(ai@7.0.19(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
+      "@ai-sdk/mcp": 2.0.14(zod@3.25.76)
+      ai: 7.0.30(zod@3.25.76)
+      better-auth: 1.6.16(better-sqlite3@12.4.1)(drizzle-kit@1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)))(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      eve: 0.24.6(@libsql/client@0.17.4)(ai@7.0.30(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
 
-  "@vercel/connect@0.3.2(ai@7.0.19(zod@4.4.3))(better-auth@1.6.16(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(eve@0.22.4(@libsql/client@0.17.4)(ai@7.0.19(zod@4.4.3))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))":
+  "@vercel/connect@0.3.2(@ai-sdk/mcp@2.0.14(zod@4.4.3))(ai@7.0.30(zod@4.4.3))(better-auth@1.6.16(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(eve@0.24.6(@libsql/client@0.17.4)(ai@7.0.30(zod@4.4.3))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))":
     dependencies:
       "@vercel/oidc": 3.8.0
     optionalDependencies:
-      ai: 7.0.19(zod@4.4.3)
+      "@ai-sdk/mcp": 2.0.14(zod@4.4.3)
+      ai: 7.0.30(zod@4.4.3)
       better-auth: 1.6.16(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      eve: 0.22.4(@libsql/client@0.17.4)(ai@7.0.19(zod@4.4.3))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
+      eve: 0.24.6(@libsql/client@0.17.4)(ai@7.0.30(zod@4.4.3))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
 
   "@vercel/oidc@3.2.0": {}
 
@@ -17349,7 +17416,7 @@ snapshots:
       "@vercel/cli-exec": 1.0.0
       jose: 5.10.0
 
-  "@vitejs/plugin-react@4.7.0(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))":
+  "@vitejs/plugin-react@4.7.0(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))":
     dependencies:
       "@babel/core": 7.29.7
       "@babel/plugin-transform-react-jsx-self": 7.29.7(@babel/core@7.29.7)
@@ -17357,7 +17424,7 @@ snapshots:
       "@rolldown/pluginutils": 1.0.0-beta.27
       "@types/babel__core": 7.20.5
       react-refresh: 0.17.0
-      vite: 7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)
+      vite: 7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -17400,18 +17467,18 @@ snapshots:
       screenfull: 5.2.0
       tslib: 2.8.1
 
-  ai@7.0.19(zod@3.25.76):
+  ai@7.0.30(zod@3.25.76):
     dependencies:
-      "@ai-sdk/gateway": 4.0.15(zod@3.25.76)
+      "@ai-sdk/gateway": 4.0.22(zod@3.25.76)
       "@ai-sdk/provider": 4.0.3
-      "@ai-sdk/provider-utils": 5.0.7(zod@3.25.76)
+      "@ai-sdk/provider-utils": 5.0.10(zod@3.25.76)
       zod: 3.25.76
 
-  ai@7.0.19(zod@4.4.3):
+  ai@7.0.30(zod@4.4.3):
     dependencies:
-      "@ai-sdk/gateway": 4.0.15(zod@4.4.3)
+      "@ai-sdk/gateway": 4.0.22(zod@4.4.3)
       "@ai-sdk/provider": 4.0.3
-      "@ai-sdk/provider-utils": 5.0.7(zod@4.4.3)
+      "@ai-sdk/provider-utils": 5.0.10(zod@4.4.3)
       zod: 4.4.3
 
   ajv-formats@3.0.1(ajv@8.20.0):
@@ -17728,7 +17795,7 @@ snapshots:
       - "@cloudflare/workers-types"
       - "@opentelemetry/api"
 
-  better-auth@1.6.16(better-sqlite3@12.4.1)(drizzle-kit@1.0.0-rc.4)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
+  better-auth@1.6.16(better-sqlite3@12.4.1)(drizzle-kit@1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)))(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
     dependencies:
       "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
       "@better-auth/drizzle-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))
@@ -17749,7 +17816,7 @@ snapshots:
       zod: 4.3.6
     optionalDependencies:
       better-sqlite3: 12.4.1
-      drizzle-kit: 1.0.0-rc.4
+      drizzle-kit: 1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))
       drizzle-orm: 1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)
       next: 16.2.6(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       react: 19.2.7
@@ -18360,10 +18427,11 @@ snapshots:
       - supports-color
     optional: true
 
-  drizzle-kit@1.0.0-rc.4:
+  drizzle-kit@1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)):
     dependencies:
       "@drizzle-team/brocli": 0.12.0
       "@js-temporal/polyfill": 0.5.1
+      drizzle-orm: 1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)
       esbuild: 0.25.12
       get-tsconfig: 4.14.0
       jiti: 2.7.0
@@ -18409,7 +18477,7 @@ snapshots:
   engine.io@6.6.9:
     dependencies:
       "@types/cors": 2.8.19
-      "@types/node": 22.20.0
+      "@types/node": 24.13.3
       "@types/ws": 8.18.1
       accepts: 1.3.8
       base64id: 2.0.0
@@ -18920,10 +18988,12 @@ snapshots:
 
   etag@1.8.1: {}
 
-  eve@0.22.4(@libsql/client@0.17.4)(ai@7.0.19(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)):
+  eve@0.24.6(@libsql/client@0.17.4)(ai@7.0.30(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)):
     dependencies:
-      ai: 7.0.19(zod@3.25.76)
-      nitro: 3.0.260610-beta(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
+      ai: 7.0.30(zod@3.25.76)
+      nitro: 3.0.260610-beta(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
+    optionalDependencies:
+      microsandbox: 0.6.6
     transitivePeerDependencies:
       - "@azure/app-configuration"
       - "@azure/cosmos"
@@ -18964,10 +19034,10 @@ snapshots:
       - xml2js
       - zephyr-agent
 
-  eve@0.22.4(@libsql/client@0.17.4)(ai@7.0.19(zod@4.4.3))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)):
+  eve@0.24.6(@libsql/client@0.17.4)(ai@7.0.30(zod@4.4.3))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)):
     dependencies:
-      ai: 7.0.19(zod@4.4.3)
-      nitro: 3.0.260610-beta(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
+      ai: 7.0.30(zod@4.4.3)
+      nitro: 3.0.260610-beta(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
     optionalDependencies:
       microsandbox: 0.6.6
     transitivePeerDependencies:
@@ -20705,7 +20775,7 @@ snapshots:
 
   nf3@0.3.21: {}
 
-  nitro@3.0.260610-beta(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)):
+  nitro@3.0.260610-beta(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)):
     dependencies:
       consola: 3.4.2
       crossws: 0.4.9(srvx@0.11.21)
@@ -20725,7 +20795,7 @@ snapshots:
       dotenv: 16.0.3
       jiti: 2.7.0
       rollup: 4.62.2
-      vite: 7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)
+      vite: 7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)
     transitivePeerDependencies:
       - "@azure/app-configuration"
       - "@azure/cosmos"
@@ -20758,7 +20828,7 @@ snapshots:
       - uploadthing
       - wrangler
 
-  nitro@3.0.260610-beta(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)):
+  nitro@3.0.260610-beta(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)):
     dependencies:
       consola: 3.4.2
       crossws: 0.4.9(srvx@0.11.21)
@@ -20778,7 +20848,7 @@ snapshots:
       dotenv: 16.0.3
       jiti: 2.7.0
       rollup: 4.62.2
-      vite: 7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)
+      vite: 7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)
     transitivePeerDependencies:
       - "@azure/app-configuration"
       - "@azure/cosmos"
@@ -22236,9 +22306,9 @@ snapshots:
 
   strip-json-comments@3.1.1: {}
 
-  stripe@22.3.0(@types/node@22.20.0):
+  stripe@22.3.0(@types/node@24.13.3):
     optionalDependencies:
-      "@types/node": 22.20.0
+      "@types/node": 24.13.3
 
   stubborn-fs@2.0.0:
     dependencies:
@@ -22313,6 +22383,8 @@ snapshots:
       yallist: 5.0.0
 
   throttle-debounce@5.0.2: {}
+
+  throttleit@2.1.0: {}
 
   tiny-invariant@1.3.3: {}
 
@@ -22465,7 +22537,7 @@ snapshots:
       has-symbols: 1.1.0
       which-boxed-primitive: 1.1.1
 
-  undici-types@6.21.0: {}
+  undici-types@7.18.2: {}
 
   unenv@2.0.0-rc.24:
     dependencies:
@@ -22615,7 +22687,7 @@ snapshots:
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
 
-  vite@7.3.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0):
+  vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0):
     dependencies:
       esbuild: 0.28.1
       fdir: 6.5.0(picomatch@4.0.5)
@@ -22624,7 +22696,7 @@ snapshots:
       rollup: 4.62.2
       tinyglobby: 0.2.17
     optionalDependencies:
-      "@types/node": 22.20.0
+      "@types/node": 24.13.3
       fsevents: 2.3.3
       jiti: 2.7.0
       lightningcss: 1.32.0

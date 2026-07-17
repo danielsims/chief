@@ -1,45 +1,57 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "49de0f75-2d42-4373-9e84-0e4e9005009b",
+  "id": "56ac709c-e4e7-4d98-a3f2-e0aefd45a55f",
   "prevIds": [
-    "fbc7f527-8735-45fe-a103-b05f4decad90"
+    "00000000-0000-0000-0000-000000000000"
   ],
   "ddl": [
     {
-      "name": "agent_preferences",
+      "name": "preference",
       "entityType": "tables"
     },
     {
-      "name": "campaigns",
+      "name": "attention",
       "entityType": "tables"
     },
     {
-      "name": "chat_events",
+      "name": "campaign",
       "entityType": "tables"
     },
     {
-      "name": "chats",
+      "name": "chat",
       "entityType": "tables"
     },
     {
-      "name": "content_drafts",
+      "name": "content",
       "entityType": "tables"
     },
     {
-      "name": "prospects",
+      "name": "message",
       "entityType": "tables"
     },
     {
-      "name": "recurring_work",
+      "name": "prospect",
       "entityType": "tables"
     },
     {
-      "name": "recurring_work_runs",
+      "name": "schedule",
       "entityType": "tables"
     },
     {
-      "name": "trends",
+      "name": "run",
+      "entityType": "tables"
+    },
+    {
+      "name": "trend",
+      "entityType": "tables"
+    },
+    {
+      "name": "version",
+      "entityType": "tables"
+    },
+    {
+      "name": "file",
       "entityType": "tables"
     },
     {
@@ -50,7 +62,7 @@
       "generated": null,
       "name": "workspace_id",
       "entityType": "columns",
-      "table": "agent_preferences"
+      "table": "preference"
     },
     {
       "type": "text",
@@ -60,7 +72,7 @@
       "generated": null,
       "name": "agent_id",
       "entityType": "columns",
-      "table": "agent_preferences"
+      "table": "preference"
     },
     {
       "type": "integer",
@@ -70,7 +82,7 @@
       "generated": null,
       "name": "enabled",
       "entityType": "columns",
-      "table": "agent_preferences"
+      "table": "preference"
     },
     {
       "type": "text",
@@ -80,7 +92,7 @@
       "generated": null,
       "name": "driver",
       "entityType": "columns",
-      "table": "agent_preferences"
+      "table": "preference"
     },
     {
       "type": "text",
@@ -90,7 +102,7 @@
       "generated": null,
       "name": "model",
       "entityType": "columns",
-      "table": "agent_preferences"
+      "table": "preference"
     },
     {
       "type": "text",
@@ -100,7 +112,7 @@
       "generated": null,
       "name": "capabilities",
       "entityType": "columns",
-      "table": "agent_preferences"
+      "table": "preference"
     },
     {
       "type": "text",
@@ -110,7 +122,7 @@
       "generated": null,
       "name": "integrations",
       "entityType": "columns",
-      "table": "agent_preferences"
+      "table": "preference"
     },
     {
       "type": "integer",
@@ -120,7 +132,7 @@
       "generated": null,
       "name": "updated_at",
       "entityType": "columns",
-      "table": "agent_preferences"
+      "table": "preference"
     },
     {
       "type": "text",
@@ -130,7 +142,7 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
-      "table": "campaigns"
+      "table": "attention"
     },
     {
       "type": "text",
@@ -140,7 +152,87 @@
       "generated": null,
       "name": "workspace_id",
       "entityType": "columns",
-      "table": "campaigns"
+      "table": "attention"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "agent_id",
+      "entityType": "columns",
+      "table": "attention"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "title",
+      "entityType": "columns",
+      "table": "attention"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "reason",
+      "entityType": "columns",
+      "table": "attention"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_id",
+      "entityType": "columns",
+      "table": "attention"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "attention"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "attention"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "campaign"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "workspace_id",
+      "entityType": "columns",
+      "table": "campaign"
     },
     {
       "type": "text",
@@ -150,7 +242,7 @@
       "generated": null,
       "name": "name",
       "entityType": "columns",
-      "table": "campaigns"
+      "table": "campaign"
     },
     {
       "type": "text",
@@ -160,7 +252,7 @@
       "generated": null,
       "name": "provider",
       "entityType": "columns",
-      "table": "campaigns"
+      "table": "campaign"
     },
     {
       "type": "text",
@@ -170,7 +262,7 @@
       "generated": null,
       "name": "objective",
       "entityType": "columns",
-      "table": "campaigns"
+      "table": "campaign"
     },
     {
       "type": "text",
@@ -180,7 +272,7 @@
       "generated": null,
       "name": "status",
       "entityType": "columns",
-      "table": "campaigns"
+      "table": "campaign"
     },
     {
       "type": "text",
@@ -190,7 +282,7 @@
       "generated": null,
       "name": "currency",
       "entityType": "columns",
-      "table": "campaigns"
+      "table": "campaign"
     },
     {
       "type": "real",
@@ -200,7 +292,7 @@
       "generated": null,
       "name": "budget",
       "entityType": "columns",
-      "table": "campaigns"
+      "table": "campaign"
     },
     {
       "type": "real",
@@ -210,7 +302,7 @@
       "generated": null,
       "name": "spend",
       "entityType": "columns",
-      "table": "campaigns"
+      "table": "campaign"
     },
     {
       "type": "real",
@@ -220,7 +312,7 @@
       "generated": null,
       "name": "revenue",
       "entityType": "columns",
-      "table": "campaigns"
+      "table": "campaign"
     },
     {
       "type": "integer",
@@ -230,7 +322,7 @@
       "generated": null,
       "name": "created_at",
       "entityType": "columns",
-      "table": "campaigns"
+      "table": "campaign"
     },
     {
       "type": "integer",
@@ -240,37 +332,7 @@
       "generated": null,
       "name": "updated_at",
       "entityType": "columns",
-      "table": "campaigns"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "chat_id",
-      "entityType": "columns",
-      "table": "chat_events"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "position",
-      "entityType": "columns",
-      "table": "chat_events"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "event_json",
-      "entityType": "columns",
-      "table": "chat_events"
+      "table": "campaign"
     },
     {
       "type": "text",
@@ -280,7 +342,7 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
-      "table": "chats"
+      "table": "chat"
     },
     {
       "type": "text",
@@ -290,7 +352,27 @@
       "generated": null,
       "name": "workspace_id",
       "entityType": "columns",
-      "table": "chats"
+      "table": "chat"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "parent_id",
+      "entityType": "columns",
+      "table": "chat"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "trigger_id",
+      "entityType": "columns",
+      "table": "chat"
     },
     {
       "type": "text",
@@ -298,19 +380,29 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "agent_id",
+      "name": "visibility",
       "entityType": "columns",
-      "table": "chats"
+      "table": "chat"
     },
     {
       "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": null,
+      "generated": null,
+      "name": "agent",
+      "entityType": "columns",
+      "table": "chat"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "''",
       "generated": null,
       "name": "title",
       "entityType": "columns",
-      "table": "chats"
+      "table": "chat"
     },
     {
       "type": "text",
@@ -320,7 +412,7 @@
       "generated": null,
       "name": "last_text",
       "entityType": "columns",
-      "table": "chats"
+      "table": "chat"
     },
     {
       "type": "text",
@@ -328,9 +420,9 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "driver",
+      "name": "provider",
       "entityType": "columns",
-      "table": "chats"
+      "table": "chat"
     },
     {
       "type": "text",
@@ -340,7 +432,37 @@
       "generated": null,
       "name": "model",
       "entityType": "columns",
-      "table": "chats"
+      "table": "chat"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "provider_state",
+      "entityType": "columns",
+      "table": "chat"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "eve_state",
+      "entityType": "columns",
+      "table": "chat"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'idle'",
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "chat"
     },
     {
       "type": "integer",
@@ -350,7 +472,7 @@
       "generated": null,
       "name": "created_at",
       "entityType": "columns",
-      "table": "chats"
+      "table": "chat"
     },
     {
       "type": "integer",
@@ -360,7 +482,7 @@
       "generated": null,
       "name": "updated_at",
       "entityType": "columns",
-      "table": "chats"
+      "table": "chat"
     },
     {
       "type": "text",
@@ -370,7 +492,7 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
-      "table": "content_drafts"
+      "table": "content"
     },
     {
       "type": "text",
@@ -380,7 +502,7 @@
       "generated": null,
       "name": "workspace_id",
       "entityType": "columns",
-      "table": "content_drafts"
+      "table": "content"
     },
     {
       "type": "text",
@@ -390,7 +512,7 @@
       "generated": null,
       "name": "agent_id",
       "entityType": "columns",
-      "table": "content_drafts"
+      "table": "content"
     },
     {
       "type": "text",
@@ -400,7 +522,7 @@
       "generated": null,
       "name": "title",
       "entityType": "columns",
-      "table": "content_drafts"
+      "table": "content"
     },
     {
       "type": "text",
@@ -410,7 +532,7 @@
       "generated": null,
       "name": "body",
       "entityType": "columns",
-      "table": "content_drafts"
+      "table": "content"
     },
     {
       "type": "text",
@@ -420,7 +542,17 @@
       "generated": null,
       "name": "platform",
       "entityType": "columns",
-      "table": "content_drafts"
+      "table": "content"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "file_id",
+      "entityType": "columns",
+      "table": "content"
     },
     {
       "type": "text",
@@ -430,7 +562,7 @@
       "generated": null,
       "name": "status",
       "entityType": "columns",
-      "table": "content_drafts"
+      "table": "content"
     },
     {
       "type": "integer",
@@ -440,7 +572,7 @@
       "generated": null,
       "name": "scheduled_for",
       "entityType": "columns",
-      "table": "content_drafts"
+      "table": "content"
     },
     {
       "type": "integer",
@@ -450,7 +582,7 @@
       "generated": null,
       "name": "created_at",
       "entityType": "columns",
-      "table": "content_drafts"
+      "table": "content"
     },
     {
       "type": "integer",
@@ -460,7 +592,7 @@
       "generated": null,
       "name": "updated_at",
       "entityType": "columns",
-      "table": "content_drafts"
+      "table": "content"
     },
     {
       "type": "text",
@@ -470,7 +602,77 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
-      "table": "prospects"
+      "table": "message"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "chat_id",
+      "entityType": "columns",
+      "table": "message"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "role",
+      "entityType": "columns",
+      "table": "message"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "parts",
+      "entityType": "columns",
+      "table": "message"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "metadata",
+      "entityType": "columns",
+      "table": "message"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "position",
+      "entityType": "columns",
+      "table": "message"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "message"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "prospect"
     },
     {
       "type": "text",
@@ -480,7 +682,7 @@
       "generated": null,
       "name": "workspace_id",
       "entityType": "columns",
-      "table": "prospects"
+      "table": "prospect"
     },
     {
       "type": "text",
@@ -490,7 +692,7 @@
       "generated": null,
       "name": "name",
       "entityType": "columns",
-      "table": "prospects"
+      "table": "prospect"
     },
     {
       "type": "text",
@@ -500,7 +702,7 @@
       "generated": null,
       "name": "company",
       "entityType": "columns",
-      "table": "prospects"
+      "table": "prospect"
     },
     {
       "type": "text",
@@ -510,7 +712,7 @@
       "generated": null,
       "name": "source",
       "entityType": "columns",
-      "table": "prospects"
+      "table": "prospect"
     },
     {
       "type": "text",
@@ -520,7 +722,7 @@
       "generated": null,
       "name": "source_url",
       "entityType": "columns",
-      "table": "prospects"
+      "table": "prospect"
     },
     {
       "type": "text",
@@ -530,7 +732,7 @@
       "generated": null,
       "name": "summary",
       "entityType": "columns",
-      "table": "prospects"
+      "table": "prospect"
     },
     {
       "type": "text",
@@ -540,7 +742,7 @@
       "generated": null,
       "name": "relevance",
       "entityType": "columns",
-      "table": "prospects"
+      "table": "prospect"
     },
     {
       "type": "text",
@@ -550,7 +752,7 @@
       "generated": null,
       "name": "status",
       "entityType": "columns",
-      "table": "prospects"
+      "table": "prospect"
     },
     {
       "type": "integer",
@@ -560,7 +762,7 @@
       "generated": null,
       "name": "found_at",
       "entityType": "columns",
-      "table": "prospects"
+      "table": "prospect"
     },
     {
       "type": "integer",
@@ -570,7 +772,7 @@
       "generated": null,
       "name": "updated_at",
       "entityType": "columns",
-      "table": "prospects"
+      "table": "prospect"
     },
     {
       "type": "text",
@@ -580,7 +782,7 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
-      "table": "recurring_work"
+      "table": "schedule"
     },
     {
       "type": "text",
@@ -590,7 +792,17 @@
       "generated": null,
       "name": "workspace_id",
       "entityType": "columns",
-      "table": "recurring_work"
+      "table": "schedule"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "chat_id",
+      "entityType": "columns",
+      "table": "schedule"
     },
     {
       "type": "text",
@@ -600,7 +812,7 @@
       "generated": null,
       "name": "agent_id",
       "entityType": "columns",
-      "table": "recurring_work"
+      "table": "schedule"
     },
     {
       "type": "text",
@@ -610,7 +822,7 @@
       "generated": null,
       "name": "title",
       "entityType": "columns",
-      "table": "recurring_work"
+      "table": "schedule"
     },
     {
       "type": "text",
@@ -620,7 +832,7 @@
       "generated": null,
       "name": "instructions",
       "entityType": "columns",
-      "table": "recurring_work"
+      "table": "schedule"
     },
     {
       "type": "text",
@@ -630,7 +842,7 @@
       "generated": null,
       "name": "cron",
       "entityType": "columns",
-      "table": "recurring_work"
+      "table": "schedule"
     },
     {
       "type": "text",
@@ -640,7 +852,17 @@
       "generated": null,
       "name": "timezone",
       "entityType": "columns",
-      "table": "recurring_work"
+      "table": "schedule"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "run_once_at",
+      "entityType": "columns",
+      "table": "schedule"
     },
     {
       "type": "text",
@@ -650,7 +872,27 @@
       "generated": null,
       "name": "status",
       "entityType": "columns",
-      "table": "recurring_work"
+      "table": "schedule"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'local'",
+      "generated": null,
+      "name": "placement",
+      "entityType": "columns",
+      "table": "schedule"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "skip_dates",
+      "entityType": "columns",
+      "table": "schedule"
     },
     {
       "type": "text",
@@ -660,7 +902,7 @@
       "generated": null,
       "name": "approval_summary",
       "entityType": "columns",
-      "table": "recurring_work"
+      "table": "schedule"
     },
     {
       "type": "text",
@@ -670,7 +912,7 @@
       "generated": null,
       "name": "proposed_tool_patterns",
       "entityType": "columns",
-      "table": "recurring_work"
+      "table": "schedule"
     },
     {
       "type": "text",
@@ -680,7 +922,7 @@
       "generated": null,
       "name": "grant",
       "entityType": "columns",
-      "table": "recurring_work"
+      "table": "schedule"
     },
     {
       "type": "integer",
@@ -690,7 +932,7 @@
       "generated": null,
       "name": "next_run_at",
       "entityType": "columns",
-      "table": "recurring_work"
+      "table": "schedule"
     },
     {
       "type": "integer",
@@ -700,7 +942,7 @@
       "generated": null,
       "name": "last_run_at",
       "entityType": "columns",
-      "table": "recurring_work"
+      "table": "schedule"
     },
     {
       "type": "text",
@@ -710,7 +952,7 @@
       "generated": null,
       "name": "last_result",
       "entityType": "columns",
-      "table": "recurring_work"
+      "table": "schedule"
     },
     {
       "type": "integer",
@@ -720,7 +962,7 @@
       "generated": null,
       "name": "created_at",
       "entityType": "columns",
-      "table": "recurring_work"
+      "table": "schedule"
     },
     {
       "type": "integer",
@@ -730,7 +972,7 @@
       "generated": null,
       "name": "updated_at",
       "entityType": "columns",
-      "table": "recurring_work"
+      "table": "schedule"
     },
     {
       "type": "text",
@@ -740,7 +982,7 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
-      "table": "recurring_work_runs"
+      "table": "run"
     },
     {
       "type": "text",
@@ -748,9 +990,9 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "recurring_work_id",
+      "name": "schedule_id",
       "entityType": "columns",
-      "table": "recurring_work_runs"
+      "table": "run"
     },
     {
       "type": "text",
@@ -760,7 +1002,17 @@
       "generated": null,
       "name": "workspace_id",
       "entityType": "columns",
-      "table": "recurring_work_runs"
+      "table": "run"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "chat_id",
+      "entityType": "columns",
+      "table": "run"
     },
     {
       "type": "text",
@@ -770,7 +1022,7 @@
       "generated": null,
       "name": "status",
       "entityType": "columns",
-      "table": "recurring_work_runs"
+      "table": "run"
     },
     {
       "type": "integer",
@@ -780,7 +1032,7 @@
       "generated": null,
       "name": "scheduled_for",
       "entityType": "columns",
-      "table": "recurring_work_runs"
+      "table": "run"
     },
     {
       "type": "integer",
@@ -790,7 +1042,7 @@
       "generated": null,
       "name": "started_at",
       "entityType": "columns",
-      "table": "recurring_work_runs"
+      "table": "run"
     },
     {
       "type": "integer",
@@ -800,7 +1052,7 @@
       "generated": null,
       "name": "finished_at",
       "entityType": "columns",
-      "table": "recurring_work_runs"
+      "table": "run"
     },
     {
       "type": "text",
@@ -810,7 +1062,7 @@
       "generated": null,
       "name": "summary",
       "entityType": "columns",
-      "table": "recurring_work_runs"
+      "table": "run"
     },
     {
       "type": "text",
@@ -820,7 +1072,27 @@
       "generated": null,
       "name": "error",
       "entityType": "columns",
-      "table": "recurring_work_runs"
+      "table": "run"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "artifacts",
+      "entityType": "columns",
+      "table": "run"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "blocked_tools",
+      "entityType": "columns",
+      "table": "run"
     },
     {
       "type": "text",
@@ -830,7 +1102,7 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
-      "table": "trends"
+      "table": "trend"
     },
     {
       "type": "text",
@@ -840,7 +1112,7 @@
       "generated": null,
       "name": "workspace_id",
       "entityType": "columns",
-      "table": "trends"
+      "table": "trend"
     },
     {
       "type": "text",
@@ -850,7 +1122,7 @@
       "generated": null,
       "name": "title",
       "entityType": "columns",
-      "table": "trends"
+      "table": "trend"
     },
     {
       "type": "text",
@@ -860,7 +1132,7 @@
       "generated": null,
       "name": "source",
       "entityType": "columns",
-      "table": "trends"
+      "table": "trend"
     },
     {
       "type": "text",
@@ -870,7 +1142,7 @@
       "generated": null,
       "name": "source_url",
       "entityType": "columns",
-      "table": "trends"
+      "table": "trend"
     },
     {
       "type": "text",
@@ -880,7 +1152,7 @@
       "generated": null,
       "name": "summary",
       "entityType": "columns",
-      "table": "trends"
+      "table": "trend"
     },
     {
       "type": "text",
@@ -890,7 +1162,7 @@
       "generated": null,
       "name": "signal",
       "entityType": "columns",
-      "table": "trends"
+      "table": "trend"
     },
     {
       "type": "text",
@@ -900,7 +1172,7 @@
       "generated": null,
       "name": "status",
       "entityType": "columns",
-      "table": "trends"
+      "table": "trend"
     },
     {
       "type": "integer",
@@ -910,7 +1182,7 @@
       "generated": null,
       "name": "found_at",
       "entityType": "columns",
-      "table": "trends"
+      "table": "trend"
     },
     {
       "type": "integer",
@@ -920,37 +1192,317 @@
       "generated": null,
       "name": "updated_at",
       "entityType": "columns",
-      "table": "trends"
+      "table": "trend"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "version"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "file_id",
+      "entityType": "columns",
+      "table": "version"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "workspace_id",
+      "entityType": "columns",
+      "table": "version"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "content",
+      "entityType": "columns",
+      "table": "version"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "size",
+      "entityType": "columns",
+      "table": "version"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_by",
+      "entityType": "columns",
+      "table": "version"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_agent_id",
+      "entityType": "columns",
+      "table": "version"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_run_id",
+      "entityType": "columns",
+      "table": "version"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "version"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "file"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "workspace_id",
+      "entityType": "columns",
+      "table": "file"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "name",
+      "entityType": "columns",
+      "table": "file"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "path",
+      "entityType": "columns",
+      "table": "file"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "mime_type",
+      "entityType": "columns",
+      "table": "file"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "kind",
+      "entityType": "columns",
+      "table": "file"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'local'",
+      "generated": null,
+      "name": "provider",
+      "entityType": "columns",
+      "table": "file"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "current_version_id",
+      "entityType": "columns",
+      "table": "file"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_by",
+      "entityType": "columns",
+      "table": "file"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_agent_id",
+      "entityType": "columns",
+      "table": "file"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_run_id",
+      "entityType": "columns",
+      "table": "file"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "file"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "file"
+    },
+    {
+      "columns": [
+        "parent_id"
+      ],
+      "tableTo": "chat",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_chat_parent_id_chat_id_fk",
+      "entityType": "fks",
+      "table": "chat"
     },
     {
       "columns": [
         "chat_id"
       ],
-      "tableTo": "chats",
+      "tableTo": "chat",
       "columnsTo": [
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
-      "name": "chat_events_chat_id_chats_id_fk",
+      "name": "fk_message_chat_id_chat_id_fk",
       "entityType": "fks",
-      "table": "chat_events"
+      "table": "message"
     },
     {
       "columns": [
-        "recurring_work_id"
+        "chat_id"
       ],
-      "tableTo": "recurring_work",
+      "tableTo": "chat",
       "columnsTo": [
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
-      "name": "fk_recurring_work_runs_recurring_work_id_recurring_work_id_fk",
+      "name": "fk_schedule_chat_id_chat_id_fk",
       "entityType": "fks",
-      "table": "recurring_work_runs"
+      "table": "schedule"
+    },
+    {
+      "columns": [
+        "schedule_id"
+      ],
+      "tableTo": "schedule",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_run_schedule_id_schedule_id_fk",
+      "entityType": "fks",
+      "table": "run"
+    },
+    {
+      "columns": [
+        "chat_id"
+      ],
+      "tableTo": "chat",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_run_chat_id_chat_id_fk",
+      "entityType": "fks",
+      "table": "run"
+    },
+    {
+      "columns": [
+        "file_id"
+      ],
+      "tableTo": "file",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
+      "name": "fk_version_file_id_file_id_fk",
+      "entityType": "fks",
+      "table": "version"
     },
     {
       "columns": [
@@ -958,27 +1510,17 @@
         "agent_id"
       ],
       "nameExplicit": false,
-      "name": "agent_preferences_workspace_id_agent_id_pk",
+      "name": "preference_pk",
       "entityType": "pks",
-      "table": "agent_preferences"
-    },
-    {
-      "columns": [
-        "chat_id",
-        "position"
-      ],
-      "nameExplicit": false,
-      "name": "chat_events_chat_id_position_pk",
-      "entityType": "pks",
-      "table": "chat_events"
+      "table": "preference"
     },
     {
       "columns": [
         "id"
       ],
       "nameExplicit": false,
-      "name": "campaigns_pk",
-      "table": "campaigns",
+      "name": "attention_pk",
+      "table": "attention",
       "entityType": "pks"
     },
     {
@@ -986,8 +1528,8 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "chats_pk",
-      "table": "chats",
+      "name": "campaign_pk",
+      "table": "campaign",
       "entityType": "pks"
     },
     {
@@ -995,8 +1537,8 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "content_drafts_pk",
-      "table": "content_drafts",
+      "name": "chat_pk",
+      "table": "chat",
       "entityType": "pks"
     },
     {
@@ -1004,8 +1546,8 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "prospects_pk",
-      "table": "prospects",
+      "name": "content_pk",
+      "table": "content",
       "entityType": "pks"
     },
     {
@@ -1013,8 +1555,8 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "recurring_work_pk",
-      "table": "recurring_work",
+      "name": "message_pk",
+      "table": "message",
       "entityType": "pks"
     },
     {
@@ -1022,8 +1564,8 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "recurring_work_runs_pk",
-      "table": "recurring_work_runs",
+      "name": "prospect_pk",
+      "table": "prospect",
       "entityType": "pks"
     },
     {
@@ -1031,9 +1573,63 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "trends_pk",
-      "table": "trends",
+      "name": "schedule_pk",
+      "table": "schedule",
       "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "run_pk",
+      "table": "run",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "trend_pk",
+      "table": "trend",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "version_pk",
+      "table": "version",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "file_pk",
+      "table": "file",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false
+        },
+        {
+          "value": "status",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "attention_workspace_status_idx",
+      "entityType": "indexes",
+      "table": "attention"
     },
     {
       "columns": [
@@ -1049,9 +1645,9 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "campaigns_workspace_updated",
+      "name": "campaign_workspace_updated",
       "entityType": "indexes",
-      "table": "campaigns"
+      "table": "campaign"
     },
     {
       "columns": [
@@ -1067,9 +1663,23 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "chats_workspace_updated",
+      "name": "chat_workspace_updated",
       "entityType": "indexes",
-      "table": "chats"
+      "table": "chat"
+    },
+    {
+      "columns": [
+        {
+          "value": "parent_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "chat_parent",
+      "entityType": "indexes",
+      "table": "chat"
     },
     {
       "columns": [
@@ -1085,9 +1695,45 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "drafts_workspace_schedule",
+      "name": "content_workspace_schedule",
       "entityType": "indexes",
-      "table": "content_drafts"
+      "table": "content"
+    },
+    {
+      "columns": [
+        {
+          "value": "chat_id",
+          "isExpression": false
+        },
+        {
+          "value": "position",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "message_chat_position",
+      "entityType": "indexes",
+      "table": "message"
+    },
+    {
+      "columns": [
+        {
+          "value": "chat_id",
+          "isExpression": false
+        },
+        {
+          "value": "created_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "message_chat_created",
+      "entityType": "indexes",
+      "table": "message"
     },
     {
       "columns": [
@@ -1103,9 +1749,9 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "prospects_workspace_found",
+      "name": "prospect_workspace_found",
       "entityType": "indexes",
-      "table": "prospects"
+      "table": "prospect"
     },
     {
       "columns": [
@@ -1121,9 +1767,23 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "recurring_work_workspace_next",
+      "name": "schedule_workspace_next",
       "entityType": "indexes",
-      "table": "recurring_work"
+      "table": "schedule"
+    },
+    {
+      "columns": [
+        {
+          "value": "chat_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "schedule_chat",
+      "entityType": "indexes",
+      "table": "schedule"
     },
     {
       "columns": [
@@ -1139,9 +1799,23 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "recurring_runs_workspace_started",
+      "name": "run_workspace_started",
       "entityType": "indexes",
-      "table": "recurring_work_runs"
+      "table": "run"
+    },
+    {
+      "columns": [
+        {
+          "value": "schedule_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": "\"run\".\"status\" = 'running'",
+      "origin": "manual",
+      "name": "run_one_active_per_schedule",
+      "entityType": "indexes",
+      "table": "run"
     },
     {
       "columns": [
@@ -1157,9 +1831,63 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "trends_workspace_found",
+      "name": "trend_workspace_found",
       "entityType": "indexes",
-      "table": "trends"
+      "table": "trend"
+    },
+    {
+      "columns": [
+        {
+          "value": "file_id",
+          "isExpression": false
+        },
+        {
+          "value": "created_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "version_file_created",
+      "entityType": "indexes",
+      "table": "version"
+    },
+    {
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false
+        },
+        {
+          "value": "path",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "file_workspace_path",
+      "entityType": "indexes",
+      "table": "file"
+    },
+    {
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false
+        },
+        {
+          "value": "updated_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "file_workspace_updated",
+      "entityType": "indexes",
+      "table": "file"
     }
   ],
   "renames": []

@@ -13,7 +13,6 @@ import type {
   SetupResult,
 } from "../lib/integration-setup";
 import { Blocks } from "../components/chat/message-blocks";
-import { StreamingMarkdown } from "../components/chat/streaming-markdown";
 import { ConnectionPreview } from "../components/integrations/connection-preview";
 import { IntegrationConnect } from "../components/integrations/integration-connect";
 import { ProviderLogo } from "../components/provider-logo";
@@ -28,14 +27,13 @@ import {
   parseSetupResult,
   persistSetupResult,
   SETUP_RESULT_MARKER,
-  stripSetupResult,
   withoutMarkerLines,
 } from "../lib/integration-setup";
 import {
   GOOGLE_ANALYTICS_PROVIDER,
   providerDetails,
 } from "../lib/provider-details";
-import { useAgentChat, useRuntime } from "../lib/runtime";
+import { messageBlocks, useChiefChat, useRuntime } from "../lib/runtime";
 
 interface AnalyticsChannel {
   _id: string;
@@ -115,29 +113,29 @@ function AnalyticsReportProgress({
   chat,
   sourceName,
 }: {
-  chat: ReturnType<typeof useAgentChat>["chat"];
+  chat: ReturnType<typeof useChiefChat>;
   sourceName: string;
 }) {
   const feedRef = useRef<HTMLDivElement>(null);
   const currentItems = useMemo(() => {
     let lastUserIndex = -1;
-    for (let index = chat.items.length - 1; index >= 0; index -= 1) {
-      if (chat.items[index]?.kind === "user") {
+    for (let index = chat.messages.length - 1; index >= 0; index -= 1) {
+      if (chat.messages[index]?.role === "user") {
         lastUserIndex = index;
         break;
       }
     }
-    return chat.items
+    return chat.messages
       .slice(lastUserIndex + 1)
-      .filter((item) => item.kind === "assistant");
-  }, [chat.items]);
+      .filter((message) => message.role === "assistant");
+  }, [chat.messages]);
 
   useEffect(() => {
     feedRef.current?.scrollTo({
       behavior: "smooth",
       top: feedRef.current.scrollHeight,
     });
-  }, [chat.streaming, currentItems.length]);
+  }, [currentItems.length]);
 
   return (
     <div className="bg-card min-h-64 border" aria-busy="true">
@@ -154,23 +152,16 @@ function AnalyticsReportProgress({
         className="max-h-80 min-h-44 space-y-3 overflow-y-auto px-5 py-4"
         aria-live="polite"
       >
-        {currentItems.map((item, index) => (
+        {currentItems.map((item) => (
           <Blocks
-            active={chat.status === "running"}
-            blocks={withoutMarkerLines(item.event.content)}
-            key={index}
+            active={chat.controls.status === "running"}
+            blocks={withoutMarkerLines(messageBlocks(item))}
+            key={item.id}
           />
         ))}
-        {chat.streaming ? (
-          <div className="text-sm leading-6">
-            <StreamingMarkdown streaming>
-              {stripSetupResult(chat.streaming)}
-            </StreamingMarkdown>
-          </div>
-        ) : null}
-        {currentItems.length === 0 && !chat.streaming ? (
+        {currentItems.length === 0 ? (
           <p className="text-muted-foreground animate-pulse font-mono text-xs">
-            The Analyst is checking the connection…
+            Chief is checking the connection…
           </p>
         ) : null}
       </div>
@@ -378,17 +369,11 @@ export function AnalyticsPage() {
   const saveSnapshot = useMutation(api.analyticsSnapshots.upsert);
   const getSummary = useAction(api.googleAnalytics.summary);
   const preferredIntegration = usePreferredAnalyticsIntegration();
-  const workspaceProvider = agentConfig.forAgent("analyst").driver;
+  const workspaceProvider = agentConfig.forAgent("cmo").driver;
   const visibleDetails =
     selectedDetails ?? providerDetails(preferredIntegration.domain);
-  const reportChat = useAgentChat(
-    selectedChannel ? "analyst" : null,
-    workspaceProvider,
-    selectedChannel
-      ? `analytics-report-${selectedChannel.provider.replace(/[^a-z0-9-]/gi, "-")}`
-      : undefined,
-    "full",
-  );
+  const [reportChatId] = useState(() => crypto.randomUUID());
+  const reportChat = useChiefChat(selectedChannel ? reportChatId : null);
 
   const finishRefresh = useCallback(() => {
     refreshingRef.current = false;
@@ -435,9 +420,9 @@ export function AnalyticsPage() {
 
   useEffect(() => {
     let found = false;
-    for (const item of reportChat.chat.items) {
-      if (item.kind !== "assistant") continue;
-      for (const block of item.event.content) {
+    for (const item of reportChat.messages) {
+      if (item.role !== "assistant") continue;
+      for (const block of messageBlocks(item)) {
         if (block.type !== "text") continue;
         const result = parseSetupResult(block.text);
         if (!result) continue;
@@ -453,7 +438,7 @@ export function AnalyticsPage() {
     if (
       !found &&
       awaitingAgentRef.current &&
-      reportChat.chat.status === "idle"
+      reportChat.controls.status === "idle"
     ) {
       setNotice("The report finished without returning analytics data.");
       finishRefresh();
@@ -461,15 +446,15 @@ export function AnalyticsPage() {
   }, [
     acceptReport,
     finishRefresh,
-    reportChat.chat.items,
-    reportChat.chat.status,
+    reportChat.messages,
+    reportChat.controls.status,
   ]);
 
   useEffect(() => {
-    if (!reportChat.chat.error || !awaitingAgentRef.current) return;
-    setNotice(reportChat.chat.error);
+    if (!reportChat.controls.error || !awaitingAgentRef.current) return;
+    setNotice(reportChat.controls.error);
     finishRefresh();
-  }, [finishRefresh, reportChat.chat.error]);
+  }, [finishRefresh, reportChat.controls.error]);
 
   const refresh = useCallback(async () => {
     if (refreshingRef.current) return;
@@ -500,10 +485,12 @@ export function AnalyticsPage() {
     if (
       workspaceProvider &&
       runtimeStatus === "connected" &&
-      reportChat.sessionReady
+      reportChat.chatReady
     ) {
       awaitingAgentRef.current = true;
-      reportChat.send(analyticsReportTask(selectedChannel));
+      void reportChat.sendMessage({
+        text: `Consult the Analyst specialist and ${analyticsReportTask(selectedChannel)}`,
+      });
       return;
     }
 
@@ -524,14 +511,14 @@ export function AnalyticsPage() {
       !selectedChannel ||
       storedSnapshot === undefined ||
       storedSnapshot ||
-      !reportChat.sessionReady ||
+      !reportChat.chatReady ||
       autoRefreshedRef.current.has(selectedChannel._id)
     ) {
       return;
     }
     autoRefreshedRef.current.add(selectedChannel._id);
     void refresh();
-  }, [refresh, reportChat.sessionReady, selectedChannel, storedSnapshot]);
+  }, [refresh, reportChat.chatReady, selectedChannel, storedSnapshot]);
 
   const handleSetupResult = useCallback(
     (result: SetupResult) => {
@@ -553,9 +540,9 @@ export function AnalyticsPage() {
   const sourceName = selectedChannel?.displayName ?? preferredIntegration.name;
   const askAnalyst = () => {
     const draft = "What changed in our traffic recently?";
-    const conversation = createChat("analyst", `${sourceName} analytics`);
+    const conversation = createChat(`${sourceName} analytics`);
     navigate(
-      `/conversations?agent=analyst&chat=${conversation.id}&new=1&draft=${encodeURIComponent(draft)}`,
+      `/conversations?chat=${conversation.id}&draft=${encodeURIComponent(`Consult the Analyst specialist. ${draft}`)}`,
     );
   };
 
@@ -755,7 +742,6 @@ export function AnalyticsPage() {
                   {workspaceProvider ? (
                     <IntegrationConnect
                       integration={preferredIntegration}
-                      driver={workspaceProvider}
                       connected={false}
                       onResult={handleSetupResult}
                     />
@@ -825,7 +811,7 @@ export function AnalyticsPage() {
               />
             ) : refreshing ? (
               <AnalyticsReportProgress
-                chat={reportChat.chat}
+                chat={reportChat}
                 sourceName={sourceName}
               />
             ) : (

@@ -41,7 +41,7 @@ import {
 } from "../lib/onboarding-schedules";
 import { onboardingWorkFromMetadata } from "../lib/onboarding-work";
 import { presentRunText } from "../lib/run-copy";
-import { useAgentChat, useWorkspaceData } from "../lib/runtime";
+import { useObservedChat, useWorkspaceData } from "../lib/runtime";
 import { workspaceContextFromOrganization } from "../lib/workspace-context";
 
 const AGENT_NAMES: Record<string, string> = {
@@ -110,34 +110,25 @@ interface OverviewAction extends AttentionItem {
 }
 
 function OverviewRunInput({
-  agentId,
   run,
   recurringWorkId,
 }: {
-  agentId: string;
   run: RecurringWorkRunRecord;
   recurringWorkId: string;
 }) {
   const [answeredInputs, setAnsweredInputs] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
-  const { chat, provideInput, sessionReady } = useAgentChat(
-    agentId,
-    null,
-    `automation-run-${run.id}`,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    true,
+  const { messages, provideInput, chatReady } = useObservedChat(
+    run.chatId,
     recurringWorkId,
   );
   const pendingInput = useMemo(
-    () => findPendingInputRequest(chat.items, answeredInputs),
-    [answeredInputs, chat.items],
+    () => findPendingInputRequest(messages, answeredInputs),
+    [answeredInputs, messages],
   );
 
-  if (!sessionReady) {
+  if (!chatReady) {
     return (
       <p className="chief-overview-setup-loading animate-pulse">
         Loading the setup request…
@@ -800,9 +791,9 @@ export function DashboardPage() {
   const submit = () => {
     const text = ask.trim();
     if (!text) return;
-    const conversation = createChat("cmo", text);
+    const conversation = createChat(text);
     void navigate(
-      `/conversations?agent=cmo&chat=${conversation.id}&new=1&prompt=${encodeURIComponent(text)}`,
+      `/conversations?chat=${conversation.id}&prompt=${encodeURIComponent(text)}`,
     );
   };
 
@@ -879,7 +870,6 @@ export function DashboardPage() {
                 currentActionRun?.status === "needs_approval" ? (
                   <OverviewRunInput
                     key={currentActionRun.id}
-                    agentId={currentAction.agentId}
                     recurringWorkId={currentActionWorkId}
                     run={currentActionRun}
                   />

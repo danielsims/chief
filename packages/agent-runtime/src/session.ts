@@ -5,13 +5,14 @@ import type {
   AccessMode,
   AgentDefinition,
   AgentEvent,
+  AutomationGrant,
   DriverType,
   McpServerSpec,
 } from "./types.js";
 import { createDriver } from "./drivers/index.js";
 import { withGenerativeDataParts } from "./generative-ui.js";
 
-/** Per-session execution config: which backend runs the persona and how much it may do unprompted. */
+/** Runtime-owned execution configuration for one chat. */
 export interface SessionConfig {
   driver: DriverType;
   access: AccessMode;
@@ -19,7 +20,8 @@ export interface SessionConfig {
   env?: Record<string, string>;
   model?: string;
   mcpServers?: McpServerSpec[];
-  automationGrant?: import("./types.js").AutomationGrant;
+  automationGrant?: AutomationGrant;
+  executionOwner?: "interactive" | "schedule" | "channel";
 }
 
 export class AgentSession extends EventEmitter {
@@ -108,11 +110,12 @@ export class AgentSession extends EventEmitter {
     });
   }
 
-  sendPrompt(text: string) {
+  sendPrompt(text: string, messageId?: string) {
     // Record the user turn as an event so reconnecting clients can rebuild
     // the full transcript from the buffer.
     const event: AgentEvent = {
       type: "message",
+      id: messageId,
       role: "user",
       content: [{ type: "text", text }],
     };
@@ -127,6 +130,14 @@ export class AgentSession extends EventEmitter {
     this.record({
       type: "message",
       role: "user",
+      content: [{ type: "text", text }],
+    });
+  }
+
+  recordAssistantMessage(text: string) {
+    this.record({
+      type: "message",
+      role: "assistant",
       content: [{ type: "text", text }],
     });
   }

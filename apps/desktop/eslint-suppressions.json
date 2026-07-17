@@ -163,17 +163,11 @@
     "@typescript-eslint/no-empty-function": {
       "count": 1
     },
-    "@typescript-eslint/no-non-null-assertion": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-argument": {
       "count": 1
     },
     "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 7
+      "count": 6
     },
     "react-hooks/refs": {
       "count": 5
@@ -198,9 +192,6 @@
     },
     "@typescript-eslint/no-non-null-assertion": {
       "count": 3
-    },
-    "@typescript-eslint/prefer-optional-chain": {
-      "count": 1
     },
     "react-hooks/globals": {
       "count": 1

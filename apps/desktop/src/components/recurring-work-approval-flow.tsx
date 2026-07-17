@@ -13,8 +13,7 @@ import {
 } from "@chief/ui/components/dialog";
 import { Input } from "@chief/ui/components/input";
 
-import { useAgentConfig } from "../lib/agent-config";
-import { useAgentChat } from "../lib/runtime";
+import { messageBlocks, useChiefChat } from "../lib/runtime";
 
 /**
  * The one approval surface for proposed recurring work, usable from any
@@ -32,27 +31,21 @@ export function RecurringWorkApprovalFlow({
   onApprove: (work: RecurringWorkRecord) => void;
   onReject: (work: RecurringWorkRecord) => void;
 }) {
-  const agentConfig = useAgentConfig();
-  const revisionDriver = agentConfig.forAgent("cmo").driver;
-  const revisionChat = useAgentChat(
-    work ? "cmo" : null,
-    revisionDriver,
-    work ? `revise-recurring-${work.id}` : undefined,
-    "full",
-  );
+  const revisionChat = useChiefChat(work?.chatId ?? null);
   const revisionNote = useMemo(() => {
-    for (let i = revisionChat.chat.items.length - 1; i >= 0; i -= 1) {
-      const item = revisionChat.chat.items[i]!;
-      if (item.kind !== "assistant") continue;
-      const text = item.event.content
+    for (let i = revisionChat.messages.length - 1; i >= 0; i -= 1) {
+      const item = revisionChat.messages[i]!;
+      if (item.role !== "assistant") continue;
+      const text = messageBlocks(item)
         .flatMap((block) => (block.type === "text" ? [block.text] : []))
         .join(" ")
         .trim();
       if (text) return text;
     }
     return null;
-  }, [revisionChat.chat.items]);
-  const busy = revisionChat.chat.status === "running";
+  }, [revisionChat.messages]);
+  const busy =
+    !revisionChat.chatReady || revisionChat.controls.status === "running";
   const [feedback, setFeedback] = useState("");
 
   const requestRevision = () => {
@@ -69,15 +62,15 @@ export function RecurringWorkApprovalFlow({
       approvalSummary: work.approvalSummary,
       proposedToolPatterns: work.proposedToolPatterns,
     };
-    revisionChat.send(
-      [
+    void revisionChat.sendMessage({
+      text: [
         "The user is reviewing a draft recurring-work approval and asked for a change before approving.",
         `Current draft (JSON): ${JSON.stringify(draft)}`,
         `Feedback: "${text}"`,
         `Right now it is ${new Date().toString()}.`,
         "Apply the feedback by calling the recurringWorkPropose local tool with the SAME id and ALL fields (id, title, agentId, cron, timezone, instructions, approvalSummary, proposedToolPatterns), changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
       ].join("\n"),
-    );
+    });
   };
 
   return (

@@ -8,6 +8,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { isIP } from "node:net";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,7 +28,6 @@ const VERCEL_API = "https://api.vercel.com";
 
 interface StartDeploymentInput {
   workspaceId: string;
-  agentId: string;
   projectName: string;
   teamId?: string;
   playbooks: AgentDeploymentPlaybook[];
@@ -38,14 +38,41 @@ interface VercelProject {
   name: string;
 }
 
-function deploymentRoot(workspaceId: string, agentId: string) {
-  return join(
-    homedir(),
-    ".chief",
-    "deployments",
-    workspaceKey(workspaceId),
-    agentId,
-  );
+function deploymentRoot(workspaceId: string) {
+  return join(homedir(), ".chief", "deployments", workspaceKey(workspaceId));
+}
+
+export function hostedExecutorEnvironment(environment: Record<string, string>) {
+  const rawUrl = environment.EXECUTOR_MCP_URL?.trim();
+  const token = environment.EXECUTOR_MCP_TOKEN?.trim();
+  if (!rawUrl || !token) {
+    throw new Error(
+      "Add hosted EXECUTOR_MCP_URL and EXECUTOR_MCP_TOKEN values in Environment before deploying.",
+    );
+  }
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error("EXECUTOR_MCP_URL must be a valid hosted HTTPS URL.");
+  }
+  const hostname = url.hostname.toLowerCase();
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    isIP(hostname) !== 0 ||
+    !hostname.includes(".") ||
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname.endsWith(".local") ||
+    hostname.endsWith(".invalid")
+  ) {
+    throw new Error(
+      "EXECUTOR_MCP_URL must use a real hosted HTTPS endpoint; localhost and non-routable hosts cannot serve a cloud deployment.",
+    );
+  }
+  return { executorMcpToken: token, executorMcpUrl: url.toString() };
 }
 
 function templateRoot() {
@@ -141,6 +168,32 @@ async function resolveVercelOwner(token: string, teamId?: string) {
   return user.user.id;
 }
 
+async function configureVercelEnvironment(
+  token: string,
+  projectId: string,
+  values: Record<string, string>,
+  teamId?: string,
+) {
+  await Promise.all(
+    Object.entries(values).map(([key, value]) =>
+      vercelRequest(
+        token,
+        `/v10/projects/${encodeURIComponent(projectId)}/env?upsert=true`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            key,
+            value,
+            type: "encrypted",
+            target: ["production", "preview"],
+          }),
+        },
+        teamId,
+      ),
+    ),
+  );
+}
+
 function deploymentUrl(logs: string[]) {
   return logs
     .flatMap((line) => line.match(/https:\/\/[a-z0-9.-]+\.vercel\.app/gi) ?? [])
@@ -164,8 +217,7 @@ export class AgentDeploymentManager {
 
   start(input: StartDeploymentInput) {
     const existing = this.list(input.workspaceId).find(
-      (record) =>
-        record.agentId === input.agentId && record.status === "running",
+      (record) => record.status === "running",
     );
     if (existing) return existing;
     if (!/^[a-z0-9][a-z0-9._-]{0,99}$/.test(input.projectName)) {
@@ -175,7 +227,6 @@ export class AgentDeploymentManager {
     const record: AgentDeploymentRecord = {
       id: randomUUID(),
       workspaceId: input.workspaceId,
-      agentId: input.agentId,
       target: "vercel",
       projectName: input.projectName,
       teamId: input.teamId,
@@ -225,6 +276,15 @@ export class AgentDeploymentManager {
   private async run(id: string, input: StartDeploymentInput) {
     try {
       const environment = await workspaceSecrets.materialize(input.workspaceId);
+      const data = await this.manager.workspaceData(input.workspaceId);
+      const activeCloudSchedules = data.recurringWork.filter(
+        (work) => work.status === "active" && work.placement === "cloud",
+      );
+      if (activeCloudSchedules.length > 0) {
+        throw new Error(
+          `Cloud schedules cannot be deployed until Executor supports schedule-scoped capabilities. Move these schedules to this Mac or pause them: ${activeCloudSchedules.map((work) => work.title).join(", ")}.`,
+        );
+      }
       const token = environment.VERCEL_TOKEN;
       if (!token) {
         this.update(id, {
@@ -234,16 +294,25 @@ export class AgentDeploymentManager {
         });
         return;
       }
+      let executor: ReturnType<typeof hostedExecutorEnvironment>;
+      try {
+        executor = hostedExecutorEnvironment(environment);
+      } catch (error) {
+        this.update(id, {
+          status: "needs_configuration",
+          phase: undefined,
+          detail: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
 
       const source = templateRoot();
       if (!existsSync(source)) {
         throw new Error("The packaged Eve workspace template is unavailable.");
       }
-      const target = deploymentRoot(input.workspaceId, input.agentId);
+      const target = deploymentRoot(input.workspaceId);
       copyTemplate(source, target);
-      const data = await this.manager.workspaceData(input.workspaceId);
       materializeEveWorkspace(target, {
-        agentId: input.agentId,
         context: readWorkspaceContext(input.workspaceId),
         playbooks: input.playbooks,
         automations: data.recurringWork.map((work) => ({
@@ -252,8 +321,10 @@ export class AgentDeploymentManager {
           cron: work.cron,
           timezone: work.timezone,
           instructions: work.instructions,
-          toolPatterns: work.grant?.toolPatterns ?? [],
+          grant: work.grant,
           placement: work.placement,
+          runOnceAt: work.runOnceAt,
+          status: work.status,
         })),
       });
 
@@ -263,6 +334,15 @@ export class AgentDeploymentManager {
         input.teamId,
       );
       const ownerId = await resolveVercelOwner(token, input.teamId);
+      await configureVercelEnvironment(
+        token,
+        project.id,
+        {
+          EXECUTOR_MCP_TOKEN: executor.executorMcpToken,
+          EXECUTOR_MCP_URL: executor.executorMcpUrl,
+        },
+        input.teamId,
+      );
       mkdirSync(join(target, ".vercel"), { recursive: true });
       writeFileSync(
         join(target, ".vercel", "project.json"),
@@ -276,7 +356,14 @@ export class AgentDeploymentManager {
       }
       const child = spawn(process.execPath, [eveBin, "deploy"], {
         cwd: target,
-        env: { ...process.env, ...environment, CI: "1", VERCEL_TOKEN: token },
+        env: {
+          ...process.env,
+          ...environment,
+          CI: "1",
+          EXECUTOR_MCP_TOKEN: executor.executorMcpToken,
+          EXECUTOR_MCP_URL: executor.executorMcpUrl,
+          VERCEL_TOKEN: token,
+        },
         stdio: ["ignore", "pipe", "pipe"],
       });
       this.processes.set(id, child);

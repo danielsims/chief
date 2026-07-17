@@ -116,14 +116,14 @@ export function TrendingPage() {
           <div className="max-w-sm">
             <p className="font-serif text-2xl">No trends yet</p>
             <p className="text-muted-foreground mt-2 text-sm leading-6">
-              The Prospector saves supported market signals here, with the
-              source and why each one matters.
+              Chief saves supported market signals here after consulting the
+              Prospector, with the source and why each one matters.
             </p>
             <Link
-              to="/conversations?agent=prospector"
+              to="/conversations"
               className="hover:bg-accent mt-5 inline-block border px-3 py-2 text-xs transition-colors"
             >
-              Open Prospector
+              Ask Chief about trends
             </Link>
           </div>
         </div>

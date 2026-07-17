@@ -1,3 +1,4 @@
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import {
   index,
@@ -9,38 +10,60 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+import type { RunResultArtifact } from "../types.js";
+
 export const chats = sqliteTable(
-  "chats",
+  "chat",
   {
     id: text().primaryKey(),
     workspaceId: text("workspace_id").notNull(),
-    agentId: text("agent_id").notNull(),
-    title: text().notNull(),
+    parentId: text("parent_id").references((): AnySQLiteColumn => chats.id, {
+      onDelete: "cascade",
+    }),
+    triggerId: text("trigger_id"),
+    visibility: text({ enum: ["user", "private"] }).notNull(),
+    agent: text().notNull(),
+    title: text().notNull().default(""),
     lastText: text("last_text").notNull().default(""),
-    driver: text({ enum: ["claude", "codex", "opencode"] }).notNull(),
+    provider: text().notNull(),
     model: text(),
+    providerState: text("provider_state", { mode: "json" }).$type<unknown>(),
+    eveState: text("eve_state", { mode: "json" }).$type<unknown>(),
+    status: text({
+      enum: ["idle", "running", "waiting", "completed", "error"],
+    })
+      .notNull()
+      .default("idle"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
-    index("chats_workspace_updated").on(table.workspaceId, table.updatedAt),
+    index("chat_workspace_updated").on(table.workspaceId, table.updatedAt),
+    index("chat_parent").on(table.parentId),
   ],
 );
 
-export const chatEvents = sqliteTable(
-  "chat_events",
+export const messages = sqliteTable(
+  "message",
   {
+    id: text().primaryKey(),
     chatId: text("chat_id")
       .notNull()
       .references(() => chats.id, { onDelete: "cascade" }),
+    role: text({ enum: ["system", "user", "assistant"] }).notNull(),
+    parts: text({ mode: "json" }).$type<unknown[]>().notNull(),
+    metadata: text({ mode: "json" }).$type<unknown>(),
     position: integer().notNull(),
-    eventJson: text("event_json").notNull(),
+    createdAt: integer("created_at").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.chatId, table.position] })],
+  (table) => [
+    uniqueIndex("message_chat_position").on(table.chatId, table.position),
+    index("message_chat_created").on(table.chatId, table.createdAt),
+  ],
 );
 
 export const prospects = sqliteTable(
-  "prospects",
+  "prospect",
   {
     id: text().primaryKey(),
     workspaceId: text("workspace_id").notNull(),
@@ -57,12 +80,12 @@ export const prospects = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
-    index("prospects_workspace_found").on(table.workspaceId, table.foundAt),
+    index("prospect_workspace_found").on(table.workspaceId, table.foundAt),
   ],
 );
 
 export const trends = sqliteTable(
-  "trends",
+  "trend",
   {
     id: text().primaryKey(),
     workspaceId: text("workspace_id").notNull(),
@@ -76,12 +99,12 @@ export const trends = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
-    index("trends_workspace_found").on(table.workspaceId, table.foundAt),
+    index("trend_workspace_found").on(table.workspaceId, table.foundAt),
   ],
 );
 
 export const contentDrafts = sqliteTable(
-  "content_drafts",
+  "content",
   {
     id: text().primaryKey(),
     workspaceId: text("workspace_id").notNull(),
@@ -98,7 +121,7 @@ export const contentDrafts = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
-    index("drafts_workspace_schedule").on(
+    index("content_workspace_schedule").on(
       table.workspaceId,
       table.scheduledFor,
     ),
@@ -106,7 +129,7 @@ export const contentDrafts = sqliteTable(
 );
 
 export const workspaceFiles = sqliteTable(
-  "workspace_files",
+  "file",
   {
     id: text().primaryKey(),
     workspaceId: text("workspace_id").notNull(),
@@ -125,19 +148,13 @@ export const workspaceFiles = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
-    uniqueIndex("workspace_files_workspace_path").on(
-      table.workspaceId,
-      table.path,
-    ),
-    index("workspace_files_workspace_updated").on(
-      table.workspaceId,
-      table.updatedAt,
-    ),
+    uniqueIndex("file_workspace_path").on(table.workspaceId, table.path),
+    index("file_workspace_updated").on(table.workspaceId, table.updatedAt),
   ],
 );
 
 export const workspaceFileVersions = sqliteTable(
-  "workspace_file_versions",
+  "version",
   {
     id: text().primaryKey(),
     fileId: text("file_id")
@@ -151,16 +168,11 @@ export const workspaceFileVersions = sqliteTable(
     sourceRunId: text("source_run_id"),
     createdAt: integer("created_at").notNull(),
   },
-  (table) => [
-    index("workspace_file_versions_file_created").on(
-      table.fileId,
-      table.createdAt,
-    ),
-  ],
+  (table) => [index("version_file_created").on(table.fileId, table.createdAt)],
 );
 
 export const campaigns = sqliteTable(
-  "campaigns",
+  "campaign",
   {
     id: text().primaryKey(),
     workspaceId: text("workspace_id").notNull(),
@@ -178,15 +190,18 @@ export const campaigns = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
-    index("campaigns_workspace_updated").on(table.workspaceId, table.updatedAt),
+    index("campaign_workspace_updated").on(table.workspaceId, table.updatedAt),
   ],
 );
 
 export const recurringWork = sqliteTable(
-  "recurring_work",
+  "schedule",
   {
     id: text().primaryKey(),
     workspaceId: text("workspace_id").notNull(),
+    chatId: text("chat_id")
+      .notNull()
+      .references(() => chats.id, { onDelete: "cascade" }),
     agentId: text("agent_id").notNull(),
     title: text().notNull(),
     instructions: text().notNull(),
@@ -217,21 +232,22 @@ export const recurringWork = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
-    index("recurring_work_workspace_next").on(
-      table.workspaceId,
-      table.nextRunAt,
-    ),
+    index("schedule_workspace_next").on(table.workspaceId, table.nextRunAt),
+    uniqueIndex("schedule_chat").on(table.chatId),
   ],
 );
 
 export const recurringWorkRuns = sqliteTable(
-  "recurring_work_runs",
+  "run",
   {
     id: text().primaryKey(),
-    recurringWorkId: text("recurring_work_id")
+    recurringWorkId: text("schedule_id")
       .notNull()
       .references(() => recurringWork.id, { onDelete: "cascade" }),
     workspaceId: text("workspace_id").notNull(),
+    chatId: text("chat_id")
+      .notNull()
+      .references(() => chats.id, { onDelete: "cascade" }),
     status: text({
       enum: ["running", "completed", "waiting", "failed", "needs_approval"],
     }).notNull(),
@@ -240,28 +256,23 @@ export const recurringWorkRuns = sqliteTable(
     finishedAt: integer("finished_at"),
     summary: text(),
     error: text(),
-    artifacts: text({ mode: "json" }).$type<
-      import("../types.js").RunResultArtifact[]
-    >(),
+    artifacts: text({ mode: "json" }).$type<RunResultArtifact[]>(),
     /** Executor addresses the grant declined during this run. */
     blockedTools: text("blocked_tools", { mode: "json" }).$type<string[]>(),
   },
   (table) => [
-    index("recurring_runs_workspace_started").on(
-      table.workspaceId,
-      table.startedAt,
-    ),
+    index("run_workspace_started").on(table.workspaceId, table.startedAt),
     // A recurring job may have many historical attempts, but never more than
     // one live attempt. This is a durable scheduler lease shared by installed,
     // dev, and recovering runtime processes rather than an in-memory promise.
-    uniqueIndex("recurring_runs_one_active_per_work")
+    uniqueIndex("run_one_active_per_schedule")
       .on(table.recurringWorkId)
       .where(sql`${table.status} = 'running'`),
   ],
 );
 
 export const agentPreferences = sqliteTable(
-  "agent_preferences",
+  "preference",
   {
     workspaceId: text("workspace_id").notNull(),
     agentId: text("agent_id").notNull(),
@@ -281,7 +292,7 @@ export const agentPreferences = sqliteTable(
  * routine output never lands here.
  */
 export const attentionItems = sqliteTable(
-  "attention_items",
+  "attention",
   {
     id: text().primaryKey(),
     workspaceId: text("workspace_id").notNull(),

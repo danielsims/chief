@@ -20,12 +20,12 @@ export interface ScheduledAgentConfig {
 export async function scheduledAgentConfig(
   manager: SessionManager,
   workspaceId: string,
-  work: RecurringWorkRecord,
+  _work: RecurringWorkRecord,
 ): Promise<ScheduledAgentConfig | null> {
-  const agent = getAgent(work.agentId);
-  if (!agent) throw new Error(`Unknown agent: ${work.agentId}`);
+  const agent = getAgent("cmo");
+  if (!agent) throw new Error("CMO persona is missing.");
 
-  const preference = await manager.agentPreference(workspaceId, work.agentId);
+  const preference = await manager.agentPreference(workspaceId, "cmo");
   if (preference?.enabled === false) {
     throw new Error(`${agent.name} is disabled.`);
   }
@@ -41,8 +41,7 @@ export async function deferForAgentConfiguration(
   notice: (workspaceId: string, notice: RuntimeNotice) => void,
   onChange: (workspaceId: string) => void | Promise<void>,
 ) {
-  const agent = getAgent(work.agentId);
-  const agentName = agent?.name ?? work.agentId;
+  const agentName = "CMO";
   const reason = `Choose an agent app for ${agentName} before this work can run.`;
   const now = Date.now();
 
@@ -55,10 +54,10 @@ export async function deferForAgentConfiguration(
   });
   await manager.raiseAttentionItem(workspaceId, {
     id: `attention-${work.id}-agent-app`,
-    agentId: work.agentId,
+    agentId: "cmo",
     title: `Configure ${agentName}`,
     reason,
-    sourceId: `agent-${work.agentId}`,
+    sourceId: "agent-cmo",
     status: "open",
     createdAt: now,
   });
@@ -66,8 +65,8 @@ export async function deferForAgentConfiguration(
     kind: "setup-required",
     title: `Configure ${agentName}`,
     detail: reason,
-    sourceId: `agent-${work.agentId}`,
-    agentId: work.agentId,
+    sourceId: "agent-cmo",
+    agentId: "cmo",
     recurringWorkId: work.id,
   });
   await Promise.resolve(onChange(workspaceId));
@@ -81,7 +80,7 @@ export async function resumeDriverBlockedWork(
   const data = await manager.workspaceData(workspaceId);
   const blocked = data.recurringWork.filter(
     (work) =>
-      work.agentId === agentId &&
+      agentId === "cmo" &&
       work.status === "needs_approval" &&
       work.lastResult?.startsWith(MISSING_DRIVER_RESULT),
   );

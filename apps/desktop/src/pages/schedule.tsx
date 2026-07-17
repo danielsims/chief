@@ -53,7 +53,7 @@ import { useAgentConfig } from "../lib/agent-config";
 import { useAuth } from "../lib/auth/auth-context";
 import { createChat } from "../lib/chat-log";
 import { presentRunText } from "../lib/run-copy";
-import { useAgentChat, useWorkspaceData } from "../lib/runtime";
+import { messageBlocks, useChiefChat, useWorkspaceData } from "../lib/runtime";
 
 type ScheduledDraft = ContentDraftRecord;
 type CalendarView = "month" | "week" | "day";
@@ -1516,36 +1516,20 @@ function RecurringWorkDetail({
           </>
         )}
       </div>
-      {!approvalNeeded && onPlacement ? (
+      {!approvalNeeded && onPlacement && work.placement === "cloud" ? (
         <div className="mt-3 flex items-center justify-between gap-2 border-t pt-2.5">
-          <span className="text-muted-foreground text-[10px]">Runs on</span>
-          <div className="flex border p-0.5">
-            {(
-              [
-                { value: "local", label: "This Mac" },
-                { value: "cloud", label: "Cloud" },
-              ] as const
-            ).map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => onPlacement(option.value)}
-                className={cn(
-                  "text-muted-foreground hover:text-foreground px-2 py-0.5 text-[10px] transition-colors",
-                  work.placement === option.value &&
-                    "bg-accent text-foreground",
-                )}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          <span className="text-muted-foreground text-[10px]">
+            Cloud schedules are unavailable until Executor can enforce
+            schedule-scoped grants.
+          </span>
+          <button
+            type="button"
+            onClick={() => onPlacement("local")}
+            className="text-foreground shrink-0 border px-2 py-0.5 text-[10px]"
+          >
+            Move to this Mac
+          </button>
         </div>
-      ) : null}
-      {work.placement === "cloud" && !approvalNeeded ? (
-        <p className="text-muted-foreground mt-1.5 text-[10px]">
-          Takes effect on the next workspace deploy.
-        </p>
       ) : null}
     </div>
   );
@@ -1596,24 +1580,19 @@ export function SchedulePage() {
       null)
     : null;
   const revisionDriver = agentConfig.forAgent("cmo").driver;
-  const revisionChat = useAgentChat(
-    approvalWorkId ? "cmo" : null,
-    revisionDriver,
-    approvalWorkId ? `revise-recurring-${approvalWorkId}` : undefined,
-    "full",
-  );
+  const revisionChat = useChiefChat(approvalWork?.chatId ?? null);
   const revisionNote = useMemo(() => {
-    for (let i = revisionChat.chat.items.length - 1; i >= 0; i -= 1) {
-      const item = revisionChat.chat.items[i]!;
-      if (item.kind !== "assistant") continue;
-      const text = item.event.content
+    for (let i = revisionChat.messages.length - 1; i >= 0; i -= 1) {
+      const item = revisionChat.messages[i]!;
+      if (item.role !== "assistant") continue;
+      const text = messageBlocks(item)
         .flatMap((block) => (block.type === "text" ? [block.text] : []))
         .join(" ")
         .trim();
       if (text) return text;
     }
     return null;
-  }, [revisionChat.chat.items]);
+  }, [revisionChat.messages]);
   const openWorkReview = (work: RecurringWorkRecord) => {
     if (work.status !== "needs_approval") {
       setApprovalWorkId(work.id);
@@ -1655,15 +1634,15 @@ export function SchedulePage() {
       approvalSummary: approvalWork.approvalSummary,
       proposedToolPatterns: approvalWork.proposedToolPatterns,
     };
-    revisionChat.send(
-      [
+    void revisionChat.sendMessage({
+      text: [
         "The user is reviewing a draft recurring-work approval and asked for a change before approving.",
         `Current draft (JSON): ${JSON.stringify(draft)}`,
         `Feedback: "${feedback}"`,
         `Right now it is ${new Date().toString()}.`,
         "Apply the feedback by calling the recurringWorkPropose local tool with the SAME id and ALL fields (id, title, agentId, cron, timezone, runOnceAt when present, instructions, approvalSummary, proposedToolPatterns), changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
       ].join("\n"),
-    );
+    });
   };
 
   const workDateKeyIn = (timestamp: number, timezone: string) => {
@@ -1791,15 +1770,16 @@ export function SchedulePage() {
     setActiveMonth(month);
   };
 
-  const openAgentForDate = (
-    agentId: string,
+  const openChiefForDate = (
+    specialist: string,
     title: string,
     text: string,
     send = false,
   ) => {
-    const chat = createChat(agentId, title);
+    const chat = createChat(title);
+    const prompt = `Consult the ${specialist} specialist. ${text}`;
     void navigate(
-      `/conversations?agent=${agentId}&chat=${chat.id}&new=1&${send ? "prompt" : "draft"}=${encodeURIComponent(text)}`,
+      `/conversations?chat=${chat.id}&${send ? "prompt" : "draft"}=${encodeURIComponent(prompt)}`,
     );
   };
 
@@ -1828,30 +1808,28 @@ export function SchedulePage() {
       day: "numeric",
     });
     if (action === "content") {
-      openAgentForDate(
-        "content",
+      openChiefForDate(
+        "Content Writer",
         `Content for ${dateText}`,
         `Draft and schedule a piece of content for ${dateText}.`,
       );
       return;
     }
     if (action === "recurring") {
-      const chat = createChat("cmo", "Set up recurring work");
-      void navigate(
-        `/conversations?agent=cmo&chat=${chat.id}&new=1&compose=recurring`,
-      );
+      const chat = createChat("Set up recurring work");
+      void navigate(`/conversations?chat=${chat.id}&compose=recurring`);
       return;
     }
     if (action === "event") {
       const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-      const chat = createChat("cmo", `Event on ${dateText}`);
+      const chat = createChat(`Event on ${dateText}`);
       void navigate(
-        `/conversations?agent=cmo&chat=${chat.id}&new=1&compose=oneoff&date=${iso}`,
+        `/conversations?chat=${chat.id}&compose=oneoff&date=${iso}`,
       );
       return;
     }
-    openAgentForDate(
-      "cmo",
+    openChiefForDate(
+      "appropriate marketing",
       `Plan ${dateText}`,
       `Help me plan the marketing work and content for ${dateText}.`,
     );
@@ -1889,10 +1867,8 @@ export function SchedulePage() {
             variant="outline"
             size="sm"
             onClick={() => {
-              const chat = createChat("cmo", "Set up recurring work");
-              void navigate(
-                `/conversations?agent=cmo&chat=${chat.id}&new=1&compose=recurring`,
-              );
+              const chat = createChat("Set up recurring work");
+              void navigate(`/conversations?chat=${chat.id}&compose=recurring`);
             }}
           >
             <Plus size={13} />
@@ -2192,7 +2168,9 @@ export function SchedulePage() {
         onReject={(work) => workspaceData.deleteRecurringWork(work.id)}
         revision={{
           available: Boolean(revisionDriver),
-          busy: revisionChat.chat.status === "running",
+          busy:
+            !revisionChat.chatReady ||
+            revisionChat.controls.status === "running",
           note: revisionNote,
           onRequest: requestRevision,
         }}

@@ -9,13 +9,16 @@ importers:
     dependencies:
       "@vercel/connect":
         specifier: ^0.3.2
-        version: 0.3.3(ai@7.0.19(zod@4.4.3))(eve@0.22.4(ai@7.0.19(zod@4.4.3))(microsandbox@0.6.6))
+        version: 0.3.3(ai@7.0.30(zod@4.4.3))(eve@0.24.6(ai@7.0.30(zod@4.4.3))(microsandbox@0.6.6))
       ai:
-        specifier: 7.0.19
-        version: 7.0.19(zod@4.4.3)
+        specifier: 7.0.30
+        version: 7.0.30(zod@4.4.3)
       eve:
-        specifier: 0.22.4
-        version: 0.22.4(ai@7.0.19(zod@4.4.3))(microsandbox@0.6.6)
+        specifier: 0.24.6
+        version: 0.24.6(ai@7.0.30(zod@4.4.3))(microsandbox@0.6.6)
+      microsandbox:
+        specifier: 0.6.6
+        version: 0.6.6
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -24,14 +27,11 @@ importers:
         specifier: ^9.38.0
         version: 9.39.5
       "@types/node":
-        specifier: ^22.15.0
-        version: 22.20.1
+        specifier: ^24.13.0
+        version: 24.13.3
       eslint:
         specifier: ^9.38.0
         version: 9.39.5
-      microsandbox:
-        specifier: ^0.6.6
-        version: 0.6.6
       prettier:
         specifier: ^3.6.2
         version: 3.9.5
@@ -46,19 +46,19 @@ importers:
         version: 8.64.0(eslint@9.39.5)(typescript@5.9.3)
 
 packages:
-  "@ai-sdk/gateway@4.0.15":
+  "@ai-sdk/gateway@4.0.22":
     resolution:
       {
-        integrity: sha512-JHvgCU4SR6OdjOI+8rxIF3zhIboFAkQ1vEa+QOIdkK5VyME1ONx8SbgM2YtnSY1DOsCtUyhd+EG876pYpRjopg==,
+        integrity: sha512-KdXJLa6O25fltJC/Lh8gnB1VaYMdX2mEKIalkohuItS+Ig523XxwK9e/Uuc66AvtrLIf7G51cDg3rDpP9mrxwQ==,
       }
     engines: { node: ">=22" }
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  "@ai-sdk/provider-utils@5.0.7":
+  "@ai-sdk/provider-utils@5.0.10":
     resolution:
       {
-        integrity: sha512-OSm5/5kdrHa11WIOo5LYgDKnxYWp5aB/wx5EXRHi0jpUGduMDeB6oht9U6p+UNNWIP3F/EqPpV8d7vdP/iRnqg==,
+        integrity: sha512-uPyec0+85dwxZYXtb8qe8gCjhjDfxP4LCDo/uRQS/iG+FIgYbHPRhr/ys281udG90bTaE18+5cxWraYaf8oHCw==,
       }
     engines: { node: ">=22" }
     peerDependencies:
@@ -647,10 +647,10 @@ packages:
         integrity: sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==,
       }
 
-  "@types/node@22.20.1":
+  "@types/node@24.13.3":
     resolution:
       {
-        integrity: sha512-EANqOCF9QFyra+4pfxUcX9STKJpCLjMbObVzljIJomAWSnuSIEAvyzEU53GaajbXJEgdh0iEcPL+DGvpUd4k1Q==,
+        integrity: sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q==,
       }
 
   "@typescript-eslint/eslint-plugin@8.64.0":
@@ -817,10 +817,10 @@ packages:
     engines: { node: ">=0.4.0" }
     hasBin: true
 
-  ai@7.0.19:
+  ai@7.0.30:
     resolution:
       {
-        integrity: sha512-7kxMNiy6JqCvruCY2qGMNzeqEt9Ey3XqrtYGHWyipDJTXHFN7gOyO1UR2UIXhw112vAUkrO+OJJzemKJD8P3bA==,
+        integrity: sha512-tm0gTAHSWBdDfW4P2mj+LlglGCUQTSA9ktyS2PsPgVhxNO9gYWTSnRAehiJ3h1lYsJBp1Zgbz3RH2lezJXagiw==,
       }
     engines: { node: ">=22" }
     peerDependencies:
@@ -1085,16 +1085,16 @@ packages:
       }
     engines: { node: ">=0.10.0" }
 
-  eve@0.22.4:
+  eve@0.24.6:
     resolution:
       {
-        integrity: sha512-BWrq2IRUtA2zsWeA/lk9jhUPrFnvNrdmFtUz3f3fOYSbNOlrVJxadG8VoSdQzYqbfeS3seDlfwektaRSgSeKRA==,
+        integrity: sha512-/WuGD6gAzv7DviM0bN0y4813bJSbBTeiTHVUR1GAOIH7PUCOCFY7lXbrDOG7Wk/mTa2IBmT4Om3L+nudCc+02g==,
       }
     engines: { node: ">=24" }
     hasBin: true
     peerDependencies:
       "@opentelemetry/api": ^1.0.0
-      ai: ^7.0.0
+      ai: ^7.0.26
       braintrust: ^3.0.0
       just-bash: ^3.0.0
       microsandbox: ^0.5.0
@@ -1706,10 +1706,10 @@ packages:
     engines: { node: ">=14.17" }
     hasBin: true
 
-  undici-types@6.21.0:
+  undici-types@7.18.2:
     resolution:
       {
-        integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==,
+        integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==,
       }
 
   unenv@2.0.0-rc.24:
@@ -1850,14 +1850,14 @@ packages:
       }
 
 snapshots:
-  "@ai-sdk/gateway@4.0.15(zod@4.4.3)":
+  "@ai-sdk/gateway@4.0.22(zod@4.4.3)":
     dependencies:
       "@ai-sdk/provider": 4.0.3
-      "@ai-sdk/provider-utils": 5.0.7(zod@4.4.3)
+      "@ai-sdk/provider-utils": 5.0.10(zod@4.4.3)
       "@vercel/oidc": 3.2.0
       zod: 4.4.3
 
-  "@ai-sdk/provider-utils@5.0.7(zod@4.4.3)":
+  "@ai-sdk/provider-utils@5.0.10(zod@4.4.3)":
     dependencies:
       "@ai-sdk/provider": 4.0.3
       "@standard-schema/spec": 1.1.0
@@ -2111,9 +2111,9 @@ snapshots:
 
   "@types/json-schema@7.0.15": {}
 
-  "@types/node@22.20.1":
+  "@types/node@24.13.3":
     dependencies:
-      undici-types: 6.21.0
+      undici-types: 7.18.2
 
   "@typescript-eslint/eslint-plugin@8.64.0(@typescript-eslint/parser@8.64.0(eslint@9.39.5)(typescript@5.9.3))(eslint@9.39.5)(typescript@5.9.3)":
     dependencies:
@@ -2215,12 +2215,12 @@ snapshots:
     dependencies:
       execa: 5.1.1
 
-  "@vercel/connect@0.3.3(ai@7.0.19(zod@4.4.3))(eve@0.22.4(ai@7.0.19(zod@4.4.3))(microsandbox@0.6.6))":
+  "@vercel/connect@0.3.3(ai@7.0.30(zod@4.4.3))(eve@0.24.6(ai@7.0.30(zod@4.4.3))(microsandbox@0.6.6))":
     dependencies:
       "@vercel/oidc": 3.8.0
     optionalDependencies:
-      ai: 7.0.19(zod@4.4.3)
-      eve: 0.22.4(ai@7.0.19(zod@4.4.3))(microsandbox@0.6.6)
+      ai: 7.0.30(zod@4.4.3)
+      eve: 0.24.6(ai@7.0.30(zod@4.4.3))(microsandbox@0.6.6)
 
   "@vercel/oidc@3.2.0": {}
 
@@ -2238,11 +2238,11 @@ snapshots:
 
   acorn@8.17.0: {}
 
-  ai@7.0.19(zod@4.4.3):
+  ai@7.0.30(zod@4.4.3):
     dependencies:
-      "@ai-sdk/gateway": 4.0.15(zod@4.4.3)
+      "@ai-sdk/gateway": 4.0.22(zod@4.4.3)
       "@ai-sdk/provider": 4.0.3
-      "@ai-sdk/provider-utils": 5.0.7(zod@4.4.3)
+      "@ai-sdk/provider-utils": 5.0.10(zod@4.4.3)
       zod: 4.4.3
 
   ajv@6.15.0:
@@ -2412,9 +2412,9 @@ snapshots:
 
   esutils@2.0.3: {}
 
-  eve@0.22.4(ai@7.0.19(zod@4.4.3))(microsandbox@0.6.6):
+  eve@0.24.6(ai@7.0.30(zod@4.4.3))(microsandbox@0.6.6):
     dependencies:
-      ai: 7.0.19(zod@4.4.3)
+      ai: 7.0.30(zod@4.4.3)
       nitro: 3.0.260610-beta
     optionalDependencies:
       microsandbox: 0.6.6
@@ -2783,7 +2783,7 @@ snapshots:
 
   typescript@5.9.3: {}
 
-  undici-types@6.21.0: {}
+  undici-types@7.18.2: {}
 
   unenv@2.0.0-rc.24:
     dependencies:

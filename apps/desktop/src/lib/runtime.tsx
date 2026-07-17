@@ -1,3 +1,4 @@
+import type { ChatTransport } from "ai";
 import type { ReactNode } from "react";
 import {
   createContext,
@@ -8,17 +9,18 @@ import {
   useRef,
   useState,
 } from "react";
+import { useChat } from "@ai-sdk/react";
 import { useAction, useConvexAuth, useMutation } from "convex/react";
 import { toast } from "sonner";
 
 import type {
-  AccessMode,
   AgentDefinition,
   AgentEvent,
   AgentPreference,
   AgentQuestion,
   AttentionItem,
   CampaignRecord,
+  ChiefUIMessage,
   ClientMessage,
   ContentBlock,
   ContentDraftRecord,
@@ -40,7 +42,6 @@ import type {
 } from "@chief/agent-runtime/types";
 import { api } from "@chief/backend/convex/_generated/api";
 
-import { getAgentOverride } from "./agent-overrides";
 import { useAuth } from "./auth/auth-context";
 import { navigateApp, notifySystem } from "./notifications";
 import { buildWorkspaceContext } from "./workspace-context";
@@ -247,6 +248,7 @@ interface RuntimeContextValue {
 const RuntimeContext = createContext<RuntimeContextValue | null>(null);
 
 export function RuntimeProvider({ children }: { children: ReactNode }) {
+  const { cloudOrganizationId } = useAuth();
   const clientRef = useRef<RuntimeClient | null>(null);
   if (!clientRef.current) clientRef.current = new RuntimeClient();
   const client = clientRef.current;
@@ -261,7 +263,10 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     };
     const unsub = client.subscribe((msg) => {
       if (msg.type === "agents") setAgents(msg.agents);
-      if (msg.type === "runtimeNotice") {
+      if (
+        msg.type === "runtimeNotice" &&
+        msg.workspaceId === cloudOrganizationId
+      ) {
         const workId = msg.notice.sourceId?.replace(/^automation-/, "");
         const route = msg.notice.runId
           ? `/schedule/history?run=${encodeURIComponent(msg.notice.runId)}`
@@ -291,7 +296,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       unsub();
       client.destroy();
     };
-  }, [client]);
+  }, [client, cloudOrganizationId]);
 
   const value = useMemo(
     () => ({ client, status, agents }),
@@ -313,7 +318,6 @@ export function useRuntime() {
 
 export interface LocalChatSummary {
   id: string;
-  agentId: string;
   title: string;
   lastText: string;
   lastAt: number;
@@ -376,7 +380,7 @@ export function useLocalChats(workspaceId: string | null) {
       return next;
     });
     client.send({
-      type: "deleteSession",
+      type: "deleteChat",
       chatId,
       workspaceId,
       executorCapability: capability,
@@ -1479,10 +1483,6 @@ function LocalIntegrationReconciler() {
 
 // ---- Chat state ----
 
-export type ChatItem =
-  | { kind: "user"; text: string; optimistic?: boolean }
-  | { kind: "assistant"; event: Extract<AgentEvent, { type: "message" }> };
-
 export interface PendingApproval {
   requestId: string;
   toolName: string;
@@ -1494,9 +1494,7 @@ export interface PendingQuestion {
   questions: AgentQuestion[];
 }
 
-export interface ChatState {
-  items: ChatItem[];
-  streaming: string;
+export interface ChatControlState {
   status: "idle" | "running";
   /** Tool calls waiting on the user's allow/deny decision. */
   approvals: PendingApproval[];
@@ -1507,178 +1505,46 @@ export interface ChatState {
   error?: string;
 }
 
-const emptyChat: ChatState = {
-  items: [],
-  streaming: "",
+const emptyChatControls: ChatControlState = {
   status: "idle",
   approvals: [],
   questions: [],
   toolProgress: {},
 };
 
-function hasToolUse(item: ChatItem, id: string) {
-  return (
-    item.kind === "assistant" &&
-    item.event.content.some(
-      (block) => block.type === "tool_use" && block.id === id,
-    )
-  );
-}
-
-function mergeAssistantBlocks(items: ChatItem[], blocks: ContentBlock[]) {
-  const next = [...items];
-  const pending: ContentBlock[] = [];
-
-  for (const block of blocks) {
-    if (block.type === "tool_use") {
-      const index = next.findIndex((item) => hasToolUse(item, block.id));
-      if (index < 0) {
-        pending.push(block);
-        continue;
-      }
-      const item = next[index]!;
-      if (item.kind !== "assistant") continue;
-      next[index] = {
-        kind: "assistant",
-        event: {
-          ...item.event,
-          content: item.event.content.map((current) =>
-            current.type === "tool_use" && current.id === block.id
-              ? block
-              : current,
-          ),
-        },
-      };
-      continue;
-    }
-
-    if (block.type === "tool_result") {
-      const pendingUse = pending.some(
-        (candidate) =>
-          candidate.type === "tool_use" && candidate.id === block.tool_use_id,
-      );
-      if (pendingUse) {
-        pending.push(block);
-        continue;
-      }
-      const index = next.findIndex((item) =>
-        hasToolUse(item, block.tool_use_id),
-      );
-      if (index < 0) {
-        pending.push(block);
-        continue;
-      }
-      const item = next[index]!;
-      if (item.kind !== "assistant") continue;
-      next[index] = {
-        kind: "assistant",
-        event: {
-          ...item.event,
-          content: [
-            ...item.event.content.filter(
-              (current) =>
-                current.type !== "tool_result" ||
-                current.tool_use_id !== block.tool_use_id,
-            ),
-            block,
-          ],
-        },
-      };
-      continue;
-    }
-
-    pending.push(block);
-  }
-
-  if (pending.length > 0) {
-    next.push({
-      kind: "assistant",
-      event: { type: "message", role: "assistant", content: pending },
-    });
-  }
-  return next;
-}
-
-/** Folds one runtime event into chat state; used for live events and for
- * replaying the buffered transcript when a chat is (re)opened. */
-function reduceChat(c: ChatState, event: AgentEvent): ChatState {
+/** Runtime events carry process state and interactions; durable content lives
+ * exclusively in the AI SDK message array. */
+function reduceChatControls(
+  controls: ChatControlState,
+  event: AgentEvent,
+): ChatControlState {
   switch (event.type) {
     case "stream":
-      return { ...c, streaming: c.streaming + event.text, status: "running" };
-    case "message": {
-      const resultIds = event.content
-        .filter(
-          (block): block is Extract<ContentBlock, { type: "tool_result" }> =>
-            block.type === "tool_result",
-        )
-        .map((block) => block.tool_use_id);
-      const toolProgress = { ...c.toolProgress };
-      for (const id of resultIds) delete toolProgress[id];
-
-      if (event.role === "user") {
-        const text = event.content
-          .filter((b) => b.type === "text")
-          .map((b) => (b.type === "text" ? b.text : ""))
-          .join("\n");
-        if (text) {
-          const optimisticIndex = c.items.findIndex(
-            (item) =>
-              item.kind === "user" &&
-              item.optimistic === true &&
-              item.text === text,
-          );
-          if (optimisticIndex >= 0) {
-            const items = [...c.items];
-            items[optimisticIndex] = { kind: "user", text };
-            return {
-              ...c,
-              streaming: "",
-              status: "running",
-              items,
-            };
-          }
-          return {
-            ...c,
-            streaming: "",
-            status: "running",
-            items: [...c.items, { kind: "user", text }],
-          };
-        }
-        // Tool results arrive as user-role messages; render them in the
-        // transcript as terminal output rather than dropping them.
-        if (event.content.some((b) => b.type === "tool_result")) {
-          return {
-            ...c,
-            items: mergeAssistantBlocks(c.items, event.content),
-            toolProgress,
-          };
-        }
-        return c;
-      }
+      return { ...controls, status: "running" };
+    case "message":
       return {
-        ...c,
-        streaming: "",
-        items: mergeAssistantBlocks(c.items, event.content),
-        toolProgress,
+        ...controls,
+        status: event.role === "user" ? "running" : controls.status,
       };
-    }
     case "toolProgress": {
-      const current = c.toolProgress[event.toolUseId] ?? "";
+      const current = controls.toolProgress[event.toolUseId] ?? "";
       return {
-        ...c,
+        ...controls,
         toolProgress: {
-          ...c.toolProgress,
+          ...controls.toolProgress,
           [event.toolUseId]: `${current}${event.text}`.slice(-8_000),
         },
       };
     }
     case "permission":
       return {
-        ...c,
-        approvals: c.approvals.some((a) => a.requestId === event.requestId)
-          ? c.approvals
+        ...controls,
+        approvals: controls.approvals.some(
+          (approval) => approval.requestId === event.requestId,
+        )
+          ? controls.approvals
           : [
-              ...c.approvals,
+              ...controls.approvals,
               {
                 requestId: event.requestId,
                 toolName: event.toolName,
@@ -1688,89 +1554,205 @@ function reduceChat(c: ChatState, event: AgentEvent): ChatState {
       };
     case "permissionResolved":
       return {
-        ...c,
-        approvals: c.approvals.filter((a) => a.requestId !== event.requestId),
+        ...controls,
+        approvals: controls.approvals.filter(
+          (approval) => approval.requestId !== event.requestId,
+        ),
       };
     case "question":
       return {
-        ...c,
-        questions: c.questions.some((q) => q.requestId === event.requestId)
-          ? c.questions
+        ...controls,
+        questions: controls.questions.some(
+          (question) => question.requestId === event.requestId,
+        )
+          ? controls.questions
           : [
-              ...c.questions,
+              ...controls.questions,
               { requestId: event.requestId, questions: event.questions },
             ],
       };
     case "questionResolved":
       return {
-        ...c,
-        questions: c.questions.filter((q) => q.requestId !== event.requestId),
+        ...controls,
+        questions: controls.questions.filter(
+          (question) => question.requestId !== event.requestId,
+        ),
       };
     case "result":
       return {
-        ...c,
-        streaming: "",
+        ...controls,
         status: "idle",
         approvals: [],
         questions: [],
-        lastCostUsd: event.costUsd ?? c.lastCostUsd,
+        lastCostUsd: event.costUsd ?? controls.lastCostUsd,
         error: event.ok ? undefined : event.error,
       };
     case "status":
-      return { ...c, status: event.status === "running" ? "running" : "idle" };
+      return {
+        ...controls,
+        status: event.status === "running" ? "running" : "idle",
+      };
     case "error":
-      return { ...c, error: event.message, status: "idle" };
+      return { ...controls, error: event.message, status: "idle" };
     case "exit":
       return {
-        ...c,
+        ...controls,
         status: "idle",
         error:
           event.code && event.code !== 0
             ? `Agent process exited with code ${event.code}.`
-            : c.error,
+            : controls.error,
       };
     default:
-      return c;
+      return controls;
   }
 }
 
-/**
- * Chat session against the local runtime. `driver` is resolved by the caller
- * (per-chat choice > per-agent override > workspace provider) and is
- * required — no session opens until one is chosen. Changing it reopens the
- * session on the new backend.
- */
-export function useAgentChat(
-  agentId: string | null,
-  driver: DriverType | null,
-  chatIdOverride?: string,
-  access?: AccessMode,
-  model?: string,
-  capabilities?: import("@chief/agent-runtime/types").AgentCapabilityId[],
-  integrations?: string[],
-  observeOnly = false,
-  observedRecurringWorkId?: string,
+export function messageBlocks(message: ChiefUIMessage): ContentBlock[] {
+  return message.parts.flatMap((part): ContentBlock[] => {
+    if (part.type === "text") return [{ type: "text", text: part.text }];
+    if (part.type === "reasoning") {
+      return [{ type: "thinking", thinking: part.text }];
+    }
+    if (part.type === "dynamic-tool") {
+      const use: ContentBlock = {
+        type: "tool_use",
+        id: part.toolCallId,
+        name: part.toolName,
+        input: part.input,
+      };
+      if (part.state === "output-available") {
+        return [
+          use,
+          {
+            type: "tool_result",
+            tool_use_id: part.toolCallId,
+            content: part.output,
+          },
+        ];
+      }
+      if (part.state === "output-error") {
+        return [
+          use,
+          {
+            type: "tool_result",
+            tool_use_id: part.toolCallId,
+            content: part.errorText,
+            is_error: true,
+          },
+        ];
+      }
+      return [use];
+    }
+    if (
+      part.type === "data-chart" ||
+      part.type === "data-table" ||
+      part.type === "data-document"
+    ) {
+      return [part];
+    }
+    return [];
+  });
+}
+
+function mergeRuntimeMessage(
+  current: ChiefUIMessage[],
+  persisted: ChiefUIMessage,
 ) {
+  const existing = current.findIndex((message) => message.id === persisted.id);
+  if (existing >= 0) {
+    return current.map((message, index) =>
+      index === existing ? persisted : message,
+    );
+  }
+  const streamingIndex = current.findIndex(
+    (message) =>
+      message.role === "assistant" && message.id.startsWith("stream:"),
+  );
+  if (persisted.role === "assistant" && streamingIndex >= 0) {
+    return current.map((message, index) =>
+      index === streamingIndex ? persisted : message,
+    );
+  }
+  return [...current, persisted];
+}
+
+function replayStreamingText(events: AgentEvent[]) {
+  let text = "";
+  for (const event of events) {
+    if (event.type === "stream") text += event.text;
+    if (
+      event.type === "message" ||
+      event.type === "result" ||
+      event.type === "error" ||
+      event.type === "exit"
+    ) {
+      text = "";
+    }
+  }
+  return text;
+}
+
+function useRuntimeChat(chatId: string | null, mode: "open" | "observe") {
   const { client, status: runtimeStatus } = useRuntime();
   const {
     cloudOrganizationId,
     capability: executorCapability,
     error: capabilityError,
   } = useWorkspaceCapability();
-  const capabilityKey = capabilities?.join("\0") ?? "";
-  const integrationKey = integrations?.join("\0") ?? "";
-  const chatId = agentId
-    ? (chatIdOverride ??
-      `${cloudOrganizationId ?? "no-workspace"}:${agentId}-main`)
-    : null;
-  const [chat, setChat] = useState<ChatState>(emptyChat);
-  // True once the runtime has confirmed the session (history replayed).
-  // Callers that auto-send a first prompt must wait for this, or the prompt
-  // races the async session open and lands on a dead chat.
-  const [sessionReady, setSessionReady] = useState(false);
+  const [controls, setControls] = useState<ChatControlState>(emptyChatControls);
+  const [chatReady, setChatReady] = useState(false);
+  const transport = useMemo<ChatTransport<ChiefUIMessage>>(
+    () => ({
+      sendMessages: ({ messages }) => {
+        const message = messages.at(-1);
+        const text = message?.parts
+          .flatMap((part) => (part.type === "text" ? [part.text] : []))
+          .join("\n")
+          .trim();
+        if (
+          mode === "open" &&
+          chatId &&
+          message?.role === "user" &&
+          text &&
+          cloudOrganizationId &&
+          executorCapability
+        ) {
+          setControls((current) => ({
+            ...current,
+            status: "running",
+            error: undefined,
+          }));
+          client.send({
+            type: "sendMessage",
+            workspaceId: cloudOrganizationId,
+            chatId,
+            messageId: message.id,
+            text,
+            executorCapability,
+          });
+        }
+        return Promise.resolve(
+          new ReadableStream({
+            start(controller) {
+              controller.close();
+            },
+          }),
+        );
+      },
+      reconnectToStream: () => Promise.resolve(null),
+    }),
+    [chatId, client, cloudOrganizationId, executorCapability, mode],
+  );
+  const { messages, sendMessage, setMessages } = useChat<ChiefUIMessage>({
+    id: chatId ?? "inactive-chief-chat",
+    generateId: () => crypto.randomUUID(),
+    transport,
+  });
+
   useEffect(() => {
     if (!capabilityError) return;
-    setChat((current) => ({
+    setControls((current) => ({
       ...current,
       status: "idle",
       error: capabilityError,
@@ -1778,16 +1760,21 @@ export function useAgentChat(
   }, [capabilityError]);
 
   useEffect(() => {
-    if (!agentId || !chatId || runtimeStatus !== "connected") return;
-    if (!observeOnly && !driver) return;
-    if (cloudOrganizationId && !executorCapability) return;
-    setChat(emptyChat);
-    setSessionReady(false);
+    if (
+      !chatId ||
+      !cloudOrganizationId ||
+      !executorCapability ||
+      runtimeStatus !== "connected"
+    ) {
+      return;
+    }
+    setControls(emptyChatControls);
+    setMessages([]);
+    setChatReady(false);
     let cancelled = false;
-    if (observeOnly && cloudOrganizationId && executorCapability) {
+    if (mode === "observe") {
       client.send({
-        type: "observeSession",
-        agentId,
+        type: "observeChat",
         chatId,
         workspaceId: cloudOrganizationId,
         executorCapability,
@@ -1798,120 +1785,229 @@ export function useAgentChat(
       void buildWorkspaceContext(cloudOrganizationId)
         .catch(() => undefined)
         .then((workspaceContext) => {
-          if (cancelled || !driver) return;
+          if (cancelled) return;
           client.send({
-            type: "openSession",
-            agentId,
+            type: "openChat",
             chatId,
-            driver,
-            access,
             workspaceContext,
-            model:
-              model || getAgentOverride(cloudOrganizationId, agentId).model,
-            capabilities:
-              capabilities ??
-              getAgentOverride(cloudOrganizationId, agentId).capabilities,
-            integrations:
-              integrations ??
-              getAgentOverride(cloudOrganizationId, agentId).integrations,
-            workspaceId: cloudOrganizationId ?? undefined,
-            executorCapability: executorCapability ?? undefined,
+            workspaceId: cloudOrganizationId,
+            executorCapability,
           });
         });
     }
 
     const unsub = client.subscribe((msg) => {
+      if (
+        mode === "open" &&
+        msg.type === "agentPreferences" &&
+        msg.workspaceId === cloudOrganizationId &&
+        msg.preferences.some(
+          (preference) =>
+            preference.agentId === "cmo" && Boolean(preference.driver),
+        )
+      ) {
+        client.send({
+          type: "openChat",
+          chatId,
+          workspaceId: cloudOrganizationId,
+          executorCapability,
+        });
+      }
       if (msg.type === "error" && msg.chatId === chatId) {
-        setChat((c) => ({ ...c, error: msg.message, status: "idle" }));
+        setControls((current) => ({
+          ...current,
+          error: msg.message,
+          status: "idle",
+        }));
         return;
       }
-      if (msg.type === "history" && msg.chatId === chatId) {
-        // Rebuild the transcript from the runtime's buffer — resumes chats
-        // across navigation and reconnects, including mid-run streaming.
-        setChat(msg.events.reduce(reduceChat, emptyChat));
-        setSessionReady(true);
+      if (
+        msg.type === "history" &&
+        msg.workspaceId === cloudOrganizationId &&
+        msg.chatId === chatId
+      ) {
+        const streamingText = replayStreamingText(msg.events);
+        setMessages(
+          streamingText
+            ? [
+                ...msg.messages,
+                {
+                  id: `stream:${chatId}`,
+                  role: "assistant",
+                  parts: [
+                    { type: "text", text: streamingText, state: "streaming" },
+                  ],
+                },
+              ]
+            : msg.messages,
+        );
+        setControls(msg.events.reduce(reduceChatControls, emptyChatControls));
+        setChatReady(true);
+        return;
+      }
+      if (
+        msg.type === "message" &&
+        msg.workspaceId === cloudOrganizationId &&
+        msg.chatId === chatId
+      ) {
+        setMessages((current) => mergeRuntimeMessage(current, msg.message));
         return;
       }
       if (msg.type !== "event" || msg.chatId !== chatId) return;
-      setChat((c) => reduceChat(c, msg.event));
+      if (msg.event.type === "stream") {
+        const delta = msg.event.text;
+        setMessages((current) => {
+          const streamId = `stream:${chatId}`;
+          const index = current.findIndex((message) => message.id === streamId);
+          if (index < 0) {
+            return [
+              ...current,
+              {
+                id: streamId,
+                role: "assistant",
+                parts: [{ type: "text", text: delta, state: "streaming" }],
+              },
+            ];
+          }
+          return current.map((message, messageIndex) =>
+            messageIndex === index
+              ? {
+                  ...message,
+                  parts: [
+                    {
+                      type: "text",
+                      text: `${message.parts[0]?.type === "text" ? message.parts[0].text : ""}${delta}`,
+                      state: "streaming",
+                    },
+                  ],
+                }
+              : message,
+          );
+        });
+      }
+      setControls((current) => reduceChatControls(current, msg.event));
     });
     return () => {
       cancelled = true;
-      client.send({ type: "closeSession", chatId });
+      client.send({
+        type: "closeChat",
+        workspaceId: cloudOrganizationId,
+        chatId,
+        executorCapability,
+      });
       unsub();
-      setSessionReady(false);
+      setChatReady(false);
     };
   }, [
-    agentId,
     chatId,
+    setMessages,
     client,
     runtimeStatus,
-    driver,
-    access,
     cloudOrganizationId,
     executorCapability,
-    model,
-    capabilityKey,
-    integrationKey,
-    observeOnly,
+    mode,
   ]);
 
-  const send = (text: string) => {
-    if (!chatId || !text.trim()) return;
-    setChat((c) => ({
-      ...c,
-      status: "running",
-      error: undefined,
-      items: [...c.items, { kind: "user", text, optimistic: true }],
-    }));
-    client.send({ type: "prompt", chatId, text });
-  };
-
   const interrupt = () => {
-    if (chatId) client.send({ type: "interrupt", chatId });
+    if (chatId && cloudOrganizationId && executorCapability) {
+      client.send({
+        type: "interruptChat",
+        workspaceId: cloudOrganizationId,
+        chatId,
+        executorCapability,
+      });
+    }
   };
 
   const respondPermission = (requestId: string, behavior: "allow" | "deny") => {
-    if (chatId)
-      client.send({ type: "respondPermission", chatId, requestId, behavior });
+    if (chatId && cloudOrganizationId && executorCapability) {
+      client.send({
+        type: "respondPermission",
+        workspaceId: cloudOrganizationId,
+        chatId,
+        requestId,
+        behavior,
+        executorCapability,
+      });
+    }
   };
 
   const respondQuestion = (
     requestId: string,
     answers: Record<string, string> | null,
   ) => {
-    if (chatId)
-      client.send({ type: "respondQuestion", chatId, requestId, answers });
+    if (chatId && cloudOrganizationId && executorCapability) {
+      client.send({
+        type: "respondQuestion",
+        workspaceId: cloudOrganizationId,
+        chatId,
+        requestId,
+        answers,
+        executorCapability,
+      });
+    }
   };
 
   const provideInput = (
     request: InputRequest,
     values: Record<string, string>,
   ) => {
-    if (chatId)
+    if (chatId && cloudOrganizationId && executorCapability) {
       client.send({
         type: "provideInput",
+        workspaceId: cloudOrganizationId,
         chatId,
         request,
         values,
-        ...(observeOnly && cloudOrganizationId && executorCapability
-          ? {
-              workspaceId: cloudOrganizationId,
-              executorCapability,
-              recurringWorkId: observedRecurringWorkId,
-            }
-          : {}),
+        executorCapability,
       });
+    }
   };
 
   return {
-    chat,
-    send,
+    messages,
+    controls,
+    sendMessage,
     interrupt,
     respondPermission,
     respondQuestion,
     provideInput,
-    sessionReady,
-    executorCapability,
+    chatReady,
+  };
+}
+
+/** A user-composable top-level Chief chat. No agent/provider input exists. */
+export function useChiefChat(chatId: string | null) {
+  return useRuntimeChat(chatId, "open");
+}
+
+/** A hard read-only transcript API. It intentionally exposes no send method. */
+export function useObservedChat(
+  chatId: string | null,
+  recurringWorkId?: string,
+) {
+  const observed = useRuntimeChat(chatId, "observe");
+  const { client } = useRuntime();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const provideInput = (
+    request: InputRequest,
+    values: Record<string, string>,
+  ) => {
+    if (!chatId || !cloudOrganizationId || !capability) return;
+    client.send({
+      type: "provideInput",
+      workspaceId: cloudOrganizationId,
+      chatId,
+      request,
+      values,
+      executorCapability: capability,
+      recurringWorkId,
+    });
+  };
+  return {
+    messages: observed.messages,
+    controls: observed.controls,
+    chatReady: observed.chatReady,
+    provideInput,
   };
 }
