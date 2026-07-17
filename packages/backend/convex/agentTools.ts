@@ -264,6 +264,34 @@ export const openApiSpec = httpAction(async (_ctx, request) => {
           },
         },
       },
+      "/agent-tools/integrations/connected": {
+        post: {
+          operationId: "integrations.markConnected",
+          summary: "Mark a verified integration as connected",
+          description:
+            "Call only after a real provider API request has verified access. This updates Chief's workspace integration state; it does not store credentials or configure the provider.",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  $ref: "#/components/schemas/MarkConnectedIntegrationRequest",
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "The connected workspace integration",
+              content: {
+                "application/json": {
+                  schema: { type: "object", additionalProperties: true },
+                },
+              },
+            },
+          },
+        },
+      },
       "/agent-tools/ui/chart": {
         post: {
           operationId: "ui.presentChart",
@@ -385,6 +413,31 @@ export const openApiSpec = httpAction(async (_ctx, request) => {
           },
           required: ["startDate", "endDate", "metrics"],
         },
+        MarkConnectedIntegrationRequest: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            provider: {
+              type: "string",
+              minLength: 1,
+              maxLength: 160,
+              description:
+                "Canonical provider id, such as google-analytics or google-ads.",
+            },
+            category: {
+              type: "string",
+              enum: ["analytics", "ads", "social", "other"],
+            },
+            displayName: { type: "string", maxLength: 160 },
+            externalId: {
+              type: "string",
+              maxLength: 240,
+              description:
+                "The verified provider account, property, or workspace id when one exists.",
+            },
+          },
+          required: ["provider", "category"],
+        },
         ChartPoint: {
           type: "object",
           additionalProperties: false,
@@ -481,6 +534,70 @@ export const runAnalyticsReport = httpAction(async (ctx, request) => {
       { status: 400 },
     );
   }
+});
+
+function canonicalProvider(provider: string): string {
+  if (provider === "analytics.googleapis.com") return "google-analytics";
+  if (provider === "googleads.googleapis.com") return "google-ads";
+  return provider;
+}
+
+export const markIntegrationConnected = httpAction(async (ctx, request) => {
+  const organizationId = await organizationFromRequest(ctx, request);
+  if (!organizationId) return json({ error: "Unauthorized" }, { status: 401 });
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return json({ error: "Request body must be JSON." }, { status: 400 });
+  }
+
+  const providerInput = shortString(body.provider, 160);
+  const requestedCategory = shortString(body.category, 40);
+  if (!providerInput || !requestedCategory) {
+    return json(
+      { error: "provider and category are required." },
+      { status: 400 },
+    );
+  }
+  if (!["analytics", "ads", "social", "other"].includes(requestedCategory)) {
+    return json(
+      { error: "Unsupported integration category." },
+      { status: 400 },
+    );
+  }
+
+  const provider = canonicalProvider(providerInput);
+  const category =
+    provider === "google-analytics"
+      ? "analytics"
+      : provider === "google-ads"
+        ? "ads"
+        : requestedCategory;
+  const displayName = shortString(body.displayName, 160);
+  const externalId = shortString(body.externalId, 240);
+  const integrationId = await ctx.runMutation(
+    internal.integrations.markConnectedForOrganization,
+    {
+      organizationId,
+      provider,
+      category,
+      ...(displayName ? { displayName } : {}),
+      ...(externalId ? { externalId } : {}),
+    },
+  );
+
+  return json({
+    connected: true,
+    integration: {
+      id: integrationId,
+      provider,
+      category,
+      displayName: displayName ?? provider,
+      externalId: externalId ?? null,
+    },
+  });
 });
 
 function shortString(value: unknown, maximum: number): string | undefined {

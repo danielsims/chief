@@ -3,6 +3,7 @@ import { httpRouter } from "convex/server";
 import {
   runAnalyticsReport as agentToolAnalyticsReport,
   capabilityIdentity as agentToolCapabilityIdentity,
+  markIntegrationConnected as agentToolMarkIntegrationConnected,
   presentChart as agentToolPresentChart,
   openApiSpec as agentToolsOpenApi,
   listSources as agentToolSources,
@@ -56,6 +57,12 @@ http.route({
   path: "/agent-tools/analytics/report",
   method: "POST",
   handler: agentToolAnalyticsReport,
+});
+
+http.route({
+  path: "/agent-tools/integrations/connected",
+  method: "POST",
+  handler: agentToolMarkIntegrationConnected,
 });
 
 http.route({
