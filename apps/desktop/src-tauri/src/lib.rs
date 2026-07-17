@@ -1,6 +1,7 @@
 use std::{
     env,
     fs::OpenOptions,
+    io::{Read, Write},
     net::{SocketAddr, TcpStream},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
@@ -29,6 +30,18 @@ fn terminate_runtime(child: &mut Child) {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        let _ = Command::new("/bin/kill")
+            .args(["-KILL", &process_group])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
     }
     let _ = child.kill();
     let _ = child.wait();
@@ -36,6 +49,9 @@ fn terminate_runtime(child: &mut Child) {
 
 impl RuntimeProcess {
     fn start(app: tauri::AppHandle) -> Self {
+        #[cfg(not(debug_assertions))]
+        terminate_recorded_runtime(&app);
+
         let stop = Arc::new(AtomicBool::new(false));
         let supervisor_stop = Arc::clone(&stop);
         let supervisor = thread::spawn(move || {
@@ -104,6 +120,10 @@ impl RuntimeProcess {
                 } else if now >= next_spawn_at {
                     child = spawn_agent_runtime(&app);
                     if child.is_some() {
+                        #[cfg(not(debug_assertions))]
+                        if let Some(runtime) = child.as_ref() {
+                            record_runtime_process(&app, runtime.id());
+                        }
                         unhealthy_since = Some(now);
                         healthy_since = None;
                         has_been_healthy = false;
@@ -125,6 +145,119 @@ impl RuntimeProcess {
             supervisor: Mutex::new(Some(supervisor)),
         }
     }
+
+    fn shutdown(&self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Ok(mut supervisor) = self.supervisor.lock() {
+            if let Some(handle) = supervisor.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn runtime_process_file(app: &tauri::AppHandle) -> Option<PathBuf> {
+    use tauri::Manager;
+
+    Some(
+        app.path()
+            .app_local_data_dir()
+            .ok()?
+            .join("agent-runtime.pid"),
+    )
+}
+
+#[cfg(not(debug_assertions))]
+fn process_command(pid: u32) -> Option<String> {
+    #[cfg(unix)]
+    {
+        let output = Command::new("/bin/ps")
+            .args(["-p", &pid.to_string(), "-o", "command="])
+            .output()
+            .ok()?;
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+
+    #[cfg(windows)]
+    {
+        let output = Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+            .output()
+            .ok()?;
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn terminate_recorded_runtime(app: &tauri::AppHandle) {
+    let Some(path) = runtime_process_file(app) else {
+        return;
+    };
+    let Some(contents) = std::fs::read_to_string(&path).ok() else {
+        return;
+    };
+    let mut fields = contents.split_whitespace();
+    let owner_pid = fields.next().and_then(|value| value.parse::<u32>().ok());
+    let runtime_pid = fields.next().and_then(|value| value.parse::<u32>().ok());
+    let Some(runtime_pid) = runtime_pid else {
+        let _ = std::fs::remove_file(path);
+        return;
+    };
+
+    // A second launch should never tear down the runtime owned by a healthy
+    // first app instance. Only reap a process whose owning app has exited.
+    if owner_pid
+        .filter(|pid| *pid != std::process::id())
+        .and_then(process_command)
+        .is_some()
+    {
+        return;
+    }
+
+    let is_chief_runtime = process_command(runtime_pid)
+        .map(|command| command.contains("chief-agent-runtime"))
+        .unwrap_or(false);
+    if is_chief_runtime {
+        #[cfg(unix)]
+        let _ = Command::new("/bin/kill")
+            .args(["-TERM", &format!("-{runtime_pid}")])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+
+        #[cfg(windows)]
+        let _ = Command::new("taskkill")
+            .args(["/PID", &runtime_pid.to_string(), "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+
+        for _ in 0..20 {
+            if !runtime_is_running() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+    let _ = std::fs::remove_file(path);
+}
+
+#[cfg(not(debug_assertions))]
+fn record_runtime_process(app: &tauri::AppHandle, runtime_pid: u32) {
+    let Some(path) = runtime_process_file(app) else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(path, format!("{} {runtime_pid}\n", std::process::id()));
 }
 
 fn restart_at(delay: &mut Duration) -> Instant {
@@ -139,12 +272,7 @@ fn restart_at(delay: &mut Duration) -> Instant {
 
 impl Drop for RuntimeProcess {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Ok(mut supervisor) = self.supervisor.lock() {
-            if let Some(handle) = supervisor.take() {
-                let _ = handle.join();
-            }
-        }
+        self.shutdown();
     }
 }
 
@@ -152,7 +280,66 @@ fn runtime_is_running() -> bool {
     let addr: SocketAddr = "127.0.0.1:4318"
         .parse()
         .expect("valid local runtime socket address");
-    TcpStream::connect_timeout(&addr, Duration::from_millis(250)).is_ok()
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(250)) else {
+        return false;
+    };
+    let timeout = Some(Duration::from_millis(500));
+    let _ = stream.set_read_timeout(timeout);
+    let _ = stream.set_write_timeout(timeout);
+    if stream
+        .write_all(b"GET /healthz HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        .is_err()
+    {
+        return false;
+    }
+    let mut response = Vec::with_capacity(512);
+    while response.len() < 512 && !response.windows(4).any(|part| part == b"\r\n\r\n") {
+        let mut chunk = [0_u8; 128];
+        let Ok(length) = stream.read(&mut chunk) else {
+            return false;
+        };
+        if length == 0 {
+            break;
+        }
+        response.extend_from_slice(&chunk[..length]);
+    }
+    is_runtime_health_response(&response)
+}
+
+fn is_runtime_health_response(response: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(response);
+    let Some((headers, _body)) = text.split_once("\r\n\r\n") else {
+        return false;
+    };
+    let mut lines = headers.lines();
+    let ready_status = lines
+        .next()
+        .is_some_and(|status| status.starts_with("HTTP/1.1 200"));
+    let chief_header = lines.any(|line| {
+        line.split_once(':').is_some_and(|(name, value)| {
+            name.eq_ignore_ascii_case("x-chief-runtime") && value.trim() == "ready"
+        })
+    });
+    ready_status && chief_header
+}
+
+#[cfg(test)]
+mod runtime_health_tests {
+    use super::is_runtime_health_response;
+
+    #[test]
+    fn accepts_only_the_ready_chief_runtime() {
+        assert!(is_runtime_health_response(
+            b"HTTP/1.1 200 OK\r\nx-chief-runtime: ready\r\n\r\nchief-runtime-ready"
+        ));
+        assert!(!is_runtime_health_response(b"HTTP/1.1 200 OK\r\n\r\n"));
+        assert!(!is_runtime_health_response(
+            b"HTTP/1.1 503 Service Unavailable\r\nx-chief-runtime: ready\r\n\r\n"
+        ));
+        assert!(!is_runtime_health_response(
+            b"HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\n\r\nx-chief-runtime: ready"
+        ));
+    }
 }
 
 #[cfg(debug_assertions)]
@@ -473,21 +660,6 @@ fn installed_runtime_root(app: &tauri::AppHandle) -> Option<PathBuf> {
     Some(destination)
 }
 
-#[cfg(target_os = "macos")]
-fn activate_app() {
-    let _ = Command::new("osascript")
-        .args([
-            "-e",
-            "tell application id \"com.danielsims.chief\" to activate",
-        ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn();
-}
-
-#[cfg(not(target_os = "macos"))]
-fn activate_app() {}
-
 fn focus_main_window(app: &tauri::AppHandle) {
     use tauri::Manager;
 
@@ -496,8 +668,6 @@ fn focus_main_window(app: &tauri::AppHandle) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
-
-    activate_app();
 }
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -513,9 +683,9 @@ fn activate_app_window(app: tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    use tauri::{Emitter, Manager};
+    use tauri::{Emitter, Manager, RunEvent};
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .setup(|app| {
             let handle = app.handle().clone();
             app.manage(RuntimeProcess::start(handle.clone()));
@@ -540,6 +710,12 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![greet, activate_app_window])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app, event| {
+        if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
+            app.state::<RuntimeProcess>().shutdown();
+        }
+    });
 }

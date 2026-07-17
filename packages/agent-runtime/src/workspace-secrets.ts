@@ -108,6 +108,22 @@ async function keychainWrite(accountName: string, value: string) {
   );
 }
 
+async function keychainDelete(accountName: string) {
+  await Promise.all(
+    [KEYCHAIN_SERVICE, LEGACY_KEYCHAIN_SERVICE].map(async (service) => {
+      try {
+        await execFileAsync(
+          "/usr/bin/security",
+          ["delete-generic-password", "-a", accountName, "-s", service],
+          { encoding: "utf8", maxBuffer: 2 * 1024 * 1024 },
+        );
+      } catch {
+        // Missing entries are already in the requested state.
+      }
+    }),
+  );
+}
+
 function shellValue(value: string) {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
@@ -159,6 +175,17 @@ class WorkspaceSecrets {
     }
   }
 
+  async deleteEnv(workspaceId: string, key: string) {
+    if (!ENV_KEY_PATTERN.test(key)) throw new Error("Invalid environment key.");
+    await keychainDelete(account(workspaceId, "env", key));
+    const index = readIndex(workspaceId);
+    if (index.env.includes(key)) {
+      index.env = index.env.filter((candidate) => candidate !== key);
+      writeIndex(workspaceId, index);
+    }
+    await this.refresh(workspaceId);
+  }
+
   async storeFile(workspaceId: string, requestedPath: string, value: string) {
     const name = safeFileName(requestedPath);
     await keychainWrite(account(workspaceId, "file", name), value);
@@ -204,6 +231,15 @@ class WorkspaceSecrets {
       if (key.startsWith("MARKETER_")) {
         environment[`CHIEF_${key.slice("MARKETER_".length)}`] ??= value;
       }
+    }
+    for (const [target, source] of [
+      ["GOOGLE_ANALYTICS_CLIENT_ID", "CHIEF_GOOGLE_OAUTH_CLIENT_ID"],
+      ["GOOGLE_ANALYTICS_CLIENT_SECRET", "CHIEF_GOOGLE_OAUTH_CLIENT_SECRET"],
+      ["CHIEF_GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_ANALYTICS_CLIENT_ID"],
+      ["CHIEF_GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_ANALYTICS_CLIENT_SECRET"],
+    ] as const) {
+      const value = environment[source];
+      if (!environment[target] && value) environment[target] = value;
     }
     const envPath = join(runtime, "secrets.env");
     const temporary = `${envPath}.tmp`;

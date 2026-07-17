@@ -150,9 +150,6 @@
     }
   },
   "src/scheduler.ts": {
-    "@typescript-eslint/no-empty-function": {
-      "count": 2
-    },
     "@typescript-eslint/no-misused-promises": {
       "count": 1
     },
@@ -163,7 +160,7 @@
       "count": 8
     },
     "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 3
+      "count": 1
     },
     "@typescript-eslint/prefer-promise-reject-errors": {
       "count": 1
@@ -176,16 +173,10 @@
     "@typescript-eslint/no-base-to-string": {
       "count": 1
     },
-    "@typescript-eslint/no-empty-function": {
-      "count": 5
-    },
     "@typescript-eslint/no-misused-promises": {
       "count": 7
     },
     "@typescript-eslint/no-non-null-assertion": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unnecessary-condition": {
       "count": 2
     },
     "@typescript-eslint/no-unsafe-argument": {

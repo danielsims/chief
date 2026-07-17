@@ -16,19 +16,22 @@ interface AccessTokenCache {
   quotaProjectId?: string;
 }
 
-let tokenCache: AccessTokenCache | null = null;
+const tokenCache = new Map<string, AccessTokenCache>();
 
-function adcPath() {
+function adcPath(credentialsPath?: string) {
   return (
+    credentialsPath ??
     process.env.GOOGLE_APPLICATION_CREDENTIALS ??
     join(homedir(), ".config", "gcloud", "application_default_credentials.json")
   );
 }
 
-async function authorizedUserCredentials(): Promise<AuthorizedUserCredentials> {
+async function authorizedUserCredentials(
+  credentialsPath?: string,
+): Promise<AuthorizedUserCredentials> {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(await readFile(adcPath(), "utf8"));
+    parsed = JSON.parse(await readFile(adcPath(credentialsPath), "utf8"));
   } catch {
     throw new Error(
       "Google Analytics machine credentials were not found. Reconnect Google Analytics in setup.",
@@ -54,11 +57,13 @@ async function authorizedUserCredentials(): Promise<AuthorizedUserCredentials> {
   return record as unknown as AuthorizedUserCredentials;
 }
 
-async function accessToken() {
-  if (tokenCache && tokenCache.expiresAt > Date.now() + 60_000) {
-    return tokenCache;
+async function accessToken(credentialsPath?: string) {
+  const cacheKey = adcPath(credentialsPath);
+  const cached = tokenCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now() + 60_000) {
+    return cached;
   }
-  const credentials = await authorizedUserCredentials();
+  const credentials = await authorizedUserCredentials(credentialsPath);
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -85,12 +90,13 @@ async function accessToken() {
         `Google Analytics machine login failed (${response.status}).`,
     );
   }
-  tokenCache = {
+  const token = {
     value: body.access_token,
     expiresAt: Date.now() + (body.expires_in ?? 3600) * 1000,
     quotaProjectId: credentials.quota_project_id,
   };
-  return tokenCache;
+  tokenCache.set(cacheKey, token);
+  return token;
 }
 
 function propertyId(value: unknown) {
@@ -125,8 +131,12 @@ function dateValue(value: unknown, name: string) {
   return result;
 }
 
-async function googleRequest<T>(url: string, init?: RequestInit): Promise<T> {
-  const token = await accessToken();
+async function googleRequest<T>(
+  url: string,
+  init?: RequestInit,
+  credentialsPath?: string,
+): Promise<T> {
+  const token = await accessToken(credentialsPath);
   const response = await fetch(url, {
     ...init,
     headers: {
@@ -157,6 +167,7 @@ async function googleRequest<T>(url: string, init?: RequestInit): Promise<T> {
 export async function googleAnalyticsMetadata(input: {
   propertyId: unknown;
   query?: unknown;
+  credentialsPath?: string;
 }) {
   const id = propertyId(input.propertyId);
   const result = await googleRequest<{
@@ -175,7 +186,11 @@ export async function googleAnalyticsMetadata(input: {
       type?: string;
       deprecatedApiNames?: string[];
     }[];
-  }>(`https://analyticsdata.googleapis.com/v1beta/properties/${id}/metadata`);
+  }>(
+    `https://analyticsdata.googleapis.com/v1beta/properties/${id}/metadata`,
+    undefined,
+    input.credentialsPath,
+  );
   const query = String(input.query ?? "")
     .trim()
     .toLowerCase();
@@ -284,7 +299,9 @@ export async function googleAnalyticsMetadata(input: {
   };
 }
 
-export async function googleAnalyticsProperties() {
+export async function googleAnalyticsProperties(input?: {
+  credentialsPath?: string;
+}) {
   const result = await googleRequest<{
     accountSummaries?: {
       account?: string;
@@ -297,6 +314,8 @@ export async function googleAnalyticsProperties() {
     }[];
   }>(
     "https://analyticsadmin.googleapis.com/v1beta/accountSummaries?pageSize=200",
+    undefined,
+    input?.credentialsPath,
   );
   return {
     provider: "google-analytics",
@@ -326,6 +345,7 @@ export async function googleAnalyticsRunReport(input: {
   metrics: unknown;
   dimensions?: unknown;
   limit?: unknown;
+  credentialsPath?: string;
 }) {
   const id = propertyId(input.propertyId);
   const metrics = fieldNames(input.metrics, "metrics", 10);
@@ -352,17 +372,24 @@ export async function googleAnalyticsRunReport(input: {
     }[];
     rowCount?: number;
     metadata?: Record<string, unknown>;
-  }>(`https://analyticsdata.googleapis.com/v1beta/properties/${id}:runReport`, {
-    method: "POST",
-    body: JSON.stringify({
-      dateRanges: [{ startDate, endDate }],
-      metrics: metrics.map((name) => ({ name })),
-      dimensions: dimensions.map((name) => ({ name })),
-      limit: parsedLimit,
-      keepEmptyRows: false,
-      returnPropertyQuota: false,
-    }),
-  });
+  }>(
+    `https://analyticsdata.googleapis.com/v1beta/properties/${id}:runReport`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        dateRanges: [{ startDate, endDate }],
+        metrics: metrics.map((name) => ({ name })),
+        dimensions: dimensions.map((name) => ({ name })),
+        ...(dimensions.includes("date")
+          ? { orderBys: [{ dimension: { dimensionName: "date" } }] }
+          : {}),
+        limit: parsedLimit,
+        keepEmptyRows: false,
+        returnPropertyQuota: false,
+      }),
+    },
+    input.credentialsPath,
+  );
   const dimensionNames = (result.dimensionHeaders ?? []).map(
     (header) => header.name ?? "dimension",
   );

@@ -1,12 +1,25 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { SessionConfig } from "./session.js";
-import type { AgentDefinition, AgentEvent } from "./types.js";
+import type {
+  AgentDefinition,
+  AgentEvent,
+  RecurringWorkRunRecord,
+} from "./types.js";
 import { LocalStore } from "./local-store.js";
 import { runDateKey, upcomingRuns } from "./recurring-work.js";
 import { AgentSession } from "./session.js";
+import {
+  assertWorkspaceTextContent,
+  defaultWorkspaceFilePath,
+  normalizeWorkspaceFilePath,
+  removeWorkspaceFileContent,
+  repairWorkspaceFileContent,
+  stageWorkspaceFileContent,
+} from "./workspace-files.js";
 import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
 
 const CURRENT_HOME = join(homedir(), ".chief");
@@ -25,6 +38,7 @@ interface PersistedSession {
   agentId: string;
   sessionId: string;
   driver?: string;
+  workspaceId?: string;
 }
 
 /**
@@ -42,6 +56,7 @@ export class SessionManager {
   private startingWorkspaces = new Map<string, number>();
   private persisted: Record<string, PersistedSession> = {};
   private readonly store = new LocalStore();
+  private readonly repairedFileWorkspaces = new Set<string>();
 
   constructor() {
     mkdirSync(HOME, { recursive: true });
@@ -59,11 +74,16 @@ export class SessionManager {
     return this.sessions.get(chatId);
   }
 
+  health() {
+    return this.store.health();
+  }
+
   async ensure(
     agent: AgentDefinition,
     chatId: string,
     config: SessionConfig,
   ): Promise<AgentSession> {
+    await this.repairWorkspaceFiles(config.workspaceId);
     const existing = this.sessions.get(chatId);
     if (existing) {
       // A live session can't hop backends or change its access level.
@@ -115,6 +135,7 @@ export class SessionManager {
           agentId: agent.id,
           sessionId: event.sessionId,
           driver: config.driver,
+          workspaceId: config.workspaceId,
         };
         this.save();
       }
@@ -162,14 +183,26 @@ export class SessionManager {
     // Session ids don't transfer across backends — only resume same-driver.
     const prev = this.persisted[chatId];
     const resume =
-      prev && prev.driver === config.driver ? prev.sessionId : undefined;
-    await session.start(cwd, resume);
+      prev &&
+      prev.driver === config.driver &&
+      prev.workspaceId === config.workspaceId
+        ? prev.sessionId
+        : undefined;
+    try {
+      await session.start(cwd, resume);
+    } catch (error) {
+      if (this.sessions.get(chatId) === session) {
+        this.sessions.delete(chatId);
+      }
+      await session.stop().catch(() => undefined);
+      this.lockWorkspaceIfInactive(config.workspaceId);
+      throw error;
+    }
     return session;
   }
 
   retain(chatId: string) {
     this.released.delete(chatId);
-    this.persistence.delete(chatId);
     this.retainCounts.set(chatId, (this.retainCounts.get(chatId) ?? 0) + 1);
   }
 
@@ -217,6 +250,10 @@ export class SessionManager {
     return this.store.listChats(workspaceId);
   }
 
+  chat(workspaceId: string, chatId: string) {
+    return this.store.chat(workspaceId, chatId);
+  }
+
   waitForChatPersistence(chatId: string) {
     return this.persistence.get(chatId) ?? Promise.resolve();
   }
@@ -246,11 +283,51 @@ export class SessionManager {
       this.store.listRecurringWork(workspaceId),
       this.store.listRecurringWorkRuns(workspaceId),
     ]);
+    // Content records predate editable workspace files. Upgrade them lazily so
+    // existing drafts become reviewable without a destructive database
+    // migration or a second content model.
+    const reviewableDrafts: typeof drafts = [];
+    const filesByPath = new Map(
+      (await this.store.listWorkspaceFiles(workspaceId)).map((file) => [
+        file.path,
+        file,
+      ]),
+    );
+    for (const draft of drafts) {
+      if (draft.fileId) {
+        reviewableDrafts.push(draft);
+        continue;
+      }
+      // libSQL uses one local writer. Keep this compatibility migration
+      // ordered so several legacy drafts cannot race file-version
+      // transactions on first launch.
+      const path = `content/${draft.id}.md`;
+      const previouslyCreated = filesByPath.get(path);
+      const file = previouslyCreated
+        ? await this.store.workspaceFile(workspaceId, previouslyCreated.id)
+        : await this.saveWorkspaceFile(workspaceId, {
+            name: draft.title,
+            path,
+            content: draft.body,
+            kind: "document",
+            createdBy: "agent",
+            sourceAgentId: draft.agentId,
+          });
+      if (!file) throw new Error("The draft document could not be loaded.");
+      filesByPath.set(path, file);
+      const reviewable = {
+        ...draft,
+        fileId: file.id,
+        updatedAt: Date.now(),
+      };
+      await this.store.saveDraft(workspaceId, reviewable);
+      reviewableDrafts.push(reviewable);
+    }
     const attentionItems = await this.store.listAttentionItems(workspaceId);
     return {
       prospects,
       trends,
-      drafts,
+      drafts: reviewableDrafts,
       campaigns,
       attentionItems,
       recurringWork: recurringWork.map((work) => {
@@ -294,6 +371,114 @@ export class SessionManager {
     return this.store.saveDraft(workspaceId, draft);
   }
 
+  listWorkspaceFiles(workspaceId: string) {
+    return this.store.listWorkspaceFiles(workspaceId);
+  }
+
+  workspaceFile(workspaceId: string, fileId: string) {
+    return this.store.workspaceFile(workspaceId, fileId).then((file) => {
+      if (file) {
+        repairWorkspaceFileContent(
+          workspaceId,
+          file.path,
+          file.currentVersionId,
+          file.content,
+        );
+      }
+      return file;
+    });
+  }
+
+  private async repairWorkspaceFiles(workspaceId: string) {
+    if (this.repairedFileWorkspaces.has(workspaceId)) return;
+    for (const record of await this.store.listWorkspaceFiles(workspaceId)) {
+      const file = await this.store.workspaceFile(workspaceId, record.id);
+      if (!file) continue;
+      repairWorkspaceFileContent(
+        workspaceId,
+        file.path,
+        file.currentVersionId,
+        file.content,
+      );
+    }
+    this.repairedFileWorkspaces.add(workspaceId);
+  }
+
+  async saveWorkspaceFile(
+    workspaceId: string,
+    input: import("./types.js").WorkspaceFileWrite,
+  ) {
+    const existing = input.id
+      ? await this.store.workspaceFile(workspaceId, input.id)
+      : null;
+    if (input.id && !existing) throw new Error("File not found.");
+    if (
+      existing &&
+      input.expectedVersionId &&
+      existing.currentVersionId !== input.expectedVersionId
+    ) {
+      throw new Error("FILE_VERSION_CONFLICT");
+    }
+    const content = input.content.replaceAll("\r\n", "\n");
+    assertWorkspaceTextContent(content);
+    const kind = input.kind ?? existing?.kind ?? "document";
+    const requestedName = input.name.trim().slice(0, 160);
+    const name =
+      requestedName.length > 0 ? requestedName : (existing?.name ?? "Untitled");
+    const path = normalizeWorkspaceFilePath(
+      input.path ?? existing?.path ?? defaultWorkspaceFilePath(name, kind),
+    );
+    const collision = (await this.store.listWorkspaceFiles(workspaceId)).find(
+      (file) => file.path === path && file.id !== existing?.id,
+    );
+    if (collision) throw new Error("A file already exists at this path.");
+
+    const now = Date.now();
+    const id = existing?.id ?? randomUUID();
+    const versionId = randomUUID();
+    const file: import("./types.js").WorkspaceFileSnapshot = {
+      id,
+      name,
+      path,
+      mimeType: input.mimeType ?? existing?.mimeType ?? "text/markdown",
+      kind,
+      provider: "local",
+      currentVersionId: versionId,
+      createdBy: existing?.createdBy ?? input.createdBy,
+      sourceAgentId: input.sourceAgentId ?? existing?.sourceAgentId,
+      sourceRunId: input.sourceRunId ?? existing?.sourceRunId,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      content,
+    };
+    const staged = stageWorkspaceFileContent(
+      workspaceId,
+      path,
+      id,
+      versionId,
+      content,
+    );
+    try {
+      await this.store.saveWorkspaceFile(
+        workspaceId,
+        file,
+        input.expectedVersionId,
+      );
+    } catch (error) {
+      staged.discard();
+      throw error;
+    }
+    staged.commit();
+    return file;
+  }
+
+  async deleteWorkspaceFile(workspaceId: string, fileId: string) {
+    const file = await this.store.workspaceFile(workspaceId, fileId);
+    if (!file) return;
+    await this.store.deleteWorkspaceFile(workspaceId, fileId);
+    removeWorkspaceFileContent(workspaceId, file.path, file.id);
+  }
+
   saveCampaign(
     workspaceId: string,
     campaign: import("./types.js").CampaignRecord,
@@ -328,6 +513,10 @@ export class SessionManager {
     titleOverride?: string,
   ) {
     return this.store.saveTranscript(context, events, titleOverride);
+  }
+
+  transcript(workspaceId: string, chatId: string) {
+    return this.store.transcript(workspaceId, chatId);
   }
 
   raiseAttentionItem(
@@ -367,11 +556,28 @@ export class SessionManager {
     );
   }
 
-  saveRecurringWorkRun(
-    workspaceId: string,
-    run: import("./types.js").RecurringWorkRunRecord,
-  ) {
+  saveRecurringWorkRun(workspaceId: string, run: RecurringWorkRunRecord) {
     return this.store.saveRecurringWorkRun(workspaceId, run);
+  }
+
+  startRecurringWorkRun(
+    workspaceId: string,
+    run: RecurringWorkRunRecord,
+    transition?: { expectedNextRunAt?: number; nextRunAt: number | null },
+  ) {
+    return this.store.startRecurringWorkRun(workspaceId, run, transition);
+  }
+
+  finishRecurringWorkRun(
+    workspaceId: string,
+    run: RecurringWorkRunRecord,
+    work: import("./types.js").RecurringWorkRecord,
+  ) {
+    return this.store.finishRecurringWorkRun(workspaceId, run, work);
+  }
+
+  reconcileInterruptedRecurringWorkRuns(cutoff: number) {
+    return this.store.reconcileInterruptedRecurringWorkRuns(cutoff);
   }
 
   agentPreference(workspaceId: string, agentId: string) {
@@ -390,11 +596,17 @@ export class SessionManager {
   }
 
   async stopAll() {
-    await Promise.all([...this.sessions.values()].map((s) => s.stop()));
+    await this.stopSessions();
     await Promise.all(this.persistence.values());
     this.sessions.clear();
     workspaceSecrets.lockAll();
     await this.store.close();
+  }
+
+  async stopSessions() {
+    await Promise.all(
+      [...this.sessions.values()].map((session) => session.stop()),
+    );
   }
 
   private lockWorkspaceIfInactive(workspaceId: string) {

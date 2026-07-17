@@ -3,12 +3,15 @@ import { createServer } from "node:http";
 import { basename, join } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 
+import { renderEmailDocument } from "@chief/email/render";
+
 import type {
   ClientMessage,
   ExecutorCapability,
   InputRequest,
   ServerMessage,
 } from "./types.js";
+import { AgentDeploymentManager } from "./agent-deployments.js";
 import {
   composeWorkspaceInstructions,
   defaultAgents,
@@ -20,17 +23,25 @@ import {
 } from "./capabilities/index.js";
 import { loadSlackGatewayConfig } from "./channels/slack-config.js";
 import { SlackGateway } from "./channels/slack-gateway.js";
+import { googleAnalyticsProperties } from "./google-analytics-local.js";
+import { hasInputReceipt, inputReceipt } from "./input-receipt.js";
+import {
+  assertSafeInputRequest,
+  verifyContextRequest,
+} from "./input-values.js";
 import { handleLocalTool, localToolsOpenApi } from "./local-tools.js";
 import { SessionManager } from "./manager.js";
 import { createChiefMcpHandler } from "./mcp-server.js";
 import { listModels } from "./models.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
+import { resumeDriverBlockedWork } from "./scheduled-agent-config.js";
 import { RecurringWorkScheduler } from "./scheduler.js";
 import { ensureExecutorWorkspace } from "./tools/control-plane.js";
 import { executorToolServer } from "./tools/spec.js";
 import {
   readWorkspaceContext,
   writeWorkspaceContext,
+  writeWorkspaceContextValue,
 } from "./workspace-context.js";
 import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
 
@@ -42,7 +53,9 @@ async function storeInputValues(
   workspaceId: string,
   request: InputRequest,
   values: Record<string, string>,
+  allowWorkspaceContext = false,
 ): Promise<string[]> {
+  assertSafeInputRequest(request, allowWorkspaceContext);
   const saved: string[] = [];
   for (const field of request.fields) {
     const value = values[field.key];
@@ -51,14 +64,24 @@ async function storeInputValues(
       saved.push(
         await workspaceSecrets.storeFile(workspaceId, field.save.file, value),
       );
-    } else {
+    } else if ("envKey" in field.save) {
       await workspaceSecrets.storeEnv(workspaceId, field.save.envKey, value);
       saved.push(`${field.save.envKey} in this workspace's Keychain vault`);
+    } else {
+      writeWorkspaceContextValue(workspaceId, field.save.contextKey, value);
+      saved.push(`${field.save.contextKey} in this workspace's context`);
     }
   }
   await workspaceSecrets.refresh(workspaceId);
   return saved;
 }
+
+const equivalentInputKeys: Record<string, string[]> = {
+  GOOGLE_ANALYTICS_CLIENT_ID: ["CHIEF_GOOGLE_OAUTH_CLIENT_ID"],
+  GOOGLE_ANALYTICS_CLIENT_SECRET: ["CHIEF_GOOGLE_OAUTH_CLIENT_SECRET"],
+  CHIEF_GOOGLE_OAUTH_CLIENT_ID: ["GOOGLE_ANALYTICS_CLIENT_ID"],
+  CHIEF_GOOGLE_OAUTH_CLIENT_SECRET: ["GOOGLE_ANALYTICS_CLIENT_SECRET"],
+};
 
 const PORT = Number(process.env.CHIEF_RUNTIME_PORT ?? 4318);
 
@@ -70,6 +93,11 @@ const PORT = Number(process.env.CHIEF_RUNTIME_PORT ?? 4318);
 export function startServer(port = PORT) {
   const manager = new SessionManager();
   const localCapabilities = new Map<string, string>();
+  const workspaceCapabilities = new Map<string, ExecutorCapability>();
+  const onboardingBootstraps = new Map<
+    string,
+    { signature: string; promise: Promise<void> }
+  >();
   const authorizeWorkspace = async (
     workspaceId: string,
     capability: ExecutorCapability,
@@ -79,6 +107,7 @@ export function startServer(port = PORT) {
       if (cachedWorkspace !== workspaceId) {
         throw new Error("Workspace capability does not match this workspace.");
       }
+      workspaceCapabilities.set(workspaceId, capability);
       return;
     }
 
@@ -97,6 +126,7 @@ export function startServer(port = PORT) {
       throw new Error("Could not verify access to this workspace.");
     }
     localCapabilities.set(capability.token, workspaceId);
+    workspaceCapabilities.set(workspaceId, capability);
     void ensureSlackGateway(workspaceId);
   };
 
@@ -120,16 +150,30 @@ export function startServer(port = PORT) {
     }
   };
 
-  let broadcastWorkspaceData = async (_workspaceId: string) => {};
+  let broadcastWorkspaceData = (_workspaceId: string) => Promise.resolve();
+  let broadcastWorkspaceFiles = (_workspaceId: string) => Promise.resolve();
   let broadcastNotice = (
     _workspaceId: string,
     _notice: import("./types.js").RuntimeNotice,
-  ) => {};
+  ) => undefined;
+  let broadcastAgentDeployment = (
+    _record: import("./types.js").AgentDeploymentRecord,
+  ) => undefined;
+  const deployments = new AgentDeploymentManager(manager, (record) =>
+    broadcastAgentDeployment(record),
+  );
   const scheduler = new RecurringWorkScheduler(
     manager,
     (workspaceId) => broadcastWorkspaceData(workspaceId),
     (workspaceId, notice) => broadcastNotice(workspaceId, notice),
+    async (workspaceId) => {
+      const capability = workspaceCapabilities.get(workspaceId);
+      return capability
+        ? await ensureExecutorWorkspace(workspaceId, capability)
+        : null;
+    },
   );
+  let schedulerReady = false;
   // Bind both loopback families — macOS clients resolving "localhost" may
   // dial ::1 or 127.0.0.1. Never bind non-loopback interfaces here.
   const handler = async (
@@ -139,6 +183,22 @@ export function startServer(port = PORT) {
     const path = req.url
       ? new URL(req.url, `http://127.0.0.1:${port}`).pathname
       : "/";
+    if (req.method === "GET" && path === "/healthz") {
+      try {
+        await manager.health();
+        if (!schedulerReady) throw new Error("Scheduler is not ready.");
+        res.writeHead(200, {
+          "content-type": "text/plain",
+          "cache-control": "no-store",
+          "x-chief-runtime": "ready",
+        });
+        res.end("chief-runtime-ready");
+      } catch {
+        res.writeHead(503, { "content-type": "text/plain" });
+        res.end("chief-runtime-starting");
+      }
+      return;
+    }
     if (req.method === "GET" && path === "/local-tools/openapi.json") {
       res.writeHead(200, {
         "content-type": "application/json",
@@ -195,9 +255,9 @@ export function startServer(port = PORT) {
   const wss6 = new WebSocketServer({ server: http6 });
   http4.listen(port, "127.0.0.1");
   http6.listen(port, "::1");
-  http6.on("error", () => {});
+  http6.on("error", () => undefined);
   wss6.on("connection", (ws, req) => wss.emit("connection", ws, req));
-  wss6.on("error", () => {});
+  wss6.on("error", () => undefined);
   broadcastWorkspaceData = async (workspaceId) => {
     const data = await manager.workspaceData(workspaceId);
     const message = JSON.stringify({
@@ -209,11 +269,31 @@ export function startServer(port = PORT) {
       if (client.readyState === WebSocket.OPEN) client.send(message);
     }
   };
+  broadcastWorkspaceFiles = async (workspaceId) => {
+    const message = JSON.stringify({
+      type: "workspaceFiles",
+      workspaceId,
+      files: await manager.listWorkspaceFiles(workspaceId),
+    });
+    for (const client of new Set([...wss.clients, ...wss6.clients])) {
+      if (client.readyState === WebSocket.OPEN) client.send(message);
+    }
+  };
   broadcastNotice = (workspaceId, notice) => {
     const message = JSON.stringify({
       type: "runtimeNotice",
       workspaceId,
       notice,
+    });
+    for (const client of new Set([...wss.clients, ...wss6.clients])) {
+      if (client.readyState === WebSocket.OPEN) client.send(message);
+    }
+  };
+  broadcastAgentDeployment = (record) => {
+    const message = JSON.stringify({
+      type: "agentDeploymentUpdated",
+      workspaceId: record.workspaceId,
+      deployment: record,
     });
     for (const client of new Set([...wss.clients, ...wss6.clients])) {
       if (client.readyState === WebSocket.OPEN) client.send(message);
@@ -266,137 +346,321 @@ export function startServer(port = PORT) {
             });
             break;
 
+          case "listWorkspaceFiles":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            send({
+              type: "workspaceFiles",
+              workspaceId: msg.workspaceId,
+              files: await manager.listWorkspaceFiles(msg.workspaceId),
+            });
+            break;
+
+          case "getWorkspaceFile": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const file = await manager.workspaceFile(
+              msg.workspaceId,
+              msg.fileId,
+            );
+            if (!file) throw new Error("File not found.");
+            send({
+              type: "workspaceFile",
+              workspaceId: msg.workspaceId,
+              requestId: msg.requestId,
+              file,
+            });
+            break;
+          }
+
+          case "saveWorkspaceFile": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const file = await manager.saveWorkspaceFile(
+              msg.workspaceId,
+              msg.file,
+            );
+            send({
+              type: "workspaceFileSaved",
+              workspaceId: msg.workspaceId,
+              requestId: msg.requestId,
+              file,
+            });
+            await broadcastWorkspaceFiles(msg.workspaceId);
+            break;
+          }
+
+          case "deleteWorkspaceFile":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            await manager.deleteWorkspaceFile(msg.workspaceId, msg.fileId);
+            send({
+              type: "workspaceFileDeleted",
+              workspaceId: msg.workspaceId,
+              fileId: msg.fileId,
+              requestId: msg.requestId,
+            });
+            await broadcastWorkspaceFiles(msg.workspaceId);
+            break;
+
+          case "renderWorkspaceEmail": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const file = await manager.workspaceFile(
+              msg.workspaceId,
+              msg.fileId,
+            );
+            if (!file) throw new Error("File not found.");
+            if (file.kind !== "email") {
+              throw new Error("Only email files can be previewed as email.");
+            }
+            const rendered = await renderEmailDocument({
+              title: file.name.replace(/\.md$/i, ""),
+              markdown: file.content,
+            });
+            send({
+              type: "workspaceEmailPreview",
+              workspaceId: msg.workspaceId,
+              fileId: file.id,
+              requestId: msg.requestId,
+              versionId: file.currentVersionId,
+              html: rendered.html,
+              text: rendered.text,
+            });
+            break;
+          }
+
           case "bootstrapOnboardingWork": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            if (msg.workspaceContext?.trim()) {
-              writeWorkspaceContext(
-                msg.workspaceId,
-                msg.workspaceContext.slice(0, 40_000),
+            const signature = JSON.stringify({
+              jobs: msg.jobs,
+              schedules: msg.schedules,
+              workspaceContext: msg.workspaceContext,
+              driver: msg.driver,
+            });
+            const activeBootstrap = onboardingBootstraps.get(msg.workspaceId);
+            if (activeBootstrap && activeBootstrap.signature !== signature) {
+              throw new Error(
+                "Chief is already preparing a different onboarding update. This update was kept for retry.",
               );
             }
-            const now = Date.now();
-            const jobs = msg.jobs.slice(0, 8);
-            for (const job of jobs) {
-              if (!/^[a-z0-9][a-z0-9_-]{2,96}$/i.test(job.id)) {
-                throw new Error("Invalid onboarding job id.");
-              }
-              // Onboarding should visibly come to life as soon as the user
-              // reaches the dashboard. Keep a tiny dispatch buffer so the
-              // bootstrap response and first workspace update land first.
-              const runAt = Math.max(job.runAt, now + 1_000);
-              let instructions = job.instructions.trim().slice(0, 40_000);
-              const attachments = (job.attachments ?? []).slice(0, 4);
-              if (attachments.length > 0) {
-                const directory = join(
-                  workspaceRoot(msg.workspaceId),
-                  "onboarding",
-                  job.id,
+            let bootstrap = activeBootstrap?.promise;
+            if (!bootstrap) {
+              bootstrap = (async () => {
+                console.log(
+                  `[chief] preparing onboarding work for ${msg.workspaceId}: ${msg.jobs.length} setup jobs, ${msg.schedules.length} schedules`,
                 );
-                mkdirSync(directory, { recursive: true, mode: 0o700 });
-                const saved: string[] = [];
-                let totalBytes = 0;
-                for (const attachment of attachments) {
-                  const match = /^data:[^;]+;base64,(.+)$/.exec(
-                    attachment.dataUrl,
+                if (msg.workspaceContext?.trim()) {
+                  writeWorkspaceContext(
+                    msg.workspaceId,
+                    msg.workspaceContext.slice(0, 40_000),
                   );
-                  if (!match) continue;
-                  const bytes = Buffer.from(match[1]!, "base64");
-                  totalBytes += bytes.byteLength;
-                  if (totalBytes > 6 * 1024 * 1024) {
-                    throw new Error("Onboarding attachments exceed 6 MB.");
+                }
+                const now = Date.now();
+                const jobs = msg.jobs.slice(0, 8);
+                if (msg.driver) {
+                  const agentIds = new Set([
+                    ...jobs.map((job) => job.agentId),
+                    ...msg.schedules.map((schedule) => schedule.agentId),
+                  ]);
+                  for (const agentId of agentIds) {
+                    const existing = await manager.agentPreference(
+                      msg.workspaceId,
+                      agentId,
+                    );
+                    await manager.saveAgentPreference(msg.workspaceId, {
+                      ...existing,
+                      agentId,
+                      enabled: true,
+                      driver: msg.driver,
+                    });
                   }
-                  const safeName = basename(attachment.name).replace(
-                    /[^a-zA-Z0-9._-]+/g,
-                    "-",
+                }
+                for (const job of jobs) {
+                  console.log(`[chief] preparing onboarding job ${job.id}`);
+                  if (!/^[a-z0-9][a-z0-9_-]{2,96}$/i.test(job.id)) {
+                    throw new Error("Invalid onboarding job id.");
+                  }
+                  const existing = await manager.recurringWorkById(
+                    msg.workspaceId,
+                    job.id,
                   );
-                  const path = join(directory, safeName || "brand-file");
-                  writeFileSync(path, bytes, { mode: 0o600 });
-                  saved.push(path);
+                  // Bootstrap requests can arrive from both onboarding and
+                  // the dashboard. Existing work is authoritative: never
+                  // reset its run state, schedule, or transcript on a replay.
+                  if (existing) {
+                    console.log(
+                      `[chief] onboarding job ${job.id} already exists`,
+                    );
+                    continue;
+                  }
+                  // Onboarding should visibly come to life as soon as the user
+                  // reaches the dashboard. Keep a tiny dispatch buffer so the
+                  // bootstrap response and first workspace update land first.
+                  const runAt = Math.max(job.runAt, now + 1_000);
+                  let instructions = job.instructions.trim().slice(0, 40_000);
+                  const attachments = (job.attachments ?? []).slice(0, 4);
+                  if (attachments.length > 0) {
+                    const directory = join(
+                      workspaceRoot(msg.workspaceId),
+                      "onboarding",
+                      job.id,
+                    );
+                    mkdirSync(directory, { recursive: true, mode: 0o700 });
+                    const saved: string[] = [];
+                    let totalBytes = 0;
+                    for (const attachment of attachments) {
+                      const match = /^data:[^;]+;base64,(.+)$/.exec(
+                        attachment.dataUrl,
+                      );
+                      if (!match) continue;
+                      const bytes = Buffer.from(match[1]!, "base64");
+                      totalBytes += bytes.byteLength;
+                      if (totalBytes > 6 * 1024 * 1024) {
+                        throw new Error("Onboarding attachments exceed 6 MB.");
+                      }
+                      const safeName = basename(attachment.name).replace(
+                        /[^a-zA-Z0-9._-]+/g,
+                        "-",
+                      );
+                      const path = join(directory, safeName || "brand-file");
+                      writeFileSync(path, bytes, { mode: 0o600 });
+                      saved.push(path);
+                    }
+                    if (saved.length > 0) {
+                      instructions += `\n\nFiles supplied during onboarding:\n${saved.map((path) => `- ${path}`).join("\n")}`;
+                    }
+                  }
+                  const toolPatterns = Array.from(
+                    new Set(
+                      job.proposedToolPatterns
+                        .filter((pattern) => pattern.startsWith("tools."))
+                        .slice(0, 24),
+                    ),
+                  );
+                  await manager.saveRecurringWork(msg.workspaceId, {
+                    id: job.id,
+                    agentId: job.agentId,
+                    title: job.title.trim().slice(0, 160),
+                    instructions,
+                    cron: "0 0 1 1 *",
+                    timezone: job.timezone,
+                    runOnceAt: runAt,
+                    status: "active",
+                    placement: "local",
+                    approvalSummary:
+                      "Approved during onboarding and queued to run after setup completes.",
+                    proposedToolPatterns: toolPatterns,
+                    grant: {
+                      version: 1,
+                      approvedAt: now,
+                      toolPatterns,
+                    },
+                    nextRunAt: runAt,
+                    createdAt: now,
+                    updatedAt: now,
+                  });
+                  await manager.raiseAttentionItem(msg.workspaceId, {
+                    id: `attention-${job.id}-onboarding`,
+                    agentId: job.agentId,
+                    title: job.title.trim().slice(0, 160),
+                    reason:
+                      "Chief is starting this setup work now. Open it to follow the run as it progresses.",
+                    sourceId: `automation-${job.id}`,
+                    status: "open",
+                    createdAt: now,
+                  });
+                  console.log(`[chief] onboarding job ${job.id} ready`);
                 }
-                if (saved.length > 0) {
-                  instructions += `\n\nFiles supplied during onboarding:\n${saved.map((path) => `- ${path}`).join("\n")}`;
+                for (const [scheduleIndex, schedule] of msg.schedules
+                  .slice(0, 8)
+                  .entries()) {
+                  console.log(
+                    `[chief] preparing onboarding schedule ${schedule.id}`,
+                  );
+                  if (!/^[a-z0-9][a-z0-9_-]{2,96}$/i.test(schedule.id)) {
+                    throw new Error("Invalid onboarding schedule id.");
+                  }
+                  validateCron(schedule.cron, schedule.timezone);
+                  const existing = await manager.recurringWorkById(
+                    msg.workspaceId,
+                    schedule.id,
+                  );
+                  if (existing) {
+                    console.log(
+                      `[chief] onboarding schedule ${schedule.id} already exists`,
+                    );
+                    continue;
+                  }
+                  const toolPatterns = Array.from(
+                    new Set(
+                      schedule.proposedToolPatterns
+                        .filter((pattern) => pattern.startsWith("tools."))
+                        .slice(0, 24),
+                    ),
+                  );
+                  await manager.saveRecurringWork(msg.workspaceId, {
+                    id: schedule.id,
+                    agentId: schedule.agentId,
+                    title: schedule.title.trim().slice(0, 160),
+                    instructions: schedule.instructions.trim().slice(0, 40_000),
+                    cron: schedule.cron,
+                    timezone: schedule.timezone,
+                    status: schedule.status,
+                    placement: "local",
+                    approvalSummary: schedule.approvalSummary
+                      .trim()
+                      .slice(0, 2_000),
+                    proposedToolPatterns: toolPatterns,
+                    grant:
+                      schedule.status === "active"
+                        ? { version: 1, approvedAt: now, toolPatterns }
+                        : undefined,
+                    // Run a newly activated onboarding schedule once while the
+                    // user is still finishing onboarding, then let the scheduler
+                    // return it to its normal cron cadence after that first run.
+                    nextRunAt:
+                      schedule.status === "active"
+                        ? now + 5_000 + scheduleIndex * 2_000
+                        : undefined,
+                    createdAt: now,
+                    updatedAt: now,
+                  });
+                  if (schedule.status === "active") {
+                    await manager.raiseAttentionItem(msg.workspaceId, {
+                      id: `attention-${schedule.id}-onboarding`,
+                      agentId: schedule.agentId,
+                      title: schedule.title.trim().slice(0, 160),
+                      reason:
+                        "Chief is starting this recurring work now. Open it to follow the first run as it progresses.",
+                      sourceId: `automation-${schedule.id}`,
+                      status: "open",
+                      createdAt: now,
+                    });
+                  }
+                  console.log(
+                    `[chief] onboarding schedule ${schedule.id} ready`,
+                  );
                 }
-              }
-              const toolPatterns = Array.from(
-                new Set(
-                  job.proposedToolPatterns
-                    .filter((pattern) => pattern.startsWith("tools."))
-                    .slice(0, 24),
-                ),
-              );
-              const existing = await manager.recurringWorkById(
-                msg.workspaceId,
-                job.id,
-              );
-              await manager.saveRecurringWork(msg.workspaceId, {
-                id: job.id,
-                agentId: job.agentId,
-                title: job.title.trim().slice(0, 160),
-                instructions,
-                cron: "0 0 1 1 *",
-                timezone: job.timezone,
-                runOnceAt: runAt,
-                status: "active",
-                placement: "local",
-                approvalSummary:
-                  "Approved during onboarding and queued to run after setup completes.",
-                proposedToolPatterns: toolPatterns,
-                grant: {
-                  version: 1,
-                  approvedAt: now,
-                  toolPatterns,
-                },
-                nextRunAt: runAt,
-                createdAt: existing?.createdAt ?? now,
-                updatedAt: now,
+                await broadcastWorkspaceData(msg.workspaceId);
+              })();
+              onboardingBootstraps.set(msg.workspaceId, {
+                signature,
+                promise: bootstrap,
               });
+              void bootstrap
+                .finally(() => {
+                  if (
+                    onboardingBootstraps.get(msg.workspaceId)?.promise ===
+                    bootstrap
+                  ) {
+                    onboardingBootstraps.delete(msg.workspaceId);
+                  }
+                })
+                .catch(() => undefined);
             }
-            for (const schedule of (msg.schedules ?? []).slice(0, 8)) {
-              if (!/^[a-z0-9][a-z0-9_-]{2,96}$/i.test(schedule.id)) {
-                throw new Error("Invalid onboarding schedule id.");
-              }
-              validateCron(schedule.cron, schedule.timezone);
-              const existing = await manager.recurringWorkById(
-                msg.workspaceId,
-                schedule.id,
-              );
-              const toolPatterns = Array.from(
-                new Set(
-                  schedule.proposedToolPatterns
-                    .filter((pattern) => pattern.startsWith("tools."))
-                    .slice(0, 24),
-                ),
-              );
-              await manager.saveRecurringWork(msg.workspaceId, {
-                id: schedule.id,
-                agentId: schedule.agentId,
-                title: schedule.title.trim().slice(0, 160),
-                instructions: schedule.instructions.trim().slice(0, 40_000),
-                cron: schedule.cron,
-                timezone: schedule.timezone,
-                status: schedule.status,
-                placement: "local",
-                approvalSummary: schedule.approvalSummary
-                  .trim()
-                  .slice(0, 2_000),
-                proposedToolPatterns: toolPatterns,
-                grant:
-                  schedule.status === "active"
-                    ? { version: 1, approvedAt: now, toolPatterns }
-                    : undefined,
-                nextRunAt:
-                  schedule.status === "active"
-                    ? nextRunAt(schedule.cron, schedule.timezone)
-                    : undefined,
-                createdAt: existing?.createdAt ?? now,
-                updatedAt: now,
-              });
-            }
-            await broadcastWorkspaceData(msg.workspaceId);
+            await bootstrap;
             send({
               type: "onboardingWorkBootstrapped",
               workspaceId: msg.workspaceId,
+              requestId: msg.requestId,
             });
+            console.log(`[chief] onboarding work ready for ${msg.workspaceId}`);
             break;
           }
 
@@ -597,11 +861,44 @@ export function startServer(port = PORT) {
           case "saveAgentPreference":
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             await manager.saveAgentPreference(msg.workspaceId, msg.preference);
+            if (msg.preference.driver) {
+              await resumeDriverBlockedWork(
+                manager,
+                msg.workspaceId,
+                msg.preference.agentId,
+              );
+              await broadcastWorkspaceData(msg.workspaceId);
+            }
             send({
               type: "agentPreferences",
               workspaceId: msg.workspaceId,
               preferences: await manager.listAgentPreferences(msg.workspaceId),
             });
+            break;
+
+          case "listAgentDeployments":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            send({
+              type: "agentDeployments",
+              workspaceId: msg.workspaceId,
+              deployments: deployments.list(msg.workspaceId),
+            });
+            break;
+
+          case "startAgentDeployment":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            deployments.start({
+              workspaceId: msg.workspaceId,
+              agentId: msg.agentId,
+              projectName: msg.projectName,
+              teamId: msg.teamId,
+              playbooks: msg.playbooks,
+            });
+            break;
+
+          case "cancelAgentDeployment":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            deployments.cancel(msg.workspaceId, msg.deploymentId);
             break;
 
           case "setChatPreferences":
@@ -636,11 +933,17 @@ export function startServer(port = PORT) {
               session.agent.id !== msg.agentId ||
               session.config.workspaceId !== msg.workspaceId
             ) {
-              return send({
-                type: "error",
-                message: "This scheduled run is no longer active.",
+              const events = await manager.transcript(
+                msg.workspaceId,
+                msg.chatId,
+              );
+              send({
+                type: "sessionOpened",
                 chatId: msg.chatId,
+                agentId: msg.agentId,
               });
+              send({ type: "history", chatId: msg.chatId, events });
+              break;
             }
             if (!subscriptions.has(msg.chatId)) {
               subscriptions.add(msg.chatId);
@@ -678,15 +981,6 @@ export function startServer(port = PORT) {
                 chatId: msg.chatId,
               });
             }
-            // The runtime never picks a provider itself — the client resolves
-            // the workspace's choice and must send it.
-            if (!msg.driver) {
-              return send({
-                type: "error",
-                message: "no provider configured for this chat",
-                chatId: msg.chatId,
-              });
-            }
             if (msg.workspaceId) {
               if (!msg.executorCapability) {
                 throw new Error("Workspace authorization is required.");
@@ -696,7 +990,7 @@ export function startServer(port = PORT) {
             // Workspace tools are additive: a control-plane failure here must
             // degrade the session to no executor tools, not block chat.
             const executorWorkspace =
-              agent.id !== "setup" && msg.workspaceId && msg.executorCapability
+              msg.workspaceId && msg.executorCapability
                 ? await ensureExecutorWorkspace(
                     msg.workspaceId,
                     msg.executorCapability,
@@ -849,9 +1143,14 @@ export function startServer(port = PORT) {
 
           case "queryInputs": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const present = (
-              await workspaceSecrets.keys(msg.workspaceId)
-            ).filter((key) => msg.keys.includes(key));
+            const stored = new Set(
+              await workspaceSecrets.keys(msg.workspaceId),
+            );
+            const present = msg.keys.filter(
+              (key) =>
+                stored.has(key) ||
+                equivalentInputKeys[key]?.some((alias) => stored.has(alias)),
+            );
             send({
               type: "inputsStatus",
               workspaceId: msg.workspaceId,
@@ -868,37 +1167,204 @@ export function startServer(port = PORT) {
               workspaceId: msg.workspaceId,
               present: await workspaceSecrets.keys(msg.workspaceId),
             });
+            send({
+              type: "workspaceEnvironmentVariables",
+              workspaceId: msg.workspaceId,
+              variables: (await workspaceSecrets.keys(msg.workspaceId)).map(
+                (key) => ({ key, sensitive: true as const }),
+              ),
+            });
+            break;
+          }
+
+          case "listWorkspaceEnvironmentVariables": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            send({
+              type: "workspaceEnvironmentVariables",
+              workspaceId: msg.workspaceId,
+              variables: (await workspaceSecrets.keys(msg.workspaceId)).map(
+                (key) => ({ key, sensitive: true as const }),
+              ),
+            });
+            break;
+          }
+
+          case "saveWorkspaceEnvironmentVariable": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            if (!msg.value) throw new Error("Environment value is required.");
+            await workspaceSecrets.storeEnv(
+              msg.workspaceId,
+              msg.key,
+              msg.value,
+            );
+            await workspaceSecrets.refresh(msg.workspaceId);
+            send({
+              type: "workspaceEnvironmentVariables",
+              workspaceId: msg.workspaceId,
+              variables: (await workspaceSecrets.keys(msg.workspaceId)).map(
+                (key) => ({ key, sensitive: true as const }),
+              ),
+            });
+            break;
+          }
+
+          case "deleteWorkspaceEnvironmentVariable": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            await workspaceSecrets.deleteEnv(msg.workspaceId, msg.key);
+            send({
+              type: "workspaceEnvironmentVariables",
+              workspaceId: msg.workspaceId,
+              variables: (await workspaceSecrets.keys(msg.workspaceId)).map(
+                (key) => ({ key, sensitive: true as const }),
+              ),
+            });
+            break;
+          }
+
+          case "inspectWorkspaceIntegrations": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const environment = await workspaceSecrets.materialize(
+              msg.workspaceId,
+            );
+            try {
+              const result = await googleAnalyticsProperties({
+                credentialsPath: environment.GOOGLE_APPLICATION_CREDENTIALS,
+              });
+              send({
+                type: "localIntegrationStatus",
+                workspaceId: msg.workspaceId,
+                integrations: result.properties.map((property) => ({
+                  provider: "google-analytics",
+                  category: "analytics",
+                  status: "connected" as const,
+                  displayName: property.propertyName,
+                  externalId: property.propertyId,
+                })),
+              });
+            } catch {
+              send({
+                type: "localIntegrationStatus",
+                workspaceId: msg.workspaceId,
+                integrations: [
+                  {
+                    provider: "google-analytics",
+                    category: "analytics",
+                    status: "needs-authorization" as const,
+                  },
+                ],
+              });
+            }
             break;
           }
 
           case "provideInput": {
             const session = manager.get(msg.chatId);
-            if (!session) {
-              return send({
-                type: "error",
-                message:
-                  "No session for this chat yet. Reopen it to reconnect.",
-                chatId: msg.chatId,
+            const historicalRun = Boolean(
+              msg.workspaceId && msg.recurringWorkId,
+            );
+            if (!session || historicalRun) {
+              if (!msg.workspaceId || !msg.executorCapability) {
+                return send({
+                  type: "error",
+                  message: "This run can no longer accept input.",
+                  chatId: msg.chatId,
+                });
+              }
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              await manager.waitForChatPersistence(msg.chatId);
+              const events = session
+                ? session.events
+                : await manager.transcript(msg.workspaceId, msg.chatId);
+              if (hasInputReceipt(events, msg.request.id)) break;
+              const saved = await storeInputValues(
+                msg.workspaceId,
+                msg.request,
+                msg.values,
+                Boolean(
+                  msg.recurringWorkId &&
+                  verifyContextRequest(
+                    msg.workspaceId,
+                    msg.recurringWorkId,
+                    msg.request,
+                  ),
+                ),
+              );
+              const receipt = inputReceipt(msg.request, saved);
+              if (session) {
+                session.recordUserMessage(receipt);
+                await manager.waitForChatPersistence(msg.chatId);
+              } else {
+                const chat = await manager.chat(msg.workspaceId, msg.chatId);
+                if (!chat?.driver) {
+                  throw new Error(
+                    "The original run transcript is unavailable.",
+                  );
+                }
+                await manager.saveTranscript(
+                  {
+                    id: msg.chatId,
+                    workspaceId: msg.workspaceId,
+                    agentId: chat.agentId,
+                    driver: chat.driver,
+                    model: chat.model,
+                  },
+                  [
+                    ...events,
+                    {
+                      type: "message",
+                      role: "user",
+                      content: [{ type: "text", text: receipt }],
+                    },
+                  ],
+                  chat.title,
+                );
+              }
+              send({
+                type: "workspaceEnvironmentVariables",
+                workspaceId: msg.workspaceId,
+                variables: (await workspaceSecrets.keys(msg.workspaceId)).map(
+                  (key) => ({ key, sensitive: true as const }),
+                ),
               });
+              if (msg.recurringWorkId) {
+                void scheduler
+                  .resumeAfterCurrent(msg.workspaceId, msg.recurringWorkId)
+                  .catch((error) =>
+                    console.error(
+                      "[scheduler] could not resume run after input:",
+                      error,
+                    ),
+                  );
+              }
+              break;
             }
+            if (hasInputReceipt(session.events, msg.request.id)) break;
             const saved = await storeInputValues(
               session.config.workspaceId,
               msg.request,
               msg.values,
             );
-            await session.sendPrompt(
-              saved.length > 0
-                ? `Provided: ${msg.request.title}. Saved to: ${saved.join(", ")}. Read the values from there when commands need them; never print them. Continue the setup.`
-                : `Provided: ${msg.request.title}, but no values were saved. Ask again with clearer fields if you still need them.`,
-            );
+            await session.sendPrompt(inputReceipt(msg.request, saved));
+            send({
+              type: "workspaceEnvironmentVariables",
+              workspaceId: session.config.workspaceId,
+              variables: (
+                await workspaceSecrets.keys(session.config.workspaceId)
+              ).map((key) => ({ key, sensitive: true as const })),
+            });
             break;
           }
         }
       } catch (err) {
+        console.error(
+          `[chief] ${msg.type} failed:`,
+          err instanceof Error ? err.message : err,
+        );
         send({
           type: "error",
           message: String(err instanceof Error ? err.message : err),
           chatId: "chatId" in msg ? msg.chatId : undefined,
+          requestId: "requestId" in msg ? msg.requestId : undefined,
         });
       }
     });
@@ -919,7 +1385,14 @@ export function startServer(port = PORT) {
   // installed app next to dev) polling the same database must stay passive.
   http4.on("listening", () => {
     console.log(`[chief] agent runtime listening on ws://127.0.0.1:${port}`);
-    scheduler.start();
+    void scheduler
+      .start()
+      .then(() => {
+        schedulerReady = true;
+      })
+      .catch((error) =>
+        console.error("[scheduler] startup recovery failed:", error),
+      );
   });
   http4.on("error", (error) => {
     console.error(
@@ -929,12 +1402,16 @@ export function startServer(port = PORT) {
   });
 
   const shutdown = async () => {
+    schedulerReady = false;
     scheduler.stop();
     await Promise.all(
       [...slackGateways.values()].map((gateway) =>
-        gateway.stop().catch(() => {}),
+        gateway.stop().catch(() => undefined),
       ),
     );
+    await scheduler.cancelActive();
+    await scheduler.drain();
+    await manager.stopSessions();
     await manager.stopAll();
     wss.close();
     process.exit(0);

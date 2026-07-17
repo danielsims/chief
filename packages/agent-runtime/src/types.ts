@@ -30,6 +30,46 @@ export interface GenerativeTableData {
   rows: Record<string, string | number | boolean | null>[];
 }
 
+export interface WorkspaceFileRecord {
+  id: string;
+  name: string;
+  path: string;
+  mimeType: string;
+  kind: "document" | "email";
+  provider: "local";
+  currentVersionId: string;
+  createdBy: "agent" | "user";
+  sourceAgentId?: string;
+  sourceRunId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkspaceFileSnapshot extends WorkspaceFileRecord {
+  content: string;
+}
+
+export interface WorkspaceFileWrite {
+  id?: string;
+  name: string;
+  path?: string;
+  mimeType?: string;
+  kind?: "document" | "email";
+  content: string;
+  expectedVersionId?: string;
+  createdBy: "agent" | "user";
+  sourceAgentId?: string;
+  sourceRunId?: string;
+}
+
+export interface GenerativeDocumentData {
+  fileId: string;
+  title: string;
+  path: string;
+  kind: "document" | "email";
+  versionId: string;
+}
+
 /**
  * Chief's persistent custom UI parts follow AI SDK 7's typed `data-*`
  * contract. The websocket transport remains provider-neutral; every driver
@@ -37,7 +77,11 @@ export interface GenerativeTableData {
  */
 export type ChiefUIMessage = UIMessage<
   unknown,
-  { chart: GenerativeChartData; table: GenerativeTableData }
+  {
+    chart: GenerativeChartData;
+    table: GenerativeTableData;
+    document: GenerativeDocumentData;
+  }
 >;
 
 export type GenerativeChartBlock = Extract<
@@ -50,11 +94,17 @@ export type GenerativeTableBlock = Extract<
   { type: "data-table" }
 >;
 
+export type GenerativeDocumentBlock = Extract<
+  ChiefUIMessage["parts"][number],
+  { type: "data-document" }
+>;
+
 export type ContentBlock =
   | { type: "text"; text: string }
   | { type: "thinking"; thinking: string }
   | GenerativeChartBlock
   | GenerativeTableBlock
+  | GenerativeDocumentBlock
   | {
       type: "tool_use";
       id: string;
@@ -159,6 +209,8 @@ export interface ContentDraftRecord {
   title: string;
   body: string;
   platform: string;
+  /** Editable workspace document containing the canonical draft body. */
+  fileId?: string;
   status: "draft" | "approved" | "scheduled" | "published";
   scheduledFor?: number;
   createdAt: number;
@@ -232,7 +284,7 @@ export interface OnboardingSchedule {
 export interface RecurringWorkRunRecord {
   id: string;
   recurringWorkId: string;
-  status: "running" | "completed" | "failed" | "needs_approval";
+  status: "running" | "completed" | "waiting" | "failed" | "needs_approval";
   scheduledFor: number;
   startedAt: number;
   finishedAt?: number;
@@ -243,7 +295,8 @@ export interface RecurringWorkRunRecord {
   blockedTools?: string[];
 }
 
-export type RunResultArtifact = GenerativeChartBlock | GenerativeTableBlock;
+export type RunResultArtifact =
+  GenerativeChartBlock | GenerativeTableBlock | GenerativeDocumentBlock;
 
 export interface AttentionItem {
   id: string;
@@ -357,14 +410,14 @@ export interface StartOptions {
 /**
  * One value the user pastes. `save` tells the runtime where to store it:
  * a file path (secrets never enter the model transcript; agents read them
- * from disk) or a workspace-scoped Keychain entry. A future deployment
- * target (e.g. Vercel env) slots in as another save variant.
+ * from disk), a workspace-scoped Keychain entry, or durable non-secret
+ * workspace context. A future deployment target slots in as another variant.
  */
 export interface InputField {
   key: string;
   label: string;
   type?: "text" | "secret" | "multiline";
-  save: { file: string } | { envKey: string };
+  save: { file: string } | { envKey: string } | { contextKey: string };
 }
 
 /**
@@ -378,6 +431,51 @@ export interface InputRequest {
   reason?: string;
   steps?: { text: string; url?: string }[];
   fields: InputField[];
+  /** Runtime signature for context writes. Models cannot authorize these. */
+  contextAuthorization?: string;
+}
+
+/** Metadata only. Secret values never cross the runtime protocol. */
+export interface WorkspaceEnvironmentVariable {
+  key: string;
+  sensitive: true;
+}
+
+export interface LocalIntegrationStatus {
+  provider: string;
+  category: string;
+  status: "connected" | "needs-authorization" | "unavailable";
+  displayName?: string;
+  externalId?: string;
+}
+
+export type AgentDeploymentPhase =
+  "preparing" | "building" | "deploying" | "verifying";
+
+export type AgentDeploymentStatus =
+  "needs_configuration" | "running" | "ready" | "failed" | "canceled";
+
+export interface AgentDeploymentRecord {
+  id: string;
+  workspaceId: string;
+  agentId: string;
+  target: "vercel";
+  projectName: string;
+  teamId?: string;
+  status: AgentDeploymentStatus;
+  phase?: AgentDeploymentPhase;
+  detail?: string;
+  logs: string[];
+  url?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AgentDeploymentPlaybook {
+  id: string;
+  title: string;
+  summary: string;
+  instructions: string;
 }
 
 // ---- WebSocket protocol between clients (desktop app, future Slack bridge) and the service ----
@@ -396,11 +494,47 @@ export type ClientMessage =
       executorCapability: ExecutorCapability;
     }
   | {
+      type: "listWorkspaceFiles";
+      workspaceId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "getWorkspaceFile";
+      workspaceId: string;
+      fileId: string;
+      requestId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "saveWorkspaceFile";
+      workspaceId: string;
+      file: WorkspaceFileWrite;
+      requestId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "deleteWorkspaceFile";
+      workspaceId: string;
+      fileId: string;
+      requestId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "renderWorkspaceEmail";
+      workspaceId: string;
+      fileId: string;
+      requestId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
       type: "bootstrapOnboardingWork";
       workspaceId: string;
+      requestId: string;
       jobs: OnboardingWorkJob[];
       schedules: OnboardingSchedule[];
       workspaceContext?: string;
+      /** Agent app explicitly chosen during onboarding. */
+      driver?: DriverType;
       executorCapability: ExecutorCapability;
     }
   | {
@@ -525,6 +659,11 @@ export type ClientMessage =
       chatId: string;
       request: InputRequest;
       values: Record<string, string>;
+      /** Read-only run transcripts can save input and resume their work even
+       * after the original agent process has exited. */
+      workspaceId?: string;
+      executorCapability?: ExecutorCapability;
+      recurringWorkId?: string;
     }
   /** Which of these secret env keys already exist for this workspace?
    * Answered with inputsStatus. Lets the app collect required credentials
@@ -543,6 +682,49 @@ export type ClientMessage =
       request: InputRequest;
       values: Record<string, string>;
       executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "listWorkspaceEnvironmentVariables";
+      workspaceId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "saveWorkspaceEnvironmentVariable";
+      workspaceId: string;
+      key: string;
+      value: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "deleteWorkspaceEnvironmentVariable";
+      workspaceId: string;
+      key: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "inspectWorkspaceIntegrations";
+      workspaceId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "listAgentDeployments";
+      workspaceId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "startAgentDeployment";
+      workspaceId: string;
+      agentId: string;
+      projectName: string;
+      teamId?: string;
+      playbooks: AgentDeploymentPlaybook[];
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "cancelAgentDeployment";
+      workspaceId: string;
+      deploymentId: string;
+      executorCapability: ExecutorCapability;
     };
 
 /** A short-lived event the app surfaces as a toast or OS notification. */
@@ -550,6 +732,7 @@ export interface RuntimeNotice {
   kind:
     | "run-started"
     | "run-completed"
+    | "setup-required"
     | "run-blocked"
     | "run-failed"
     | "attention";
@@ -567,7 +750,43 @@ export type ServerMessage =
   | { type: "agents"; agents: AgentDefinition[] }
   | { type: "models"; driver: DriverType; models: ProviderModelOption[] }
   | { type: "runtimeNotice"; workspaceId: string; notice: RuntimeNotice }
-  | { type: "onboardingWorkBootstrapped"; workspaceId: string }
+  | {
+      type: "onboardingWorkBootstrapped";
+      workspaceId: string;
+      requestId: string;
+    }
+  | {
+      type: "workspaceFiles";
+      workspaceId: string;
+      files: WorkspaceFileRecord[];
+    }
+  | {
+      type: "workspaceFile";
+      workspaceId: string;
+      file: WorkspaceFileSnapshot;
+      requestId: string;
+    }
+  | {
+      type: "workspaceFileSaved";
+      workspaceId: string;
+      file: WorkspaceFileSnapshot;
+      requestId: string;
+    }
+  | {
+      type: "workspaceFileDeleted";
+      workspaceId: string;
+      fileId: string;
+      requestId: string;
+    }
+  | {
+      type: "workspaceEmailPreview";
+      workspaceId: string;
+      fileId: string;
+      requestId: string;
+      versionId: string;
+      html: string;
+      text: string;
+    }
   | {
       type: "workspaceData";
       workspaceId: string;
@@ -603,4 +822,24 @@ export type ServerMessage =
   | { type: "history"; chatId: string; events: AgentEvent[] }
   /** Secret env keys currently present for the authenticated workspace. */
   | { type: "inputsStatus"; workspaceId: string; present: string[] }
-  | { type: "error"; message: string; chatId?: string };
+  | {
+      type: "workspaceEnvironmentVariables";
+      workspaceId: string;
+      variables: WorkspaceEnvironmentVariable[];
+    }
+  | {
+      type: "localIntegrationStatus";
+      workspaceId: string;
+      integrations: LocalIntegrationStatus[];
+    }
+  | {
+      type: "agentDeployments";
+      workspaceId: string;
+      deployments: AgentDeploymentRecord[];
+    }
+  | {
+      type: "agentDeploymentUpdated";
+      workspaceId: string;
+      deployment: AgentDeploymentRecord;
+    }
+  | { type: "error"; message: string; chatId?: string; requestId?: string };

@@ -18,6 +18,7 @@ import {
   readWorkspaceContext,
   writeWorkspaceBrandProfile,
 } from "./workspace-context.js";
+import { workspaceSecrets } from "./workspace-secrets.js";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -35,6 +36,12 @@ function value(input: unknown, name: string, maximum: number, required = true) {
     return undefined;
   }
   return input.trim().slice(0, maximum);
+}
+
+function requiredValue(input: unknown, name: string, maximum: number) {
+  const result = value(input, name, maximum);
+  if (!result) throw new Error(`${name} is required.`);
+  return result;
 }
 
 function choice<T extends string>(
@@ -66,6 +73,16 @@ function amount(input: unknown, name: string) {
     throw new Error(`${name} must be a positive number.`);
   }
   return parsed;
+}
+
+function fileSlug(value: string) {
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 64) || "draft"
+  );
 }
 
 function stringList(input: unknown, name: string, maximum = 30) {
@@ -159,7 +176,36 @@ export function localToolsOpenApi(origin: string) {
         post: {
           operationId: "content.save",
           summary: "Create or update a content draft or scheduled post",
+          description:
+            "Saves the complete platform-ready body and creates a linked editable workspace document. Idea labels, outlines, and summaries are not finished drafts.",
           requestBody: body("ContentInput"),
+          responses: saveResponse,
+        },
+      },
+      "/local-tools/files": {
+        get: {
+          operationId: "files.list",
+          summary: "List editable workspace files",
+          description:
+            "Returns file ids, workspace-relative paths, types and current revision ids without loading every file body.",
+          responses: { "200": { description: "Workspace files" } },
+        },
+      },
+      "/local-tools/files/read": {
+        post: {
+          operationId: "files.read",
+          summary: "Read an editable workspace file",
+          requestBody: body("FileReadInput"),
+          responses: { "200": { description: "File and current content" } },
+        },
+      },
+      "/local-tools/files/write": {
+        post: {
+          operationId: "files.write",
+          summary: "Create or revise an editable workspace file",
+          description:
+            "Saves Markdown or plain text as a durable versioned file. Pass expectedVersionId when revising a file so a user's newer edits are never overwritten.",
+          requestBody: body("FileWriteInput"),
           responses: saveResponse,
         },
       },
@@ -324,13 +370,44 @@ export function localToolsOpenApi(origin: string) {
             id: { type: "string" },
             agentId: { type: "string" },
             title: { type: "string" },
-            body: { type: "string" },
+            body: {
+              type: "string",
+              minLength: 100,
+              maxLength: 20000,
+              description:
+                "The complete publish-ready post, thread, caption, or script for the named platform, not a synopsis.",
+            },
             platform: { type: "string" },
             status: {
               type: "string",
               enum: ["draft", "approved", "scheduled", "published"],
             },
             scheduledFor: { oneOf: [{ type: "number" }, { type: "string" }] },
+          },
+        },
+        FileReadInput: {
+          type: "object",
+          additionalProperties: false,
+          required: ["fileId"],
+          properties: { fileId: { type: "string" } },
+        },
+        FileWriteInput: {
+          type: "object",
+          additionalProperties: false,
+          required: ["name", "content"],
+          properties: {
+            id: { type: "string" },
+            name: { type: "string" },
+            path: {
+              type: "string",
+              description:
+                "Optional workspace-relative .md or .txt path, for example emails/welcome.md",
+            },
+            content: { type: "string" },
+            kind: { type: "string", enum: ["document", "email"] },
+            expectedVersionId: { type: "string" },
+            agentId: { type: "string" },
+            sourceRunId: { type: "string" },
           },
         },
         CampaignInput: {
@@ -466,6 +543,9 @@ export async function handleLocalTool(
       return json({ prospects: data.prospects });
     if (path === "/local-tools/trends") return json({ trends: data.trends });
     if (path === "/local-tools/content") return json({ drafts: data.drafts });
+    if (path === "/local-tools/files") {
+      return json({ files: await manager.listWorkspaceFiles(workspaceId) });
+    }
     if (path === "/local-tools/campaigns") {
       return json({ campaigns: data.campaigns });
     }
@@ -485,17 +565,25 @@ export async function handleLocalTool(
   }
   try {
     if (path === "/local-tools/google-analytics/properties") {
-      return json(await googleAnalyticsProperties());
+      const environment = await workspaceSecrets.materialize(workspaceId);
+      return json(
+        await googleAnalyticsProperties({
+          credentialsPath: environment.GOOGLE_APPLICATION_CREDENTIALS,
+        }),
+      );
     }
     if (path === "/local-tools/google-analytics/metadata") {
+      const environment = await workspaceSecrets.materialize(workspaceId);
       return json(
         await googleAnalyticsMetadata({
           propertyId: body.propertyId,
           query: body.query,
+          credentialsPath: environment.GOOGLE_APPLICATION_CREDENTIALS,
         }),
       );
     }
     if (path === "/local-tools/google-analytics/report") {
+      const environment = await workspaceSecrets.materialize(workspaceId);
       const dateRange = Array.isArray(body.dateRanges)
         ? (body.dateRanges[0] as Record<string, unknown> | undefined)
         : undefined;
@@ -510,6 +598,7 @@ export async function handleLocalTool(
               ? []
               : googleAnalyticsFieldList(body.dimensions, "dimensions"),
           limit: body.limit,
+          credentialsPath: environment.GOOGLE_APPLICATION_CREDENTIALS,
         }),
       );
     }
@@ -566,24 +655,85 @@ export async function handleLocalTool(
       const now = Date.now();
       const scheduledFor =
         body.scheduledFor === undefined ? undefined : time(body.scheduledFor);
+      const id = value(body.id, "id", 120, false) ?? randomUUID();
+      const title = value(body.title, "title", 200)!;
+      const content = value(body.body, "body", 20_000)!;
+      if (content.length < 100) {
+        throw new Error(
+          "body must contain the complete platform-ready draft, not an idea or outline.",
+        );
+      }
+      const existingDraft = data.drafts.find((item) => item.id === id);
+      const existingFile = existingDraft?.fileId
+        ? await manager.workspaceFile(workspaceId, existingDraft.fileId)
+        : null;
+      const file = await manager.saveWorkspaceFile(workspaceId, {
+        id: existingFile?.id,
+        name: title,
+        path:
+          existingFile?.path ??
+          `content/${fileSlug(title)}-${id.slice(0, 8)}.md`,
+        content,
+        kind: "document",
+        expectedVersionId: existingFile?.currentVersionId,
+        createdBy: "agent",
+        sourceAgentId:
+          value(body.agentId, "agentId", 80, false) ??
+          existingDraft?.agentId ??
+          "cmo",
+      });
       const draft: ContentDraftRecord = {
-        id: value(body.id, "id", 120, false) ?? randomUUID(),
-        agentId: value(body.agentId, "agentId", 80, false) ?? "cmo",
-        title: value(body.title, "title", 200)!,
-        body: value(body.body, "body", 20_000)!,
+        id,
+        agentId:
+          value(body.agentId, "agentId", 80, false) ??
+          existingDraft?.agentId ??
+          "cmo",
+        title,
+        body: content,
         platform: value(body.platform, "platform", 80)!,
+        fileId: file.id,
         status: choice(
           body.status,
           "status",
           ["draft", "approved", "scheduled", "published"],
           scheduledFor ? "scheduled" : "draft",
         ),
-        scheduledFor,
-        createdAt: now,
+        scheduledFor: scheduledFor ?? existingDraft?.scheduledFor,
+        createdAt: existingDraft?.createdAt ?? now,
         updatedAt: now,
       };
       await manager.saveDraft(workspaceId, draft);
-      return json({ draft });
+      return json({ draft, file });
+    }
+    if (path === "/local-tools/files/read") {
+      const fileId = requiredValue(body.fileId, "fileId", 120);
+      const file = await manager.workspaceFile(workspaceId, fileId);
+      if (!file) return json({ error: "File not found." }, 404);
+      return json({ file });
+    }
+    if (path === "/local-tools/files/write") {
+      const file = await manager.saveWorkspaceFile(workspaceId, {
+        id: value(body.id, "id", 120, false),
+        name: requiredValue(body.name, "name", 160),
+        path: value(body.path, "path", 240, false),
+        content: requiredValue(body.content, "content", 1_000_000),
+        kind: choice<"document" | "email">(
+          body.kind,
+          "kind",
+          ["document", "email"],
+          "document",
+        ),
+        expectedVersionId: value(
+          body.expectedVersionId,
+          "expectedVersionId",
+          120,
+          false,
+        ),
+        createdBy: "agent",
+        sourceAgentId: value(body.agentId, "agentId", 80, false),
+        sourceRunId: value(body.sourceRunId, "sourceRunId", 120, false),
+      });
+      return json({ file });
     }
     if (path === "/local-tools/campaigns") {
       const now = Date.now();

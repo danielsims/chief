@@ -59,11 +59,31 @@ export function executorAddressesFromCode(code: string): string[] {
       ...[...code.matchAll(/tools\.[A-Za-z0-9_.-]+/g)].map((match) => match[0]),
       ...[
         ...code.matchAll(
-          /tools\[(["'])([A-Za-z0-9_.-]+)\1\]((?:\.[A-Za-z0-9_.-]+)+)/g,
+          /tools\[(["'])([A-Za-z0-9_.-]+)\1\]((?:\.[A-Za-z0-9_.-]+)*)/g,
         ),
       ].map((match) => `tools.${match[2]}${match[3]}`),
     ]),
   ].filter((address) => !/^tools\.(search|describe)(\.|$)/.test(address));
+}
+
+/**
+ * Executor discovery helpers are read-only and do not widen an automation's
+ * connector grant. Codex still asks before invoking the outer execute tool,
+ * so recognise snippets that only discover or describe available tools.
+ */
+export function executorCodeUsesOnlyCatalogHelpers(code: string) {
+  const addresses = [
+    ...code.matchAll(/tools\.[A-Za-z0-9_.-]+/g),
+    ...code.matchAll(/tools\[(["'])([A-Za-z0-9_.-]+)\1\]/g),
+  ].map((match) =>
+    match[0].startsWith("tools[") ? `tools.${match[2]}` : match[0],
+  );
+  return (
+    addresses.length > 0 &&
+    addresses.every((address) =>
+      /^tools\.(search|describe)(\.|$)/.test(address),
+    )
+  );
 }
 
 export function executorAddressFromElicitation(input: unknown) {

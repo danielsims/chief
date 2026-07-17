@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
+  cpSync,
   createReadStream,
   existsSync,
   lstatSync,
@@ -138,11 +139,65 @@ await build({
   bundle: true,
   entryPoints: [join(packageRoot, "src/server.ts")],
   format: "esm",
+  jsx: "automatic",
   logLevel: "warning",
   outfile: join(runtimeRoot, "dist/server.mjs"),
   packages: "external",
+  plugins: [
+    {
+      name: "bundle-chief-email-renderer",
+      setup(build) {
+        build.onResolve({ filter: /^@chief\/email\/render$/ }, () => ({
+          path: join(repoRoot, "packages/email/src/render.ts"),
+        }));
+      },
+    },
+  ],
   platform: "node",
   target: "node24",
+});
+
+// Prompts are runtime assets, not bundled strings. Shipping the canonical
+// filesystem tree keeps local Codex, Claude and OpenCode sessions on the same
+// definitions that the Eve compiler deploys.
+const agentDefinitionsRoot = join(packageRoot, "src/agents");
+const bundledAgentDefinitionsRoot = join(runtimeRoot, "agents");
+mkdirSync(bundledAgentDefinitionsRoot, { recursive: true });
+for (const entry of readdirSync(agentDefinitionsRoot, {
+  withFileTypes: true,
+})) {
+  if (!entry.isDirectory()) continue;
+  const instructions = join(
+    agentDefinitionsRoot,
+    entry.name,
+    "instructions.md",
+  );
+  if (!existsSync(instructions)) continue;
+  const targetDirectory = join(bundledAgentDefinitionsRoot, entry.name);
+  mkdirSync(targetDirectory, { recursive: true });
+  cpSync(instructions, join(targetDirectory, "instructions.md"));
+}
+
+// App-managed deployments use a bundled, deterministic Eve workspace. The
+// desktop runtime materializes the selected canonical agent into a private
+// copy and only deploys after the user presses Deploy in Chief.
+const deploymentTemplateSource = join(repoRoot, "apps/workspace");
+const deploymentTemplateTarget = join(runtimeRoot, "deployment-workspace");
+const deploymentTemplateExcludes = new Set([
+  ".cache",
+  ".env.local",
+  ".eve",
+  ".output",
+  ".turbo",
+  ".vercel",
+  "node_modules",
+  "workspace-input",
+]);
+cpSync(deploymentTemplateSource, deploymentTemplateTarget, {
+  recursive: true,
+  filter: (path) =>
+    path === deploymentTemplateSource ||
+    !deploymentTemplateExcludes.has(path.split("/").at(-1)),
 });
 
 for (const path of [".turbo", "src", "tsconfig.json", "drizzle.config.ts"]) {
@@ -159,6 +214,24 @@ for (const name of ["codex", "executor"]) {
   const path = executablePath(runtimeRoot, name);
   if (!existsSync(path)) {
     throw new Error(`Required bundled agent binary is missing: ${path}`);
+  }
+}
+
+for (const dependency of [
+  "react",
+  "@react-email/components",
+  "@react-email/render",
+]) {
+  const manifest = join(
+    runtimeRoot,
+    "node_modules",
+    dependency,
+    "package.json",
+  );
+  if (!existsSync(manifest)) {
+    throw new Error(
+      `Required bundled runtime dependency is missing: ${dependency}`,
+    );
   }
 }
 

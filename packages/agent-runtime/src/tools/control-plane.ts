@@ -319,6 +319,7 @@ async function configureToolPolicies(manifest: ServerManifest) {
     ...[
       "agentTools.sourcesList",
       "agentTools.analyticsRunReport",
+      "agentTools.integrationsMarkConnected",
       "agentTools.uiPresentChart",
       "localTools.prospectsList",
       "localTools.prospectsSave",
