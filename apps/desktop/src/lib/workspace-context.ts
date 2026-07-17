@@ -16,7 +16,7 @@ function text(value: unknown): string {
 
 /**
  * The brand brief gathered during account setup, rendered as compact
- * markdown. Sent with every openSession so agents start primed with who the
+ * markdown. Sent whenever Chief opens a root chat so work starts primed with who the
  * business is instead of interviewing the user about it.
  */
 export function workspaceContextFromOrganization(

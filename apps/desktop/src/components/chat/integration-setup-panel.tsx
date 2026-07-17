@@ -1,19 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Square } from "lucide-react";
 
-import type { DriverType } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 
 import type { SetupResult } from "../../lib/integration-setup";
 import {
   findPendingInputRequest,
   parseSetupResult,
-  SETUP_AGENT_ID,
-  setupChatId,
-  stripSetupResult,
   withoutMarkerLines,
 } from "../../lib/integration-setup";
-import { useAgentChat, useRuntime } from "../../lib/runtime";
+import { messageBlocks, useChiefChat, useRuntime } from "../../lib/runtime";
 import { InputRequestSection } from "../integrations/input-request-section";
 import { ApprovalCard } from "./approval-card";
 import { Blocks } from "./message-blocks";
@@ -24,35 +20,30 @@ import { Blocks } from "./message-blocks";
  * CHIEF_SETUP_RESULT line.
  */
 export function IntegrationSetupPanel({
-  domain,
   prompt,
-  driver,
   onResult,
 }: {
-  domain: string;
   prompt: string;
-  /** The workspace's chosen agent app — required, never defaulted here. */
-  driver: DriverType;
   onResult: (result: SetupResult) => void;
 }) {
   const { status: runtimeStatus } = useRuntime();
-  // Setup runs full-access: the user pressed Connect, and the run needs
-  // installs, browser opens and localhost callbacks to just work.
+  const [chatId] = useState(() => crypto.randomUUID());
   const {
-    chat,
-    send,
+    messages,
+    controls,
+    sendMessage,
     interrupt,
     respondPermission,
     provideInput,
-    sessionReady,
-  } = useAgentChat(SETUP_AGENT_ID, driver, setupChatId(domain), "full");
+    chatReady,
+  } = useChiefChat(chatId);
   const [draft, setDraft] = useState("");
   const [answeredInputs, setAnsweredInputs] = useState<ReadonlySet<string>>(
     new Set(),
   );
   const pendingInput = useMemo(
-    () => findPendingInputRequest(chat.items, answeredInputs),
-    [chat.items, answeredInputs],
+    () => findPendingInputRequest(messages, answeredInputs),
+    [messages, answeredInputs],
   );
   // Once the user opts in, remaining approvals in this run auto-allow.
   const [allowRest, setAllowRest] = useState(false);
@@ -62,16 +53,16 @@ export function IntegrationSetupPanel({
 
   useEffect(() => {
     if (!allowRest) return;
-    for (const approval of chat.approvals) {
+    for (const approval of controls.approvals) {
       respondPermission(approval.requestId, "allow");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allowRest, chat.approvals]);
+  }, [allowRest, controls.approvals]);
 
   useEffect(() => {
     // Kick off only after the runtime confirms the session is open, so the
     // prompt can't race the async session start.
-    if (startedRef.current || runtimeStatus !== "connected" || !sessionReady) {
+    if (startedRef.current || runtimeStatus !== "connected" || !chatReady) {
       return;
     }
     // Deferred so a StrictMode remount (which cancels the timer) doesn't
@@ -81,20 +72,24 @@ export function IntegrationSetupPanel({
       startedRef.current = true;
       // A replayed transcript means setup already ran in this session —
       // don't kick it off again on top of the resumed history.
-      if (chat.items.length === 0 && chat.status !== "running") send(prompt);
+      if (messages.length === 0 && controls.status !== "running") {
+        void sendMessage({
+          text: `Set up this integration. Consult the setup specialist.\n\n${prompt}`,
+        });
+      }
     }, 400);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runtimeStatus, sessionReady, chat.items.length, chat.status]);
+  }, [runtimeStatus, chatReady, messages.length, controls.status]);
 
   useEffect(() => {
     feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight });
-  }, [chat.items.length, chat.streaming, chat.approvals.length, pendingInput]);
+  }, [messages.length, controls.approvals.length, pendingInput]);
 
   useEffect(() => {
-    for (const item of chat.items) {
-      if (item.kind !== "assistant") continue;
-      for (const block of item.event.content) {
+    for (const item of messages) {
+      if (item.role !== "assistant") continue;
+      for (const block of messageBlocks(item)) {
         if (block.type !== "text") continue;
         const result = parseSetupResult(block.text);
         if (!result) continue;
@@ -104,30 +99,30 @@ export function IntegrationSetupPanel({
         onResult(result);
       }
     }
-  }, [chat.items, onResult]);
+  }, [messages, onResult]);
 
   const items = useMemo(
     () =>
-      chat.items.map((item) =>
-        item.kind === "assistant"
+      messages.map((item) =>
+        item.role === "assistant"
           ? {
               ...item,
               // Setup keeps the narration and ❯ command lines; raw command
               // output stays out of this compact panel (full chats show it).
-              blocks: withoutMarkerLines(item.event.content).filter(
+              blocks: withoutMarkerLines(messageBlocks(item)).filter(
                 (block) => block.type !== "tool_result",
               ),
             }
           : item,
       ),
-    [chat.items],
+    [messages],
   );
 
   const submit = () => {
     const text = draft.trim();
-    if (!text) return;
+    if (!text || !chatReady) return;
     setDraft("");
-    send(text);
+    void sendMessage({ text });
   };
 
   if (runtimeStatus !== "connected") {
@@ -145,34 +140,36 @@ export function IntegrationSetupPanel({
           ref={feedRef}
           className="max-h-72 space-y-3 overflow-y-auto px-3 py-3"
         >
-          {items.length === 0 && !chat.streaming ? (
+          {items.length === 0 ? (
             <p className="text-muted-foreground animate-pulse font-mono text-xs">
               starting setup…
             </p>
           ) : null}
           {items.map((item, i) =>
-            item.kind === "user" ? (
-              i === 0 || item.text.startsWith("[auto]") ? null : (
+            item.role === "user" ? (
+              i === 0 ||
+              messageBlocks(item).some(
+                (block) =>
+                  block.type === "text" && block.text.startsWith("[auto]"),
+              ) ? null : (
                 <div key={i} className="flex justify-end">
                   <div className="bg-accent max-w-[85%] border px-2.5 py-1.5 text-xs whitespace-pre-wrap">
-                    {item.text}
+                    {messageBlocks(item)
+                      .flatMap((block) =>
+                        block.type === "text" ? [block.text] : [],
+                      )
+                      .join("\n")}
                   </div>
                 </div>
               )
-            ) : (
+            ) : "blocks" in item ? (
               <div key={i} className="text-sm">
                 <Blocks blocks={item.blocks} />
               </div>
-            ),
+            ) : null,
           )}
-          {chat.streaming ? (
-            <p className="text-sm leading-6 whitespace-pre-wrap">
-              {stripSetupResult(chat.streaming)}
-              <span className="bg-foreground ml-0.5 inline-block h-4 w-2 animate-pulse align-text-bottom" />
-            </p>
-          ) : null}
           {!allowRest
-            ? chat.approvals.map((approval) => (
+            ? controls.approvals.map((approval) => (
                 <ApprovalCard
                   key={approval.requestId}
                   approval={approval}
@@ -181,16 +178,14 @@ export function IntegrationSetupPanel({
                 />
               ))
             : null}
-          {chat.status === "running" &&
-          !chat.streaming &&
-          chat.approvals.length === 0 ? (
+          {controls.status === "running" && controls.approvals.length === 0 ? (
             <p className="text-muted-foreground animate-pulse font-mono text-xs">
               working…
             </p>
           ) : null}
-          {chat.error ? (
+          {controls.error ? (
             <p className="border-destructive/40 text-destructive border px-2.5 py-1.5 text-xs">
-              {chat.error}
+              {controls.error}
             </p>
           ) : null}
         </div>
@@ -204,10 +199,10 @@ export function IntegrationSetupPanel({
                 submit();
               }
             }}
-            placeholder="Reply to the setup agent…"
+            placeholder="Reply to Chief…"
             className="placeholder:text-muted-foreground h-7 min-w-0 flex-1 bg-transparent px-1 text-xs outline-none"
           />
-          {chat.status === "running" ? (
+          {controls.status === "running" ? (
             <Button
               size="icon"
               variant="outline"

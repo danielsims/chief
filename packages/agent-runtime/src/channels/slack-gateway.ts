@@ -12,6 +12,7 @@ import {
 import { existingExecutorWorkspace } from "../tools/control-plane.js";
 import { executorToolServer } from "../tools/spec.js";
 import { readWorkspaceContext } from "../workspace-context.js";
+import { REMOTE_CHANNEL_ACCESS } from "./access.js";
 
 export interface SlackGatewayConfig {
   workspaceId: string;
@@ -70,8 +71,7 @@ function rosterText(): string {
   return defaultAgents
     .filter((agent) => agent.id !== "setup")
     .map(
-      (agent) =>
-        `• *${agent.name}* (\`${agent.id}\`) — ${agent.description} Address me with \`${agent.id}: …\` to route straight to them.`,
+      (agent) => `• *${agent.name}* (\`${agent.id}\`) — ${agent.description}`,
     )
     .join("\n");
 }
@@ -126,7 +126,9 @@ export class SlackGateway {
   async stop(): Promise<void> {
     for (const [chatId, entry] of this.listeners) {
       entry.session.off("event", entry.listener);
-      await this.manager.release(chatId).catch(() => {});
+      await this.manager
+        .release(this.config.workspaceId, chatId)
+        .catch(() => {});
     }
     this.listeners.clear();
     await this.socket?.disconnect().catch(() => {});
@@ -158,7 +160,29 @@ export class SlackGateway {
     const routed = this.route(withoutMention);
     const chatId = `slack-${event.channel}-${threadTs}`;
     const session = await this.ensureSession(chatId, event.channel, threadTs);
-    await session.sendPrompt(routed);
+    const releaseExecution = this.manager.acquireExecution(
+      this.config.workspaceId,
+      chatId,
+      "channel",
+    );
+    const releaseOnTerminal = (agentEvent: AgentEvent) => {
+      if (
+        agentEvent.type === "result" ||
+        agentEvent.type === "error" ||
+        agentEvent.type === "exit"
+      ) {
+        session.off("event", releaseOnTerminal);
+        releaseExecution();
+      }
+    };
+    session.on("event", releaseOnTerminal);
+    try {
+      await session.sendPrompt(routed);
+    } catch (error) {
+      session.off("event", releaseOnTerminal);
+      releaseExecution();
+      throw error;
+    }
   }
 
   private route(text: string): string {
@@ -181,27 +205,36 @@ export class SlackGateway {
 
     const cmo = getAgent("cmo");
     if (!cmo) throw new Error("CMO persona missing from the roster.");
+    const preference = await this.manager.agentPreference(
+      this.config.workspaceId,
+      "cmo",
+    );
+    if (!preference?.driver || preference.enabled === false) {
+      throw new Error("Configure the CMO agent app before using Slack.");
+    }
     const instructions = `${composeWorkspaceInstructions(
       cmo.instructions,
       readWorkspaceContext(this.config.workspaceId),
     )}\n\nYou are replying inside Slack; keep replies concise, use Slack formatting (no markdown headers), and never emit CHIEF_* protocol lines.`;
 
-    const session = await this.manager.ensure(
+    const session = await this.manager.ensureRootChat(
       { ...cmo, instructions },
       chatId,
       {
-        driver: this.config.driver,
-        access: "full",
+        driver: preference.driver,
+        access: REMOTE_CHANNEL_ACCESS,
         workspaceId: this.config.workspaceId,
-        model: this.config.model,
+        model: preference.model,
+        executionOwner: "channel",
         mcpServers: [
           executorToolServer(
             existingExecutorWorkspace(this.config.workspaceId),
           ),
         ],
       },
+      "Chief via Slack",
     );
-    this.manager.retain(chatId);
+    this.manager.retain(this.config.workspaceId, chatId);
 
     const listener = (event: AgentEvent) => {
       if (event.type === "error") {

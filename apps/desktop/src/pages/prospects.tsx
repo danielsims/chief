@@ -126,14 +126,14 @@ export function ProspectsPage() {
           <div className="max-w-sm">
             <p className="font-serif text-2xl">No prospects yet</p>
             <p className="text-muted-foreground mt-2 text-sm leading-6">
-              The Prospector saves relevant people and public conversations here
-              as it finds them.
+              Chief saves relevant people and public conversations here after
+              consulting the Prospector.
             </p>
             <Link
-              to="/conversations?agent=prospector"
+              to="/conversations"
               className="hover:bg-accent mt-5 inline-block border px-3 py-2 text-xs transition-colors"
             >
-              Open Prospector
+              Ask Chief about prospects
             </Link>
           </div>
         </div>

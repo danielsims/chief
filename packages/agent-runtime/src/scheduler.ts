@@ -459,6 +459,7 @@ export class RecurringWorkScheduler {
     ];
     const setupWork: RecurringWorkRecord = {
       id,
+      chatId: existing?.chatId ?? randomUUID(),
       agentId: "setup",
       title: `Set up sources for ${work.title}`,
       instructions: [
@@ -483,6 +484,11 @@ export class RecurringWorkScheduler {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
+    await this.manager.createRootChat(
+      workspaceId,
+      setupWork.chatId,
+      setupWork.title,
+    );
     await this.manager.saveRecurringWork(workspaceId, setupWork);
     await this.manager.raiseAttentionItem(workspaceId, {
       id: `attention-${id}-recovery`,
@@ -619,25 +625,12 @@ export class RecurringWorkScheduler {
   private async deliverRunOutcome(
     workspaceId: string,
     work: RecurringWorkRecord,
-    session: AgentSession | null,
     status: "completed" | "waiting" | "failed" | "needs_approval",
     runId: string,
     detail?: string,
   ) {
     try {
       const resolvedDetail = detail?.trim();
-      if (session) {
-        await this.manager.saveTranscript(
-          {
-            id: `automation-run-${runId}`,
-            workspaceId,
-            agentId: work.agentId,
-            driver: session.config.driver,
-          },
-          session.events,
-          work.title,
-        );
-      }
       const reconnecting =
         status === "waiting" &&
         resolvedDetail?.toLowerCase().includes("reconnect");
@@ -666,7 +659,7 @@ export class RecurringWorkScheduler {
         detail: noticeDetail?.length ? noticeDetail.slice(0, 140) : undefined,
         sourceId: `automation-${work.id}`,
         agentId: work.agentId,
-        chatId: `automation-run-${runId}`,
+        chatId: work.chatId,
         runId,
         recurringWorkId: work.id,
       });
@@ -777,6 +770,7 @@ export class RecurringWorkScheduler {
     const run: RecurringWorkRunRecord = {
       id: randomUUID(),
       recurringWorkId: work.id,
+      chatId: work.chatId,
       status: "running",
       scheduledFor,
       startedAt: now,
@@ -784,6 +778,18 @@ export class RecurringWorkScheduler {
     const isSetupWork =
       work.runOnceAt !== undefined &&
       (work.agentId === "setup" || work.agentId === "brand");
+
+    let releaseExecution: () => void;
+    try {
+      releaseExecution = this.manager.acquireExecution(
+        workspaceId,
+        work.chatId,
+        "schedule",
+      );
+    } catch {
+      this.running.delete(work.id);
+      return;
+    }
 
     let session: AgentSession | null = null;
     let beforeData: Awaited<
@@ -794,6 +800,7 @@ export class RecurringWorkScheduler {
     let terminalPersistenceStarted = false;
     let postProcessingStarted = false;
     let blocked = false;
+    let runStartIndex = 0;
     const blockedTools: string[] = [];
     try {
       // The database unique index is the cross-process lease. A stale dev
@@ -824,7 +831,7 @@ export class RecurringWorkScheduler {
             : "Your agent is working on this now.",
           sourceId: `automation-${work.id}`,
           agentId: work.agentId,
-          chatId: `automation-run-${run.id}`,
+          chatId: work.chatId,
           runId: run.id,
           recurringWorkId: work.id,
         });
@@ -858,9 +865,9 @@ export class RecurringWorkScheduler {
           readWorkspaceContext(workspaceId),
         ),
       };
-      session = await this.manager.ensure(
+      session = await this.manager.ensureRootChat(
         scheduledAgent,
-        `automation-run-${run.id}`,
+        work.chatId,
         {
           driver: preference.driver,
           // Setup work is explicitly selected during onboarding. It needs
@@ -879,8 +886,11 @@ export class RecurringWorkScheduler {
             // correctly selected helper is still declined at execution time.
             toolPatterns: effectiveApproved,
           },
+          executionOwner: "schedule",
         },
+        work.title,
       );
+      runStartIndex = session.events.length;
       this.activeSessions.set(work.id, session);
 
       const result = await new Promise<{ ok: boolean; error?: string }>(
@@ -926,7 +936,7 @@ export class RecurringWorkScheduler {
           });
           try {
             await session!.sendPrompt(
-              `Run this approved recurring work now.\n\n${work.instructions}\n\nReturn a concise result with a clear headline, the evidence, the next action, what was saved or sent, and anything that needs the user's attention. Use bullets where they improve scanning. Do not use an em dash character.`,
+              `Run this approved recurring work now as the CMO. The specialist hint is ${work.agentId}; delegate privately if useful, but own all final mutations and the answer.\n\n${work.instructions}\n\nReturn a concise result with a clear headline, the evidence, the next action, what was saved or sent, and anything that needs the user's attention. Use bullets where they improve scanning. Do not use an em dash character.`,
             );
           } catch (error) {
             clearTimeout(timeout);
@@ -939,9 +949,11 @@ export class RecurringWorkScheduler {
       // chain. Wait for the terminal event instead of writing the same
       // transcript through a second concurrent path, which can hold libSQL's
       // transaction open and lock the workspace snapshot behind SQLITE_BUSY.
-      await this.manager.waitForChatPersistence(`automation-run-${run.id}`);
+      await this.manager.waitForChatPersistence(workspaceId, work.chatId);
 
-      const agentSummary = lastAssistantText(session.events);
+      const agentSummary = lastAssistantText(
+        session.events.slice(runStartIndex),
+      );
       if (!result.ok && result.error && isTransientRuntimeError(result.error)) {
         throw new Error(result.error);
       }
@@ -967,16 +979,9 @@ export class RecurringWorkScheduler {
           work.id,
           contextRequest,
         );
-        session.events.push({
-          type: "message",
-          role: "assistant",
-          content: [
-            {
-              type: "text",
-              text: `CHIEF_INPUT_REQUEST ${JSON.stringify(authorizedRequest)}`,
-            },
-          ],
-        });
+        session.recordAssistantMessage(
+          `CHIEF_INPUT_REQUEST ${JSON.stringify(authorizedRequest)}`,
+        );
         inputNeeded = `${contextRequest.title}. Answer the question to continue.`;
         setupRequirement = null;
       }
@@ -987,7 +992,11 @@ export class RecurringWorkScheduler {
       const artifacts = await this.manager
         .workspaceData(workspaceId)
         .then((afterData) =>
-          artifactsFromRun(session!.events, beforeData!, afterData),
+          artifactsFromRun(
+            session!.events.slice(runStartIndex),
+            beforeData!,
+            afterData,
+          ),
         )
         .catch(() => []);
       const status: RecurringWorkRunRecord["status"] =
@@ -1060,14 +1069,7 @@ export class RecurringWorkScheduler {
       }
       // Every run leaves a reviewable transcript, and a blocked run raises
       // one concrete attention item instead of failing silently.
-      await this.deliverRunOutcome(
-        workspaceId,
-        work,
-        session,
-        status,
-        run.id,
-        summary,
-      );
+      await this.deliverRunOutcome(workspaceId, work, status, run.id, summary);
       if (work.id.startsWith("onboarding-")) {
         await this.manager.dismissAttentionItem(
           workspaceId,
@@ -1145,7 +1147,8 @@ export class RecurringWorkScheduler {
       }
       const retry = transientRetryOutcome(error, work);
       const retrying =
-        retry.retrying && !hasPotentialSideEffects(session?.events ?? []);
+        retry.retrying &&
+        !hasPotentialSideEffects(session?.events.slice(runStartIndex) ?? []);
       const message =
         retry.retrying && !retrying
           ? "Chief stopped after a local runtime issue, but the run had already used tools. It will not retry automatically."
@@ -1156,7 +1159,11 @@ export class RecurringWorkScheduler {
           ? await this.manager
               .workspaceData(workspaceId)
               .then((afterData) =>
-                artifactsFromRun(session!.events, baseline, afterData),
+                artifactsFromRun(
+                  session!.events.slice(runStartIndex),
+                  baseline,
+                  afterData,
+                ),
               )
               .catch(() => [])
           : [];
@@ -1197,29 +1204,11 @@ export class RecurringWorkScheduler {
         },
       );
       if (session) {
-        await this.manager.waitForChatPersistence(`automation-run-${run.id}`);
-        await this.manager
-          .saveTranscript(
-            {
-              id: `automation-run-${run.id}`,
-              workspaceId,
-              agentId: work.agentId,
-              driver: session.config.driver,
-            },
-            session.events,
-            work.title,
-          )
-          .catch((transcriptError) =>
-            console.error(
-              "[scheduler] could not preserve failed run transcript:",
-              transcriptError,
-            ),
-          );
+        await this.manager.waitForChatPersistence(workspaceId, work.chatId);
       }
       await this.deliverRunOutcome(
         workspaceId,
         work,
-        session,
         blocked ? "needs_approval" : retrying ? "waiting" : "failed",
         run.id,
         message,
@@ -1234,11 +1223,12 @@ export class RecurringWorkScheduler {
       this.running.delete(work.id);
       this.activeSessions.delete(work.id);
       this.activeCancellations.delete(work.id);
-      await session
-        ?.stop()
+      await this.manager
+        .stopRuntimeChat(workspaceId, work.chatId)
         .catch((stopError) =>
           console.error("[scheduler] could not stop run session:", stopError),
         );
+      releaseExecution();
       await Promise.resolve(this.onChange(workspaceId)).catch((changeError) =>
         console.error("[scheduler] could not publish run state:", changeError),
       );

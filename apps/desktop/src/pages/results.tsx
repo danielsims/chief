@@ -8,7 +8,6 @@ import type {
   RecurringWorkRunRecord,
   RunResultArtifact,
 } from "@chief/agent-runtime/types";
-import { defaultAgents } from "@chief/agent-runtime/agent-roster";
 import { Button } from "@chief/ui/components/button";
 import {
   Popover,
@@ -17,7 +16,7 @@ import {
 } from "@chief/ui/components/popover";
 import { cn } from "@chief/ui/lib/utils";
 
-import { AgentChat } from "../components/chat/agent-chat";
+import { ObservedChat } from "../components/chat/observed-chat";
 import { StreamingMarkdown } from "../components/chat/streaming-markdown";
 import { renderGenerativePart } from "../components/generative-ui/registry";
 import { useAuth } from "../lib/auth/auth-context";
@@ -318,14 +317,6 @@ export function ResultsPage() {
   const selectedWork = selectedRun
     ? workById.get(selectedRun.recurringWorkId)
     : undefined;
-  const selectedAgent = selectedWork
-    ? defaultAgents.find((agent) => agent.id === selectedWork.agentId)
-    : undefined;
-  const selectedAttentionAgent = selectedStandaloneAttention
-    ? defaultAgents.find(
-        (agent) => agent.id === selectedStandaloneAttention.agentId,
-      )
-    : undefined;
   const selectedArtifacts = selectedRun ? derivedArtifacts(selectedRun) : [];
   const selectedAttention = selectedRun
     ? attentionByWorkId.get(selectedRun.recurringWorkId)
@@ -353,8 +344,8 @@ export function ResultsPage() {
       </header>
 
       {allRuns.length > 0 || standaloneAttentionItems.length > 0 ? (
-        <div className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)]">
-          <aside className="min-h-0 overflow-y-auto border-r p-4">
+        <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)]">
+          <aside className="max-h-72 min-h-0 overflow-y-auto border-b p-4 md:max-h-none md:border-r md:border-b-0">
             {standaloneAttentionItems.length > 0 ? (
               <div className="mb-5">
                 <p className="text-muted-foreground mb-2 px-3 text-xs font-medium">
@@ -549,27 +540,24 @@ export function ResultsPage() {
                     >
                       Mark resolved
                     </Button>
-                    {selectedAttentionAgent ? (
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          const chat = createChat(
-                            selectedAttentionAgent.id,
-                            `Resolve: ${selectedStandaloneAttention.title}`,
-                          );
-                          const draft = [
-                            "Resolve this action item and complete as much of the original work as possible.",
-                            "",
-                            selectedStandaloneAttention.reason,
-                          ].join("\n");
-                          navigate(
-                            `/conversations?agent=${encodeURIComponent(selectedAttentionAgent.id)}&chat=${encodeURIComponent(chat.id)}&new=1&draft=${encodeURIComponent(draft)}`,
-                          );
-                        }}
-                      >
-                        Continue with {selectedAttentionAgent.name}
-                      </Button>
-                    ) : null}
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        const chat = createChat(
+                          `Resolve: ${selectedStandaloneAttention.title}`,
+                        );
+                        const draft = [
+                          "Resolve this action item and complete as much of the original work as possible.",
+                          "",
+                          selectedStandaloneAttention.reason,
+                        ].join("\n");
+                        navigate(
+                          `/conversations?chat=${encodeURIComponent(chat.id)}&draft=${encodeURIComponent(`Consult the ${selectedStandaloneAttention.agentId} specialist. ${draft}`)}`,
+                        );
+                      }}
+                    >
+                      Discuss with Chief
+                    </Button>
                   </div>
                 </div>
                 <article className="chat-markdown mx-auto max-w-3xl py-7 text-sm leading-7">
@@ -609,7 +597,6 @@ export function ResultsPage() {
                       size="sm"
                       onClick={() => {
                         const chat = createChat(
-                          selectedWork.agentId,
                           `Follow up: ${runTitle(selectedWork)}`,
                         );
                         const draft = [
@@ -618,11 +605,11 @@ export function ResultsPage() {
                           resultText(selectedRun),
                         ].join("\n");
                         navigate(
-                          `/conversations?agent=${encodeURIComponent(selectedWork.agentId)}&chat=${encodeURIComponent(chat.id)}&new=1&draft=${encodeURIComponent(draft)}`,
+                          `/conversations?chat=${encodeURIComponent(chat.id)}&draft=${encodeURIComponent(`Consult the ${selectedWork.agentId} specialist. ${draft}`)}`,
                         );
                       }}
                     >
-                      Start conversation
+                      Discuss with Chief
                     </Button>
                   ) : null}
                 </div>
@@ -655,15 +642,12 @@ export function ResultsPage() {
                     }}
                   />
                 ) : null}
-                {selectedAgent ? (
+                {selectedRun.chatId ? (
                   <div className="space-y-7 py-7">
                     <div className="h-[calc(100vh-300px)] min-h-[440px] border">
-                      <AgentChat
-                        agent={selectedAgent}
-                        chatId={`automation-run-${selectedRun.id}`}
-                        observeOnly
-                        observedRecurringWorkId={selectedRun.recurringWorkId}
-                        observationLabel={
+                      <ObservedChat
+                        chatId={selectedRun.chatId}
+                        label={
                           selectedRun.status === "running"
                             ? "Scheduled run · live view"
                             : "Run transcript"

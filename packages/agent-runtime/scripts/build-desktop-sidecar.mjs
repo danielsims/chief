@@ -9,10 +9,11 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { create as createTar } from "tar";
@@ -25,6 +26,50 @@ const runtimeArchive = join(tauriRoot, "resources/agent-runtime.tar.gz");
 const runtimeVersionFile = join(tauriRoot, "resources/agent-runtime.version");
 const binariesRoot = join(tauriRoot, "binaries");
 const macEntitlements = join(tauriRoot, "Entitlements.plist");
+
+function expectedNodeVersion() {
+  return readFileSync(join(repoRoot, ".nvmrc"), "utf8")
+    .trim()
+    .replace(/^v/, "");
+}
+
+function targetRuntime(target) {
+  const platform = target.includes("apple-darwin")
+    ? "darwin"
+    : target.includes("windows")
+      ? "win32"
+      : target.includes("linux")
+        ? "linux"
+        : undefined;
+  const arch = /^(aarch64|arm64)-/.test(target)
+    ? "arm64"
+    : /^(x86_64|x64)-/.test(target)
+      ? "x64"
+      : undefined;
+  if (!platform || !arch) {
+    throw new Error(`Unsupported sidecar target: ${target}`);
+  }
+  return { arch, platform };
+}
+
+function inspectNodeBinary(path) {
+  try {
+    return JSON.parse(
+      execFileSync(
+        path,
+        [
+          "-p",
+          "JSON.stringify({version:process.versions.node,arch:process.arch,platform:process.platform})",
+        ],
+        { encoding: "utf8" },
+      ),
+    );
+  } catch (error) {
+    throw new Error(`Could not execute Node sidecar at ${path}`, {
+      cause: error,
+    });
+  }
+}
 
 function hostTriple() {
   const output = execFileSync("rustc", ["-vV"], { encoding: "utf8" });
@@ -113,6 +158,30 @@ const nodeBinary = resolve(process.env.CHIEF_NODE_BINARY ?? process.execPath);
 if (!existsSync(nodeBinary)) {
   throw new Error(`Node sidecar not found at ${nodeBinary}`);
 }
+const expectedVersion = expectedNodeVersion();
+if (process.versions.node !== expectedVersion) {
+  throw new Error(
+    `Sidecar build requires Node ${expectedVersion}; running ${process.versions.node} from ${process.execPath}`,
+  );
+}
+const expectedRuntime = targetRuntime(target);
+const selectedNode = inspectNodeBinary(nodeBinary);
+if (selectedNode.version !== expectedVersion) {
+  throw new Error(
+    `Node sidecar must be ${expectedVersion}; ${nodeBinary} is ${selectedNode.version}`,
+  );
+}
+if (
+  selectedNode.arch !== expectedRuntime.arch ||
+  selectedNode.platform !== expectedRuntime.platform
+) {
+  throw new Error(
+    `Node sidecar ${selectedNode.platform}/${selectedNode.arch} does not match target ${target} (${expectedRuntime.platform}/${expectedRuntime.arch})`,
+  );
+}
+console.log(
+  `Selected Node ${selectedNode.version} (${selectedNode.platform}/${selectedNode.arch}) at ${nodeBinary} for ${target}.`,
+);
 
 rmSync(runtimeRoot, { recursive: true, force: true });
 mkdirSync(dirname(runtimeRoot), { recursive: true });
@@ -197,7 +266,7 @@ cpSync(deploymentTemplateSource, deploymentTemplateTarget, {
   recursive: true,
   filter: (path) =>
     path === deploymentTemplateSource ||
-    !deploymentTemplateExcludes.has(path.split("/").at(-1)),
+    !deploymentTemplateExcludes.has(basename(path)),
 });
 
 for (const path of [".turbo", "src", "tsconfig.json", "drizzle.config.ts"]) {

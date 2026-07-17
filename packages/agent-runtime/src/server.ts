@@ -1,14 +1,20 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { basename, join } from "node:path";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 
 import { renderEmailDocument } from "@chief/email/render";
 
+import type { AgentSession } from "./session.js";
 import type {
+  AgentDeploymentRecord,
+  AgentEvent,
   ClientMessage,
   ExecutorCapability,
   InputRequest,
+  RuntimeNotice,
   ServerMessage,
 } from "./types.js";
 import { AgentDeploymentManager } from "./agent-deployments.js";
@@ -39,11 +45,36 @@ import { RecurringWorkScheduler } from "./scheduler.js";
 import { ensureExecutorWorkspace } from "./tools/control-plane.js";
 import { executorToolServer } from "./tools/spec.js";
 import {
+  capabilityWhoamiUrl,
+  WorkspaceAuthorization,
+} from "./workspace-authorization.js";
+import {
   readWorkspaceContext,
   writeWorkspaceContext,
   writeWorkspaceContextValue,
 } from "./workspace-context.js";
 import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
+
+function chatControlEvents(events: AgentEvent[]) {
+  let lastDurableBoundary = -1;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (
+      event?.type === "message" ||
+      event?.type === "result" ||
+      event?.type === "error" ||
+      event?.type === "exit"
+    ) {
+      lastDurableBoundary = index;
+      break;
+    }
+  }
+  return events.filter(
+    (event, index) =>
+      event.type !== "message" &&
+      (event.type !== "stream" || index > lastDurableBoundary),
+  );
+}
 
 /**
  * Stores submitted values per each field's save target and returns
@@ -92,7 +123,10 @@ const PORT = Number(process.env.CHIEF_RUNTIME_PORT ?? 4318);
  */
 export function startServer(port = PORT) {
   const manager = new SessionManager();
-  const localCapabilities = new Map<string, string>();
+  const localCapabilities = new Map<
+    string,
+    { apiBaseUrl: string; verifiedAt: number; workspaceId: string }
+  >();
   const workspaceCapabilities = new Map<string, ExecutorCapability>();
   const onboardingBootstraps = new Map<
     string,
@@ -102,19 +136,26 @@ export function startServer(port = PORT) {
     workspaceId: string,
     capability: ExecutorCapability,
   ) => {
-    const cachedWorkspace = localCapabilities.get(capability.token);
-    if (cachedWorkspace) {
-      if (cachedWorkspace !== workspaceId) {
+    const cached = localCapabilities.get(capability.token);
+    if (cached) {
+      if (cached.workspaceId !== workspaceId) {
         throw new Error("Workspace capability does not match this workspace.");
       }
-      workspaceCapabilities.set(workspaceId, capability);
-      return;
     }
-
-    const url = new URL("/agent-tools/whoami", capability.apiBaseUrl);
-    const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
-    if (url.protocol !== "https:" && !(local && url.protocol === "http:")) {
-      throw new Error("Workspace capability endpoint must use HTTPS.");
+    const apiBaseUrl = capability.apiBaseUrl || cached?.apiBaseUrl;
+    if (!apiBaseUrl) {
+      throw new Error("Workspace capability endpoint is required.");
+    }
+    const url = capabilityWhoamiUrl(apiBaseUrl);
+    if (cached && new URL(cached.apiBaseUrl).origin !== url.origin) {
+      throw new Error("Workspace capability endpoint changed for this token.");
+    }
+    if (cached && Date.now() - cached.verifiedAt < 30_000) {
+      workspaceCapabilities.set(workspaceId, {
+        apiBaseUrl: cached.apiBaseUrl,
+        token: capability.token,
+      });
+      return;
     }
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${capability.token}` },
@@ -125,8 +166,16 @@ export function startServer(port = PORT) {
     if (!response.ok || body?.organizationId !== workspaceId) {
       throw new Error("Could not verify access to this workspace.");
     }
-    localCapabilities.set(capability.token, workspaceId);
-    workspaceCapabilities.set(workspaceId, capability);
+    const verified = {
+      apiBaseUrl: url.origin,
+      verifiedAt: Date.now(),
+      workspaceId,
+    };
+    localCapabilities.set(capability.token, verified);
+    workspaceCapabilities.set(workspaceId, {
+      apiBaseUrl: verified.apiBaseUrl,
+      token: capability.token,
+    });
     void ensureSlackGateway(workspaceId);
   };
 
@@ -152,13 +201,9 @@ export function startServer(port = PORT) {
 
   let broadcastWorkspaceData = (_workspaceId: string) => Promise.resolve();
   let broadcastWorkspaceFiles = (_workspaceId: string) => Promise.resolve();
-  let broadcastNotice = (
-    _workspaceId: string,
-    _notice: import("./types.js").RuntimeNotice,
-  ) => undefined;
-  let broadcastAgentDeployment = (
-    _record: import("./types.js").AgentDeploymentRecord,
-  ) => undefined;
+  let broadcastNotice = (_workspaceId: string, _notice: RuntimeNotice) =>
+    undefined;
+  let broadcastAgentDeployment = (_record: AgentDeploymentRecord) => undefined;
   const deployments = new AgentDeploymentManager(manager, (record) =>
     broadcastAgentDeployment(record),
   );
@@ -176,10 +221,7 @@ export function startServer(port = PORT) {
   let schedulerReady = false;
   // Bind both loopback families — macOS clients resolving "localhost" may
   // dial ::1 or 127.0.0.1. Never bind non-loopback interfaces here.
-  const handler = async (
-    req: import("node:http").IncomingMessage,
-    res: import("node:http").ServerResponse,
-  ) => {
+  const handler = async (req: IncomingMessage, res: ServerResponse) => {
     const path = req.url
       ? new URL(req.url, `http://127.0.0.1:${port}`).pathname
       : "/";
@@ -210,10 +252,21 @@ export function startServer(port = PORT) {
     if (path.startsWith("/local-tools/")) {
       const authorization = req.headers.authorization ?? "";
       const token = /^Bearer (.+)$/.exec(authorization)?.[1];
-      const workspaceId = token ? localCapabilities.get(token) : undefined;
-      if (!workspaceId) {
+      const cachedCapability = token ? localCapabilities.get(token) : undefined;
+      const workspaceId = cachedCapability?.workspaceId;
+      if (!workspaceId || !token) {
         res.writeHead(401, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: "Unauthorized" }));
+        return;
+      }
+      try {
+        await authorizeWorkspace(workspaceId, {
+          apiBaseUrl: cachedCapability.apiBaseUrl,
+          token,
+        });
+      } catch {
+        res.writeHead(401, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "Workspace authorization expired" }));
         return;
       }
       const chunks: Buffer[] = [];
@@ -249,10 +302,11 @@ export function startServer(port = PORT) {
     manager,
     authorize: authorizeWorkspace,
   });
-  const http4 = createServer(handler);
-  const http6 = createServer(handler);
+  const http4 = createServer((req, res) => void handler(req, res));
+  const http6 = createServer((req, res) => void handler(req, res));
   const wss = new WebSocketServer({ server: http4 });
   const wss6 = new WebSocketServer({ server: http6 });
+  const socketAuthorization = new WorkspaceAuthorization<WebSocket>();
   http4.listen(port, "127.0.0.1");
   http6.listen(port, "::1");
   http6.on("error", () => undefined);
@@ -266,7 +320,12 @@ export function startServer(port = PORT) {
       ...data,
     });
     for (const client of new Set([...wss.clients, ...wss6.clients])) {
-      if (client.readyState === WebSocket.OPEN) client.send(message);
+      if (
+        client.readyState === WebSocket.OPEN &&
+        socketAuthorization.canReceive(client, workspaceId)
+      ) {
+        client.send(message);
+      }
     }
   };
   broadcastWorkspaceFiles = async (workspaceId) => {
@@ -276,7 +335,12 @@ export function startServer(port = PORT) {
       files: await manager.listWorkspaceFiles(workspaceId),
     });
     for (const client of new Set([...wss.clients, ...wss6.clients])) {
-      if (client.readyState === WebSocket.OPEN) client.send(message);
+      if (
+        client.readyState === WebSocket.OPEN &&
+        socketAuthorization.canReceive(client, workspaceId)
+      ) {
+        client.send(message);
+      }
     }
   };
   broadcastNotice = (workspaceId, notice) => {
@@ -286,7 +350,12 @@ export function startServer(port = PORT) {
       notice,
     });
     for (const client of new Set([...wss.clients, ...wss6.clients])) {
-      if (client.readyState === WebSocket.OPEN) client.send(message);
+      if (
+        client.readyState === WebSocket.OPEN &&
+        socketAuthorization.canReceive(client, workspaceId)
+      ) {
+        client.send(message);
+      }
     }
   };
   broadcastAgentDeployment = (record) => {
@@ -296,7 +365,12 @@ export function startServer(port = PORT) {
       deployment: record,
     });
     for (const client of new Set([...wss.clients, ...wss6.clients])) {
-      if (client.readyState === WebSocket.OPEN) client.send(message);
+      if (
+        client.readyState === WebSocket.OPEN &&
+        socketAuthorization.canReceive(client, record.workspaceId)
+      ) {
+        client.send(message);
+      }
     }
   };
 
@@ -306,15 +380,18 @@ export function startServer(port = PORT) {
     const send = (msg: ServerMessage) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
     };
+    socketAuthorization.connect(ws);
     const subscriptions = new Set<string>();
     const sessionListeners = new Map<
       string,
       {
-        session: Awaited<ReturnType<typeof manager.ensure>>;
+        session: AgentSession;
         listener: (event: unknown) => void;
       }
     >();
 
+    // EventEmitter cannot await socket handlers; errors are handled inside.
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     ws.on("message", async (data) => {
       let msg: ClientMessage;
       try {
@@ -324,6 +401,30 @@ export function startServer(port = PORT) {
       }
 
       try {
+        if ("workspaceId" in msg && "executorCapability" in msg) {
+          await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+          const previousWorkspace = socketAuthorization.authorize(
+            ws,
+            msg.workspaceId,
+          );
+          if (previousWorkspace && previousWorkspace !== msg.workspaceId) {
+            for (const subscriptionKey of [...subscriptions]) {
+              if (!subscriptionKey.startsWith(`${previousWorkspace}\0`)) {
+                continue;
+              }
+              subscriptions.delete(subscriptionKey);
+              const registered = sessionListeners.get(subscriptionKey);
+              if (registered) {
+                registered.session.off("event", registered.listener);
+                sessionListeners.delete(subscriptionKey);
+              }
+              const chatId = subscriptionKey.slice(
+                previousWorkspace.length + 1,
+              );
+              await manager.release(previousWorkspace, chatId);
+            }
+          }
+        }
         switch (msg.type) {
           case "listAgents":
             send({ type: "agents", agents: defaultAgents });
@@ -454,22 +555,16 @@ export function startServer(port = PORT) {
                 const now = Date.now();
                 const jobs = msg.jobs.slice(0, 8);
                 if (msg.driver) {
-                  const agentIds = new Set([
-                    ...jobs.map((job) => job.agentId),
-                    ...msg.schedules.map((schedule) => schedule.agentId),
-                  ]);
-                  for (const agentId of agentIds) {
-                    const existing = await manager.agentPreference(
-                      msg.workspaceId,
-                      agentId,
-                    );
-                    await manager.saveAgentPreference(msg.workspaceId, {
-                      ...existing,
-                      agentId,
-                      enabled: true,
-                      driver: msg.driver,
-                    });
-                  }
+                  const existing = await manager.agentPreference(
+                    msg.workspaceId,
+                    "cmo",
+                  );
+                  await manager.saveAgentPreference(msg.workspaceId, {
+                    ...existing,
+                    agentId: "cmo",
+                    enabled: true,
+                    driver: msg.driver,
+                  });
                 }
                 for (const job of jobs) {
                   console.log(`[chief] preparing onboarding job ${job.id}`);
@@ -533,8 +628,15 @@ export function startServer(port = PORT) {
                         .slice(0, 24),
                     ),
                   );
+                  const chatId = randomUUID();
+                  await manager.createRootChat(
+                    msg.workspaceId,
+                    chatId,
+                    job.title.trim().slice(0, 160),
+                  );
                   await manager.saveRecurringWork(msg.workspaceId, {
                     id: job.id,
+                    chatId,
                     agentId: job.agentId,
                     title: job.title.trim().slice(0, 160),
                     instructions,
@@ -594,8 +696,15 @@ export function startServer(port = PORT) {
                         .slice(0, 24),
                     ),
                   );
+                  const chatId = randomUUID();
+                  await manager.createRootChat(
+                    msg.workspaceId,
+                    chatId,
+                    schedule.title.trim().slice(0, 160),
+                  );
                   await manager.saveRecurringWork(msg.workspaceId, {
                     id: schedule.id,
+                    chatId,
                     agentId: schedule.agentId,
                     title: schedule.title.trim().slice(0, 160),
                     instructions: schedule.instructions.trim().slice(0, 40_000),
@@ -889,7 +998,6 @@ export function startServer(port = PORT) {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             deployments.start({
               workspaceId: msg.workspaceId,
-              agentId: msg.agentId,
               projectName: msg.projectName,
               teamId: msg.teamId,
               playbooks: msg.playbooks,
@@ -901,21 +1009,6 @@ export function startServer(port = PORT) {
             deployments.cancel(msg.workspaceId, msg.deploymentId);
             break;
 
-          case "setChatPreferences":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await manager.updateChatPreferences(
-              msg.workspaceId,
-              msg.chatId,
-              msg.driver,
-              msg.model,
-            );
-            send({
-              type: "chats",
-              workspaceId: msg.workspaceId,
-              chats: await manager.listChats(msg.workspaceId),
-            });
-            break;
-
           case "listChats":
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             send({
@@ -925,107 +1018,128 @@ export function startServer(port = PORT) {
             });
             break;
 
-          case "observeSession": {
+          case "observeChat": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const session = manager.get(msg.chatId);
-            if (
-              !session ||
-              session.agent.id !== msg.agentId ||
-              session.config.workspaceId !== msg.workspaceId
-            ) {
-              const events = await manager.transcript(
-                msg.workspaceId,
-                msg.chatId,
-              );
-              send({
-                type: "sessionOpened",
-                chatId: msg.chatId,
-                agentId: msg.agentId,
-              });
-              send({ type: "history", chatId: msg.chatId, events });
-              break;
-            }
-            if (!subscriptions.has(msg.chatId)) {
-              subscriptions.add(msg.chatId);
-              manager.retain(msg.chatId);
+            const inspected = await manager.inspectChat(
+              msg.workspaceId,
+              msg.chatId,
+            );
+            const subscriptionKey = `${msg.workspaceId}\0${msg.chatId}`;
+            if (inspected.session && !subscriptions.has(subscriptionKey)) {
+              subscriptions.add(subscriptionKey);
+              manager.retain(msg.workspaceId, msg.chatId);
               const chatId = msg.chatId;
-              const listener = (event: unknown) => {
-                send({
-                  type: "event",
-                  chatId,
-                  event: event as import("./types.js").AgentEvent,
-                });
+              const handleEvent = async (event: unknown) => {
+                const agentEvent = event as AgentEvent;
+                if (agentEvent.type !== "message") {
+                  send({
+                    type: "event",
+                    workspaceId: msg.workspaceId,
+                    chatId,
+                    event: agentEvent,
+                  });
+                }
+                if (
+                  agentEvent.type === "message" ||
+                  agentEvent.type === "result" ||
+                  agentEvent.type === "error" ||
+                  agentEvent.type === "permissionResolved"
+                ) {
+                  await manager.waitForChatPersistence(msg.workspaceId, chatId);
+                  const messages = await manager.messages(
+                    msg.workspaceId,
+                    chatId,
+                  );
+                  const persisted =
+                    agentEvent.type === "message" && agentEvent.id
+                      ? messages.find((message) => message.id === agentEvent.id)
+                      : messages.at(-1);
+                  if (persisted) {
+                    send({
+                      type: "message",
+                      workspaceId: msg.workspaceId,
+                      chatId,
+                      message: persisted,
+                    });
+                  }
+                }
               };
-              session.on("event", listener);
-              sessionListeners.set(chatId, { session, listener });
+              const listener = (event: unknown) => {
+                void handleEvent(event).catch((error: unknown) =>
+                  console.error("[runtime] observed chat event:", error),
+                );
+              };
+              inspected.session.on("event", listener);
+              sessionListeners.set(subscriptionKey, {
+                session: inspected.session,
+                listener,
+              });
             }
             send({
-              type: "sessionOpened",
+              type: "chatOpened",
+              workspaceId: msg.workspaceId,
               chatId: msg.chatId,
-              agentId: msg.agentId,
+              visibility: inspected.chat.visibility,
+              parentId: inspected.chat.parentId,
             });
+            await manager.waitForChatPersistence(msg.workspaceId, msg.chatId);
             send({
               type: "history",
+              workspaceId: msg.workspaceId,
               chatId: msg.chatId,
-              events: session.events,
+              messages: await manager.messages(msg.workspaceId, msg.chatId),
+              events: chatControlEvents(inspected.events),
             });
             break;
           }
 
-          case "openSession": {
-            const agent = getAgent(msg.agentId);
-            if (!agent) {
-              return send({
-                type: "error",
-                message: `unknown agent: ${msg.agentId}`,
-                chatId: msg.chatId,
-              });
-            }
-            if (msg.workspaceId) {
-              if (!msg.executorCapability) {
-                throw new Error("Workspace authorization is required.");
-              }
-              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+          case "openChat": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
+            const agent = getAgent("cmo");
+            if (!agent) throw new Error("CMO persona is missing.");
+            const preference = await manager.agentPreference(
+              msg.workspaceId,
+              "cmo",
+            );
+            if (!preference?.driver || preference.enabled === false) {
+              throw new Error(
+                "Configure the CMO agent app before opening chat.",
+              );
             }
             // Workspace tools are additive: a control-plane failure here must
             // degrade the session to no executor tools, not block chat.
-            const executorWorkspace =
-              msg.workspaceId && msg.executorCapability
-                ? await ensureExecutorWorkspace(
-                    msg.workspaceId,
-                    msg.executorCapability,
-                  ).catch((error: unknown) => {
-                    console.error(
-                      `[runtime] Executor workspace unavailable for ${msg.chatId}:`,
-                      error,
-                    );
-                    return null;
-                  })
-                : null;
-            const capableAgent = msg.capabilities
+            const executorWorkspace = await ensureExecutorWorkspace(
+              msg.workspaceId,
+              msg.executorCapability,
+            ).catch((error: unknown) => {
+              console.error(
+                `[runtime] Executor workspace unavailable for ${msg.chatId}:`,
+                error,
+              );
+              return null;
+            });
+            const capableAgent = preference.capabilities
               ? composeAgentCapabilities(
                   agent,
                   availableCapabilities.filter((capability) =>
-                    msg.capabilities!.includes(capability.id),
+                    preference.capabilities!.includes(capability.id),
                   ),
                 )
               : agent;
             const integratedAgent =
-              msg.integrations !== undefined
+              preference.integrations !== undefined
                 ? {
                     ...capableAgent,
-                    instructions: `${capableAgent.instructions}\n\nAssigned integrations: ${msg.integrations.length > 0 ? msg.integrations.join(", ") : "none"}. Only search for and call integration tools from this assigned set.`,
+                    instructions: `${capableAgent.instructions}\n\nAssigned integrations: ${preference.integrations.length > 0 ? preference.integrations.join(", ") : "none"}. Only search for and call integration tools from this assigned set.`,
                   }
                 : capableAgent;
             // Prime the session with the workspace's brand context and the
             // shared operating rules, and persist the context so unattended
             // recurring runs open with the same grounding.
             const workspaceContext =
-              msg.workspaceContext ??
-              (msg.workspaceId
-                ? readWorkspaceContext(msg.workspaceId)
-                : undefined);
-            if (msg.workspaceId && msg.workspaceContext) {
+              msg.workspaceContext ?? readWorkspaceContext(msg.workspaceId);
+            if (msg.workspaceContext) {
               writeWorkspaceContext(msg.workspaceId, msg.workspaceContext);
             }
             const effectiveAgent = {
@@ -1035,28 +1149,64 @@ export function startServer(port = PORT) {
                 workspaceContext,
               ),
             };
-            const session = await manager.ensure(effectiveAgent, msg.chatId, {
-              driver: msg.driver,
-              access: msg.access ?? "guarded",
-              workspaceId: msg.workspaceId ?? "local",
-              model: msg.model,
-              mcpServers: executorWorkspace
-                ? [executorToolServer(executorWorkspace)]
-                : [],
-            });
-            if (!subscriptions.has(msg.chatId)) {
-              subscriptions.add(msg.chatId);
-              manager.retain(msg.chatId);
+            const session = await manager.ensureRootChat(
+              effectiveAgent,
+              msg.chatId,
+              {
+                driver: preference.driver,
+                access: "guarded",
+                workspaceId: msg.workspaceId,
+                model: preference.model,
+                mcpServers: executorWorkspace
+                  ? [executorToolServer(executorWorkspace)]
+                  : [],
+                executionOwner: "interactive",
+              },
+            );
+            const subscriptionKey = `${msg.workspaceId}\0${msg.chatId}`;
+            if (!subscriptions.has(subscriptionKey)) {
+              subscriptions.add(subscriptionKey);
+              manager.retain(msg.workspaceId, msg.chatId);
               const chatId = msg.chatId;
-              const listener = async (event: unknown) => {
-                const agentEvent = event as import("./types.js").AgentEvent;
-                send({ type: "event", chatId, event: agentEvent });
+              const handleEvent = async (event: unknown) => {
+                const agentEvent = event as AgentEvent;
+                if (agentEvent.type !== "message") {
+                  send({
+                    type: "event",
+                    workspaceId: msg.workspaceId,
+                    chatId,
+                    event: agentEvent,
+                  });
+                }
+                if (
+                  agentEvent.type === "message" ||
+                  agentEvent.type === "result" ||
+                  agentEvent.type === "error" ||
+                  agentEvent.type === "permissionResolved"
+                ) {
+                  await manager.waitForChatPersistence(msg.workspaceId, chatId);
+                  const messages = await manager.messages(
+                    msg.workspaceId,
+                    chatId,
+                  );
+                  const persisted =
+                    agentEvent.type === "message" && agentEvent.id
+                      ? messages.find((message) => message.id === agentEvent.id)
+                      : messages.at(-1);
+                  if (persisted) {
+                    send({
+                      type: "message",
+                      workspaceId: msg.workspaceId,
+                      chatId,
+                      message: persisted,
+                    });
+                  }
+                }
                 if (
                   agentEvent.type === "message" &&
-                  agentEvent.role === "user" &&
-                  msg.workspaceId
+                  agentEvent.role === "user"
                 ) {
-                  await manager.waitForChatPersistence(chatId);
+                  await manager.waitForChatPersistence(msg.workspaceId, chatId);
                   send({
                     type: "chats",
                     workspaceId: msg.workspaceId,
@@ -1064,43 +1214,58 @@ export function startServer(port = PORT) {
                   });
                 }
               };
+              const listener = (event: unknown) => {
+                void handleEvent(event).catch((error: unknown) =>
+                  console.error("[runtime] root chat event:", error),
+                );
+              };
               session.on("event", listener);
-              sessionListeners.set(chatId, { session, listener });
+              sessionListeners.set(subscriptionKey, { session, listener });
             }
             send({
-              type: "sessionOpened",
+              type: "chatOpened",
+              workspaceId: msg.workspaceId,
               chatId: msg.chatId,
-              agentId: agent.id,
+              visibility: "user",
             });
+            await manager.waitForChatPersistence(msg.workspaceId, msg.chatId);
             // Replay the buffered transcript so navigating away and back (or
             // reconnecting mid-run) resumes instead of presenting a fresh chat.
             send({
               type: "history",
+              workspaceId: msg.workspaceId,
               chatId: msg.chatId,
-              events: session.events,
+              messages: await manager.messages(msg.workspaceId, msg.chatId),
+              events: chatControlEvents(session.events),
             });
             break;
           }
 
-          case "closeSession":
-            if (subscriptions.delete(msg.chatId)) {
-              const registered = sessionListeners.get(msg.chatId);
+          case "closeChat": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const subscriptionKey = `${msg.workspaceId}\0${msg.chatId}`;
+            if (subscriptions.delete(subscriptionKey)) {
+              const registered = sessionListeners.get(subscriptionKey);
               if (registered) {
                 registered.session.off("event", registered.listener);
-                sessionListeners.delete(msg.chatId);
+                sessionListeners.delete(subscriptionKey);
               }
-              await manager.release(msg.chatId);
+              await manager.release(msg.workspaceId, msg.chatId);
             }
             break;
+          }
 
-          case "deleteSession":
+          case "deleteChat":
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            subscriptions.delete(msg.chatId);
+            await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
+            await manager.rootChat(msg.workspaceId, msg.chatId);
             {
-              const registered = sessionListeners.get(msg.chatId);
+              const subscriptionKey = `${msg.workspaceId}\0${msg.chatId}`;
+              subscriptions.delete(subscriptionKey);
+              const registered = sessionListeners.get(subscriptionKey);
               if (registered) {
                 registered.session.off("event", registered.listener);
-                sessionListeners.delete(msg.chatId);
+                sessionListeners.delete(subscriptionKey);
               }
             }
             await manager.remove(msg.workspaceId, msg.chatId);
@@ -1111,8 +1276,13 @@ export function startServer(port = PORT) {
             });
             break;
 
-          case "prompt": {
-            const session = manager.get(msg.chatId);
+          case "sendMessage": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
+            const { session } = await manager.rootChat(
+              msg.workspaceId,
+              msg.chatId,
+            );
             if (!session) {
               return send({
                 type: "error",
@@ -1121,25 +1291,69 @@ export function startServer(port = PORT) {
                 chatId: msg.chatId,
               });
             }
-            await session.sendPrompt(msg.text);
+            const releaseExecution = manager.acquireExecution(
+              msg.workspaceId,
+              msg.chatId,
+              "interactive",
+            );
+            const releaseOnTerminal = (event: AgentEvent) => {
+              if (
+                event.type === "result" ||
+                event.type === "error" ||
+                event.type === "exit"
+              ) {
+                session.off("event", releaseOnTerminal);
+                releaseExecution();
+              }
+            };
+            session.on("event", releaseOnTerminal);
+            try {
+              await session.sendPrompt(msg.text, msg.messageId);
+            } catch (error) {
+              session.off("event", releaseOnTerminal);
+              releaseExecution();
+              throw error;
+            }
             break;
           }
 
-          case "interrupt":
-            await manager.get(msg.chatId)?.interrupt();
+          case "interruptChat":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
+            try {
+              await (
+                await manager.rootChat(msg.workspaceId, msg.chatId)
+              ).session?.interrupt();
+            } finally {
+              manager.releaseExecution(
+                msg.workspaceId,
+                msg.chatId,
+                "interactive",
+              );
+            }
             break;
 
-          case "respondPermission":
-            manager
-              .get(msg.chatId)
-              ?.respondPermission(msg.requestId, msg.behavior);
+          case "respondPermission": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
+            const { session } = await manager.rootChat(
+              msg.workspaceId,
+              msg.chatId,
+            );
+            session?.respondPermission(msg.requestId, msg.behavior);
             break;
+          }
 
-          case "respondQuestion":
-            manager
-              .get(msg.chatId)
-              ?.respondQuestion(msg.requestId, msg.answers);
+          case "respondQuestion": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
+            const { session } = await manager.rootChat(
+              msg.workspaceId,
+              msg.chatId,
+            );
+            session?.respondQuestion(msg.requestId, msg.answers);
             break;
+          }
 
           case "queryInputs": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
@@ -1258,23 +1472,28 @@ export function startServer(port = PORT) {
           }
 
           case "provideInput": {
-            const session = manager.get(msg.chatId);
-            const historicalRun = Boolean(
-              msg.workspaceId && msg.recurringWorkId,
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            if (!msg.recurringWorkId) {
+              await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
+            }
+            const inspected = await manager.rootChat(
+              msg.workspaceId,
+              msg.chatId,
             );
-            if (!session || historicalRun) {
-              if (!msg.workspaceId || !msg.executorCapability) {
-                return send({
-                  type: "error",
-                  message: "This run can no longer accept input.",
-                  chatId: msg.chatId,
-                });
+            const session = inspected.session;
+            const historicalRun = Boolean(msg.recurringWorkId);
+            if (msg.recurringWorkId) {
+              const work = await manager.recurringWorkById(
+                msg.workspaceId,
+                msg.recurringWorkId,
+              );
+              if (!work || work.chatId !== msg.chatId) {
+                throw new Error("Schedule does not own this root chat.");
               }
-              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-              await manager.waitForChatPersistence(msg.chatId);
-              const events = session
-                ? session.events
-                : await manager.transcript(msg.workspaceId, msg.chatId);
+            }
+            if (!session || historicalRun) {
+              await manager.waitForChatPersistence(msg.workspaceId, msg.chatId);
+              const events = session ? session.events : inspected.events;
               if (hasInputReceipt(events, msg.request.id)) break;
               const saved = await storeInputValues(
                 msg.workspaceId,
@@ -1292,7 +1511,10 @@ export function startServer(port = PORT) {
               const receipt = inputReceipt(msg.request, saved);
               if (session) {
                 session.recordUserMessage(receipt);
-                await manager.waitForChatPersistence(msg.chatId);
+                await manager.waitForChatPersistence(
+                  msg.workspaceId,
+                  msg.chatId,
+                );
               } else {
                 const chat = await manager.chat(msg.workspaceId, msg.chatId);
                 if (!chat?.driver) {
@@ -1304,7 +1526,7 @@ export function startServer(port = PORT) {
                   {
                     id: msg.chatId,
                     workspaceId: msg.workspaceId,
-                    agentId: chat.agentId,
+                    agentId: "cmo",
                     driver: chat.driver,
                     model: chat.model,
                   },
@@ -1370,10 +1592,14 @@ export function startServer(port = PORT) {
     });
 
     ws.on("close", () => {
-      for (const chatId of subscriptions) {
-        const registered = sessionListeners.get(chatId);
+      for (const subscriptionKey of subscriptions) {
+        const registered = sessionListeners.get(subscriptionKey);
         if (registered) registered.session.off("event", registered.listener);
-        void manager.release(chatId);
+        const separator = subscriptionKey.indexOf("\0");
+        void manager.release(
+          subscriptionKey.slice(0, separator),
+          subscriptionKey.slice(separator + 1),
+        );
       }
       sessionListeners.clear();
       subscriptions.clear();
@@ -1416,8 +1642,8 @@ export function startServer(port = PORT) {
     wss.close();
     process.exit(0);
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", () => void shutdown());
+  process.on("SIGTERM", () => void shutdown());
 
   return wss;
 }

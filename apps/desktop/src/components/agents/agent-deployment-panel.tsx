@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { AgentDefinition } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
 import { cn } from "@chief/ui/lib/utils";
@@ -27,7 +26,6 @@ interface PersistedDeployment {
 
 function persistedDeployment(
   org: AuthOrganization | null,
-  agentId: string,
 ): PersistedDeployment | null {
   if (!org) return null;
   const metadata = parseOrganizationMetadata(org);
@@ -35,12 +33,7 @@ function persistedDeployment(
     metadata.onboarding && typeof metadata.onboarding === "object"
       ? (metadata.onboarding as Record<string, unknown>)
       : {};
-  const deployments =
-    onboarding.agentDeployments &&
-    typeof onboarding.agentDeployments === "object"
-      ? (onboarding.agentDeployments as Record<string, unknown>)
-      : {};
-  const raw = deployments[agentId];
+  const raw = onboarding.chiefDeployment;
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Record<string, unknown>;
   if (typeof value.url !== "string" || !value.url) return null;
@@ -52,9 +45,9 @@ function persistedDeployment(
   };
 }
 
-function projectSlug(agentId: string, workspaceId: string | null) {
+function projectSlug(workspaceId: string | null) {
   const suffix = workspaceId?.replace(/[^a-z0-9]/gi, "").slice(-8) ?? "local";
-  return `chief-${agentId}-${suffix}`.toLowerCase();
+  return `chief-${suffix}`.toLowerCase();
 }
 
 function FileRow({ depth = 0, name }: { depth?: number; name: string }) {
@@ -69,22 +62,18 @@ function FileRow({ depth = 0, name }: { depth?: number; name: string }) {
   );
 }
 
-export function AgentDeploymentPanel({
-  agent,
-  onBack,
-}: {
-  agent: AgentDefinition;
-  onBack: () => void;
-}) {
+export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
   const { cloudOrganizationId } = useAuth();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const environment = useWorkspaceEnvironmentVariables();
   const deploymentState = useAgentDeployments(cloudOrganizationId);
   const [org, setOrg] = useState<AuthOrganization | null>(null);
   const [token, setToken] = useState("");
+  const [executorUrl, setExecutorUrl] = useState("");
+  const [executorToken, setExecutorToken] = useState("");
   const [teamId, setTeamId] = useState("");
   const [projectName, setProjectName] = useState(() =>
-    projectSlug(agent.id, cloudOrganizationId),
+    projectSlug(cloudOrganizationId),
   );
   const persistedUrl = useRef<string | null>(null);
 
@@ -105,25 +94,31 @@ export function AgentDeploymentPanel({
 
   const playbooks = useMemo(
     () =>
-      PLAYBOOKS.filter((playbook) => playbook.agentId === agent.id).map(
-        (playbook) => ({
-          id: playbook.id,
-          title: playbook.title,
-          summary: playbook.summary,
-          instructions: playbookInstructions(playbook),
-        }),
-      ),
-    [agent.id],
+      PLAYBOOKS.map((playbook) => ({
+        id: playbook.id,
+        title: playbook.title,
+        summary: playbook.summary,
+        instructions: playbookInstructions(playbook),
+      })),
+    [],
   );
-  const schedules = workspaceData.recurringWork.filter(
-    (work) => work.agentId === agent.id && work.placement === "cloud",
+  const activeCloudSchedules = workspaceData.recurringWork.filter(
+    (work) => work.status === "active" && work.placement === "cloud",
   );
-  const current = deploymentState.deployments.find(
-    (deployment) => deployment.agentId === agent.id,
-  );
-  const saved = persistedDeployment(org, agent.id);
+  const current = deploymentState.deployments[0];
+  const saved = persistedDeployment(org);
   const hasVercelToken = Boolean(
     environment.variables?.some((variable) => variable.key === "VERCEL_TOKEN"),
+  );
+  const hasExecutorUrl = Boolean(
+    environment.variables?.some(
+      (variable) => variable.key === "EXECUTOR_MCP_URL",
+    ),
+  );
+  const hasExecutorToken = Boolean(
+    environment.variables?.some(
+      (variable) => variable.key === "EXECUTOR_MCP_TOKEN",
+    ),
   );
   const running = current?.status === "running";
 
@@ -136,29 +131,21 @@ export function AgentDeploymentPanel({
       metadata.onboarding && typeof metadata.onboarding === "object"
         ? (metadata.onboarding as Record<string, unknown>)
         : {};
-    const deployments =
-      onboarding.agentDeployments &&
-      typeof onboarding.agentDeployments === "object"
-        ? (onboarding.agentDeployments as Record<string, unknown>)
-        : {};
     const nextMetadata = {
       ...metadata,
       onboarding: {
         ...onboarding,
-        agentDeployments: {
-          ...deployments,
-          [agent.id]: {
-            url: current.url,
-            target: "vercel",
-            deployedAt: current.updatedAt,
-          },
+        chiefDeployment: {
+          url: current.url,
+          target: "vercel",
+          deployedAt: current.updatedAt,
         },
       },
     };
     void updateAuthOrganization(org.id, { metadata: nextMetadata }).then(() =>
       setOrg({ ...org, metadata: nextMetadata }),
     );
-  }, [agent.id, current, org]);
+  }, [current, org]);
 
   return (
     <div className="bg-card flex min-h-[620px] flex-col">
@@ -169,11 +156,12 @@ export function AgentDeploymentPanel({
             onClick={onBack}
             className="text-muted-foreground hover:text-foreground mb-4 text-xs"
           >
-            Back to {agent.name}
+            Back to Chief
           </button>
-          <h3 className="font-pixel text-3xl">Deploy {agent.name}</h3>
+          <h3 className="font-pixel text-3xl">Deploy Chief</h3>
           <p className="text-muted-foreground mt-2 text-sm">
-            Package this filesystem agent and run it on Vercel with Eve.
+            Package Chief and all five private specialists as one Vercel
+            deployment.
           </p>
         </div>
         {current?.url || saved?.url ? (
@@ -250,6 +238,56 @@ export function AgentDeploymentPanel({
             </section>
           ) : null}
 
+          {!hasExecutorUrl || !hasExecutorToken ? (
+            <section className="space-y-3 border p-4">
+              <div>
+                <p className="text-sm font-medium">Connect hosted Executor</p>
+                <p className="text-muted-foreground mt-1 text-xs leading-5">
+                  Cloud Chief requires a real HTTPS Executor MCP endpoint.
+                  Localhost is deliberately rejected.
+                </p>
+              </div>
+              {!hasExecutorUrl ? (
+                <Input
+                  value={executorUrl}
+                  onChange={(event) => setExecutorUrl(event.target.value)}
+                  placeholder="https://executor.example.com/mcp"
+                />
+              ) : null}
+              {!hasExecutorToken ? (
+                <Input
+                  type="password"
+                  value={executorToken}
+                  onChange={(event) => setExecutorToken(event.target.value)}
+                  placeholder="Executor MCP token"
+                />
+              ) : null}
+              <Button
+                variant="outline"
+                disabled={
+                  !environment.connected ||
+                  (!hasExecutorUrl && !executorUrl.trim()) ||
+                  (!hasExecutorToken && !executorToken.trim())
+                }
+                onClick={() => {
+                  if (!hasExecutorUrl) {
+                    environment.save("EXECUTOR_MCP_URL", executorUrl.trim());
+                    setExecutorUrl("");
+                  }
+                  if (!hasExecutorToken) {
+                    environment.save(
+                      "EXECUTOR_MCP_TOKEN",
+                      executorToken.trim(),
+                    );
+                    setExecutorToken("");
+                  }
+                }}
+              >
+                Save Executor credentials
+              </Button>
+            </section>
+          ) : null}
+
           {current ? (
             <section className="border">
               <div className="flex items-center justify-between gap-4 border-b p-4">
@@ -288,9 +326,11 @@ export function AgentDeploymentPanel({
 
           <footer className="flex items-center justify-between gap-4 border-t pt-5">
             <p className="text-muted-foreground text-xs">
-              {hasVercelToken
-                ? `${playbooks.length} playbooks and ${schedules.length} cloud schedules will be included.`
-                : "Connect Vercel before deploying."}
+              {activeCloudSchedules.length > 0
+                ? "Active cloud schedules cannot deploy until schedule-scoped Executor capabilities exist. Move them to this Mac or pause them."
+                : hasVercelToken
+                  ? `${playbooks.length} playbooks will be included. Schedules stay on this Mac.`
+                  : "Connect Vercel before deploying."}
             </p>
             {current?.status === "running" ? (
               <Button
@@ -304,12 +344,13 @@ export function AgentDeploymentPanel({
                 disabled={
                   !deploymentState.ready ||
                   !hasVercelToken ||
+                  !hasExecutorUrl ||
+                  !hasExecutorToken ||
                   !projectName.trim() ||
                   !org
                 }
                 onClick={() =>
                   deploymentState.start({
-                    agentId: agent.id,
                     projectName: projectName.trim(),
                     teamId: teamId.trim() || undefined,
                     playbooks,
@@ -329,7 +370,8 @@ export function AgentDeploymentPanel({
             <FileRow depth={1} name="instructions.md" />
             <FileRow depth={1} name="agent.ts" />
             <FileRow depth={1} name={`skills/ (${playbooks.length})`} />
-            <FileRow depth={1} name={`schedules/ (${schedules.length})`} />
+            <FileRow depth={1} name="subagents/ (5)" />
+            <FileRow depth={1} name="schedules/ (local only)" />
             <FileRow depth={1} name="connections/executor.ts" />
           </div>
         </aside>

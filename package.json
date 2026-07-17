@@ -6,6 +6,7 @@
   "scripts": {
     "build": "turbo run build",
     "check": "pnpm lint && pnpm typecheck && pnpm format:fix",
+    "check:node": "node apps/workspace/scripts/assert-node-version.mjs .nvmrc",
     "check:staged": "lint-staged --concurrent false && pnpm typecheck",
     "clean": "git clean -xdf node_modules",
     "clean:workspaces": "turbo run clean",
@@ -32,6 +33,6 @@
   "prettier": "@chief/prettier-config",
   "packageManager": "pnpm@10.17.1",
   "engines": {
-    "node": ">=24"
+    "node": "24.x"
   }
 }

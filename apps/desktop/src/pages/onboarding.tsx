@@ -2726,7 +2726,6 @@ export function IntegrationConnectQueueControl({
             {localAgentSetup && provider ? (
               <IntegrationConnect
                 integration={firstOpenIntegration}
-                driver={provider}
                 connected={false}
                 onResult={onSetupResult}
               />
@@ -2986,7 +2985,7 @@ export function OnboardingPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connectingAnalytics, setConnectingAnalytics] = useState(false);
-  // The setup agent's latest verified result: bridges the gap until the
+  // Chief's latest verified setup result: bridges the gap until the
   // listConnected query refreshes (provider, category, display name).
   const [setupConnectedProvider, setSetupConnectedProvider] = useState<
     string | null

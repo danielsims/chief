@@ -82,15 +82,17 @@ function WorkspaceFileEditor({
   const dirty = name.trim() !== file.name || content !== file.content;
   const continueWithAgent = () => {
     if (dirty || saving) return;
-    const agentId = file.sourceAgentId ?? "cmo";
-    const chat = createChat(agentId, `Continue ${file.name}`);
+    const chat = createChat(`Continue ${file.name}`);
     const draft = [
       `Continue working from the saved workspace file \`${file.path}\`.`,
       `Use file id \`${file.id}\` at revision \`${file.currentVersionId}\` as the source of truth.`,
+      file.sourceAgentId
+        ? `Consult the ${file.sourceAgentId} specialist if useful.`
+        : "Consult the right specialist if useful.",
       "Read it before making changes and save any revision back to the same file.",
     ].join(" ");
     void navigate(
-      `/conversations?agent=${encodeURIComponent(agentId)}&chat=${encodeURIComponent(chat.id)}&new=1&draft=${encodeURIComponent(draft)}`,
+      `/conversations?chat=${encodeURIComponent(chat.id)}&draft=${encodeURIComponent(draft)}`,
     );
   };
 

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -14,11 +15,16 @@ import {
   availableCapabilities,
   composeAgentCapabilities,
 } from "./capabilities/index.js";
+import { REMOTE_CHANNEL_ACCESS } from "./channels/access.js";
 import { existingExecutorWorkspace } from "./tools/control-plane.js";
 import { executorToolServer } from "./tools/spec.js";
 import { readWorkspaceContext } from "./workspace-context.js";
 
 const ASK_TIMEOUT_MS = 5 * 60_000;
+
+export function defaultMcpChatId(workspaceId: string) {
+  return `mcp-chief-${createHash("sha256").update(workspaceId).digest("hex").slice(0, 24)}`;
+}
 
 function lastAssistantText(events: readonly AgentEvent[]) {
   return events
@@ -69,7 +75,7 @@ function toolError(content: string) {
 
 /**
  * Chief's own MCP surface: any MCP client (Claude Code, Claude Desktop)
- * can list the workspace's agent team and talk to it. Sessions run on the
+ * can inspect the workspace's agent team and talk to Chief. Chats run on the
  * same local runtime path as the app — the user's own agent apps and
  * subscriptions, primed with the workspace context.
  */
@@ -98,39 +104,32 @@ export function createChiefMcpHandler(deps: {
           )
           .join("\n");
         return text(
-          `${roster}\n\nTalk to any of them with ask_agent({ agentId, message }).`,
+          `${roster}\n\nChief is the user-facing orchestrator. Use ask_chief to compose work; Chief delegates privately when useful.`,
         );
       },
     );
 
     server.registerTool(
-      "ask_agent",
+      "ask_chief",
       {
         description:
-          "Send a message to one of the workspace's agents and get their reply. The agent runs locally on the user's own agent app, primed with the workspace's brand context, with its usual tools.",
+          "Send a message to the workspace CMO and get its reply. Chief owns the root conversation and delegates to private specialists when useful.",
         inputSchema: {
-          agentId: z
-            .string()
-            .describe("Agent id from list_agents, e.g. cmo or analyst"),
           message: z.string().describe("What to ask or tell the agent"),
           chatId: z
             .string()
             .optional()
             .describe(
-              "Continue a specific conversation; defaults to one ongoing MCP thread per agent",
+              "Continue a specific Chief conversation; defaults to the ongoing MCP thread",
             ),
         },
       },
-      async ({ agentId, message, chatId }) => {
-        const agent = getAgent(agentId);
-        if (!agent || agent.id === "setup") {
-          return toolError(
-            `Unknown agent "${agentId}". Call list_agents for the roster.`,
-          );
-        }
+      async ({ message, chatId }) => {
+        const agent = getAgent("cmo");
+        if (!agent) return toolError("The CMO persona is unavailable.");
         const preference = await deps.manager.agentPreference(
           workspaceId,
-          agent.id,
+          "cmo",
         );
         if (!preference?.driver) {
           return toolError(
@@ -154,26 +153,42 @@ export function createChiefMcpHandler(deps: {
           ),
         };
 
-        const sessionChatId = chatId ?? `mcp-${agent.id}`;
-        const session = await deps.manager.ensure(
+        const sessionChatId = chatId ?? defaultMcpChatId(workspaceId);
+        const session = await deps.manager.ensureRootChat(
           effectiveAgent,
           sessionChatId,
           {
             driver: preference.driver,
-            access: "full",
+            access: REMOTE_CHANNEL_ACCESS,
             workspaceId,
             model: preference.model,
+            executionOwner: "channel",
             mcpServers: [
               executorToolServer(existingExecutorWorkspace(workspaceId)),
             ],
           },
+          "Chief via MCP",
         );
-        deps.manager.retain(sessionChatId);
-
+        let releaseExecution: () => void;
+        try {
+          releaseExecution = deps.manager.acquireExecution(
+            workspaceId,
+            sessionChatId,
+            "channel",
+          );
+        } catch (error) {
+          return toolError(
+            error instanceof Error ? error.message : "This chat is busy.",
+          );
+        }
         const reply = await new Promise<string>((resolve) => {
+          const finish = (value: string) => {
+            releaseExecution();
+            resolve(value);
+          };
           const timer = setTimeout(() => {
             session.off("event", listener);
-            resolve(
+            finish(
               "The agent is still working after five minutes; ask again to check in on the same chat.",
             );
           }, ASK_TIMEOUT_MS);
@@ -182,7 +197,7 @@ export function createChiefMcpHandler(deps: {
             if (event.type === "result") {
               clearTimeout(timer);
               session.off("event", listener);
-              resolve(
+              finish(
                 lastAssistantText(session.events) ??
                   (event.ok
                     ? "The agent finished without a text reply."
@@ -192,43 +207,19 @@ export function createChiefMcpHandler(deps: {
             if (event.type === "error") {
               clearTimeout(timer);
               session.off("event", listener);
-              resolve(`The agent failed: ${event.message}`);
+              finish(`The agent failed: ${event.message}`);
             }
           };
           session.on("event", listener);
           void session.sendPrompt(message).catch((error: unknown) => {
             clearTimeout(timer);
             session.off("event", listener);
-            resolve(
+            finish(
               `Could not send the message: ${error instanceof Error ? error.message : String(error)}`,
             );
           });
         });
         return text(reply);
-      },
-    );
-
-    server.registerTool(
-      "list_automations",
-      {
-        description:
-          "List the workspace's approved recurring agent work (automations) and when each runs next.",
-      },
-      async () => {
-        const { recurringWork } = await deps.manager.workspaceData(workspaceId);
-        if (recurringWork.length === 0) {
-          return text("No recurring agent work is set up in this workspace.");
-        }
-        return text(
-          recurringWork
-            .map((work) => {
-              const next = work.nextRunAt
-                ? new Date(work.nextRunAt).toISOString()
-                : "not scheduled";
-              return `- ${work.id} — agent ${work.agentId}, cron "${work.cron}" (${work.timezone}), status ${work.status}, next run ${next}`;
-            })
-            .join("\n"),
-        );
       },
     );
 

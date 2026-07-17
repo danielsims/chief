@@ -43,6 +43,14 @@ fn terminate_runtime(child: &mut Child) {
             .stderr(Stdio::null())
             .status();
     }
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
     let _ = child.kill();
     let _ = child.wait();
 }
@@ -343,62 +351,104 @@ mod runtime_health_tests {
 }
 
 #[cfg(debug_assertions)]
-fn node_version(path: &Path) -> Option<(u32, u32, u32)> {
-    let version = path.parent()?.parent()?.file_name()?.to_str()?;
-    let mut parts = version.strip_prefix('v')?.split('.');
-    Some((
+fn parse_node_version(version: &str) -> Option<(u32, u32, u32)> {
+    let mut parts = version
+        .trim()
+        .strip_prefix('v')
+        .unwrap_or(version.trim())
+        .split('.');
+    let parsed = (
         parts.next()?.parse().ok()?,
-        parts.next().unwrap_or("0").parse().ok()?,
-        parts.next().unwrap_or("0").parse().ok()?,
-    ))
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    );
+    parts.next().is_none().then_some(parsed)
 }
 
 #[cfg(debug_assertions)]
-fn find_node_binary() -> Option<PathBuf> {
+fn node_version(path: &Path) -> Option<(u32, u32, u32)> {
+    let output = Command::new(path).arg("--version").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_node_version(std::str::from_utf8(&output.stdout).ok()?)
+}
+
+#[cfg(debug_assertions)]
+fn find_node_binary(repo_dir: &Path) -> Option<PathBuf> {
+    let preferred = std::fs::read_to_string(repo_dir.join(".nvmrc"))
+        .ok()
+        .and_then(|version| parse_node_version(&version));
+    let executable = if cfg!(windows) { "node.exe" } else { "node" };
+    let mut candidates = Vec::new();
+
     if let Some(path) = env::var_os("CHIEF_NODE_BINARY").map(PathBuf::from) {
-        if path.is_file() {
-            return Some(path);
-        }
+        candidates.push(path);
     }
 
     if let Some(path) = env::var_os("PATH") {
-        if let Some(node) = env::split_paths(&path)
-            .map(|directory| directory.join("node"))
-            .find(|candidate| candidate.is_file())
-        {
-            return Some(node);
+        candidates.extend(env::split_paths(&path).map(|directory| directory.join(executable)));
+    }
+
+    if !cfg!(windows) {
+        candidates.extend(
+            ["/opt/homebrew/bin/node", "/usr/local/bin/node"]
+                .into_iter()
+                .map(PathBuf::from),
+        );
+    }
+
+    if let Some(home) = env::var_os("HOME")
+        .or_else(|| env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+    {
+        candidates.extend([
+            home.join(".volta/bin").join(executable),
+            home.join(".local/bin").join(executable),
+        ]);
+
+        // Finder-launched apps do not inherit shell initialization, so nvm's
+        // active Node directory is absent from PATH.
+        let versions = home.join(".nvm/versions/node");
+        if let Ok(entries) = std::fs::read_dir(versions) {
+            candidates.extend(entries.filter_map(Result::ok).map(|entry| {
+                if cfg!(windows) {
+                    entry.path().join(executable)
+                } else {
+                    entry.path().join("bin").join(executable)
+                }
+            }));
         }
     }
 
-    for path in ["/opt/homebrew/bin/node", "/usr/local/bin/node"] {
-        let candidate = PathBuf::from(path);
-        if candidate.is_file() {
+    let mut fallback = None;
+    for candidate in candidates {
+        if !candidate.is_file() {
+            continue;
+        }
+        let Some(version) = node_version(&candidate) else {
+            eprintln!(
+                "[runtime] rejected invalid Node candidate: {}",
+                candidate.display()
+            );
+            continue;
+        };
+        if version.0 != 24 {
+            eprintln!(
+                "[runtime] rejected Node {}.{}.{} at {} (Node 24 required)",
+                version.0,
+                version.1,
+                version.2,
+                candidate.display()
+            );
+            continue;
+        }
+        if Some(version) == preferred {
             return Some(candidate);
         }
+        fallback.get_or_insert(candidate);
     }
-
-    let home = env::var_os("HOME").map(PathBuf::from)?;
-    for path in [home.join(".volta/bin/node"), home.join(".local/bin/node")] {
-        if path.is_file() {
-            return Some(path);
-        }
-    }
-
-    // Finder-launched apps do not inherit shell initialization, so nvm's
-    // active Node directory is absent from PATH. Prefer the newest installed
-    // Node that satisfies the workspace's Node 24+ requirement.
-    let versions = home.join(".nvm/versions/node");
-    std::fs::read_dir(versions)
-        .ok()?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path().join("bin/node"))
-        .filter(|candidate| candidate.is_file())
-        .filter_map(|candidate| {
-            let version = node_version(&candidate)?;
-            (version.0 >= 24).then_some((version, candidate))
-        })
-        .max_by_key(|(version, _)| *version)
-        .map(|(_, candidate)| candidate)
+    fallback
 }
 
 #[cfg(debug_assertions)]
@@ -414,7 +464,7 @@ fn spawn_agent_runtime(_app: &tauri::AppHandle) -> Option<Child> {
         return None;
     }
 
-    let node_binary = find_node_binary();
+    let node_binary = find_node_binary(Path::new(&repo_dir));
     let mut path_entries = node_binary
         .as_ref()
         .and_then(|node| node.parent())

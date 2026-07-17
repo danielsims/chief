@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -13,14 +13,27 @@ import { fileURLToPath } from "node:url";
 import type { Client } from "@libsql/client";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
-import { and, desc, eq, isNotNull, lte } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gte,
+  isNotNull,
+  isNull,
+  lte,
+  notExists,
+} from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
 
 import type {
   AgentEvent,
   AgentPreference,
+  AttentionItem,
   CampaignRecord,
+  ChiefMessageEventMetadata,
+  ChiefUIMessage,
+  ContentBlock,
   ContentDraftRecord,
   DriverType,
   ProspectRecord,
@@ -45,23 +58,18 @@ const moduleDirectory =
     : dirname(fileURLToPath(import.meta.url));
 
 const CHIEF_DATABASE_PATH = join(homedir(), ".chief", "chief.sqlite");
-const LEGACY_DATABASE_PATH = join(homedir(), ".marketer", "marketer.sqlite");
 const CHIEF_KEYCHAIN_SERVICE = "com.danielsims.chief.local-database";
-const LEGACY_KEYCHAIN_SERVICE = "com.danielsims.marketer.local-database";
 
 function defaultDatabasePath() {
-  return (
-    process.env.CHIEF_DATABASE_PATH ??
-    process.env.MARKETER_DATABASE_PATH ??
-    (!existsSync(CHIEF_DATABASE_PATH) && existsSync(LEGACY_DATABASE_PATH)
-      ? LEGACY_DATABASE_PATH
-      : CHIEF_DATABASE_PATH)
-  );
+  return process.env.CHIEF_DATABASE_PATH ?? CHIEF_DATABASE_PATH;
+}
+
+function migrationFolder() {
+  return join(moduleDirectory, "..", "drizzle");
 }
 
 export interface LocalChatSummary {
   id: string;
-  agentId: string;
   title: string;
   lastText: string;
   lastAt: number;
@@ -69,12 +77,51 @@ export interface LocalChatSummary {
   model?: string;
 }
 
-interface ChatContext {
+export type ChatVisibility = "user" | "private";
+export type ChatStatus = "idle" | "running" | "waiting" | "completed" | "error";
+
+export interface LocalChatRecord {
+  id: string;
+  workspaceId: string;
+  parentId?: string;
+  triggerId?: string;
+  visibility: ChatVisibility;
+  agent: string;
+  title: string;
+  lastText: string;
+  provider: string;
+  model?: string;
+  providerState?: unknown;
+  eveState?: unknown;
+  status: ChatStatus;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type AgentMessageMetadata = ChiefMessageEventMetadata;
+
+export interface LocalMessage<Metadata = AgentMessageMetadata> {
+  id: string;
+  chatId: string;
+  role: "system" | "user" | "assistant";
+  parts: unknown[];
+  metadata?: Metadata;
+  position: number;
+  createdAt: number;
+}
+
+export interface ChatContext {
   id: string;
   workspaceId: string;
   agentId: string;
   driver: DriverType;
   model?: string;
+  parentId?: string;
+  triggerId?: string;
+  visibility?: ChatVisibility;
+  providerState?: unknown;
+  eveState?: unknown;
+  status?: ChatStatus;
 }
 
 function userTexts(events: AgentEvent[]) {
@@ -111,27 +158,238 @@ function durableEvents(events: AgentEvent[]) {
   );
 }
 
+function eventMessage(event: AgentEvent) {
+  if (event.type === "message") {
+    return { role: event.role, parts: event.content } as const;
+  }
+  if (
+    event.type === "result" ||
+    event.type === "error" ||
+    event.type === "permissionResolved"
+  ) {
+    return {
+      role: "assistant" as const,
+      parts: [],
+      metadata: event satisfies AgentMessageMetadata,
+    };
+  }
+  return undefined;
+}
+
+function uiParts(blocks: ContentBlock[]): ChiefUIMessage["parts"] {
+  return blocks.map((block): ChiefUIMessage["parts"][number] => {
+    switch (block.type) {
+      case "thinking":
+        return { type: "reasoning", text: block.thinking };
+      case "tool_use":
+        return {
+          type: "dynamic-tool",
+          toolName: block.name,
+          toolCallId: block.id,
+          state: "input-available",
+          input: block.input,
+        };
+      case "tool_result":
+        return {
+          type: "dynamic-tool",
+          toolName: "tool",
+          toolCallId: block.tool_use_id,
+          state: block.is_error ? "output-error" : "output-available",
+          input: undefined,
+          ...(block.is_error
+            ? { errorText: String(block.content) }
+            : { output: block.content }),
+        } as ChiefUIMessage["parts"][number];
+      default:
+        return block;
+    }
+  });
+}
+
+function contentBlocks(parts: ChiefUIMessage["parts"]): ContentBlock[] {
+  return parts.flatMap((part): ContentBlock[] => {
+    if (part.type === "text") return [{ type: "text", text: part.text }];
+    if (part.type === "reasoning") {
+      return [{ type: "thinking", thinking: part.text }];
+    }
+    if (part.type === "dynamic-tool") {
+      const use: ContentBlock = {
+        type: "tool_use",
+        id: part.toolCallId,
+        name: part.toolName,
+        input: part.input,
+      };
+      if (part.state === "output-available") {
+        return [
+          use,
+          {
+            type: "tool_result",
+            tool_use_id: part.toolCallId,
+            content: part.output,
+          },
+        ];
+      }
+      if (part.state === "output-error") {
+        return [
+          use,
+          {
+            type: "tool_result",
+            tool_use_id: part.toolCallId,
+            content: part.errorText,
+            is_error: true,
+          },
+        ];
+      }
+      return [use];
+    }
+    if (
+      part.type === "data-chart" ||
+      part.type === "data-table" ||
+      part.type === "data-document"
+    ) {
+      return [part];
+    }
+    return [];
+  });
+}
+
+function uiEventMessages(events: AgentEvent[]) {
+  const messages: {
+    sourceId?: string;
+    role: "user" | "assistant";
+    parts: ChiefUIMessage["parts"];
+    metadata?: AgentMessageMetadata;
+  }[] = [];
+  for (const event of events) {
+    const converted = eventMessage(event);
+    if (!converted) continue;
+    if (event.type !== "message") {
+      messages.push({
+        role: converted.role,
+        parts: [],
+        metadata: converted.metadata,
+      });
+      continue;
+    }
+
+    const remaining = event.content.filter((block) => {
+      if (block.type !== "tool_result") return true;
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const prior = messages[index];
+        if (prior?.role !== "assistant") continue;
+        const partIndex = prior.parts.findIndex(
+          (part) =>
+            part.type === "dynamic-tool" &&
+            part.toolCallId === block.tool_use_id,
+        );
+        if (partIndex < 0) continue;
+        const part = prior.parts[partIndex];
+        if (part?.type !== "dynamic-tool") return false;
+        prior.parts = prior.parts.map((candidate, candidateIndex) =>
+          candidateIndex === partIndex
+            ? block.is_error
+              ? {
+                  ...part,
+                  state: "output-error" as const,
+                  input: part.input,
+                  errorText: String(block.content),
+                }
+              : {
+                  ...part,
+                  state: "output-available" as const,
+                  input: part.input,
+                  output: block.content,
+                }
+            : candidate,
+        ) as ChiefUIMessage["parts"];
+        return false;
+      }
+      return true;
+    });
+    if (remaining.length === 0) continue;
+    messages.push({
+      sourceId: event.id,
+      role: event.role,
+      parts: uiParts(remaining),
+    });
+  }
+  return messages;
+}
+
+function agentEvent(message: LocalMessage): AgentEvent | undefined {
+  if (message.metadata) return message.metadata;
+  if (message.role === "system") return undefined;
+  return {
+    type: "message",
+    id: message.id,
+    role: message.role,
+    content: contentBlocks(message.parts as ChiefUIMessage["parts"]),
+  };
+}
+
+function eventKey(message: {
+  role: string;
+  parts: unknown[];
+  metadata?: unknown;
+}) {
+  return JSON.stringify([
+    message.role,
+    message.parts,
+    message.metadata ?? null,
+  ]);
+}
+
+function transcriptStatus(events: AgentEvent[]): ChatStatus {
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index];
+    if (!event) continue;
+    if (event.type === "error") return "error";
+    if (event.type === "result") return event.ok ? "completed" : "error";
+    if (event.type === "status") return event.status;
+  }
+  return "idle";
+}
+
+function driver(provider: string): DriverType | undefined {
+  return provider === "claude" ||
+    provider === "codex" ||
+    provider === "opencode"
+    ? provider
+    : undefined;
+}
+
 function encryptionKey(directory: string) {
-  const configured =
-    process.env.CHIEF_DATABASE_ENCRYPTION_KEY ??
-    process.env.MARKETER_DATABASE_ENCRYPTION_KEY;
+  const configured = process.env.CHIEF_DATABASE_ENCRYPTION_KEY;
   if (configured) return configured;
-  const service = directory.startsWith(join(homedir(), ".marketer"))
-    ? LEGACY_KEYCHAIN_SERVICE
-    : CHIEF_KEYCHAIN_SERVICE;
   const account = "default";
   if (process.platform === "darwin") {
     try {
       return execFileSync(
         "/usr/bin/security",
-        ["find-generic-password", "-s", service, "-a", account, "-w"],
+        [
+          "find-generic-password",
+          "-s",
+          CHIEF_KEYCHAIN_SERVICE,
+          "-a",
+          account,
+          "-w",
+        ],
         { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
       ).trim();
     } catch {
       const key = randomBytes(32).toString("base64url");
       execFileSync(
         "/usr/bin/security",
-        ["add-generic-password", "-U", "-s", service, "-a", account, "-w", key],
+        [
+          "add-generic-password",
+          "-U",
+          "-s",
+          CHIEF_KEYCHAIN_SERVICE,
+          "-a",
+          account,
+          "-w",
+          key,
+        ],
         { stdio: "ignore" },
       );
       return key;
@@ -152,10 +410,7 @@ export class LocalStore {
   constructor(path = defaultDatabasePath()) {
     const directory = dirname(path);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
-    if (
-      directory.startsWith(join(homedir(), ".chief")) ||
-      directory.startsWith(join(homedir(), ".marketer"))
-    ) {
+    if (directory.startsWith(join(homedir(), ".chief"))) {
       chmodSync(directory, 0o700);
     }
     const client = createClient({
@@ -171,7 +426,7 @@ export class LocalStore {
       await client.execute("PRAGMA busy_timeout = 5000");
       await client.execute("PRAGMA foreign_keys = ON");
       await migrate(db, {
-        migrationsFolder: join(moduleDirectory, "..", "drizzle"),
+        migrationsFolder: migrationFolder(),
       });
       chmodSync(path, 0o600);
       for (const suffix of ["-wal", "-shm"]) {
@@ -197,6 +452,200 @@ export class LocalStore {
     );
   }
 
+  async createChat(
+    chat: Omit<
+      LocalChatRecord,
+      "title" | "lastText" | "status" | "createdAt" | "updatedAt"
+    > &
+      Partial<
+        Pick<
+          LocalChatRecord,
+          "title" | "lastText" | "status" | "createdAt" | "updatedAt"
+        >
+      >,
+  ) {
+    await this.ready;
+    const now = Date.now();
+    if (chat.parentId) {
+      const parent = await this.db
+        .select({ workspaceId: schema.chats.workspaceId })
+        .from(schema.chats)
+        .where(eq(schema.chats.id, chat.parentId))
+        .get();
+      if (parent?.workspaceId !== chat.workspaceId) {
+        throw new Error("Parent chat belongs to a different workspace.");
+      }
+      if (chat.visibility !== "private") {
+        throw new Error("Child chats must be private.");
+      }
+    }
+    await this.db
+      .insert(schema.chats)
+      .values({
+        id: chat.id,
+        workspaceId: chat.workspaceId,
+        parentId: chat.parentId,
+        triggerId: chat.triggerId,
+        visibility: chat.visibility,
+        agent: chat.agent,
+        title: chat.title ?? "",
+        lastText: chat.lastText ?? "",
+        provider: chat.provider,
+        model: chat.model,
+        providerState: chat.providerState,
+        eveState: chat.eveState,
+        status: chat.status ?? "idle",
+        createdAt: chat.createdAt ?? now,
+        updatedAt: chat.updatedAt ?? now,
+      })
+      .run();
+  }
+
+  async chatRecord(
+    workspaceId: string,
+    chatId: string,
+  ): Promise<LocalChatRecord | null> {
+    await this.ready;
+    const row = await this.db
+      .select()
+      .from(schema.chats)
+      .where(
+        and(
+          eq(schema.chats.id, chatId),
+          eq(schema.chats.workspaceId, workspaceId),
+        ),
+      )
+      .get();
+    return row
+      ? {
+          ...row,
+          parentId: row.parentId ?? undefined,
+          triggerId: row.triggerId ?? undefined,
+          model: row.model ?? undefined,
+          providerState: row.providerState ?? undefined,
+          eveState: row.eveState ?? undefined,
+        }
+      : null;
+  }
+
+  async listChildChats(workspaceId: string, parentId: string) {
+    await this.ready;
+    const rows = await this.db
+      .select({ id: schema.chats.id })
+      .from(schema.chats)
+      .where(
+        and(
+          eq(schema.chats.workspaceId, workspaceId),
+          eq(schema.chats.parentId, parentId),
+          eq(schema.chats.visibility, "private"),
+        ),
+      )
+      .orderBy(schema.chats.createdAt)
+      .all();
+    const chats = await Promise.all(
+      rows.map((row) => this.chatRecord(workspaceId, row.id)),
+    );
+    return chats.filter((chat): chat is LocalChatRecord => chat !== null);
+  }
+
+  async updateChatState(
+    workspaceId: string,
+    chatId: string,
+    state: {
+      providerState?: unknown;
+      eveState?: unknown;
+      status?: ChatStatus;
+    },
+  ) {
+    await this.ready;
+    const updated = await this.db
+      .update(schema.chats)
+      .set({ ...state, updatedAt: Date.now() })
+      .where(
+        and(
+          eq(schema.chats.id, chatId),
+          eq(schema.chats.workspaceId, workspaceId),
+        ),
+      )
+      .run();
+    return updated.rowsAffected > 0;
+  }
+
+  async messages<Metadata = AgentMessageMetadata>(
+    workspaceId: string,
+    chatId: string,
+  ): Promise<LocalMessage<Metadata>[]> {
+    await this.ready;
+    const chat = await this.db
+      .select({ id: schema.chats.id })
+      .from(schema.chats)
+      .where(
+        and(
+          eq(schema.chats.id, chatId),
+          eq(schema.chats.workspaceId, workspaceId),
+        ),
+      )
+      .get();
+    if (!chat) return [];
+    const rows = await this.db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.chatId, chatId))
+      .orderBy(schema.messages.position)
+      .all();
+    return rows.map((message) => ({
+      ...message,
+      metadata: message.metadata as Metadata | undefined,
+    }));
+  }
+
+  async uiMessages(
+    workspaceId: string,
+    chatId: string,
+  ): Promise<ChiefUIMessage[]> {
+    const messages = await this.messages(workspaceId, chatId);
+    return messages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      parts: message.parts as ChiefUIMessage["parts"],
+      metadata: {
+        createdAt: message.createdAt,
+        ...(message.metadata ? { event: message.metadata } : {}),
+      },
+    }));
+  }
+
+  async saveMessages<Metadata>(
+    workspaceId: string,
+    chatId: string,
+    messages: LocalMessage<Metadata>[],
+  ) {
+    await this.ready;
+    await this.db.transaction(async (tx) => {
+      const chat = await tx
+        .select({ id: schema.chats.id })
+        .from(schema.chats)
+        .where(
+          and(
+            eq(schema.chats.id, chatId),
+            eq(schema.chats.workspaceId, workspaceId),
+          ),
+        )
+        .get();
+      if (!chat) throw new Error("Chat was not found in this workspace.");
+      if (messages.some((message) => message.chatId !== chatId)) {
+        throw new Error("Message belongs to a different chat.");
+      }
+      await tx
+        .delete(schema.messages)
+        .where(eq(schema.messages.chatId, chatId))
+        .run();
+      if (messages.length > 0) {
+        await tx.insert(schema.messages).values(messages).run();
+      }
+    });
+  }
+
   async saveTranscript(
     context: ChatContext,
     events: AgentEvent[],
@@ -210,16 +659,58 @@ export class LocalStore {
     if (!firstText || !lastText) return;
     const now = Date.now();
     await this.db.transaction(async (tx) => {
+      const stored = await tx
+        .select({
+          workspaceId: schema.chats.workspaceId,
+          parentId: schema.chats.parentId,
+          visibility: schema.chats.visibility,
+          agent: schema.chats.agent,
+          title: schema.chats.title,
+        })
+        .from(schema.chats)
+        .where(eq(schema.chats.id, context.id))
+        .get();
+      if (
+        stored &&
+        (stored.workspaceId !== context.workspaceId ||
+          stored.agent !== context.agentId ||
+          (context.parentId !== undefined &&
+            stored.parentId !== context.parentId) ||
+          (context.visibility !== undefined &&
+            stored.visibility !== context.visibility))
+      ) {
+        throw new Error("Chat identity does not match stored state.");
+      }
+      if (context.parentId) {
+        const parent = await tx
+          .select({ workspaceId: schema.chats.workspaceId })
+          .from(schema.chats)
+          .where(eq(schema.chats.id, context.parentId))
+          .get();
+        if (parent?.workspaceId !== context.workspaceId) {
+          throw new Error("Parent chat belongs to a different workspace.");
+        }
+      }
       await tx
         .insert(schema.chats)
         .values({
           id: context.id,
           workspaceId: context.workspaceId,
-          agentId: context.agentId,
+          parentId: context.parentId,
+          triggerId: context.triggerId,
+          visibility:
+            context.visibility ??
+            (context.parentId || context.id.startsWith("automation-")
+              ? "private"
+              : "user"),
+          agent: context.agentId,
           title: (titleOverride ?? firstText).slice(0, 72),
           lastText: lastText.slice(0, 200),
-          driver: context.driver,
+          provider: context.driver,
           model: context.model,
+          providerState: context.providerState,
+          eveState: context.eveState,
+          status: context.status ?? transcriptStatus(events),
           createdAt: now,
           updatedAt: now,
         })
@@ -228,11 +719,19 @@ export class LocalStore {
       const updated = await tx
         .update(schema.chats)
         .set({
-          agentId: context.agentId,
-          ...(titleOverride ? { title: titleOverride.slice(0, 72) } : {}),
+          ...(titleOverride || !stored?.title
+            ? { title: (titleOverride ?? firstText).slice(0, 72) }
+            : {}),
           lastText: lastText.slice(0, 200),
-          driver: context.driver,
+          provider: context.driver,
           model: context.model,
+          ...(context.providerState !== undefined
+            ? { providerState: context.providerState }
+            : {}),
+          ...(context.eveState !== undefined
+            ? { eveState: context.eveState }
+            : {}),
+          status: context.status ?? transcriptStatus(events),
           updatedAt: now,
         })
         .where(
@@ -245,21 +744,43 @@ export class LocalStore {
       if (updated.rowsAffected === 0) {
         throw new Error("Chat belongs to a different workspace.");
       }
+      const existing = await tx
+        .select()
+        .from(schema.messages)
+        .where(eq(schema.messages.chatId, context.id))
+        .orderBy(schema.messages.position)
+        .all();
+      const existingByValue = new Map<string, typeof existing>();
+      for (const message of existing) {
+        const key = eventKey(message);
+        existingByValue.set(key, [
+          ...(existingByValue.get(key) ?? []),
+          message,
+        ]);
+      }
+      const messages = uiEventMessages(durable).map((normalized, position) => {
+        const matches = existingByValue.get(eventKey(normalized));
+        const samePosition = existing[position];
+        const prior =
+          samePosition?.role === normalized.role
+            ? samePosition
+            : matches?.shift();
+        return {
+          id: prior?.id ?? normalized.sourceId ?? randomUUID(),
+          chatId: context.id,
+          role: normalized.role,
+          parts: normalized.parts,
+          metadata: normalized.metadata,
+          position,
+          createdAt: prior?.createdAt ?? now,
+        };
+      });
       await tx
-        .delete(schema.chatEvents)
-        .where(eq(schema.chatEvents.chatId, context.id))
+        .delete(schema.messages)
+        .where(eq(schema.messages.chatId, context.id))
         .run();
-      if (durable.length > 0) {
-        await tx
-          .insert(schema.chatEvents)
-          .values(
-            durable.map((event, position) => ({
-              chatId: context.id,
-              position,
-              eventJson: JSON.stringify(event),
-            })),
-          )
-          .run();
+      if (messages.length > 0) {
+        await tx.insert(schema.messages).values(messages).run();
       }
     });
   }
@@ -269,20 +790,30 @@ export class LocalStore {
     const rows = await this.db
       .select()
       .from(schema.chats)
-      .where(eq(schema.chats.workspaceId, workspaceId))
+      .where(
+        and(
+          eq(schema.chats.workspaceId, workspaceId),
+          eq(schema.chats.visibility, "user"),
+          isNull(schema.chats.parentId),
+          eq(schema.chats.agent, "cmo"),
+          notExists(
+            this.db
+              .select({ id: schema.recurringWork.id })
+              .from(schema.recurringWork)
+              .where(eq(schema.recurringWork.chatId, schema.chats.id)),
+          ),
+        ),
+      )
       .orderBy(desc(schema.chats.updatedAt))
       .all();
-    return rows
-      .filter((chat) => !chat.id.startsWith("automation-"))
-      .map((chat) => ({
-        id: chat.id,
-        agentId: chat.agentId,
-        title: chat.title,
-        lastText: chat.lastText,
-        lastAt: chat.updatedAt,
-        driver: chat.driver,
-        model: chat.model ?? undefined,
-      }));
+    return rows.map((chat) => ({
+      id: chat.id,
+      title: chat.title,
+      lastText: chat.lastText,
+      lastAt: chat.updatedAt,
+      driver: driver(chat.provider),
+      model: chat.model ?? undefined,
+    }));
   }
 
   async chat(
@@ -303,11 +834,10 @@ export class LocalStore {
     return chat
       ? {
           id: chat.id,
-          agentId: chat.agentId,
           title: chat.title,
           lastText: chat.lastText,
           lastAt: chat.updatedAt,
-          driver: chat.driver,
+          driver: driver(chat.provider),
           model: chat.model ?? undefined,
         }
       : null;
@@ -326,52 +856,40 @@ export class LocalStore {
       )
       .get();
     if (!chat) return [];
-    const rows = await this.db
-      .select({ eventJson: schema.chatEvents.eventJson })
-      .from(schema.chatEvents)
-      .where(eq(schema.chatEvents.chatId, chatId))
-      .orderBy(schema.chatEvents.position)
-      .all();
-    return rows.flatMap(({ eventJson }) => {
-      try {
-        const event = JSON.parse(eventJson) as AgentEvent;
-        return isLegacyLauncherError(event) ? [] : [event];
-      } catch {
-        return [];
-      }
+    return (await this.messages(workspaceId, chatId)).flatMap((message) => {
+      const event = agentEvent(message);
+      return event && !isLegacyLauncherError(event) ? [event] : [];
     });
   }
 
   async deleteChat(workspaceId: string, chatId: string) {
     await this.ready;
-    await this.db
-      .delete(schema.chats)
-      .where(
-        and(
-          eq(schema.chats.id, chatId),
-          eq(schema.chats.workspaceId, workspaceId),
-        ),
-      )
-      .run();
-  }
-
-  async updateChatPreferences(
-    workspaceId: string,
-    chatId: string,
-    driver: DriverType,
-    model?: string,
-  ) {
-    await this.ready;
-    await this.db
-      .update(schema.chats)
-      .set({ driver, model: model || null, updatedAt: Date.now() })
-      .where(
-        and(
-          eq(schema.chats.id, chatId),
-          eq(schema.chats.workspaceId, workspaceId),
-        ),
-      )
-      .run();
+    await this.db.transaction(async (tx) => {
+      const schedule = await tx
+        .select({ id: schema.recurringWork.id })
+        .from(schema.recurringWork)
+        .where(
+          and(
+            eq(schema.recurringWork.chatId, chatId),
+            eq(schema.recurringWork.workspaceId, workspaceId),
+          ),
+        )
+        .get();
+      if (schedule) {
+        throw new Error(
+          "Schedule chats cannot be deleted from Conversations. Delete the schedule instead.",
+        );
+      }
+      await tx
+        .delete(schema.chats)
+        .where(
+          and(
+            eq(schema.chats.id, chatId),
+            eq(schema.chats.workspaceId, workspaceId),
+          ),
+        )
+        .run();
+    });
   }
 
   async listProspects(workspaceId: string): Promise<ProspectRecord[]> {
@@ -708,16 +1226,56 @@ export class LocalStore {
       : undefined;
   }
 
+  async recurringWorkByChat(workspaceId: string, chatId: string) {
+    await this.ready;
+    return this.db
+      .select({ id: schema.recurringWork.id })
+      .from(schema.recurringWork)
+      .where(
+        and(
+          eq(schema.recurringWork.workspaceId, workspaceId),
+          eq(schema.recurringWork.chatId, chatId),
+        ),
+      )
+      .get();
+  }
+
   async saveRecurringWork(workspaceId: string, work: RecurringWorkRecord) {
     await this.ready;
     const { upcomingRuns: _upcomingRuns, ...persisted } = work;
+    const chat = await this.db
+      .select({
+        workspaceId: schema.chats.workspaceId,
+        parentId: schema.chats.parentId,
+        visibility: schema.chats.visibility,
+        agent: schema.chats.agent,
+      })
+      .from(schema.chats)
+      .where(eq(schema.chats.id, work.chatId))
+      .get();
+    if (
+      chat?.workspaceId !== workspaceId ||
+      chat.parentId !== null ||
+      chat.visibility !== "user" ||
+      chat.agent !== "cmo"
+    ) {
+      throw new Error(
+        "Schedules require a top-level CMO chat in this workspace.",
+      );
+    }
     const existing = await this.db
-      .select({ workspaceId: schema.recurringWork.workspaceId })
+      .select({
+        workspaceId: schema.recurringWork.workspaceId,
+        chatId: schema.recurringWork.chatId,
+      })
       .from(schema.recurringWork)
       .where(eq(schema.recurringWork.id, work.id))
       .get();
     if (existing && existing.workspaceId !== workspaceId) {
       throw new Error("Recurring work belongs to a different workspace.");
+    }
+    if (existing && existing.chatId !== work.chatId) {
+      throw new Error("A schedule cannot change its durable root chat.");
     }
     await this.db
       .insert(schema.recurringWork)
@@ -725,6 +1283,7 @@ export class LocalStore {
       .onConflictDoUpdate({
         target: schema.recurringWork.id,
         set: {
+          chatId: work.chatId,
           agentId: work.agentId,
           title: work.title,
           instructions: work.instructions,
@@ -781,9 +1340,7 @@ export class LocalStore {
       .run();
   }
 
-  async listAttentionItems(
-    workspaceId: string,
-  ): Promise<import("./types.js").AttentionItem[]> {
+  async listAttentionItems(workspaceId: string): Promise<AttentionItem[]> {
     await this.ready;
     const rows = await this.db
       .select()
@@ -807,26 +1364,33 @@ export class LocalStore {
     }));
   }
 
-  async raiseAttentionItem(
-    workspaceId: string,
-    item: import("./types.js").AttentionItem,
-  ) {
+  async raiseAttentionItem(workspaceId: string, item: AttentionItem) {
     await this.ready;
-    await this.db
-      .insert(schema.attentionItems)
-      .values({ ...item, sourceId: item.sourceId ?? null, workspaceId })
-      .onConflictDoUpdate({
-        target: schema.attentionItems.id,
-        set: {
-          agentId: item.agentId,
-          title: item.title,
-          reason: item.reason,
-          sourceId: item.sourceId ?? null,
-          status: item.status,
-          createdAt: item.createdAt,
-        },
-      })
-      .run();
+    await this.db.transaction(async (tx) => {
+      const existing = await tx
+        .select({ workspaceId: schema.attentionItems.workspaceId })
+        .from(schema.attentionItems)
+        .where(eq(schema.attentionItems.id, item.id))
+        .get();
+      if (existing && existing.workspaceId !== workspaceId) {
+        throw new Error("Attention item belongs to a different workspace.");
+      }
+      await tx
+        .insert(schema.attentionItems)
+        .values({ ...item, sourceId: item.sourceId ?? null, workspaceId })
+        .onConflictDoUpdate({
+          target: schema.attentionItems.id,
+          set: {
+            agentId: item.agentId,
+            title: item.title,
+            reason: item.reason,
+            sourceId: item.sourceId ?? null,
+            status: item.status,
+            createdAt: item.createdAt,
+          },
+        })
+        .run();
+    });
   }
 
   async dismissAttentionItem(workspaceId: string, id: string) {
@@ -896,6 +1460,7 @@ export class LocalStore {
       .select({
         id: schema.recurringWorkRuns.id,
         recurringWorkId: schema.recurringWorkRuns.recurringWorkId,
+        chatId: schema.recurringWorkRuns.chatId,
         status: schema.recurringWorkRuns.status,
         scheduledFor: schema.recurringWorkRuns.scheduledFor,
         startedAt: schema.recurringWorkRuns.startedAt,
@@ -942,17 +1507,22 @@ export class LocalStore {
     for (const run of interrupted) {
       await this.db.transaction(async (tx) => {
         const transcriptRows = await tx
-          .select({ eventJson: schema.chatEvents.eventJson })
-          .from(schema.chatEvents)
-          .where(eq(schema.chatEvents.chatId, `automation-run-${run.id}`))
+          .select()
+          .from(schema.messages)
+          .where(
+            and(
+              eq(schema.messages.chatId, run.chatId),
+              gte(schema.messages.createdAt, run.startedAt),
+            ),
+          )
           .all();
         const touchedTools = hasPotentialSideEffects(
-          transcriptRows.flatMap(({ eventJson }) => {
-            try {
-              return [JSON.parse(eventJson) as AgentEvent];
-            } catch {
-              return [];
-            }
+          transcriptRows.flatMap((row) => {
+            const event = agentEvent({
+              ...row,
+              metadata: row.metadata as AgentMessageMetadata | undefined,
+            });
+            return event ? [event] : [];
           }),
         );
         const closed = await tx
@@ -1025,6 +1595,10 @@ export class LocalStore {
 
   async saveRecurringWorkRun(workspaceId: string, run: RecurringWorkRunRecord) {
     await this.ready;
+    const work = await this.recurringWorkById(workspaceId, run.recurringWorkId);
+    if (work?.chatId !== run.chatId) {
+      throw new Error("Run chat does not match its schedule root chat.");
+    }
     await this.db
       .insert(schema.recurringWorkRuns)
       .values({ ...run, workspaceId })
@@ -1053,6 +1627,19 @@ export class LocalStore {
     await this.ready;
     try {
       return await this.db.transaction(async (tx) => {
+        const work = await tx
+          .select({ chatId: schema.recurringWork.chatId })
+          .from(schema.recurringWork)
+          .where(
+            and(
+              eq(schema.recurringWork.id, run.recurringWorkId),
+              eq(schema.recurringWork.workspaceId, workspaceId),
+            ),
+          )
+          .get();
+        if (work?.chatId !== run.chatId) {
+          throw new Error("Run chat does not match its schedule root chat.");
+        }
         if (transition) {
           const conditions = [
             eq(schema.recurringWork.id, run.recurringWorkId),

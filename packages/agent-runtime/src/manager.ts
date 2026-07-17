@@ -1,13 +1,23 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+import type { ChatContext, LocalChatRecord } from "./local-store.js";
 import type { SessionConfig } from "./session.js";
 import type {
   AgentDefinition,
   AgentEvent,
+  AgentPreference,
+  AttentionItem,
+  CampaignRecord,
+  ContentDraftRecord,
+  DriverType,
+  ProspectRecord,
+  RecurringWorkRecord,
   RecurringWorkRunRecord,
+  TrendRecord,
+  WorkspaceFileSnapshot,
+  WorkspaceFileWrite,
 } from "./types.js";
 import { LocalStore } from "./local-store.js";
 import { runDateKey, upcomingRuns } from "./recurring-work.js";
@@ -22,29 +32,13 @@ import {
 } from "./workspace-files.js";
 import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
 
-const CURRENT_HOME = join(homedir(), ".chief");
-const LEGACY_HOME = join(homedir(), ".marketer");
-const HOME =
-  !existsSync(join(CURRENT_HOME, "sessions.json")) &&
-  existsSync(join(LEGACY_HOME, "sessions.json"))
-    ? LEGACY_HOME
-    : CURRENT_HOME;
-
 function workspaceChatKey(workspaceId: string, chatId: string) {
   return `${workspaceId}\0${chatId}`;
 }
 
-interface PersistedSession {
-  agentId: string;
-  sessionId: string;
-  driver?: string;
-  workspaceId?: string;
-}
-
 /**
- * One live session per chatId. Backend-native session ids are persisted to
- * ~/.chief/sessions.json so chats resume across service restarts — the
- * CLI's own transcripts remain the source of truth for history.
+ * One live session per workspace and chat. Provider continuation state lives
+ * only on the durable chat; normalized messages are the history source of truth.
  */
 export class SessionManager {
   private sessions = new Map<string, AgentSession>();
@@ -52,39 +46,166 @@ export class SessionManager {
   private retainCounts = new Map<string, number>();
   private released = new Set<string>();
   private persistence = new Map<string, Promise<void>>();
+  private executionOwners = new Map<
+    string,
+    { id: string; owner: "interactive" | "schedule" | "channel" }
+  >();
   /** Workspaces with a session mid-open, so their secrets must not lock. */
   private startingWorkspaces = new Map<string, number>();
-  private persisted: Record<string, PersistedSession> = {};
-  private readonly store = new LocalStore();
   private readonly repairedFileWorkspaces = new Set<string>();
 
-  constructor() {
-    mkdirSync(HOME, { recursive: true });
-    const file = join(HOME, "sessions.json");
-    if (existsSync(file)) {
-      try {
-        this.persisted = JSON.parse(readFileSync(file, "utf8"));
-      } catch {
-        this.persisted = {};
+  constructor(private readonly store = new LocalStore()) {}
+
+  get(workspaceId: string, chatId: string) {
+    return this.sessions.get(workspaceChatKey(workspaceId, chatId));
+  }
+
+  acquireExecution(
+    workspaceId: string,
+    chatId: string,
+    owner: "interactive" | "schedule" | "channel",
+  ) {
+    const key = workspaceChatKey(workspaceId, chatId);
+    const current = this.executionOwners.get(key);
+    if (current || this.sessions.get(key)?.isBusy) {
+      throw new Error(
+        `This chat is already running ${current?.owner ?? "another"} work.`,
+      );
+    }
+    const id = randomUUID();
+    this.executionOwners.set(key, { id, owner });
+    return () => {
+      if (this.executionOwners.get(key)?.id === id) {
+        this.executionOwners.delete(key);
       }
+    };
+  }
+
+  assertExecutionAvailable(
+    workspaceId: string,
+    chatId: string,
+    owner: "interactive" | "schedule" | "channel",
+  ) {
+    const current = this.executionOwners.get(
+      workspaceChatKey(workspaceId, chatId),
+    );
+    if (current && current.owner !== owner) {
+      throw new Error(`This chat is currently owned by ${current.owner} work.`);
     }
   }
 
-  get(chatId: string) {
-    return this.sessions.get(chatId);
+  releaseExecution(
+    workspaceId: string,
+    chatId: string,
+    owner: "interactive" | "schedule" | "channel",
+  ) {
+    const key = workspaceChatKey(workspaceId, chatId);
+    if (this.executionOwners.get(key)?.owner === owner) {
+      this.executionOwners.delete(key);
+    }
+  }
+
+  async assertInteractiveChat(workspaceId: string, chatId: string) {
+    if (await this.store.recurringWorkByChat(workspaceId, chatId)) {
+      throw new Error(
+        "Schedule chats are read-only here. Open the run from Results or Schedule.",
+      );
+    }
+    this.assertExecutionAvailable(workspaceId, chatId, "interactive");
   }
 
   health() {
     return this.store.health();
   }
 
-  async ensure(
+  async ensureRootChat(
+    agent: AgentDefinition,
+    chatId: string,
+    config: SessionConfig,
+    title = "",
+  ): Promise<AgentSession> {
+    if (agent.id !== "cmo") throw new Error("Root chats are owned by CMO.");
+    await this.createRootChat(
+      config.workspaceId,
+      chatId,
+      title,
+      config.driver,
+      config.model,
+    );
+    return this.ensureSession(agent, chatId, config);
+  }
+
+  async createRootChat(
+    workspaceId: string,
+    chatId: string,
+    title: string,
+    provider?: DriverType,
+    model?: string,
+  ) {
+    const stored = await this.store.chatRecord(workspaceId, chatId);
+    if (!stored) {
+      const preference = provider
+        ? undefined
+        : await this.store.agentPreference(workspaceId, "cmo");
+      const driver = provider ?? preference?.driver;
+      if (!driver) throw new Error("Configure the CMO agent app first.");
+      await this.store.createChat({
+        id: chatId,
+        workspaceId,
+        visibility: "user",
+        agent: "cmo",
+        provider: driver,
+        model: model ?? preference?.model,
+        title,
+      });
+    } else {
+      this.assertRootChat(stored);
+    }
+    return this.store.chatRecord(workspaceId, chatId);
+  }
+
+  async ensureChildChat(
+    agent: AgentDefinition,
+    parentId: string,
+    chatId: string,
+    config: Omit<SessionConfig, "mcpServers" | "automationGrant">,
+  ): Promise<AgentSession> {
+    if (agent.id === "cmo")
+      throw new Error("Child chats require a specialist.");
+    await this.rootChat(config.workspaceId, parentId);
+    const stored = await this.store.chatRecord(config.workspaceId, chatId);
+    if (!stored) {
+      await this.store.createChat({
+        id: chatId,
+        workspaceId: config.workspaceId,
+        parentId,
+        visibility: "private",
+        agent: agent.id,
+        provider: config.driver,
+        model: config.model,
+      });
+    } else if (
+      stored.visibility !== "private" ||
+      stored.parentId !== parentId ||
+      stored.agent !== agent.id
+    ) {
+      throw new Error("Child chat identity does not match stored state.");
+    }
+    return this.ensureSession(agent, chatId, {
+      ...config,
+      mcpServers: [],
+      automationGrant: undefined,
+    });
+  }
+
+  private async ensureSession(
     agent: AgentDefinition,
     chatId: string,
     config: SessionConfig,
   ): Promise<AgentSession> {
     await this.repairWorkspaceFiles(config.workspaceId);
-    const existing = this.sessions.get(chatId);
+    const key = workspaceChatKey(config.workspaceId, chatId);
+    const existing = this.sessions.get(key);
     if (existing) {
       // A live session can't hop backends or change its access level.
       if (
@@ -93,11 +214,17 @@ export class SessionManager {
         existing.config.workspaceId !== config.workspaceId ||
         existing.config.model !== config.model ||
         existing.agent.instructions !== agent.instructions ||
+        existing.config.executionOwner !== config.executionOwner ||
         JSON.stringify(existing.config.mcpServers ?? []) !==
           JSON.stringify(config.mcpServers ?? [])
       ) {
+        if (existing.isBusy) {
+          throw new Error(
+            `This chat is busy with ${existing.config.executionOwner ?? "interactive"} work and cannot be replaced.`,
+          );
+        }
         await existing.stop();
-        this.sessions.delete(chatId);
+        this.sessions.delete(key);
       } else {
         return existing;
       }
@@ -126,23 +253,37 @@ export class SessionManager {
     const storedEvents =
       this.archivedEvents.get(archivedKey) ??
       (await this.store.transcript(config.workspaceId, chatId));
+    const storedChat = await this.store.chatRecord(config.workspaceId, chatId);
     const session = new AgentSession(agent, chatId, scopedConfig, storedEvents);
-    this.sessions.set(chatId, session);
+    this.sessions.set(key, session);
 
-    session.on("event", (event) => {
+    session.on("event", (event: AgentEvent) => {
       if (event.type === "init") {
-        this.persisted[chatId] = {
-          agentId: agent.id,
-          sessionId: event.sessionId,
-          driver: config.driver,
-          workspaceId: config.workspaceId,
-        };
-        this.save();
+        const persistence = (this.persistence.get(key) ?? Promise.resolve())
+          .then(() =>
+            this.store.updateChatState(config.workspaceId, chatId, {
+              providerState: { sessionId: event.sessionId },
+            }),
+          )
+          .then(() => undefined)
+          .catch((error) => console.error("[local-store] state:", error));
+        this.persistence.set(key, persistence);
+      }
+      if (event.type === "status") {
+        const persistence = (this.persistence.get(key) ?? Promise.resolve())
+          .then(() =>
+            this.store.updateChatState(config.workspaceId, chatId, {
+              status: event.status,
+            }),
+          )
+          .then(() => undefined)
+          .catch((error) => console.error("[local-store] status:", error));
+        this.persistence.set(key, persistence);
       }
       if (event.type === "exit") {
         this.archivedEvents.set(archivedKey, session.events.slice(-500));
-        if (this.sessions.get(chatId) === session) {
-          this.sessions.delete(chatId);
+        if (this.sessions.get(key) === session) {
+          this.sessions.delete(key);
         }
         this.lockWorkspaceIfInactive(config.workspaceId);
       }
@@ -152,7 +293,7 @@ export class SessionManager {
         event.type === "error" ||
         event.type === "permissionResolved"
       ) {
-        const persistence = (this.persistence.get(chatId) ?? Promise.resolve())
+        const persistence = (this.persistence.get(key) ?? Promise.resolve())
           .then(() =>
             this.store.saveTranscript(
               {
@@ -161,38 +302,41 @@ export class SessionManager {
                 agentId: agent.id,
                 driver: config.driver,
                 model: config.model,
+                providerState: session.sessionId
+                  ? { sessionId: session.sessionId }
+                  : undefined,
               },
               session.events,
             ),
           )
           .catch((error) => console.error("[local-store] transcript:", error));
-        this.persistence.set(chatId, persistence);
+        this.persistence.set(key, persistence);
       }
       if (
-        this.released.has(chatId) &&
+        this.released.has(key) &&
         (event.type === "result" ||
           event.type === "error" ||
           (event.type === "status" && event.status === "idle"))
       ) {
-        void this.stopReleased(chatId);
+        void this.stopReleased(config.workspaceId, chatId);
       }
     });
 
     const cwd = join(workspaceRoot(config.workspaceId), "agents", agent.id);
     mkdirSync(cwd, { recursive: true });
-    // Session ids don't transfer across backends — only resume same-driver.
-    const prev = this.persisted[chatId];
-    const resume =
-      prev &&
-      prev.driver === config.driver &&
-      prev.workspaceId === config.workspaceId
-        ? prev.sessionId
+    const continuation =
+      storedChat?.provider === config.driver &&
+      storedChat.providerState &&
+      typeof storedChat.providerState === "object" &&
+      "sessionId" in storedChat.providerState &&
+      typeof storedChat.providerState.sessionId === "string"
+        ? storedChat.providerState.sessionId
         : undefined;
     try {
-      await session.start(cwd, resume);
+      await session.start(cwd, continuation);
     } catch (error) {
-      if (this.sessions.get(chatId) === session) {
-        this.sessions.delete(chatId);
+      if (this.sessions.get(key) === session) {
+        this.sessions.delete(key);
       }
       await session.stop().catch(() => undefined);
       this.lockWorkspaceIfInactive(config.workspaceId);
@@ -201,47 +345,50 @@ export class SessionManager {
     return session;
   }
 
-  retain(chatId: string) {
-    this.released.delete(chatId);
-    this.retainCounts.set(chatId, (this.retainCounts.get(chatId) ?? 0) + 1);
+  retain(workspaceId: string, chatId: string) {
+    const key = workspaceChatKey(workspaceId, chatId);
+    this.released.delete(key);
+    this.retainCounts.set(key, (this.retainCounts.get(key) ?? 0) + 1);
   }
 
-  async release(chatId: string) {
-    const next = Math.max(0, (this.retainCounts.get(chatId) ?? 1) - 1);
+  async release(workspaceId: string, chatId: string) {
+    const key = workspaceChatKey(workspaceId, chatId);
+    const next = Math.max(0, (this.retainCounts.get(key) ?? 1) - 1);
     if (next > 0) {
-      this.retainCounts.set(chatId, next);
+      this.retainCounts.set(key, next);
       return;
     }
-    this.retainCounts.delete(chatId);
-    this.released.add(chatId);
-    await this.stopReleased(chatId);
+    this.retainCounts.delete(key);
+    this.released.add(key);
+    await this.stopReleased(workspaceId, chatId);
   }
 
-  private async stopReleased(chatId: string) {
-    const session = this.sessions.get(chatId);
-    if (!session || session.isBusy || !this.released.has(chatId)) return;
+  private async stopReleased(workspaceId: string, chatId: string) {
+    const key = workspaceChatKey(workspaceId, chatId);
+    const session = this.sessions.get(key);
+    if (!session || session.isBusy || !this.released.has(key)) return;
     this.archivedEvents.set(
       workspaceChatKey(session.config.workspaceId, chatId),
       session.events.slice(-500),
     );
-    this.sessions.delete(chatId);
-    this.released.delete(chatId);
+    this.sessions.delete(key);
+    this.released.delete(key);
+    this.executionOwners.delete(key);
     await session.stop();
     this.lockWorkspaceIfInactive(session.config.workspaceId);
   }
 
   async remove(workspaceId: string, chatId: string) {
-    const session = this.sessions.get(chatId);
-    if (session && session.config.workspaceId !== workspaceId) {
-      throw new Error("Chat belongs to a different workspace.");
-    }
-    this.sessions.delete(chatId);
+    await this.assertInteractiveChat(workspaceId, chatId);
+    await this.rootChat(workspaceId, chatId);
+    const key = workspaceChatKey(workspaceId, chatId);
+    const session = this.sessions.get(key);
+    this.sessions.delete(key);
     this.archivedEvents.delete(workspaceChatKey(workspaceId, chatId));
-    this.retainCounts.delete(chatId);
-    this.released.delete(chatId);
-    delete this.persisted[chatId];
+    this.retainCounts.delete(key);
+    this.released.delete(key);
+    this.executionOwners.delete(key);
     await this.store.deleteChat(workspaceId, chatId);
-    this.save();
     await session?.stop();
     if (session) this.lockWorkspaceIfInactive(session.config.workspaceId);
   }
@@ -250,21 +397,65 @@ export class SessionManager {
     return this.store.listChats(workspaceId);
   }
 
+  messages(workspaceId: string, chatId: string) {
+    return this.store.uiMessages(workspaceId, chatId);
+  }
+
   chat(workspaceId: string, chatId: string) {
     return this.store.chat(workspaceId, chatId);
   }
 
-  waitForChatPersistence(chatId: string) {
-    return this.persistence.get(chatId) ?? Promise.resolve();
+  async inspectChat(workspaceId: string, chatId: string) {
+    const chat = await this.store.chatRecord(workspaceId, chatId);
+    if (!chat) throw new Error("Chat was not found in this workspace.");
+    if (chat.parentId && chat.visibility !== "private") {
+      throw new Error("Stored child chat is not private.");
+    }
+    const session = this.get(workspaceId, chatId);
+    return {
+      chat,
+      session,
+      events:
+        session?.events ?? (await this.store.transcript(workspaceId, chatId)),
+    };
   }
 
-  updateChatPreferences(
-    workspaceId: string,
-    chatId: string,
-    driver: import("./types.js").DriverType,
-    model?: string,
-  ) {
-    return this.store.updateChatPreferences(workspaceId, chatId, driver, model);
+  async rootChat(workspaceId: string, chatId: string) {
+    const inspected = await this.inspectChat(workspaceId, chatId);
+    this.assertRootChat(inspected.chat);
+    return inspected;
+  }
+
+  childChats(workspaceId: string, rootChatId: string) {
+    return this.rootChat(workspaceId, rootChatId).then(() =>
+      this.store.listChildChats(workspaceId, rootChatId),
+    );
+  }
+
+  private assertRootChat(chat: LocalChatRecord) {
+    if (chat.parentId || chat.visibility !== "user" || chat.agent !== "cmo") {
+      throw new Error("Only a top-level user-visible CMO chat is composable.");
+    }
+  }
+
+  waitForChatPersistence(workspaceId: string, chatId: string) {
+    return (
+      this.persistence.get(workspaceChatKey(workspaceId, chatId)) ??
+      Promise.resolve()
+    );
+  }
+
+  async stopRuntimeChat(workspaceId: string, chatId: string) {
+    const key = workspaceChatKey(workspaceId, chatId);
+    const session = this.sessions.get(key);
+    if (!session) return;
+    await (this.persistence.get(key) ?? Promise.resolve());
+    this.archivedEvents.set(key, session.events.slice(-500));
+    this.sessions.delete(key);
+    this.retainCounts.delete(key);
+    this.released.delete(key);
+    await session.stop();
+    this.lockWorkspaceIfInactive(workspaceId);
   }
 
   async workspaceData(workspaceId: string) {
@@ -353,21 +544,15 @@ export class SessionManager {
     };
   }
 
-  saveProspect(
-    workspaceId: string,
-    prospect: import("./types.js").ProspectRecord,
-  ) {
+  saveProspect(workspaceId: string, prospect: ProspectRecord) {
     return this.store.saveProspect(workspaceId, prospect);
   }
 
-  saveTrend(workspaceId: string, trend: import("./types.js").TrendRecord) {
+  saveTrend(workspaceId: string, trend: TrendRecord) {
     return this.store.saveTrend(workspaceId, trend);
   }
 
-  saveDraft(
-    workspaceId: string,
-    draft: import("./types.js").ContentDraftRecord,
-  ) {
+  saveDraft(workspaceId: string, draft: ContentDraftRecord) {
     return this.store.saveDraft(workspaceId, draft);
   }
 
@@ -404,10 +589,7 @@ export class SessionManager {
     this.repairedFileWorkspaces.add(workspaceId);
   }
 
-  async saveWorkspaceFile(
-    workspaceId: string,
-    input: import("./types.js").WorkspaceFileWrite,
-  ) {
+  async saveWorkspaceFile(workspaceId: string, input: WorkspaceFileWrite) {
     const existing = input.id
       ? await this.store.workspaceFile(workspaceId, input.id)
       : null;
@@ -436,7 +618,7 @@ export class SessionManager {
     const now = Date.now();
     const id = existing?.id ?? randomUUID();
     const versionId = randomUUID();
-    const file: import("./types.js").WorkspaceFileSnapshot = {
+    const file: WorkspaceFileSnapshot = {
       id,
       name,
       path,
@@ -479,10 +661,7 @@ export class SessionManager {
     removeWorkspaceFileContent(workspaceId, file.path, file.id);
   }
 
-  saveCampaign(
-    workspaceId: string,
-    campaign: import("./types.js").CampaignRecord,
-  ) {
+  saveCampaign(workspaceId: string, campaign: CampaignRecord) {
     return this.store.saveCampaign(workspaceId, campaign);
   }
 
@@ -490,10 +669,7 @@ export class SessionManager {
     return this.store.recurringWorkById(workspaceId, id);
   }
 
-  saveRecurringWork(
-    workspaceId: string,
-    work: import("./types.js").RecurringWorkRecord,
-  ) {
+  saveRecurringWork(workspaceId: string, work: RecurringWorkRecord) {
     return this.store.saveRecurringWork(workspaceId, work);
   }
 
@@ -502,13 +678,7 @@ export class SessionManager {
   }
 
   saveTranscript(
-    context: {
-      id: string;
-      workspaceId: string;
-      agentId: string;
-      driver: import("./types.js").DriverType;
-      model?: string;
-    },
+    context: ChatContext,
     events: AgentEvent[],
     titleOverride?: string,
   ) {
@@ -519,10 +689,7 @@ export class SessionManager {
     return this.store.transcript(workspaceId, chatId);
   }
 
-  raiseAttentionItem(
-    workspaceId: string,
-    item: import("./types.js").AttentionItem,
-  ) {
+  raiseAttentionItem(workspaceId: string, item: AttentionItem) {
     return this.store.raiseAttentionItem(workspaceId, item);
   }
 
@@ -538,8 +705,11 @@ export class SessionManager {
     return this.store.deleteRecurringWorkRun(workspaceId, runId);
   }
 
-  deleteRecurringWork(workspaceId: string, id: string) {
-    return this.store.deleteRecurringWork(workspaceId, id);
+  async deleteRecurringWork(workspaceId: string, id: string) {
+    const work = await this.store.recurringWorkById(workspaceId, id);
+    if (work) await this.stopRuntimeChat(workspaceId, work.chatId);
+    await this.store.deleteRecurringWork(workspaceId, id);
+    if (work) await this.store.deleteChat(workspaceId, work.chatId);
   }
 
   claimRecurringWork(
@@ -571,7 +741,7 @@ export class SessionManager {
   finishRecurringWorkRun(
     workspaceId: string,
     run: RecurringWorkRunRecord,
-    work: import("./types.js").RecurringWorkRecord,
+    work: RecurringWorkRecord,
   ) {
     return this.store.finishRecurringWorkRun(workspaceId, run, work);
   }
@@ -588,10 +758,7 @@ export class SessionManager {
     return this.store.listAgentPreferences(workspaceId);
   }
 
-  saveAgentPreference(
-    workspaceId: string,
-    preference: import("./types.js").AgentPreference,
-  ) {
+  saveAgentPreference(workspaceId: string, preference: AgentPreference) {
     return this.store.saveAgentPreference(workspaceId, preference);
   }
 
@@ -599,6 +766,7 @@ export class SessionManager {
     await this.stopSessions();
     await Promise.all(this.persistence.values());
     this.sessions.clear();
+    this.executionOwners.clear();
     workspaceSecrets.lockAll();
     await this.store.close();
   }
@@ -616,12 +784,5 @@ export class SessionManager {
         (session) => session.config.workspaceId === workspaceId,
       );
     if (!active) void workspaceSecrets.lock(workspaceId);
-  }
-
-  private save() {
-    writeFileSync(
-      join(HOME, "sessions.json"),
-      JSON.stringify(this.persisted, null, 2),
-    );
   }
 }

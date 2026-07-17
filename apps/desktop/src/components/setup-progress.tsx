@@ -208,11 +208,11 @@ export function SetupProgress({
       navigate("/analytics");
       return;
     }
-    const conversation = createChat("ads", "Set up paid campaigns");
+    const conversation = createChat("Set up paid campaigns");
     const budget = snapshot.adsBudget ?? "a small test budget";
-    const draft = `Help me set up my first paid campaign with ${budget}. Start by checking what ad accounts are connected, then guide me through the cleanest next step.`;
+    const draft = `Help me set up my first paid campaign with ${budget}. Consult the Ads Manager specialist, check what ad accounts are connected, then guide me through the cleanest next step.`;
     navigate(
-      `/conversations?agent=ads&chat=${conversation.id}&new=1&draft=${encodeURIComponent(draft)}`,
+      `/conversations?chat=${conversation.id}&draft=${encodeURIComponent(draft)}`,
     );
   };
 
