@@ -1,14 +1,6 @@
-import {
-  campaignMemoryCapability,
-  contentCalendarCapability,
-  defineAgent,
-  prospectMemoryCapability,
-  scheduleManagerCapability,
-  trendMemoryCapability,
-} from "../../capabilities/index.js";
-import { instructions } from "./instructions.js";
+import type { AgentManifest } from "../manifest.js";
 
-export const cmo = defineAgent({
+export const cmo = {
   id: "cmo",
   name: "CMO",
   role: "Chief Marketing Officer",
@@ -16,11 +8,10 @@ export const cmo = defineAgent({
     "Top-level orchestrator. Owns strategy, delegates to specialist agents, answers anything about your marketing.",
   delegates: ["content", "analyst", "prospector", "ads"],
   capabilities: [
-    prospectMemoryCapability,
-    trendMemoryCapability,
-    contentCalendarCapability,
-    campaignMemoryCapability,
-    scheduleManagerCapability,
+    "prospect-memory",
+    "trend-memory",
+    "content-calendar",
+    "campaign-memory",
+    "schedule-manager",
   ],
-  instructions,
-});
+} satisfies AgentManifest;

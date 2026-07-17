@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./types": "./src/types.ts",
     "./agents": "./src/agents.ts",
+    "./agent-roster": "./src/agent-roster.ts",
     "./capabilities": "./src/capabilities/index.ts"
   },
   "scripts": {
@@ -17,19 +18,26 @@
     "lint": "eslint --flag unstable_native_nodejs_ts_config",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
     "start": "tsx src/server.ts",
+    "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.5",
+    "@chief/email": "workspace:*",
     "@libsql/client": "0.17.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openai/codex": "0.144.1",
+    "@react-email/components": "1.0.12",
+    "@react-email/render": "2.1.0",
     "@slack/socket-mode": "^2.0.7",
     "@slack/web-api": "^7.19.0",
+    "@vercel/connect": "^0.3.2",
     "ai": "7.0.19",
     "cron-parser": "5.6.1",
     "drizzle-orm": "1.0.0-rc.4",
+    "eve": "0.22.4",
     "executor": "1.5.30",
+    "react": "^19.1.0",
     "ws": "^8.18.3",
     "zod": "^3.25.76"
   },

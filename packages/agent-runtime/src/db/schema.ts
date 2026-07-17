@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -5,6 +6,7 @@ import {
   real,
   sqliteTable,
   text,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
 export const chats = sqliteTable(
@@ -87,6 +89,7 @@ export const contentDrafts = sqliteTable(
     title: text().notNull(),
     body: text().notNull(),
     platform: text().notNull(),
+    fileId: text("file_id"),
     status: text({
       enum: ["draft", "approved", "scheduled", "published"],
     }).notNull(),
@@ -98,6 +101,60 @@ export const contentDrafts = sqliteTable(
     index("drafts_workspace_schedule").on(
       table.workspaceId,
       table.scheduledFor,
+    ),
+  ],
+);
+
+export const workspaceFiles = sqliteTable(
+  "workspace_files",
+  {
+    id: text().primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    name: text().notNull(),
+    path: text().notNull(),
+    mimeType: text("mime_type").notNull(),
+    kind: text({ enum: ["document", "email"] }).notNull(),
+    provider: text({ enum: ["local"] })
+      .notNull()
+      .default("local"),
+    currentVersionId: text("current_version_id").notNull(),
+    createdBy: text("created_by", { enum: ["agent", "user"] }).notNull(),
+    sourceAgentId: text("source_agent_id"),
+    sourceRunId: text("source_run_id"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("workspace_files_workspace_path").on(
+      table.workspaceId,
+      table.path,
+    ),
+    index("workspace_files_workspace_updated").on(
+      table.workspaceId,
+      table.updatedAt,
+    ),
+  ],
+);
+
+export const workspaceFileVersions = sqliteTable(
+  "workspace_file_versions",
+  {
+    id: text().primaryKey(),
+    fileId: text("file_id")
+      .notNull()
+      .references(() => workspaceFiles.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id").notNull(),
+    content: text().notNull(),
+    size: integer().notNull(),
+    createdBy: text("created_by", { enum: ["agent", "user"] }).notNull(),
+    sourceAgentId: text("source_agent_id"),
+    sourceRunId: text("source_run_id"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("workspace_file_versions_file_created").on(
+      table.fileId,
+      table.createdAt,
     ),
   ],
 );
@@ -176,7 +233,7 @@ export const recurringWorkRuns = sqliteTable(
       .references(() => recurringWork.id, { onDelete: "cascade" }),
     workspaceId: text("workspace_id").notNull(),
     status: text({
-      enum: ["running", "completed", "failed", "needs_approval"],
+      enum: ["running", "completed", "waiting", "failed", "needs_approval"],
     }).notNull(),
     scheduledFor: integer("scheduled_for").notNull(),
     startedAt: integer("started_at").notNull(),
@@ -194,6 +251,12 @@ export const recurringWorkRuns = sqliteTable(
       table.workspaceId,
       table.startedAt,
     ),
+    // A recurring job may have many historical attempts, but never more than
+    // one live attempt. This is a durable scheduler lease shared by installed,
+    // dev, and recovering runtime processes rather than an in-memory promise.
+    uniqueIndex("recurring_runs_one_active_per_work")
+      .on(table.recurringWorkId)
+      .where(sql`${table.status} = 'running'`),
   ],
 );
 

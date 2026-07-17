@@ -123,6 +123,14 @@ export class AgentSession extends EventEmitter {
     return this.driver.sendPrompt(text);
   }
 
+  recordUserMessage(text: string) {
+    this.record({
+      type: "message",
+      role: "user",
+      content: [{ type: "text", text }],
+    });
+  }
+
   respondPermission(requestId: string, behavior: "allow" | "deny") {
     this.driver.respondPermission(requestId, behavior);
     // Record the resolution in the buffer so replayed transcripts don't

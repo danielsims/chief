@@ -1,11 +1,9 @@
-import type { AgentDefinition } from "../../types.js";
-import { instructions } from "./instructions.js";
+import type { AgentManifest } from "../manifest.js";
 
-export const setup: AgentDefinition = {
+export const setup = {
   id: "setup",
   name: "Setup",
   role: "Integration Setup",
   description:
     "Connects marketing integrations by running the setup itself: CLI tools, local credentials and verification.",
-  instructions,
-};
+} satisfies AgentManifest;

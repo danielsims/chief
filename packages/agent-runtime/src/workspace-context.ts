@@ -47,3 +47,40 @@ export function writeWorkspaceContext(workspaceId: string, context: string) {
     console.error("[runtime] could not persist workspace context:", error);
   }
 }
+
+/**
+ * Saves one user-supplied business fact without replacing onboarding context.
+ * Stable markers make a later answer an update rather than an accumulating
+ * duplicate, while keeping the result readable to both people and agents.
+ */
+export function writeWorkspaceContextValue(
+  workspaceId: string,
+  key: string,
+  value: string,
+) {
+  const safeKey = key
+    .trim()
+    .replaceAll(/[^a-zA-Z0-9 _-]/g, "")
+    .slice(0, 80);
+  const normalizedValue = value.trim();
+  if (!safeKey || !normalizedValue) return;
+
+  let current = "";
+  try {
+    current = readFileSync(workspaceContextPath(workspaceId), "utf8");
+  } catch {
+    // A direct question can be the first durable context in a workspace.
+  }
+
+  const slug = safeKey.toLowerCase().replaceAll(/\s+/g, "-");
+  const start = `<!-- chief-context:${slug}:start -->`;
+  const end = `<!-- chief-context:${slug}:end -->`;
+  const block = `${start}\n## ${safeKey}\n\n${normalizedValue}\n${end}`;
+  const startIndex = current.indexOf(start);
+  const endIndex = current.indexOf(end, startIndex + start.length);
+  const next =
+    startIndex >= 0 && endIndex >= 0
+      ? `${current.slice(0, startIndex)}${block}${current.slice(endIndex + end.length)}`
+      : `${current.trim()}${current.trim() ? "\n\n" : ""}# User-provided context\n\n${block}\n`;
+  writeWorkspaceContext(workspaceId, next);
+}

@@ -1,15 +1,10 @@
-import {
-  analyticsChartCapability,
-  defineAgent,
-} from "../../capabilities/index.js";
-import { instructions } from "./instructions.js";
+import type { AgentManifest } from "../manifest.js";
 
-export const analyst = defineAgent({
+export const analyst = {
   id: "analyst",
   name: "Analyst",
   role: "Analytics & Reporting",
   description:
     "Reviews website traffic, signups, SEO, funnels and content performance across connected channels.",
-  capabilities: [analyticsChartCapability],
-  instructions,
-});
+  capabilities: ["analytics-chart"],
+} satisfies AgentManifest;

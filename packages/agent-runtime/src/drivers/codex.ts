@@ -17,6 +17,7 @@ import type { ContentBlock, StartOptions } from "../types.js";
 import {
   executorAddressesFromCode,
   executorAddressFromElicitation,
+  executorCodeUsesOnlyCatalogHelpers,
   grantAllowsAddress,
 } from "../recurring-work.js";
 import { BaseDriver } from "./base.js";
@@ -106,7 +107,11 @@ export class CodexDriver extends BaseDriver {
     }
     const codexHome = this.prepareCodexHome(opts);
     const environment = agentEnvironment(opts.env);
-    this.proc = spawn(findCodex(), ["app-server"], {
+    // Read-only native web search is part of every Chief agent's research
+    // surface. Without it, a scheduled writer or prospector can only inspect
+    // already-connected records and turns a missing optional connector into a
+    // dead end. Provider mutations remain governed by Executor separately.
+    this.proc = spawn(findCodex(), ["--search", "app-server"], {
       cwd: opts.cwd,
       env: {
         ...environment,
@@ -161,9 +166,20 @@ export class CodexDriver extends BaseDriver {
       }
     });
 
-    await this.rpc("initialize", {
-      clientInfo: { name: "chief", version: "0.1.0" },
-    });
+    await this.rpc(
+      "initialize",
+      {
+        clientInfo: { name: "chief", version: "0.1.0" },
+        // Required by the current app-server protocol. Omitting this field
+        // leaves initialize unanswered on Codex 0.144+, which surfaces as an
+        // RPC timeout even though the child process started successfully.
+        capabilities: null,
+      },
+      // A fresh CODEX_HOME may perform a state-store backfill before replying.
+      // Codex itself waits up to 30 seconds before retrying that migration, so
+      // the host must not race it with the normal request timeout.
+      90_000,
+    );
     this.notify("initialized", {});
 
     // Response carries the thread object: { thread: { id, ... } } on current
@@ -469,14 +485,21 @@ export class CodexDriver extends BaseDriver {
           // execute snippet: every referenced address must be delegated.
           const meta = (p as { _meta?: Record<string, unknown> })?._meta;
           if (grant && meta?.codex_approval_kind === "mcp_tool_call") {
-            const toolName = String(
-              (p as { message?: string }).message?.match(
-                /run tool "([^"]+)"/,
-              )?.[1] ?? "",
-            );
             const params = meta.tool_params as
               Record<string, unknown> | undefined;
             const code = typeof params?.code === "string" ? params.code : "";
+            const metadataToolName =
+              typeof meta.tool_name === "string"
+                ? meta.tool_name
+                : typeof meta.toolName === "string"
+                  ? meta.toolName
+                  : undefined;
+            const toolName =
+              metadataToolName ??
+              (p as { message?: string }).message?.match(
+                /run tool ["'`]([^"'`]+)["'`]/i,
+              )?.[1] ??
+              (code ? "execute" : "");
             const addresses =
               toolName === "execute" ? executorAddressesFromCode(code) : [];
             const readOnlyCatalog = [
@@ -488,8 +511,12 @@ export class CodexDriver extends BaseDriver {
               // against this automation's narrow grant.
               "resume",
             ].includes(toolName);
+            const catalogDiscovery =
+              toolName === "execute" &&
+              executorCodeUsesOnlyCatalogHelpers(code);
             const allowed =
               readOnlyCatalog ||
+              catalogDiscovery ||
               (toolName === "execute" &&
                 addresses.length > 0 &&
                 addresses.every((address) =>
@@ -832,13 +859,17 @@ export class CodexDriver extends BaseDriver {
     force.unref();
   }
 
-  private rpc(method: string, params: unknown): Promise<unknown> {
+  private rpc(
+    method: string,
+    params: unknown,
+    timeoutMs = 30_000,
+  ): Promise<unknown> {
     const id = ++this.rpcId;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.pending.delete(id))
           reject(new Error(`RPC timeout: ${method}`));
-      }, 30_000);
+      }, timeoutMs);
       timer.unref();
       this.pending.set(id, { resolve, reject, timer });
       this.write({ jsonrpc: "2.0", id, method, params });
