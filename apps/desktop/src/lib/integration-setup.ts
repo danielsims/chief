@@ -152,92 +152,6 @@ export function findPendingInputRequest(
   return pending;
 }
 
-const GOOGLE_CLIENT_FIELDS = [
-  {
-    key: "clientId",
-    label: "Client ID",
-    type: "text" as const,
-    save: { envKey: "CHIEF_GOOGLE_OAUTH_CLIENT_ID" },
-  },
-  {
-    key: "clientSecret",
-    label: "Client secret",
-    type: "secret" as const,
-    save: { envKey: "CHIEF_GOOGLE_OAUTH_CLIENT_SECRET" },
-  },
-];
-
-const GOOGLE_CLIENT_STEPS = [
-  {
-    text: "Sign in to the Google Cloud **credentials page**.",
-    url: "https://console.cloud.google.com/apis/credentials",
-  },
-  {
-    text: "Click **Create credentials**, then **OAuth client ID**. Create a new one even if others are listed.",
-  },
-  { text: "Type: **Desktop app**. Name: **Chief**. Click **Create**." },
-  {
-    text: "Copy the **Client ID** and **Client secret** into the fields below.",
-  },
-];
-
-/**
- * Credentials that must exist BEFORE the setup agent is worth starting.
- * Google blocks agent-driven flows without an app key, so collecting these
- * up front replaces a doomed agent run with one form. The connect UI checks
- * which keys are already stored and only asks for what is missing.
- */
-const PRE_CONNECT_REQUIREMENTS: Record<string, InputRequest> = {
-  "analytics.googleapis.com": {
-    id: "google-oauth-client",
-    title: "Allow Chief to read your Google Analytics",
-    reason:
-      "Google needs an app key, created once in your Google Cloud account. Nothing in your Analytics changes; you approve read-only access right after.",
-    steps: GOOGLE_CLIENT_STEPS,
-    fields: GOOGLE_CLIENT_FIELDS,
-  },
-  "googleads.googleapis.com": {
-    id: "google-ads-access",
-    title: "Allow Chief to call Google Ads",
-    reason:
-      "Google Ads needs the developer token from your Ads manager account plus the Google app key. Both are stored on this Mac only.",
-    steps: [
-      {
-        text: "Open the **API Center** in your Google Ads manager account.",
-        url: "https://ads.google.com/aw/apicenter",
-      },
-      { text: "Copy the **Developer token** into the field below." },
-      ...GOOGLE_CLIENT_STEPS,
-    ],
-    fields: [
-      {
-        key: "developerToken",
-        label: "Developer token",
-        type: "secret" as const,
-        save: { envKey: "CHIEF_GOOGLE_ADS_DEVELOPER_TOKEN" },
-      },
-      ...GOOGLE_CLIENT_FIELDS,
-    ],
-  },
-};
-
-/** Google APIs share the OAuth client requirement even when we have no
- * integration-specific extras for them. */
-export function preConnectRequirement(domain: string): InputRequest | null {
-  const specific = PRE_CONNECT_REQUIREMENTS[domain];
-  if (specific) return specific;
-  if (domain.endsWith("googleapis.com") || domain.endsWith("google.com")) {
-    return PRE_CONNECT_REQUIREMENTS["analytics.googleapis.com"]!;
-  }
-  return null;
-}
-
-export function requirementEnvKeys(request: InputRequest): string[] {
-  return request.fields
-    .map((field) => ("envKey" in field.save ? field.save.envKey : null))
-    .filter((key): key is string => Boolean(key));
-}
-
 /**
  * Provider-specific guidance layered onto the generic task when the
  * integration is known to have a preferred local path. Everything else is
@@ -246,7 +160,10 @@ export function requirementEnvKeys(request: InputRequest): string[] {
 const PROVIDER_HINTS: Record<string, string> = {
   "googleads.googleapis.com": `Google Ads specifics:
 - Known facts, do not rediscover them: integrations.sh has no entry for this domain, so skip the registry lookups entirely. Google blocks its shared gcloud client from the adwords scope exactly like Analytics; NEVER run a plain gcloud login or print-access-token with adwords scopes.
-- Everything you need was collected for this workspace before this run. Source "$CHIEF_SECRETS_FILE" for CHIEF_GOOGLE_OAUTH_CLIENT_ID, CHIEF_GOOGLE_OAUTH_CLIENT_SECRET and CHIEF_GOOGLE_ADS_DEVELOPER_TOKEN. Build "$CHIEF_WORKSPACE_DIR/.runtime/google-oauth-client.json" from the client values if it does not exist (same printf as the Analytics flow).
+- Source "$CHIEF_SECRETS_FILE" first and check for GOOGLE_ANALYTICS_CLIENT_ID, GOOGLE_ANALYTICS_CLIENT_SECRET and CHIEF_GOOGLE_ADS_DEVELOPER_TOKEN without printing them. Before asking for missing values, finish all machine-only preparation: check for gcloud and install it if needed. Do not start a login.
+- If any value is still missing after machine preparation, emit this as the FINAL line of the turn and stop immediately. Do not keep installing, checking or narrating after it:
+CHIEF_INPUT_REQUEST {"id":"google-ads-access","title":"Allow Chief to call Google Ads","reason":"Google Ads needs the developer token from your Ads manager account plus the Google app key. Both are stored on this Mac only.","steps":[{"text":"Open the **API Center** in Google Ads.","url":"https://ads.google.com/aw/apicenter"},{"text":"Copy the **Developer token**."},{"text":"Open Google Cloud **credentials**.","url":"https://console.cloud.google.com/apis/credentials"},{"text":"Create an **OAuth client ID** for a **Desktop app**."},{"text":"Copy the **Client ID** and **Client secret**."}],"fields":[{"key":"developerToken","label":"Developer token","type":"secret","save":{"envKey":"CHIEF_GOOGLE_ADS_DEVELOPER_TOKEN"}},{"key":"clientId","label":"Client ID","type":"text","save":{"envKey":"GOOGLE_ANALYTICS_CLIENT_ID"}},{"key":"clientSecret","label":"Client secret","type":"secret","save":{"envKey":"GOOGLE_ANALYTICS_CLIENT_SECRET"}}]}
+- Once all values exist, build "$CHIEF_WORKSPACE_DIR/.runtime/google-oauth-client.json" from the client values if it does not exist (same printf as the Analytics flow).
 - Log in exactly once with --client-id-file and the UNION of scopes so existing Analytics access survives:
   gcloud auth application-default login --client-id-file="$CHIEF_WORKSPACE_DIR/.runtime/google-oauth-client.json" --scopes="https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/analytics.readonly,https://www.googleapis.com/auth/adwords"
   This opens the browser for consent; say so in one line and wait for the command to exit. Never loop with waiting messages.
@@ -256,13 +173,12 @@ const PROVIDER_HINTS: Record<string, string> = {
   "analytics.googleapis.com": `Google Analytics specifics:
 - Known fact, do not rediscover it by failing: Google blocks its shared gcloud OAuth client from requesting the Analytics scope, so a plain \`gcloud auth application-default login --scopes=...\` dead-ends at "This app is blocked". The analytics-mcp server authenticates through the same Application Default Credentials, so it does not avoid this either. Never attempt the plain login; use the user's own OAuth client from the start.
 - Auth sequence:
-  1. If "$GOOGLE_APPLICATION_CREDENTIALS" already exists, check what it reaches first. It belongs only to the active Chief workspace. On a valid account, proceed straight to verification and the series report. Never inspect or use "$HOME/.config/gcloud/application_default_credentials.json", "$HOME/.chief/secrets.env", or credentials from another workspace.
-  2. If "$CHIEF_WORKSPACE_DIR/.runtime/google-oauth-client.json" is missing, emit this input request IMMEDIATELY, in your first message if possible (the Client ID and secret appear on screen in Google's final dialog, so the user only clicks and pastes):
-CHIEF_INPUT_REQUEST {"id":"google-oauth-client","title":"Allow Chief to read your Google Analytics","reason":"Google needs an app key, created once in your Google Cloud account. Nothing in your Analytics changes; you approve read-only access right after.","steps":[{"text":"Sign in to the Google Cloud **credentials page**.","url":"https://console.cloud.google.com/apis/credentials"},{"text":"Click **Create credentials**, then **OAuth client ID**. Create a new one even if others are listed."},{"text":"Type: **Desktop app**. Name: **Chief**. Click **Create**."},{"text":"Copy the **Client ID** and **Client secret** into the fields below."}],"fields":[{"key":"clientId","label":"Client ID","type":"text","save":{"envKey":"CHIEF_GOOGLE_OAUTH_CLIENT_ID"}},{"key":"clientSecret","label":"Client secret","type":"secret","save":{"envKey":"CHIEF_GOOGLE_OAUTH_CLIENT_SECRET"}}]}
-     Then keep working in parallel while the user completes it: fetch the integration facts and install gcloud. Once nothing remains that can proceed without the values, say in one short line that you are waiting for the form, then END YOUR TURN. Do not poll, re-check files, or send repeated status updates; the app messages you when the values are saved.
-  3. After the confirmation message, build the ephemeral client file without printing the values:
-. "$CHIEF_SECRETS_FILE" && printf '{"installed":{"client_id":"%s","client_secret":"%s","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","redirect_uris":["http://localhost"]}}' "$CHIEF_GOOGLE_OAUTH_CLIENT_ID" "$CHIEF_GOOGLE_OAUTH_CLIENT_SECRET" > "$CHIEF_WORKSPACE_DIR/.runtime/google-oauth-client.json" && chmod 600 "$CHIEF_WORKSPACE_DIR/.runtime/google-oauth-client.json"
-  4. Log in exactly once:
+  1. Source "$CHIEF_SECRETS_FILE" first. If GOOGLE_ANALYTICS_CLIENT_ID or GOOGLE_ANALYTICS_CLIENT_SECRET is missing, record that internally and DO NOT start any login. First finish every machine-only preparation step: fetch the integration facts, check for gcloud, install it if needed, and prepare the workspace directories. Only when no further work can proceed without the values, emit this input request as the FINAL line of the turn and stop immediately:
+CHIEF_INPUT_REQUEST {"id":"google-oauth-client","title":"Allow Chief to read your Google Analytics","reason":"Google needs an app key, created once in your Google Cloud account. Nothing in your Analytics changes; you approve read-only access right after.","steps":[{"text":"Sign in to the Google Cloud **credentials page**.","url":"https://console.cloud.google.com/apis/credentials"},{"text":"Click **Create credentials**, then **OAuth client ID**. Create a new one even if others are listed."},{"text":"Type: **Desktop app**. Name: **Chief**. Click **Create**."},{"text":"Copy the **Client ID** and **Client secret** into the fields below."}],"fields":[{"key":"clientId","label":"Client ID","type":"text","save":{"envKey":"GOOGLE_ANALYTICS_CLIENT_ID"}},{"key":"clientSecret","label":"Client secret","type":"secret","save":{"envKey":"GOOGLE_ANALYTICS_CLIENT_SECRET"}}]}
+     Do not run another tool, add a waiting message, poll, re-check files, or continue narration after the request. The app messages you when the values are saved.
+  2. If both values are already stored, do not ask again. Build the ephemeral client file without printing the values:
+. "$CHIEF_SECRETS_FILE" && printf '{"installed":{"client_id":"%s","client_secret":"%s","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","redirect_uris":["http://localhost"]}}' "$GOOGLE_ANALYTICS_CLIENT_ID" "$GOOGLE_ANALYTICS_CLIENT_SECRET" > "$CHIEF_WORKSPACE_DIR/.runtime/google-oauth-client.json" && chmod 600 "$CHIEF_WORKSPACE_DIR/.runtime/google-oauth-client.json"
+  3. If the workspace-scoped Application Default Credentials already verify successfully, proceed directly to the report. Otherwise log in exactly once:
   gcloud auth application-default login --client-id-file="$CHIEF_WORKSPACE_DIR/.runtime/google-oauth-client.json" --scopes="https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/analytics.readonly"
   This opens the user's browser for consent and binds a localhost callback; both work here. Say the browser is opening and wait for the command to exit. Desktop clients need no redirect URI setup. Do not use --no-browser or --remote-bootstrap.
 - CLOUDSDK_CONFIG and GOOGLE_APPLICATION_CREDENTIALS already point at this workspace's private Google configuration. Do not override them. This is the enforced tenant boundary.
@@ -306,9 +222,16 @@ export async function persistSetupResult(
   },
   category?: string,
 ): Promise<void> {
-  if (isGoogleAnalyticsResult(result) && result.propertyId) {
+  const analyticsPropertyId = isGoogleAnalyticsResult(result)
+    ? typeof result.propertyId === "string"
+      ? result.propertyId
+      : typeof result.externalId === "string"
+        ? result.externalId
+        : undefined
+    : undefined;
+  if (isGoogleAnalyticsResult(result) && analyticsPropertyId) {
     await deps.saveProperty({
-      propertyId: String(result.propertyId),
+      propertyId: analyticsPropertyId,
       propertyName:
         typeof result.propertyName === "string"
           ? result.propertyName
@@ -381,7 +304,7 @@ Do not invent other integrations.sh API paths; they return 404 pages.
 Read surfaces[], credentials and auth, then pick the best setup path:
 0. Values the user provided before this run are in "$CHIEF_SECRETS_FILE" and scoped to the active workspace; source it first and never ask for something already there. Never inspect global Google credentials or another workspace's files.
 1. Prefer credential paths that keep secrets on this machine: provider CLI login, Application Default Credentials, local config files.
-2. If the integration needs an API key or token only the user can see, request it with a single CHIEF_INPUT_REQUEST line as described in your instructions: web-only steps with a link on every clickable step, paste fields at a maximum. Never ask the user to run commands, dig through folders, move files or handle file paths.
+2. If the integration needs an API key or token only the user can see, finish all safe machine-only preparation first. Then request it with a single CHIEF_INPUT_REQUEST line as the final line of that turn: web-only steps with a link on every clickable step, paste fields at a maximum. Stop immediately after the marker. Never ask the user to run commands, dig through folders, move files or handle file paths.
 3. You have full system access with no sandbox: installs, opening the user's browser and binding localhost callback ports all work. Install missing CLI tools with Homebrew when available; say what you are installing in one line first.
 4. If you install from a tarball or installer instead, install into "$HOME/.chief/tools" (create it if needed) and use the absolute binary path in every later command; your working directory is not on PATH for future sessions.
 5. When a login command opens the user's browser, say so in one line and wait for the command to exit while they complete consent. Never use no-browser or copy-this-command fallbacks; the browser flow works here.

@@ -9,7 +9,7 @@ import type {
   DriverType,
   RecurringWorkRunRecord,
 } from "@chief/agent-runtime/types";
-import { defaultAgents } from "@chief/agent-runtime/agents";
+import { defaultAgents } from "@chief/agent-runtime/agent-roster";
 import { availableCapabilities } from "@chief/agent-runtime/capabilities";
 import { api } from "@chief/backend/convex/_generated/api";
 import { Button } from "@chief/ui/components/button";

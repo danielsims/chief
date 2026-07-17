@@ -79,6 +79,8 @@ export function AgentChat({
   initialModel,
   integrations,
   observeOnly = false,
+  observationLabel = "Scheduled run · live view",
+  observedRecurringWorkId,
   onInitialPromptSent,
 }: {
   agent: AgentDefinition;
@@ -98,6 +100,9 @@ export function AgentChat({
   integrations?: string[];
   /** Read-only attachment to an already-running scheduled session. */
   observeOnly?: boolean;
+  /** Context shown above a read-only run transcript. */
+  observationLabel?: string;
+  observedRecurringWorkId?: string;
   onInitialPromptSent?: () => void;
 }) {
   const { status: runtimeStatus, client } = useRuntime();
@@ -133,6 +138,7 @@ export function AgentChat({
     activeCapabilities,
     integrations,
     observeOnly,
+    observedRecurringWorkId,
   );
   const [answeredInputs, setAnsweredInputs] = useState<ReadonlySet<string>>(
     new Set(),
@@ -283,7 +289,7 @@ export function AgentChat({
     <div className="flex h-full min-w-0 flex-col overflow-hidden">
       {observeOnly ? (
         <div className="text-muted-foreground shrink-0 border-b py-2 text-center text-xs">
-          Scheduled run · live view
+          {observationLabel}
         </div>
       ) : null}
       <div className="min-w-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto py-6 pr-2">

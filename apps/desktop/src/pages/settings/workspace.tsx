@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 
 import { api } from "@chief/backend/convex/_generated/api";
@@ -34,6 +34,17 @@ import {
 } from "../../lib/auth/better-auth-client";
 import { removeImageAsset, uploadImageAsset } from "../../lib/image-upload";
 import { SOCIAL_PLATFORMS } from "../../lib/social-platforms";
+
+// Vite replaces `import.meta.hot` with undefined in production. Production
+// never imports the isolated replay module, so this shortcut cannot appear in
+// releases and removing the dev module removes the feature completely.
+const DevelopmentOnboardingReplay = import.meta.hot
+  ? lazy(() =>
+      import("../../dev/onboarding-replay-card").then((module) => ({
+        default: module.DevelopmentOnboardingReplay,
+      })),
+    )
+  : null;
 
 function LogoPreview({
   logo,
@@ -460,6 +471,12 @@ export function WorkspaceSettings() {
           )}
         </CardContent>
       </Card>
+
+      {org && DevelopmentOnboardingReplay ? (
+        <Suspense fallback={null}>
+          <DevelopmentOnboardingReplay organization={org} />
+        </Suspense>
+      ) : null}
 
       {org && <DeleteWorkspaceCard org={org} />}
     </>

@@ -1,13 +1,14 @@
 import type { ReactNode } from "react";
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { useAction } from "convex/react";
+import { useAction, useConvexAuth, useMutation } from "convex/react";
 import { toast } from "sonner";
 
 import type {
@@ -24,6 +25,7 @@ import type {
   DriverType,
   ExecutorCapability,
   InputRequest,
+  LocalIntegrationStatus,
   OnboardingSchedule,
   OnboardingWorkJob,
   ProspectRecord,
@@ -32,6 +34,9 @@ import type {
   RecurringWorkRunRecord,
   ServerMessage,
   TrendRecord,
+  WorkspaceEnvironmentVariable,
+  WorkspaceFileRecord,
+  WorkspaceFileSnapshot,
 } from "@chief/agent-runtime/types";
 import { api } from "@chief/backend/convex/_generated/api";
 
@@ -67,8 +72,9 @@ function workspaceCapabilityToken(organizationId: string): string {
   return token;
 }
 
-function useWorkspaceCapability() {
+export function useWorkspaceCapability() {
   const { cloudOrganizationId } = useAuth();
+  const { isAuthenticated } = useConvexAuth();
   const registerCapability = useAction(api.agentTools.registerCapability);
   const [capability, setCapability] = useState<ExecutorCapability | null>(
     cloudOrganizationId
@@ -76,9 +82,10 @@ function useWorkspaceCapability() {
       : null,
   );
   const [error, setError] = useState<string | null>(null);
+  const [retryAttempt, setRetryAttempt] = useState(0);
 
   useEffect(() => {
-    if (!cloudOrganizationId) {
+    if (!cloudOrganizationId || !isAuthenticated) {
       setCapability(null);
       setError(null);
       return;
@@ -91,6 +98,7 @@ function useWorkspaceCapability() {
     }
 
     let cancelled = false;
+    let retryTimer: number | undefined;
     setCapability(null);
     setError(null);
     const token = workspaceCapabilityToken(cloudOrganizationId);
@@ -100,6 +108,7 @@ function useWorkspaceCapability() {
         const next = { apiBaseUrl, token };
         workspaceCapabilityCache.set(cloudOrganizationId, next);
         setCapability(next);
+        setRetryAttempt(0);
       })
       .catch((reason) => {
         if (!cancelled) {
@@ -108,12 +117,17 @@ function useWorkspaceCapability() {
               ? reason.message
               : "Could not authorize this workspace.",
           );
+          retryTimer = window.setTimeout(
+            () => setRetryAttempt((attempt) => attempt + 1),
+            Math.min(30_000, 2_000 * 2 ** Math.min(retryAttempt, 4)),
+          );
         }
       });
     return () => {
       cancelled = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
-  }, [cloudOrganizationId, registerCapability]);
+  }, [cloudOrganizationId, isAuthenticated, registerCapability, retryAttempt]);
 
   return { cloudOrganizationId, capability, error };
 }
@@ -126,10 +140,11 @@ export class RuntimeClient {
   private queue: ClientMessage[] = [];
   private closed = false;
   private reconnectTimer: number | null = null;
+  private connectTimer: number | null = null;
   private reconnectDelayMs = 1000;
   onStatus: (status: RuntimeStatus) => void = () => {};
 
-  connect(announceConnecting = true) {
+  connect() {
     if (
       this.ws?.readyState === WebSocket.OPEN ||
       this.ws?.readyState === WebSocket.CONNECTING
@@ -141,20 +156,28 @@ export class RuntimeClient {
       this.reconnectTimer = null;
     }
     this.closed = false;
-    if (announceConnecting) this.onStatus("connecting");
+    this.onStatus("connecting");
     try {
-      this.ws = new WebSocket(RUNTIME_URL);
+      const socket = new WebSocket(RUNTIME_URL);
+      this.ws = socket;
+      this.connectTimer = window.setTimeout(() => {
+        if (this.ws === socket && socket.readyState === WebSocket.CONNECTING) {
+          socket.close();
+        }
+      }, 8_000);
     } catch {
       this.ws = null;
       this.scheduleReconnect();
       return;
     }
-    this.ws.onopen = () => {
+    const socket = this.ws;
+    socket.onopen = () => {
+      this.clearConnectTimer();
       this.reconnectDelayMs = 1000;
       this.onStatus("connected");
       for (const msg of this.queue.splice(0)) this.send(msg);
     };
-    this.ws.onmessage = (e) => {
+    socket.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data) as ServerMessage;
         for (const l of this.listeners) l(msg);
@@ -162,25 +185,29 @@ export class RuntimeClient {
         // ignore
       }
     };
-    this.ws.onclose = () => {
-      this.ws = null;
-      this.onStatus("disconnected");
+    socket.onclose = () => {
+      this.clearConnectTimer();
+      if (this.ws === socket) this.ws = null;
+      if (this.closed) return;
       this.scheduleReconnect();
     };
-    this.ws.onerror = () => this.ws?.close();
+    socket.onerror = () => socket.close();
+  }
+
+  private clearConnectTimer() {
+    if (this.connectTimer === null) return;
+    window.clearTimeout(this.connectTimer);
+    this.connectTimer = null;
   }
 
   private scheduleReconnect() {
     if (this.closed || this.reconnectTimer !== null) return;
-    this.onStatus("disconnected");
+    this.onStatus("connecting");
     const delay = this.reconnectDelayMs;
     this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 5000);
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
-      // Keep the visible state stable while retrying. The previous loop
-      // alternated disconnected and connecting on every retry, which made a
-      // stopped local runtime look like an intermittent connection.
-      this.connect(false);
+      this.connect();
     }, delay);
   }
 
@@ -199,6 +226,7 @@ export class RuntimeClient {
 
   destroy() {
     this.closed = true;
+    this.clearConnectTimer();
     if (this.reconnectTimer !== null) {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -242,13 +270,15 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
             : undefined;
         toast(msg.notice.title, {
           description: msg.notice.detail,
-          duration: 60_000,
+          duration: 10_000,
           action: route
             ? {
                 label:
                   msg.notice.kind === "run-started"
                     ? "View run"
-                    : "View results",
+                    : msg.notice.kind === "setup-required"
+                      ? "Complete setup"
+                      : "View results",
                 onClick: () => navigateApp(route),
               }
             : undefined,
@@ -268,7 +298,10 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     [client, status, agents],
   );
   return (
-    <RuntimeContext.Provider value={value}>{children}</RuntimeContext.Provider>
+    <RuntimeContext.Provider value={value}>
+      <LocalIntegrationReconciler />
+      <WorkspaceDataProvider>{children}</WorkspaceDataProvider>
+    </RuntimeContext.Provider>
   );
 }
 
@@ -424,9 +457,13 @@ function readOnboardingJobs(workspaceId: string) {
   return legacy;
 }
 
-export function useWorkspaceData(workspaceId: string | null) {
+function useWorkspaceDataSource(workspaceId: string | null) {
   const { client, status } = useRuntime();
-  const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const {
+    cloudOrganizationId,
+    capability,
+    error: capabilityError,
+  } = useWorkspaceCapability();
   // Loading means "no data has ever resolved for this workspace". The cache
   // spans mounts, so navigating back to a page shows the last data at once
   // and revalidates in place instead of flashing empty or placeholder frames.
@@ -438,7 +475,23 @@ export function useWorkspaceData(workspaceId: string | null) {
   const [loading, setLoading] = useState(
     () => !(workspaceId && workspaceDataCache.has(workspaceId)),
   );
+  const [now, setNow] = useState(() => Date.now());
   const dataWorkspaceRef = useRef<string | null>(workspaceId);
+
+  useEffect(() => {
+    const updateClock = () => setNow(Date.now());
+    const clockInterval = window.setInterval(updateClock, 5_000);
+    const updateWhenVisible = () => {
+      if (document.visibilityState === "visible") updateClock();
+    };
+    window.addEventListener("focus", updateClock);
+    document.addEventListener("visibilitychange", updateWhenVisible);
+    return () => {
+      window.clearInterval(clockInterval);
+      window.removeEventListener("focus", updateClock);
+      document.removeEventListener("visibilitychange", updateWhenVisible);
+    };
+  }, []);
 
   useEffect(() => {
     if (dataWorkspaceRef.current !== workspaceId) {
@@ -482,11 +535,21 @@ export function useWorkspaceData(workspaceId: string | null) {
         window.localStorage.removeItem(onboardingJobsStorageKey(workspaceId));
       }
     });
-    client.send({
-      type: "listWorkspaceData",
-      workspaceId,
-      executorCapability: capability,
-    });
+    const refresh = () => {
+      client.send({
+        type: "listWorkspaceData",
+        workspaceId,
+        executorCapability: capability,
+      });
+    };
+    refresh();
+    const refreshInterval = window.setInterval(refresh, 15_000);
+    const refreshOnFocus = () => refresh();
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     const pendingJobs = readOnboardingJobs(workspaceId);
     if (pendingJobs) {
       try {
@@ -494,13 +557,16 @@ export function useWorkspaceData(workspaceId: string | null) {
           jobs: OnboardingWorkJob[];
           schedules?: OnboardingSchedule[];
           workspaceContext?: string;
+          driver?: DriverType;
         };
         client.send({
           type: "bootstrapOnboardingWork",
           workspaceId,
+          requestId: crypto.randomUUID(),
           jobs: pending.jobs,
           schedules: pending.schedules ?? [],
           workspaceContext: pending.workspaceContext,
+          driver: pending.driver,
           executorCapability: capability,
         });
       } catch {
@@ -508,9 +574,23 @@ export function useWorkspaceData(workspaceId: string | null) {
       }
     }
     return () => {
+      window.clearInterval(refreshInterval);
+      window.removeEventListener("focus", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
       unsubscribe();
     };
   }, [capability, client, cloudOrganizationId, status, workspaceId]);
+
+  const liveData = useMemo(
+    () => ({
+      ...data,
+      recurringWork: data.recurringWork.map((work) => ({
+        ...work,
+        upcomingRuns: work.upcomingRuns?.filter((timestamp) => timestamp > now),
+      })),
+    }),
+    [data, now],
+  );
 
   const saveCampaign = (campaign: CampaignRecord) => {
     if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
@@ -535,30 +615,69 @@ export function useWorkspaceData(workspaceId: string | null) {
     });
   };
 
-  const bootstrapOnboardingWork = (
-    jobs: OnboardingWorkJob[],
-    schedules: OnboardingSchedule[],
-    workspaceContext?: string,
-  ) => {
-    if (workspaceId) {
-      window.localStorage.setItem(
-        onboardingJobsStorageKey(workspaceId),
-        JSON.stringify({ jobs, schedules, workspaceContext }),
-      );
-    }
-    if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
-      return false;
-    }
-    client.send({
-      type: "bootstrapOnboardingWork",
-      workspaceId,
-      jobs,
-      schedules,
-      workspaceContext,
-      executorCapability: capability,
-    });
-    return true;
-  };
+  const bootstrapOnboardingWork = useCallback(
+    (
+      jobs: OnboardingWorkJob[],
+      schedules: OnboardingSchedule[],
+      workspaceContext?: string,
+      driver?: DriverType,
+    ) => {
+      if (workspaceId) {
+        window.localStorage.setItem(
+          onboardingJobsStorageKey(workspaceId),
+          JSON.stringify({ jobs, schedules, workspaceContext, driver }),
+        );
+      }
+      if (
+        !workspaceId ||
+        workspaceId !== cloudOrganizationId ||
+        !capability ||
+        status !== "connected"
+      ) {
+        return Promise.resolve(false);
+      }
+      const requestId = crypto.randomUUID();
+      return new Promise<boolean>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          unsubscribe();
+          reject(new Error("Chief could not finish preparing this workspace."));
+        }, 20_000);
+        const unsubscribe = client.subscribe((message) => {
+          const acknowledgedRequestId = (message as { requestId?: string })
+            .requestId;
+          if (
+            message.type === "onboardingWorkBootstrapped" &&
+            message.workspaceId === workspaceId &&
+            // Runtime updates are installed independently from the webview.
+            // Accept the pre-acknowledgement protocol once so an older healthy
+            // runtime can finish the idempotent write while the supervisor
+            // replaces it with the current bundle.
+            (!acknowledgedRequestId || acknowledgedRequestId === requestId)
+          ) {
+            window.clearTimeout(timeout);
+            unsubscribe();
+            resolve(true);
+          }
+          if (message.type === "error" && message.requestId === requestId) {
+            window.clearTimeout(timeout);
+            unsubscribe();
+            reject(new Error(message.message));
+          }
+        });
+        client.send({
+          type: "bootstrapOnboardingWork",
+          workspaceId,
+          requestId,
+          jobs,
+          schedules,
+          workspaceContext,
+          driver,
+          executorCapability: capability,
+        });
+      });
+    },
+    [capability, client, cloudOrganizationId, status, workspaceId],
+  );
 
   const saveRecurringWork = (work: RecurringWorkRecord) => {
     if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
@@ -679,8 +798,14 @@ export function useWorkspaceData(workspaceId: string | null) {
   };
 
   return {
-    ...data,
+    ...liveData,
     loading,
+    now,
+    onboardingBootstrapReady:
+      status === "connected" &&
+      Boolean(capability) &&
+      workspaceId === cloudOrganizationId,
+    onboardingBootstrapError: capabilityError,
     bootstrapOnboardingWork,
     saveCampaign,
     saveRecurringWork,
@@ -690,6 +815,359 @@ export function useWorkspaceData(workspaceId: string | null) {
     dismissAttentionItem,
     expandRecurringWorkGrant,
   };
+}
+
+type WorkspaceDataContextValue = ReturnType<typeof useWorkspaceDataSource>;
+
+const WorkspaceDataContext = createContext<WorkspaceDataContextValue | null>(
+  null,
+);
+
+function WorkspaceDataProvider({ children }: { children: ReactNode }) {
+  const { cloudOrganizationId } = useAuth();
+  const value = useWorkspaceDataSource(cloudOrganizationId);
+  return (
+    <WorkspaceDataContext.Provider value={value}>
+      {children}
+    </WorkspaceDataContext.Provider>
+  );
+}
+
+export function useWorkspaceData(workspaceId: string | null) {
+  const value = useContext(WorkspaceDataContext);
+  if (!value) {
+    throw new Error("useWorkspaceData must be used inside RuntimeProvider");
+  }
+  // Consumers still pass the active workspace id for a narrow, explicit API.
+  // The provider owns the subscription so route changes never create a second
+  // listener or briefly replace live data with an empty page.
+  void workspaceId;
+  return value;
+}
+
+const workspaceFilesCache = new Map<string, WorkspaceFileRecord[]>();
+const workspaceFileCache = new Map<string, WorkspaceFileSnapshot>();
+
+function workspaceFileCacheKey(workspaceId: string, fileId: string) {
+  return `${workspaceId}\0${fileId}`;
+}
+
+export function useWorkspaceFiles(workspaceId: string | null) {
+  const { client, status } = useRuntime();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const [state, setState] = useState<{
+    workspaceId: string | null;
+    files: WorkspaceFileRecord[];
+    loaded: boolean;
+  }>(() => {
+    const cached = workspaceId
+      ? workspaceFilesCache.get(workspaceId)
+      : undefined;
+    return {
+      workspaceId,
+      files: cached ?? [],
+      loaded: Boolean(cached),
+    };
+  });
+  const cached = workspaceId ? workspaceFilesCache.get(workspaceId) : undefined;
+  const active =
+    state.workspaceId === workspaceId
+      ? state
+      : {
+          workspaceId,
+          files: cached ?? [],
+          loaded: Boolean(cached),
+        };
+
+  useEffect(() => {
+    if (
+      !workspaceId ||
+      workspaceId !== cloudOrganizationId ||
+      !capability ||
+      status !== "connected"
+    ) {
+      return;
+    }
+    const unsubscribe = client.subscribe((message) => {
+      if (
+        message.type === "workspaceFiles" &&
+        message.workspaceId === workspaceId
+      ) {
+        workspaceFilesCache.set(workspaceId, message.files);
+        setState({ workspaceId, files: message.files, loaded: true });
+      }
+    });
+    client.send({
+      type: "listWorkspaceFiles",
+      workspaceId,
+      executorCapability: capability,
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [capability, client, cloudOrganizationId, status, workspaceId]);
+
+  return {
+    files: active.files,
+    loading: Boolean(workspaceId && !active.loaded),
+  };
+}
+
+export function useWorkspaceFile(
+  workspaceId: string | null,
+  fileId: string | null,
+) {
+  const { client, status } = useRuntime();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const key =
+    workspaceId && fileId ? workspaceFileCacheKey(workspaceId, fileId) : null;
+  interface WorkspaceFileState {
+    key: string | null;
+    file: WorkspaceFileSnapshot | null;
+    loading: boolean;
+    saving: boolean;
+    error: string | null;
+  }
+  const [state, setState] = useState<WorkspaceFileState>(() => {
+    const cached = key ? workspaceFileCache.get(key) : undefined;
+    return {
+      key,
+      file: cached ?? null,
+      loading: Boolean(key && !cached),
+      saving: false,
+      error: null,
+    };
+  });
+  const cached = key ? workspaceFileCache.get(key) : undefined;
+  const active: WorkspaceFileState =
+    state.key === key
+      ? state
+      : {
+          key,
+          file: cached ?? null,
+          loading: Boolean(key && !cached),
+          saving: false,
+          error: null,
+        };
+  const pendingRequestRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (
+      !workspaceId ||
+      !fileId ||
+      workspaceId !== cloudOrganizationId ||
+      !capability ||
+      status !== "connected"
+    ) {
+      return;
+    }
+    const requestId = crypto.randomUUID();
+    pendingRequestRef.current = requestId;
+    const unsubscribe = client.subscribe((message) => {
+      if (
+        (message.type === "workspaceFile" ||
+          message.type === "workspaceFileSaved") &&
+        message.workspaceId === workspaceId &&
+        message.file.id === fileId
+      ) {
+        const cacheKey = workspaceFileCacheKey(workspaceId, fileId);
+        workspaceFileCache.set(cacheKey, message.file);
+        setState({
+          key: cacheKey,
+          file: message.file,
+          loading: false,
+          saving: false,
+          error: null,
+        });
+      }
+      if (
+        message.type === "error" &&
+        message.requestId &&
+        message.requestId === pendingRequestRef.current
+      ) {
+        const latestCached = key ? workspaceFileCache.get(key) : undefined;
+        setState((current) => ({
+          ...(current.key === key
+            ? current
+            : {
+                key,
+                file: latestCached ?? null,
+                loading: false,
+                saving: false,
+                error: null,
+              }),
+          key,
+          saving: false,
+          loading: false,
+          error:
+            message.message === "FILE_VERSION_CONFLICT"
+              ? "This file changed since you opened it. Reload before saving your edits."
+              : message.message,
+        }));
+      }
+    });
+    client.send({
+      type: "getWorkspaceFile",
+      workspaceId,
+      fileId,
+      requestId,
+      executorCapability: capability,
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [
+    capability,
+    client,
+    cloudOrganizationId,
+    fileId,
+    key,
+    status,
+    workspaceId,
+  ]);
+
+  const save = (content: string, name?: string) => {
+    if (
+      !workspaceId ||
+      !active.file ||
+      workspaceId !== cloudOrganizationId ||
+      !capability
+    ) {
+      return;
+    }
+    const requestId = crypto.randomUUID();
+    pendingRequestRef.current = requestId;
+    setState({ ...active, key, saving: true, error: null });
+    const requestedName = name?.trim();
+    const nextName =
+      requestedName && requestedName.length > 0
+        ? requestedName
+        : active.file.name;
+    client.send({
+      type: "saveWorkspaceFile",
+      workspaceId,
+      requestId,
+      file: {
+        id: active.file.id,
+        name: nextName,
+        path: active.file.path,
+        mimeType: active.file.mimeType,
+        kind: active.file.kind,
+        content,
+        expectedVersionId: active.file.currentVersionId,
+        createdBy: "user",
+        sourceAgentId: active.file.sourceAgentId,
+        sourceRunId: active.file.sourceRunId,
+      },
+      executorCapability: capability,
+    });
+  };
+
+  return { ...active, save };
+}
+
+interface EmailPreview {
+  html: string;
+  text: string;
+  versionId: string;
+}
+
+const emailPreviewCache = new Map<string, EmailPreview>();
+
+export function useWorkspaceEmailPreview(
+  workspaceId: string | null,
+  file: WorkspaceFileSnapshot | null,
+) {
+  const { client, status } = useRuntime();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const cacheKey =
+    workspaceId && file
+      ? `${workspaceId}\0${file.id}\0${file.currentVersionId}`
+      : null;
+  interface EmailPreviewState {
+    key: string | null;
+    preview: EmailPreview | null;
+    loading: boolean;
+    error: string | null;
+  }
+  const [state, setState] = useState<EmailPreviewState>(() => {
+    const cached = cacheKey ? emailPreviewCache.get(cacheKey) : undefined;
+    return {
+      key: cacheKey,
+      preview: cached ?? null,
+      loading: Boolean(cacheKey && !cached),
+      error: null,
+    };
+  });
+  const cached = cacheKey ? emailPreviewCache.get(cacheKey) : undefined;
+  const active: EmailPreviewState =
+    state.key === cacheKey
+      ? state
+      : {
+          key: cacheKey,
+          preview: cached ?? null,
+          loading: Boolean(cacheKey && !cached),
+          error: null,
+        };
+
+  useEffect(() => {
+    const nextKey =
+      workspaceId && file
+        ? `${workspaceId}\0${file.id}\0${file.currentVersionId}`
+        : null;
+    const previewCached = nextKey ? emailPreviewCache.get(nextKey) : undefined;
+    if (
+      !nextKey ||
+      !workspaceId ||
+      file?.kind !== "email" ||
+      workspaceId !== cloudOrganizationId ||
+      !capability ||
+      status !== "connected" ||
+      previewCached
+    ) {
+      return;
+    }
+    const requestId = crypto.randomUUID();
+    const unsubscribe = client.subscribe((message) => {
+      if (
+        message.type === "workspaceEmailPreview" &&
+        message.requestId === requestId
+      ) {
+        const next = {
+          html: message.html,
+          text: message.text,
+          versionId: message.versionId,
+        };
+        emailPreviewCache.set(nextKey, next);
+        setState({
+          key: nextKey,
+          preview: next,
+          loading: false,
+          error: null,
+        });
+      }
+      if (message.type === "error" && message.requestId === requestId) {
+        setState({
+          key: nextKey,
+          preview: null,
+          loading: false,
+          error: message.message,
+        });
+      }
+    });
+    client.send({
+      type: "renderWorkspaceEmail",
+      workspaceId,
+      fileId: file.id,
+      requestId,
+      executorCapability: capability,
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [capability, client, cloudOrganizationId, file, status, workspaceId]);
+
+  return active;
 }
 
 const preferencesCache = new Map<string, AgentPreference[]>();
@@ -819,6 +1297,184 @@ export function useStoredInputs(keys: string[] | null) {
   };
 
   return { present, store };
+}
+
+export function useWorkspaceEnvironmentVariables() {
+  const { client, status } = useRuntime();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const [requestAttempt, setRequestAttempt] = useState(0);
+  const [variableState, setVariableState] = useState<{
+    workspaceId: string;
+    variables: WorkspaceEnvironmentVariable[];
+  } | null>(null);
+  const [errorState, setErrorState] = useState<{
+    workspaceId: string;
+    message: string;
+  } | null>(null);
+  const variables =
+    variableState?.workspaceId === cloudOrganizationId
+      ? variableState.variables
+      : null;
+  const error =
+    errorState?.workspaceId === cloudOrganizationId ? errorState.message : null;
+
+  useEffect(() => {
+    if (status !== "connected" || !cloudOrganizationId || !capability) {
+      return;
+    }
+    let resolved = false;
+    const unsubscribe = client.subscribe((message) => {
+      if (
+        message.type === "workspaceEnvironmentVariables" &&
+        message.workspaceId === cloudOrganizationId
+      ) {
+        resolved = true;
+        setVariableState({
+          workspaceId: message.workspaceId,
+          variables: message.variables,
+        });
+        setErrorState(null);
+      }
+    });
+    const requestVariables = () => {
+      client.send({
+        type: "listWorkspaceEnvironmentVariables",
+        workspaceId: cloudOrganizationId,
+        executorCapability: capability,
+      });
+    };
+    requestVariables();
+    const retryTimer = window.setTimeout(() => {
+      if (!resolved) requestVariables();
+    }, 1_500);
+    const timeoutTimer = window.setTimeout(() => {
+      if (resolved) return;
+      setErrorState({
+        workspaceId: cloudOrganizationId,
+        message: "Chief could not reach the local credential vault.",
+      });
+    }, 6_000);
+    return () => {
+      window.clearTimeout(retryTimer);
+      window.clearTimeout(timeoutTimer);
+      unsubscribe();
+    };
+  }, [capability, client, cloudOrganizationId, requestAttempt, status]);
+
+  const save = (key: string, value: string) => {
+    if (!cloudOrganizationId || !capability) return;
+    client.send({
+      type: "saveWorkspaceEnvironmentVariable",
+      workspaceId: cloudOrganizationId,
+      key,
+      value,
+      executorCapability: capability,
+    });
+  };
+
+  const remove = (key: string) => {
+    if (!cloudOrganizationId || !capability) return;
+    client.send({
+      type: "deleteWorkspaceEnvironmentVariable",
+      workspaceId: cloudOrganizationId,
+      key,
+      executorCapability: capability,
+    });
+  };
+
+  const refresh = () => {
+    setErrorState(null);
+    setRequestAttempt((attempt) => attempt + 1);
+  };
+
+  return {
+    variables,
+    error,
+    refresh,
+    save,
+    remove,
+    connected: status === "connected",
+  };
+}
+
+export function useLocalIntegrationStatus() {
+  const { client, status } = useRuntime();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const [integrationState, setIntegrationState] = useState<{
+    workspaceId: string;
+    integrations: LocalIntegrationStatus[];
+  } | null>(null);
+  const integrations =
+    integrationState?.workspaceId === cloudOrganizationId
+      ? integrationState.integrations
+      : null;
+
+  useEffect(() => {
+    if (status !== "connected" || !cloudOrganizationId || !capability) {
+      return;
+    }
+    const unsubscribe = client.subscribe((message) => {
+      if (
+        message.type === "localIntegrationStatus" &&
+        message.workspaceId === cloudOrganizationId
+      ) {
+        setIntegrationState({
+          workspaceId: message.workspaceId,
+          integrations: message.integrations,
+        });
+      }
+    });
+    client.send({
+      type: "inspectWorkspaceIntegrations",
+      workspaceId: cloudOrganizationId,
+      executorCapability: capability,
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [capability, client, cloudOrganizationId, status]);
+
+  const refresh = () => {
+    if (!cloudOrganizationId || !capability) return;
+    client.send({
+      type: "inspectWorkspaceIntegrations",
+      workspaceId: cloudOrganizationId,
+      executorCapability: capability,
+    });
+  };
+
+  return { integrations, refresh };
+}
+
+function LocalIntegrationReconciler() {
+  const { integrations } = useLocalIntegrationStatus();
+  const saveGoogleAnalyticsProperty = useMutation(
+    api.googleAnalytics.saveProperty,
+  );
+  const reconciled = useRef(new Set<string>());
+
+  useEffect(() => {
+    const googleAnalytics = integrations?.find(
+      (integration) =>
+        integration.provider === "google-analytics" &&
+        integration.status === "connected" &&
+        integration.externalId,
+    );
+    if (!googleAnalytics?.externalId) return;
+    const key = `${googleAnalytics.externalId}:${googleAnalytics.displayName ?? ""}`;
+    if (reconciled.current.has(key)) return;
+    reconciled.current.add(key);
+    void saveGoogleAnalyticsProperty({
+      propertyId: googleAnalytics.externalId,
+      ...(googleAnalytics.displayName
+        ? { propertyName: googleAnalytics.displayName }
+        : {}),
+    }).catch(() => {
+      reconciled.current.delete(key);
+    });
+  }, [integrations, saveGoogleAnalyticsProperty]);
+
+  return null;
 }
 
 // ---- Chat state ----
@@ -1093,6 +1749,7 @@ export function useAgentChat(
   capabilities?: import("@chief/agent-runtime/types").AgentCapabilityId[],
   integrations?: string[],
   observeOnly = false,
+  observedRecurringWorkId?: string,
 ) {
   const { client, status: runtimeStatus } = useRuntime();
   const {
@@ -1102,7 +1759,10 @@ export function useAgentChat(
   } = useWorkspaceCapability();
   const capabilityKey = capabilities?.join("\0") ?? "";
   const integrationKey = integrations?.join("\0") ?? "";
-  const chatId = agentId ? (chatIdOverride ?? `${agentId}-main`) : null;
+  const chatId = agentId
+    ? (chatIdOverride ??
+      `${cloudOrganizationId ?? "no-workspace"}:${agentId}-main`)
+    : null;
   const [chat, setChat] = useState<ChatState>(emptyChat);
   // True once the runtime has confirmed the session (history replayed).
   // Callers that auto-send a first prompt must wait for this, or the prompt
@@ -1228,7 +1888,20 @@ export function useAgentChat(
     request: InputRequest,
     values: Record<string, string>,
   ) => {
-    if (chatId) client.send({ type: "provideInput", chatId, request, values });
+    if (chatId)
+      client.send({
+        type: "provideInput",
+        chatId,
+        request,
+        values,
+        ...(observeOnly && cloudOrganizationId && executorCapability
+          ? {
+              workspaceId: cloudOrganizationId,
+              executorCapability,
+              recurringWorkId: observedRecurringWorkId,
+            }
+          : {}),
+      });
   };
 
   return {

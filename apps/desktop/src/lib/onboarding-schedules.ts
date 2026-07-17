@@ -1,8 +1,6 @@
-import type {
-  OnboardingSchedule,
-  OnboardingWorkJob,
-} from "@chief/agent-runtime/types";
+import type { OnboardingSchedule } from "@chief/agent-runtime/types";
 
+import { onboardingScopedId } from "./onboarding-ids";
 import { getPlaybook, playbookInstructions } from "./playbooks";
 
 export interface StarterScheduleItem {
@@ -77,6 +75,7 @@ function timeLabel(value: string) {
 
 export function buildOnboardingSchedules(
   automation: StarterSchedulePlan,
+  workspaceId: string,
 ): OnboardingSchedule[] {
   if (automation.mode === "manual") return [];
   return automation.plan
@@ -84,7 +83,7 @@ export function buildOnboardingSchedules(
     .map((item) => {
       const playbook = getPlaybook(item.playbookId);
       return {
-        id: `onboarding-${item.playbookId}`,
+        id: onboardingScopedId(workspaceId, item.playbookId),
         playbookId: item.playbookId,
         agentId: item.agentId,
         title: item.title,
@@ -101,43 +100,6 @@ export function buildOnboardingSchedules(
         proposedToolPatterns: toolPatterns(item.playbookId),
       };
     });
-}
-
-export function buildScheduleProvisioningJob(
-  automation: StarterSchedulePlan,
-): OnboardingWorkJob | null {
-  if (automation.mode !== "automatic") return null;
-  const schedules = buildOnboardingSchedules(automation);
-  if (schedules.length === 0) return null;
-  const scheduleInstructions = schedules
-    .map((schedule) =>
-      [
-        `## ${schedule.title}`,
-        `Schedule id: ${schedule.id}`,
-        `Playbook id: ${schedule.playbookId}`,
-        `Owner: ${schedule.agentId}`,
-        `Schedule: ${schedule.cron} in ${schedule.timezone}`,
-        schedule.instructions,
-      ].join("\n\n"),
-    )
-    .join("\n\n");
-  return {
-    id: "onboarding-starter-automations",
-    agentId: "cmo",
-    title: "Prepare starter schedules",
-    runAt: Date.now() + 1_000,
-    timezone: automation.timezone,
-    proposedToolPatterns: [
-      "tools.search",
-      "tools.chief-local.org.localworkspace.localTools.recurringWorkPropose",
-    ],
-    instructions: [
-      "Finish preparing the recurring schedules the user activated during onboarding.",
-      "The selected schedules already exist in Schedule. Check them first, then update each one using its exact Schedule id below instead of creating another record. Call recurringWorkPropose with activate: true, the matching playbookId, every existing schedule field, and only the narrow read and save tool paths that run needs. Preserve its cadence, timezone, owner, and instructions.",
-      "Scheduling authority does not approve publishing, outreach, spend changes, or other external mutations.",
-      scheduleInstructions,
-    ].join("\n\n"),
-  };
 }
 
 export function onboardingSchedulePlanFromMetadata(

@@ -1,5 +1,5 @@
 import { Bell } from "lucide-react";
-import { NavLink, Outlet } from "react-router";
+import { NavLink, Outlet, useLocation } from "react-router";
 
 import {
   Tooltip,
@@ -63,11 +63,24 @@ function HistoryButton() {
 }
 
 export function Layout() {
+  const location = useLocation();
+  const overview = location.pathname === "/";
+
   return (
     <TooltipProvider>
-      <div className="bg-background text-foreground min-h-screen">
+      <div
+        className={cn(
+          "bg-background text-foreground",
+          overview ? "h-screen overflow-hidden" : "min-h-screen",
+        )}
+      >
         <Sidebar />
-        <div className="ml-[70px] flex min-h-screen flex-col">
+        <div
+          className={cn(
+            "ml-[70px] flex flex-col",
+            overview ? "h-screen overflow-hidden" : "min-h-screen",
+          )}
+        >
           {/* The controls sit above the drag strip so the rest of the header
               remains available as a native window drag target. */}
           <header className="relative h-12 shrink-0">
@@ -77,7 +90,12 @@ export function Layout() {
               <ConnectionDot />
             </div>
           </header>
-          <main className="flex-1 px-8 pb-8">
+          <main
+            className={cn(
+              "flex-1 px-8 pb-8",
+              overview && "chief-overview-layout-main min-h-0 overflow-hidden",
+            )}
+          >
             <Outlet />
           </main>
         </div>

@@ -1,6 +1,7 @@
 import {
   CalendarClock,
   ChartLine,
+  Files,
   Flame,
   LayoutGrid,
   Megaphone,
@@ -25,6 +26,7 @@ import { WorkspaceSwitcher } from "./workspace-switcher";
 const items = [
   { to: "/", label: "Overview", icon: LayoutGrid },
   { to: "/conversations", label: "Conversations", icon: MessagesSquare },
+  { to: "/files", label: "Files", icon: Files },
   { to: "/agents", label: "Agents", icon: Network },
   { to: "/schedule", label: "Schedule", icon: CalendarClock },
   { to: "/analytics", label: "Analytics", icon: ChartLine },

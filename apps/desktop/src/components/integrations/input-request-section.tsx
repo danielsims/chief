@@ -36,6 +36,9 @@ export function InputRequestSection({
   onSubmit: (request: InputRequest, values: Record<string, string>) => void;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
+  const savesWorkspaceContext = request.fields.some(
+    (field) => "contextKey" in field.save,
+  );
 
   const ready = request.fields.every((field) =>
     (values[field.key] ?? "").trim(),
@@ -56,7 +59,9 @@ export function InputRequestSection({
     <div className="bg-card border p-5">
       <p className="text-xs text-blue-400">
         <CircleAlert size={13} className="mr-1.5 inline-block align-[-2px]" />
-        Setup is paused until you finish this
+        {savesWorkspaceContext
+          ? "Your agent needs an answer to continue"
+          : "Setup needs your input to continue"}
       </p>
       <p className="mt-3 font-serif text-xl">{request.title}</p>
       {request.reason ? (
@@ -127,7 +132,9 @@ export function InputRequestSection({
       </div>
       <div className="mt-3 flex items-center justify-between gap-3">
         <p className="text-muted-foreground text-xs">
-          Stored on this Mac only.
+          {savesWorkspaceContext
+            ? "Saved to this workspace."
+            : "Stored on this Mac only."}
         </p>
         <Button type="button" size="sm" disabled={!ready} onClick={submit}>
           Save and continue
