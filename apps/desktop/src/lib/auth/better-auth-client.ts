@@ -5,6 +5,7 @@ import { createAuthClient } from "better-auth/react";
 
 import type { StoredSession } from "./session";
 import { AUTH_BASE_URL } from "../config";
+import { fetchWithTimeout } from "../fetch-with-timeout";
 import { getStoredSession, setStoredSession } from "./session";
 
 export { AUTH_BASE_URL } from "../config";
@@ -79,9 +80,11 @@ export async function validateStoredSession(
 ): Promise<SessionValidationResult> {
   try {
     const fetcher = isTauri() ? tauriFetch : fetch;
-    const response = await fetcher(`${AUTH_BASE_URL!}/api/auth/get-session`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const response = await fetchWithTimeout(
+      fetcher,
+      `${AUTH_BASE_URL!}/api/auth/get-session`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
 
     // 401 means the token was rejected outright.
     if (response.status === 401) return { status: "invalid" };
@@ -169,6 +172,7 @@ function invalidateOrganizationCache() {
 
 export async function listAuthOrganizations(
   force = false,
+  options: { throwOnError?: boolean } = {},
 ): Promise<AuthOrganization[]> {
   // Use direct fetch to the BetterAuth org list endpoint
   // rather than the authClient's organization plugin, which has
@@ -183,41 +187,47 @@ export async function listAuthOrganizations(
   ) {
     return organizationCache.organizations;
   }
-  if (!force && organizationRequest?.token === token) {
-    return organizationRequest.promise;
+  let promise =
+    !force && organizationRequest?.token === token
+      ? organizationRequest.promise
+      : undefined;
+
+  if (!promise) {
+    promise = (async () => {
+      try {
+        const url = `${AUTH_BASE_URL!}/api/auth/organization/list`;
+        const fetcher = isTauri() ? tauriFetch : fetch;
+        const response = await fetchWithTimeout(fetcher, url, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Organization request failed (${response.status})`);
+        }
+
+        const organizations = normalizeOrganizations(await response.json());
+        organizationCache = {
+          token,
+          organizations,
+          cachedAt: Date.now(),
+        };
+        return organizations;
+      } finally {
+        if (organizationRequest?.token === token) {
+          organizationRequest = undefined;
+        }
+      }
+    })();
+    organizationRequest = { token, promise };
   }
 
-  const promise = (async () => {
-    try {
-      const url = `${AUTH_BASE_URL!}/api/auth/organization/list`;
-      const fetcher = isTauri() ? tauriFetch : fetch;
-      const response = await fetcher(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        console.error("[Auth] listOrganizations failed:", response.status);
-        return [];
-      }
-
-      const organizations = normalizeOrganizations(await response.json());
-      organizationCache = {
-        token,
-        organizations,
-        cachedAt: Date.now(),
-      };
-      return organizations;
-    } catch (error) {
-      console.error("[Auth] listOrganizations error:", error);
-      return [];
-    } finally {
-      if (organizationRequest?.token === token) organizationRequest = undefined;
-    }
-  })();
-  organizationRequest = { token, promise };
-  return promise;
+  try {
+    return await promise;
+  } catch (error) {
+    console.error("[Auth] listOrganizations error:", error);
+    if (options.throwOnError) throw error;
+    return [];
+  }
 }
 
 export async function setActiveAuthOrganization(

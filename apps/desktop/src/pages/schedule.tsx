@@ -52,6 +52,7 @@ import { RunReviewDialog } from "../components/run-review-dialog";
 import { useAgentConfig } from "../lib/agent-config";
 import { useAuth } from "../lib/auth/auth-context";
 import { createChat } from "../lib/chat-log";
+import { presentRunText } from "../lib/run-copy";
 import { useAgentChat, useWorkspaceData } from "../lib/runtime";
 
 type ScheduledDraft = ContentDraftRecord;
@@ -125,6 +126,7 @@ function statusClass(status: ScheduledDraft["status"]) {
 }
 
 function DraftChip({ draft }: { draft: ScheduledDraft }) {
+  const navigate = useNavigate();
   const time = draft.scheduledFor
     ? new Date(draft.scheduledFor).toLocaleTimeString([], {
         hour: "numeric",
@@ -132,7 +134,16 @@ function DraftChip({ draft }: { draft: ScheduledDraft }) {
       })
     : "";
   return (
-    <div className="bg-background min-w-0 border px-2 py-1.5 select-none">
+    <button
+      type="button"
+      disabled={!draft.fileId}
+      onClick={(event) => {
+        if (!draft.fileId) return;
+        event.stopPropagation();
+        void navigate(`/files/${encodeURIComponent(draft.fileId)}`);
+      }}
+      className="bg-background hover:bg-accent disabled:hover:bg-background block w-full min-w-0 border px-2 py-1.5 text-left transition-colors select-none"
+    >
       <div className="flex min-w-0 items-center gap-1.5">
         <span className={cn("size-1.5 shrink-0", statusClass(draft.status))} />
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
@@ -140,9 +151,9 @@ function DraftChip({ draft }: { draft: ScheduledDraft }) {
         </span>
       </div>
       <p className="text-muted-foreground mt-1 truncate text-[10px]">
-        {time} · {draft.platform}
+        {time || "Draft"} · {draft.platform}
       </p>
-    </div>
+    </button>
   );
 }
 
@@ -188,7 +199,7 @@ interface PastRunEntry {
   workId: string;
   agentId: string;
   title: string;
-  status: "running" | "completed" | "failed" | "needs_approval";
+  status: "running" | "completed" | "waiting" | "failed" | "needs_approval";
   scheduledFor: number;
   summary?: string;
   blockedTools?: string[];
@@ -245,9 +256,11 @@ function PastRunChip({
               ? "animate-pulse bg-emerald-500"
               : run.status === "completed"
                 ? "bg-muted-foreground"
-                : run.status === "failed"
-                  ? "bg-destructive"
-                  : "bg-amber-400",
+                : run.status === "waiting"
+                  ? "bg-sky-400"
+                  : run.status === "failed"
+                    ? "bg-destructive"
+                    : "bg-amber-400",
           )}
         />
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
@@ -259,9 +272,11 @@ function PastRunChip({
           ? "Running…"
           : run.status === "completed"
             ? "Completed"
-            : run.status === "failed"
-              ? "Failed"
-              : "Needs approval"}
+            : run.status === "waiting"
+              ? "Waiting for setup"
+              : run.status === "failed"
+                ? "Failed"
+                : "Needs approval"}
       </p>
     </div>
   );
@@ -1474,7 +1489,7 @@ function RecurringWorkDetail({
       </div>
       {work.lastResult ? (
         <p className="text-muted-foreground mt-3 line-clamp-3 text-xs leading-5">
-          {work.lastResult}
+          {presentRunText(work.lastResult, "No result was recorded.")}
         </p>
       ) : null}
       <div className="mt-3 flex gap-1.5">
@@ -1687,8 +1702,11 @@ export function SchedulePage() {
   const byDay = useMemo(() => {
     const map = new Map<string, ScheduledDraft[]>();
     for (const draft of workspaceData.drafts) {
-      if (!draft.scheduledFor) continue;
-      const key = dayKey(new Date(draft.scheduledFor));
+      // Drafts are review work even before a publishing time is chosen. Put
+      // them on the day they were prepared, then move them to the scheduled
+      // date once the user approves a concrete slot.
+      const calendarTime = draft.scheduledFor ?? draft.createdAt;
+      const key = dayKey(new Date(calendarTime));
       const items = map.get(key) ?? [];
       items.push(draft);
       map.set(key, items);
@@ -1780,14 +1798,14 @@ export function SchedulePage() {
     send = false,
   ) => {
     const chat = createChat(agentId, title);
-    navigate(
+    void navigate(
       `/conversations?agent=${agentId}&chat=${chat.id}&new=1&${send ? "prompt" : "draft"}=${encodeURIComponent(text)}`,
     );
   };
 
   const openPastRun = (run: PastRunEntry) => {
     if (run.status === "running") {
-      navigate(`/schedule/history?run=${encodeURIComponent(run.id)}`);
+      void navigate(`/schedule/history?run=${encodeURIComponent(run.id)}`);
       return;
     }
     setRunReview({
@@ -1819,7 +1837,7 @@ export function SchedulePage() {
     }
     if (action === "recurring") {
       const chat = createChat("cmo", "Set up recurring work");
-      navigate(
+      void navigate(
         `/conversations?agent=cmo&chat=${chat.id}&new=1&compose=recurring`,
       );
       return;
@@ -1827,7 +1845,7 @@ export function SchedulePage() {
     if (action === "event") {
       const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
       const chat = createChat("cmo", `Event on ${dateText}`);
-      navigate(
+      void navigate(
         `/conversations?agent=cmo&chat=${chat.id}&new=1&compose=oneoff&date=${iso}`,
       );
       return;
@@ -1872,7 +1890,7 @@ export function SchedulePage() {
             size="sm"
             onClick={() => {
               const chat = createChat("cmo", "Set up recurring work");
-              navigate(
+              void navigate(
                 `/conversations?agent=cmo&chat=${chat.id}&new=1&compose=recurring`,
               );
             }}

@@ -1,3 +1,4 @@
+import type { AuthOrganization } from "./auth/better-auth-client";
 import {
   listAuthOrganizations,
   parseOrganizationMetadata,
@@ -18,16 +19,10 @@ function text(value: unknown): string {
  * markdown. Sent with every openSession so agents start primed with who the
  * business is instead of interviewing the user about it.
  */
-export async function buildWorkspaceContext(
-  workspaceId: string | null,
-): Promise<string | undefined> {
-  if (!workspaceId) return undefined;
-  const organizations = await listAuthOrganizations();
-  const org =
-    organizations.find((candidate) => candidate.id === workspaceId) ??
-    organizations[0];
+export function workspaceContextFromOrganization(
+  org: AuthOrganization | null | undefined,
+): string | undefined {
   if (!org) return undefined;
-
   const metadata = parseOrganizationMetadata(org);
   const onboarding = record(metadata.onboarding);
   const goals = record(onboarding.goals);
@@ -122,4 +117,15 @@ export async function buildWorkspaceContext(
   }
 
   return lines.join("\n");
+}
+
+export async function buildWorkspaceContext(
+  workspaceId: string | null,
+): Promise<string | undefined> {
+  if (!workspaceId) return undefined;
+  const organizations = await listAuthOrganizations();
+  const org =
+    organizations.find((candidate) => candidate.id === workspaceId) ??
+    organizations[0];
+  return workspaceContextFromOrganization(org);
 }

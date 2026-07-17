@@ -12,6 +12,8 @@ import type {
   SetupIntegration,
   SetupResult,
 } from "../lib/integration-setup";
+import { Blocks } from "../components/chat/message-blocks";
+import { StreamingMarkdown } from "../components/chat/streaming-markdown";
 import { ConnectionPreview } from "../components/integrations/connection-preview";
 import { IntegrationConnect } from "../components/integrations/integration-connect";
 import { ProviderLogo } from "../components/provider-logo";
@@ -26,6 +28,8 @@ import {
   parseSetupResult,
   persistSetupResult,
   SETUP_RESULT_MARKER,
+  stripSetupResult,
+  withoutMarkerLines,
 } from "../lib/integration-setup";
 import {
   GOOGLE_ANALYTICS_PROVIDER,
@@ -103,6 +107,73 @@ function AnalyticsLoadingState() {
       <div className="bg-card h-[154px] border" />
       <div className="bg-card h-[274px] border" />
       <div className="bg-card h-[348px] border" />
+    </div>
+  );
+}
+
+function AnalyticsReportProgress({
+  chat,
+  sourceName,
+}: {
+  chat: ReturnType<typeof useAgentChat>["chat"];
+  sourceName: string;
+}) {
+  const feedRef = useRef<HTMLDivElement>(null);
+  const currentItems = useMemo(() => {
+    let lastUserIndex = -1;
+    for (let index = chat.items.length - 1; index >= 0; index -= 1) {
+      if (chat.items[index]?.kind === "user") {
+        lastUserIndex = index;
+        break;
+      }
+    }
+    return chat.items
+      .slice(lastUserIndex + 1)
+      .filter((item) => item.kind === "assistant");
+  }, [chat.items]);
+
+  useEffect(() => {
+    feedRef.current?.scrollTo({
+      behavior: "smooth",
+      top: feedRef.current.scrollHeight,
+    });
+  }, [chat.streaming, currentItems.length]);
+
+  return (
+    <div className="bg-card min-h-64 border" aria-busy="true">
+      <header className="border-b px-5 py-4 text-left">
+        <h2 className="chief-shimmer-text font-pixel text-xl">
+          Pulling your first report
+        </h2>
+        <p className="text-muted-foreground mt-1.5 text-xs">
+          Reading {sourceName} through this workspace’s verified connection.
+        </p>
+      </header>
+      <div
+        ref={feedRef}
+        className="max-h-80 min-h-44 space-y-3 overflow-y-auto px-5 py-4"
+        aria-live="polite"
+      >
+        {currentItems.map((item, index) => (
+          <Blocks
+            active={chat.status === "running"}
+            blocks={withoutMarkerLines(item.event.content)}
+            key={index}
+          />
+        ))}
+        {chat.streaming ? (
+          <div className="text-sm leading-6">
+            <StreamingMarkdown streaming>
+              {stripSetupResult(chat.streaming)}
+            </StreamingMarkdown>
+          </div>
+        ) : null}
+        {currentItems.length === 0 && !chat.streaming ? (
+          <p className="text-muted-foreground animate-pulse font-mono text-xs">
+            The Analyst is checking the connection…
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -263,16 +334,12 @@ export function AnalyticsPage() {
 
   const connectedChannels = useQuery(
     api.integrations.listConnected,
-    canUseWorkspaceAnalytics ? {} : "skip",
+    canUseWorkspaceAnalytics ? { category: "analytics" } : "skip",
   );
   const channelsLoading =
     canUseWorkspaceAnalytics && connectedChannels === undefined;
   const productChannels = useMemo(
-    () =>
-      ((connectedChannels ?? []) as AnalyticsChannel[]).filter(
-        (channel) =>
-          channel.category === "analytics" || channel.category === "ads",
-      ),
+    () => (connectedChannels ?? []) as AnalyticsChannel[],
     [connectedChannels],
   );
   const selectedChannel =
@@ -314,7 +381,6 @@ export function AnalyticsPage() {
   const workspaceProvider = agentConfig.forAgent("analyst").driver;
   const visibleDetails =
     selectedDetails ?? providerDetails(preferredIntegration.domain);
-
   const reportChat = useAgentChat(
     selectedChannel ? "analyst" : null,
     workspaceProvider,
@@ -406,7 +472,8 @@ export function AnalyticsPage() {
   }, [finishRefresh, reportChat.chat.error]);
 
   const refresh = useCallback(async () => {
-    if (!selectedChannel || refreshingRef.current) return;
+    if (refreshingRef.current) return;
+    if (!selectedChannel) return;
     refreshingRef.current = true;
     setRefreshing(true);
     setNotice(null);
@@ -756,18 +823,17 @@ export function AnalyticsPage() {
                 aria-busy="true"
                 aria-label="Loading report"
               />
+            ) : refreshing ? (
+              <AnalyticsReportProgress
+                chat={reportChat.chat}
+                sourceName={sourceName}
+              />
             ) : (
               <div className="bg-card flex min-h-64 items-center justify-center border px-6 py-12 text-center">
                 <div className="max-w-sm">
-                  <h2 className="font-serif text-2xl">
-                    {refreshing
-                      ? "Pulling your first report..."
-                      : "No report yet"}
-                  </h2>
+                  <h2 className="font-pixel text-2xl">No report yet</h2>
                   <p className="text-muted-foreground mt-3 text-sm leading-6">
-                    {refreshing
-                      ? `Reading ${sourceName} through the connection on this Mac.`
-                      : "Refresh to pull current analytics from this source."}
+                    Refresh to pull current analytics from this source.
                   </p>
                 </div>
               </div>

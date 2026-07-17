@@ -8,7 +8,7 @@ import type {
   RecurringWorkRunRecord,
   RunResultArtifact,
 } from "@chief/agent-runtime/types";
-import { defaultAgents } from "@chief/agent-runtime/agents";
+import { defaultAgents } from "@chief/agent-runtime/agent-roster";
 import { Button } from "@chief/ui/components/button";
 import {
   Popover,
@@ -22,22 +22,23 @@ import { StreamingMarkdown } from "../components/chat/streaming-markdown";
 import { renderGenerativePart } from "../components/generative-ui/registry";
 import { useAuth } from "../lib/auth/auth-context";
 import { createChat } from "../lib/chat-log";
+import { presentRunText } from "../lib/run-copy";
 import { useWorkspaceData } from "../lib/runtime";
 
 function statusLabel(status: RecurringWorkRunRecord["status"]) {
   if (status === "running") return "Running";
   if (status === "completed") return "Completed";
+  if (status === "waiting") return "Waiting for setup";
   if (status === "failed") return "Failed";
   return "Stopped";
 }
 
 function resultText(run: RecurringWorkRunRecord) {
   if (run.status === "running") return "This work is running now.";
-  return (
-    run.summary?.trim() ||
-    run.error?.trim() ||
-    "No output was recorded."
-  ).replace(/—/g, ". ");
+  return presentRunText(
+    run.summary?.trim() || run.error?.trim(),
+    "No output was recorded.",
+  );
 }
 
 function runTitle(work: RecurringWorkRecord | undefined) {
@@ -88,7 +89,7 @@ function ResultArtifact({ artifact }: { artifact: RunResultArtifact }) {
   return renderGenerativePart(artifact, ["analytics-chart"]);
 }
 
-type RunOutcome = "successful" | "failed";
+type RunOutcome = "successful" | "waiting" | "failed";
 
 function RunHistoryFilters({
   visibleOutcomes,
@@ -108,6 +109,12 @@ function RunHistoryFilters({
       label: "Successful",
       detail: "Completed runs",
       color: "bg-foreground",
+    },
+    {
+      outcome: "waiting",
+      label: "Waiting",
+      detail: "Work that Setup is unblocking",
+      color: "bg-sky-400",
     },
     {
       outcome: "failed",
@@ -236,7 +243,7 @@ export function ResultsPage() {
     null,
   );
   const [visibleOutcomes, setVisibleOutcomes] = useState<Set<RunOutcome>>(
-    () => new Set<RunOutcome>(["successful"]),
+    () => new Set<RunOutcome>(["successful", "waiting", "failed"]),
   );
   const workById = useMemo(
     () => new Map(workspaceData.recurringWork.map((work) => [work.id, work])),
@@ -247,35 +254,21 @@ export function ResultsPage() {
       (a, b) => b.startedAt - a.startedAt,
     );
   }, [workspaceData.recurringWorkRuns]);
-  const runGroups = useMemo(() => {
-    const groups = new Map<
-      string,
-      { run: RecurringWorkRunRecord; attemptCount: number }
-    >();
-    for (const run of allRuns) {
-      const current = groups.get(run.recurringWorkId);
-      if (current) {
-        current.attemptCount += 1;
-      } else {
-        groups.set(run.recurringWorkId, { run, attemptCount: 1 });
-      }
-    }
-    return [...groups.values()].sort(
-      (a, b) => b.run.startedAt - a.run.startedAt,
-    );
-  }, [allRuns]);
-  const visibleRunGroups = useMemo(
+  const visibleRuns = useMemo(
     () =>
-      runGroups.filter(({ run }) => {
+      allRuns.filter((run) => {
         if (run.status === "completed") {
           return visibleOutcomes.has("successful");
         }
         if (run.status === "failed") {
           return visibleOutcomes.has("failed");
         }
+        if (run.status === "waiting") {
+          return visibleOutcomes.has("waiting");
+        }
         return true;
       }),
-    [runGroups, visibleOutcomes],
+    [allRuns, visibleOutcomes],
   );
   const attentionByWorkId = useMemo(
     () =>
@@ -317,11 +310,11 @@ export function ResultsPage() {
       : undefined);
   const selectedRun = selectedStandaloneAttention
     ? undefined
-    : (visibleRunGroups.find(({ run }) => run.id === selectedRunId)?.run ??
+    : (visibleRuns.find((run) => run.id === selectedRunId) ??
       allRuns.find((run) => run.id === requestedRunId) ??
       allRuns.find((run) => run.recurringWorkId === requestedAttentionWorkId) ??
       allRuns.find((run) => run.recurringWorkId === requestedWorkId) ??
-      visibleRunGroups[0]?.run);
+      visibleRuns[0]);
   const selectedWork = selectedRun
     ? workById.get(selectedRun.recurringWorkId)
     : undefined;
@@ -359,7 +352,7 @@ export function ResultsPage() {
         </p>
       </header>
 
-      {runGroups.length > 0 || standaloneAttentionItems.length > 0 ? (
+      {allRuns.length > 0 || standaloneAttentionItems.length > 0 ? (
         <div className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)]">
           <aside className="min-h-0 overflow-y-auto border-r p-4">
             {standaloneAttentionItems.length > 0 ? (
@@ -419,13 +412,11 @@ export function ResultsPage() {
               />
             </div>
             <div className="space-y-1">
-              {visibleRunGroups.map(({ run, attemptCount }) => {
+              {visibleRuns.map((run) => {
                 const work = workById.get(run.recurringWorkId);
                 const active = selectedRun?.id === run.id;
                 const needsAttention =
-                  run.status === "needs_approval" ||
-                  run.status === "failed" ||
-                  attentionByWorkId.has(run.recurringWorkId);
+                  run.status === "needs_approval" || run.status === "failed";
                 const isNew = !viewedRunIds.has(run.id);
                 return (
                   <div
@@ -450,6 +441,7 @@ export function ResultsPage() {
                           run.status === "running" &&
                             "animate-pulse bg-emerald-500",
                           run.status === "completed" && "bg-foreground",
+                          run.status === "waiting" && "bg-sky-400",
                           run.status === "failed" && "bg-destructive",
                           run.status === "needs_approval" && "bg-amber-400",
                         )}
@@ -459,20 +451,15 @@ export function ResultsPage() {
                           {runTitle(work)}
                         </span>
                         <span className="text-muted-foreground mt-1 block text-xs">
-                          {new Date(run.scheduledFor).toLocaleString([], {
+                          {new Date(run.startedAt).toLocaleString([], {
                             month: "short",
                             day: "numeric",
                             hour: "numeric",
                             minute: "2-digit",
+                            second: "2-digit",
                           })}
                           {work ? ` · ${work.agentId}` : ""}
                         </span>
-                        {attemptCount > 1 ? (
-                          <span className="text-muted-foreground/70 mt-1 block text-[10px]">
-                            {attemptCount - 1} earlier{" "}
-                            {attemptCount === 2 ? "attempt" : "attempts"}
-                          </span>
-                        ) : null}
                         {isNew || needsAttention ? (
                           <span className="mt-2 flex flex-wrap gap-1.5">
                             {isNew ? (
@@ -515,9 +502,11 @@ export function ResultsPage() {
                   </div>
                 );
               })}
-              {visibleRunGroups.length === 0 ? (
+              {visibleRuns.length === 0 ? (
                 <p className="text-muted-foreground px-3 py-6 text-xs">
-                  No runs match these filters.
+                  {allRuns.length > 0
+                    ? "No runs match these filters."
+                    : "No agent runs yet."}
                 </p>
               ) : null}
             </div>
@@ -666,13 +655,37 @@ export function ResultsPage() {
                     }}
                   />
                 ) : null}
-                {selectedRun.status === "running" && selectedAgent ? (
-                  <div className="h-[calc(100vh-260px)] min-h-[440px]">
-                    <AgentChat
-                      agent={selectedAgent}
-                      chatId={`automation-run-${selectedRun.id}`}
-                      observeOnly
-                    />
+                {selectedAgent ? (
+                  <div className="space-y-7 py-7">
+                    <div className="h-[calc(100vh-300px)] min-h-[440px] border">
+                      <AgentChat
+                        agent={selectedAgent}
+                        chatId={`automation-run-${selectedRun.id}`}
+                        observeOnly
+                        observedRecurringWorkId={selectedRun.recurringWorkId}
+                        observationLabel={
+                          selectedRun.status === "running"
+                            ? "Scheduled run · live view"
+                            : "Run transcript"
+                        }
+                      />
+                    </div>
+                    {selectedArtifacts.length ? (
+                      <aside
+                        aria-label="Report evidence"
+                        className="min-w-0 space-y-4"
+                      >
+                        <p className="text-muted-foreground text-xs font-medium">
+                          Evidence
+                        </p>
+                        {selectedArtifacts.map((artifact) => (
+                          <ResultArtifact
+                            key={artifact.id}
+                            artifact={artifact}
+                          />
+                        ))}
+                      </aside>
+                    ) : null}
                   </div>
                 ) : (
                   <div

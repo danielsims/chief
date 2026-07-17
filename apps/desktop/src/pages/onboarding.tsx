@@ -20,7 +20,7 @@ import {
 import { Navigate, useNavigate, useSearchParams } from "react-router";
 import { siInstagram, siReddit, siTiktok, siX, siYoutube } from "simple-icons";
 
-import type { DriverType, OnboardingWorkJob } from "@chief/agent-runtime/types";
+import type { DriverType } from "@chief/agent-runtime/types";
 import { api } from "@chief/backend/convex/_generated/api";
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
@@ -56,14 +56,12 @@ import { hasWorkspaceAccess, openWorkspaceCheckout } from "../lib/billing";
 import { connectGoogleAnalytics } from "../lib/google-analytics";
 import { persistSetupResult } from "../lib/integration-setup";
 import { integrationLogoUrl, searchIntegrations } from "../lib/integrations";
-import {
-  buildOnboardingSchedules,
-  buildScheduleProvisioningJob,
-} from "../lib/onboarding-schedules";
+import { buildOnboardingSchedules } from "../lib/onboarding-schedules";
+import { buildOnboardingWorkJobs } from "../lib/onboarding-work";
 import { getPlaybook } from "../lib/playbooks";
 import { useRuntime, useWorkspaceData } from "../lib/runtime";
 import { SOCIAL_PLATFORMS } from "../lib/social-platforms";
-import { buildWorkspaceContext } from "../lib/workspace-context";
+import { workspaceContextFromOrganization } from "../lib/workspace-context";
 
 type AutomationMode = "automatic" | "review" | "manual";
 type AutomationFrequency = "daily" | "weekly";
@@ -297,79 +295,6 @@ function defaultAutomationPlan(): OnboardingAutomationItem[] {
       time: "15:00",
     },
   ];
-}
-
-function onboardingWorkJobs(draft: OnboardingDraft): OnboardingWorkJob[] {
-  const now = Date.now();
-  const jobs: OnboardingWorkJob[] = [];
-  const commonSetupTools = [
-    "tools.search",
-    "tools.executor.coreTools.connections.list",
-    "tools.chief.org.workspace.agentTools.sourcesList",
-    "tools.chief-local.org.localworkspace.localTools.attentionRaise",
-  ];
-
-  if (draft.brand.mode !== "skip") {
-    jobs.push({
-      id: "onboarding-brand-setup",
-      agentId: "setup",
-      title: "Build brand profile",
-      runAt: now + 3_000,
-      timezone: draft.automation.timezone,
-      proposedToolPatterns: [
-        ...commonSetupTools,
-        "tools.chief-local.org.localworkspace.localTools.brandProfileSave",
-      ],
-      attachments: draft.brand.files,
-      instructions: [
-        "Build a practical brand profile for every agent in this workspace.",
-        `Company: ${draft.companyName}`,
-        `Website: ${draft.websiteUrl}`,
-        draft.brand.mode === "research"
-          ? "Research the public website and other first-party public pages. Infer the voice from real copy and clearly label anything uncertain."
-          : "Read the files supplied during onboarding, then use the public website to fill only genuine gaps.",
-        draft.brand.notes ? `User notes: ${draft.brand.notes}` : undefined,
-        "Save a concise Markdown profile with voice principles, vocabulary, claims that are supported, claims to avoid, visual cues, audience, and three representative writing examples. Use brandProfileSave so future agents receive it automatically.",
-        "Work proactively. Ask the user only if a missing fact would make the profile unsafe or materially misleading.",
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
-    });
-  }
-
-  const setupJob = (
-    category: "analytics" | "ads",
-    integrations: IntegrationSearchResult[],
-    delayMs: number,
-  ) => {
-    if (integrations.length === 0) return;
-    const names = integrations.map((item) => item.name).join(", ");
-    jobs.push({
-      id: `onboarding-${category}-setup`,
-      agentId: "setup",
-      title: `Connect ${category} tools`,
-      runAt: now + delayMs,
-      timezone: draft.automation.timezone,
-      proposedToolPatterns: [
-        ...commonSetupTools,
-        "tools.chief-local.org.localworkspace.localTools.googleAnalyticsProperties",
-        "tools.chief-local.org.localworkspace.localTools.googleAnalyticsMetadata",
-        "tools.chief-local.org.localworkspace.localTools.googleAnalyticsRunReport",
-      ],
-      instructions: [
-        `Set up the ${category} integrations selected during onboarding: ${names}.`,
-        `Selected services and domains: ${integrations.map((item) => `${item.name} (${item.domain})`).join(", ")}.`,
-        "Reuse existing connections and machine credentials before asking for anything. Verify each connection with the smallest read-only request available.",
-        "If browser consent, an account choice, or a secret genuinely requires the user, create one clear attention item describing the exact next action. Do not create a chat and do not report a generic failure.",
-      ].join("\n\n"),
-    });
-  };
-  setupJob("analytics", draft.analytics.integrations, 6_000);
-  setupJob("ads", draft.ads.integrations, 9_000);
-
-  const provisioningJob = buildScheduleProvisioningJob(draft.automation);
-  if (provisioningJob) jobs.push(provisioningJob);
-  return jobs;
 }
 
 const monitoringOptions = [
@@ -896,11 +821,16 @@ function loadPendingDraft(): OnboardingDraft {
   return loadStoredDraft(baseDraft(), pendingStorageKey());
 }
 
-function useTypedQuestion(text: string) {
-  const [visible, setVisible] = useState(text);
-  const [complete, setComplete] = useState(true);
+function useTypedQuestion(text: string, active: boolean) {
+  const [visible, setVisible] = useState(() => (active ? "" : text));
+  const [complete, setComplete] = useState(!active);
 
   useEffect(() => {
+    if (!active) {
+      setVisible(text);
+      setComplete(true);
+      return;
+    }
     let index = 0;
     setVisible("");
     setComplete(false);
@@ -913,13 +843,13 @@ function useTypedQuestion(text: string) {
       }
     }, 18);
     return () => window.clearInterval(timer);
-  }, [text]);
+  }, [active, text]);
 
   return { visible, complete };
 }
 
 function AgentBubble({ text, current }: { text: string; current?: boolean }) {
-  const typed = useTypedQuestion(text);
+  const typed = useTypedQuestion(text, Boolean(current));
   return (
     <div className="flex justify-start">
       <div className="text-foreground max-w-[680px] text-[15px] leading-7">
@@ -2007,13 +1937,14 @@ function TimeControl({
         </div>
         <input
           type="range"
+          aria-label="Time available each week"
           min={0}
           max={timeOptions.length - 1}
           value={index}
           onChange={(event) =>
             setGoals({ timeBudget: timeOptions[Number(event.target.value)] })
           }
-          className="bg-border [&::-webkit-slider-runnable-track]:bg-border mt-6 h-1 w-full cursor-pointer appearance-none accent-white [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-thumb]:-mt-1 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-white"
+          className="[&::-moz-range-track]:bg-border [&::-webkit-slider-runnable-track]:bg-border mt-3 h-9 w-full cursor-pointer appearance-none bg-transparent accent-white focus-visible:outline-none [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-moz-range-track]:h-1 [&::-moz-range-track]:rounded-full [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-thumb]:-mt-2 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
         />
         <div className="text-muted-foreground mt-4 flex justify-between text-xs">
           <span>Less</span>
@@ -2122,7 +2053,7 @@ function AutomationControl({
               time
             </span>
           </div>
-          <div className="bg-background divide-y border">
+          <div className="bg-background max-h-[360px] divide-y overflow-y-auto border">
             {draft.automation.plan.map((item) => {
               const playbook = getPlaybook(item.playbookId);
               return (
@@ -2385,7 +2316,7 @@ function IntegrationCard({
       type="button"
       onClick={onClick}
       className={cn(
-        "bg-background hover:border-foreground flex min-h-[100px] items-start gap-3 border p-4 text-left transition-colors",
+        "bg-background hover:border-foreground flex h-[100px] items-start gap-3 overflow-hidden border p-4 text-left transition-colors",
         selected && "border-foreground bg-muted",
       )}
     >
@@ -2517,7 +2448,7 @@ function IntegrationPickerControl({
         <span>Powered by integrations.sh</span>
         <span>{loading ? "Searching..." : `${options.length} options`}</span>
       </div>
-      <div className="mt-4 grid max-h-[360px] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
+      <div className="mt-4 grid h-[360px] auto-rows-[100px] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
         {options.map((integration) => (
           <IntegrationCard
             key={integration.domain}
@@ -2875,13 +2806,14 @@ function AdsBudgetControl({
         <div className="text-center text-sm font-medium">{budget}</div>
         <input
           type="range"
+          aria-label="Monthly advertising budget"
           min={0}
           max={adsBudgetOptions.length - 1}
           value={index}
           onChange={(event) =>
             setBudget(adsBudgetOptions[Number(event.target.value)]!)
           }
-          className="bg-border [&::-webkit-slider-runnable-track]:bg-border mt-6 h-1 w-full cursor-pointer appearance-none accent-white [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-thumb]:-mt-1 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-white"
+          className="[&::-moz-range-track]:bg-border [&::-webkit-slider-runnable-track]:bg-border mt-3 h-9 w-full cursor-pointer appearance-none bg-transparent accent-white focus-visible:outline-none [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-moz-range-track]:h-1 [&::-moz-range-track]:rounded-full [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-thumb]:-mt-2 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
         />
         <div className="text-muted-foreground mt-4 flex justify-between text-xs">
           <span>Not yet</span>
@@ -3063,7 +2995,7 @@ export function OnboardingPage() {
     "analytics" | "ads" | null
   >(null);
   const [setupPreview, setSetupPreview] = useState<SetupResult | null>(null);
-  const latestRef = useRef<HTMLDivElement | null>(null);
+  const currentQuestionRef = useRef<HTMLDivElement | null>(null);
   // Deep link: /onboarding?step=analytics reopens setup at that step (the
   // dashboard's finish-setting-up card uses this to resume skipped items).
   const [searchParams, setSearchParams] = useSearchParams();
@@ -3143,19 +3075,10 @@ export function OnboardingPage() {
   }, [billingActive, billingResolved, draft?.step]);
 
   useEffect(() => {
-    let ticks = 0;
-    const scrollLatestIntoView = () => {
-      latestRef.current?.scrollIntoView({ block: "end" });
-    };
-
-    scrollLatestIntoView();
-    const interval = window.setInterval(() => {
-      ticks += 1;
-      scrollLatestIntoView();
-      if (ticks >= 14) window.clearInterval(interval);
-    }, 120);
-
-    return () => window.clearInterval(interval);
+    const frame = window.requestAnimationFrame(() => {
+      currentQuestionRef.current?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [step]);
 
   const setField = useCallback((patch: Partial<OnboardingDraft>) => {
@@ -3338,6 +3261,41 @@ export function OnboardingPage() {
     }
   }, [draft, org]);
 
+  const prepareOnboardingWork = useCallback(
+    async (currentDraft: OnboardingDraft) => {
+      if (!org) throw new Error("The workspace is not ready yet.");
+      const jobs = buildOnboardingWorkJobs({
+        workspaceId: org.id,
+        companyName: currentDraft.companyName,
+        websiteUrl: currentDraft.websiteUrl,
+        timezone: currentDraft.automation.timezone,
+        brand: currentDraft.brand,
+        analytics: currentDraft.analytics,
+        ads: currentDraft.ads,
+      });
+      const schedules = buildOnboardingSchedules(
+        currentDraft.automation,
+        org.id,
+      );
+
+      const workspaceContext = workspaceContextFromOrganization(org);
+      const accepted = await workspaceData.bootstrapOnboardingWork(
+        jobs,
+        schedules,
+        workspaceContext,
+        currentDraft.provider === "claude" || currentDraft.provider === "codex"
+          ? currentDraft.provider
+          : undefined,
+      );
+      if (!accepted) {
+        throw new Error(
+          "Chief is still connecting. Wait a moment, then continue again.",
+        );
+      }
+    },
+    [org, workspaceData],
+  );
+
   const completeOnboarding = useCallback(async () => {
     if (!org || !draft) return;
     if (!billingActive) {
@@ -3386,16 +3344,7 @@ export function OnboardingPage() {
           },
         },
       });
-      const jobs = onboardingWorkJobs(draft);
-      const schedules = buildOnboardingSchedules(draft.automation);
-      const workspaceContext = await buildWorkspaceContext(org.id);
-      if (jobs.length > 0 || schedules.length > 0) {
-        workspaceData.bootstrapOnboardingWork(
-          jobs,
-          schedules,
-          workspaceContext,
-        );
-      }
+      await prepareOnboardingWork(draft);
       localStorage.removeItem(storageKey(org.id));
       // Keep the mounted Tauri webview alive. A full document navigation at
       // this boundary can leave the custom protocol on an empty document,
@@ -3414,7 +3363,7 @@ export function OnboardingPage() {
     persistContext,
     persistProvider,
     persistSocials,
-    workspaceData,
+    prepareOnboardingWork,
     navigate,
   ]);
 
@@ -3427,6 +3376,7 @@ export function OnboardingPage() {
       if (step === "context" && (await persistContext())) return;
       if (step === "socials") await persistSocials();
       if (step === "inference") persistProvider();
+      if (step === "automation") await prepareOnboardingWork(draft);
       if (step === "finish") {
         await completeOnboarding();
         return;
@@ -3459,6 +3409,7 @@ export function OnboardingPage() {
     persistContext,
     persistProvider,
     persistSocials,
+    prepareOnboardingWork,
     saving,
     step,
   ]);
@@ -3894,9 +3845,9 @@ export function OnboardingPage() {
                 <AnswerPreview step={pastStep} draft={draft} />
               </div>
             ))}
-          <div className="space-y-4">
+          <div ref={currentQuestionRef} className="space-y-4">
             {step === "finish" ? null : (
-              <AgentBubble text={questions[step]} current />
+              <AgentBubble key={step} text={questions[step]} current />
             )}
             <div className="w-full max-w-[720px]">{currentControl}</div>
             <div className="min-h-5">
@@ -3908,7 +3859,6 @@ export function OnboardingPage() {
               ) : null}
             </div>
           </div>
-          <div ref={latestRef} />
         </div>
       </main>
     </div>

@@ -3,7 +3,7 @@ import { ChevronRight, MoreVertical, Plus, Trash2 } from "lucide-react";
 import { useSearchParams } from "react-router";
 
 import type { AgentDefinition } from "@chief/agent-runtime/types";
-import { defaultAgents } from "@chief/agent-runtime/agents";
+import { defaultAgents } from "@chief/agent-runtime/agent-roster";
 import {
   Popover,
   PopoverContent,

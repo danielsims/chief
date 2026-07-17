@@ -34,6 +34,7 @@ import { OnboardingPage } from "./pages/onboarding";
 import { ProspectsPage } from "./pages/prospects";
 import { ResultsPage } from "./pages/results";
 import { SchedulePage } from "./pages/schedule";
+import { EnvironmentSettings } from "./pages/settings/environment";
 import {
   IntegrationSettingsDetail,
   IntegrationsSettings,
@@ -43,6 +44,8 @@ import { ProfileSettings } from "./pages/settings/profile";
 import { WorkspaceSettings } from "./pages/settings/workspace";
 import { SignInScreen } from "./pages/sign-in";
 import { TrendingPage } from "./pages/trending";
+import { WorkspaceFilePage } from "./pages/workspace-file";
+import { WorkspaceFilesPage } from "./pages/workspace-files";
 import { CreateWorkspacePage } from "./pages/workspace-new";
 
 function ConfigurationRequired() {
@@ -160,27 +163,42 @@ function OnboardingGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    let retryTimer: number | undefined;
     // No reset here: keep the last onboarding decision mounted while the
     // fresh answer loads. Only the first resolution shows the entry state.
-    void listAuthOrganizations().then((orgs) => {
-      if (cancelled) return;
-      const active =
-        orgs.find((candidate) => candidate.id === cloudOrganizationId) ??
-        orgs[0] ??
-        null;
-      if (!active) {
-        setNeedsOnboarding(true);
-        return;
+    const resolveOnboarding = async () => {
+      try {
+        const orgs = await listAuthOrganizations(false, { throwOnError: true });
+        if (cancelled) return;
+        const active =
+          orgs.find((candidate) => candidate.id === cloudOrganizationId) ??
+          orgs[0] ??
+          null;
+        if (!active) {
+          setNeedsOnboarding(true);
+          return;
+        }
+        const metadata = parseOrganizationMetadata(active);
+        const onboarding =
+          metadata.onboarding && typeof metadata.onboarding === "object"
+            ? (metadata.onboarding as Record<string, unknown>)
+            : {};
+        setNeedsOnboarding(typeof onboarding.completedAt !== "string");
+      } catch (error) {
+        if (cancelled) return;
+        console.warn("[Auth] Workspace metadata unavailable; retrying", error);
+        // A server-issued active organization is enough to keep an existing
+        // workspace usable while its metadata is revalidated in the background.
+        if (cloudOrganizationId) setNeedsOnboarding(false);
+        retryTimer = window.setTimeout(() => {
+          void resolveOnboarding();
+        }, 3_000);
       }
-      const metadata = parseOrganizationMetadata(active);
-      const onboarding =
-        metadata.onboarding && typeof metadata.onboarding === "object"
-          ? (metadata.onboarding as Record<string, unknown>)
-          : {};
-      setNeedsOnboarding(typeof onboarding.completedAt !== "string");
-    });
+    };
+    void resolveOnboarding();
     return () => {
       cancelled = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
   }, [cloudOrganizationId]);
 
@@ -303,9 +321,19 @@ function AuthenticatedApp() {
   return (
     <RuntimeProvider>
       <Toaster
+        closeButton
         position="bottom-right"
         theme="dark"
-        toastOptions={{ style: { borderRadius: 0 } }}
+        toastOptions={{
+          classNames: {
+            actionButton: "chief-toast-action",
+            closeButton: "chief-toast-close",
+            description: "chief-toast-description",
+            toast: "chief-toast",
+            title: "chief-toast-title",
+          },
+          style: { borderRadius: 0 },
+        }}
       />
       <AgentConfigProvider>
         <BrowserRouter>
@@ -323,6 +351,8 @@ function AuthenticatedApp() {
                 <Route path="trending" element={<TrendingPage />} />
                 <Route path="conversations" element={<ConversationsPage />} />
                 <Route path="agents" element={<AgentsPage />} />
+                <Route path="files" element={<WorkspaceFilesPage />} />
+                <Route path="files/:fileId" element={<WorkspaceFilePage />} />
                 <Route path="settings" element={<SettingsLayout />}>
                   <Route
                     index
@@ -330,6 +360,7 @@ function AuthenticatedApp() {
                   />
                   <Route path="profile" element={<ProfileSettings />} />
                   <Route path="workspace" element={<WorkspaceSettings />} />
+                  <Route path="environment" element={<EnvironmentSettings />} />
                   <Route
                     path="deployment"
                     element={<Navigate to="/agents" replace />}

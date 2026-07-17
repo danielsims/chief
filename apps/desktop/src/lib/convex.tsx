@@ -16,6 +16,7 @@ import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
 import { useAuth } from "./auth/auth-context";
 import { AUTH_BASE_URL } from "./auth/better-auth-client";
 import { CONVEX_URL } from "./config";
+import { fetchWithTimeout } from "./fetch-with-timeout";
 
 // App.tsx prevents an unconfigured build from rendering. This loopback URL
 // exists only so imports remain side-effect safe before that check runs.
@@ -42,9 +43,11 @@ function wait(ms: number, signal?: AbortSignal) {
 
 async function requestConvexAccessToken(sessionToken: string) {
   const fetcher = isTauri() ? tauriFetch : fetch;
-  const response = await fetcher(`${AUTH_BASE_URL!}/api/auth/convex/token`, {
-    headers: { Authorization: `Bearer ${sessionToken}` },
-  });
+  const response = await fetchWithTimeout(
+    fetcher,
+    `${AUTH_BASE_URL!}/api/auth/convex/token`,
+    { headers: { Authorization: `Bearer ${sessionToken}` } },
+  );
 
   if (response.status === 401 || response.status === 403) return null;
   if (!response.ok) {

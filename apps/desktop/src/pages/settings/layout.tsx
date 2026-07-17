@@ -6,6 +6,7 @@ const sections = [
   { to: "/settings/profile", label: "Profile" },
   { to: "/settings/workspace", label: "Workspace" },
   { to: "/settings/integrations", label: "Integrations" },
+  { to: "/settings/environment", label: "Environment" },
   // Agent configuration lives on the Agents page.
   // Billing is intentionally absent until billing exists.
 ];
