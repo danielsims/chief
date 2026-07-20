@@ -10,6 +10,7 @@ import type {
   McpServerSpec,
 } from "./types.js";
 import { createDriver } from "./drivers/index.js";
+import { remoteHistoryContext } from "./drivers/remote-history.js";
 import { withGenerativeDataParts } from "./generative-ui.js";
 
 /** Runtime-owned execution configuration for one chat. */
@@ -21,7 +22,11 @@ export interface SessionConfig {
   model?: string;
   mcpServers?: McpServerSpec[];
   automationGrant?: AutomationGrant;
-  executionOwner?: "interactive" | "schedule" | "channel";
+  executionOwner?: "interactive" | "schedule" | "channel" | "delegation";
+  /** Dynamic identifiers that remote deployments do not compile into their prompt. */
+  runtimeContext?: string;
+  /** Private specialist sessions never receive workspace credentials. */
+  secretAccess?: boolean;
 }
 
 export class AgentSession extends EventEmitter {
@@ -30,11 +35,13 @@ export class AgentSession extends EventEmitter {
   readonly config: SessionConfig;
   /** Backend-native session/thread id, used for resume. */
   sessionId: string | undefined;
+  driverState: unknown;
   events: AgentEvent[] = [];
   private driver: BaseDriver;
   private status: "idle" | "running" | "waiting" | "error" = "idle";
+  private promptBootstrap: string | undefined;
   private stallTimer: NodeJS.Timeout | null = null;
-  private readonly stallTimeoutMs = 90_000;
+  private readonly stallTimeoutMs = 6 * 60_000;
 
   constructor(
     agent: AgentDefinition,
@@ -64,10 +71,21 @@ export class AgentSession extends EventEmitter {
       if (this.status === "running") this.armStallWatchdog();
       else this.clearStallWatchdog();
     });
+    this.driver.on("state", (state: unknown) => {
+      this.driverState = state;
+      this.emit("state", state);
+    });
   }
 
   get isBusy() {
-    return this.status === "running" || this.status === "waiting";
+    const driverInFlight =
+      this.driverState !== null &&
+      typeof this.driverState === "object" &&
+      "inFlight" in this.driverState &&
+      this.driverState.inFlight === true;
+    return (
+      this.status === "running" || this.status === "waiting" || driverInFlight
+    );
   }
 
   private record(event: AgentEvent) {
@@ -90,27 +108,34 @@ export class AgentSession extends EventEmitter {
       this.record({
         type: "error",
         message:
-          "The agent stopped after 90 seconds without any new output. You can retry the request.",
+          "The agent stopped after six minutes without any new output. You can retry the request.",
       });
       this.record({ type: "status", status: "idle" });
     }, this.stallTimeoutMs);
     this.stallTimer.unref();
   }
 
-  async start(cwd: string, resumeSessionId?: string) {
+  async start(cwd: string, resumeSessionId?: string, resumeState?: unknown) {
+    if (!resumeSessionId && this.config.driver !== "remote") {
+      this.promptBootstrap = remoteHistoryContext(this.events);
+    }
     await this.driver.start({
       cwd,
+      storageKey: `${this.config.workspaceId}\0${this.chatId}`,
       instructions: this.agent.instructions,
+      runtimeContext: this.config.runtimeContext,
       access: this.config.access,
       env: this.config.env,
       model: this.config.model,
       resumeSessionId,
+      resumeState,
+      history: this.events,
       mcpServers: this.config.mcpServers,
       automationGrant: this.config.automationGrant,
     });
   }
 
-  sendPrompt(text: string, messageId?: string) {
+  async sendPrompt(text: string, messageId?: string, record = true) {
     // Record the user turn as an event so reconnecting clients can rebuild
     // the full transcript from the buffer.
     const event: AgentEvent = {
@@ -119,11 +144,25 @@ export class AgentSession extends EventEmitter {
       role: "user",
       content: [{ type: "text", text }],
     };
-    this.events.push(event);
-    this.emit("event", event);
+    if (record) {
+      this.events.push(event);
+      this.emit("event", event);
+    }
     this.status = "running";
     this.armStallWatchdog();
-    return this.driver.sendPrompt(text);
+    const bootstrap = record ? this.promptBootstrap : undefined;
+    this.promptBootstrap = undefined;
+    try {
+      await this.driver.sendPrompt(
+        bootstrap
+          ? `${bootstrap}\n\nContinue the conversation with this new user message:\n\n${text}`
+          : text,
+      );
+    } catch (error) {
+      this.status = "idle";
+      this.clearStallWatchdog();
+      throw error;
+    }
   }
 
   recordUserMessage(text: string) {

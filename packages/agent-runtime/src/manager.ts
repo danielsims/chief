@@ -1,3 +1,5 @@
+/* eslint-disable max-lines */
+
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -5,16 +7,18 @@ import { join } from "node:path";
 import type { ChatContext, LocalChatRecord } from "./local-store.js";
 import type { SessionConfig } from "./session.js";
 import type {
+  ActionItem,
   AgentDefinition,
   AgentEvent,
   AgentPreference,
-  AttentionItem,
+  AnalyticsDataset,
   CampaignRecord,
   ContentDraftRecord,
   DriverType,
   ProspectRecord,
   RecurringWorkRecord,
-  RecurringWorkRunRecord,
+  ScheduleSessionActionTransition,
+  SessionRecord,
   TrendRecord,
   WorkspaceFileSnapshot,
   WorkspaceFileWrite,
@@ -36,6 +40,34 @@ function workspaceChatKey(workspaceId: string, chatId: string) {
   return `${workspaceId}\0${chatId}`;
 }
 
+const INITIAL_REVIEW_SINGLETON_AGENTS = new Set([
+  "brand",
+  "prospector",
+  "setup",
+]);
+
+function sessionRank(status: SessionRecord["status"]) {
+  return status === "completed"
+    ? 4
+    : status === "running" || status === "waiting"
+      ? 3
+      : status === "idle"
+        ? 2
+        : 1;
+}
+
+function preferredSession<
+  T extends Pick<SessionRecord, "status" | "updatedAt">,
+>(current: T | undefined, candidate: T) {
+  if (!current) return candidate;
+  const currentRank = sessionRank(current.status);
+  const candidateRank = sessionRank(candidate.status);
+  return candidateRank > currentRank ||
+    (candidateRank === currentRank && candidate.updatedAt > current.updatedAt)
+    ? candidate
+    : current;
+}
+
 /**
  * One live session per workspace and chat. Provider continuation state lives
  * only on the durable chat; normalized messages are the history source of truth.
@@ -46,6 +78,7 @@ export class SessionManager {
   private retainCounts = new Map<string, number>();
   private released = new Set<string>();
   private persistence = new Map<string, Promise<void>>();
+  private startingSessions = new Map<string, Promise<AgentSession>>();
   private executionOwners = new Map<
     string,
     { id: string; owner: "interactive" | "schedule" | "channel" }
@@ -105,17 +138,22 @@ export class SessionManager {
     }
   }
 
-  async assertInteractiveChat(workspaceId: string, chatId: string) {
-    if (await this.store.recurringWorkByChat(workspaceId, chatId)) {
-      throw new Error(
-        "Schedule chats are read-only here. Open the run from Results or Schedule.",
-      );
-    }
-    this.assertExecutionAvailable(workspaceId, chatId, "interactive");
+  assertInteractiveChat(workspaceId: string, chatId: string): Promise<void> {
+    return Promise.resolve().then(() =>
+      this.assertExecutionAvailable(workspaceId, chatId, "interactive"),
+    );
   }
 
   health() {
     return this.store.health();
+  }
+
+  reconcileInterruptedSpecialistSessions(cutoff: number) {
+    return this.store.reconcileInterruptedSpecialistSessions(cutoff);
+  }
+
+  reconcileStaleActivitySessions(cutoff: number) {
+    return this.store.reconcileStaleActivitySessions(cutoff);
   }
 
   async ensureRootChat(
@@ -124,14 +162,52 @@ export class SessionManager {
     config: SessionConfig,
     title = "",
   ): Promise<AgentSession> {
-    if (agent.id !== "cmo") throw new Error("Root chats are owned by CMO.");
+    if (agent.id !== "cmo" && agent.id !== "setup" && agent.id !== "analyst") {
+      throw new Error("User-visible chats require Chief, Setup, or Analyst.");
+    }
     await this.createRootChat(
       config.workspaceId,
       chatId,
       title,
       config.driver,
       config.model,
+      agent.id,
     );
+    return this.ensureSession(agent, chatId, config);
+  }
+
+  async switchRootChatExecution(
+    agent: AgentDefinition,
+    chatId: string,
+    config: SessionConfig,
+  ): Promise<AgentSession> {
+    const stored = await this.store.chatRecord(config.workspaceId, chatId);
+    if (!stored) throw new Error("Session was not found in this workspace.");
+    this.assertRootChat(stored);
+    if (stored.provider === config.driver && stored.model === config.model) {
+      return this.ensureSession(agent, chatId, config);
+    }
+
+    const key = workspaceChatKey(config.workspaceId, chatId);
+    const existing = this.sessions.get(key);
+    if (existing?.isBusy) {
+      throw new Error(
+        "Wait for the current response before changing agent app.",
+      );
+    }
+    await (this.persistence.get(key) ?? Promise.resolve());
+    if (existing) {
+      this.archivedEvents.set(key, existing.events.slice(-500));
+      this.sessions.delete(key);
+      await existing.stop();
+    }
+    await this.store.updateChatState(config.workspaceId, chatId, {
+      provider: config.driver,
+      model: config.model ?? null,
+      providerState: null,
+      eveState: null,
+      status: "idle",
+    });
     return this.ensureSession(agent, chatId, config);
   }
 
@@ -141,6 +217,7 @@ export class SessionManager {
     title: string,
     provider?: DriverType,
     model?: string,
+    agentId: "cmo" | "setup" | "analyst" = "cmo",
   ) {
     const stored = await this.store.chatRecord(workspaceId, chatId);
     if (!stored) {
@@ -151,9 +228,10 @@ export class SessionManager {
       if (!driver) throw new Error("Configure the CMO agent app first.");
       await this.store.createChat({
         id: chatId,
-        workspaceId,
+        organizationId: workspaceId,
+        kind: "conversation",
         visibility: "user",
-        agent: "cmo",
+        agent: agentId,
         provider: driver,
         model: model ?? preference?.model,
         title,
@@ -168,34 +246,67 @@ export class SessionManager {
     agent: AgentDefinition,
     parentId: string,
     chatId: string,
-    config: Omit<SessionConfig, "mcpServers" | "automationGrant">,
+    config: Omit<SessionConfig, "automationGrant">,
+    metadata: { title?: string; triggerId?: string } = {},
   ): Promise<AgentSession> {
     if (agent.id === "cmo")
       throw new Error("Child chats require a specialist.");
-    await this.rootChat(config.workspaceId, parentId);
-    const stored = await this.store.chatRecord(config.workspaceId, chatId);
+    return this.ensureTaskSession(
+      agent,
+      parentId,
+      chatId,
+      {
+        ...config,
+        mcpServers: config.mcpServers ?? [],
+        automationGrant: undefined,
+        secretAccess: false,
+      },
+      metadata.title,
+      metadata.triggerId,
+    );
+  }
+
+  async ensureTaskSession(
+    agent: AgentDefinition,
+    parentId: string | undefined,
+    sessionId: string,
+    config: SessionConfig,
+    title = "",
+    triggerId?: string,
+  ): Promise<AgentSession> {
+    if (parentId) await this.rootChat(config.workspaceId, parentId);
+    const stored = await this.store.chatRecord(config.workspaceId, sessionId);
     if (!stored) {
+      if (agent.id === "cmo") {
+        throw new Error(
+          "CMO task sessions must be started atomically by a schedule.",
+        );
+      }
+      if (!parentId)
+        throw new Error("Specialist tasks require a conversation.");
       await this.store.createChat({
-        id: chatId,
-        workspaceId: config.workspaceId,
+        id: sessionId,
+        organizationId: config.workspaceId,
         parentId,
+        triggerId,
+        kind: "task",
         visibility: "private",
         agent: agent.id,
         provider: config.driver,
         model: config.model,
+        title,
       });
     } else if (
+      stored.kind !== "task" ||
       stored.visibility !== "private" ||
       stored.parentId !== parentId ||
       stored.agent !== agent.id
     ) {
-      throw new Error("Child chat identity does not match stored state.");
+      throw new Error("Task session identity does not match stored state.");
+    } else if (agent.id === "cmo" && !stored.scheduleId) {
+      throw new Error("CMO task sessions must belong to a schedule.");
     }
-    return this.ensureSession(agent, chatId, {
-      ...config,
-      mcpServers: [],
-      automationGrant: undefined,
-    });
+    return this.ensureSession(agent, sessionId, config);
   }
 
   private async ensureSession(
@@ -203,8 +314,50 @@ export class SessionManager {
     chatId: string,
     config: SessionConfig,
   ): Promise<AgentSession> {
+    const key = workspaceChatKey(config.workspaceId, chatId);
+    const starting = this.startingSessions.get(key);
+    if (starting) {
+      await starting;
+      return this.ensureSession(agent, chatId, config);
+    }
+    const start = this.startSession(agent, chatId, config);
+    const tracked = start.finally(() => {
+      if (this.startingSessions.get(key) === tracked) {
+        this.startingSessions.delete(key);
+      }
+    });
+    this.startingSessions.set(key, tracked);
+    return tracked;
+  }
+
+  private async startSession(
+    agent: AgentDefinition,
+    chatId: string,
+    config: SessionConfig,
+  ): Promise<AgentSession> {
     await this.repairWorkspaceFiles(config.workspaceId);
     const key = workspaceChatKey(config.workspaceId, chatId);
+    const storedChat = await this.store.chatRecord(config.workspaceId, chatId);
+    if (!storedChat)
+      throw new Error("Session was not found in this workspace.");
+    const conversationId =
+      storedChat.kind === "conversation" ? storedChat.id : storedChat.parentId;
+    const runtimeContext = [
+      `Runtime context: the current Chief session ID is ${chatId}. Pass this exact value as sourceId whenever you call action.raise.`,
+      conversationId
+        ? `The owning Chief conversation ID is ${conversationId}. Pass this exact value as conversationId whenever you propose recurring or one-off scheduled work.`
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const runtimeAgent = agent.instructions.includes(
+      `Runtime context: the current Chief session ID is ${chatId}.`,
+    )
+      ? agent
+      : {
+          ...agent,
+          instructions: `${agent.instructions}\n\n${runtimeContext}`,
+        };
     const existing = this.sessions.get(key);
     if (existing) {
       // A live session can't hop backends or change its access level.
@@ -213,7 +366,7 @@ export class SessionManager {
         existing.config.access !== config.access ||
         existing.config.workspaceId !== config.workspaceId ||
         existing.config.model !== config.model ||
-        existing.agent.instructions !== agent.instructions ||
+        existing.agent.instructions !== runtimeAgent.instructions ||
         existing.config.executionOwner !== config.executionOwner ||
         JSON.stringify(existing.config.mcpServers ?? []) !==
           JSON.stringify(config.mcpServers ?? [])
@@ -229,6 +382,7 @@ export class SessionManager {
         return existing;
       }
     }
+    await (this.persistence.get(key) ?? Promise.resolve());
 
     // Mark the workspace as starting before any await so a concurrently
     // closing session can't lock (delete) its secrets mid-materialize.
@@ -238,7 +392,10 @@ export class SessionManager {
     );
     let env: Record<string, string>;
     try {
-      env = await workspaceSecrets.materialize(config.workspaceId);
+      env =
+        config.secretAccess === false
+          ? {}
+          : await workspaceSecrets.materialize(config.workspaceId);
     } finally {
       const remaining =
         (this.startingWorkspaces.get(config.workspaceId) ?? 1) - 1;
@@ -248,69 +405,93 @@ export class SessionManager {
         this.startingWorkspaces.delete(config.workspaceId);
       }
     }
-    const scopedConfig = { ...config, env };
+    const scopedConfig = { ...config, env, runtimeContext };
     const archivedKey = workspaceChatKey(config.workspaceId, chatId);
     const storedEvents =
       this.archivedEvents.get(archivedKey) ??
       (await this.store.transcript(config.workspaceId, chatId));
-    const storedChat = await this.store.chatRecord(config.workspaceId, chatId);
-    const session = new AgentSession(agent, chatId, scopedConfig, storedEvents);
+    let diagnosticPosition = (
+      await this.store.diagnostics(config.workspaceId)
+    ).events
+      .filter((event) => event.sessionId === chatId)
+      .reduce((next, event) => Math.max(next, event.position + 1), 0);
+    const session = new AgentSession(
+      runtimeAgent,
+      chatId,
+      scopedConfig,
+      storedEvents,
+    );
     this.sessions.set(key, session);
 
     session.on("event", (event: AgentEvent) => {
-      if (event.type === "init") {
-        const persistence = (this.persistence.get(key) ?? Promise.resolve())
-          .then(() =>
-            this.store.updateChatState(config.workspaceId, chatId, {
-              providerState: { sessionId: event.sessionId },
-            }),
-          )
-          .then(() => undefined)
-          .catch((error) => console.error("[local-store] state:", error));
-        this.persistence.set(key, persistence);
-      }
-      if (event.type === "status") {
-        const persistence = (this.persistence.get(key) ?? Promise.resolve())
-          .then(() =>
-            this.store.updateChatState(config.workspaceId, chatId, {
-              status: event.status,
-            }),
-          )
-          .then(() => undefined)
-          .catch((error) => console.error("[local-store] status:", error));
-        this.persistence.set(key, persistence);
-      }
+      const position = diagnosticPosition++;
+      const persistence = (this.persistence.get(key) ?? Promise.resolve())
+        .then(async () => {
+          try {
+            await this.store.saveDiagnosticEvent(
+              config.workspaceId,
+              chatId,
+              position,
+              event,
+            );
+          } catch (error) {
+            console.error("[local-store] diagnostic:", error);
+          }
+          if (event.type === "init") {
+            await this.store.updateChatState(config.workspaceId, chatId, {
+              ...(config.driver === "remote"
+                ? {}
+                : { providerState: { sessionId: event.sessionId } }),
+            });
+          }
+          if (event.type === "status" && !storedChat.scheduleId) {
+            await this.store.updateChatState(config.workspaceId, chatId, {
+              status: event.status === "error" ? "failed" : event.status,
+            });
+          }
+          if (
+            event.type === "message" ||
+            event.type === "result" ||
+            event.type === "error" ||
+            event.type === "permissionResolved"
+          ) {
+            await this.store.saveTranscript(
+              {
+                id: chatId,
+                organizationId: config.workspaceId,
+                agentId: storedChat.agent,
+                driver: config.driver,
+                model: config.model,
+                parentId: storedChat.parentId,
+                triggerId: storedChat.triggerId,
+                scheduleId: storedChat.scheduleId,
+                kind: storedChat.kind,
+                visibility: storedChat.visibility,
+                providerState: session.sessionId
+                  ? { sessionId: session.sessionId }
+                  : undefined,
+                eveState: session.driverState,
+                scheduledFor: storedChat.scheduledFor,
+                startedAt: storedChat.startedAt,
+                finishedAt: storedChat.finishedAt,
+                attempt: storedChat.attempt,
+                summary: storedChat.summary,
+                error: storedChat.error,
+                artifacts: storedChat.artifacts,
+                blockedTools: storedChat.blockedTools,
+              },
+              session.events,
+            );
+          }
+        })
+        .catch((error) => console.error("[local-store] persistence:", error));
+      this.persistence.set(key, persistence);
       if (event.type === "exit") {
         this.archivedEvents.set(archivedKey, session.events.slice(-500));
         if (this.sessions.get(key) === session) {
           this.sessions.delete(key);
         }
         this.lockWorkspaceIfInactive(config.workspaceId);
-      }
-      if (
-        event.type === "message" ||
-        event.type === "result" ||
-        event.type === "error" ||
-        event.type === "permissionResolved"
-      ) {
-        const persistence = (this.persistence.get(key) ?? Promise.resolve())
-          .then(() =>
-            this.store.saveTranscript(
-              {
-                id: chatId,
-                workspaceId: config.workspaceId,
-                agentId: agent.id,
-                driver: config.driver,
-                model: config.model,
-                providerState: session.sessionId
-                  ? { sessionId: session.sessionId }
-                  : undefined,
-              },
-              session.events,
-            ),
-          )
-          .catch((error) => console.error("[local-store] transcript:", error));
-        this.persistence.set(key, persistence);
       }
       if (
         this.released.has(key) &&
@@ -322,10 +503,32 @@ export class SessionManager {
       }
     });
 
-    const cwd = join(workspaceRoot(config.workspaceId), "agents", agent.id);
+    session.on("state", (state: unknown) => {
+      const persistence = (this.persistence.get(key) ?? Promise.resolve())
+        .then(async () => {
+          await this.store.updateChatState(config.workspaceId, chatId, {
+            eveState: state,
+          });
+        })
+        .catch((error) =>
+          console.error("[local-store] driver state persistence:", error),
+        );
+      this.persistence.set(key, persistence);
+    });
+
+    const cwd =
+      storedChat.kind === "task" && !storedChat.scheduleId
+        ? join(
+            workspaceRoot(config.workspaceId),
+            "agents",
+            agent.id,
+            "sessions",
+            chatId,
+          )
+        : join(workspaceRoot(config.workspaceId), "agents", agent.id);
     mkdirSync(cwd, { recursive: true });
     const continuation =
-      storedChat?.provider === config.driver &&
+      storedChat.provider === config.driver &&
       storedChat.providerState &&
       typeof storedChat.providerState === "object" &&
       "sessionId" in storedChat.providerState &&
@@ -333,7 +536,11 @@ export class SessionManager {
         ? storedChat.providerState.sessionId
         : undefined;
     try {
-      await session.start(cwd, continuation);
+      await session.start(
+        cwd,
+        continuation,
+        storedChat.provider === config.driver ? storedChat.eveState : undefined,
+      );
     } catch (error) {
       if (this.sessions.get(key) === session) {
         this.sessions.delete(key);
@@ -426,15 +633,106 @@ export class SessionManager {
     return inspected;
   }
 
-  childChats(workspaceId: string, rootChatId: string) {
-    return this.rootChat(workspaceId, rootChatId).then(() =>
-      this.store.listChildChats(workspaceId, rootChatId),
+  async childChats(workspaceId: string, rootChatId: string) {
+    const root = await this.rootChat(workspaceId, rootChatId);
+    const chats = (
+      await this.store.listChildChats(workspaceId, rootChatId)
+    ).filter((chat) => !chat.scheduleId);
+    if (
+      !rootChatId.startsWith("workspace-kickoff-") &&
+      root.chat.title !== "Initial business review"
+    ) {
+      return chats;
+    }
+    const preferred = new Map<string, (typeof chats)[number]>();
+    for (const chat of chats) {
+      if (!INITIAL_REVIEW_SINGLETON_AGENTS.has(chat.agent)) continue;
+      preferred.set(
+        chat.agent,
+        preferredSession(preferred.get(chat.agent), chat),
+      );
+    }
+    return chats.filter(
+      (chat) =>
+        !INITIAL_REVIEW_SINGLETON_AGENTS.has(chat.agent) ||
+        chat.id === preferred.get(chat.agent)?.id,
+    );
+  }
+
+  async startChildChat(workspaceId: string, chatId: string) {
+    const inspected = await this.inspectChat(workspaceId, chatId);
+    if (
+      inspected.chat.kind !== "task" ||
+      inspected.chat.visibility !== "private" ||
+      !inspected.chat.parentId ||
+      inspected.chat.scheduleId
+    ) {
+      throw new Error("Only delegated specialist sessions can start here.");
+    }
+    await this.store.updateChatState(workspaceId, chatId, {
+      status: "running",
+      startedAt: inspected.chat.startedAt ?? Date.now(),
+    });
+  }
+
+  async finishChildChat(
+    workspaceId: string,
+    chatId: string,
+    outcome:
+      | { status: "completed"; result: string }
+      | { status: "failed"; error: string },
+  ) {
+    const inspected = await this.inspectChat(workspaceId, chatId);
+    if (
+      inspected.chat.kind !== "task" ||
+      inspected.chat.visibility !== "private" ||
+      !inspected.chat.parentId ||
+      inspected.chat.scheduleId
+    ) {
+      throw new Error("Only delegated specialist sessions can finish here.");
+    }
+    await this.waitForChatPersistence(workspaceId, chatId);
+    await this.stopRuntimeChat(workspaceId, chatId);
+    const finishedAt = Date.now();
+    await this.store.finishSpecialistSession(
+      workspaceId,
+      chatId,
+      outcome,
+      finishedAt,
+    );
+    await this.store.saveTranscript(
+      {
+        id: chatId,
+        organizationId: workspaceId,
+        agentId: inspected.chat.agent,
+        driver: inspected.chat.provider as DriverType,
+        model: inspected.chat.model,
+        parentId: inspected.chat.parentId,
+        triggerId: inspected.chat.triggerId,
+        kind: "task",
+        visibility: "private",
+        status: outcome.status,
+        startedAt: inspected.chat.startedAt ?? inspected.chat.createdAt,
+        finishedAt,
+        attempt: inspected.chat.attempt,
+        summary: outcome.status === "completed" ? outcome.result : undefined,
+        error: outcome.status === "failed" ? outcome.error : undefined,
+      },
+      inspected.events,
+      inspected.chat.title,
     );
   }
 
   private assertRootChat(chat: LocalChatRecord) {
-    if (chat.parentId || chat.visibility !== "user" || chat.agent !== "cmo") {
-      throw new Error("Only a top-level user-visible CMO chat is composable.");
+    if (
+      chat.parentId ||
+      chat.kind !== "conversation" ||
+      chat.visibility !== "user" ||
+      (chat.agent !== "cmo" && chat.agent !== "setup")
+    ) {
+      throw new Error(
+        "Only a top-level user-visible Chief chat is composable.",
+      );
     }
   }
 
@@ -462,85 +760,83 @@ export class SessionManager {
     const [
       prospects,
       trends,
+      analyticsDatasets,
       drafts,
       campaigns,
       recurringWork,
-      recurringWorkRuns,
+      activity,
+      actionItems,
     ] = await Promise.all([
       this.store.listProspects(workspaceId),
       this.store.listTrends(workspaceId),
+      this.store.listAnalyticsDatasets(workspaceId),
       this.store.listDrafts(workspaceId),
       this.store.listCampaigns(workspaceId),
       this.store.listRecurringWork(workspaceId),
-      this.store.listRecurringWorkRuns(workspaceId),
+      this.store.listActivitySessions(workspaceId),
+      this.store.listActionItems(workspaceId),
     ]);
-    // Content records predate editable workspace files. Upgrade them lazily so
-    // existing drafts become reviewable without a destructive database
-    // migration or a second content model.
-    const reviewableDrafts: typeof drafts = [];
-    const filesByPath = new Map(
-      (await this.store.listWorkspaceFiles(workspaceId)).map((file) => [
-        file.path,
-        file,
-      ]),
+    const initialReviewIds = new Set(
+      activity
+        .filter(
+          (session) =>
+            !session.parentId &&
+            (session.id.startsWith("workspace-kickoff-") ||
+              session.title === "Initial business review"),
+        )
+        .map((session) => session.id),
     );
-    for (const draft of drafts) {
-      if (draft.fileId) {
-        reviewableDrafts.push(draft);
-        continue;
+    const initialSingletonSessions = new Map<string, SessionRecord>();
+    const visibleActivity = activity.filter((session) => {
+      if (
+        !INITIAL_REVIEW_SINGLETON_AGENTS.has(session.agent) ||
+        !session.parentId ||
+        (!session.parentId.startsWith("workspace-kickoff-") &&
+          !initialReviewIds.has(session.parentId)) ||
+        session.scheduleId
+      ) {
+        return true;
       }
-      // libSQL uses one local writer. Keep this compatibility migration
-      // ordered so several legacy drafts cannot race file-version
-      // transactions on first launch.
-      const path = `content/${draft.id}.md`;
-      const previouslyCreated = filesByPath.get(path);
-      const file = previouslyCreated
-        ? await this.store.workspaceFile(workspaceId, previouslyCreated.id)
-        : await this.saveWorkspaceFile(workspaceId, {
-            name: draft.title,
-            path,
-            content: draft.body,
-            kind: "document",
-            createdBy: "agent",
-            sourceAgentId: draft.agentId,
-          });
-      if (!file) throw new Error("The draft document could not be loaded.");
-      filesByPath.set(path, file);
-      const reviewable = {
-        ...draft,
-        fileId: file.id,
-        updatedAt: Date.now(),
-      };
-      await this.store.saveDraft(workspaceId, reviewable);
-      reviewableDrafts.push(reviewable);
-    }
-    const attentionItems = await this.store.listAttentionItems(workspaceId);
+      const key = `${session.parentId}\0${session.agent}`;
+      const current = initialSingletonSessions.get(key);
+      initialSingletonSessions.set(key, preferredSession(current, session));
+      return false;
+    });
+    visibleActivity.push(...initialSingletonSessions.values());
     return {
       prospects,
       trends,
-      drafts: reviewableDrafts,
+      analyticsDatasets,
+      drafts,
       campaigns,
-      attentionItems,
+      activity: visibleActivity,
+      actionItems,
       recurringWork: recurringWork.map((work) => {
         try {
           const skipped = new Set(work.skipDates ?? []);
+          const persisted = work.nextAt;
+          const projected =
+            work.onceAt !== undefined
+              ? []
+              : upcomingRuns(work.cron, work.timezone).filter(
+                  (timestamp) =>
+                    !skipped.has(runDateKey(timestamp, work.timezone)) &&
+                    (persisted === undefined || timestamp > persisted),
+                );
           return {
             ...work,
-            upcomingRuns:
-              work.runOnceAt !== undefined
-                ? work.lastRunAt
-                  ? []
-                  : [work.runOnceAt]
-                : upcomingRuns(work.cron, work.timezone).filter(
-                    (timestamp) =>
-                      !skipped.has(runDateKey(timestamp, work.timezone)),
-                  ),
+            upcomingRuns: [
+              ...(persisted === undefined ? [] : [persisted]),
+              ...projected,
+            ],
           };
         } catch {
-          return { ...work, upcomingRuns: [] };
+          return {
+            ...work,
+            upcomingRuns: work.nextAt === undefined ? [] : [work.nextAt],
+          };
         }
       }),
-      recurringWorkRuns,
     };
   }
 
@@ -550,6 +846,13 @@ export class SessionManager {
 
   saveTrend(workspaceId: string, trend: TrendRecord) {
     return this.store.saveTrend(workspaceId, trend);
+  }
+
+  saveAnalyticsDataset(
+    workspaceId: string,
+    dataset: Omit<AnalyticsDataset, "capturedAt">,
+  ) {
+    return this.store.saveAnalyticsDataset(workspaceId, dataset);
   }
 
   saveDraft(workspaceId: string, draft: ContentDraftRecord) {
@@ -628,7 +931,7 @@ export class SessionManager {
       currentVersionId: versionId,
       createdBy: existing?.createdBy ?? input.createdBy,
       sourceAgentId: input.sourceAgentId ?? existing?.sourceAgentId,
-      sourceRunId: input.sourceRunId ?? existing?.sourceRunId,
+      sourceSessionId: input.sourceSessionId ?? existing?.sourceSessionId,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       content,
@@ -689,65 +992,78 @@ export class SessionManager {
     return this.store.transcript(workspaceId, chatId);
   }
 
-  raiseAttentionItem(workspaceId: string, item: AttentionItem) {
-    return this.store.raiseAttentionItem(workspaceId, item);
+  raiseActionItem(workspaceId: string, item: ActionItem) {
+    return this.store.raiseActionItem(workspaceId, item);
   }
 
-  dismissAttentionItem(workspaceId: string, id: string) {
-    return this.store.dismissAttentionItem(workspaceId, id);
+  dismissActionItem(workspaceId: string, id: string) {
+    return this.store.dismissActionItem(workspaceId, id);
   }
 
-  latestRunBlockedTools(workspaceId: string, recurringWorkId: string) {
-    return this.store.latestRunBlockedTools(workspaceId, recurringWorkId);
+  actionItem(workspaceId: string, id: string) {
+    return this.store.actionItem(workspaceId, id);
   }
 
-  deleteRecurringWorkRun(workspaceId: string, runId: string) {
-    return this.store.deleteRecurringWorkRun(workspaceId, runId);
+  diagnostics(workspaceId: string) {
+    return this.store.diagnostics(workspaceId);
   }
 
-  async deleteRecurringWork(workspaceId: string, id: string) {
-    const work = await this.store.recurringWorkById(workspaceId, id);
-    if (work) await this.stopRuntimeChat(workspaceId, work.chatId);
-    await this.store.deleteRecurringWork(workspaceId, id);
-    if (work) await this.store.deleteChat(workspaceId, work.chatId);
+  latestSessionBlockedTools(workspaceId: string, recurringWorkId: string) {
+    return this.store.latestSessionBlockedTools(workspaceId, recurringWorkId);
   }
 
-  claimRecurringWork(
+  deleteRecurringWork(workspaceId: string, id: string) {
+    return this.store.deleteRecurringWork(workspaceId, id);
+  }
+
+  startScheduleSession(
     workspaceId: string,
-    id: string,
-    expectedNextRunAt: number,
-    nextRunAt: number | null,
+    session: SessionRecord,
+    transition?: { expectedNextAt?: number; nextAt: number | null },
   ) {
-    return this.store.claimRecurringWork(
+    return this.store.startScheduleSession(workspaceId, session, transition);
+  }
+
+  waitingScheduleSession(
+    workspaceId: string,
+    session: SessionRecord,
+    work: RecurringWorkRecord,
+  ) {
+    return this.store.waitingScheduleSession(workspaceId, session, work);
+  }
+
+  resumeScheduleSession(
+    workspaceId: string,
+    scheduleId: string,
+    transition: {
+      expectedNextAt: number;
+      nextAt: number | null;
+      startedAt: number;
+    },
+  ) {
+    return this.store.resumeScheduleSession(
       workspaceId,
-      id,
-      expectedNextRunAt,
-      nextRunAt,
+      scheduleId,
+      transition,
     );
   }
 
-  saveRecurringWorkRun(workspaceId: string, run: RecurringWorkRunRecord) {
-    return this.store.saveRecurringWorkRun(workspaceId, run);
-  }
-
-  startRecurringWorkRun(
+  finishScheduleSession(
     workspaceId: string,
-    run: RecurringWorkRunRecord,
-    transition?: { expectedNextRunAt?: number; nextRunAt: number | null },
-  ) {
-    return this.store.startRecurringWorkRun(workspaceId, run, transition);
-  }
-
-  finishRecurringWorkRun(
-    workspaceId: string,
-    run: RecurringWorkRunRecord,
+    session: SessionRecord,
     work: RecurringWorkRecord,
+    actionTransition?: ScheduleSessionActionTransition,
   ) {
-    return this.store.finishRecurringWorkRun(workspaceId, run, work);
+    return this.store.finishScheduleSession(
+      workspaceId,
+      session,
+      work,
+      actionTransition,
+    );
   }
 
-  reconcileInterruptedRecurringWorkRuns(cutoff: number) {
-    return this.store.reconcileInterruptedRecurringWorkRuns(cutoff);
+  reconcileInterruptedScheduleSessions(cutoff: number) {
+    return this.store.reconcileInterruptedScheduleSessions(cutoff);
   }
 
   agentPreference(workspaceId: string, agentId: string) {

@@ -3,19 +3,17 @@ import test from "node:test";
 
 import { transientRetryOutcome } from "../src/retry-policy.js";
 
-void test("a transient runtime failure gets exactly one automatic retry", () => {
-  const failure = new Error("RPC timeout while waiting for the local agent");
+void test("transient work gets exactly one automatic retry", () => {
+  const failure = new Error("RPC timeout while waiting for scheduled work");
   const first = transientRetryOutcome(failure, {
-    agentId: "analyst",
-    lastResult: undefined,
+    lastSummary: undefined,
   });
 
   assert.equal(first.retrying, true);
   assert.match(first.message ?? "", /reconnecting/);
 
   const second = transientRetryOutcome(failure, {
-    agentId: "analyst",
-    lastResult: first.message ?? undefined,
+    lastSummary: first.message ?? undefined,
   });
 
   assert.equal(second.retrying, false);
@@ -25,7 +23,7 @@ void test("a transient runtime failure gets exactly one automatic retry", () => 
 void test("configuration and policy failures never retry", () => {
   const result = transientRetryOutcome(
     new Error("The requested tool is outside the approved grant."),
-    { agentId: "analyst", lastResult: undefined },
+    { lastSummary: undefined },
   );
 
   assert.deepEqual(result, { retrying: false, message: null });

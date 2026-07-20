@@ -1,3 +1,5 @@
+/* eslint-disable max-lines */
+
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
@@ -5,6 +7,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -18,39 +21,48 @@ import {
   desc,
   eq,
   gte,
+  inArray,
   isNotNull,
   isNull,
+  like,
   lte,
-  notExists,
+  or,
 } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
 
 import type {
+  ActionItem,
   AgentEvent,
   AgentPreference,
-  AttentionItem,
+  AnalyticsDataset,
   CampaignRecord,
   ChiefMessageEventMetadata,
   ChiefUIMessage,
   ContentBlock,
   ContentDraftRecord,
+  DiagnosticEventRecord,
   DriverType,
   ProspectRecord,
   RecurringWorkRecord,
-  RecurringWorkRunRecord,
+  ScheduleSessionActionTransition,
+  SessionRecord,
   TrendRecord,
   WorkspaceFileRecord,
   WorkspaceFileSnapshot,
 } from "./types.js";
 import * as schema from "./db/schema.js";
+import { TRANSIENT_RETRY_DELAY_MS } from "./retry-policy.js";
 import { hasPotentialSideEffects } from "./run-safety.js";
 
-const RESTART_RUN_SUMMARY =
-  "Chief restarted before this run returned a result. Nothing external was assumed to have completed.";
-const RESTART_RUN_ERROR = "The local runtime restarted during this run.";
+const RESTART_SESSION_SUMMARY =
+  "Chief restarted before this session returned a result. Nothing external was assumed to have completed.";
+const RESTART_SESSION_ERROR =
+  "The local runtime restarted during this session.";
+const RESTART_RETRY_SUMMARY =
+  "Chief restarted before this session used any tools. It will continue automatically.";
 
-class RecurringWorkClaimConflict extends Error {}
+class ScheduleSessionClaimConflict extends Error {}
 
 const moduleDirectory =
   typeof __dirname === "string"
@@ -78,13 +90,15 @@ export interface LocalChatSummary {
 }
 
 export type ChatVisibility = "user" | "private";
-export type ChatStatus = "idle" | "running" | "waiting" | "completed" | "error";
+export type ChatStatus = SessionRecord["status"];
 
 export interface LocalChatRecord {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   parentId?: string;
   triggerId?: string;
+  scheduleId?: string;
+  kind: SessionRecord["kind"];
   visibility: ChatVisibility;
   agent: string;
   title: string;
@@ -94,6 +108,14 @@ export interface LocalChatRecord {
   providerState?: unknown;
   eveState?: unknown;
   status: ChatStatus;
+  scheduledFor?: number;
+  startedAt?: number;
+  finishedAt?: number;
+  attempt: number;
+  summary?: string;
+  error?: string;
+  artifacts?: SessionRecord["artifacts"];
+  blockedTools?: string[];
   createdAt: number;
   updatedAt: number;
 }
@@ -102,7 +124,7 @@ export type AgentMessageMetadata = ChiefMessageEventMetadata;
 
 export interface LocalMessage<Metadata = AgentMessageMetadata> {
   id: string;
-  chatId: string;
+  sessionId: string;
   role: "system" | "user" | "assistant";
   parts: unknown[];
   metadata?: Metadata;
@@ -112,16 +134,26 @@ export interface LocalMessage<Metadata = AgentMessageMetadata> {
 
 export interface ChatContext {
   id: string;
-  workspaceId: string;
+  organizationId: string;
   agentId: string;
   driver: DriverType;
   model?: string;
   parentId?: string;
   triggerId?: string;
+  scheduleId?: string;
+  kind?: SessionRecord["kind"];
   visibility?: ChatVisibility;
   providerState?: unknown;
   eveState?: unknown;
   status?: ChatStatus;
+  scheduledFor?: number;
+  startedAt?: number;
+  finishedAt?: number;
+  attempt?: number;
+  summary?: string;
+  error?: string;
+  artifacts?: SessionRecord["artifacts"];
+  blockedTools?: string[];
 }
 
 function userTexts(events: AgentEvent[]) {
@@ -137,24 +169,13 @@ function userTexts(events: AgentEvent[]) {
   return texts;
 }
 
-function isLegacyLauncherError(event: AgentEvent) {
-  if (event.type !== "error") return false;
-  return (
-    event.message === "Codex exited unexpectedly with code 127." ||
-    event.message.includes(
-      "Failed to spawn Claude Code process: spawn node ENOENT",
-    )
-  );
-}
-
 function durableEvents(events: AgentEvent[]) {
   return events.filter(
     (event) =>
-      !isLegacyLauncherError(event) &&
-      (event.type === "message" ||
-        event.type === "result" ||
-        event.type === "error" ||
-        event.type === "permissionResolved"),
+      event.type === "message" ||
+      event.type === "result" ||
+      event.type === "error" ||
+      event.type === "permissionResolved",
   );
 }
 
@@ -272,7 +293,30 @@ function uiEventMessages(events: AgentEvent[]) {
       continue;
     }
 
+    let mergedToolTarget: (typeof messages)[number] | undefined;
     const remaining = event.content.filter((block) => {
+      if (
+        mergedToolTarget &&
+        (block.type === "data-chart" ||
+          block.type === "data-table" ||
+          block.type === "data-document")
+      ) {
+        const part = uiParts([block])[0];
+        if (
+          part &&
+          !mergedToolTarget.parts.some(
+            (candidate) =>
+              candidate.type === part.type &&
+              "id" in candidate &&
+              "id" in part &&
+              candidate.id === part.id,
+          )
+        ) {
+          mergedToolTarget.parts.push(part);
+        }
+        return false;
+      }
+      mergedToolTarget = undefined;
       if (block.type !== "tool_result") return true;
       for (let index = messages.length - 1; index >= 0; index -= 1) {
         const prior = messages[index];
@@ -302,15 +346,83 @@ function uiEventMessages(events: AgentEvent[]) {
                 }
             : candidate,
         ) as ChiefUIMessage["parts"];
+        mergedToolTarget = prior;
         return false;
       }
       return true;
     });
     if (remaining.length === 0) continue;
+    const nextParts = uiParts(remaining).filter((part, index, parts) => {
+      if (part.type !== "dynamic-tool") return true;
+      const matching = (candidate: ChiefUIMessage["parts"][number]) =>
+        candidate.type === "dynamic-tool" &&
+        candidate.toolCallId === part.toolCallId;
+      let matchingIndex = -1;
+      let completedIndex = -1;
+      for (
+        let candidateIndex = parts.length - 1;
+        candidateIndex >= 0;
+        candidateIndex--
+      ) {
+        const candidate = parts[candidateIndex];
+        if (!candidate || !matching(candidate)) continue;
+        if (matchingIndex < 0) matchingIndex = candidateIndex;
+        if (
+          candidate.type === "dynamic-tool" &&
+          (candidate.state === "output-available" ||
+            candidate.state === "output-error")
+        ) {
+          completedIndex = candidateIndex;
+          break;
+        }
+      }
+      return index === (completedIndex >= 0 ? completedIndex : matchingIndex);
+    });
+    let prior: (typeof messages)[number] | undefined;
+    if (event.id) {
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const candidate = messages[index];
+        if (candidate?.sourceId === event.id && candidate.role === event.role) {
+          prior = candidate;
+          break;
+        }
+      }
+    }
+    if (prior) {
+      for (const part of nextParts) {
+        if (part.type === "dynamic-tool") {
+          const index = prior.parts.findIndex(
+            (candidate) =>
+              candidate.type === "dynamic-tool" &&
+              candidate.toolCallId === part.toolCallId,
+          );
+          if (index >= 0) {
+            const existing = prior.parts[index];
+            const existingDone =
+              existing?.type === "dynamic-tool" &&
+              (existing.state === "output-available" ||
+                existing.state === "output-error");
+            if (!existingDone) prior.parts[index] = part;
+            continue;
+          }
+        }
+        if (
+          part.type === "text" &&
+          prior.parts.some(
+            (candidate) =>
+              candidate.type === "text" && candidate.text === part.text,
+          )
+        ) {
+          continue;
+        }
+        prior.parts.push(part);
+      }
+      continue;
+    }
     messages.push({
       sourceId: event.id,
       role: event.role,
-      parts: uiParts(remaining),
+      parts: nextParts,
     });
   }
   return messages;
@@ -339,23 +451,151 @@ function eventKey(message: {
   ]);
 }
 
-function transcriptStatus(events: AgentEvent[]): ChatStatus {
+function transcriptStatus(events: AgentEvent[]): ChatStatus | undefined {
   for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index];
     if (!event) continue;
-    if (event.type === "error") return "error";
-    if (event.type === "result") return event.ok ? "completed" : "error";
-    if (event.type === "status") return event.status;
+    if (event.type === "error") return "failed";
+    if (event.type === "result") return event.ok ? "completed" : "failed";
+    if (event.type === "status")
+      return event.status === "error" ? "failed" : event.status;
   }
-  return "idle";
+  return undefined;
 }
 
 function driver(provider: string): DriverType | undefined {
   return provider === "claude" ||
     provider === "codex" ||
-    provider === "opencode"
+    provider === "opencode" ||
+    provider === "remote"
     ? provider
     : undefined;
+}
+
+function localChatRecord(
+  row: typeof schema.sessions.$inferSelect,
+): LocalChatRecord {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    parentId: row.parentId ?? undefined,
+    triggerId: row.triggerId ?? undefined,
+    scheduleId: row.scheduleId ?? undefined,
+    kind: row.kind,
+    visibility: row.visibility,
+    agent: row.agent,
+    title: row.title,
+    lastText: row.lastText,
+    provider: row.provider,
+    model: row.model ?? undefined,
+    providerState: row.providerState ?? undefined,
+    eveState: row.eveState ?? undefined,
+    status: row.status,
+    scheduledFor: row.scheduledFor ?? undefined,
+    startedAt: row.startedAt ?? undefined,
+    finishedAt: row.finishedAt ?? undefined,
+    attempt: row.attempt,
+    summary: row.summary ?? undefined,
+    error: row.error ?? undefined,
+    artifacts: row.artifacts ?? undefined,
+    blockedTools: row.blockedTools ?? undefined,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function sessionRecord(
+  row: typeof schema.sessions.$inferSelect,
+): SessionRecord {
+  const chat = localChatRecord(row);
+  return {
+    id: chat.id,
+    parentId: chat.parentId,
+    triggerId: chat.triggerId,
+    scheduleId: chat.scheduleId,
+    kind: chat.kind,
+    visibility: chat.visibility,
+    agent: chat.agent,
+    title: chat.title,
+    provider: chat.provider,
+    model: chat.model,
+    status: chat.status,
+    scheduledFor: chat.scheduledFor,
+    startedAt: chat.startedAt,
+    finishedAt: chat.finishedAt,
+    attempt: chat.attempt,
+    summary: chat.summary,
+    error: chat.error,
+    artifacts: chat.artifacts,
+    blockedTools: chat.blockedTools,
+    createdAt: chat.createdAt,
+    updatedAt: chat.updatedAt,
+  };
+}
+
+function diagnosticSessionRecord(
+  row: typeof schema.sessions.$inferSelect,
+): SessionRecord {
+  return {
+    ...sessionRecord(row),
+    lastText: redactString(row.lastText),
+    summary: row.summary ? redactString(row.summary) : undefined,
+    error: row.error ? redactString(row.error) : undefined,
+  };
+}
+
+const MAX_DIAGNOSTIC_EVENT_BYTES = 64 * 1024;
+const SECRET_KEY =
+  /(?:password|passwd|secret|token|authorization|cookie|api[_-]?key|credential|private[_-]?key|client[_-]?secret)/i;
+const STRING_SECRET_ASSIGNMENT =
+  /(["']?(?:password|passwd|secret|token|access[_-]?token|refresh[_-]?token|authorization|cookie|api[_-]?key|credential|private[_-]?key|client[_-]?secret)["']?\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s,;&}\]]+)/gi;
+const BEARER_SECRET = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi;
+const PREFIXED_SECRET =
+  /\b(?:sk-(?:(?:proj|ant)-)?|[spr]k_live_|gh[pousr]_|github_pat_|glpat-|npm_|pypi-|xox[baprs]-|ya29\.|AIza|AKIA|ASIA|SG\.)[A-Za-z0-9_./+=-]{8,}/g;
+const JWT_SECRET = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
+const PRODUCT_ACTION_SOURCE = /^(?:agent|automation)-[A-Za-z0-9_-]+$/;
+
+function redactString(value: string) {
+  return value
+    .replace(BEARER_SECRET, "Bearer [REDACTED]")
+    .replace(PREFIXED_SECRET, "[REDACTED]")
+    .replace(JWT_SECRET, "[REDACTED]")
+    .replace(STRING_SECRET_ASSIGNMENT, "$1[REDACTED]");
+}
+
+function redactSecrets(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "string") return redactString(value);
+  if (!value || typeof value !== "object") return value;
+  if (seen.has(value)) return "[CIRCULAR]";
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return value.map((item) => redactSecrets(item, seen));
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      SECRET_KEY.test(key) ? "[REDACTED]" : redactSecrets(item, seen),
+    ]),
+  );
+}
+
+function diagnosticData(event: AgentEvent) {
+  const redacted = redactSecrets(event);
+  const bytes = Buffer.byteLength(JSON.stringify(redacted), "utf8");
+  return bytes <= MAX_DIAGNOSTIC_EVENT_BYTES
+    ? redacted
+    : { type: event.type, truncated: true, originalBytes: bytes };
+}
+
+function diagnosticLevel(event: AgentEvent): DiagnosticEventRecord["level"] {
+  if (event.type === "error") return "error";
+  if (event.type === "result") return event.ok ? "info" : "error";
+  if (event.type === "exit") return event.code === 0 ? "info" : "error";
+  if (event.type === "permission") return "warn";
+  if (event.type === "status" && event.status === "error") return "error";
+  if (event.type === "stream" || event.type === "toolProgress") return "debug";
+  return "info";
 }
 
 function encryptionKey(directory: string) {
@@ -403,8 +643,8 @@ function encryptionKey(directory: string) {
 }
 
 export class LocalStore {
-  private readonly client: Client;
-  private readonly db: LibSQLDatabase;
+  private client: Client;
+  private db: LibSQLDatabase;
   private readonly ready: Promise<void>;
 
   constructor(path = defaultDatabasePath()) {
@@ -413,21 +653,45 @@ export class LocalStore {
     if (directory.startsWith(join(homedir(), ".chief"))) {
       chmodSync(directory, 0o700);
     }
-    const client = createClient({
-      url: `file:${path}`,
-      encryptionKey: encryptionKey(directory),
-      timeout: 5_000,
-    });
-    const db = drizzle({ client });
+    const key = encryptionKey(directory);
+    const openDatabase = () => {
+      const client = createClient({
+        url: `file:${path}`,
+        encryptionKey: key,
+        timeout: 5_000,
+      });
+      return { client, db: drizzle({ client }) };
+    };
+    let { client, db } = openDatabase();
     this.client = client;
     this.db = db;
     this.ready = (async () => {
-      await client.execute("PRAGMA journal_mode = WAL");
-      await client.execute("PRAGMA busy_timeout = 5000");
-      await client.execute("PRAGMA foreign_keys = ON");
-      await migrate(db, {
-        migrationsFolder: migrationFolder(),
-      });
+      const initialize = async () => {
+        await client.execute("PRAGMA journal_mode = WAL");
+        await client.execute("PRAGMA busy_timeout = 5000");
+        await client.execute("PRAGMA foreign_keys = ON");
+        await migrate(db, {
+          migrationsFolder: migrationFolder(),
+        });
+      };
+      try {
+        await initialize();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/SQLITE_ERROR:.*table .+ already exists/i.test(message))
+          throw error;
+
+        // Baseline replacements are intentionally destructive while Chief is
+        // pre-release. An installed development build may retain the old DB.
+        client.close();
+        for (const suffix of ["", "-wal", "-shm"]) {
+          rmSync(`${path}${suffix}`, { force: true });
+        }
+        ({ client, db } = openDatabase());
+        this.client = client;
+        this.db = db;
+        await initialize();
+      }
       chmodSync(path, 0o600);
       for (const suffix of ["-wal", "-shm"]) {
         if (existsSync(`${path}${suffix}`))
@@ -445,9 +709,9 @@ export class LocalStore {
     await this.ready;
     return Boolean(
       await this.db
-        .select({ id: schema.chats.id })
-        .from(schema.chats)
-        .where(eq(schema.chats.id, chatId))
+        .select({ id: schema.sessions.id })
+        .from(schema.sessions)
+        .where(eq(schema.sessions.id, chatId))
         .get(),
     );
   }
@@ -455,12 +719,24 @@ export class LocalStore {
   async createChat(
     chat: Omit<
       LocalChatRecord,
-      "title" | "lastText" | "status" | "createdAt" | "updatedAt"
+      | "title"
+      | "lastText"
+      | "kind"
+      | "status"
+      | "attempt"
+      | "createdAt"
+      | "updatedAt"
     > &
       Partial<
         Pick<
           LocalChatRecord,
-          "title" | "lastText" | "status" | "createdAt" | "updatedAt"
+          | "title"
+          | "lastText"
+          | "kind"
+          | "status"
+          | "attempt"
+          | "createdAt"
+          | "updatedAt"
         >
       >,
   ) {
@@ -468,24 +744,59 @@ export class LocalStore {
     const now = Date.now();
     if (chat.parentId) {
       const parent = await this.db
-        .select({ workspaceId: schema.chats.workspaceId })
-        .from(schema.chats)
-        .where(eq(schema.chats.id, chat.parentId))
+        .select({ organizationId: schema.sessions.organizationId })
+        .from(schema.sessions)
+        .where(eq(schema.sessions.id, chat.parentId))
         .get();
-      if (parent?.workspaceId !== chat.workspaceId) {
+      if (parent?.organizationId !== chat.organizationId) {
         throw new Error("Parent chat belongs to a different workspace.");
       }
-      if (chat.visibility !== "private") {
-        throw new Error("Child chats must be private.");
+    }
+    if (chat.scheduleId) {
+      const schedule = await this.db
+        .select({
+          organizationId: schema.schedules.organizationId,
+          conversationId: schema.schedules.conversationId,
+        })
+        .from(schema.schedules)
+        .where(eq(schema.schedules.id, chat.scheduleId))
+        .get();
+      if (schedule?.organizationId !== chat.organizationId) {
+        throw new Error("Schedule belongs to a different workspace.");
+      }
+      if (chat.parentId && chat.parentId !== schedule.conversationId) {
+        throw new Error(
+          "Schedule session parent does not match its conversation.",
+        );
       }
     }
+    const kind =
+      chat.kind ?? (chat.parentId || chat.scheduleId ? "task" : "conversation");
+    if ((chat.parentId || chat.scheduleId) && chat.visibility !== "private") {
+      throw new Error("Child and scheduled sessions must be private.");
+    }
+    if ((chat.parentId || chat.scheduleId) && kind !== "task") {
+      throw new Error("Child and scheduled sessions must be tasks.");
+    }
+    if (
+      chat.scheduleId &&
+      (chat.agent !== "cmo" ||
+        chat.scheduledFor === undefined ||
+        chat.startedAt === undefined)
+    ) {
+      throw new Error(
+        "Schedule sessions require a scheduled time, start time, and CMO agent.",
+      );
+    }
     await this.db
-      .insert(schema.chats)
+      .insert(schema.sessions)
       .values({
         id: chat.id,
-        workspaceId: chat.workspaceId,
+        organizationId: chat.organizationId,
         parentId: chat.parentId,
         triggerId: chat.triggerId,
+        scheduleId: chat.scheduleId,
+        kind,
         visibility: chat.visibility,
         agent: chat.agent,
         title: chat.title ?? "",
@@ -495,6 +806,14 @@ export class LocalStore {
         providerState: chat.providerState,
         eveState: chat.eveState,
         status: chat.status ?? "idle",
+        scheduledFor: chat.scheduledFor,
+        startedAt: chat.startedAt,
+        finishedAt: chat.finishedAt,
+        attempt: chat.attempt ?? 1,
+        summary: chat.summary,
+        error: chat.error,
+        artifacts: chat.artifacts,
+        blockedTools: chat.blockedTools,
         createdAt: chat.createdAt ?? now,
         updatedAt: chat.updatedAt ?? now,
       })
@@ -508,39 +827,30 @@ export class LocalStore {
     await this.ready;
     const row = await this.db
       .select()
-      .from(schema.chats)
+      .from(schema.sessions)
       .where(
         and(
-          eq(schema.chats.id, chatId),
-          eq(schema.chats.workspaceId, workspaceId),
+          eq(schema.sessions.id, chatId),
+          eq(schema.sessions.organizationId, workspaceId),
         ),
       )
       .get();
-    return row
-      ? {
-          ...row,
-          parentId: row.parentId ?? undefined,
-          triggerId: row.triggerId ?? undefined,
-          model: row.model ?? undefined,
-          providerState: row.providerState ?? undefined,
-          eveState: row.eveState ?? undefined,
-        }
-      : null;
+    return row ? localChatRecord(row) : null;
   }
 
   async listChildChats(workspaceId: string, parentId: string) {
     await this.ready;
     const rows = await this.db
-      .select({ id: schema.chats.id })
-      .from(schema.chats)
+      .select({ id: schema.sessions.id })
+      .from(schema.sessions)
       .where(
         and(
-          eq(schema.chats.workspaceId, workspaceId),
-          eq(schema.chats.parentId, parentId),
-          eq(schema.chats.visibility, "private"),
+          eq(schema.sessions.organizationId, workspaceId),
+          eq(schema.sessions.parentId, parentId),
+          eq(schema.sessions.visibility, "private"),
         ),
       )
-      .orderBy(schema.chats.createdAt)
+      .orderBy(schema.sessions.createdAt)
       .all();
     const chats = await Promise.all(
       rows.map((row) => this.chatRecord(workspaceId, row.id)),
@@ -552,19 +862,22 @@ export class LocalStore {
     workspaceId: string,
     chatId: string,
     state: {
+      provider?: string;
+      model?: string | null;
       providerState?: unknown;
       eveState?: unknown;
       status?: ChatStatus;
+      startedAt?: number;
     },
   ) {
     await this.ready;
     const updated = await this.db
-      .update(schema.chats)
+      .update(schema.sessions)
       .set({ ...state, updatedAt: Date.now() })
       .where(
         and(
-          eq(schema.chats.id, chatId),
-          eq(schema.chats.workspaceId, workspaceId),
+          eq(schema.sessions.id, chatId),
+          eq(schema.sessions.organizationId, workspaceId),
         ),
       )
       .run();
@@ -577,12 +890,12 @@ export class LocalStore {
   ): Promise<LocalMessage<Metadata>[]> {
     await this.ready;
     const chat = await this.db
-      .select({ id: schema.chats.id })
-      .from(schema.chats)
+      .select({ id: schema.sessions.id })
+      .from(schema.sessions)
       .where(
         and(
-          eq(schema.chats.id, chatId),
-          eq(schema.chats.workspaceId, workspaceId),
+          eq(schema.sessions.id, chatId),
+          eq(schema.sessions.organizationId, workspaceId),
         ),
       )
       .get();
@@ -590,12 +903,22 @@ export class LocalStore {
     const rows = await this.db
       .select()
       .from(schema.messages)
-      .where(eq(schema.messages.chatId, chatId))
+      .where(
+        and(
+          eq(schema.messages.organizationId, workspaceId),
+          eq(schema.messages.sessionId, chatId),
+        ),
+      )
       .orderBy(schema.messages.position)
       .all();
     return rows.map((message) => ({
-      ...message,
+      id: message.id,
+      sessionId: message.sessionId,
+      role: message.role,
+      parts: message.parts,
       metadata: message.metadata as Metadata | undefined,
+      position: message.position,
+      createdAt: message.createdAt,
     }));
   }
 
@@ -623,25 +946,38 @@ export class LocalStore {
     await this.ready;
     await this.db.transaction(async (tx) => {
       const chat = await tx
-        .select({ id: schema.chats.id })
-        .from(schema.chats)
+        .select({ id: schema.sessions.id })
+        .from(schema.sessions)
         .where(
           and(
-            eq(schema.chats.id, chatId),
-            eq(schema.chats.workspaceId, workspaceId),
+            eq(schema.sessions.id, chatId),
+            eq(schema.sessions.organizationId, workspaceId),
           ),
         )
         .get();
       if (!chat) throw new Error("Chat was not found in this workspace.");
-      if (messages.some((message) => message.chatId !== chatId)) {
+      if (messages.some((message) => message.sessionId !== chatId)) {
         throw new Error("Message belongs to a different chat.");
       }
       await tx
         .delete(schema.messages)
-        .where(eq(schema.messages.chatId, chatId))
+        .where(
+          and(
+            eq(schema.messages.organizationId, workspaceId),
+            eq(schema.messages.sessionId, chatId),
+          ),
+        )
         .run();
       if (messages.length > 0) {
-        await tx.insert(schema.messages).values(messages).run();
+        await tx
+          .insert(schema.messages)
+          .values(
+            messages.map((message) => ({
+              ...message,
+              organizationId: workspaceId,
+            })),
+          )
+          .run();
       }
     });
   }
@@ -661,21 +997,26 @@ export class LocalStore {
     await this.db.transaction(async (tx) => {
       const stored = await tx
         .select({
-          workspaceId: schema.chats.workspaceId,
-          parentId: schema.chats.parentId,
-          visibility: schema.chats.visibility,
-          agent: schema.chats.agent,
-          title: schema.chats.title,
+          organizationId: schema.sessions.organizationId,
+          parentId: schema.sessions.parentId,
+          scheduleId: schema.sessions.scheduleId,
+          kind: schema.sessions.kind,
+          visibility: schema.sessions.visibility,
+          agent: schema.sessions.agent,
+          title: schema.sessions.title,
         })
-        .from(schema.chats)
-        .where(eq(schema.chats.id, context.id))
+        .from(schema.sessions)
+        .where(eq(schema.sessions.id, context.id))
         .get();
       if (
         stored &&
-        (stored.workspaceId !== context.workspaceId ||
+        (stored.organizationId !== context.organizationId ||
           stored.agent !== context.agentId ||
           (context.parentId !== undefined &&
             stored.parentId !== context.parentId) ||
+          (context.scheduleId !== undefined &&
+            stored.scheduleId !== context.scheduleId) ||
+          (context.kind !== undefined && stored.kind !== context.kind) ||
           (context.visibility !== undefined &&
             stored.visibility !== context.visibility))
       ) {
@@ -683,26 +1024,64 @@ export class LocalStore {
       }
       if (context.parentId) {
         const parent = await tx
-          .select({ workspaceId: schema.chats.workspaceId })
-          .from(schema.chats)
-          .where(eq(schema.chats.id, context.parentId))
+          .select({ organizationId: schema.sessions.organizationId })
+          .from(schema.sessions)
+          .where(eq(schema.sessions.id, context.parentId))
           .get();
-        if (parent?.workspaceId !== context.workspaceId) {
+        if (parent?.organizationId !== context.organizationId) {
           throw new Error("Parent chat belongs to a different workspace.");
         }
       }
+      const kind =
+        context.kind ??
+        (context.parentId || context.scheduleId ? "task" : "conversation");
+      const visibility =
+        context.visibility ??
+        (context.parentId || context.scheduleId ? "private" : "user");
+      const status = context.status ?? transcriptStatus(events);
+      if (
+        (context.parentId || context.scheduleId) &&
+        (kind !== "task" || visibility !== "private")
+      ) {
+        throw new Error("Child and scheduled sessions must be private tasks.");
+      }
+      if (context.scheduleId && !stored) {
+        const schedule = await tx
+          .select({
+            organizationId: schema.schedules.organizationId,
+            conversationId: schema.schedules.conversationId,
+          })
+          .from(schema.schedules)
+          .where(eq(schema.schedules.id, context.scheduleId))
+          .get();
+        if (schedule?.organizationId !== context.organizationId) {
+          throw new Error("Schedule belongs to a different workspace.");
+        }
+        if (context.parentId && context.parentId !== schedule.conversationId) {
+          throw new Error(
+            "Schedule session parent does not match its conversation.",
+          );
+        }
+        if (
+          context.agentId !== "cmo" ||
+          context.scheduledFor === undefined ||
+          context.startedAt === undefined
+        ) {
+          throw new Error(
+            "Schedule sessions require a scheduled time, start time, and CMO agent.",
+          );
+        }
+      }
       await tx
-        .insert(schema.chats)
+        .insert(schema.sessions)
         .values({
           id: context.id,
-          workspaceId: context.workspaceId,
+          organizationId: context.organizationId,
           parentId: context.parentId,
           triggerId: context.triggerId,
-          visibility:
-            context.visibility ??
-            (context.parentId || context.id.startsWith("automation-")
-              ? "private"
-              : "user"),
+          scheduleId: context.scheduleId,
+          kind,
+          visibility,
           agent: context.agentId,
           title: (titleOverride ?? firstText).slice(0, 72),
           lastText: lastText.slice(0, 200),
@@ -710,14 +1089,22 @@ export class LocalStore {
           model: context.model,
           providerState: context.providerState,
           eveState: context.eveState,
-          status: context.status ?? transcriptStatus(events),
+          status: status ?? "idle",
+          scheduledFor: context.scheduledFor,
+          startedAt: context.startedAt,
+          finishedAt: context.finishedAt,
+          attempt: context.attempt ?? 1,
+          summary: context.summary,
+          error: context.error,
+          artifacts: context.artifacts,
+          blockedTools: context.blockedTools,
           createdAt: now,
           updatedAt: now,
         })
         .onConflictDoNothing()
         .run();
       const updated = await tx
-        .update(schema.chats)
+        .update(schema.sessions)
         .set({
           ...(titleOverride || !stored?.title
             ? { title: (titleOverride ?? firstText).slice(0, 72) }
@@ -731,13 +1118,35 @@ export class LocalStore {
           ...(context.eveState !== undefined
             ? { eveState: context.eveState }
             : {}),
-          status: context.status ?? transcriptStatus(events),
+          ...(status && !stored?.scheduleId ? { status } : {}),
+          ...(context.scheduledFor !== undefined
+            ? { scheduledFor: context.scheduledFor }
+            : {}),
+          ...(context.startedAt !== undefined
+            ? { startedAt: context.startedAt }
+            : {}),
+          ...(context.finishedAt !== undefined
+            ? { finishedAt: context.finishedAt }
+            : {}),
+          ...(context.attempt !== undefined
+            ? { attempt: context.attempt }
+            : {}),
+          ...(context.summary !== undefined
+            ? { summary: context.summary }
+            : {}),
+          ...(context.error !== undefined ? { error: context.error } : {}),
+          ...(context.artifacts !== undefined
+            ? { artifacts: context.artifacts }
+            : {}),
+          ...(context.blockedTools !== undefined
+            ? { blockedTools: context.blockedTools }
+            : {}),
           updatedAt: now,
         })
         .where(
           and(
-            eq(schema.chats.id, context.id),
-            eq(schema.chats.workspaceId, context.workspaceId),
+            eq(schema.sessions.id, context.id),
+            eq(schema.sessions.organizationId, context.organizationId),
           ),
         )
         .run();
@@ -747,7 +1156,12 @@ export class LocalStore {
       const existing = await tx
         .select()
         .from(schema.messages)
-        .where(eq(schema.messages.chatId, context.id))
+        .where(
+          and(
+            eq(schema.messages.organizationId, context.organizationId),
+            eq(schema.messages.sessionId, context.id),
+          ),
+        )
         .orderBy(schema.messages.position)
         .all();
       const existingByValue = new Map<string, typeof existing>();
@@ -758,6 +1172,7 @@ export class LocalStore {
           message,
         ]);
       }
+      const usedMessageIds = new Set<string>();
       const messages = uiEventMessages(durable).map((normalized, position) => {
         const matches = existingByValue.get(eventKey(normalized));
         const samePosition = existing[position];
@@ -765,9 +1180,17 @@ export class LocalStore {
           samePosition?.role === normalized.role
             ? samePosition
             : matches?.shift();
+        const candidates = [prior?.id, normalized.sourceId];
+        const id =
+          candidates.find(
+            (candidate): candidate is string =>
+              typeof candidate === "string" && !usedMessageIds.has(candidate),
+          ) ?? randomUUID();
+        usedMessageIds.add(id);
         return {
-          id: prior?.id ?? normalized.sourceId ?? randomUUID(),
-          chatId: context.id,
+          id,
+          organizationId: context.organizationId,
+          sessionId: context.id,
           role: normalized.role,
           parts: normalized.parts,
           metadata: normalized.metadata,
@@ -777,7 +1200,12 @@ export class LocalStore {
       });
       await tx
         .delete(schema.messages)
-        .where(eq(schema.messages.chatId, context.id))
+        .where(
+          and(
+            eq(schema.messages.organizationId, context.organizationId),
+            eq(schema.messages.sessionId, context.id),
+          ),
+        )
         .run();
       if (messages.length > 0) {
         await tx.insert(schema.messages).values(messages).run();
@@ -789,22 +1217,17 @@ export class LocalStore {
     await this.ready;
     const rows = await this.db
       .select()
-      .from(schema.chats)
+      .from(schema.sessions)
       .where(
         and(
-          eq(schema.chats.workspaceId, workspaceId),
-          eq(schema.chats.visibility, "user"),
-          isNull(schema.chats.parentId),
-          eq(schema.chats.agent, "cmo"),
-          notExists(
-            this.db
-              .select({ id: schema.recurringWork.id })
-              .from(schema.recurringWork)
-              .where(eq(schema.recurringWork.chatId, schema.chats.id)),
-          ),
+          eq(schema.sessions.organizationId, workspaceId),
+          eq(schema.sessions.kind, "conversation"),
+          eq(schema.sessions.visibility, "user"),
+          isNull(schema.sessions.parentId),
+          eq(schema.sessions.agent, "cmo"),
         ),
       )
-      .orderBy(desc(schema.chats.updatedAt))
+      .orderBy(desc(schema.sessions.updatedAt))
       .all();
     return rows.map((chat) => ({
       id: chat.id,
@@ -823,11 +1246,11 @@ export class LocalStore {
     await this.ready;
     const chat = await this.db
       .select()
-      .from(schema.chats)
+      .from(schema.sessions)
       .where(
         and(
-          eq(schema.chats.id, chatId),
-          eq(schema.chats.workspaceId, workspaceId),
+          eq(schema.sessions.id, chatId),
+          eq(schema.sessions.organizationId, workspaceId),
         ),
       )
       .get();
@@ -846,46 +1269,65 @@ export class LocalStore {
   async transcript(workspaceId: string, chatId: string): Promise<AgentEvent[]> {
     await this.ready;
     const chat = await this.db
-      .select({ id: schema.chats.id })
-      .from(schema.chats)
+      .select({ id: schema.sessions.id })
+      .from(schema.sessions)
       .where(
         and(
-          eq(schema.chats.id, chatId),
-          eq(schema.chats.workspaceId, workspaceId),
+          eq(schema.sessions.id, chatId),
+          eq(schema.sessions.organizationId, workspaceId),
         ),
       )
       .get();
     if (!chat) return [];
     return (await this.messages(workspaceId, chatId)).flatMap((message) => {
       const event = agentEvent(message);
-      return event && !isLegacyLauncherError(event) ? [event] : [];
+      return event ? [event] : [];
     });
   }
 
   async deleteChat(workspaceId: string, chatId: string) {
     await this.ready;
     await this.db.transaction(async (tx) => {
-      const schedule = await tx
-        .select({ id: schema.recurringWork.id })
-        .from(schema.recurringWork)
+      const conversation = await tx
+        .select({
+          kind: schema.sessions.kind,
+          visibility: schema.sessions.visibility,
+        })
+        .from(schema.sessions)
         .where(
           and(
-            eq(schema.recurringWork.chatId, chatId),
-            eq(schema.recurringWork.workspaceId, workspaceId),
+            eq(schema.sessions.id, chatId),
+            eq(schema.sessions.organizationId, workspaceId),
           ),
         )
         .get();
-      if (schedule) {
-        throw new Error(
-          "Schedule chats cannot be deleted from Conversations. Delete the schedule instead.",
-        );
+      if (!conversation) return;
+      if (
+        conversation.kind === "conversation" &&
+        conversation.visibility === "user"
+      ) {
+        const schedule = await tx
+          .select({ id: schema.schedules.id })
+          .from(schema.schedules)
+          .where(
+            and(
+              eq(schema.schedules.organizationId, workspaceId),
+              eq(schema.schedules.conversationId, chatId),
+            ),
+          )
+          .get();
+        if (schedule) {
+          throw new Error(
+            "This Workspace conversation is used by a Schedule. Delete the Schedule before deleting the conversation.",
+          );
+        }
       }
       await tx
-        .delete(schema.chats)
+        .delete(schema.sessions)
         .where(
           and(
-            eq(schema.chats.id, chatId),
-            eq(schema.chats.workspaceId, workspaceId),
+            eq(schema.sessions.id, chatId),
+            eq(schema.sessions.organizationId, workspaceId),
           ),
         )
         .run();
@@ -897,7 +1339,7 @@ export class LocalStore {
     const rows = await this.db
       .select()
       .from(schema.prospects)
-      .where(eq(schema.prospects.workspaceId, workspaceId))
+      .where(eq(schema.prospects.organizationId, workspaceId))
       .orderBy(desc(schema.prospects.foundAt))
       .all();
     return rows.map((prospect) => ({
@@ -916,16 +1358,20 @@ export class LocalStore {
   async saveProspect(workspaceId: string, prospect: ProspectRecord) {
     await this.ready;
     const existing = await this.db
-      .select({ workspaceId: schema.prospects.workspaceId })
+      .select({ organizationId: schema.prospects.organizationId })
       .from(schema.prospects)
       .where(eq(schema.prospects.id, prospect.id))
       .get();
-    if (existing && existing.workspaceId !== workspaceId) {
+    if (existing && existing.organizationId !== workspaceId) {
       throw new Error("Prospect belongs to a different workspace.");
     }
     await this.db
       .insert(schema.prospects)
-      .values({ ...prospect, workspaceId, updatedAt: Date.now() })
+      .values({
+        ...prospect,
+        organizationId: workspaceId,
+        updatedAt: Date.now(),
+      })
       .onConflictDoUpdate({
         target: schema.prospects.id,
         set: {
@@ -948,7 +1394,7 @@ export class LocalStore {
     const rows = await this.db
       .select()
       .from(schema.trends)
-      .where(eq(schema.trends.workspaceId, workspaceId))
+      .where(eq(schema.trends.organizationId, workspaceId))
       .orderBy(desc(schema.trends.foundAt))
       .all();
     return rows.map((trend) => ({
@@ -966,16 +1412,16 @@ export class LocalStore {
   async saveTrend(workspaceId: string, trend: TrendRecord) {
     await this.ready;
     const existing = await this.db
-      .select({ workspaceId: schema.trends.workspaceId })
+      .select({ organizationId: schema.trends.organizationId })
       .from(schema.trends)
       .where(eq(schema.trends.id, trend.id))
       .get();
-    if (existing && existing.workspaceId !== workspaceId) {
+    if (existing && existing.organizationId !== workspaceId) {
       throw new Error("Trend belongs to a different workspace.");
     }
     await this.db
       .insert(schema.trends)
-      .values({ ...trend, workspaceId, updatedAt: Date.now() })
+      .values({ ...trend, organizationId: workspaceId, updatedAt: Date.now() })
       .onConflictDoUpdate({
         target: schema.trends.id,
         set: {
@@ -992,12 +1438,62 @@ export class LocalStore {
       .run();
   }
 
+  async listAnalyticsDatasets(
+    workspaceId: string,
+  ): Promise<AnalyticsDataset[]> {
+    await this.ready;
+    const rows = await this.db
+      .select()
+      .from(schema.analyticsDatasets)
+      .where(eq(schema.analyticsDatasets.organizationId, workspaceId))
+      .orderBy(desc(schema.analyticsDatasets.capturedAt))
+      .all();
+    return rows.map((row) => ({
+      ...row.data,
+      provider: row.provider,
+      key: row.key,
+      sourceId: row.sourceId || undefined,
+      capturedAt: row.capturedAt,
+    }));
+  }
+
+  async saveAnalyticsDataset(
+    workspaceId: string,
+    input: Omit<AnalyticsDataset, "capturedAt">,
+  ): Promise<AnalyticsDataset> {
+    await this.ready;
+    const capturedAt = Date.now();
+    const dataset = { ...input, capturedAt };
+    const sourceId = input.sourceId ?? "";
+    await this.db
+      .insert(schema.analyticsDatasets)
+      .values({
+        organizationId: workspaceId,
+        provider: input.provider,
+        key: input.key,
+        sourceId,
+        data: dataset,
+        capturedAt,
+      })
+      .onConflictDoUpdate({
+        target: [
+          schema.analyticsDatasets.organizationId,
+          schema.analyticsDatasets.provider,
+          schema.analyticsDatasets.key,
+          schema.analyticsDatasets.sourceId,
+        ],
+        set: { data: dataset, capturedAt },
+      })
+      .run();
+    return dataset;
+  }
+
   async listDrafts(workspaceId: string): Promise<ContentDraftRecord[]> {
     await this.ready;
     const rows = await this.db
       .select()
       .from(schema.contentDrafts)
-      .where(eq(schema.contentDrafts.workspaceId, workspaceId))
+      .where(eq(schema.contentDrafts.organizationId, workspaceId))
       .orderBy(desc(schema.contentDrafts.updatedAt))
       .all();
     return rows.map((draft) => ({
@@ -1017,16 +1513,16 @@ export class LocalStore {
   async saveDraft(workspaceId: string, draft: ContentDraftRecord) {
     await this.ready;
     const existing = await this.db
-      .select({ workspaceId: schema.contentDrafts.workspaceId })
+      .select({ organizationId: schema.contentDrafts.organizationId })
       .from(schema.contentDrafts)
       .where(eq(schema.contentDrafts.id, draft.id))
       .get();
-    if (existing && existing.workspaceId !== workspaceId) {
+    if (existing && existing.organizationId !== workspaceId) {
       throw new Error("Content draft belongs to a different workspace.");
     }
     await this.db
       .insert(schema.contentDrafts)
-      .values({ ...draft, workspaceId })
+      .values({ ...draft, organizationId: workspaceId })
       .onConflictDoUpdate({
         target: schema.contentDrafts.id,
         set: {
@@ -1050,13 +1546,13 @@ export class LocalStore {
     const rows = await this.db
       .select()
       .from(schema.workspaceFiles)
-      .where(eq(schema.workspaceFiles.workspaceId, workspaceId))
+      .where(eq(schema.workspaceFiles.organizationId, workspaceId))
       .orderBy(desc(schema.workspaceFiles.updatedAt))
       .all();
     return rows.map((file) => ({
       ...file,
       sourceAgentId: file.sourceAgentId ?? undefined,
-      sourceRunId: file.sourceRunId ?? undefined,
+      sourceSessionId: file.sourceSessionId ?? undefined,
     }));
   }
 
@@ -1071,7 +1567,7 @@ export class LocalStore {
       .where(
         and(
           eq(schema.workspaceFiles.id, fileId),
-          eq(schema.workspaceFiles.workspaceId, workspaceId),
+          eq(schema.workspaceFiles.organizationId, workspaceId),
         ),
       )
       .get();
@@ -1082,7 +1578,7 @@ export class LocalStore {
       .where(
         and(
           eq(schema.workspaceFileVersions.id, file.currentVersionId),
-          eq(schema.workspaceFileVersions.workspaceId, workspaceId),
+          eq(schema.workspaceFileVersions.organizationId, workspaceId),
         ),
       )
       .get();
@@ -1090,7 +1586,7 @@ export class LocalStore {
     return {
       ...file,
       sourceAgentId: file.sourceAgentId ?? undefined,
-      sourceRunId: file.sourceRunId ?? undefined,
+      sourceSessionId: file.sourceSessionId ?? undefined,
       content: version.content,
     };
   }
@@ -1104,13 +1600,13 @@ export class LocalStore {
     await this.db.transaction(async (tx) => {
       const existing = await tx
         .select({
-          workspaceId: schema.workspaceFiles.workspaceId,
+          organizationId: schema.workspaceFiles.organizationId,
           currentVersionId: schema.workspaceFiles.currentVersionId,
         })
         .from(schema.workspaceFiles)
         .where(eq(schema.workspaceFiles.id, file.id))
         .get();
-      if (existing && existing.workspaceId !== workspaceId) {
+      if (existing && existing.organizationId !== workspaceId) {
         throw new Error("File belongs to a different workspace.");
       }
       if (
@@ -1124,7 +1620,7 @@ export class LocalStore {
         .insert(schema.workspaceFiles)
         .values({
           id: file.id,
-          workspaceId,
+          organizationId: workspaceId,
           name: file.name,
           path: file.path,
           mimeType: file.mimeType,
@@ -1133,7 +1629,7 @@ export class LocalStore {
           currentVersionId: file.currentVersionId,
           createdBy: file.createdBy,
           sourceAgentId: file.sourceAgentId,
-          sourceRunId: file.sourceRunId,
+          sourceSessionId: file.sourceSessionId,
           createdAt: file.createdAt,
           updatedAt: file.updatedAt,
         })
@@ -1147,7 +1643,7 @@ export class LocalStore {
             provider: file.provider,
             currentVersionId: file.currentVersionId,
             sourceAgentId: file.sourceAgentId,
-            sourceRunId: file.sourceRunId,
+            sourceSessionId: file.sourceSessionId,
             updatedAt: file.updatedAt,
           },
         })
@@ -1157,12 +1653,12 @@ export class LocalStore {
         .values({
           id: file.currentVersionId,
           fileId: file.id,
-          workspaceId,
+          organizationId: workspaceId,
           content: file.content,
           size: Buffer.byteLength(file.content, "utf8"),
           createdBy: file.createdBy,
           sourceAgentId: file.sourceAgentId,
-          sourceRunId: file.sourceRunId,
+          sourceSessionId: file.sourceSessionId,
           createdAt: file.updatedAt,
         })
         .run();
@@ -1176,7 +1672,7 @@ export class LocalStore {
       .where(
         and(
           eq(schema.workspaceFiles.id, fileId),
-          eq(schema.workspaceFiles.workspaceId, workspaceId),
+          eq(schema.workspaceFiles.organizationId, workspaceId),
         ),
       )
       .run();
@@ -1186,18 +1682,30 @@ export class LocalStore {
     await this.ready;
     const rows = await this.db
       .select()
-      .from(schema.recurringWork)
-      .where(eq(schema.recurringWork.workspaceId, workspaceId))
-      .orderBy(schema.recurringWork.nextRunAt)
+      .from(schema.schedules)
+      .where(eq(schema.schedules.organizationId, workspaceId))
+      .orderBy(schema.schedules.nextAt)
       .all();
     return rows.map((work) => ({
-      ...work,
+      id: work.id,
+      conversationId: work.conversationId ?? undefined,
+      agentId: work.agentId,
+      title: work.title,
+      instructions: work.instructions,
+      cron: work.cron,
+      timezone: work.timezone,
+      onceAt: work.onceAt ?? undefined,
+      status: work.status,
+      placement: work.placement,
       grant: work.grant ?? undefined,
       skipDates: work.skipDates ?? undefined,
-      runOnceAt: work.runOnceAt ?? undefined,
-      nextRunAt: work.nextRunAt ?? undefined,
-      lastRunAt: work.lastRunAt ?? undefined,
-      lastResult: work.lastResult ?? undefined,
+      approvalSummary: work.approvalSummary,
+      proposedToolPatterns: work.proposedToolPatterns,
+      nextAt: work.nextAt ?? undefined,
+      lastCompletedAt: work.lastCompletedAt ?? undefined,
+      lastSummary: work.lastSummary ?? undefined,
+      createdAt: work.createdAt,
+      updatedAt: work.updatedAt,
     }));
   }
 
@@ -1205,153 +1713,147 @@ export class LocalStore {
     await this.ready;
     const row = await this.db
       .select()
-      .from(schema.recurringWork)
+      .from(schema.schedules)
       .where(
         and(
-          eq(schema.recurringWork.id, id),
-          eq(schema.recurringWork.workspaceId, workspaceId),
+          eq(schema.schedules.id, id),
+          eq(schema.schedules.organizationId, workspaceId),
         ),
       )
       .get();
     return row
       ? ({
-          ...row,
+          id: row.id,
+          conversationId: row.conversationId ?? undefined,
+          agentId: row.agentId,
+          title: row.title,
+          instructions: row.instructions,
+          cron: row.cron,
+          timezone: row.timezone,
+          onceAt: row.onceAt ?? undefined,
+          status: row.status,
+          placement: row.placement,
           grant: row.grant ?? undefined,
           skipDates: row.skipDates ?? undefined,
-          runOnceAt: row.runOnceAt ?? undefined,
-          nextRunAt: row.nextRunAt ?? undefined,
-          lastRunAt: row.lastRunAt ?? undefined,
-          lastResult: row.lastResult ?? undefined,
+          approvalSummary: row.approvalSummary,
+          proposedToolPatterns: row.proposedToolPatterns,
+          nextAt: row.nextAt ?? undefined,
+          lastCompletedAt: row.lastCompletedAt ?? undefined,
+          lastSummary: row.lastSummary ?? undefined,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
         } satisfies RecurringWorkRecord)
       : undefined;
   }
 
-  async recurringWorkByChat(workspaceId: string, chatId: string) {
-    await this.ready;
-    return this.db
-      .select({ id: schema.recurringWork.id })
-      .from(schema.recurringWork)
-      .where(
-        and(
-          eq(schema.recurringWork.workspaceId, workspaceId),
-          eq(schema.recurringWork.chatId, chatId),
-        ),
-      )
-      .get();
-  }
-
   async saveRecurringWork(workspaceId: string, work: RecurringWorkRecord) {
     await this.ready;
-    const { upcomingRuns: _upcomingRuns, ...persisted } = work;
-    const chat = await this.db
-      .select({
-        workspaceId: schema.chats.workspaceId,
-        parentId: schema.chats.parentId,
-        visibility: schema.chats.visibility,
-        agent: schema.chats.agent,
-      })
-      .from(schema.chats)
-      .where(eq(schema.chats.id, work.chatId))
-      .get();
-    if (
-      chat?.workspaceId !== workspaceId ||
-      chat.parentId !== null ||
-      chat.visibility !== "user" ||
-      chat.agent !== "cmo"
-    ) {
-      throw new Error(
-        "Schedules require a top-level CMO chat in this workspace.",
-      );
+    if (work.conversationId) {
+      const conversation = await this.db
+        .select({
+          organizationId: schema.sessions.organizationId,
+          parentId: schema.sessions.parentId,
+          kind: schema.sessions.kind,
+          visibility: schema.sessions.visibility,
+          agent: schema.sessions.agent,
+        })
+        .from(schema.sessions)
+        .where(eq(schema.sessions.id, work.conversationId))
+        .get();
+      if (
+        conversation?.organizationId !== workspaceId ||
+        conversation.parentId !== null ||
+        conversation.kind !== "conversation" ||
+        conversation.visibility !== "user" ||
+        conversation.agent !== "cmo"
+      ) {
+        throw new Error(
+          "Schedule conversations must be top-level user-visible CMO conversations in this workspace.",
+        );
+      }
     }
     const existing = await this.db
-      .select({
-        workspaceId: schema.recurringWork.workspaceId,
-        chatId: schema.recurringWork.chatId,
-      })
-      .from(schema.recurringWork)
-      .where(eq(schema.recurringWork.id, work.id))
+      .select({ organizationId: schema.schedules.organizationId })
+      .from(schema.schedules)
+      .where(eq(schema.schedules.id, work.id))
       .get();
-    if (existing && existing.workspaceId !== workspaceId) {
+    if (existing && existing.organizationId !== workspaceId) {
       throw new Error("Recurring work belongs to a different workspace.");
     }
-    if (existing && existing.chatId !== work.chatId) {
-      throw new Error("A schedule cannot change its durable root chat.");
-    }
     await this.db
-      .insert(schema.recurringWork)
-      .values({ ...persisted, workspaceId })
+      .insert(schema.schedules)
+      .values({
+        id: work.id,
+        organizationId: workspaceId,
+        conversationId: work.conversationId,
+        agentId: work.agentId,
+        title: work.title,
+        instructions: work.instructions,
+        cron: work.cron,
+        timezone: work.timezone,
+        onceAt: work.onceAt,
+        status: work.status,
+        placement: work.placement,
+        skipDates: work.skipDates,
+        approvalSummary: work.approvalSummary,
+        proposedToolPatterns: work.proposedToolPatterns,
+        grant: work.grant,
+        nextAt: work.nextAt,
+        lastCompletedAt: work.lastCompletedAt,
+        lastSummary: work.lastSummary,
+        createdAt: work.createdAt,
+        updatedAt: work.updatedAt,
+      })
       .onConflictDoUpdate({
-        target: schema.recurringWork.id,
+        target: schema.schedules.id,
         set: {
-          chatId: work.chatId,
+          conversationId: work.conversationId ?? null,
           agentId: work.agentId,
           title: work.title,
           instructions: work.instructions,
           cron: work.cron,
           timezone: work.timezone,
-          runOnceAt: work.runOnceAt ?? null,
+          onceAt: work.onceAt ?? null,
           status: work.status,
           placement: work.placement,
           skipDates: work.skipDates ?? null,
           approvalSummary: work.approvalSummary,
           proposedToolPatterns: work.proposedToolPatterns,
           grant: work.grant,
-          nextRunAt: work.nextRunAt ?? null,
-          lastRunAt: work.lastRunAt,
-          lastResult: work.lastResult,
+          nextAt: work.nextAt ?? null,
+          lastCompletedAt: work.lastCompletedAt,
+          lastSummary: work.lastSummary,
           updatedAt: work.updatedAt,
         },
       })
       .run();
   }
 
-  async deleteRecurringWorkRun(workspaceId: string, runId: string) {
-    await this.ready;
-    await this.db
-      .delete(schema.recurringWorkRuns)
-      .where(
-        and(
-          eq(schema.recurringWorkRuns.id, runId),
-          eq(schema.recurringWorkRuns.workspaceId, workspaceId),
-        ),
-      )
-      .run();
-  }
-
   async deleteRecurringWork(workspaceId: string, id: string) {
     await this.ready;
     await this.db
-      .delete(schema.recurringWorkRuns)
+      .delete(schema.schedules)
       .where(
         and(
-          eq(schema.recurringWorkRuns.recurringWorkId, id),
-          eq(schema.recurringWorkRuns.workspaceId, workspaceId),
-        ),
-      )
-      .run();
-    await this.db
-      .delete(schema.recurringWork)
-      .where(
-        and(
-          eq(schema.recurringWork.id, id),
-          eq(schema.recurringWork.workspaceId, workspaceId),
+          eq(schema.schedules.id, id),
+          eq(schema.schedules.organizationId, workspaceId),
         ),
       )
       .run();
   }
 
-  async listAttentionItems(workspaceId: string): Promise<AttentionItem[]> {
+  async listActionItems(workspaceId: string): Promise<ActionItem[]> {
     await this.ready;
     const rows = await this.db
       .select()
-      .from(schema.attentionItems)
+      .from(schema.actions)
       .where(
         and(
-          eq(schema.attentionItems.workspaceId, workspaceId),
-          eq(schema.attentionItems.status, "open"),
+          eq(schema.actions.organizationId, workspaceId),
+          eq(schema.actions.status, "open"),
         ),
       )
-      .orderBy(desc(schema.attentionItems.createdAt))
+      .orderBy(desc(schema.actions.createdAt))
       .all();
     return rows.map((item) => ({
       id: item.id,
@@ -1359,32 +1861,51 @@ export class LocalStore {
       title: item.title,
       reason: item.reason,
       sourceId: item.sourceId ?? undefined,
+      ...(item.request ? { request: item.request } : {}),
       status: item.status,
       createdAt: item.createdAt,
     }));
   }
 
-  async raiseAttentionItem(workspaceId: string, item: AttentionItem) {
+  async raiseActionItem(workspaceId: string, item: ActionItem) {
     await this.ready;
     await this.db.transaction(async (tx) => {
+      if (item.sourceId && !PRODUCT_ACTION_SOURCE.test(item.sourceId)) {
+        const source = await tx
+          .select({ organizationId: schema.sessions.organizationId })
+          .from(schema.sessions)
+          .where(eq(schema.sessions.id, item.sourceId))
+          .get();
+        if (source?.organizationId !== workspaceId) {
+          throw new Error(
+            "Action source session was not found in this workspace.",
+          );
+        }
+      }
       const existing = await tx
-        .select({ workspaceId: schema.attentionItems.workspaceId })
-        .from(schema.attentionItems)
-        .where(eq(schema.attentionItems.id, item.id))
+        .select({ organizationId: schema.actions.organizationId })
+        .from(schema.actions)
+        .where(eq(schema.actions.id, item.id))
         .get();
-      if (existing && existing.workspaceId !== workspaceId) {
-        throw new Error("Attention item belongs to a different workspace.");
+      if (existing && existing.organizationId !== workspaceId) {
+        throw new Error("Action item belongs to a different workspace.");
       }
       await tx
-        .insert(schema.attentionItems)
-        .values({ ...item, sourceId: item.sourceId ?? null, workspaceId })
+        .insert(schema.actions)
+        .values({
+          ...item,
+          sourceId: item.sourceId ?? null,
+          request: item.request ?? null,
+          organizationId: workspaceId,
+        })
         .onConflictDoUpdate({
-          target: schema.attentionItems.id,
+          target: schema.actions.id,
           set: {
             agentId: item.agentId,
             title: item.title,
             reason: item.reason,
             sourceId: item.sourceId ?? null,
+            request: item.request ?? null,
             status: item.status,
             createdAt: item.createdAt,
           },
@@ -1393,98 +1914,99 @@ export class LocalStore {
     });
   }
 
-  async dismissAttentionItem(workspaceId: string, id: string) {
+  async dismissActionItem(workspaceId: string, id: string) {
     await this.ready;
     await this.db
-      .update(schema.attentionItems)
+      .update(schema.actions)
       .set({ status: "dismissed" })
       .where(
         and(
-          eq(schema.attentionItems.id, id),
-          eq(schema.attentionItems.workspaceId, workspaceId),
+          eq(schema.actions.id, id),
+          eq(schema.actions.organizationId, workspaceId),
         ),
       )
       .run();
+  }
+
+  async actionItem(workspaceId: string, id: string) {
+    await this.ready;
+    const item = await this.db
+      .select()
+      .from(schema.actions)
+      .where(
+        and(
+          eq(schema.actions.id, id),
+          eq(schema.actions.organizationId, workspaceId),
+        ),
+      )
+      .get();
+    return item
+      ? {
+          id: item.id,
+          agentId: item.agentId,
+          title: item.title,
+          reason: item.reason,
+          sourceId: item.sourceId ?? undefined,
+          ...(item.request ? { request: item.request } : {}),
+          status: item.status,
+          createdAt: item.createdAt,
+        }
+      : null;
   }
 
   async dueRecurringWork(now: number) {
     await this.ready;
     return this.db
       .select()
-      .from(schema.recurringWork)
+      .from(schema.schedules)
       .where(
         and(
-          eq(schema.recurringWork.status, "active"),
+          eq(schema.schedules.status, "active"),
           // Cloud-placed automations fire in the deployment, never here.
-          eq(schema.recurringWork.placement, "local"),
-          lte(schema.recurringWork.nextRunAt, now),
+          eq(schema.schedules.placement, "local"),
+          lte(schema.schedules.nextAt, now),
           // An active row without a grant can never run; returning it would
           // make every tick fetch and skip it forever.
-          isNotNull(schema.recurringWork.grant),
+          isNotNull(schema.schedules.grant),
         ),
       )
       .all();
   }
 
-  /**
-   * Atomically claims a due run by advancing nextRunAt only if it still holds
-   * the expected due time. Exactly one process wins when several runtimes
-   * poll the same database.
-   */
-  async claimRecurringWork(
-    workspaceId: string,
-    id: string,
-    expectedNextRunAt: number,
-    nextRunAt: number | null,
-  ): Promise<boolean> {
+  async listScheduleSessions(workspaceId: string): Promise<SessionRecord[]> {
     await this.ready;
-    const result = await this.db
-      .update(schema.recurringWork)
-      .set({ nextRunAt, updatedAt: Date.now() })
+    const rows = await this.db
+      .select()
+      .from(schema.sessions)
       .where(
         and(
-          eq(schema.recurringWork.id, id),
-          eq(schema.recurringWork.workspaceId, workspaceId),
-          eq(schema.recurringWork.nextRunAt, expectedNextRunAt),
+          eq(schema.sessions.organizationId, workspaceId),
+          isNotNull(schema.sessions.scheduleId),
         ),
       )
-      .run();
-    return result.rowsAffected > 0;
+      .orderBy(desc(schema.sessions.startedAt))
+      .all();
+    return rows.map(sessionRecord);
   }
 
-  async listRecurringWorkRuns(
-    workspaceId: string,
-  ): Promise<RecurringWorkRunRecord[]> {
+  async listActivitySessions(workspaceId: string): Promise<SessionRecord[]> {
     await this.ready;
-    return this.db
-      .select({
-        id: schema.recurringWorkRuns.id,
-        recurringWorkId: schema.recurringWorkRuns.recurringWorkId,
-        chatId: schema.recurringWorkRuns.chatId,
-        status: schema.recurringWorkRuns.status,
-        scheduledFor: schema.recurringWorkRuns.scheduledFor,
-        startedAt: schema.recurringWorkRuns.startedAt,
-        finishedAt: schema.recurringWorkRuns.finishedAt,
-        summary: schema.recurringWorkRuns.summary,
-        error: schema.recurringWorkRuns.error,
-        artifacts: schema.recurringWorkRuns.artifacts,
-        blockedTools: schema.recurringWorkRuns.blockedTools,
-      })
-      .from(schema.recurringWorkRuns)
-      .where(eq(schema.recurringWorkRuns.workspaceId, workspaceId))
-      .orderBy(desc(schema.recurringWorkRuns.startedAt))
-      .limit(100)
-      .all()
-      .then((rows) =>
-        rows.map((run) => ({
-          ...run,
-          finishedAt: run.finishedAt ?? undefined,
-          summary: run.summary ?? undefined,
-          error: run.error ?? undefined,
-          artifacts: run.artifacts ?? undefined,
-          blockedTools: run.blockedTools ?? undefined,
-        })),
-      );
+    const rows = await this.db
+      .select()
+      .from(schema.sessions)
+      .where(
+        and(
+          eq(schema.sessions.organizationId, workspaceId),
+          or(
+            eq(schema.sessions.kind, "task"),
+            like(schema.sessions.id, "workspace-kickoff-%"),
+            eq(schema.sessions.title, "Initial business review"),
+          ),
+        ),
+      )
+      .orderBy(desc(schema.sessions.updatedAt))
+      .all();
+    return rows.map(sessionRecord);
   }
 
   /**
@@ -1492,27 +2014,32 @@ export class LocalStore {
    * calls this after it owns the port, so every pre-existing running record is
    * interrupted and must be closed before new work is dispatched.
    */
-  async reconcileInterruptedRecurringWorkRuns(cutoff: number) {
+  async reconcileInterruptedScheduleSessions(cutoff: number) {
     await this.ready;
     const interrupted = await this.db
       .select()
-      .from(schema.recurringWorkRuns)
+      .from(schema.sessions)
       .where(
         and(
-          eq(schema.recurringWorkRuns.status, "running"),
-          lte(schema.recurringWorkRuns.startedAt, cutoff),
+          eq(schema.sessions.status, "running"),
+          isNotNull(schema.sessions.scheduleId),
+          lte(schema.sessions.startedAt, cutoff),
         ),
       )
       .all();
-    for (const run of interrupted) {
-      await this.db.transaction(async (tx) => {
+    let requeued = 0;
+    for (const session of interrupted) {
+      const sessionRequeued = await this.db.transaction(async (tx) => {
+        const scheduleId = session.scheduleId;
+        if (!scheduleId) return false;
         const transcriptRows = await tx
           .select()
           .from(schema.messages)
           .where(
             and(
-              eq(schema.messages.chatId, run.chatId),
-              gte(schema.messages.createdAt, run.startedAt),
+              eq(schema.messages.organizationId, session.organizationId),
+              eq(schema.messages.sessionId, session.id),
+              gte(schema.messages.createdAt, session.startedAt ?? 0),
             ),
           )
           .all();
@@ -1525,200 +2052,529 @@ export class LocalStore {
             return event ? [event] : [];
           }),
         );
+        const now = Date.now();
+        const status = touchedTools ? "needs_approval" : "waiting";
+        const summary = touchedTools
+          ? "Chief restarted after this session used tools. It will not retry automatically."
+          : RESTART_RETRY_SUMMARY;
         const closed = await tx
-          .update(schema.recurringWorkRuns)
+          .update(schema.sessions)
           .set({
-            status: "failed",
-            finishedAt: Date.now(),
-            summary: RESTART_RUN_SUMMARY,
-            error: RESTART_RUN_ERROR,
+            status,
+            finishedAt: touchedTools ? now : null,
+            summary: touchedTools ? RESTART_SESSION_SUMMARY : summary,
+            error: RESTART_SESSION_ERROR,
+            updatedAt: now,
           })
           .where(
             and(
-              eq(schema.recurringWorkRuns.id, run.id),
-              eq(schema.recurringWorkRuns.status, "running"),
+              eq(schema.sessions.id, session.id),
+              eq(schema.sessions.organizationId, session.organizationId),
+              eq(schema.sessions.status, "running"),
             ),
           )
           .run();
-        if (closed.rowsAffected === 0) return;
+        if (closed.rowsAffected === 0) return false;
 
         const work = await tx
           .select({
-            status: schema.recurringWork.status,
+            status: schema.schedules.status,
           })
-          .from(schema.recurringWork)
+          .from(schema.schedules)
           .where(
             and(
-              eq(schema.recurringWork.id, run.recurringWorkId),
-              eq(schema.recurringWork.workspaceId, run.workspaceId),
+              eq(schema.schedules.id, scheduleId),
+              eq(schema.schedules.organizationId, session.organizationId),
             ),
           )
           .get();
-        if (work?.status !== "active") return;
+        if (!work) return false;
+        if (!touchedTools && work.status !== "active") return false;
         await tx
-          .update(schema.recurringWork)
+          .update(schema.schedules)
           .set({
-            status: "needs_approval",
-            nextRunAt: null,
-            lastResult: touchedTools
-              ? "Chief restarted after this run used tools. It will not retry automatically."
-              : "Chief restarted before this run returned a result. Review it before trying again.",
-            updatedAt: Date.now(),
+            status: touchedTools ? "needs_approval" : "active",
+            nextAt: touchedTools ? null : now + TRANSIENT_RETRY_DELAY_MS,
+            lastSummary: summary,
+            updatedAt: now,
           })
-          .where(eq(schema.recurringWork.id, run.recurringWorkId))
+          .where(
+            and(
+              eq(schema.schedules.id, scheduleId),
+              eq(schema.schedules.organizationId, session.organizationId),
+            ),
+          )
           .run();
+        if (touchedTools) {
+          const actionId = `action-${scheduleId}-interrupted`;
+          const existingAction = await tx
+            .select({ organizationId: schema.actions.organizationId })
+            .from(schema.actions)
+            .where(eq(schema.actions.id, actionId))
+            .get();
+          if (
+            existingAction &&
+            existingAction.organizationId !== session.organizationId
+          ) {
+            throw new Error("Action item belongs to a different workspace.");
+          }
+          await tx
+            .insert(schema.actions)
+            .values({
+              id: actionId,
+              organizationId: session.organizationId,
+              agentId: "cmo",
+              title: "Review interrupted work",
+              reason: summary,
+              sourceId: session.id,
+              status: "open",
+              createdAt: now,
+            })
+            .onConflictDoUpdate({
+              target: schema.actions.id,
+              set: {
+                reason: summary,
+                sourceId: session.id,
+                status: "open",
+                createdAt: now,
+              },
+            })
+            .run();
+        }
+        return !touchedTools;
       });
+      if (sessionRequeued) requeued += 1;
     }
-    return { interrupted: interrupted.length, requeued: 0 };
+    return { interrupted: interrupted.length, requeued };
   }
 
-  /** Union of Executor addresses recent runs of this automation declined. */
-  async latestRunBlockedTools(
+  async reconcileInterruptedSpecialistSessions(cutoff: number) {
+    await this.ready;
+    const now = Date.now();
+    const result = await this.db
+      .update(schema.sessions)
+      .set({
+        status: "failed",
+        finishedAt: now,
+        error:
+          "Chief restarted while this local specialist was running. Retry with a new delegation ID if the work is still needed.",
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(schema.sessions.kind, "task"),
+          eq(schema.sessions.visibility, "private"),
+          isNotNull(schema.sessions.parentId),
+          isNull(schema.sessions.scheduleId),
+          inArray(schema.sessions.provider, ["claude", "codex", "opencode"]),
+          inArray(schema.sessions.status, ["running", "waiting"]),
+          lte(schema.sessions.updatedAt, cutoff),
+        ),
+      )
+      .run();
+    return result.rowsAffected;
+  }
+
+  async reconcileStaleActivitySessions(cutoff: number) {
+    await this.ready;
+    const now = Date.now();
+    const result = await this.db
+      .update(schema.sessions)
+      .set({
+        status: "failed",
+        finishedAt: now,
+        error:
+          "Chief lost contact with this work before it returned a final result.",
+        updatedAt: now,
+      })
+      .where(
+        and(
+          inArray(schema.sessions.status, ["running", "waiting"]),
+          lte(schema.sessions.updatedAt, cutoff),
+          or(
+            and(
+              eq(schema.sessions.kind, "task"),
+              eq(schema.sessions.visibility, "private"),
+              isNotNull(schema.sessions.parentId),
+              isNull(schema.sessions.scheduleId),
+            ),
+            and(
+              eq(schema.sessions.kind, "conversation"),
+              like(schema.sessions.id, "workspace-kickoff-%"),
+            ),
+          ),
+        ),
+      )
+      .run();
+    return result.rowsAffected;
+  }
+
+  async finishSpecialistSession(
     workspaceId: string,
-    recurringWorkId: string,
+    sessionId: string,
+    outcome:
+      | { status: "completed"; result: string }
+      | { status: "failed"; error: string },
+    finishedAt: number,
+  ) {
+    await this.ready;
+    const result = await this.db
+      .update(schema.sessions)
+      .set({
+        status: outcome.status,
+        finishedAt,
+        summary: outcome.status === "completed" ? outcome.result : null,
+        error: outcome.status === "failed" ? outcome.error : null,
+        updatedAt: finishedAt,
+      })
+      .where(
+        and(
+          eq(schema.sessions.id, sessionId),
+          eq(schema.sessions.organizationId, workspaceId),
+          eq(schema.sessions.kind, "task"),
+          eq(schema.sessions.visibility, "private"),
+          isNotNull(schema.sessions.parentId),
+          isNull(schema.sessions.scheduleId),
+        ),
+      )
+      .run();
+    if (result.rowsAffected === 0) {
+      throw new Error("Specialist session could not be finalized.");
+    }
+  }
+
+  /** Union of Executor addresses recent sessions of this schedule declined. */
+  async latestSessionBlockedTools(
+    workspaceId: string,
+    scheduleId: string,
   ): Promise<string[]> {
     await this.ready;
     const rows = await this.db
-      .select({ blockedTools: schema.recurringWorkRuns.blockedTools })
-      .from(schema.recurringWorkRuns)
+      .select({ blockedTools: schema.sessions.blockedTools })
+      .from(schema.sessions)
       .where(
         and(
-          eq(schema.recurringWorkRuns.workspaceId, workspaceId),
-          eq(schema.recurringWorkRuns.recurringWorkId, recurringWorkId),
+          eq(schema.sessions.organizationId, workspaceId),
+          eq(schema.sessions.scheduleId, scheduleId),
         ),
       )
-      .orderBy(desc(schema.recurringWorkRuns.startedAt))
+      .orderBy(desc(schema.sessions.startedAt))
       .limit(10)
       .all();
     return [...new Set(rows.flatMap((row) => row.blockedTools ?? []))];
   }
 
-  async saveRecurringWorkRun(workspaceId: string, run: RecurringWorkRunRecord) {
+  async waitingScheduleSession(
+    workspaceId: string,
+    session: SessionRecord,
+    work: RecurringWorkRecord,
+  ) {
     await this.ready;
-    const work = await this.recurringWorkById(workspaceId, run.recurringWorkId);
-    if (work?.chatId !== run.chatId) {
-      throw new Error("Run chat does not match its schedule root chat.");
+    if (
+      session.scheduleId !== work.id ||
+      session.status !== "waiting" ||
+      session.finishedAt !== undefined ||
+      work.nextAt === undefined
+    ) {
+      throw new Error("A waiting schedule session must match its retry.");
     }
-    await this.db
-      .insert(schema.recurringWorkRuns)
-      .values({ ...run, workspaceId })
-      .onConflictDoUpdate({
-        target: schema.recurringWorkRuns.id,
-        set: {
-          status: run.status,
-          finishedAt: run.finishedAt,
-          blockedTools: run.blockedTools ?? null,
-          summary: run.summary,
-          error: run.error,
-          artifacts: run.artifacts ?? null,
-        },
-      })
-      .run();
+    await this.db.transaction(async (tx) => {
+      const waiting = await tx
+        .update(schema.sessions)
+        .set({
+          status: "waiting",
+          finishedAt: null,
+          summary: session.summary,
+          error: session.error,
+          artifacts: session.artifacts ?? null,
+          blockedTools: session.blockedTools ?? null,
+          updatedAt: session.updatedAt,
+        })
+        .where(
+          and(
+            eq(schema.sessions.id, session.id),
+            eq(schema.sessions.organizationId, workspaceId),
+            eq(schema.sessions.scheduleId, work.id),
+            eq(schema.sessions.status, "running"),
+          ),
+        )
+        .run();
+      if (waiting.rowsAffected === 0) {
+        throw new Error("The active schedule session was not found.");
+      }
+      const saved = await tx
+        .update(schema.schedules)
+        .set({
+          status: work.status,
+          nextAt: work.nextAt,
+          lastSummary: work.lastSummary,
+          updatedAt: work.updatedAt,
+        })
+        .where(
+          and(
+            eq(schema.schedules.id, work.id),
+            eq(schema.schedules.organizationId, workspaceId),
+            eq(schema.schedules.status, "active"),
+            isNotNull(schema.schedules.grant),
+          ),
+        )
+        .run();
+      if (saved.rowsAffected === 0) {
+        throw new Error("The active recurring work definition was not found.");
+      }
+    });
   }
 
-  async startRecurringWorkRun(
+  async resumeScheduleSession(
     workspaceId: string,
-    run: RecurringWorkRunRecord,
+    scheduleId: string,
+    transition: {
+      expectedNextAt: number;
+      nextAt: number | null;
+      startedAt: number;
+    },
+  ): Promise<SessionRecord | null> {
+    await this.ready;
+    try {
+      return await this.db.transaction(async (tx) => {
+        const waiting = await tx
+          .select()
+          .from(schema.sessions)
+          .where(
+            and(
+              eq(schema.sessions.organizationId, workspaceId),
+              eq(schema.sessions.scheduleId, scheduleId),
+              eq(schema.sessions.status, "waiting"),
+            ),
+          )
+          .orderBy(desc(schema.sessions.updatedAt))
+          .get();
+        if (!waiting) return null;
+        const claimed = await tx
+          .update(schema.schedules)
+          .set({ nextAt: transition.nextAt, updatedAt: transition.startedAt })
+          .where(
+            and(
+              eq(schema.schedules.id, scheduleId),
+              eq(schema.schedules.organizationId, workspaceId),
+              eq(schema.schedules.nextAt, transition.expectedNextAt),
+              eq(schema.schedules.status, "active"),
+              eq(schema.schedules.placement, "local"),
+              isNotNull(schema.schedules.grant),
+            ),
+          )
+          .run();
+        if (claimed.rowsAffected === 0) {
+          throw new ScheduleSessionClaimConflict();
+        }
+        const resumed = await tx
+          .update(schema.sessions)
+          .set({
+            status: "running",
+            startedAt: transition.startedAt,
+            finishedAt: null,
+            attempt: waiting.attempt + 1,
+            error: null,
+            updatedAt: transition.startedAt,
+          })
+          .where(
+            and(
+              eq(schema.sessions.id, waiting.id),
+              eq(schema.sessions.organizationId, workspaceId),
+              eq(schema.sessions.status, "waiting"),
+            ),
+          )
+          .run();
+        if (resumed.rowsAffected === 0) {
+          throw new ScheduleSessionClaimConflict();
+        }
+        const row = await tx
+          .select()
+          .from(schema.sessions)
+          .where(
+            and(
+              eq(schema.sessions.id, waiting.id),
+              eq(schema.sessions.organizationId, workspaceId),
+            ),
+          )
+          .get();
+        if (!row) throw new ScheduleSessionClaimConflict();
+        return sessionRecord(row);
+      });
+    } catch (error) {
+      if (error instanceof ScheduleSessionClaimConflict) return null;
+      throw error;
+    }
+  }
+
+  async startScheduleSession(
+    workspaceId: string,
+    session: SessionRecord,
     transition?: {
-      expectedNextRunAt?: number;
-      nextRunAt: number | null;
+      expectedNextAt?: number;
+      nextAt: number | null;
     },
   ) {
     await this.ready;
     try {
       return await this.db.transaction(async (tx) => {
         const work = await tx
-          .select({ chatId: schema.recurringWork.chatId })
-          .from(schema.recurringWork)
+          .select({ conversationId: schema.schedules.conversationId })
+          .from(schema.schedules)
           .where(
             and(
-              eq(schema.recurringWork.id, run.recurringWorkId),
-              eq(schema.recurringWork.workspaceId, workspaceId),
+              eq(schema.schedules.id, session.scheduleId ?? ""),
+              eq(schema.schedules.organizationId, workspaceId),
             ),
           )
           .get();
-        if (work?.chatId !== run.chatId) {
-          throw new Error("Run chat does not match its schedule root chat.");
+        if (!work) throw new Error("Schedule was not found in this workspace.");
+        const activeSession = await tx
+          .select({ id: schema.sessions.id })
+          .from(schema.sessions)
+          .where(
+            and(
+              eq(schema.sessions.organizationId, workspaceId),
+              eq(schema.sessions.scheduleId, session.scheduleId ?? ""),
+              inArray(schema.sessions.status, ["running", "waiting"]),
+            ),
+          )
+          .get();
+        if (activeSession) throw new ScheduleSessionClaimConflict();
+        if (
+          !session.scheduleId ||
+          session.scheduledFor === undefined ||
+          session.startedAt === undefined ||
+          session.kind !== "task" ||
+          session.visibility !== "private" ||
+          session.agent !== "cmo" ||
+          session.status !== "running"
+        ) {
+          throw new Error(
+            "Schedule occurrences must be running private CMO task sessions.",
+          );
+        }
+        if (session.parentId && session.parentId !== work.conversationId) {
+          throw new Error(
+            "Schedule session parent does not match its conversation.",
+          );
+        }
+        if (session.parentId) {
+          const parent = await tx
+            .select({ organizationId: schema.sessions.organizationId })
+            .from(schema.sessions)
+            .where(eq(schema.sessions.id, session.parentId))
+            .get();
+          if (parent?.organizationId !== workspaceId) {
+            throw new Error(
+              "Schedule session parent belongs to a different workspace.",
+            );
+          }
         }
         if (transition) {
           const conditions = [
-            eq(schema.recurringWork.id, run.recurringWorkId),
-            eq(schema.recurringWork.workspaceId, workspaceId),
+            eq(schema.schedules.id, session.scheduleId),
+            eq(schema.schedules.organizationId, workspaceId),
           ];
-          if (transition.expectedNextRunAt !== undefined) {
+          if (transition.expectedNextAt !== undefined) {
             conditions.push(
-              eq(schema.recurringWork.nextRunAt, transition.expectedNextRunAt),
-              eq(schema.recurringWork.status, "active"),
-              eq(schema.recurringWork.placement, "local"),
-              isNotNull(schema.recurringWork.grant),
+              eq(schema.schedules.nextAt, transition.expectedNextAt),
+              eq(schema.schedules.status, "active"),
+              eq(schema.schedules.placement, "local"),
+              isNotNull(schema.schedules.grant),
             );
           }
           const claimed = await tx
-            .update(schema.recurringWork)
+            .update(schema.schedules)
             .set({
-              nextRunAt: transition.nextRunAt,
+              nextAt: transition.nextAt,
               updatedAt: Date.now(),
             })
             .where(and(...conditions))
             .run();
           if (claimed.rowsAffected === 0) {
-            throw new RecurringWorkClaimConflict();
+            throw new ScheduleSessionClaimConflict();
           }
         }
         const started = await tx
-          .insert(schema.recurringWorkRuns)
-          .values({ ...run, workspaceId })
+          .insert(schema.sessions)
+          .values({
+            ...session,
+            organizationId: workspaceId,
+            parentId: session.parentId,
+            scheduleId: session.scheduleId,
+            model: session.model,
+            finishedAt: session.finishedAt,
+            summary: session.summary,
+            error: session.error,
+            artifacts: session.artifacts,
+            blockedTools: session.blockedTools,
+          })
           .onConflictDoNothing()
           .run();
         if (started.rowsAffected === 0) {
-          throw new RecurringWorkClaimConflict();
+          throw new ScheduleSessionClaimConflict();
         }
         return true;
       });
     } catch (error) {
-      if (error instanceof RecurringWorkClaimConflict) return false;
+      if (error instanceof ScheduleSessionClaimConflict) return false;
       throw error;
     }
   }
 
-  async finishRecurringWorkRun(
+  async finishScheduleSession(
     workspaceId: string,
-    run: RecurringWorkRunRecord,
+    session: SessionRecord,
     work: RecurringWorkRecord,
+    actionTransition?: ScheduleSessionActionTransition,
   ) {
     await this.ready;
+    if (
+      session.scheduleId !== work.id ||
+      session.finishedAt === undefined ||
+      !["completed", "failed", "needs_approval"].includes(session.status)
+    ) {
+      throw new Error("A terminal schedule session must match its schedule.");
+    }
     await this.db.transaction(async (tx) => {
       const finished = await tx
-        .update(schema.recurringWorkRuns)
+        .update(schema.sessions)
         .set({
-          status: run.status,
-          finishedAt: run.finishedAt,
-          blockedTools: run.blockedTools ?? null,
-          summary: run.summary,
-          error: run.error,
-          artifacts: run.artifacts ?? null,
+          status: session.status,
+          finishedAt: session.finishedAt,
+          blockedTools: session.blockedTools ?? null,
+          summary: session.summary,
+          error: session.error,
+          artifacts: session.artifacts ?? null,
+          updatedAt: session.updatedAt,
         })
         .where(
           and(
-            eq(schema.recurringWorkRuns.id, run.id),
-            eq(schema.recurringWorkRuns.workspaceId, workspaceId),
+            eq(schema.sessions.id, session.id),
+            eq(schema.sessions.organizationId, workspaceId),
+            eq(schema.sessions.scheduleId, work.id),
+            eq(schema.sessions.status, "running"),
           ),
         )
         .run();
       if (finished.rowsAffected === 0) {
-        throw new Error("The active recurring work run was not found.");
+        throw new Error("The active schedule session was not found.");
       }
       const currentWork = await tx
         .select({
-          status: schema.recurringWork.status,
-          grant: schema.recurringWork.grant,
-          nextRunAt: schema.recurringWork.nextRunAt,
+          status: schema.schedules.status,
+          grant: schema.schedules.grant,
+          nextAt: schema.schedules.nextAt,
+          cron: schema.schedules.cron,
+          timezone: schema.schedules.timezone,
+          onceAt: schema.schedules.onceAt,
         })
-        .from(schema.recurringWork)
+        .from(schema.schedules)
         .where(
           and(
-            eq(schema.recurringWork.id, work.id),
-            eq(schema.recurringWork.workspaceId, workspaceId),
+            eq(schema.schedules.id, work.id),
+            eq(schema.schedules.organizationId, workspaceId),
           ),
         )
         .get();
@@ -1727,27 +2583,182 @@ export class LocalStore {
       }
       const userStoppedWork =
         currentWork.status === "paused" || currentWork.grant === null;
+      const timingChanged =
+        currentWork.cron !== work.cron ||
+        currentWork.timezone !== work.timezone ||
+        (currentWork.onceAt ?? undefined) !== work.onceAt;
       const saved = await tx
-        .update(schema.recurringWork)
+        .update(schema.schedules)
         .set({
           status: userStoppedWork ? currentWork.status : work.status,
-          nextRunAt: userStoppedWork
-            ? currentWork.nextRunAt
-            : (work.nextRunAt ?? null),
-          lastRunAt: work.lastRunAt,
-          lastResult: work.lastResult,
+          nextAt:
+            userStoppedWork || timingChanged
+              ? currentWork.nextAt
+              : (work.nextAt ?? null),
+          lastCompletedAt: work.lastCompletedAt,
+          lastSummary: work.lastSummary,
           updatedAt: work.updatedAt,
         })
         .where(
           and(
-            eq(schema.recurringWork.id, work.id),
-            eq(schema.recurringWork.workspaceId, workspaceId),
+            eq(schema.schedules.id, work.id),
+            eq(schema.schedules.organizationId, workspaceId),
           ),
         )
         .run();
       if (saved.rowsAffected === 0)
         throw new Error("Recurring work was not saved.");
+
+      if (actionTransition?.upsert) {
+        const item = actionTransition.upsert;
+        if (item.sourceId && !PRODUCT_ACTION_SOURCE.test(item.sourceId)) {
+          const source = await tx
+            .select({ organizationId: schema.sessions.organizationId })
+            .from(schema.sessions)
+            .where(eq(schema.sessions.id, item.sourceId))
+            .get();
+          if (source?.organizationId !== workspaceId) {
+            throw new Error(
+              "Action source session was not found in this workspace.",
+            );
+          }
+        }
+        const existing = await tx
+          .select({ organizationId: schema.actions.organizationId })
+          .from(schema.actions)
+          .where(eq(schema.actions.id, item.id))
+          .get();
+        if (existing && existing.organizationId !== workspaceId) {
+          throw new Error("Action item belongs to a different workspace.");
+        }
+        await tx
+          .insert(schema.actions)
+          .values({
+            ...item,
+            sourceId: item.sourceId ?? null,
+            organizationId: workspaceId,
+          })
+          .onConflictDoUpdate({
+            target: schema.actions.id,
+            set: {
+              agentId: item.agentId,
+              title: item.title,
+              reason: item.reason,
+              sourceId: item.sourceId ?? null,
+              status: item.status,
+              createdAt: item.createdAt,
+            },
+          })
+          .run();
+      }
+      if (actionTransition?.dismissIds?.length) {
+        await tx
+          .update(schema.actions)
+          .set({ status: "dismissed" })
+          .where(
+            and(
+              eq(schema.actions.organizationId, workspaceId),
+              inArray(schema.actions.id, actionTransition.dismissIds),
+            ),
+          )
+          .run();
+      }
     });
+  }
+
+  async saveDiagnosticEvent(
+    workspaceId: string,
+    sessionId: string,
+    position: number,
+    event: AgentEvent,
+  ) {
+    await this.ready;
+    if (!Number.isSafeInteger(position) || position < 0) {
+      throw new Error(
+        "Diagnostic event position must be a non-negative integer.",
+      );
+    }
+    const session = await this.db
+      .select({ id: schema.sessions.id })
+      .from(schema.sessions)
+      .where(
+        and(
+          eq(schema.sessions.id, sessionId),
+          eq(schema.sessions.organizationId, workspaceId),
+        ),
+      )
+      .get();
+    if (!session) throw new Error("Session was not found in this workspace.");
+    const data = diagnosticData(event);
+    const level = diagnosticLevel(event);
+    await this.db
+      .insert(schema.events)
+      .values({
+        id: randomUUID(),
+        organizationId: workspaceId,
+        sessionId,
+        position,
+        type: event.type,
+        level,
+        data,
+        createdAt: Date.now(),
+      })
+      .onConflictDoUpdate({
+        target: [schema.events.sessionId, schema.events.position],
+        set: { type: event.type, level, data },
+      })
+      .run();
+  }
+
+  async diagnostics(workspaceId: string): Promise<{
+    sessions: SessionRecord[];
+    events: DiagnosticEventRecord[];
+  }> {
+    await this.ready;
+    const [sessionRows, eventRows] = await Promise.all([
+      this.db
+        .select()
+        .from(schema.sessions)
+        .where(eq(schema.sessions.organizationId, workspaceId))
+        .orderBy(desc(schema.sessions.updatedAt))
+        .all(),
+      this.db
+        .select({
+          id: schema.events.id,
+          organizationId: schema.events.organizationId,
+          sessionId: schema.events.sessionId,
+          position: schema.events.position,
+          type: schema.events.type,
+          level: schema.events.level,
+          data: schema.events.data,
+          createdAt: schema.events.createdAt,
+        })
+        .from(schema.events)
+        .innerJoin(
+          schema.sessions,
+          eq(schema.events.sessionId, schema.sessions.id),
+        )
+        .where(
+          and(
+            eq(schema.events.organizationId, workspaceId),
+            eq(schema.sessions.organizationId, workspaceId),
+          ),
+        )
+        .orderBy(schema.events.createdAt)
+        .all(),
+    ]);
+    return {
+      sessions: sessionRows.map(diagnosticSessionRecord),
+      events: eventRows.map((event) => ({
+        id: event.id,
+        sessionId: event.sessionId,
+        position: event.position,
+        type: event.type,
+        level: event.level,
+        data: event.data,
+        createdAt: event.createdAt,
+      })),
+    };
   }
 
   async listCampaigns(workspaceId: string): Promise<CampaignRecord[]> {
@@ -1755,7 +2766,7 @@ export class LocalStore {
     const rows = await this.db
       .select()
       .from(schema.campaigns)
-      .where(eq(schema.campaigns.workspaceId, workspaceId))
+      .where(eq(schema.campaigns.organizationId, workspaceId))
       .orderBy(desc(schema.campaigns.updatedAt))
       .all();
     return rows.map((campaign) => ({
@@ -1776,16 +2787,16 @@ export class LocalStore {
   async saveCampaign(workspaceId: string, campaign: CampaignRecord) {
     await this.ready;
     const existing = await this.db
-      .select({ workspaceId: schema.campaigns.workspaceId })
+      .select({ organizationId: schema.campaigns.organizationId })
       .from(schema.campaigns)
       .where(eq(schema.campaigns.id, campaign.id))
       .get();
-    if (existing && existing.workspaceId !== workspaceId) {
+    if (existing && existing.organizationId !== workspaceId) {
       throw new Error("Campaign belongs to a different workspace.");
     }
     await this.db
       .insert(schema.campaigns)
-      .values({ ...campaign, workspaceId })
+      .values({ ...campaign, organizationId: workspaceId })
       .onConflictDoUpdate({
         target: schema.campaigns.id,
         set: {
@@ -1808,7 +2819,7 @@ export class LocalStore {
     const rows = await this.db
       .select()
       .from(schema.agentPreferences)
-      .where(eq(schema.agentPreferences.workspaceId, workspaceId))
+      .where(eq(schema.agentPreferences.organizationId, workspaceId))
       .orderBy(schema.agentPreferences.agentId)
       .all();
     return rows.map((preference) => ({
@@ -1832,7 +2843,7 @@ export class LocalStore {
     await this.db
       .insert(schema.agentPreferences)
       .values({
-        workspaceId,
+        organizationId: workspaceId,
         agentId: preference.agentId,
         enabled: preference.enabled,
         driver: preference.driver,
@@ -1843,7 +2854,7 @@ export class LocalStore {
       })
       .onConflictDoUpdate({
         target: [
-          schema.agentPreferences.workspaceId,
+          schema.agentPreferences.organizationId,
           schema.agentPreferences.agentId,
         ],
         set: {

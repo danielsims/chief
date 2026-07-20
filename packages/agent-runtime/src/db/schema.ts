@@ -10,17 +10,65 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
-import type { RunResultArtifact } from "../types.js";
+import type {
+  AnalyticsDataset,
+  InputRequest,
+  SessionArtifact,
+} from "../types.js";
 
-export const chats = sqliteTable(
-  "chat",
+export const schedules = sqliteTable(
+  "schedule",
   {
     id: text().primaryKey(),
-    workspaceId: text("workspace_id").notNull(),
-    parentId: text("parent_id").references((): AnySQLiteColumn => chats.id, {
+    organizationId: text("organization_id").notNull(),
+    conversationId: text("conversation_id"),
+    agentId: text("agent_id").notNull(),
+    title: text().notNull(),
+    instructions: text().notNull(),
+    cron: text().notNull(),
+    timezone: text().notNull(),
+    onceAt: integer("once_at"),
+    status: text({
+      enum: ["draft", "active", "paused", "needs_approval", "error"],
+    }).notNull(),
+    placement: text({ enum: ["local", "cloud"] })
+      .notNull()
+      .default("local"),
+    skipDates: text("skip_dates", { mode: "json" }).$type<string[]>(),
+    approvalSummary: text("approval_summary").notNull(),
+    proposedToolPatterns: text("proposed_tool_patterns", { mode: "json" })
+      .$type<string[]>()
+      .notNull(),
+    grant: text({ mode: "json" }).$type<{
+      version: 1;
+      approvedAt: number;
+      toolPatterns: string[];
+    }>(),
+    nextAt: integer("next_at"),
+    lastCompletedAt: integer("last_completed_at"),
+    lastSummary: text("last_summary"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("schedule_organization_next").on(table.organizationId, table.nextAt),
+    index("schedule_conversation").on(table.conversationId),
+  ],
+);
+
+export const sessions = sqliteTable(
+  "session",
+  {
+    id: text().primaryKey(),
+    organizationId: text("organization_id").notNull(),
+    parentId: text("parent_id").references((): AnySQLiteColumn => sessions.id, {
       onDelete: "cascade",
     }),
     triggerId: text("trigger_id"),
+    scheduleId: text("schedule_id").references(() => schedules.id, {
+      onDelete: "cascade",
+    }),
+    kind: text({ enum: ["conversation", "task"] }).notNull(),
     visibility: text({ enum: ["user", "private"] }).notNull(),
     agent: text().notNull(),
     title: text().notNull().default(""),
@@ -30,16 +78,42 @@ export const chats = sqliteTable(
     providerState: text("provider_state", { mode: "json" }).$type<unknown>(),
     eveState: text("eve_state", { mode: "json" }).$type<unknown>(),
     status: text({
-      enum: ["idle", "running", "waiting", "completed", "error"],
+      enum: [
+        "idle",
+        "running",
+        "waiting",
+        "completed",
+        "failed",
+        "needs_approval",
+      ],
     })
       .notNull()
       .default("idle"),
+    scheduledFor: integer("scheduled_for"),
+    startedAt: integer("started_at"),
+    finishedAt: integer("finished_at"),
+    attempt: integer().notNull().default(1),
+    summary: text(),
+    error: text(),
+    artifacts: text({ mode: "json" }).$type<SessionArtifact[]>(),
+    blockedTools: text("blocked_tools", { mode: "json" }).$type<string[]>(),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
-    index("chat_workspace_updated").on(table.workspaceId, table.updatedAt),
-    index("chat_parent").on(table.parentId),
+    index("session_organization_updated").on(
+      table.organizationId,
+      table.updatedAt,
+    ),
+    index("session_parent").on(table.parentId),
+    index("session_schedule_started").on(table.scheduleId, table.startedAt),
+    uniqueIndex("session_schedule_occurrence").on(
+      table.scheduleId,
+      table.scheduledFor,
+    ),
+    uniqueIndex("session_one_active_per_schedule")
+      .on(table.scheduleId)
+      .where(sql`${table.status} IN ('running', 'waiting')`),
   ],
 );
 
@@ -47,9 +121,10 @@ export const messages = sqliteTable(
   "message",
   {
     id: text().primaryKey(),
-    chatId: text("chat_id")
+    organizationId: text("organization_id").notNull(),
+    sessionId: text("session_id")
       .notNull()
-      .references(() => chats.id, { onDelete: "cascade" }),
+      .references(() => sessions.id, { onDelete: "cascade" }),
     role: text({ enum: ["system", "user", "assistant"] }).notNull(),
     parts: text({ mode: "json" }).$type<unknown[]>().notNull(),
     metadata: text({ mode: "json" }).$type<unknown>(),
@@ -57,8 +132,36 @@ export const messages = sqliteTable(
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
-    uniqueIndex("message_chat_position").on(table.chatId, table.position),
-    index("message_chat_created").on(table.chatId, table.createdAt),
+    uniqueIndex("message_session_position").on(table.sessionId, table.position),
+    index("message_organization_session").on(
+      table.organizationId,
+      table.sessionId,
+    ),
+    index("message_session_created").on(table.sessionId, table.createdAt),
+  ],
+);
+
+export const events = sqliteTable(
+  "event",
+  {
+    id: text().primaryKey(),
+    organizationId: text("organization_id").notNull(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    position: integer().notNull(),
+    type: text().notNull(),
+    level: text({ enum: ["debug", "info", "warn", "error"] }).notNull(),
+    data: text({ mode: "json" }).$type<unknown>().notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("event_session_position").on(table.sessionId, table.position),
+    index("event_organization_session").on(
+      table.organizationId,
+      table.sessionId,
+    ),
+    index("event_session_created").on(table.sessionId, table.createdAt),
   ],
 );
 
@@ -66,7 +169,7 @@ export const prospects = sqliteTable(
   "prospect",
   {
     id: text().primaryKey(),
-    workspaceId: text("workspace_id").notNull(),
+    organizationId: text("organization_id").notNull(),
     name: text().notNull(),
     company: text(),
     source: text().notNull(),
@@ -80,7 +183,10 @@ export const prospects = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
-    index("prospect_workspace_found").on(table.workspaceId, table.foundAt),
+    index("prospect_organization_found").on(
+      table.organizationId,
+      table.foundAt,
+    ),
   ],
 );
 
@@ -88,7 +194,7 @@ export const trends = sqliteTable(
   "trend",
   {
     id: text().primaryKey(),
-    workspaceId: text("workspace_id").notNull(),
+    organizationId: text("organization_id").notNull(),
     title: text().notNull(),
     source: text().notNull(),
     sourceUrl: text("source_url"),
@@ -99,7 +205,33 @@ export const trends = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
-    index("trend_workspace_found").on(table.workspaceId, table.foundAt),
+    index("trend_organization_found").on(table.organizationId, table.foundAt),
+  ],
+);
+
+export const analyticsDatasets = sqliteTable(
+  "dataset",
+  {
+    organizationId: text("organization_id").notNull(),
+    provider: text().notNull(),
+    key: text().notNull(),
+    sourceId: text("source_id").notNull().default(""),
+    data: text({ mode: "json" }).$type<AnalyticsDataset>().notNull(),
+    capturedAt: integer("captured_at").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.organizationId,
+        table.provider,
+        table.key,
+        table.sourceId,
+      ],
+    }),
+    index("dataset_organization_captured").on(
+      table.organizationId,
+      table.capturedAt,
+    ),
   ],
 );
 
@@ -107,7 +239,7 @@ export const contentDrafts = sqliteTable(
   "content",
   {
     id: text().primaryKey(),
-    workspaceId: text("workspace_id").notNull(),
+    organizationId: text("organization_id").notNull(),
     agentId: text("agent_id").notNull(),
     title: text().notNull(),
     body: text().notNull(),
@@ -121,8 +253,8 @@ export const contentDrafts = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
-    index("content_workspace_schedule").on(
-      table.workspaceId,
+    index("content_organization_schedule").on(
+      table.organizationId,
       table.scheduledFor,
     ),
   ],
@@ -132,7 +264,7 @@ export const workspaceFiles = sqliteTable(
   "file",
   {
     id: text().primaryKey(),
-    workspaceId: text("workspace_id").notNull(),
+    organizationId: text("organization_id").notNull(),
     name: text().notNull(),
     path: text().notNull(),
     mimeType: text("mime_type").notNull(),
@@ -143,13 +275,16 @@ export const workspaceFiles = sqliteTable(
     currentVersionId: text("current_version_id").notNull(),
     createdBy: text("created_by", { enum: ["agent", "user"] }).notNull(),
     sourceAgentId: text("source_agent_id"),
-    sourceRunId: text("source_run_id"),
+    sourceSessionId: text("source_session_id"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
-    uniqueIndex("file_workspace_path").on(table.workspaceId, table.path),
-    index("file_workspace_updated").on(table.workspaceId, table.updatedAt),
+    uniqueIndex("file_organization_path").on(table.organizationId, table.path),
+    index("file_organization_updated").on(
+      table.organizationId,
+      table.updatedAt,
+    ),
   ],
 );
 
@@ -160,12 +295,12 @@ export const workspaceFileVersions = sqliteTable(
     fileId: text("file_id")
       .notNull()
       .references(() => workspaceFiles.id, { onDelete: "cascade" }),
-    workspaceId: text("workspace_id").notNull(),
+    organizationId: text("organization_id").notNull(),
     content: text().notNull(),
     size: integer().notNull(),
     createdBy: text("created_by", { enum: ["agent", "user"] }).notNull(),
     sourceAgentId: text("source_agent_id"),
-    sourceRunId: text("source_run_id"),
+    sourceSessionId: text("source_session_id"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [index("version_file_created").on(table.fileId, table.createdAt)],
@@ -175,7 +310,7 @@ export const campaigns = sqliteTable(
   "campaign",
   {
     id: text().primaryKey(),
-    workspaceId: text("workspace_id").notNull(),
+    organizationId: text("organization_id").notNull(),
     name: text().notNull(),
     provider: text().notNull(),
     objective: text(),
@@ -190,121 +325,42 @@ export const campaigns = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [
-    index("campaign_workspace_updated").on(table.workspaceId, table.updatedAt),
-  ],
-);
-
-export const recurringWork = sqliteTable(
-  "schedule",
-  {
-    id: text().primaryKey(),
-    workspaceId: text("workspace_id").notNull(),
-    chatId: text("chat_id")
-      .notNull()
-      .references(() => chats.id, { onDelete: "cascade" }),
-    agentId: text("agent_id").notNull(),
-    title: text().notNull(),
-    instructions: text().notNull(),
-    cron: text().notNull(),
-    timezone: text().notNull(),
-    runOnceAt: integer("run_once_at"),
-    status: text({
-      enum: ["draft", "active", "paused", "needs_approval", "error"],
-    }).notNull(),
-    /** Where approved runs execute: this Mac's scheduler or the deployment. */
-    placement: text({ enum: ["local", "cloud"] })
-      .notNull()
-      .default("local"),
-    skipDates: text("skip_dates", { mode: "json" }).$type<string[]>(),
-    approvalSummary: text("approval_summary").notNull(),
-    proposedToolPatterns: text("proposed_tool_patterns", { mode: "json" })
-      .$type<string[]>()
-      .notNull(),
-    grant: text({ mode: "json" }).$type<{
-      version: 1;
-      approvedAt: number;
-      toolPatterns: string[];
-    }>(),
-    nextRunAt: integer("next_run_at"),
-    lastRunAt: integer("last_run_at"),
-    lastResult: text("last_result"),
-    createdAt: integer("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-  },
-  (table) => [
-    index("schedule_workspace_next").on(table.workspaceId, table.nextRunAt),
-    uniqueIndex("schedule_chat").on(table.chatId),
-  ],
-);
-
-export const recurringWorkRuns = sqliteTable(
-  "run",
-  {
-    id: text().primaryKey(),
-    recurringWorkId: text("schedule_id")
-      .notNull()
-      .references(() => recurringWork.id, { onDelete: "cascade" }),
-    workspaceId: text("workspace_id").notNull(),
-    chatId: text("chat_id")
-      .notNull()
-      .references(() => chats.id, { onDelete: "cascade" }),
-    status: text({
-      enum: ["running", "completed", "waiting", "failed", "needs_approval"],
-    }).notNull(),
-    scheduledFor: integer("scheduled_for").notNull(),
-    startedAt: integer("started_at").notNull(),
-    finishedAt: integer("finished_at"),
-    summary: text(),
-    error: text(),
-    artifacts: text({ mode: "json" }).$type<RunResultArtifact[]>(),
-    /** Executor addresses the grant declined during this run. */
-    blockedTools: text("blocked_tools", { mode: "json" }).$type<string[]>(),
-  },
-  (table) => [
-    index("run_workspace_started").on(table.workspaceId, table.startedAt),
-    // A recurring job may have many historical attempts, but never more than
-    // one live attempt. This is a durable scheduler lease shared by installed,
-    // dev, and recovering runtime processes rather than an in-memory promise.
-    uniqueIndex("run_one_active_per_schedule")
-      .on(table.recurringWorkId)
-      .where(sql`${table.status} = 'running'`),
+    index("campaign_organization_updated").on(
+      table.organizationId,
+      table.updatedAt,
+    ),
   ],
 );
 
 export const agentPreferences = sqliteTable(
   "preference",
   {
-    workspaceId: text("workspace_id").notNull(),
+    organizationId: text("organization_id").notNull(),
     agentId: text("agent_id").notNull(),
     enabled: integer({ mode: "boolean" }).notNull(),
-    driver: text({ enum: ["claude", "codex", "opencode"] }),
+    driver: text({ enum: ["claude", "codex", "opencode", "remote"] }),
     model: text(),
     capabilities: text({ mode: "json" }).$type<string[]>(),
     integrations: text({ mode: "json" }).$type<string[]>(),
     updatedAt: integer("updated_at").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.workspaceId, table.agentId] })],
+  (table) => [primaryKey({ columns: [table.organizationId, table.agentId] })],
 );
 
-/**
- * Items an agent explicitly flagged for the user, each with a concrete
- * reason. This is the only source for the Overview attention surface —
- * routine output never lands here.
- */
-export const attentionItems = sqliteTable(
-  "attention",
+export const actions = sqliteTable(
+  "action",
   {
     id: text().primaryKey(),
-    workspaceId: text("workspace_id").notNull(),
+    organizationId: text("organization_id").notNull(),
     agentId: text("agent_id").notNull(),
     title: text().notNull(),
     reason: text().notNull(),
-    /** Optional deep link target, e.g. an automation or chat id. */
     sourceId: text("source_id"),
+    request: text({ mode: "json" }).$type<InputRequest>(),
     status: text({ enum: ["open", "dismissed"] }).notNull(),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
-    index("attention_workspace_status_idx").on(table.workspaceId, table.status),
+    index("action_organization_status").on(table.organizationId, table.status),
   ],
 );

@@ -6,9 +6,11 @@ import type {
   RuntimeNotice,
 } from "./types.js";
 import { getAgent } from "./agents.js";
+import { DEPLOYMENT_REQUIRED_MESSAGE } from "./deployment-failure.js";
 import { nextRunAt } from "./recurring-work.js";
+import { workspaceKey } from "./workspace-secrets.js";
 
-const MISSING_DRIVER_RESULT = "CHIEF_AGENT_APP_REQUIRED";
+const MISSING_DRIVER_SUMMARY = "CHIEF_AGENT_APP_REQUIRED";
 
 export interface ScheduledAgentConfig {
   agent: AgentDefinition;
@@ -48,12 +50,12 @@ export async function deferForAgentConfiguration(
   await manager.saveRecurringWork(workspaceId, {
     ...work,
     status: "needs_approval",
-    nextRunAt: undefined,
-    lastResult: `${MISSING_DRIVER_RESULT}: ${reason}`,
+    nextAt: undefined,
+    lastSummary: `${MISSING_DRIVER_SUMMARY}: ${reason}`,
     updatedAt: now,
   });
-  await manager.raiseAttentionItem(workspaceId, {
-    id: `attention-${work.id}-agent-app`,
+  await manager.raiseActionItem(workspaceId, {
+    id: `action-${work.id}-agent-app`,
     agentId: "cmo",
     title: `Configure ${agentName}`,
     reason,
@@ -62,7 +64,7 @@ export async function deferForAgentConfiguration(
     createdAt: now,
   });
   notice(workspaceId, {
-    kind: "setup-required",
+    kind: "action",
     title: `Configure ${agentName}`,
     detail: reason,
     sourceId: "agent-cmo",
@@ -82,23 +84,24 @@ export async function resumeDriverBlockedWork(
     (work) =>
       agentId === "cmo" &&
       work.status === "needs_approval" &&
-      work.lastResult?.startsWith(MISSING_DRIVER_RESULT),
+      (work.lastSummary?.startsWith(MISSING_DRIVER_SUMMARY) === true ||
+        work.lastSummary === DEPLOYMENT_REQUIRED_MESSAGE),
   );
   const now = Date.now();
   for (const work of blocked) {
     await manager.saveRecurringWork(workspaceId, {
       ...work,
       status: "active",
-      nextRunAt:
-        work.runOnceAt === undefined
-          ? Math.min(nextRunAt(work.cron, work.timezone, now), now + 1_000)
-          : now,
-      lastResult: undefined,
+      nextAt: work.onceAt ?? nextRunAt(work.cron, work.timezone, now),
+      lastSummary: undefined,
       updatedAt: now,
     });
-    await manager.dismissAttentionItem(
+    await manager.dismissActionItem(workspaceId, `action-${work.id}-agent-app`);
+  }
+  if (blocked.length > 0) {
+    await manager.dismissActionItem(
       workspaceId,
-      `attention-${work.id}-agent-app`,
+      `action-chief-deployment-required-${workspaceKey(workspaceId)}`,
     );
   }
   return blocked.length;
