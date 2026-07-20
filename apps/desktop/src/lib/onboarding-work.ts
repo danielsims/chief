@@ -124,6 +124,8 @@ export function buildOnboardingWorkJobs(
         runAt: Date.now(),
         timezone: input.timezone,
         proposedToolPatterns: SETUP_KICKOFF_TOOLS,
+        setupDomain: integration.domain,
+        setupAttemptId: attemptId,
         instructions: [
           "Launch this independently in the initial concurrent kickoff. It does not depend on brand research, prospecting, or another selected integration setup.",
           `Connect and verify ${integration.name} (${integration.domain}) for the ${integration.category} category selected during onboarding.`,

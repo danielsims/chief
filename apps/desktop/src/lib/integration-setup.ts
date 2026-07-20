@@ -7,6 +7,9 @@ import type {
   ContentBlock,
   InputRequest,
 } from "@chief/agent-runtime/types";
+import { GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST } from "@chief/agent-runtime/integration-requests";
+
+export { GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST } from "@chief/agent-runtime/integration-requests";
 
 export const SETUP_RESULT_MARKER = "CHIEF_SETUP_RESULT";
 
@@ -47,46 +50,6 @@ export function isGoogleAnalyticsOAuthRequest(request: InputRequest) {
     destinations.get("clientSecret") === "GOOGLE_ANALYTICS_CLIENT_SECRET"
   );
 }
-
-export const GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST: InputRequest = {
-  id: "google-analytics-oauth-client",
-  title: "Allow Chief to read Google Analytics",
-  reason:
-    "Google requires your own desktop OAuth client. Chief stores it in this workspace's local credential vault and never puts it in chat or sends it to Chief's servers.",
-  steps: [
-    {
-      text: "Open Google Cloud **API Library**.",
-      url: "https://console.cloud.google.com/apis/library/analyticsdata.googleapis.com",
-    },
-    { text: "Select or create a project, then click **Enable**." },
-    {
-      text: "Enable the **Google Analytics Admin API** too.",
-      url: "https://console.cloud.google.com/apis/library/analyticsadmin.googleapis.com",
-    },
-    {
-      text: "Open Google Auth Platform **Clients**.",
-      url: "https://console.cloud.google.com/auth/clients",
-    },
-    { text: "Complete the consent-screen prompts if Google shows them." },
-    { text: "Click **Create client**, then choose **Desktop app**." },
-    { text: "Name it **Chief**, then click **Create**." },
-    { text: "Copy the **Client ID** and **Client secret** below." },
-  ],
-  fields: [
-    {
-      key: "clientId",
-      label: "Client ID",
-      type: "text",
-      save: { envKey: "GOOGLE_ANALYTICS_CLIENT_ID" },
-    },
-    {
-      key: "clientSecret",
-      label: "Client secret",
-      type: "secret",
-      save: { envKey: "GOOGLE_ANALYTICS_CLIENT_SECRET" },
-    },
-  ],
-};
 
 /** Extracts the machine-readable result line from an assistant message, if present. */
 export function parseSetupResult(text: string): SetupResult | null {

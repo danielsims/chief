@@ -373,6 +373,8 @@ export interface OnboardingWorkJob {
   runAt: number;
   timezone: string;
   proposedToolPatterns: string[];
+  setupDomain?: string;
+  setupAttemptId?: string;
   attachments?: {
     name: string;
     type: string;
