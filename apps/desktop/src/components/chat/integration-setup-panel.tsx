@@ -4,60 +4,64 @@ import { ArrowUp, Square } from "lucide-react";
 import { Button } from "@chief/ui/components/button";
 
 import type { SetupResult } from "../../lib/integration-setup";
+import { useAuth } from "../../lib/auth/auth-context";
 import {
   findPendingInputRequest,
-  parseSetupResult,
+  latestSetupAttempt,
+  SETUP_ATTEMPT_PREFIX,
+  setupResultMatchesIntegration,
   withoutMarkerLines,
 } from "../../lib/integration-setup";
-import { messageBlocks, useChiefChat, useRuntime } from "../../lib/runtime";
+import {
+  messageBlocks,
+  useIntegrationSetupChat,
+  useRuntime,
+} from "../../lib/runtime";
 import { InputRequestSection } from "../integrations/input-request-section";
 import { ApprovalCard } from "./approval-card";
 import { Blocks } from "./message-blocks";
+import { QuestionCard } from "./question-card";
 
 /**
- * Inline agent session that performs an integration's setup and streams its
- * work terminal-style. Fires onResult when the agent emits the verified
- * CHIEF_SETUP_RESULT line.
+ * Inline direct setup session for integrations without a deterministic Chief
+ * connector. It never delegates through another agent and resumes by provider.
  */
 export function IntegrationSetupPanel({
+  sessionKey,
   prompt,
   onResult,
 }: {
+  sessionKey: string;
   prompt: string;
   onResult: (result: SetupResult) => void;
 }) {
   const { status: runtimeStatus } = useRuntime();
-  const [chatId] = useState(() => crypto.randomUUID());
+  const { cloudOrganizationId } = useAuth();
+  const workspaceKey = (cloudOrganizationId ?? "pending")
+    .replace(/[^a-z0-9]+/gi, "-")
+    .toLowerCase();
+  const chatId = `integration-setup-v4-${workspaceKey}-${sessionKey.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
   const {
     messages,
     controls,
     sendMessage,
     interrupt,
     respondPermission,
+    respondQuestion,
     provideInput,
     chatReady,
-  } = useChiefChat(chatId);
+  } = useIntegrationSetupChat(chatId, sessionKey);
   const [draft, setDraft] = useState("");
-  const [answeredInputs, setAnsweredInputs] = useState<ReadonlySet<string>>(
-    new Set(),
-  );
+  const [submittedInputId, setSubmittedInputId] = useState<string | null>(null);
   const pendingInput = useMemo(
-    () => findPendingInputRequest(messages, answeredInputs),
-    [messages, answeredInputs],
+    () => findPendingInputRequest(messages, new Set()),
+    [messages],
   );
-  // Once the user opts in, remaining approvals in this run auto-allow.
-  const [allowRest, setAllowRest] = useState(false);
   const feedRef = useRef<HTMLDivElement>(null);
   const startedRef = useRef(false);
+  const acceptedAttemptRef = useRef<string | null>(null);
   const reportedRef = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    if (!allowRest) return;
-    for (const approval of controls.approvals) {
-      respondPermission(approval.requestId, "allow");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allowRest, controls.approvals]);
+  const latestAttempt = useMemo(() => latestSetupAttempt(messages), [messages]);
 
   useEffect(() => {
     // Kick off only after the runtime confirms the session is open, so the
@@ -69,37 +73,48 @@ export function IntegrationSetupPanel({
     // permanently swallow the kickoff prompt.
     const t = setTimeout(() => {
       if (startedRef.current) return;
-      startedRef.current = true;
-      // A replayed transcript means setup already ran in this session —
-      // don't kick it off again on top of the resumed history.
-      if (messages.length === 0 && controls.status !== "running") {
-        void sendMessage({
-          text: `Set up this integration. Consult the setup specialist.\n\n${prompt}`,
-        });
+      if (latestAttempt && !latestAttempt.result && !controls.error) {
+        acceptedAttemptRef.current = latestAttempt.id;
+        startedRef.current = true;
+        return;
       }
+      if (controls.status === "running" || pendingInput) return;
+      const attemptId = crypto.randomUUID();
+      acceptedAttemptRef.current = attemptId;
+      startedRef.current = true;
+      void sendMessage({
+        text: `${SETUP_ATTEMPT_PREFIX}${attemptId}]\nSet up this integration directly. Do not delegate this work to another agent.\n\n${prompt}`,
+      });
     }, 400);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runtimeStatus, chatReady, messages.length, controls.status]);
+  }, [
+    runtimeStatus,
+    chatReady,
+    controls.error,
+    controls.status,
+    latestAttempt,
+    pendingInput,
+    prompt,
+    sendMessage,
+  ]);
 
   useEffect(() => {
     feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight });
   }, [messages.length, controls.approvals.length, pendingInput]);
 
   useEffect(() => {
-    for (const item of messages) {
-      if (item.role !== "assistant") continue;
-      for (const block of messageBlocks(item)) {
-        if (block.type !== "text") continue;
-        const result = parseSetupResult(block.text);
-        if (!result) continue;
-        const key = JSON.stringify(result);
-        if (reportedRef.current.has(key)) continue;
-        reportedRef.current.add(key);
-        onResult(result);
-      }
+    if (
+      !latestAttempt?.result ||
+      !setupResultMatchesIntegration(latestAttempt.result, sessionKey) ||
+      acceptedAttemptRef.current !== latestAttempt.id
+    ) {
+      return;
     }
-  }, [messages, onResult]);
+    const key = `${latestAttempt.id}:${JSON.stringify(latestAttempt.result)}`;
+    if (reportedRef.current.has(key)) return;
+    reportedRef.current.add(key);
+    onResult(latestAttempt.result);
+  }, [latestAttempt, onResult, sessionKey]);
 
   const items = useMemo(
     () =>
@@ -107,10 +122,11 @@ export function IntegrationSetupPanel({
         item.role === "assistant"
           ? {
               ...item,
-              // Setup keeps the narration and ❯ command lines; raw command
-              // output stays out of this compact panel (full chats show it).
+              // Setup shows narration only. The full tool transcript is useful
+              // for diagnostics, not while the user is completing a connection.
               blocks: withoutMarkerLines(messageBlocks(item)).filter(
-                (block) => block.type !== "tool_result",
+                (block) =>
+                  block.type !== "tool_use" && block.type !== "tool_result",
               ),
             }
           : item,
@@ -138,7 +154,7 @@ export function IntegrationSetupPanel({
       <div className="bg-background border">
         <div
           ref={feedRef}
-          className="max-h-72 space-y-3 overflow-y-auto px-3 py-3"
+          className={`${pendingInput ? "max-h-32" : "max-h-72"} space-y-3 overflow-y-auto px-3 py-3`}
         >
           {items.length === 0 ? (
             <p className="text-muted-foreground animate-pulse font-mono text-xs">
@@ -150,7 +166,9 @@ export function IntegrationSetupPanel({
               i === 0 ||
               messageBlocks(item).some(
                 (block) =>
-                  block.type === "text" && block.text.startsWith("[auto]"),
+                  block.type === "text" &&
+                  (block.text.startsWith("[auto]") ||
+                    block.text.startsWith(SETUP_ATTEMPT_PREFIX)),
               ) ? null : (
                 <div key={i} className="flex justify-end">
                   <div className="bg-accent max-w-[85%] border px-2.5 py-1.5 text-xs whitespace-pre-wrap">
@@ -168,17 +186,26 @@ export function IntegrationSetupPanel({
               </div>
             ) : null,
           )}
-          {!allowRest
-            ? controls.approvals.map((approval) => (
-                <ApprovalCard
-                  key={approval.requestId}
-                  approval={approval}
-                  onRespond={respondPermission}
-                  onAllowAll={() => setAllowRest(true)}
-                />
-              ))
-            : null}
-          {controls.status === "running" && controls.approvals.length === 0 ? (
+          {controls.approvals.map((approval) => (
+            <ApprovalCard
+              key={approval.requestId}
+              approval={approval}
+              onRespond={respondPermission}
+            />
+          ))}
+          {controls.questions.map((pending) => (
+            <QuestionCard
+              key={pending.requestId}
+              pending={pending}
+              onSubmit={(answers) =>
+                respondQuestion(pending.requestId, answers)
+              }
+              onDismiss={() => respondQuestion(pending.requestId, null)}
+            />
+          ))}
+          {controls.status === "running" &&
+          controls.approvals.length === 0 &&
+          controls.questions.length === 0 ? (
             <p className="text-muted-foreground animate-pulse font-mono text-xs">
               working…
             </p>
@@ -219,12 +246,18 @@ export function IntegrationSetupPanel({
         </div>
       </div>
 
-      {pendingInput ? (
+      {pendingInput && pendingInput.id !== submittedInputId ? (
         <InputRequestSection
           request={pendingInput}
           onSubmit={(request, values) => {
-            provideInput(request, values);
-            setAnsweredInputs((s) => new Set(s).add(request.id));
+            provideInput(
+              {
+                ...request,
+                id: `${request.id}:${acceptedAttemptRef.current ?? crypto.randomUUID()}:${crypto.randomUUID()}`,
+              },
+              values,
+            );
+            setSubmittedInputId(request.id);
           }}
         />
       ) : null}

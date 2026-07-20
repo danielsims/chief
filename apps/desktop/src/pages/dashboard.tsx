@@ -1,5 +1,6 @@
+/* eslint-disable max-lines */
+
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useConvexAuth, useQuery } from "convex/react";
 import {
   ArrowDownRight,
   ArrowRight,
@@ -19,30 +20,35 @@ import { useNavigate } from "react-router";
 import { Line, LineChart, ResponsiveContainer } from "recharts";
 
 import type {
-  AttentionItem,
-  RecurringWorkRunRecord,
+  ActionItem,
+  AnalyticsDataset,
+  AnalyticsDatasetPeriod,
+  SessionRecord,
 } from "@chief/agent-runtime/types";
-import { api } from "@chief/backend/convex/_generated/api";
 
 import type { AuthOrganization } from "../lib/auth/better-auth-client";
 import { InputRequestSection } from "../components/integrations/input-request-section";
 import { OrgLogo } from "../components/org-logo";
+import { setAgentOverride, setWorkspaceProvider } from "../lib/agent-overrides";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   listAuthOrganizations,
   parseOrganizationMetadata,
 } from "../lib/auth/better-auth-client";
 import { createChat } from "../lib/chat-log";
-import { findPendingInputRequest } from "../lib/integration-setup";
-import { onboardingLegacyId } from "../lib/onboarding-ids";
 import {
-  buildOnboardingSchedules,
-  onboardingSchedulePlanFromMetadata,
-} from "../lib/onboarding-schedules";
-import { onboardingWorkFromMetadata } from "../lib/onboarding-work";
-import { presentRunText } from "../lib/run-copy";
-import { useObservedChat, useWorkspaceData } from "../lib/runtime";
-import { workspaceContextFromOrganization } from "../lib/workspace-context";
+  isDeploymentRecoveryAction,
+  localChiefPreference,
+} from "../lib/deployment-recovery";
+import {
+  findPendingInputRequest,
+  isGoogleAnalyticsOAuthRequest,
+} from "../lib/integration-setup";
+import {
+  useAgentPreferences,
+  useObservedChat,
+  useWorkspaceData,
+} from "../lib/runtime";
 
 const AGENT_NAMES: Record<string, string> = {
   ads: "Ads Manager",
@@ -67,22 +73,6 @@ function greeting(now: number) {
   return "Good evening";
 }
 
-interface DashboardSnapshot {
-  provider: string;
-  period: string;
-  activeUsers?: number;
-  pageViews?: number;
-  conversions?: number;
-  series?: { date: string; value: number }[];
-  rangeMetrics?: {
-    key: string;
-    period: string;
-    activeUsers?: number;
-    pageViews?: number;
-    conversions?: number;
-  }[];
-}
-
 interface AnalyticsSlide {
   id: string;
   title: string;
@@ -94,34 +84,25 @@ interface AnalyticsSlide {
 
 interface AgentWorkTimelineItem {
   id: string;
-  kind: "history" | "running" | "upcoming";
+  kind: "active" | "upcoming";
   timestamp: number;
   timezone: string;
   title: string;
   agentId: string;
-  runId?: string;
-  status?: RecurringWorkRunRecord["status"];
-  attemptCount?: number;
+  taskCount?: number;
+  onceAt?: number;
+  parentId?: string;
+  childId?: string;
+  status?: SessionRecord["status"];
 }
 
-interface OverviewAction extends AttentionItem {
-  inProgress: boolean;
-  runId?: string;
-}
-
-function OverviewRunInput({
-  run,
-  recurringWorkId,
-}: {
-  run: RecurringWorkRunRecord;
-  recurringWorkId: string;
-}) {
+function OverviewTaskInput({ task }: { task: SessionRecord }) {
   const [answeredInputs, setAnsweredInputs] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
   const { messages, provideInput, chatReady } = useObservedChat(
-    run.chatId,
-    recurringWorkId,
+    task.id,
+    task.scheduleId,
   );
   const pendingInput = useMemo(
     () => findPendingInputRequest(messages, answeredInputs),
@@ -131,7 +112,7 @@ function OverviewRunInput({
   if (!chatReady) {
     return (
       <p className="chief-overview-setup-loading animate-pulse">
-        Loading the setup request…
+        Loading the task request…
       </p>
     );
   }
@@ -150,10 +131,19 @@ function OverviewRunInput({
   );
 }
 
-function automationWorkId(sourceId?: string) {
-  return sourceId?.startsWith("automation-")
-    ? sourceId.slice("automation-".length)
-    : undefined;
+function isConnectionAction(action: ActionItem) {
+  return /\b(connect|connection|integration|source)\b/i.test(
+    [action.id, action.sourceId, action.title].filter(Boolean).join(" "),
+  );
+}
+
+function isGoogleAnalyticsConnectionAction(action: ActionItem) {
+  return (
+    action.request?.id === "google-analytics-oauth-client" ||
+    (action.request ? isGoogleAnalyticsOAuthRequest(action.request) : false) ||
+    (/google analytics/i.test(`${action.title} ${action.reason}`) &&
+      isConnectionAction(action))
+  );
 }
 
 function formatNumber(value: number) {
@@ -168,6 +158,20 @@ function percentageChange(current?: number, previous?: number) {
     return null;
   }
   return ((current - previous) / previous) * 100;
+}
+
+function normalizedMetricKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function periodMetric(
+  period: AnalyticsDatasetPeriod | undefined,
+  candidates: string[],
+) {
+  const accepted = new Set(candidates.map(normalizedMetricKey));
+  return period?.values.find((item) =>
+    accepted.has(normalizedMetricKey(item.metric)),
+  )?.value;
 }
 
 function trendTitle(label: string, trend: number | null, hasData: boolean) {
@@ -293,231 +297,189 @@ export function DashboardPage() {
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const scheduleScrollRef = useRef<HTMLDivElement>(null);
   const scheduleFocusRef = useRef<HTMLButtonElement>(null);
-  const scheduleRecoveryAttempted = useRef(false);
-  const [scheduleRecoveryAttempt, setScheduleRecoveryAttempt] = useState(0);
   const [ask, setAsk] = useState("");
   const [organization, setOrganization] = useState<AuthOrganization | null>(
     null,
   );
-  const [onboardingRecoveryState, setOnboardingRecoveryState] = useState<
-    "checking" | "recovering" | "ready"
-  >("ready");
   const [selectedAction, setSelectedAction] = useState(0);
+  const [continuingChatId, setContinuingChatId] = useState<string | null>(null);
   const [analyticsIndex, setAnalyticsIndex] = useState(0);
   const [analyticsPaused, setAnalyticsPaused] = useState(false);
   const { cloudOrganizationId, user } = useAuth();
-  const convexAuth = useConvexAuth();
-  const canQuery = convexAuth.isAuthenticated && Boolean(cloudOrganizationId);
-  const snapshots = useQuery(
-    api.analyticsSnapshots.listLatest,
-    canQuery ? {} : "skip",
-  ) as DashboardSnapshot[] | undefined;
   const workspaceData = useWorkspaceData(cloudOrganizationId);
-  const {
-    bootstrapOnboardingWork,
-    loading: workspaceDataLoading,
-    onboardingBootstrapReady,
-  } = workspaceData;
-  const recurringWorkIdSignature = workspaceData.recurringWork
-    .map((work) => work.id)
-    .sort()
-    .join("\0");
-  const onboardingRecovery = useMemo(() => {
-    if (
-      !organization ||
-      !cloudOrganizationId ||
-      organization.id !== cloudOrganizationId
-    ) {
-      return null;
-    }
-    const metadata = parseOrganizationMetadata(organization);
-    const onboarding =
-      metadata.onboarding && typeof metadata.onboarding === "object"
-        ? (metadata.onboarding as Record<string, unknown>)
-        : null;
-    const plan = onboardingSchedulePlanFromMetadata(onboarding?.automation);
-    if (!onboarding || !plan) {
-      return { required: false as const, jobs: [], schedules: [] };
-    }
-    const existingIds = new Set(
-      recurringWorkIdSignature.split("\0").filter(Boolean),
-    );
-    const schedules = buildOnboardingSchedules(
-      plan,
-      cloudOrganizationId,
-    ).filter(
-      (schedule) =>
-        !existingIds.has(schedule.id) &&
-        !existingIds.has(onboardingLegacyId(schedule.id, cloudOrganizationId)),
-    );
-    const jobs = onboardingWorkFromMetadata(
-      cloudOrganizationId,
-      organization.name,
-      typeof metadata.websiteUrl === "string" ? metadata.websiteUrl : "",
-      onboarding,
-    ).filter(
-      (job) =>
-        !existingIds.has(job.id) &&
-        !existingIds.has(onboardingLegacyId(job.id, cloudOrganizationId)),
-    );
-    return {
-      required: jobs.length > 0 || schedules.length > 0,
-      jobs,
-      schedules,
-    };
-  }, [cloudOrganizationId, organization, recurringWorkIdSignature]);
+  const datasets = workspaceData.loading
+    ? undefined
+    : workspaceData.analyticsDatasets.filter(
+        (dataset) => dataset.key === "overview",
+      );
+  const agentPreferences = useAgentPreferences(cloudOrganizationId);
 
   const agentSchedules = workspaceData.recurringWork.filter(
     (work) =>
-      work.runOnceAt === undefined &&
+      work.onceAt === undefined &&
       (work.status === "active" || work.status === "draft"),
   );
   const newProspects = workspaceData.prospects.filter(
     (prospect) => prospect.status === "new",
   ).length;
-  const analytics = snapshots?.find(
-    (snapshot) => snapshot.provider === "google-analytics",
+  const analytics = datasets?.reduce<AnalyticsDataset | undefined>(
+    (latest, dataset) =>
+      !latest || dataset.capturedAt > latest.capturedAt ? dataset : latest,
+    undefined,
   );
   const analytics30 =
-    analytics?.rangeMetrics?.find((range) => range.key === "30d") ?? analytics;
-  const previous30 = analytics?.rangeMetrics?.find(
-    (range) => range.key === "previous30d",
-  );
-  const workById = useMemo(
+    analytics?.periods.find((period) => period.key === "30d") ??
+    analytics?.periods.find((period) => period.key === "current") ??
+    analytics?.periods[0];
+  const previous30 =
+    analytics?.periods.find(
+      (period) => period.key === "previous30d" || period.key === "previous",
+    ) ?? analytics?.periods.find((period) => period !== analytics30);
+  const scheduleById = useMemo(
     () => new Map(workspaceData.recurringWork.map((work) => [work.id, work])),
     [workspaceData.recurringWork],
   );
-  const runStateByWorkId = useMemo(() => {
-    const states = new Map<
-      string,
-      {
-        started: boolean;
-        latest?: RecurringWorkRunRecord;
-        running?: RecurringWorkRunRecord;
-      }
-    >();
-    for (const run of workspaceData.recurringWorkRuns) {
-      const state = states.get(run.recurringWorkId) ?? { started: false };
-      state.started = true;
-      if (!state.latest || run.startedAt > state.latest.startedAt) {
-        state.latest = run;
-      }
-      if (
-        run.status === "running" &&
-        (!state.running || run.startedAt > state.running.startedAt)
-      ) {
-        state.running = run;
-      }
-      states.set(run.recurringWorkId, state);
-    }
-    return states;
-  }, [workspaceData.recurringWorkRuns]);
-  const attention = useMemo<OverviewAction[]>(
+  const privateTasksById = useMemo(
     () =>
-      workspaceData.attentionItems.map((item) => {
-        const workId = automationWorkId(item.sourceId);
-        const work = workId ? workById.get(workId) : undefined;
-        const runState = workId ? runStateByWorkId.get(workId) : undefined;
-        const runningRun = runState?.running;
-        const latestRun = runState?.latest;
-        const onboardingPending = Boolean(
-          work?.id.startsWith("onboarding-") &&
-          work.status === "active" &&
-          work.lastRunAt === undefined &&
-          !runState?.started,
-        );
-        return {
-          ...item,
-          inProgress: Boolean(runningRun) || onboardingPending,
-          ...(runningRun || latestRun
-            ? { runId: (runningRun ?? latestRun)!.id }
-            : {}),
-        };
-      }),
-    [workspaceData.attentionItems, runStateByWorkId, workById],
+      new Map(
+        workspaceData.activity
+          .filter(
+            (session) =>
+              session.kind === "task" && session.visibility === "private",
+          )
+          .map((session) => [session.id, session]),
+      ),
+    [workspaceData.activity],
   );
+  const actions = workspaceData.actionItems;
+  const preparationRoot = workspaceData.activity.find(
+    (session) =>
+      session.id.startsWith("workspace-kickoff-") &&
+      session.kind === "conversation" &&
+      session.visibility === "user",
+  );
+  const preparationChildren = useMemo(
+    () =>
+      preparationRoot
+        ? workspaceData.activity.filter(
+            (session) =>
+              session.parentId === preparationRoot.id &&
+              session.kind === "task" &&
+              session.visibility === "private" &&
+              !session.scheduleId,
+          )
+        : [],
+    [preparationRoot, workspaceData.activity],
+  );
+  const preparationActive = Boolean(
+    preparationRoot &&
+    [preparationRoot, ...preparationChildren].some(
+      (session) =>
+        (session.status === "running" || session.status === "waiting") &&
+        workspaceData.now - session.updatedAt < 10 * 60_000,
+    ),
+  );
+  const initialReviewStartedAt = cloudOrganizationId
+    ? Number(
+        sessionStorage.getItem(`chief:initial-review:${cloudOrganizationId}`),
+      )
+    : Number.NaN;
+  const initialReviewPending = Boolean(
+    Number.isFinite(initialReviewStartedAt) &&
+    workspaceData.now - initialReviewStartedAt < 10 * 60_000 &&
+    (!preparationRoot || preparationRoot.status === "idle"),
+  );
+  useEffect(() => {
+    if (
+      cloudOrganizationId &&
+      preparationRoot &&
+      preparationRoot.status !== "idle"
+    ) {
+      sessionStorage.removeItem(`chief:initial-review:${cloudOrganizationId}`);
+    }
+  }, [cloudOrganizationId, preparationRoot]);
   const resolvedActionIndex = Math.min(
     selectedAction,
-    Math.max(0, attention.length - 1),
+    Math.max(0, actions.length - 1),
   );
-  const currentAction = attention[resolvedActionIndex];
-  const currentActionWorkId = automationWorkId(currentAction?.sourceId);
-  const currentActionRun = currentActionWorkId
-    ? runStateByWorkId.get(currentActionWorkId)?.latest
+  const currentAction = actions[resolvedActionIndex];
+  const deploymentRecovery = isDeploymentRecoveryAction(currentAction);
+  const currentActionTask = currentAction?.sourceId
+    ? privateTasksById.get(currentAction.sourceId)
     : undefined;
+  const currentActionInProgress = currentActionTask?.status === "running";
+  const currentActionBlocked = Boolean(
+    currentActionTask?.scheduleId && currentActionTask.blockedTools?.length,
+  );
+  const currentActionFailed = Boolean(
+    currentActionTask?.scheduleId && currentActionTask.status === "failed",
+  );
   const agentWorkTimeline = useMemo<AgentWorkTimelineItem[]>(() => {
-    // Run History remains attempt-level for diagnosis. The overview is an
-    // operational timeline, so repeated outcomes for the same scheduled work
-    // collapse into one entry instead of flooding the card after a recovery.
-    const historyGroups = new Map<
-      string,
-      { run: RecurringWorkRunRecord; count: number }
-    >();
-    for (const run of workspaceData.recurringWorkRuns
-      .filter((candidate) => candidate.status !== "running")
-      .sort(
-        (a, b) => (b.finishedAt ?? b.startedAt) - (a.finishedAt ?? a.startedAt),
-      )) {
-      const key = `${run.recurringWorkId}:${run.status}`;
-      const group = historyGroups.get(key);
-      if (group) {
-        group.count += 1;
-      } else {
-        historyGroups.set(key, { run, count: 1 });
-      }
-    }
-    const history = [...historyGroups.values()]
-      .sort(
-        (a, b) =>
-          (b.run.finishedAt ?? b.run.startedAt) -
-          (a.run.finishedAt ?? a.run.startedAt),
-      )
-      .slice(0, 6)
-      .reverse()
-      .map(({ run, count }) => {
-        const work = workById.get(run.recurringWorkId);
-        return {
-          id: `history-${run.recurringWorkId}-${run.status}`,
-          kind: "history" as const,
-          timestamp: run.finishedAt ?? run.startedAt,
-          timezone: work?.timezone ?? "UTC",
-          title: work?.title ?? "Agent run",
-          agentId: work?.agentId ?? "agent",
-          runId: run.id,
-          status: run.status,
-          attemptCount: count,
-        };
-      });
-    const running = workspaceData.recurringWorkRuns
-      .filter((run) => run.status === "running")
-      .sort((a, b) => a.startedAt - b.startedAt)
-      .map((run) => {
-        const work = workById.get(run.recurringWorkId);
-        return {
-          id: `running-${run.id}`,
-          kind: "running" as const,
-          timestamp: run.startedAt,
-          timezone: work?.timezone ?? "UTC",
-          title: work?.title ?? "Agent run",
-          agentId: work?.agentId ?? "agent",
-          runId: run.id,
-          status: run.status,
-        };
-      });
-    const upcoming = agentSchedules
+    const activeTasks = workspaceData.activity.filter(
+      (session) =>
+        session.kind === "task" &&
+        session.visibility === "private" &&
+        session.status === "running" &&
+        workspaceData.now - session.updatedAt < 10 * 60_000 &&
+        (!preparationActive || session.parentId !== preparationRoot?.id),
+    );
+    const firstActiveTask = activeTasks.reduce<SessionRecord | undefined>(
+      (earliest, task) =>
+        !earliest ||
+        (task.startedAt ?? task.createdAt) <
+          (earliest.startedAt ?? earliest.createdAt)
+          ? task
+          : earliest,
+      undefined,
+    );
+    const scheduledActive = firstActiveTask
+      ? [
+          {
+            id: "active-work",
+            kind: "active" as const,
+            timestamp: firstActiveTask.startedAt ?? firstActiveTask.createdAt,
+            timezone: firstActiveTask.scheduleId
+              ? (scheduleById.get(firstActiveTask.scheduleId)?.timezone ??
+                Intl.DateTimeFormat().resolvedOptions().timeZone)
+              : Intl.DateTimeFormat().resolvedOptions().timeZone,
+            title: "Chief is working",
+            agentId: "cmo",
+            taskCount: activeTasks.length,
+            parentId: firstActiveTask.parentId,
+            status: firstActiveTask.status,
+          },
+        ]
+      : [];
+    const preparation =
+      preparationActive && preparationRoot
+        ? [preparationRoot, ...preparationChildren].map((session) => ({
+            id: `preparation-${session.id}`,
+            kind: "active" as const,
+            timestamp: session.startedAt ?? session.createdAt,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            title:
+              session.id === preparationRoot.id
+                ? "Learning your business"
+                : session.title,
+            agentId: session.agent,
+            parentId: session.parentId ?? session.id,
+            childId: session.parentId ? session.id : undefined,
+            status: session.status,
+          }))
+        : [];
+    const upcoming = workspaceData.recurringWork
+      .filter((work) => work.status === "active" || work.status === "draft")
       .flatMap((work) => {
-        const next = work.upcomingRuns?.find(
-          (timestamp) => timestamp > workspaceData.now,
-        );
-        return next
+        return work.nextAt && work.nextAt > workspaceData.now
           ? [
               {
                 id: `upcoming-${work.id}`,
                 kind: "upcoming" as const,
-                timestamp: next,
+                timestamp: work.nextAt,
                 timezone: work.timezone,
                 title: work.title,
                 agentId: work.agentId,
+                onceAt: work.onceAt,
               },
             ]
           : [];
@@ -525,15 +487,18 @@ export function DashboardPage() {
       .sort((a, b) => a.timestamp - b.timestamp)
       .slice(0, 6);
 
-    return [...history, ...running, ...upcoming];
+    return [...preparation, ...scheduledActive, ...upcoming];
   }, [
-    agentSchedules,
-    workById,
+    preparationActive,
+    preparationChildren,
+    preparationRoot,
+    scheduleById,
+    workspaceData.activity,
     workspaceData.now,
-    workspaceData.recurringWorkRuns,
+    workspaceData.recurringWork,
   ]);
   const focusedTimelineItemId =
-    agentWorkTimeline.find((item) => item.kind === "running")?.id ??
+    agentWorkTimeline.find((item) => item.kind === "active")?.id ??
     agentWorkTimeline.find((item) => item.kind === "upcoming")?.id ??
     agentWorkTimeline.at(-1)?.id;
 
@@ -553,43 +518,65 @@ export function DashboardPage() {
   }, [focusedTimelineItemId, prefersReducedMotion]);
 
   const analyticsSlides = useMemo<AnalyticsSlide[]>(() => {
-    const trafficTrend = percentageChange(
-      analytics30?.activeUsers,
-      previous30?.activeUsers,
+    const currentTraffic = periodMetric(analytics30, [
+      "activeUsers",
+      "users",
+      "sessions",
+    ]);
+    const previousTraffic = periodMetric(previous30, [
+      "activeUsers",
+      "users",
+      "sessions",
+    ]);
+    const currentSignups = periodMetric(analytics30, [
+      "conversions",
+      "keyEvents",
+      "signups",
+    ]);
+    const previousSignups = periodMetric(previous30, [
+      "conversions",
+      "keyEvents",
+      "signups",
+    ]);
+    const trafficTrend = percentageChange(currentTraffic, previousTraffic);
+    const signupTrend = percentageChange(currentSignups, previousSignups);
+    const hasTraffic = currentTraffic !== undefined;
+    const hasSignups = currentSignups !== undefined;
+    const trafficMetric = analytics?.metrics.find((metric) =>
+      ["activeusers", "users", "sessions"].includes(
+        normalizedMetricKey(metric.key),
+      ),
     );
-    const signupTrend = percentageChange(
-      analytics30?.conversions,
-      previous30?.conversions,
+    const signupMetric = analytics?.metrics.find((metric) =>
+      ["conversions", "keyevents", "signups"].includes(
+        normalizedMetricKey(metric.key),
+      ),
     );
-    const hasTraffic = analytics30?.activeUsers !== undefined;
-    const hasSignups = analytics30?.conversions !== undefined;
+    const trafficSeries = analytics?.series?.find((series) =>
+      ["activeusers", "users", "sessions"].includes(
+        normalizedMetricKey(series.metric),
+      ),
+    );
     return [
       {
         id: "traffic",
         title: trendTitle("Traffic", trafficTrend, hasTraffic),
-        value:
-          snapshots === undefined
-            ? "—"
-            : formatNumber(analytics30?.activeUsers ?? 0),
-        label: "active users",
+        value: datasets === undefined ? "—" : formatNumber(currentTraffic ?? 0),
+        label: trafficMetric?.label.toLowerCase() ?? "traffic",
         trend: trafficTrend,
         points: chartPoints(
-          (analytics?.series ?? []).slice(-14).map((point) => point.value),
+          (trafficSeries?.points ?? []).slice(-14).map((point) => point.value),
         ),
       },
       {
         id: "signups",
         title: trendTitle("Signups", signupTrend, hasSignups),
-        value:
-          snapshots === undefined
-            ? "—"
-            : formatNumber(analytics30?.conversions ?? 0),
-        label: "tracked conversions",
+        value: datasets === undefined ? "—" : formatNumber(currentSignups ?? 0),
+        label: signupMetric?.label.toLowerCase() ?? "tracked conversions",
         trend: signupTrend,
         points:
-          analytics30?.conversions !== undefined &&
-          previous30?.conversions !== undefined
-            ? chartPoints([previous30.conversions, analytics30.conversions])
+          currentSignups !== undefined && previousSignups !== undefined
+            ? chartPoints([previousSignups, currentSignups])
             : null,
       },
       {
@@ -609,7 +596,7 @@ export function DashboardPage() {
     analytics30,
     newProspects,
     previous30,
-    snapshots,
+    datasets,
     workspaceData.loading,
   ]);
 
@@ -643,17 +630,12 @@ export function DashboardPage() {
           organizations[0] ??
           null;
         setOrganization(nextOrganization);
-        scheduleRecoveryAttempted.current = false;
-        setScheduleRecoveryAttempt(0);
-        setOnboardingRecoveryState(nextOrganization ? "checking" : "ready");
       } catch (error) {
         if (cancelled) return;
         console.warn(
           "[Overview] Workspace metadata unavailable; retrying",
           error,
         );
-        // Recovery metadata is helpful, but must never block live runtime data.
-        setOnboardingRecoveryState("ready");
         retryTimer = window.setTimeout(() => {
           void resolveOrganization();
         }, 3_000);
@@ -667,66 +649,7 @@ export function DashboardPage() {
   }, [cloudOrganizationId]);
 
   useEffect(() => {
-    if (
-      !onboardingRecovery?.required ||
-      workspaceDataLoading ||
-      scheduleRecoveryAttempted.current
-    ) {
-      return;
-    }
-    if (!onboardingBootstrapReady) {
-      return;
-    }
-    scheduleRecoveryAttempted.current = true;
-    const workspaceContext = workspaceContextFromOrganization(organization);
-    let cancelled = false;
-    const stateTimer = window.setTimeout(() => {
-      if (!cancelled) setOnboardingRecoveryState("recovering");
-    }, 0);
-    let retryTimer: number | undefined;
-    const retry = () => {
-      scheduleRecoveryAttempted.current = false;
-      setOnboardingRecoveryState("checking");
-      retryTimer = window.setTimeout(
-        () => setScheduleRecoveryAttempt((attempt) => attempt + 1),
-        Math.min(15_000, 1_500 * 2 ** Math.min(scheduleRecoveryAttempt, 3)),
-      );
-    };
-    void bootstrapOnboardingWork(
-      onboardingRecovery.jobs,
-      onboardingRecovery.schedules,
-      workspaceContext,
-    )
-      .then((accepted) => {
-        if (cancelled) return;
-        if (accepted) {
-          setOnboardingRecoveryState("ready");
-        } else {
-          retry();
-        }
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        console.error("Could not recover onboarding schedules:", error);
-        retry();
-      });
-    return () => {
-      cancelled = true;
-      scheduleRecoveryAttempted.current = false;
-      window.clearTimeout(stateTimer);
-      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
-    };
-  }, [
-    onboardingRecovery,
-    organization,
-    scheduleRecoveryAttempt,
-    bootstrapOnboardingWork,
-    onboardingBootstrapReady,
-    workspaceDataLoading,
-  ]);
-
-  useEffect(() => {
-    if (!currentAction || currentAction.inProgress) return;
+    if (!currentAction || currentActionInProgress) return;
     const dismissWithKeyboard = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (
@@ -741,11 +664,11 @@ export function DashboardPage() {
         return;
       }
       event.preventDefault();
-      workspaceData.dismissAttentionItem(currentAction.id);
+      workspaceData.dismissActionItem(currentAction.id);
     };
     window.addEventListener("keydown", dismissWithKeyboard);
     return () => window.removeEventListener("keydown", dismissWithKeyboard);
-  }, [currentAction, workspaceData]);
+  }, [currentAction, currentActionInProgress, workspaceData]);
 
   const moveAnalytics = (direction: number) => {
     setAnalyticsIndex(
@@ -760,20 +683,74 @@ export function DashboardPage() {
   };
 
   const moveAction = (direction: number) => {
-    if (attention.length < 2) return;
+    if (actions.length < 2) return;
     setSelectedAction(
-      (current) => (current + direction + attention.length) % attention.length,
+      (current) => (current + direction + actions.length) % actions.length,
     );
   };
 
   const openAction = () => {
-    void navigate(
-      currentAction?.runId
-        ? `/schedule/history?run=${encodeURIComponent(currentAction.runId)}`
-        : currentAction
-          ? `/schedule/history?attention=${encodeURIComponent(currentAction.id)}`
-          : "/schedule/history",
+    if (!currentAction) return;
+    if (isGoogleAnalyticsConnectionAction(currentAction)) {
+      localStorage.setItem(
+        "chief:integration-setup:analytics.googleapis.com",
+        "active",
+      );
+      void navigate("/analytics");
+      return;
+    }
+    if (currentAction.sourceId === "agent-cmo") {
+      void navigate("/agents");
+      return;
+    }
+    if (isConnectionAction(currentAction)) {
+      void navigate("/settings/integrations");
+      return;
+    }
+    if (
+      currentActionTask?.scheduleId ||
+      currentAction.sourceId?.startsWith("automation-")
+    ) {
+      void navigate("/schedule");
+      return;
+    }
+    void navigate("/conversations");
+  };
+
+  const resolveAction = () => {
+    if (deploymentRecovery) return;
+    if (
+      currentActionBlocked &&
+      currentActionTask?.scheduleId &&
+      currentActionTask.blockedTools
+    ) {
+      workspaceData.expandRecurringWorkGrant(
+        currentActionTask.scheduleId,
+        currentActionTask.blockedTools,
+        true,
+      );
+      return;
+    }
+    if (currentActionFailed && currentActionTask?.scheduleId) {
+      workspaceData.runRecurringWorkNow(currentActionTask.scheduleId);
+      return;
+    }
+    openAction();
+  };
+
+  const useCodexLocally = () => {
+    if (!cloudOrganizationId || !currentAction) return;
+    const existing = agentPreferences.preferences.find(
+      (preference) => preference.agentId === "cmo",
     );
+    setWorkspaceProvider(cloudOrganizationId, "codex");
+    setAgentOverride(cloudOrganizationId, "cmo", {
+      driver: "codex",
+      model: undefined,
+      enabled: true,
+    });
+    agentPreferences.save(localChiefPreference(existing));
+    workspaceData.dismissActionItem(currentAction.id);
   };
 
   const chooseSuggestion = (suggestion: string) => {
@@ -799,10 +776,11 @@ export function DashboardPage() {
 
   const profileFirstName = user?.name.trim().split(/\s+/)[0];
   const firstName = profileFirstName ?? "there";
-  const resolvedOnboardingRecoveryState =
-    onboardingRecovery?.required === false ? "ready" : onboardingRecoveryState;
   const preparingWorkspace =
-    workspaceData.loading || resolvedOnboardingRecoveryState !== "ready";
+    workspaceData.loading ||
+    initialReviewPending ||
+    preparationActive ||
+    Boolean(continuingChatId);
 
   return (
     <div className="chief-overview-page">
@@ -823,7 +801,7 @@ export function DashboardPage() {
               <header>
                 <div>
                   <span className="chief-overview-agent-icon">
-                    {currentAction.inProgress ? (
+                    {currentActionInProgress ? (
                       <LoaderCircle className="animate-spin" size={14} />
                     ) : (
                       <BarChart3 size={14} />
@@ -835,10 +813,8 @@ export function DashboardPage() {
                         currentAction.agentId}
                     </strong>
                     <small>
-                      {currentAction.inProgress
-                        ? currentAction.runId
-                          ? "Running now"
-                          : "Starting now"
+                      {currentActionInProgress
+                        ? "Task in progress"
                         : `Prepared ${new Intl.RelativeTimeFormat(undefined, {
                             numeric: "auto",
                           }).format(
@@ -855,37 +831,87 @@ export function DashboardPage() {
                   </span>
                 </div>
                 <small>
-                  {resolvedActionIndex + 1} of {attention.length}
+                  {resolvedActionIndex + 1} of {actions.length}
                 </small>
               </header>
               <div className="chief-overview-action-copy">
-                <h2>{currentAction.title}</h2>
+                <h2>
+                  {deploymentRecovery ? "Connect Chief" : currentAction.title}
+                </h2>
                 <p>
-                  {presentRunText(
-                    currentAction.reason,
-                    "This work needs your attention.",
-                  )}
+                  {deploymentRecovery
+                    ? "Chief's previous cloud deployment no longer exists. Choose where Chief should run, then your scheduled work can continue."
+                    : currentAction.reason.trim() ||
+                      "This action needs your review."}
                 </p>
-                {currentActionWorkId &&
-                currentActionRun?.status === "needs_approval" ? (
-                  <OverviewRunInput
-                    key={currentActionRun.id}
-                    recurringWorkId={currentActionWorkId}
-                    run={currentActionRun}
+                {currentActionTask?.status === "needs_approval" ? (
+                  <OverviewTaskInput
+                    key={currentActionTask.id}
+                    task={currentActionTask}
                   />
+                ) : null}
+                {currentAction.request &&
+                !isGoogleAnalyticsConnectionAction(currentAction) ? (
+                  <div className="chief-overview-setup-input">
+                    <InputRequestSection
+                      key={currentAction.request.id}
+                      request={currentAction.request}
+                      embedded
+                      onSubmit={(request, values, answers) => {
+                        if (currentAction.sourceId) {
+                          setContinuingChatId(currentAction.sourceId);
+                        }
+                        return workspaceData
+                          .resolveActionRequest(
+                            currentAction.id,
+                            request.id,
+                            answers,
+                            values,
+                          )
+                          .catch((error) => {
+                            setContinuingChatId(null);
+                            throw error;
+                          });
+                      }}
+                    />
+                  </div>
                 ) : null}
               </div>
               <footer>
                 <div className="chief-overview-action-buttons">
-                  <button type="button" onClick={openAction}>
-                    {currentAction.inProgress ? "View run" : "Review"}
-                  </button>
-                  {!currentAction.inProgress ? (
+                  {deploymentRecovery ? (
+                    <>
+                      <button type="button" onClick={useCodexLocally}>
+                        Use Chief on this Mac
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => navigate("/agents?view=deploy")}
+                      >
+                        Deploy Chief
+                      </button>
+                    </>
+                  ) : isGoogleAnalyticsConnectionAction(currentAction) ? (
+                    <button type="button" onClick={openAction}>
+                      Connect Google Analytics
+                    </button>
+                  ) : !currentAction.request ? (
+                    <button type="button" onClick={resolveAction}>
+                      {currentActionBlocked
+                        ? "Allow and retry"
+                        : currentActionFailed
+                          ? "Start again"
+                          : currentActionInProgress
+                            ? "View task"
+                            : "Review"}
+                    </button>
+                  ) : null}
+                  {!currentActionInProgress ? (
                     <button
                       type="button"
                       aria-keyshortcuts="E"
                       onClick={() =>
-                        workspaceData.dismissAttentionItem(currentAction.id)
+                        workspaceData.dismissActionItem(currentAction.id)
                       }
                       title="Dismiss (E)"
                     >
@@ -902,7 +928,7 @@ export function DashboardPage() {
                     <ChevronLeft size={14} />
                   </button>
                   <span aria-hidden="true">
-                    {attention.map((item, index) => (
+                    {actions.map((item, index) => (
                       <i
                         className={
                           index === resolvedActionIndex ? "is-active" : ""
@@ -932,29 +958,64 @@ export function DashboardPage() {
               </span>
               <h2>
                 {preparingWorkspace
-                  ? resolvedOnboardingRecoveryState === "recovering"
-                    ? "Starting your agent work…"
-                    : "Checking the workspace…"
+                  ? workspaceData.loading
+                    ? "Checking the workspace…"
+                    : continuingChatId
+                      ? "Chief is on it."
+                      : "Chief is learning your business."
                   : "You’re caught up."}
               </h2>
               <p>
                 {preparingWorkspace
-                  ? resolvedOnboardingRecoveryState === "recovering"
-                    ? "Chief is restoring the work selected during onboarding."
-                    : "Chief is gathering the latest work from your agents."
+                  ? workspaceData.loading
+                    ? "Chief is gathering the latest work from your agents."
+                    : continuingChatId
+                      ? "Chief is continuing the setup with the details you provided. Follow the work in the conversation."
+                      : "Chief is reviewing your website, saved context and connected sources. You can leave this open; the work will continue."
                   : agentSchedules.length > 0
-                    ? `Nothing needs your judgment. ${agentSchedules.length} recurring ${agentSchedules.length === 1 ? "job is" : "jobs are"} still running.`
+                    ? `Nothing needs your judgment. ${agentSchedules.length} recurring ${agentSchedules.length === 1 ? "task is" : "tasks are"} still active.`
                     : "Nothing needs your judgment. Choose recurring work when you’re ready to put the team in motion."}
               </p>
-              <button type="button" onClick={() => navigate("/schedule")}>
-                View schedule <ArrowRight size={13} />
+              <button
+                className={
+                  preparationActive || initialReviewPending || continuingChatId
+                    ? "is-initial-review"
+                    : undefined
+                }
+                type="button"
+                disabled={
+                  (preparationActive || initialReviewPending) &&
+                  !preparationRoot &&
+                  !continuingChatId
+                }
+                onClick={() =>
+                  continuingChatId
+                    ? navigate(
+                        `/conversations?chat=${encodeURIComponent(continuingChatId)}`,
+                      )
+                    : (preparationActive || initialReviewPending) &&
+                        preparationRoot
+                      ? navigate(
+                          `/conversations?chat=${encodeURIComponent(preparationRoot.id)}`,
+                        )
+                      : navigate("/schedule")
+                }
+              >
+                {continuingChatId
+                  ? "View Chief's work"
+                  : preparationActive || initialReviewPending
+                    ? preparationRoot
+                      ? "View initial review"
+                      : "Preparing initial review"
+                    : "View schedule"}{" "}
+                <ArrowRight size={13} />
               </button>
             </article>
           )}
 
-          {attention.length > 1 ? (
+          {actions.length > 1 ? (
             <div className="chief-overview-action-queue">
-              {attention.slice(0, 4).map((item, index) => (
+              {actions.slice(0, 4).map((item, index) => (
                 <button
                   className={index === resolvedActionIndex ? "is-active" : ""}
                   key={item.id}
@@ -1088,17 +1149,21 @@ export function DashboardPage() {
                       workspaceData.now,
                     );
                     const state =
-                      item.kind === "running"
-                        ? "Running now"
-                        : item.kind === "upcoming"
-                          ? "Scheduled"
-                          : item.status === "completed"
-                            ? "Completed"
+                      item.kind === "active"
+                        ? item.status === "completed"
+                          ? "Complete"
+                          : item.status === "failed"
+                            ? "Needs attention"
                             : item.status === "waiting"
-                              ? "Setup continuing"
-                              : item.status === "needs_approval"
-                                ? "Needs input"
-                                : "Stopped";
+                              ? "Waiting for input"
+                              : item.childId
+                                ? "Specialist working"
+                                : item.taskCount
+                                  ? `${item.taskCount} ${item.taskCount === 1 ? "task" : "tasks"} in progress`
+                                  : "Working now"
+                        : item.onceAt === undefined
+                          ? "Scheduled"
+                          : "One-time task";
                     return (
                       <button
                         key={item.id}
@@ -1108,17 +1173,19 @@ export function DashboardPage() {
                             : undefined
                         }
                         onClick={() =>
-                          item.runId
-                            ? navigate(
-                                `/schedule/history?run=${encodeURIComponent(item.runId)}`,
-                              )
-                            : navigate("/schedule")
+                          navigate(
+                            item.kind === "active"
+                              ? item.parentId
+                                ? `/conversations?chat=${encodeURIComponent(item.parentId)}${item.childId ? `&child=${encodeURIComponent(item.childId)}` : ""}`
+                                : "/conversations"
+                              : "/schedule",
+                          )
                         }
                         type="button"
                       >
                         <time>
                           <strong>
-                            {item.kind === "running" ? "Now" : when.day}
+                            {item.kind === "active" ? "Now" : when.day}
                           </strong>
                           <span>{when.time}</span>
                         </time>
@@ -1126,22 +1193,25 @@ export function DashboardPage() {
                           className={`is-${
                             item.kind === "upcoming"
                               ? "upcoming"
-                              : item.kind === "running"
-                                ? "running"
-                                : (item.status ?? "history")
+                              : item.status === "completed"
+                                ? "completed"
+                                : item.status === "failed"
+                                  ? "failed"
+                                  : item.status === "waiting"
+                                    ? "upcoming"
+                                    : "running"
                           }`}
                         >
-                          {item.kind === "running" ? (
+                          {item.kind === "active" &&
+                          item.status === "running" ? (
                             <LoaderCircle aria-hidden size={10} />
                           ) : null}
                         </i>
                         <span>
                           <strong>{item.title}</strong>
                           <small>
-                            {item.attemptCount && item.attemptCount > 1
-                              ? `${state} ${item.attemptCount} attempts`
-                              : state}{" "}
-                            · {AGENT_NAMES[item.agentId] ?? item.agentId}
+                            {state} ·{" "}
+                            {AGENT_NAMES[item.agentId] ?? item.agentId}
                           </small>
                         </span>
                         <ArrowRight aria-hidden size={10} />

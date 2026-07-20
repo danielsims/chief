@@ -20,7 +20,11 @@ export function providerDetails(provider: string) {
       familyDomain: "google.com",
     };
   }
-  if (provider === "meta" || provider === "facebook.com") {
+  if (
+    provider === "meta" ||
+    provider === "facebook.com" ||
+    provider === "graph.facebook.com"
+  ) {
     return {
       product: "Meta",
       family: "Meta",

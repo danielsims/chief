@@ -1,19 +1,19 @@
+/* eslint-disable max-lines */
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { BarChart3, RefreshCw, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router";
 
+import type { AnalyticsDataset } from "@chief/agent-runtime/types";
 import { api } from "@chief/backend/convex/_generated/api";
 import { Button } from "@chief/ui/components/button";
 import { cn } from "@chief/ui/lib/utils";
 
-import type {
-  AnalyticsSnapshotInput,
-  SetupIntegration,
-  SetupResult,
-} from "../lib/integration-setup";
+import type { SetupIntegration, SetupResult } from "../lib/integration-setup";
+import { LineChartCard } from "../components/charts/line-chart-card";
 import { Blocks } from "../components/chat/message-blocks";
-import { ConnectionPreview } from "../components/integrations/connection-preview";
+import { shortAnalyticsDate } from "../components/integrations/connection-preview";
 import { IntegrationConnect } from "../components/integrations/integration-connect";
 import { ProviderLogo } from "../components/provider-logo";
 import { useAgentConfig } from "../lib/agent-config";
@@ -24,16 +24,16 @@ import {
 } from "../lib/auth/better-auth-client";
 import { createChat } from "../lib/chat-log";
 import {
-  parseSetupResult,
   persistSetupResult,
-  SETUP_RESULT_MARKER,
   withoutMarkerLines,
 } from "../lib/integration-setup";
+import { providerDetails } from "../lib/provider-details";
 import {
-  GOOGLE_ANALYTICS_PROVIDER,
-  providerDetails,
-} from "../lib/provider-details";
-import { messageBlocks, useChiefChat, useRuntime } from "../lib/runtime";
+  messageBlocks,
+  useAnalyticsReportChat,
+  useRuntime,
+  useWorkspaceData,
+} from "../lib/runtime";
 
 interface AnalyticsChannel {
   _id: string;
@@ -43,18 +43,6 @@ interface AnalyticsChannel {
   externalId?: string;
   lastSyncAt?: number;
 }
-
-interface ReportData extends AnalyticsSnapshotInput {
-  capturedAt?: number;
-}
-
-const METRIC_RANGES = [
-  { key: "7d", label: "7D" },
-  { key: "14d", label: "14D" },
-  { key: "30d", label: "30D" },
-  { key: "3m", label: "3M" },
-  { key: "1y", label: "1Y" },
-] as const;
 
 const fallbackAnalyticsIntegration: SetupIntegration = {
   domain: "analytics.googleapis.com",
@@ -68,10 +56,17 @@ function formatNumber(value: number) {
   }).format(value);
 }
 
-function formatCurrency(value: number) {
+function formatMetric(
+  value: number,
+  format: AnalyticsDataset["metrics"][number]["format"],
+  currency?: string,
+) {
+  if (format === "percent") return `${value.toFixed(1)}%`;
+  if (format === "duration") return `${formatNumber(value)} s`;
+  if (format !== "currency") return formatNumber(value);
   return new Intl.NumberFormat(undefined, {
     style: "currency",
-    currency: "USD",
+    currency: currency ?? "USD",
     notation: value > 9999 ? "compact" : "standard",
     maximumFractionDigits: value > 999 ? 1 : 2,
   }).format(value);
@@ -113,7 +108,7 @@ function AnalyticsReportProgress({
   chat,
   sourceName,
 }: {
-  chat: ReturnType<typeof useChiefChat>;
+  chat: ReturnType<typeof useAnalyticsReportChat>;
   sourceName: string;
 }) {
   const feedRef = useRef<HTMLDivElement>(null);
@@ -212,95 +207,9 @@ function usePreferredAnalyticsIntegration(): SetupIntegration {
   return integration;
 }
 
-function reportFromResult(result: SetupResult): ReportData | null {
-  const number = (key: string) =>
-    typeof result[key] === "number" ? result[key] : undefined;
-  const series = Array.isArray(result.series) ? result.series : undefined;
-  const hasMetrics = [
-    "activeUsers",
-    "sessions",
-    "pageViews",
-    "conversions",
-    "revenue",
-  ].some((key) => number(key) !== undefined);
-  if (!hasMetrics && !series?.length) return null;
-
-  return {
-    provider:
-      result.provider === "analytics.googleapis.com"
-        ? GOOGLE_ANALYTICS_PROVIDER
-        : String(result.provider),
-    period:
-      typeof result.period === "string"
-        ? result.period
-        : series?.length
-          ? `${series.length} D`
-          : "30 D",
-    activeUsers: number("activeUsers"),
-    sessions: number("sessions"),
-    pageViews: number("pageViews"),
-    conversions: number("conversions"),
-    revenue: number("revenue"),
-    metricLabel:
-      typeof result.metricLabel === "string" ? result.metricLabel : undefined,
-    series,
-  };
-}
-
-function snapshotArgs(report: ReportData): AnalyticsSnapshotInput {
-  const periodKey =
-    report.period === "7 D"
-      ? "7d"
-      : report.period === "14 D"
-        ? "14d"
-        : report.period === "30 D"
-          ? "30d"
-          : report.period === "3 M"
-            ? "3m"
-            : report.period === "1 Y"
-              ? "1y"
-              : null;
-  const currentRange = periodKey
-    ? {
-        key: periodKey,
-        period: report.period,
-        activeUsers: report.activeUsers,
-        sessions: report.sessions,
-        pageViews: report.pageViews,
-        conversions: report.conversions,
-        revenue: report.revenue,
-      }
-    : null;
-  return {
-    provider: report.provider,
-    period: report.period,
-    ...(report.activeUsers !== undefined
-      ? { activeUsers: report.activeUsers }
-      : {}),
-    ...(report.sessions !== undefined ? { sessions: report.sessions } : {}),
-    ...(report.pageViews !== undefined ? { pageViews: report.pageViews } : {}),
-    ...(report.conversions !== undefined
-      ? { conversions: report.conversions }
-      : {}),
-    ...(report.revenue !== undefined ? { revenue: report.revenue } : {}),
-    ...(report.metricLabel ? { metricLabel: report.metricLabel } : {}),
-    ...(report.series?.length ? { series: report.series } : {}),
-    ...(report.rangeMetrics?.length || currentRange
-      ? {
-          rangeMetrics: [
-            ...(report.rangeMetrics ?? []),
-            ...(currentRange ? [currentRange] : []),
-          ],
-        }
-      : {}),
-  };
-}
-
 function analyticsReportTask(channel: AnalyticsChannel) {
   const details = providerDetails(channel.provider);
-  return `Refresh the existing ${details.product} connection for this workspace. Do not reconnect it, change credentials, or ask setup questions. Use the local credentials and tools already configured on this Mac. Pull the last 30 days of active users, sessions, page views, conversions and revenue, plus up to 14 ascending daily active-user points. Keep narration to one short line, then end with exactly one valid single-line result in this shape:
-${SETUP_RESULT_MARKER} {"provider":"${channel.provider}","status":"report","period":"30 D","activeUsers":0,"sessions":0,"pageViews":0,"conversions":0,"revenue":0,"metricLabel":"Active users","series":[{"date":"YYYYMMDD","value":0}]}
-Use the real numeric values. Property id: ${channel.externalId ?? "use the connected property"}.`;
+  return `Refresh the existing ${details.product} connection for this workspace. Do not reconnect it, change credentials, ask setup questions, or use Chief's normalized analytics wrapper. Dynamically inspect and call the connected provider's Executor catalog directly. Pull a useful 30-day overview and previous-period comparison, including daily time-series points and any dimensions needed to explain material changes. Save the complete reusable result with analyticsSaveDataset using provider ${channel.provider}, sourceId ${channel.externalId ?? "the connected account or property id"}, key overview, period keys 30d and previous30d, exact date ranges, generic metric definitions, dimension rows, series, a chart recipe, and query provenance. The save tool is mandatory; a Markdown file or prose summary is not persistence. Then present the primary chart and summarize the evidence briefly. Property id: ${channel.externalId ?? "use the connected property"}.`;
 }
 
 export function AnalyticsPage() {
@@ -309,17 +218,15 @@ export function AnalyticsPage() {
   const convexAuth = useConvexAuth();
   const agentConfig = useAgentConfig();
   const { status: runtimeStatus } = useRuntime();
+  const workspaceData = useWorkspaceData(cloudOrganizationId);
   const [tab, setTab] = useState("overview");
   const [metricRange, setMetricRange] = useState("30d");
   const [notice, setNotice] = useState<string | null>(null);
-  const [liveReports, setLiveReports] = useState<Record<string, ReportData>>(
-    {},
-  );
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
   const awaitingAgentRef = useRef(false);
   const autoRefreshedRef = useRef(new Set<string>());
-  const handledResultsRef = useRef(new Set<string>());
+  const refreshBaselineRef = useRef(0);
   const canUseWorkspaceAnalytics =
     convexAuth.isAuthenticated && Boolean(cloudOrganizationId);
 
@@ -333,47 +240,44 @@ export function AnalyticsPage() {
     () => (connectedChannels ?? []) as AnalyticsChannel[],
     [connectedChannels],
   );
+  const activeTab =
+    tab === "overview" || productChannels.some((channel) => channel._id === tab)
+      ? tab
+      : "overview";
   const selectedChannel =
-    tab === "overview"
+    activeTab === "overview"
       ? productChannels[0]
-      : productChannels.find((channel) => channel.provider === tab);
+      : productChannels.find((channel) => channel._id === activeTab);
   const selectedProvider = selectedChannel?.provider;
   const selectedDetails = selectedProvider
     ? providerDetails(selectedProvider)
     : null;
 
-  useEffect(() => {
-    if (tab !== "overview" && !selectedChannel) setTab("overview");
-  }, [selectedChannel, tab]);
-
-  useEffect(() => setMetricRange("30d"), [selectedProvider]);
-
-  const storedSnapshot = useQuery(
-    api.analyticsSnapshots.getLatest,
-    canUseWorkspaceAnalytics && selectedProvider
-      ? { provider: selectedProvider }
-      : "skip",
-  );
-  const report = selectedProvider
-    ? (liveReports[selectedProvider] ?? storedSnapshot ?? null)
-    : null;
-  // Pending is not empty: while the persisted snapshot is still resolving,
+  const storedDataset = workspaceData.loading
+    ? undefined
+    : (workspaceData.analyticsDatasets.find(
+        (dataset) =>
+          dataset.provider === selectedProvider &&
+          dataset.key === "overview" &&
+          (!selectedChannel?.externalId ||
+            dataset.sourceId === selectedChannel.externalId),
+      ) ?? null);
+  const report = storedDataset ?? null;
+  // Pending is not empty: while the persisted dataset is still resolving,
   // the page must hold geometry rather than flash "No report yet".
   const reportPending =
-    Boolean(selectedProvider) &&
-    storedSnapshot === undefined &&
-    !liveReports[selectedProvider ?? ""];
+    Boolean(selectedProvider) && storedDataset === undefined;
 
-  const saveAnalyticsProperty = useMutation(api.googleAnalytics.saveProperty);
   const markIntegrationConnected = useMutation(api.integrations.markConnected);
-  const saveSnapshot = useMutation(api.analyticsSnapshots.upsert);
-  const getSummary = useAction(api.googleAnalytics.summary);
   const preferredIntegration = usePreferredAnalyticsIntegration();
   const workspaceProvider = agentConfig.forAgent("cmo").driver;
   const visibleDetails =
     selectedDetails ?? providerDetails(preferredIntegration.domain);
   const [reportChatId] = useState(() => crypto.randomUUID());
-  const reportChat = useChiefChat(selectedChannel ? reportChatId : null);
+  const reportChat = useAnalyticsReportChat(
+    selectedChannel ? reportChatId : null,
+    agentConfig.access,
+  );
 
   const finishRefresh = useCallback(() => {
     refreshingRef.current = false;
@@ -381,73 +285,37 @@ export function AnalyticsPage() {
     setRefreshing(false);
   }, []);
 
-  const acceptReport = useCallback(
-    (next: ReportData) => {
-      const captured = { ...next, capturedAt: Date.now() };
-      setLiveReports((current) => {
-        const base = current[next.provider] ?? storedSnapshot ?? undefined;
-        const nextRanges = snapshotArgs(captured).rangeMetrics ?? [];
-        return {
-          ...current,
-          [next.provider]: {
-            ...captured,
-            series: Array.from(
-              new Map(
-                [...(base?.series ?? []), ...(captured.series ?? [])].map(
-                  (point) => [point.date, point],
-                ),
-              ).values(),
-            )
-              .sort((a, b) => a.date.localeCompare(b.date))
-              .slice(-370),
-            rangeMetrics: Array.from(
-              new Map(
-                [...(base?.rangeMetrics ?? []), ...nextRanges].map((range) => [
-                  range.key,
-                  range,
-                ]),
-              ).values(),
-            ),
-          },
-        };
-      });
-      void saveSnapshot(snapshotArgs(captured));
+  useEffect(() => {
+    if (
+      awaitingAgentRef.current &&
+      storedDataset &&
+      storedDataset.capturedAt > refreshBaselineRef.current
+    ) {
       setNotice(null);
       finishRefresh();
-    },
-    [finishRefresh, saveSnapshot, storedSnapshot],
-  );
+    }
+  }, [finishRefresh, storedDataset]);
 
   useEffect(() => {
-    let found = false;
-    for (const item of reportChat.messages) {
-      if (item.role !== "assistant") continue;
-      for (const block of messageBlocks(item)) {
-        if (block.type !== "text") continue;
-        const result = parseSetupResult(block.text);
-        if (!result) continue;
-        const next = reportFromResult(result);
-        if (!next) continue;
-        const key = JSON.stringify(result);
-        if (handledResultsRef.current.has(key)) continue;
-        handledResultsRef.current.add(key);
-        acceptReport(next);
-        found = true;
-      }
-    }
     if (
-      !found &&
       awaitingAgentRef.current &&
-      reportChat.controls.status === "idle"
+      reportChat.controls.status === "idle" &&
+      !reportChat.controls.error &&
+      (!storedDataset || storedDataset.capturedAt <= refreshBaselineRef.current)
     ) {
-      setNotice("The report finished without returning analytics data.");
-      finishRefresh();
+      const timer = window.setTimeout(() => {
+        if (!awaitingAgentRef.current) return;
+        setNotice("The report finished without saving an analytics dataset.");
+        finishRefresh();
+      }, 1_500);
+      return () => window.clearTimeout(timer);
     }
+    return undefined;
   }, [
-    acceptReport,
     finishRefresh,
-    reportChat.messages,
+    reportChat.controls.error,
     reportChat.controls.status,
+    storedDataset,
   ]);
 
   useEffect(() => {
@@ -456,31 +324,13 @@ export function AnalyticsPage() {
     finishRefresh();
   }, [finishRefresh, reportChat.controls.error]);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(() => {
     if (refreshingRef.current) return;
     if (!selectedChannel) return;
     refreshingRef.current = true;
+    refreshBaselineRef.current = storedDataset?.capturedAt ?? 0;
     setRefreshing(true);
     setNotice(null);
-
-    if (selectedChannel.provider === GOOGLE_ANALYTICS_PROVIDER) {
-      try {
-        const cloudReport = (await getSummary({})) as Omit<
-          ReportData,
-          "provider"
-        > | null;
-        if (cloudReport) {
-          acceptReport({
-            ...cloudReport,
-            provider: GOOGLE_ANALYTICS_PROVIDER,
-          });
-          return;
-        }
-      } catch {
-        // Local connections intentionally have no Convex credential. Continue
-        // through the local report agent instead of retrying the action.
-      }
-    }
 
     if (
       workspaceProvider &&
@@ -489,7 +339,7 @@ export function AnalyticsPage() {
     ) {
       awaitingAgentRef.current = true;
       void reportChat.sendMessage({
-        text: `Consult the Analyst specialist and ${analyticsReportTask(selectedChannel)}`,
+        text: analyticsReportTask(selectedChannel),
       });
       return;
     }
@@ -497,20 +347,19 @@ export function AnalyticsPage() {
     setNotice("The local analytics runner is not ready yet.");
     finishRefresh();
   }, [
-    acceptReport,
     finishRefresh,
-    getSummary,
     reportChat,
     runtimeStatus,
     selectedChannel,
     workspaceProvider,
+    storedDataset?.capturedAt,
   ]);
 
   useEffect(() => {
     if (
       !selectedChannel ||
-      storedSnapshot === undefined ||
-      storedSnapshot ||
+      storedDataset === undefined ||
+      storedDataset ||
       !reportChat.chatReady ||
       autoRefreshedRef.current.has(selectedChannel._id)
     ) {
@@ -518,23 +367,21 @@ export function AnalyticsPage() {
     }
     autoRefreshedRef.current.add(selectedChannel._id);
     void refresh();
-  }, [refresh, reportChat.chatReady, selectedChannel, storedSnapshot]);
+  }, [refresh, reportChat.chatReady, selectedChannel, storedDataset]);
 
   const handleSetupResult = useCallback(
     (result: SetupResult) => {
       void persistSetupResult(
         result,
         {
-          saveProperty: saveAnalyticsProperty,
           markConnected: markIntegrationConnected,
-          saveSnapshot,
         },
         "analytics",
       ).catch((error) => {
         setNotice(error instanceof Error ? error.message : String(error));
       });
     },
-    [markIntegrationConnected, saveAnalyticsProperty, saveSnapshot],
+    [markIntegrationConnected],
   );
 
   const sourceName = selectedChannel?.displayName ?? preferredIntegration.name;
@@ -546,59 +393,58 @@ export function AnalyticsPage() {
     );
   };
 
-  const metricReport =
-    report?.rangeMetrics?.find((range) => range.key === metricRange) ??
-    (metricRange === "30d" ? report : null);
-  const availableMetricRanges = METRIC_RANGES.filter(
-    (range) =>
-      range.key === "30d" ||
-      report?.rangeMetrics?.some((stored) => stored.key === range.key),
+  const activeMetricRange =
+    report?.periods.find((period) => period.key === metricRange)?.key ??
+    report?.periods[0]?.key ??
+    "30d";
+  const metricReport = report?.periods.find(
+    (period) => period.key === activeMetricRange,
   );
+  const availableMetricRanges =
+    report?.periods.map((period) => ({
+      key: period.key,
+      label:
+        (
+          {
+            "7d": "7D",
+            "14d": "14D",
+            "30d": "30D",
+            "3m": "3M",
+            "1y": "1Y",
+          } as Record<string, string>
+        )[period.key] ?? period.label,
+    })) ?? [];
 
   const metrics = useMemo(() => {
     if (!metricReport) return [];
-    const values = [
-      metricReport.activeUsers !== undefined
-        ? {
-            label: "Active users",
-            value: formatNumber(metricReport.activeUsers),
-          }
-        : null,
-      metricReport.sessions !== undefined
-        ? { label: "Sessions", value: formatNumber(metricReport.sessions) }
-        : null,
-      metricReport.pageViews !== undefined
-        ? { label: "Page views", value: formatNumber(metricReport.pageViews) }
-        : null,
-      metricReport.conversions !== undefined
-        ? {
-            label: "Conversions",
-            value: formatNumber(metricReport.conversions),
-          }
-        : null,
-      metricReport.revenue !== undefined
-        ? { label: "Revenue", value: formatCurrency(metricReport.revenue) }
-        : null,
-      metricReport.conversions !== undefined &&
-      metricReport.sessions !== undefined &&
-      metricReport.sessions > 0
-        ? {
-            label: "Conversion rate",
-            value: `${((metricReport.conversions / metricReport.sessions) * 100).toFixed(1)}%`,
-          }
-        : null,
-    ];
-    return values.filter((value): value is { label: string; value: string } =>
-      Boolean(value),
+    const definitions = new Map(
+      report?.metrics.map((metric) => [metric.key, metric]) ?? [],
     );
-  }, [metricReport]);
+    return metricReport.values.flatMap((item) => {
+      const metric = definitions.get(item.metric);
+      return metric
+        ? [
+            {
+              label: metric.label,
+              value: formatMetric(item.value, metric.format, metric.currency),
+            },
+          ]
+        : [];
+    });
+  }, [metricReport, report?.metrics]);
+
+  const chart = report?.charts?.[0];
+  const chartSeries = chart
+    ? (report.series ?? []).filter((series) => chart.series.includes(series.id))
+    : (report?.series ?? []).slice(0, 4);
+  const updatedAt = report?.capturedAt ?? selectedChannel?.lastSyncAt;
 
   const tabs = [
     { key: "overview", label: "Overview", domain: null },
     ...productChannels.map((channel) => {
       const details = providerDetails(channel.provider);
       return {
-        key: channel.provider,
+        key: channel._id,
         label: details.product,
         domain: details.productDomain,
       };
@@ -615,9 +461,10 @@ export function AnalyticsPage() {
               key={item.key}
               type="button"
               onClick={() => setTab(item.key)}
+              disabled={refreshing}
               className={cn(
                 "text-muted-foreground hover:text-foreground flex items-center gap-2 border-b border-transparent pb-3 text-sm transition-colors",
-                tab === item.key && "border-foreground text-foreground",
+                activeTab === item.key && "border-foreground text-foreground",
               )}
             >
               {item.domain ? (
@@ -669,12 +516,9 @@ export function AnalyticsPage() {
               Ask Analyst
             </Button>
             <div className="flex items-center gap-3">
-              {report?.capturedAt || selectedChannel?.lastSyncAt ? (
+              {updatedAt ? (
                 <span className="text-muted-foreground text-xs">
-                  Updated{" "}
-                  {new Date(
-                    report?.capturedAt ?? selectedChannel!.lastSyncAt!,
-                  ).toLocaleTimeString()}
+                  Updated {new Date(updatedAt).toLocaleTimeString()}
                 </span>
               ) : null}
               <Button
@@ -771,7 +615,7 @@ export function AnalyticsPage() {
                       onClick={() => setMetricRange(range.key)}
                       className={cn(
                         "text-muted-foreground hover:text-foreground px-2.5 py-1 text-[11px] transition-colors",
-                        metricRange === range.key &&
+                        activeMetricRange === range.key &&
                           "bg-accent text-foreground",
                       )}
                     >
@@ -786,19 +630,20 @@ export function AnalyticsPage() {
                     key={metric.label}
                     label={metric.label}
                     value={metric.value}
-                    period={metricReport?.period ?? "30 D"}
+                    period={metricReport?.label ?? "Current period"}
                   />
                 ))}
               </div>
             </div>
           ) : null}
 
-          {report?.series?.length ? (
-            <ConnectionPreview
-              name={sourceName}
-              metricLabel={report.metricLabel}
-              series={report.series}
-              rangeKey={metricRange}
+          {chartSeries.length ? (
+            <LineChartCard
+              title={chart?.title ?? report?.title ?? "Performance"}
+              subtitle={chart?.subtitle ?? sourceName}
+              contextLabel={metricReport?.label}
+              series={chartSeries}
+              formatX={shortAnalyticsDate}
             />
           ) : null}
 
@@ -810,6 +655,11 @@ export function AnalyticsPage() {
                 aria-label="Loading report"
               />
             ) : refreshing ? (
+              <AnalyticsReportProgress
+                chat={reportChat}
+                sourceName={sourceName}
+              />
+            ) : reportChat.messages.length > 0 ? (
               <AnalyticsReportProgress
                 chat={reportChat}
                 sourceName={sourceName}

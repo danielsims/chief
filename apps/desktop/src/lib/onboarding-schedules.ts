@@ -45,7 +45,8 @@ function toolPatterns(playbookId: string) {
   if (playbookId === "growth-brief") {
     return [
       ...sources,
-      "tools.chief-local.org.localworkspace.localTools.googleAnalyticsRunReport",
+      "tools.google_analytics.org.main.*",
+      "tools.chief-local.org.localworkspace.localTools.analyticsSaveDataset",
       "tools.chief.org.workspace.agentTools.uiPresentChart",
     ];
   }

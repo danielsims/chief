@@ -1,3 +1,5 @@
+/* eslint-disable max-lines */
+
 import type { SimpleIcon } from "simple-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Claude, OpenAI, Vercel } from "@lobehub/icons";
@@ -20,7 +22,11 @@ import {
 import { Navigate, useNavigate, useSearchParams } from "react-router";
 import { siInstagram, siReddit, siTiktok, siX, siYoutube } from "simple-icons";
 
-import type { DriverType } from "@chief/agent-runtime/types";
+import type {
+  AgentDeploymentRecord,
+  AgentDeploymentTarget,
+  DriverType,
+} from "@chief/agent-runtime/types";
 import { api } from "@chief/backend/convex/_generated/api";
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
@@ -36,14 +42,23 @@ import { cn } from "@chief/ui/lib/utils";
 
 import type { AuthOrganization } from "../lib/auth/better-auth-client";
 import type { BillingPlan } from "../lib/billing";
-import type { SetupResult } from "../lib/integration-setup";
 import type { IntegrationSearchResult } from "../lib/integrations";
+import type { OnboardingStep } from "../lib/onboarding-flow";
 import type { SocialPlatform } from "../lib/social-platforms";
+import { ConvexLogo } from "../components/convex-logo";
 import { GoogleLogo } from "../components/google-logo";
 import { IntegrationAvatarStack } from "../components/integrations/integration-avatar-stack";
-import { IntegrationConnect } from "../components/integrations/integration-connect";
 import { resolveFaviconUrl } from "../components/org-logo";
-import { setWorkspaceProvider } from "../lib/agent-overrides";
+import { useAgentDeployments } from "../lib/agent-deployments";
+import {
+  clearWorkspaceProvider,
+  setWorkspaceProvider,
+} from "../lib/agent-overrides";
+import {
+  AI_GATEWAY_API_KEY,
+  AI_GATEWAY_INPUT_REQUEST,
+  AI_GATEWAY_KEYS_URL,
+} from "../lib/ai-gateway-input";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   createAuthOrganization,
@@ -53,13 +68,22 @@ import {
   updateAuthOrganization,
 } from "../lib/auth/better-auth-client";
 import { hasWorkspaceAccess, openWorkspaceCheckout } from "../lib/billing";
-import { connectGoogleAnalytics } from "../lib/google-analytics";
-import { persistSetupResult } from "../lib/integration-setup";
 import { integrationLogoUrl, searchIntegrations } from "../lib/integrations";
+import {
+  LOCAL_ONBOARDING_FALLBACK,
+  nextOnboardingStep,
+  ONBOARDING_STEPS,
+} from "../lib/onboarding-flow";
 import { buildOnboardingSchedules } from "../lib/onboarding-schedules";
 import { buildOnboardingWorkJobs } from "../lib/onboarding-work";
-import { getPlaybook } from "../lib/playbooks";
-import { useRuntime, useWorkspaceData } from "../lib/runtime";
+import { getPlaybook, playbookInstructions, PLAYBOOKS } from "../lib/playbooks";
+import {
+  updatePendingOnboardingDriver,
+  useAgentPreferences,
+  useRuntime,
+  useStoredInputs,
+  useWorkspaceData,
+} from "../lib/runtime";
 import { SOCIAL_PLATFORMS } from "../lib/social-platforms";
 import { workspaceContextFromOrganization } from "../lib/workspace-context";
 
@@ -83,27 +107,7 @@ interface OnboardingBrandFile {
   dataUrl: string;
 }
 
-type StepKey =
-  | "mode"
-  | "inference"
-  | "health"
-  | "context"
-  | "brand"
-  | "socials"
-  | "selling"
-  | "audience"
-  | "success"
-  | "time"
-  | "monitoring"
-  | "analytics"
-  | "analyticsConnect"
-  | "ads"
-  | "adsConnect"
-  | "adsBudget"
-  | "aeo"
-  | "automation"
-  | "pricing"
-  | "finish";
+type StepKey = OnboardingStep;
 
 interface OnboardingDraft {
   workspaceMode: "local" | "cloud";
@@ -112,7 +116,8 @@ interface OnboardingDraft {
   socials: Partial<Record<SocialPlatform, string>>;
   providerMode: "local" | "deployed";
   /** Null until the user explicitly picks an agent app, never defaulted. */
-  provider: DriverType | "vercel" | null;
+  provider: DriverType | null;
+  deploymentProvider: AgentDeploymentTarget | null;
   cloudDeploymentUrl: string;
   billingPlan: BillingPlan;
   brand: {
@@ -151,28 +156,7 @@ interface OnboardingDraft {
   step: StepKey;
 }
 
-const steps: StepKey[] = [
-  "mode",
-  "inference",
-  "health",
-  "context",
-  "brand",
-  "socials",
-  "selling",
-  "audience",
-  "success",
-  "time",
-  "monitoring",
-  "analytics",
-  "analyticsConnect",
-  "ads",
-  "adsConnect",
-  "adsBudget",
-  "aeo",
-  "automation",
-  "pricing",
-  "finish",
-];
+const steps = ONBOARDING_STEPS;
 
 const questions: Record<StepKey, string> = {
   mode: "First, where should this workspace run?",
@@ -181,7 +165,7 @@ const questions: Record<StepKey, string> = {
   context:
     "I'll set this workspace up around one company, so the agents know exactly who they're working for. What's your company and website?",
   brand:
-    "How should the Setup agent learn your brand voice and visual guidelines?",
+    "How should Chief learn your brand voice and visual guidelines for the initial review?",
   socials:
     "Nice. Now add the public accounts the agents should learn from and write for.",
   selling: "Describe what you're selling in a few short words.",
@@ -191,10 +175,7 @@ const questions: Record<StepKey, string> = {
   monitoring:
     "Where should your agents proactively search for prospects, buying signals and relevant conversations?",
   analytics: "Which analytics platforms do you use today?",
-  analyticsConnect:
-    "Great. I'll connect these analytics sources after onboarding.",
   ads: "Where do you run paid ads today?",
-  adsConnect: "Great. I'll connect these ad accounts after onboarding.",
   adsBudget: "No ads today. Want your agents to run them for you?",
   aeo: "One more thing. Want to know when ChatGPT, Claude or Perplexity send you customers?",
   automation:
@@ -461,6 +442,7 @@ function baseDraft(): OnboardingDraft {
     socials: {},
     providerMode: "local",
     provider: null,
+    deploymentProvider: null,
     cloudDeploymentUrl: "",
     billingPlan: "monthly",
     brand: {
@@ -600,11 +582,15 @@ function draftFromOrg(
     onboarding.automation && typeof onboarding.automation === "object"
       ? (onboarding.automation as Partial<OnboardingDraft["automation"]>)
       : {};
-  const provider =
+  const provider: DriverType | null =
     onboarding.provider === "claude" ||
     onboarding.provider === "codex" ||
+    onboarding.provider === "opencode" ||
+    onboarding.provider === "remote" ||
     onboarding.provider === "vercel"
-      ? onboarding.provider
+      ? onboarding.provider === "vercel"
+        ? "remote"
+        : onboarding.provider
       : null;
   const looksLikePersonalOrg =
     typeof metadata.personalOrgUserId === "string" ||
@@ -621,8 +607,15 @@ function draftFromOrg(
     companyName: looksLikePersonalOrg ? "" : org.name,
     websiteUrl:
       typeof metadata.websiteUrl === "string" ? metadata.websiteUrl : "",
-    providerMode: "local",
+    providerMode: onboarding.providerMode === "deployed" ? "deployed" : "local",
     provider,
+    deploymentProvider:
+      onboarding.deploymentProvider === "convex"
+        ? "convex"
+        : onboarding.deploymentProvider === "vercel" ||
+            onboarding.provider === "vercel"
+          ? "vercel"
+          : null,
     cloudDeploymentUrl:
       typeof onboarding.cloudDeploymentUrl === "string"
         ? onboarding.cloudDeploymentUrl
@@ -709,6 +702,8 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
       Partial<OnboardingDraft["brand"]> | undefined;
     const parsedAutomation = parsed.automation as
       Partial<OnboardingDraft["automation"]> | undefined;
+    const parsedProvider = (parsed as { provider?: unknown }).provider;
+    const storedStep = (parsed as { step?: string }).step;
     return {
       ...base,
       ...parsed,
@@ -721,11 +716,22 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
       socials: { ...base.socials, ...(parsed.socials ?? {}) },
       providerMode: parsed.providerMode === "deployed" ? "deployed" : "local",
       provider:
-        parsed.provider === "claude" ||
-        parsed.provider === "codex" ||
-        parsed.provider === "vercel"
-          ? parsed.provider
+        parsedProvider === "claude" ||
+        parsedProvider === "codex" ||
+        parsedProvider === "opencode" ||
+        parsedProvider === "remote" ||
+        parsedProvider === "vercel"
+          ? parsedProvider === "vercel"
+            ? "remote"
+            : parsedProvider
           : base.provider,
+      deploymentProvider:
+        parsed.deploymentProvider === "convex"
+          ? "convex"
+          : parsed.deploymentProvider === "vercel" ||
+              parsedProvider === "vercel"
+            ? "vercel"
+            : base.deploymentProvider,
       cloudDeploymentUrl: parsed.cloudDeploymentUrl ?? base.cloudDeploymentUrl,
       billingPlan:
         parsed.billingPlan === "annual" ? "annual" : base.billingPlan,
@@ -804,9 +810,15 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
         plan: normaliseAutomationPlan(parsedAutomation?.plan),
       },
       step:
-        parsed.step && steps.includes(parsed.step) && hasSetupMode
-          ? parsed.step
-          : base.step,
+        storedStep === "analyticsConnect"
+          ? "ads"
+          : storedStep === "adsConnect"
+            ? normaliseIntegrations(parsedAds?.integrations).length > 0
+              ? "aeo"
+              : "adsBudget"
+            : parsed.step && steps.includes(parsed.step) && hasSetupMode
+              ? parsed.step
+              : base.step,
     };
   } catch {
     return base;
@@ -926,62 +938,20 @@ function SocialIcon({
   );
 }
 
-function isGoogleAnalyticsIntegration(
-  integration: IntegrationSearchResult | null | undefined,
-) {
-  return Boolean(
-    integration &&
-    (integration.domain === "analytics.googleapis.com" ||
-      integration.domain === "analyticsadmin.googleapis.com" ||
-      integration.name.toLowerCase().includes("google analytics")),
-  );
-}
-
-function integrationProviderMatches(
-  integration: IntegrationSearchResult | null | undefined,
-  provider: string | null | undefined,
-) {
-  if (!integration || !provider) return false;
-  return (
-    provider === integration.domain ||
-    (integration.domain === "analytics.googleapis.com" &&
-      provider === "google-analytics")
-  );
-}
-
 function selectedIntegrationNames(integrations: IntegrationSearchResult[]) {
   return integrations.length
     ? integrations.map((integration) => integration.name).join(", ")
     : null;
 }
 
-function providerIdentity(provider: string) {
-  if (provider === "google-analytics") {
-    return {
-      label: "Google Analytics",
-      logoDomain: "analytics.googleapis.com",
-    };
-  }
-
-  return {
-    label: provider,
-    logoDomain: provider,
-  };
-}
-
-function integrationFromProvider(provider: string): IntegrationSearchResult {
-  const identity = providerIdentity(provider);
-  return {
-    domain: identity.logoDomain,
-    name: identity.label,
-    description: provider,
-    kinds: [],
-    url: `https://integrations.sh/${identity.logoDomain}/`,
-  };
-}
-
 function modeLabel(draft: OnboardingDraft) {
   return draft.workspaceMode === "cloud" ? "Cloud workspace" : "This Mac";
+}
+
+function questionText(step: StepKey, draft: OnboardingDraft) {
+  return step === "inference" && draft.workspaceMode === "cloud"
+    ? "Which cloud provider should Chief use?"
+    : questions[step];
 }
 
 function AnswerPreview({
@@ -1065,7 +1035,11 @@ function AnswerPreview({
   if (step === "inference") {
     const label =
       draft.providerMode === "deployed"
-        ? "Cloud deployment"
+        ? draft.deploymentProvider === "convex"
+          ? "Convex"
+          : draft.deploymentProvider === "vercel"
+            ? "Vercel"
+            : "Cloud deployment"
         : draft.provider === "codex"
           ? "Codex"
           : draft.provider === "claude"
@@ -1117,32 +1091,10 @@ function AnswerPreview({
     );
   }
 
-  if (step === "analyticsConnect") {
-    if (!draft.analytics.integrations.length) {
-      return <UserBubble>Not connected yet</UserBubble>;
-    }
-    return (
-      <UserBubble>
-        {selectedIntegrationNames(draft.analytics.integrations)}
-      </UserBubble>
-    );
-  }
-
   if (step === "ads") {
     return (
       <UserBubble>
         {selectedIntegrationNames(draft.ads.integrations) ?? "No paid ads"}
-      </UserBubble>
-    );
-  }
-
-  if (step === "adsConnect") {
-    if (!draft.ads.integrations.length) {
-      return <UserBubble>No paid ads</UserBubble>;
-    }
-    return (
-      <UserBubble>
-        {selectedIntegrationNames(draft.ads.integrations)}
       </UserBubble>
     );
   }
@@ -1272,7 +1224,7 @@ function ModeControl({
       setField({
         workspaceMode,
         providerMode: "deployed",
-        provider: "vercel",
+        provider: "remote",
       });
       return;
     }
@@ -1281,7 +1233,9 @@ function ModeControl({
       workspaceMode,
       providerMode: "local",
       // Keep an already-made local choice; clear a cloud one. Never assume.
-      provider: draft.provider === "vercel" ? null : draft.provider,
+      provider: draft.provider === "remote" ? null : draft.provider,
+      deploymentProvider: null,
+      cloudDeploymentUrl: "",
     });
   };
 
@@ -1325,9 +1279,8 @@ function ModeControl({
             <span>
               <span className="block text-sm font-medium">Cloud workspace</span>
               <span className="text-muted-foreground mt-1 block text-xs leading-5">
-                Run agents from a dedicated cloud workspace, with isolated
-                storage for this company and room to work while your Mac is
-                offline.
+                Deploy the agent workspace to Vercel or Convex so it can
+                continue working while your Mac is offline.
               </span>
             </span>
           </div>
@@ -1397,7 +1350,8 @@ function BrandControl({
     {
       mode: "research",
       label: "Build it for me",
-      detail: "The Setup agent will study your website and public profiles.",
+      detail:
+        "Chief will study your website and public profiles in the initial review.",
     },
     {
       mode: "upload",
@@ -1506,8 +1460,7 @@ function BrandControl({
         </div>
       ) : null}
       <p className="text-muted-foreground mt-3 text-[10px] leading-4">
-        This runs after onboarding and appears in Run History. It will not hold
-        up setup.
+        Chief uses this during the initial business review after onboarding.
       </p>
     </StepFrame>
   );
@@ -1555,14 +1508,23 @@ function SocialsControl({
 function ProviderControl({
   draft,
   setField,
+  gatewayConfigured,
+  deploymentReady,
+  saveGatewayKey,
+  onChangeLocation,
   onContinue,
   saving,
 }: {
   draft: OnboardingDraft;
   setField: (patch: Partial<OnboardingDraft>) => void;
+  gatewayConfigured: boolean | null;
+  deploymentReady: boolean;
+  saveGatewayKey: (value: string) => void;
+  onChangeLocation: () => void;
   onContinue: () => void;
   saving: boolean;
 }) {
+  const [gatewayKey, setGatewayKey] = useState("");
   const optionClass = (selected: boolean) =>
     cn(
       "bg-background hover:border-foreground flex min-h-[112px] items-start gap-3 border p-4 text-left transition-colors",
@@ -1571,45 +1533,121 @@ function ProviderControl({
 
   if (draft.workspaceMode === "cloud") {
     return (
-      <StepFrame onContinue={onContinue} saving={saving}>
-        <div className="space-y-4">
+      <StepFrame
+        onContinue={onContinue}
+        saving={saving}
+        disabled={
+          !deploymentReady ||
+          !draft.deploymentProvider ||
+          (draft.deploymentProvider === "convex" && !gatewayConfigured)
+        }
+        continueLabel="Connect and deploy"
+        actionsLeft={
+          <Button type="button" variant="ghost" onClick={onChangeLocation}>
+            Change location
+          </Button>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
           <button
             type="button"
             onClick={() =>
-              setField({ providerMode: "deployed", provider: "vercel" })
+              setField({
+                providerMode: "deployed",
+                provider: "remote",
+                deploymentProvider: "vercel",
+              })
             }
-            className={cn(optionClass(draft.provider === "vercel"), "w-full")}
+            className={optionClass(draft.deploymentProvider === "vercel")}
           >
             <Vercel size={18} className="mt-0.5 shrink-0" />
             <span>
-              <span className="block text-sm font-medium">
-                Cloud deployment
-              </span>
+              <span className="block text-sm font-medium">Vercel</span>
               <span className="text-muted-foreground mt-1 block text-xs leading-5">
-                Connect the hosted agent service for this workspace. Each
-                company gets its own working area for data and connector
-                secrets.
+                Sign in with Vercel, create a dedicated project, and deploy Eve
+                with live build output.
               </span>
             </span>
           </button>
-
-          <label className="block space-y-1.5">
-            <span className="text-muted-foreground text-xs">
-              Agent endpoint
+          <button
+            type="button"
+            onClick={() =>
+              setField({
+                providerMode: "deployed",
+                provider: "remote",
+                deploymentProvider: "convex",
+              })
+            }
+            className={optionClass(draft.deploymentProvider === "convex")}
+          >
+            <ConvexLogo size={18} className="mt-0.5 shrink-0" />
+            <span>
+              <span className="block text-sm font-medium">Convex</span>
+              <span className="text-muted-foreground mt-1 block text-xs leading-5">
+                Deploy Chief sessions and durable event streams into a dedicated
+                Convex project.
+              </span>
             </span>
-            <Input
-              value={draft.cloudDeploymentUrl}
-              onChange={(event) =>
-                setField({ cloudDeploymentUrl: event.target.value })
-              }
-              placeholder="https://your-agent-service.vercel.app"
-            />
-          </label>
-          <p className="text-muted-foreground text-xs leading-5">
-            You can leave this blank while setup continues. The workspace will
-            remember that agents should run from the cloud.
-          </p>
+          </button>
         </div>
+        {!deploymentReady ? (
+          <p className="text-muted-foreground mt-3 text-xs">
+            Starting Chief's local deployment service...
+          </p>
+        ) : null}
+        {draft.deploymentProvider === "convex" ? (
+          <div className="bg-background mt-3 border p-4">
+            {gatewayConfigured === null ? (
+              <p className="text-muted-foreground text-xs">
+                Checking this workspace's Keychain vault...
+              </p>
+            ) : gatewayConfigured ? (
+              <p className="text-xs text-emerald-500">
+                AI Gateway key stored in this workspace's Keychain vault.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <p className="text-sm font-medium">AI Gateway key</p>
+                  <p className="text-muted-foreground mt-1 text-xs leading-5">
+                    Convex needs a Vercel AI Gateway API key to run Chief's
+                    model. The value is sent straight to the local runtime and
+                    stored in macOS Keychain, never in onboarding metadata.{" "}
+                    <a
+                      href={AI_GATEWAY_KEYS_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-foreground underline underline-offset-2"
+                    >
+                      Create a key in Vercel
+                    </a>
+                    .
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    type="password"
+                    value={gatewayKey}
+                    autoComplete="off"
+                    placeholder="AI Gateway API key"
+                    onChange={(event) => setGatewayKey(event.target.value)}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!gatewayKey}
+                    onClick={() => {
+                      saveGatewayKey(gatewayKey);
+                      setGatewayKey("");
+                    }}
+                  >
+                    Save key
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
       </StepFrame>
     );
   }
@@ -1619,6 +1657,11 @@ function ProviderControl({
       onContinue={onContinue}
       saving={saving}
       disabled={draft.provider !== "claude" && draft.provider !== "codex"}
+      actionsLeft={
+        <Button type="button" variant="ghost" onClick={onChangeLocation}>
+          Change location
+        </Button>
+      }
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <button
@@ -1695,18 +1738,32 @@ function HealthControl({
   draft,
   runtimeStatus,
   convexReady,
+  deployment,
+  deploymentProvider,
+  onRetryDeployment,
+  onCancelDeployment,
+  onChangeProvider,
+  onUseLocal,
   onContinue,
   saving,
 }: {
   draft: OnboardingDraft;
   runtimeStatus: "connecting" | "connected" | "disconnected";
   convexReady: boolean;
+  deployment?: AgentDeploymentRecord;
+  deploymentProvider: AgentDeploymentTarget | null;
+  onRetryDeployment: () => void;
+  onCancelDeployment: () => void;
+  onChangeProvider: () => void;
+  onUseLocal: () => void;
   onContinue: () => void;
   saving: boolean;
 }) {
   const providerLabel =
     draft.workspaceMode === "cloud"
-      ? "Cloud deployment"
+      ? deploymentProvider === "convex"
+        ? "Convex deployment"
+        : "Vercel deployment"
       : draft.provider === "codex"
         ? "Codex on this Mac"
         : draft.provider === "claude"
@@ -1714,14 +1771,116 @@ function HealthControl({
           : "No agent app chosen yet";
   const runtimeReady =
     draft.workspaceMode === "cloud"
-      ? Boolean(draft.cloudDeploymentUrl.trim())
+      ? deployment?.status === "ready"
       : runtimeStatus === "connected";
+
+  if (draft.workspaceMode === "cloud") {
+    const running = deployment?.status === "running";
+    return (
+      <StepFrame
+        onContinue={onContinue}
+        saving={saving}
+        disabled={!runtimeReady}
+        continueLabel={runtimeReady ? "Continue onboarding" : "Deploying..."}
+        actionsLeft={
+          <>
+            {running ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onCancelDeployment}
+              >
+                Cancel
+              </Button>
+            ) : deployment?.status !== "ready" ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onRetryDeployment}
+              >
+                Retry deployment
+              </Button>
+            ) : null}
+            {!running ? (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={onChangeProvider}
+                >
+                  Change provider
+                </Button>
+                <Button type="button" variant="ghost" onClick={onUseLocal}>
+                  Use this Mac
+                </Button>
+              </>
+            ) : null}
+          </>
+        }
+      >
+        <div className="bg-background border">
+          <div className="flex items-start gap-3 border-b px-4 py-3">
+            {deploymentProvider === "convex" ? (
+              <ConvexLogo size={18} className="mt-0.5 shrink-0" />
+            ) : (
+              <Vercel size={18} className="mt-0.5 shrink-0" />
+            )}
+            <span
+              className={cn(
+                "mt-1.5 size-2 shrink-0 rounded-full",
+                deployment?.status === "ready"
+                  ? "bg-emerald-500"
+                  : deployment?.status === "failed" ||
+                      deployment?.status === "needs_configuration"
+                    ? "bg-red-500"
+                    : deployment?.status === "canceled"
+                      ? "bg-muted-foreground/40"
+                      : "animate-pulse bg-blue-500",
+              )}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium">
+                {deployment?.phase
+                  ? deployment.phase.charAt(0).toUpperCase() +
+                    deployment.phase.slice(1)
+                  : deployment?.status === "ready"
+                    ? "Agent is live"
+                    : "Preparing deployment"}
+              </span>
+              <span className="text-muted-foreground mt-1 block text-xs leading-5">
+                {deployment?.detail ??
+                  `Connecting ${deploymentProvider ?? "cloud provider"}.`}
+              </span>
+              {deployment?.url ? (
+                <span className="text-muted-foreground mt-1 block truncate font-mono text-[10px]">
+                  {deployment.url}
+                </span>
+              ) : null}
+            </span>
+          </div>
+          <div className="h-64 overflow-y-auto bg-black/30 px-4 py-3 font-mono text-[10px] leading-5">
+            {deployment?.logs.length ? (
+              deployment.logs.map((line, index) => (
+                <p key={`${index}-${line}`} className="break-all">
+                  {line}
+                </p>
+              ))
+            ) : (
+              <p className="text-muted-foreground">
+                Waiting for deployment output...
+              </p>
+            )}
+          </div>
+        </div>
+      </StepFrame>
+    );
+  }
 
   return (
     <StepFrame
       onContinue={onContinue}
       saving={saving}
-      continueLabel="Start business setup"
+      continueLabel="Continue onboarding"
     >
       <div className="bg-background divide-y border px-4">
         <ReadinessRow
@@ -1735,34 +1894,26 @@ function HealthControl({
           ready={convexReady}
         />
         <ReadinessRow
-          icon={draft.workspaceMode === "cloud" ? Cloud : Laptop}
+          icon={Laptop}
           label={modeLabel(draft)}
           detail={
-            draft.workspaceMode === "cloud"
-              ? draft.cloudDeploymentUrl.trim()
-                ? draft.cloudDeploymentUrl.trim()
-                : "Cloud workspace selected. Add the agent endpoint when it is ready."
-              : runtimeStatus === "connected"
-                ? "The local agent service is reachable."
-                : "The local agent service is starting or reconnecting."
+            runtimeStatus === "connected"
+              ? "The local agent service is reachable."
+              : "The local agent service is starting or reconnecting."
           }
           ready={runtimeReady}
         />
         <ReadinessRow
-          icon={draft.workspaceMode === "cloud" ? Vercel : Server}
+          icon={Server}
           label="Agent app"
           detail={providerLabel}
-          ready={
-            draft.workspaceMode === "cloud" ||
-            draft.provider === "claude" ||
-            draft.provider === "codex"
-          }
+          ready={draft.provider === "claude" || draft.provider === "codex"}
         />
       </div>
       {!runtimeReady ? (
         <p className="text-muted-foreground mt-4 text-xs leading-5">
-          You can continue now. Chief will keep the workspace setup moving while
-          the agent connection finishes coming online.
+          You can finish onboarding while the agent connection comes online.
+          Chief will not start the review before onboarding is complete.
         </p>
       ) : null}
     </StepFrame>
@@ -1992,7 +2143,7 @@ function AutomationControl({
     {
       mode: "automatic",
       label: "Activate selected",
-      detail: "Start after onboarding.",
+      detail: "Activate at final completion.",
     },
     {
       mode: "review",
@@ -2464,324 +2615,6 @@ function IntegrationPickerControl({
   );
 }
 
-function DeferredIntegrationSetupControl({
-  category,
-  integrations,
-  onAddAnother,
-  onRemove,
-  onContinue,
-  saving,
-}: {
-  category: "analytics" | "ads";
-  integrations: IntegrationSearchResult[];
-  onAddAnother: () => void;
-  onRemove: (integration: IntegrationSearchResult) => void;
-  onContinue: () => void;
-  saving: boolean;
-}) {
-  return (
-    <StepFrame
-      onContinue={onContinue}
-      saving={saving}
-      continueLabel="Continue"
-      actionsLeft={
-        <Button type="button" variant="ghost" onClick={onAddAnother}>
-          Add another
-        </Button>
-      }
-    >
-      <div className="bg-background border">
-        <div className="border-b px-4 py-3">
-          <p className="text-xs font-medium">Ready to connect</p>
-          <p className="text-muted-foreground mt-1 text-[10px] leading-4">
-            Setup starts automatically after onboarding. You can follow its
-            progress in Run History.
-          </p>
-        </div>
-        <div className="divide-y">
-          {integrations.map((integration) => (
-            <div
-              key={integration.domain}
-              className="flex items-center gap-3 px-4 py-3"
-            >
-              <IntegrationLogo integration={integration} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-medium">
-                  {integration.name}
-                </span>
-                <span className="text-muted-foreground mt-0.5 block text-[10px]">
-                  {category === "analytics"
-                    ? "Analytics connection"
-                    : "Advertising connection"}
-                </span>
-              </span>
-              <button
-                type="button"
-                onClick={() => onRemove(integration)}
-                className="text-muted-foreground hover:text-foreground text-[10px] transition-colors"
-              >
-                Remove
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-    </StepFrame>
-  );
-}
-
-interface ConnectedChannel {
-  provider: string;
-  displayName: string;
-  category?: string;
-}
-
-function ConnectedIntegrationRow({ channel }: { channel: ConnectedChannel }) {
-  const providerIntegration = integrationFromProvider(channel.provider);
-
-  return (
-    <div className="flex items-center gap-3 py-2.5">
-      <IntegrationLogo integration={providerIntegration} />
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-medium">
-          {providerIntegration.name}
-        </span>
-        <span className="text-muted-foreground mt-0.5 block truncate text-xs">
-          {channel.displayName}
-        </span>
-      </span>
-      <span className="text-muted-foreground ml-auto inline-flex shrink-0 items-center gap-1.5 text-xs">
-        <CheckCircle2 size={15} className="text-emerald-500" />
-        Connected
-      </span>
-    </div>
-  );
-}
-
-function QueuedIntegrationRow({
-  integration,
-  onRemove,
-}: {
-  integration: IntegrationSearchResult;
-  onRemove: () => void;
-}) {
-  return (
-    <div className="bg-background flex items-center gap-3 border p-3 opacity-60">
-      <IntegrationLogo integration={integration} />
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-medium">
-          {integration.name}
-        </span>
-        <span className="text-muted-foreground mt-0.5 block text-xs">
-          Up next
-        </span>
-      </span>
-      <button
-        type="button"
-        onClick={onRemove}
-        className="text-muted-foreground hover:text-foreground ml-auto shrink-0 text-xs transition-colors"
-      >
-        Remove
-      </button>
-    </div>
-  );
-}
-
-export function IntegrationConnectQueueControl({
-  category,
-  integrations,
-  workspaceMode,
-  provider,
-  channels,
-  onAddAnother,
-  configStatus,
-  connecting,
-  notice,
-  onConnect,
-  onRemove,
-  connectedForIntegration,
-  onSetupResult,
-  onContinue,
-  saving,
-}: {
-  category: "analytics" | "ads";
-  integrations: IntegrationSearchResult[];
-  workspaceMode: OnboardingDraft["workspaceMode"];
-  provider: DriverType | null;
-  channels: ConnectedChannel[] | undefined;
-  onAddAnother: () => void;
-  onRemove: (integration: IntegrationSearchResult) => void;
-  connectedForIntegration: (integration: IntegrationSearchResult) => boolean;
-  configStatus:
-    | {
-        configured: boolean;
-        source: "environment" | "none";
-        hasClientId: boolean;
-        hasClientSecret: boolean;
-        redirectUri?: string | null;
-        missing: string[];
-      }
-    | undefined;
-  connecting: boolean;
-  notice: string | null;
-  onConnect: () => void;
-  onSetupResult: (result: SetupResult) => void;
-  onContinue: () => void;
-  saving: boolean;
-}) {
-  const localAgentSetup = workspaceMode === "local" && provider !== null;
-  const firstOpenIntegration =
-    integrations.find((integration) => !connectedForIntegration(integration)) ??
-    null;
-  const connectedRows = integrations.flatMap((integration) =>
-    (channels ?? [])
-      .filter((channel) =>
-        integrationProviderMatches(integration, channel.provider),
-      )
-      .map((channel) => ({ integration, channel })),
-  );
-  const queuedIntegrations = firstOpenIntegration
-    ? integrations.filter(
-        (integration) =>
-          integration.domain !== firstOpenIntegration.domain &&
-          !connectedForIntegration(integration),
-      )
-    : [];
-  const allConnected = integrations.every((integration) =>
-    connectedForIntegration(integration),
-  );
-  const activeIsGoogleAnalytics =
-    category === "analytics" &&
-    isGoogleAnalyticsIntegration(firstOpenIntegration);
-  const cloudGoogleAnalyticsSetup =
-    workspaceMode !== "local" && activeIsGoogleAnalytics;
-  const oauthStatusText = allConnected
-    ? "Google Analytics is connected."
-    : configStatus?.configured
-      ? `OAuth is ready from ${configStatus.source}.`
-      : configStatus === undefined
-        ? "Checking Google OAuth setup..."
-        : "Google Analytics is saved as your analytics source. The cloud workspace needs Google OAuth enabled before you can connect it.";
-  const canConnectGoogleAnalytics = Boolean(configStatus?.configured);
-  const mustFinishConnections = localAgentSetup;
-
-  return (
-    <StepFrame
-      onContinue={onContinue}
-      saving={saving}
-      disabled={
-        mustFinishConnections && integrations.length > 0 && !allConnected
-      }
-      continueLabel={
-        !firstOpenIntegration || localAgentSetup || !cloudGoogleAnalyticsSetup
-          ? "Continue"
-          : canConnectGoogleAnalytics
-            ? "Continue without connecting"
-            : "Save source and continue"
-      }
-    >
-      <div className="space-y-3">
-        {connectedRows.length ? (
-          <div className="bg-background divide-y border px-4">
-            {connectedRows.map(({ integration, channel }) => (
-              <ConnectedIntegrationRow
-                key={`${integration.domain}:${channel.provider}:${channel.displayName}`}
-                channel={channel}
-              />
-            ))}
-          </div>
-        ) : null}
-
-        {firstOpenIntegration ? (
-          <div className="space-y-3">
-            <div className="bg-background flex items-start gap-3 border p-4">
-              <IntegrationLogo integration={firstOpenIntegration} />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">
-                  {firstOpenIntegration.name}
-                </p>
-                <p className="text-muted-foreground mt-1 text-xs leading-5">
-                  {firstOpenIntegration.description}
-                </p>
-                {firstOpenIntegration.url ? (
-                  <a
-                    className="text-muted-foreground hover:text-foreground mt-2 inline-block text-xs"
-                    href={firstOpenIntegration.url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    View integration facts
-                  </a>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                onClick={() => onRemove(firstOpenIntegration)}
-                className="text-muted-foreground hover:text-foreground shrink-0 text-xs transition-colors"
-              >
-                Remove
-              </button>
-            </div>
-
-            {localAgentSetup && provider ? (
-              <IntegrationConnect
-                integration={firstOpenIntegration}
-                connected={false}
-                onResult={onSetupResult}
-              />
-            ) : cloudGoogleAnalyticsSetup ? (
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-                <p className="text-muted-foreground text-xs leading-5">
-                  {oauthStatusText}
-                </p>
-                {canConnectGoogleAnalytics ? (
-                  <Button
-                    type="button"
-                    onClick={onConnect}
-                    disabled={connecting}
-                  >
-                    {connecting ? "Opening..." : "Connect"}
-                  </Button>
-                ) : null}
-              </div>
-            ) : (
-              <p className="text-muted-foreground border-t pt-4 text-xs leading-5">
-                Saved as this workspace&apos;s {category} source.
-              </p>
-            )}
-          </div>
-        ) : null}
-
-        {queuedIntegrations.map((integration) => (
-          <QueuedIntegrationRow
-            key={integration.domain}
-            integration={integration}
-            onRemove={() => onRemove(integration)}
-          />
-        ))}
-
-        {integrations.length > 0 && allConnected ? (
-          <div>
-            <Button type="button" variant="ghost" onClick={onAddAnother}>
-              Add another source
-            </Button>
-          </div>
-        ) : null}
-
-        {!integrations.length ? (
-          <p className="text-muted-foreground text-xs leading-5">
-            No sources are queued.
-          </p>
-        ) : null}
-      </div>
-
-      {notice ? (
-        <p className="text-muted-foreground mt-4 text-xs">{notice}</p>
-      ) : null}
-    </StepFrame>
-  );
-}
-
 function AdsBudgetControl({
   budget,
   setBudget,
@@ -2826,13 +2659,11 @@ function AdsBudgetControl({
 function AeoControl({
   selected,
   setSelected,
-  analyticsConnected,
   onContinue,
   saving,
 }: {
   selected: boolean;
   setSelected: (trackAiReferrals: boolean) => void;
-  analyticsConnected: boolean;
   onContinue: () => void;
   saving: boolean;
 }) {
@@ -2851,10 +2682,10 @@ function AeoControl({
           Not now
         </Chip>
       </div>
-      {analyticsConnected ? (
+      {selected ? (
         <p className="text-muted-foreground mt-4 text-xs leading-5">
-          Uses your existing analytics connection, so there is nothing else to
-          set up.
+          Chief will report attributable AI referrals from the analytics source
+          you connect, while keeping unknown direct traffic separate.
         </p>
       ) : null}
     </StepFrame>
@@ -2930,7 +2761,8 @@ function CompletionControl({
         <div className="success-copy flex flex-col items-center">
           <h2 className="font-serif text-4xl leading-none">You're in.</h2>
           <p className="text-muted-foreground mt-4 text-sm leading-6">
-            Your workspace is ready. Your agents have what they need to begin.
+            Your workspace is ready. Chief will begin learning your business and
+            show the work on Overview.
           </p>
           <Button
             type="button"
@@ -2938,7 +2770,7 @@ function CompletionControl({
             onClick={onContinue}
             disabled={saving}
           >
-            {saving ? "Saving..." : "Go to dashboard"}
+            {saving ? "Starting..." : "Start initial review"}
           </Button>
         </div>
       </div>
@@ -2951,24 +2783,11 @@ export function OnboardingPage() {
   const { cloudOrganizationId, user, signOut } = useAuth();
   const { status: runtimeStatus } = useRuntime();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
+  const agentPreferences = useAgentPreferences(cloudOrganizationId);
+  const deploymentState = useAgentDeployments(cloudOrganizationId);
   const { isAuthenticated: convexReady } = useConvexAuth();
   const upsertSocial = useMutation(api.socialAccounts.upsert);
   const removeSocial = useMutation(api.socialAccounts.remove);
-  const saveAnalyticsProperty = useMutation(api.googleAnalytics.saveProperty);
-  const saveAnalyticsSnapshot = useMutation(api.analyticsSnapshots.upsert);
-  const markIntegrationConnected = useMutation(api.integrations.markConnected);
-  const analyticsConnection = useQuery(
-    api.googleAnalytics.connectionStatus,
-    convexReady && cloudOrganizationId ? {} : "skip",
-  );
-  const connectedChannels = useQuery(
-    api.integrations.listConnected,
-    convexReady && cloudOrganizationId ? {} : "skip",
-  );
-  const analyticsConfigStatus = useQuery(
-    api.googleAnalytics.oauthConfigStatus,
-    convexReady && cloudOrganizationId ? {} : "skip",
-  );
   const socialAccounts = useQuery(
     api.socialAccounts.list,
     convexReady && cloudOrganizationId ? {} : "skip",
@@ -2984,17 +2803,13 @@ export function OnboardingPage() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [connectingAnalytics, setConnectingAnalytics] = useState(false);
-  // Chief's latest verified setup result: bridges the gap until the
-  // listConnected query refreshes (provider, category, display name).
-  const [setupConnectedProvider, setSetupConnectedProvider] = useState<
-    string | null
-  >(null);
-  const [setupConnectedCategory, setSetupConnectedCategory] = useState<
-    "analytics" | "ads" | null
-  >(null);
-  const [setupPreview, setSetupPreview] = useState<SetupResult | null>(null);
   const currentQuestionRef = useRef<HTMLDivElement | null>(null);
+  const completionStartedRef = useRef(false);
+  const gatewayInputs = useStoredInputs(
+    draft?.workspaceMode === "cloud" && draft.deploymentProvider === "convex"
+      ? [AI_GATEWAY_API_KEY]
+      : null,
+  );
   // Deep link: /onboarding?step=analytics reopens setup at that step (the
   // dashboard's finish-setting-up card uses this to resume skipped items).
   const [searchParams, setSearchParams] = useSearchParams();
@@ -3024,7 +2839,7 @@ export function OnboardingPage() {
     return () => {
       cancelled = true;
     };
-  }, [cloudOrganizationId, user?.name]);
+  }, [cloudOrganizationId, searchParams, setSearchParams, user?.name]);
 
   useEffect(() => {
     if (!draft) return;
@@ -3046,17 +2861,16 @@ export function OnboardingPage() {
     });
   }, [socialAccounts]);
 
-  const step = draft?.step ?? "context";
+  const step = draft?.step ?? "mode";
   const currentIndex = steps.indexOf(step);
-  const connectedAnalytics =
-    analyticsConnection?.channel?.status === "connected";
   const billingActive = hasWorkspaceAccess(subscription);
   const billingResolved = subscription !== undefined;
+  const billingStep = draft?.step;
 
   useEffect(() => {
-    if (!draft || !billingResolved) return;
+    if (!billingStep || !billingResolved) return;
 
-    if (billingActive && draft.step === "pricing") {
+    if (billingActive && billingStep === "pricing") {
       setNotice(null);
       setError(null);
       setDraft((current) =>
@@ -3065,13 +2879,13 @@ export function OnboardingPage() {
       return;
     }
 
-    if (!billingActive && draft.step === "finish") {
+    if (!billingActive && billingStep === "finish") {
       setNotice(null);
       setDraft((current) =>
         current?.step === "finish" ? { ...current, step: "pricing" } : current,
       );
     }
-  }, [billingActive, billingResolved, draft?.step]);
+  }, [billingActive, billingResolved, billingStep]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -3199,10 +3013,35 @@ export function OnboardingPage() {
     setError(null);
     setDraft((current) => {
       if (!current) return current;
-      const next = steps[steps.indexOf(current.step) + 1] ?? "finish";
+      const next = nextOnboardingStep(current.step);
       return { ...current, step: next };
     });
   }, []);
+
+  const prepareWorkspace = useCallback(async () => {
+    if (!draft || org) return false;
+    const created = await createAuthOrganization({
+      name: "New workspace",
+      slug: slugify("chief-workspace"),
+    });
+    const metadata = parseOrganizationMetadata(created);
+    const onboarding =
+      metadata.onboarding && typeof metadata.onboarding === "object"
+        ? (metadata.onboarding as Record<string, unknown>)
+        : {};
+    await updateAuthOrganization(created.id, {
+      metadata: {
+        ...metadata,
+        onboarding: { ...onboarding, provisional: true },
+      },
+    });
+    await setActiveAuthOrganization(created.id);
+    const nextDraft = { ...draft, step: "inference" as const };
+    localStorage.setItem(storageKey(created.id), JSON.stringify(nextDraft));
+    localStorage.removeItem(pendingStorageKey());
+    window.location.assign("/onboarding");
+    return true;
+  }, [draft, org]);
 
   const persistContext = useCallback(async () => {
     if (!draft) return false;
@@ -3216,7 +3055,7 @@ export function OnboardingPage() {
         ...(logo ? { logo } : {}),
       });
       const metadata = parseOrganizationMetadata(created);
-      const nextDraft = { ...draft, step: "socials" as StepKey };
+      const nextDraft = { ...draft, step: "inference" as StepKey };
       await updateAuthOrganization(created.id, {
         metadata: { ...metadata, websiteUrl: draft.websiteUrl.trim() },
       });
@@ -3227,16 +3066,29 @@ export function OnboardingPage() {
       return true;
     }
     const metadata = parseOrganizationMetadata(org);
+    const onboarding =
+      metadata.onboarding && typeof metadata.onboarding === "object"
+        ? { ...(metadata.onboarding as Record<string, unknown>) }
+        : {};
+    delete onboarding.provisional;
     await updateAuthOrganization(org.id, {
       name: draft.companyName.trim() || org.name,
       ...(!org.logo && logo ? { logo } : {}),
-      metadata: { ...metadata, websiteUrl: draft.websiteUrl.trim() },
+      metadata: {
+        ...metadata,
+        websiteUrl: draft.websiteUrl.trim(),
+        onboarding,
+      },
     });
     setOrg({
       ...org,
       name: draft.companyName.trim() || org.name,
       logo: org.logo ?? logo,
-      metadata: { ...metadata, websiteUrl: draft.websiteUrl.trim() },
+      metadata: {
+        ...metadata,
+        websiteUrl: draft.websiteUrl.trim(),
+        onboarding,
+      },
     });
     return false;
   }, [draft, org]);
@@ -3255,104 +3107,162 @@ export function OnboardingPage() {
 
   const persistProvider = useCallback(() => {
     if (!draft) return;
-    if (draft.provider === "claude" || draft.provider === "codex") {
-      if (org) setWorkspaceProvider(org.id, draft.provider);
+    if (!draft.provider || !org) return;
+    setWorkspaceProvider(org.id, draft.provider);
+    updatePendingOnboardingDriver(org.id, draft.provider);
+    const existing = agentPreferences.preferences.find(
+      (preference) => preference.agentId === "cmo",
+    );
+    agentPreferences.save({
+      ...existing,
+      agentId: "cmo",
+      enabled: true,
+      driver: draft.provider,
+      model: existing?.driver === draft.provider ? existing.model : undefined,
+    });
+  }, [agentPreferences, draft, org]);
+
+  const startCloudDeployment = useCallback(() => {
+    if (!org || !draft?.deploymentProvider) {
+      setError("This workspace must exist before Chief can deploy it.");
+      return false;
     }
-  }, [draft, org]);
-
-  const prepareOnboardingWork = useCallback(
-    async (currentDraft: OnboardingDraft) => {
-      if (!org) throw new Error("The workspace is not ready yet.");
-      const jobs = buildOnboardingWorkJobs({
-        workspaceId: org.id,
-        companyName: currentDraft.companyName,
-        websiteUrl: currentDraft.websiteUrl,
-        timezone: currentDraft.automation.timezone,
-        brand: currentDraft.brand,
-        analytics: currentDraft.analytics,
-        ads: currentDraft.ads,
-      });
-      const schedules = buildOnboardingSchedules(
-        currentDraft.automation,
-        org.id,
-      );
-
-      const workspaceContext = workspaceContextFromOrganization(org);
-      const accepted = await workspaceData.bootstrapOnboardingWork(
-        jobs,
-        schedules,
-        workspaceContext,
-        currentDraft.provider === "claude" || currentDraft.provider === "codex"
-          ? currentDraft.provider
-          : undefined,
-      );
-      if (!accepted) {
-        throw new Error(
-          "Chief is still connecting. Wait a moment, then continue again.",
-        );
-      }
-    },
-    [org, workspaceData],
-  );
+    if (!deploymentState.ready) {
+      setError("Chief is still connecting to the local deployment service.");
+      return false;
+    }
+    return deploymentState.start({
+      target: draft.deploymentProvider,
+      projectName:
+        `chief-${org.id.replace(/[^a-z0-9]/gi, "").slice(-8)}`.toLowerCase(),
+      playbooks: PLAYBOOKS.map((playbook) => ({
+        id: playbook.id,
+        title: playbook.title,
+        summary: playbook.summary,
+        instructions: playbookInstructions(playbook),
+      })),
+      activate: true,
+    });
+  }, [deploymentState, draft, org]);
 
   const completeOnboarding = useCallback(async () => {
-    if (!org || !draft) return;
+    if (!org || !draft || completionStartedRef.current) return;
     if (!billingActive) {
       setDraft((current) =>
         current ? { ...current, step: "pricing" } : current,
       );
-      setError("Complete checkout before continuing to the dashboard.");
+      setError("Complete checkout before starting the initial review.");
       return;
     }
+    if (!workspaceData.onboardingBootstrapReady) {
+      setError(
+        workspaceData.onboardingBootstrapError ??
+          "Chief is still connecting to this workspace.",
+      );
+      return;
+    }
+    if (
+      draft.workspaceMode === "cloud" &&
+      !deploymentState.deployments.some(
+        (deployment) =>
+          deployment.workspaceId === org.id &&
+          deployment.target === draft.deploymentProvider &&
+          deployment.status === "ready",
+      )
+    ) {
+      setError("Finish the selected cloud deployment before continuing.");
+      return;
+    }
+    completionStartedRef.current = true;
     setSaving(true);
     setError(null);
+    sessionStorage.setItem(
+      `chief:initial-review:${org.id}`,
+      String(Date.now()),
+    );
     try {
       await persistContext();
       await persistSocials();
       persistProvider();
       const metadata = parseOrganizationMetadata(org);
+      const persistedOnboarding =
+        metadata.onboarding && typeof metadata.onboarding === "object"
+          ? { ...(metadata.onboarding as Record<string, unknown>) }
+          : {};
+      delete persistedOnboarding.provisional;
+      const kickoffMetadata = {
+        ...metadata,
+        websiteUrl: draft.websiteUrl.trim(),
+        onboarding: {
+          ...persistedOnboarding,
+          provider: draft.provider,
+          deploymentProvider: draft.deploymentProvider,
+          providerMode: draft.providerMode,
+          workspaceMode: draft.workspaceMode,
+          cloudDeploymentUrl:
+            deploymentState.deployments.find(
+              (deployment) =>
+                deployment.workspaceId === org.id &&
+                deployment.target === draft.deploymentProvider &&
+                deployment.status === "ready",
+            )?.url ?? draft.cloudDeploymentUrl.trim(),
+          billingPlan: draft.billingPlan,
+          brand: {
+            mode: draft.brand.mode,
+            notes: draft.brand.notes,
+            files: draft.brand.files.map(({ name, type }) => ({ name, type })),
+          },
+          goals: draft.goals,
+          monitoring: draft.monitoring,
+          analytics: draft.analytics,
+          ads: draft.ads,
+          aeo: draft.aeo,
+          automation: draft.automation,
+        },
+      };
+      const jobs = buildOnboardingWorkJobs({
+        workspaceId: org.id,
+        companyName: draft.companyName,
+        websiteUrl: draft.websiteUrl,
+        timezone: draft.automation.timezone,
+        brand: draft.brand,
+        analytics: draft.analytics,
+        ads: draft.ads,
+        aeo: draft.aeo,
+      });
+      const schedules = buildOnboardingSchedules(draft.automation, org.id);
+      const chatId = await workspaceData.bootstrapOnboardingWork(
+        jobs,
+        schedules,
+        workspaceContextFromOrganization({
+          ...org,
+          name: draft.companyName.trim() || org.name,
+          metadata: kickoffMetadata,
+        }),
+        draft.provider ?? undefined,
+      );
+      if (!chatId) {
+        throw new Error("Chief did not return an initial review conversation.");
+      }
+      const completedMetadata = {
+        ...kickoffMetadata,
+        onboarding: {
+          ...kickoffMetadata.onboarding,
+          completedAt: new Date().toISOString(),
+        },
+      };
       await updateAuthOrganization(org.id, {
         name: draft.companyName.trim() || org.name,
-        metadata: {
-          ...metadata,
-          websiteUrl: draft.websiteUrl.trim(),
-          onboarding: {
-            ...(metadata.onboarding && typeof metadata.onboarding === "object"
-              ? metadata.onboarding
-              : {}),
-            provider: draft.provider,
-            providerMode: draft.providerMode,
-            workspaceMode: draft.workspaceMode,
-            cloudDeploymentUrl: draft.cloudDeploymentUrl.trim(),
-            billingPlan: draft.billingPlan,
-            brand: {
-              mode: draft.brand.mode,
-              notes: draft.brand.notes,
-              files: draft.brand.files.map(({ name, type }) => ({
-                name,
-                type,
-              })),
-            },
-            goals: draft.goals,
-            monitoring: draft.monitoring,
-            analytics: draft.analytics,
-            ads: draft.ads,
-            aeo: draft.aeo,
-            automation: draft.automation,
-            completedAt: new Date().toISOString(),
-          },
-        },
+        metadata: completedMetadata,
       });
-      await prepareOnboardingWork(draft);
       localStorage.removeItem(storageKey(org.id));
-      // Keep the mounted Tauri webview alive. A full document navigation at
-      // this boundary can leave the custom protocol on an empty document,
-      // which presented as a completely black window after onboarding.
       window.dispatchEvent(new Event("chief:onboarding-complete"));
       navigate("/", { replace: true });
     } catch (err) {
+      sessionStorage.removeItem(`chief:initial-review:${org.id}`);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      completionStartedRef.current = false;
       setSaving(false);
     }
   }, [
@@ -3362,8 +3272,9 @@ export function OnboardingPage() {
     persistContext,
     persistProvider,
     persistSocials,
-    prepareOnboardingWork,
     navigate,
+    workspaceData,
+    deploymentState.deployments,
   ]);
 
   const advance = useCallback(async () => {
@@ -3372,26 +3283,29 @@ export function OnboardingPage() {
     setError(null);
     setNotice(null);
     try {
+      if (step === "mode") {
+        if (await prepareWorkspace()) return;
+        goNext();
+        return;
+      }
       if (step === "context" && (await persistContext())) return;
       if (step === "socials") await persistSocials();
-      if (step === "inference") persistProvider();
-      if (step === "automation") await prepareOnboardingWork(draft);
+      if (step === "inference") {
+        if (draft.workspaceMode === "cloud") {
+          if (!startCloudDeployment()) return;
+        } else {
+          persistProvider();
+        }
+      }
       if (step === "finish") {
         await completeOnboarding();
         return;
       }
-      if (step === "adsConnect") {
-        // Connecters already run campaigns; anyone who emptied the queue
-        // gets the budget question they'd otherwise have skipped.
+      if (step === "ads" && draft.ads.integrations.length > 0) {
         setNotice(null);
         setError(null);
         setDraft((current) =>
-          current
-            ? {
-                ...current,
-                step: current.ads.integrations.length > 0 ? "aeo" : "adsBudget",
-              }
-            : current,
+          current ? { ...current, step: "aeo" } : current,
         );
         return;
       }
@@ -3406,56 +3320,13 @@ export function OnboardingPage() {
     draft,
     goNext,
     persistContext,
+    prepareWorkspace,
     persistProvider,
     persistSocials,
-    prepareOnboardingWork,
     saving,
+    startCloudDeployment,
     step,
   ]);
-
-  const handleSetupResult = useCallback(
-    (result: SetupResult, category: "analytics" | "ads") => {
-      void persistSetupResult(
-        result,
-        {
-          saveProperty: saveAnalyticsProperty,
-          markConnected: markIntegrationConnected,
-          saveSnapshot: saveAnalyticsSnapshot,
-        },
-        category,
-      )
-        .then(() => {
-          setSetupConnectedProvider(String(result.provider));
-          setSetupConnectedCategory(category);
-          setSetupPreview(result);
-        })
-        .catch((err) => {
-          setError(err instanceof Error ? err.message : String(err));
-        });
-    },
-    [markIntegrationConnected, saveAnalyticsProperty, saveAnalyticsSnapshot],
-  );
-
-  const startAnalyticsConnect = useCallback(async () => {
-    setConnectingAnalytics(true);
-    setNotice(null);
-    setError(null);
-    const result = await connectGoogleAnalytics();
-    setConnectingAnalytics(false);
-    if (result.status === "configurationRequired") {
-      setNotice(
-        "Google Analytics is saved for this workspace. OAuth is not enabled for this build yet, so you can continue and connect it later.",
-      );
-      return;
-    }
-    if (result.status === "error") {
-      setError(result.message);
-      return;
-    }
-    setNotice(
-      "Google consent opened in your browser. Return here after approval.",
-    );
-  }, []);
 
   const startCheckout = useCallback(async () => {
     setSaving(true);
@@ -3474,67 +3345,25 @@ export function OnboardingPage() {
     }
   }, [draft]);
 
+  const changeDeploymentProvider = useCallback(() => {
+    setError(null);
+    setNotice(null);
+    setDraft((current) =>
+      current ? { ...current, step: "inference" } : current,
+    );
+  }, []);
+
+  const useLocalWorkspace = useCallback(() => {
+    setError(null);
+    setNotice(null);
+    if (org) clearWorkspaceProvider(org.id);
+    setDraft((current) =>
+      current ? { ...current, ...LOCAL_ONBOARDING_FALLBACK } : current,
+    );
+  }, [org]);
+
   const currentControl = useMemo(() => {
     if (!draft) return null;
-    const connectedForIntegration = (
-      integration: IntegrationSearchResult,
-      includeGoogleAnalyticsConnection = false,
-      category?: "analytics" | "ads",
-    ) => {
-      return Boolean(
-        (connectedChannels ?? []).some(
-          (channel) =>
-            (!category || channel.category === category) &&
-            integrationProviderMatches(integration, channel.provider),
-        ) ||
-        (setupConnectedProvider &&
-          (!category || setupConnectedCategory === category) &&
-          integrationProviderMatches(integration, setupConnectedProvider)) ||
-        (includeGoogleAnalyticsConnection &&
-          isGoogleAnalyticsIntegration(integration) &&
-          connectedAnalytics),
-      );
-    };
-    const channelsInCategory = (category: "analytics" | "ads") => {
-      const channels: ConnectedChannel[] = (connectedChannels ?? [])
-        .filter((channel) => channel.category === category)
-        .map((channel) => ({
-          provider: channel.provider,
-          displayName: channel.displayName,
-          category: channel.category,
-        }));
-
-      if (
-        category === "analytics" &&
-        connectedAnalytics &&
-        !channels.some((channel) => channel.provider === "google-analytics")
-      ) {
-        channels.push({
-          provider: "google-analytics",
-          displayName:
-            analyticsConnection?.channel?.displayName ?? "Google Analytics",
-          category,
-        });
-      }
-
-      if (
-        setupConnectedProvider &&
-        setupConnectedCategory === category &&
-        !channels.some((channel) => channel.provider === setupConnectedProvider)
-      ) {
-        channels.push({
-          provider: setupConnectedProvider,
-          displayName:
-            setupPreview?.displayName ??
-            providerIdentity(setupConnectedProvider).label,
-          category,
-        });
-      }
-
-      return channels;
-    };
-    void channelsInCategory;
-
     if (step === "mode") {
       return (
         <ModeControl
@@ -3550,17 +3379,49 @@ export function OnboardingPage() {
         <ProviderControl
           draft={draft}
           setField={setField}
+          gatewayConfigured={
+            draft.deploymentProvider === "convex"
+              ? gatewayInputs.present?.has(AI_GATEWAY_API_KEY) === true
+                ? true
+                : gatewayInputs.present === null
+                  ? null
+                  : false
+              : true
+          }
+          deploymentReady={deploymentState.ready}
+          saveGatewayKey={(value) =>
+            gatewayInputs.store(AI_GATEWAY_INPUT_REQUEST, { apiKey: value })
+          }
+          onChangeLocation={() =>
+            setDraft((current) =>
+              current ? { ...current, step: "mode" } : current,
+            )
+          }
           onContinue={advance}
           saving={saving}
         />
       );
     }
     if (step === "health") {
+      const deployment = deploymentState.deployments.find(
+        (candidate) =>
+          candidate.workspaceId === org?.id &&
+          candidate.target === draft.deploymentProvider &&
+          candidate.status !== "canceled",
+      );
       return (
         <HealthControl
           draft={draft}
           runtimeStatus={runtimeStatus}
           convexReady={convexReady}
+          deployment={deployment}
+          deploymentProvider={draft.deploymentProvider}
+          onRetryDeployment={startCloudDeployment}
+          onCancelDeployment={() => {
+            if (deployment) deploymentState.cancel(deployment.id);
+          }}
+          onChangeProvider={changeDeploymentProvider}
+          onUseLocal={useLocalWorkspace}
           onContinue={advance}
           saving={saving}
         />
@@ -3664,28 +3525,6 @@ export function OnboardingPage() {
         />
       );
     }
-    if (step === "analyticsConnect") {
-      return (
-        <DeferredIntegrationSetupControl
-          category="analytics"
-          integrations={draft.analytics.integrations}
-          onAddAnother={() =>
-            setDraft((current) =>
-              current ? { ...current, step: "analytics" } : current,
-            )
-          }
-          onRemove={(integration) =>
-            setAnalyticsIntegrations(
-              draft.analytics.integrations.filter(
-                (item) => item.domain !== integration.domain,
-              ),
-            )
-          }
-          onContinue={advance}
-          saving={saving}
-        />
-      );
-    }
     if (step === "ads") {
       return (
         <IntegrationPickerControl
@@ -3698,28 +3537,6 @@ export function OnboardingPage() {
           skipLabel="Skip for now"
           onEmptySelection={() => clearAdsSelection("adsBudget")}
           onSkip={() => clearAdsSelection("aeo")}
-          onContinue={advance}
-          saving={saving}
-        />
-      );
-    }
-    if (step === "adsConnect") {
-      return (
-        <DeferredIntegrationSetupControl
-          category="ads"
-          integrations={draft.ads.integrations}
-          onAddAnother={() =>
-            setDraft((current) =>
-              current ? { ...current, step: "ads" } : current,
-            )
-          }
-          onRemove={(integration) =>
-            setAdsIntegrations(
-              draft.ads.integrations.filter(
-                (item) => item.domain !== integration.domain,
-              ),
-            )
-          }
           onContinue={advance}
           saving={saving}
         />
@@ -3740,9 +3557,6 @@ export function OnboardingPage() {
         <AeoControl
           selected={draft.aeo.trackAiReferrals}
           setSelected={(trackAiReferrals) => setAeo({ trackAiReferrals })}
-          analyticsConnected={draft.analytics.integrations.some((integration) =>
-            connectedForIntegration(integration, true, "analytics"),
-          )}
           onContinue={advance}
           saving={saving}
         />
@@ -3776,18 +3590,13 @@ export function OnboardingPage() {
     );
   }, [
     advance,
-    analyticsConnection?.channel?.displayName,
-    analyticsConfigStatus,
     completeOnboarding,
-    connectedAnalytics,
-    connectedChannels,
-    connectingAnalytics,
+    changeDeploymentProvider,
+    deploymentState,
+    gatewayInputs,
     convexReady,
     draft,
-    handleSetupResult,
-    notice,
-    setupConnectedCategory,
-    setupConnectedProvider,
+    org,
     runtimeStatus,
     saving,
     setField,
@@ -3803,9 +3612,10 @@ export function OnboardingPage() {
     setMonitoring,
     setSocial,
     socialAccounts,
-    startAnalyticsConnect,
     startCheckout,
+    startCloudDeployment,
     step,
+    useLocalWorkspace,
   ]);
 
   if (loading) {
@@ -3827,26 +3637,24 @@ export function OnboardingPage() {
           {steps
             .slice(0, currentIndex)
             .filter(
-              // Steps the user never saw don't replay in the transcript.
               (pastStep) =>
                 !(
-                  (pastStep === "analyticsConnect" &&
-                    draft.analytics.integrations.length === 0) ||
-                  (pastStep === "adsConnect" &&
-                    draft.ads.integrations.length === 0) ||
-                  (pastStep === "adsBudget" &&
-                    draft.ads.integrations.length > 0)
+                  pastStep === "adsBudget" && draft.ads.integrations.length > 0
                 ),
             )
             .map((pastStep) => (
               <div key={pastStep} className="space-y-3">
-                <AgentBubble text={questions[pastStep]} />
+                <AgentBubble text={questionText(pastStep, draft)} />
                 <AnswerPreview step={pastStep} draft={draft} />
               </div>
             ))}
           <div ref={currentQuestionRef} className="space-y-4">
             {step === "finish" ? null : (
-              <AgentBubble key={step} text={questions[step]} current />
+              <AgentBubble
+                key={step}
+                text={questionText(step, draft)}
+                current
+              />
             )}
             <div className="w-full max-w-[720px]">{currentControl}</div>
             <div className="min-h-5">

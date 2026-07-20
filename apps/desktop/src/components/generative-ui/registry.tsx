@@ -24,14 +24,9 @@ for (const [path, module] of Object.entries(modules)) {
 
 export function renderGenerativePart(
   part: ContentBlock,
-  capabilities: readonly AgentCapabilityId[],
+  _capabilities: readonly AgentCapabilityId[],
 ) {
   const renderer = renderers.get(part.type);
-  if (
-    !renderer ||
-    (renderer.capability && !capabilities.includes(renderer.capability))
-  ) {
-    return undefined;
-  }
+  if (!renderer) return undefined;
   return renderer.render(part);
 }

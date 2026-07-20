@@ -10,11 +10,9 @@ import { integrationSetupTask } from "../../lib/integration-setup";
 import { IntegrationSetupPanel } from "../chat/integration-setup-panel";
 
 /**
- * The one way any integration gets connected, wherever it appears
- * (onboarding, analytics, future surfaces). A Connect button hands the work
- * to Chief, who consults the setup specialist and streams progress inline. If
- * user input becomes unavoidable, Chief emits one structured request after
- * finished every machine-only preparation step.
+ * The one way any integration gets connected, wherever it appears. Connect
+ * starts one visible Setup agent directly with full authority for that run;
+ * it never routes through the CMO or an Overview action.
  */
 export function IntegrationConnect({
   integration,
@@ -24,11 +22,18 @@ export function IntegrationConnect({
 }: {
   integration: SetupIntegration;
   connected: boolean;
-  /** Shown once connected; defaults to the integration name. */
   connectedLabel?: string;
   onResult: (result: SetupResult) => void;
 }) {
-  const [started, setStarted] = useState(false);
+  const storageKey = `chief:integration-setup:${integration.domain}`;
+  const [started, setStarted] = useState(
+    () => localStorage.getItem(storageKey) === "active",
+  );
+
+  const start = () => {
+    localStorage.setItem(storageKey, "active");
+    setStarted(true);
+  };
 
   return (
     <div className="space-y-3">
@@ -36,17 +41,21 @@ export function IntegrationConnect({
         <p className="text-muted-foreground text-xs leading-5">
           {`${connectedLabel ?? integration.name} connected.`}
         </p>
-      ) : null}
-      {started ? (
+      ) : started ? (
         <IntegrationSetupPanel
+          sessionKey={integration.domain}
           prompt={integrationSetupTask(integration)}
-          onResult={onResult}
+          onResult={(result) => {
+            localStorage.removeItem(storageKey);
+            setStarted(false);
+            onResult(result);
+          }}
         />
-      ) : !connected ? (
-        <Button type="button" onClick={() => setStarted(true)}>
+      ) : (
+        <Button type="button" onClick={start}>
           Connect {integration.name}
         </Button>
-      ) : null}
+      )}
     </div>
   );
 }

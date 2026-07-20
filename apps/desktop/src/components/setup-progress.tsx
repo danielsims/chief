@@ -19,8 +19,7 @@ interface SetupItem {
   detail: string;
   done: boolean;
   action: "analytics" | "ads";
-  automationStatus?: "queued" | "running";
-  runId?: string;
+  setupScheduled?: boolean;
 }
 
 /** Resolved card state: null means "everything done, render nothing". */
@@ -122,17 +121,10 @@ export function SetupProgress({
     const adsBudgetPlanned =
       typeof ads.budget === "string" && ads.budget !== "No budget yet";
     const setupState = (id: string) => {
-      const run = workspaceData.recurringWorkRuns.find(
-        (candidate) =>
-          candidate.recurringWorkId === id && candidate.status === "running",
-      );
-      if (run) {
-        return { automationStatus: "running" as const, runId: run.id };
-      }
       const work = workspaceData.recurringWork.find(
-        (candidate) => candidate.id === id && candidate.status === "active",
+        (candidate) => candidate.id === id,
       );
-      return work ? { automationStatus: "queued" as const } : {};
+      return work ? { setupScheduled: true } : {};
     };
     const analyticsSetup = setupState("onboarding-analytics-setup");
     const adsSetup = setupState("onboarding-ads-setup");
@@ -143,11 +135,9 @@ export function SetupProgress({
         label: "Analytics",
         detail: analyticsConnected
           ? "Connected"
-          : analyticsSetup.automationStatus === "running"
-            ? "Setup agent is connecting this now"
-            : analyticsSetup.automationStatus === "queued"
-              ? "Setup agent starts shortly"
-              : "Connect a source so your agents can read real numbers",
+          : analyticsSetup.setupScheduled
+            ? "Setup is scheduled"
+            : "Connect a source so your agents can read real numbers",
         done: analyticsConnected,
         action: "analytics",
         ...analyticsSetup,
@@ -157,13 +147,11 @@ export function SetupProgress({
         label: "Ads",
         detail: adsConnected
           ? "Connected"
-          : adsSetup.automationStatus === "running"
-            ? "Setup agent is connecting this now"
-            : adsSetup.automationStatus === "queued"
-              ? "Setup agent starts shortly"
-              : adsBudgetPlanned
-                ? `Budget planned: ${String(ads.budget)}`
-                : "Connect an ads account or set a budget for agent-run ads",
+          : adsSetup.setupScheduled
+            ? "Setup is scheduled"
+            : adsBudgetPlanned
+              ? `Budget planned: ${String(ads.budget)}`
+              : "Connect an ads account or set a budget for agent-run ads",
         done: adsConnected,
         action: "ads",
         ...adsSetup,
@@ -180,13 +168,7 @@ export function SetupProgress({
           };
     writeSnapshot(cloudOrganizationId, next);
     setSnapshot(next);
-  }, [
-    cloudOrganizationId,
-    onboarding,
-    channels,
-    workspaceData.recurringWork,
-    workspaceData.recurringWorkRuns,
-  ]);
+  }, [cloudOrganizationId, onboarding, channels, workspaceData.recurringWork]);
 
   useEffect(() => {
     onVisibilityChange?.(Boolean(snapshot));
@@ -196,11 +178,7 @@ export function SetupProgress({
   if (!snapshot) return null;
 
   const startSetup = (item: SetupItem) => {
-    if (item.runId) {
-      navigate(`/schedule/history?run=${encodeURIComponent(item.runId)}`);
-      return;
-    }
-    if (item.automationStatus === "queued") {
+    if (item.setupScheduled) {
       navigate("/schedule");
       return;
     }
@@ -245,7 +223,7 @@ export function SetupProgress({
                 onClick={() => startSetup(item)}
                 className="text-muted-foreground hover:text-foreground shrink-0 cursor-pointer text-xs underline-offset-2 transition-colors hover:underline"
               >
-                {item.automationStatus ? "View" : "Set up"}
+                {item.setupScheduled ? "View schedule" : "Set up"}
               </button>
             ) : null}
           </div>
