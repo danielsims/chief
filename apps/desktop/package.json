@@ -12,6 +12,7 @@
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
     "lint": "eslint --flag unstable_native_nodejs_ts_config",
     "preview": "vite preview",
+    "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "runtime:bundle": "pnpm --dir ../.. --filter @chief/agent-runtime build:desktop-sidecar"
@@ -68,6 +69,7 @@
     "eslint": "catalog:",
     "prettier": "catalog:",
     "tailwindcss": "^4.1.11",
+    "tsx": "^4.20.3",
     "typescript": "catalog:",
     "vite": "^7.0.4"
   },
