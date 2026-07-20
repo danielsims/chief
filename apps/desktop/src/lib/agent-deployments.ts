@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type {
+  AgentDeploymentChannel,
   AgentDeploymentPlaybook,
   AgentDeploymentRecord,
+  AgentDeploymentTarget,
 } from "@chief/agent-runtime/types";
 
 import { useRuntime, useWorkspaceCapability } from "./runtime";
@@ -10,8 +12,10 @@ import { useRuntime, useWorkspaceCapability } from "./runtime";
 export function useAgentDeployments(workspaceId: string | null) {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
-  const [deployments, setDeployments] = useState<AgentDeploymentRecord[]>([]);
-
+  const [deploymentState, setDeploymentState] = useState<{
+    workspaceId: string | null;
+    deployments: AgentDeploymentRecord[];
+  }>({ workspaceId, deployments: [] });
   useEffect(() => {
     if (
       !workspaceId ||
@@ -26,16 +30,23 @@ export function useAgentDeployments(workspaceId: string | null) {
         message.type === "agentDeployments" &&
         message.workspaceId === workspaceId
       ) {
-        setDeployments(message.deployments);
+        setDeploymentState({ workspaceId, deployments: message.deployments });
       }
       if (
         message.type === "agentDeploymentUpdated" &&
         message.workspaceId === workspaceId
       ) {
-        setDeployments((current) => [
-          message.deployment,
-          ...current.filter((item) => item.id !== message.deployment.id),
-        ]);
+        setDeploymentState((current) => ({
+          workspaceId,
+          deployments: [
+            message.deployment,
+            ...(current.workspaceId === workspaceId
+              ? current.deployments.filter(
+                  (item) => item.id !== message.deployment.id,
+                )
+              : []),
+          ],
+        }));
       }
     });
     client.send({
@@ -50,23 +61,31 @@ export function useAgentDeployments(workspaceId: string | null) {
 
   return useMemo(
     () => ({
-      deployments,
+      deployments:
+        deploymentState.workspaceId === workspaceId
+          ? deploymentState.deployments
+          : [],
       ready:
         Boolean(capability) &&
         status === "connected" &&
         workspaceId === cloudOrganizationId,
       start: (input: {
+        target: AgentDeploymentTarget;
         projectName: string;
         teamId?: string;
+        model?: string;
         playbooks: AgentDeploymentPlaybook[];
+        channels?: AgentDeploymentChannel[];
+        activate?: boolean;
       }) => {
-        if (!workspaceId || !capability) return;
+        if (!workspaceId || !capability || status !== "connected") return false;
         client.send({
           type: "startAgentDeployment",
           workspaceId,
           ...input,
           executorCapability: capability,
         });
+        return true;
       },
       cancel: (deploymentId: string) => {
         if (!workspaceId || !capability) return;
@@ -78,6 +97,13 @@ export function useAgentDeployments(workspaceId: string | null) {
         });
       },
     }),
-    [capability, client, cloudOrganizationId, deployments, status, workspaceId],
+    [
+      capability,
+      client,
+      cloudOrganizationId,
+      deploymentState,
+      status,
+      workspaceId,
+    ],
   );
 }

@@ -1,11 +1,30 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+/* eslint-disable max-lines */
 
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Vercel } from "@lobehub/icons";
+
+import type {
+  AgentDeploymentPhase,
+  AgentDeploymentTarget,
+  InputRequest,
+} from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@chief/ui/components/select";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { AuthOrganization } from "../../lib/auth/better-auth-client";
 import { useAgentDeployments } from "../../lib/agent-deployments";
+import {
+  AI_GATEWAY_API_KEY,
+  AI_GATEWAY_INPUT_REQUEST,
+  AI_GATEWAY_KEYS_URL,
+} from "../../lib/ai-gateway-input";
 import { useAuth } from "../../lib/auth/auth-context";
 import {
   listAuthOrganizations,
@@ -13,16 +32,44 @@ import {
   updateAuthOrganization,
 } from "../../lib/auth/better-auth-client";
 import { playbookInstructions, PLAYBOOKS } from "../../lib/playbooks";
-import {
-  useWorkspaceData,
-  useWorkspaceEnvironmentVariables,
-} from "../../lib/runtime";
+import { useProviderModels, useStoredInputs } from "../../lib/runtime";
+import { ConvexLogo } from "../convex-logo";
 
 interface PersistedDeployment {
   url: string;
-  target: "vercel";
+  target: AgentDeploymentTarget;
   deployedAt?: number;
+  model?: string;
 }
+
+const PHASES: { phase: AgentDeploymentPhase; label: string }[] = [
+  { phase: "preparing", label: "Prepare" },
+  { phase: "authenticating", label: "Authenticate" },
+  { phase: "linking", label: "Link project" },
+  { phase: "configuring", label: "Configure" },
+  { phase: "building", label: "Build" },
+  { phase: "deploying", label: "Deploy" },
+  { phase: "verifying", label: "Verify" },
+];
+const DEPLOYED_SLACK_KEYS = ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"];
+const DEPLOYED_SLACK_REQUEST: InputRequest = {
+  id: "deployed-slack-credentials",
+  title: "Slack deployment credentials",
+  fields: [
+    {
+      key: "botToken",
+      label: "Bot token",
+      type: "secret",
+      save: { envKey: "SLACK_BOT_TOKEN" },
+    },
+    {
+      key: "signingSecret",
+      label: "Signing secret",
+      type: "secret",
+      save: { envKey: "SLACK_SIGNING_SECRET" },
+    },
+  ],
+};
 
 function persistedDeployment(
   org: AuthOrganization | null,
@@ -39,9 +86,10 @@ function persistedDeployment(
   if (typeof value.url !== "string" || !value.url) return null;
   return {
     url: value.url,
-    target: "vercel",
+    target: value.target === "convex" ? "convex" : "vercel",
     deployedAt:
       typeof value.deployedAt === "number" ? value.deployedAt : undefined,
+    model: typeof value.model === "string" ? value.model : undefined,
   };
 }
 
@@ -50,42 +98,56 @@ function projectSlug(workspaceId: string | null) {
   return `chief-${suffix}`.toLowerCase();
 }
 
-function FileRow({ depth = 0, name }: { depth?: number; name: string }) {
-  return (
-    <div
-      className="flex h-7 items-center gap-2 text-xs"
-      style={{ paddingLeft: depth * 16 }}
-    >
-      <span className="bg-muted-foreground/60 size-1 shrink-0" />
-      <span className="text-muted-foreground truncate font-mono">{name}</span>
-    </div>
-  );
+function phaseIndex(phase: AgentDeploymentPhase | undefined) {
+  return PHASES.findIndex((item) => item.phase === phase);
 }
 
 export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
   const { cloudOrganizationId } = useAuth();
-  const workspaceData = useWorkspaceData(cloudOrganizationId);
-  const environment = useWorkspaceEnvironmentVariables();
   const deploymentState = useAgentDeployments(cloudOrganizationId);
   const [org, setOrg] = useState<AuthOrganization | null>(null);
-  const [token, setToken] = useState("");
-  const [executorUrl, setExecutorUrl] = useState("");
-  const [executorToken, setExecutorToken] = useState("");
-  const [teamId, setTeamId] = useState("");
+  const [target, setTarget] = useState<AgentDeploymentTarget>("vercel");
+  const [scope, setScope] = useState("");
+  const [gatewayKey, setGatewayKey] = useState("");
+  const [model, setModel] = useState("");
+  const [deploySlackDraft, setDeploySlack] = useState<boolean | null>(null);
+  const [activateDeployment, setActivateDeployment] = useState(false);
+  const [slackBotToken, setSlackBotToken] = useState("");
+  const [slackSigningSecret, setSlackSigningSecret] = useState("");
   const [projectName, setProjectName] = useState(() =>
     projectSlug(cloudOrganizationId),
   );
   const persistedUrl = useRef<string | null>(null);
+  const logRef = useRef<HTMLDivElement>(null);
+  const current = deploymentState.deployments.find(
+    (deployment) => deployment.target === target,
+  );
+  const deploySlack =
+    target === "vercel" &&
+    (deploySlackDraft ??
+      Boolean(current?.channels && current.channels.length > 0));
+  const gatewayModels = useProviderModels("remote");
+  const gatewayInputs = useStoredInputs(
+    target === "convex" ? [AI_GATEWAY_API_KEY] : null,
+  );
+  const slackInputs = useStoredInputs(
+    target === "vercel" && deploySlack ? DEPLOYED_SLACK_KEYS : null,
+  );
+  const gatewayConfigured =
+    target !== "convex" ||
+    gatewayInputs.present?.has(AI_GATEWAY_API_KEY) === true;
 
   useEffect(() => {
     let cancelled = false;
     void listAuthOrganizations().then((organizations) => {
       if (cancelled) return;
-      setOrg(
+      const next =
         organizations.find((item) => item.id === cloudOrganizationId) ??
-          organizations[0] ??
-          null,
-      );
+        organizations[0] ??
+        null;
+      setOrg(next);
+      const saved = persistedDeployment(next);
+      if (saved) setTarget(saved.target);
     });
     return () => {
       cancelled = true;
@@ -102,25 +164,30 @@ export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
       })),
     [],
   );
-  const activeCloudSchedules = workspaceData.recurringWork.filter(
-    (work) => work.status === "active" && work.placement === "cloud",
-  );
-  const current = deploymentState.deployments[0];
+  const slackPresent = slackInputs.present;
+  const slackConfigured =
+    !deploySlack ||
+    (slackPresent?.has("SLACK_BOT_TOKEN") === true &&
+      slackPresent.has("SLACK_SIGNING_SECRET"));
   const saved = persistedDeployment(org);
-  const hasVercelToken = Boolean(
-    environment.variables?.some((variable) => variable.key === "VERCEL_TOKEN"),
-  );
-  const hasExecutorUrl = Boolean(
-    environment.variables?.some(
-      (variable) => variable.key === "EXECUTOR_MCP_URL",
-    ),
-  );
-  const hasExecutorToken = Boolean(
-    environment.variables?.some(
-      (variable) => variable.key === "EXECUTOR_MCP_TOKEN",
-    ),
-  );
   const running = current?.status === "running";
+  const currentPhase = phaseIndex(current?.phase);
+  const projectNameValid =
+    target === "convex"
+      ? /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(projectName)
+      : /^[a-z0-9][a-z0-9._-]{0,99}$/.test(projectName);
+  const effectiveModel =
+    model.length > 0
+      ? model
+      : (current?.model ?? saved?.model ?? "xai/grok-4.3");
+  const selectedModel = gatewayModels.models.find(
+    (option) => option.value === effectiveModel,
+  );
+
+  useEffect(() => {
+    const element = logRef.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  }, [current?.logs.length]);
 
   useEffect(() => {
     if (!org || !current?.url || current.status !== "ready") return;
@@ -135,10 +202,20 @@ export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
       ...metadata,
       onboarding: {
         ...onboarding,
+        ...(current.activated
+          ? {
+              provider: "remote",
+              providerMode: "deployed",
+              workspaceMode: "cloud",
+              deploymentProvider: current.target,
+              cloudDeploymentUrl: current.url,
+            }
+          : {}),
         chiefDeployment: {
           url: current.url,
-          target: "vercel",
+          target: current.target,
           deployedAt: current.updatedAt,
+          model: current.model,
         },
       },
     };
@@ -148,7 +225,7 @@ export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
   }, [current, org]);
 
   return (
-    <div className="bg-card flex min-h-[620px] flex-col">
+    <div className="bg-card flex min-h-[680px] flex-col">
       <header className="flex items-start justify-between gap-5 border-b p-6">
         <div>
           <button
@@ -159,9 +236,9 @@ export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
             Back to Chief
           </button>
           <h3 className="font-pixel text-3xl">Deploy Chief</h3>
-          <p className="text-muted-foreground mt-2 text-sm">
-            Package Chief and all five private specialists as one Vercel
-            deployment.
+          <p className="text-muted-foreground mt-2 max-w-xl text-sm leading-6">
+            One isolated cloud project containing Chief, its private
+            specialists, durable workspace tools, and authenticated remote chat.
           </p>
         </div>
         {current?.url || saved?.url ? (
@@ -169,22 +246,60 @@ export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
             href={current?.url ?? saved?.url}
             target="_blank"
             rel="noreferrer"
-            className="text-muted-foreground hover:text-foreground max-w-72 truncate text-xs"
+            className="text-muted-foreground hover:text-foreground max-w-72 truncate font-mono text-xs"
           >
             {current?.url ?? saved?.url}
           </a>
         ) : null}
       </header>
 
-      <div className="grid flex-1 gap-7 p-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <main className="space-y-6">
-          <section className="space-y-4 border p-4">
-            <div>
-              <p className="text-sm font-medium">Vercel project</p>
-              <p className="text-muted-foreground mt-1 text-xs">
-                Deployment starts only when you press Deploy.
-              </p>
+      <div className="grid flex-1 gap-0 lg:grid-cols-[320px_minmax(0,1fr)]">
+        <aside className="space-y-6 border-r p-6">
+          <section>
+            <p className="text-xs font-medium">Deployment provider</p>
+            <div className="mt-3 grid gap-2">
+              <button
+                type="button"
+                disabled={running}
+                onClick={() => setTarget("vercel")}
+                className={cn(
+                  "flex items-start gap-3 border p-3 text-left transition-colors",
+                  target === "vercel"
+                    ? "border-foreground bg-muted"
+                    : "hover:border-foreground",
+                )}
+              >
+                <Vercel size={16} className="mt-0.5" />
+                <span>
+                  <span className="block text-xs font-medium">Vercel</span>
+                  <span className="text-muted-foreground mt-1 block text-[10px] leading-4">
+                    Eve server, AI Gateway, and managed sandbox.
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                disabled={running}
+                onClick={() => setTarget("convex")}
+                className={cn(
+                  "flex items-start gap-3 border p-3 text-left transition-colors",
+                  target === "convex"
+                    ? "border-foreground bg-muted"
+                    : "hover:border-foreground",
+                )}
+              >
+                <ConvexLogo className="mt-0.5 size-4" />
+                <span>
+                  <span className="block text-xs font-medium">Convex</span>
+                  <span className="text-muted-foreground mt-1 block text-[10px] leading-4">
+                    Convex-native workflow state, queue, and streams.
+                  </span>
+                </span>
+              </button>
             </div>
+          </section>
+
+          <section className="space-y-3 border-t pt-5">
             <label className="block space-y-2 text-xs">
               <span>Project name</span>
               <Input
@@ -198,141 +313,331 @@ export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
                   )
                 }
               />
+              {!projectNameValid ? (
+                <span className="text-destructive block text-[10px] leading-4">
+                  {target === "convex"
+                    ? "Use lowercase letters, numbers, and single hyphens."
+                    : "Use a lowercase letter or number first, then letters, numbers, dots, underscores, or hyphens."}
+                </span>
+              ) : null}
             </label>
             <label className="block space-y-2 text-xs">
-              <span>Team ID</span>
-              <Input
-                value={teamId}
+              <span>Gateway model</span>
+              <Select
+                value={effectiveModel}
                 disabled={running}
-                onChange={(event) => setTeamId(event.target.value)}
-                placeholder="Optional for a personal account"
+                onValueChange={setModel}
+              >
+                <SelectTrigger className="w-full">
+                  <span className="truncate">
+                    {gatewayModels.loading
+                      ? "Loading models..."
+                      : (selectedModel?.label ?? effectiveModel)}
+                  </span>
+                </SelectTrigger>
+                <SelectContent className="max-h-80 min-w-72">
+                  {gatewayModels.models
+                    .filter((option) => option.value)
+                    .map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        <span className="flex min-w-64 items-start justify-between gap-4">
+                          <span>
+                            <span className="block">{option.label}</span>
+                            <span className="text-muted-foreground block font-mono text-[9px]">
+                              {option.value}
+                            </span>
+                          </span>
+                          {option.pricing ? (
+                            <span className="text-muted-foreground font-mono text-[9px] whitespace-nowrap">
+                              ${Number(option.pricing.input ?? 0) * 1_000_000} /
+                              ${Number(option.pricing.output ?? 0) * 1_000_000}
+                            </span>
+                          ) : null}
+                        </span>
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              {selectedModel?.pricing ? (
+                <span className="text-muted-foreground block text-[10px]">
+                  ${Number(selectedModel.pricing.input ?? 0) * 1_000_000} input
+                  / ${Number(selectedModel.pricing.output ?? 0) * 1_000_000}{" "}
+                  output per 1M tokens
+                </span>
+              ) : null}
+            </label>
+            <label className="block space-y-2 text-xs">
+              <span>{target === "vercel" ? "Team slug" : "Convex team"}</span>
+              <Input
+                value={scope}
+                disabled={running}
+                onChange={(event) => setScope(event.target.value)}
+                placeholder="Optional; uses your current account"
               />
             </label>
-          </section>
-
-          {!hasVercelToken ? (
-            <section className="space-y-3 border p-4">
-              <div>
-                <p className="text-sm font-medium">Connect Vercel</p>
-                <p className="text-muted-foreground mt-1 text-xs leading-5">
-                  Chief stores this token in the local workspace vault. Agents
-                  never receive it.
-                </p>
+            {target === "vercel" ? (
+              <div className="space-y-3 border-t pt-4">
+                <button
+                  type="button"
+                  disabled={running}
+                  onClick={() => setDeploySlack(!deploySlack)}
+                  className="flex w-full items-center justify-between text-left text-xs"
+                >
+                  <span>
+                    <span className="block">Slack via Eve</span>
+                    <span className="text-muted-foreground mt-1 block text-[10px]">
+                      Webhook channel for Vercel deployments
+                    </span>
+                  </span>
+                  <span
+                    className={cn(
+                      "h-4 w-7 border p-0.5",
+                      deploySlack && "border-foreground",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "bg-muted-foreground block size-2.5 transition-transform",
+                        deploySlack && "bg-foreground translate-x-2.5",
+                      )}
+                    />
+                  </span>
+                </button>
+                {deploySlack ? (
+                  slackConfigured ? (
+                    <div className="space-y-2">
+                      <p className="text-[10px] text-emerald-500">
+                        Slack bot token and signing secret are stored.
+                      </p>
+                      {current?.url ? (
+                        <p className="text-muted-foreground text-[10px] leading-4 break-all">
+                          Set Slack Events and Interactivity to{" "}
+                          {current.url.replace(/\/$/, "")}/eve/v1/slack
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Input
+                        type="password"
+                        value={slackBotToken}
+                        onChange={(event) =>
+                          setSlackBotToken(event.target.value)
+                        }
+                        placeholder="Slack bot token (xoxb-...)"
+                        autoComplete="off"
+                      />
+                      <Input
+                        type="password"
+                        value={slackSigningSecret}
+                        onChange={(event) =>
+                          setSlackSigningSecret(event.target.value)
+                        }
+                        placeholder="Slack signing secret"
+                        autoComplete="off"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={
+                          !slackBotToken || !slackSigningSecret || running
+                        }
+                        onClick={() => {
+                          slackInputs.store(DEPLOYED_SLACK_REQUEST, {
+                            botToken: slackBotToken,
+                            signingSecret: slackSigningSecret,
+                          });
+                          setSlackBotToken("");
+                          setSlackSigningSecret("");
+                        }}
+                      >
+                        Save Slack credentials
+                      </Button>
+                    </div>
+                  )
+                ) : null}
               </div>
-              <Input
-                type="password"
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
-                placeholder="Vercel access token"
-              />
-              <Button
-                variant="outline"
-                disabled={!token.trim() || !environment.connected}
-                onClick={() => {
-                  environment.save("VERCEL_TOKEN", token.trim());
-                  setToken("");
-                }}
+            ) : null}
+            <button
+              type="button"
+              disabled={running}
+              onClick={() => setActivateDeployment((value) => !value)}
+              className="flex w-full items-center justify-between border-t pt-4 text-left text-xs"
+            >
+              <span>
+                <span className="block">Use as Chief default</span>
+                <span className="text-muted-foreground mt-1 block text-[10px] leading-4">
+                  {activateDeployment
+                    ? "Chats and schedules switch to this deployment"
+                    : "Keep local Codex/Claude preferences unchanged"}
+                </span>
+              </span>
+              <span
+                className={cn(
+                  "h-4 w-7 border p-0.5",
+                  activateDeployment && "border-foreground",
+                )}
               >
-                Save token
-              </Button>
-            </section>
-          ) : null}
-
-          {!hasExecutorUrl || !hasExecutorToken ? (
-            <section className="space-y-3 border p-4">
-              <div>
-                <p className="text-sm font-medium">Connect hosted Executor</p>
-                <p className="text-muted-foreground mt-1 text-xs leading-5">
-                  Cloud Chief requires a real HTTPS Executor MCP endpoint.
-                  Localhost is deliberately rejected.
-                </p>
-              </div>
-              {!hasExecutorUrl ? (
-                <Input
-                  value={executorUrl}
-                  onChange={(event) => setExecutorUrl(event.target.value)}
-                  placeholder="https://executor.example.com/mcp"
-                />
-              ) : null}
-              {!hasExecutorToken ? (
-                <Input
-                  type="password"
-                  value={executorToken}
-                  onChange={(event) => setExecutorToken(event.target.value)}
-                  placeholder="Executor MCP token"
-                />
-              ) : null}
-              <Button
-                variant="outline"
-                disabled={
-                  !environment.connected ||
-                  (!hasExecutorUrl && !executorUrl.trim()) ||
-                  (!hasExecutorToken && !executorToken.trim())
-                }
-                onClick={() => {
-                  if (!hasExecutorUrl) {
-                    environment.save("EXECUTOR_MCP_URL", executorUrl.trim());
-                    setExecutorUrl("");
-                  }
-                  if (!hasExecutorToken) {
-                    environment.save(
-                      "EXECUTOR_MCP_TOKEN",
-                      executorToken.trim(),
-                    );
-                    setExecutorToken("");
-                  }
-                }}
-              >
-                Save Executor credentials
-              </Button>
-            </section>
-          ) : null}
-
-          {current ? (
-            <section className="border">
-              <div className="flex items-center justify-between gap-4 border-b p-4">
-                <div>
-                  <p className="text-sm font-medium capitalize">
-                    {current.phase ?? current.status.replace("_", " ")}
-                  </p>
-                  {current.detail ? (
-                    <p className="text-muted-foreground mt-1 text-xs">
-                      {current.detail}
-                    </p>
-                  ) : null}
-                </div>
                 <span
                   className={cn(
-                    "size-2",
-                    current.status === "ready"
-                      ? "bg-emerald-500"
-                      : current.status === "failed"
-                        ? "bg-red-500"
-                        : current.status === "running"
-                          ? "animate-pulse bg-blue-500"
-                          : "bg-amber-400",
+                    "bg-muted-foreground block size-2.5 transition-transform",
+                    activateDeployment && "bg-foreground translate-x-2.5",
                   )}
                 />
-              </div>
-              <div className="max-h-52 overflow-y-auto p-4 font-mono text-[11px] leading-5">
-                {current.logs.length > 0
-                  ? current.logs.map((line, index) => (
-                      <p key={`${index}-${line}`}>{line}</p>
-                    ))
-                  : "Waiting for deployment output…"}
-              </div>
-            </section>
-          ) : null}
+              </span>
+            </button>
+            {target === "convex" ? (
+              gatewayInputs.present === null ? (
+                <p className="text-muted-foreground text-[10px]">
+                  Checking the workspace Keychain vault...
+                </p>
+              ) : gatewayConfigured ? (
+                <p className="text-[10px] text-emerald-500">
+                  AI Gateway key stored in this workspace's Keychain vault.
+                </p>
+              ) : (
+                <div className="space-y-2 border-t pt-3">
+                  <p className="text-muted-foreground text-[10px] leading-4">
+                    Convex needs an AI Gateway API key. It stays in this
+                    workspace's macOS Keychain vault.{" "}
+                    <a
+                      href={AI_GATEWAY_KEYS_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-foreground underline underline-offset-2"
+                    >
+                      Create a key in Vercel
+                    </a>
+                    .
+                  </p>
+                  <Input
+                    type="password"
+                    value={gatewayKey}
+                    disabled={running}
+                    autoComplete="off"
+                    placeholder="AI Gateway API key"
+                    onChange={(event) => setGatewayKey(event.target.value)}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!gatewayKey || running}
+                    onClick={() => {
+                      gatewayInputs.store(AI_GATEWAY_INPUT_REQUEST, {
+                        apiKey: gatewayKey,
+                      });
+                      setGatewayKey("");
+                    }}
+                  >
+                    Save key
+                  </Button>
+                </div>
+              )
+            ) : null}
+          </section>
 
-          <footer className="flex items-center justify-between gap-4 border-t pt-5">
+          <section className="border-t pt-5">
+            <div className="space-y-3">
+              {PHASES.map((item, index) => {
+                const complete =
+                  current?.status === "ready" || index < currentPhase;
+                const active = running && index === currentPhase;
+                const failed =
+                  current?.status === "failed" && index === currentPhase;
+                const warning =
+                  current?.status === "needs_configuration" &&
+                  item.phase === "configuring";
+                return (
+                  <div
+                    key={item.phase}
+                    className="flex items-center gap-3 text-xs"
+                  >
+                    <span
+                      className={cn(
+                        "bg-muted-foreground/30 size-2 rounded-full",
+                        complete && "bg-emerald-500",
+                        active && "animate-pulse bg-blue-500",
+                        failed && "bg-red-500",
+                        warning && "bg-yellow-500",
+                      )}
+                    />
+                    <span
+                      className={cn(
+                        "text-muted-foreground",
+                        (active || complete || warning) && "text-foreground",
+                      )}
+                    >
+                      {item.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        </aside>
+
+        <main className="flex min-h-0 flex-col">
+          <div className="flex items-start justify-between gap-4 border-b p-5">
+            <div>
+              <p className="text-sm font-medium capitalize">
+                {current?.phase ??
+                  current?.status.replaceAll("_", " ") ??
+                  "Ready to deploy"}
+              </p>
+              <p className="text-muted-foreground mt-1 text-xs leading-5">
+                {current?.detail ??
+                  `${target === "vercel" ? "Vercel" : "Convex"} authentication opens in your browser when required.`}
+              </p>
+            </div>
+            <span
+              className={cn(
+                "mt-1 size-2",
+                current?.status === "ready"
+                  ? "bg-emerald-500"
+                  : current?.status === "failed"
+                    ? "bg-red-500"
+                    : running
+                      ? "animate-pulse bg-blue-500"
+                      : current?.status === "needs_configuration"
+                        ? "bg-yellow-500"
+                        : "bg-muted-foreground/30",
+              )}
+            />
+          </div>
+
+          <div
+            ref={logRef}
+            role="log"
+            aria-live="polite"
+            className="h-[430px] max-h-[50vh] overflow-y-auto bg-black/30 p-5 font-mono text-[11px] leading-5"
+          >
+            {current?.logs.length ? (
+              current.logs.map((line, index) => (
+                <p key={`${index}-${line}`} className="break-all">
+                  <span className="text-muted-foreground mr-3 select-none">
+                    {String(index + 1).padStart(3, "0")}
+                  </span>
+                  {line}
+                </p>
+              ))
+            ) : (
+              <p className="text-muted-foreground">
+                Deployment output will stream here in real time.
+              </p>
+            )}
+          </div>
+
+          <footer className="flex items-center justify-between gap-4 border-t p-5">
             <p className="text-muted-foreground text-xs">
-              {activeCloudSchedules.length > 0
-                ? "Active cloud schedules cannot deploy until schedule-scoped Executor capabilities exist. Move them to this Mac or pause them."
-                : hasVercelToken
-                  ? `${playbooks.length} playbooks will be included. Schedules stay on this Mac.`
-                  : "Connect Vercel before deploying."}
+              {current?.status === "ready"
+                ? current.activated
+                  ? `Live on ${current.target}. Chief chats and schedules use this deployment.`
+                  : `Live on ${current.target}. Local Chief chats and schedules are unchanged.`
+                : "Existing provider login is reused. Chief never reads its credential."}
             </p>
-            {current?.status === "running" ? (
+            {running ? (
               <Button
                 variant="outline"
                 onClick={() => deploymentState.cancel(current.id)}
@@ -343,38 +648,28 @@ export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
               <Button
                 disabled={
                   !deploymentState.ready ||
-                  !hasVercelToken ||
-                  !hasExecutorUrl ||
-                  !hasExecutorToken ||
-                  !projectName.trim() ||
+                  !projectNameValid ||
+                  !gatewayConfigured ||
+                  !slackConfigured ||
                   !org
                 }
                 onClick={() =>
                   deploymentState.start({
+                    target,
                     projectName: projectName.trim(),
-                    teamId: teamId.trim() || undefined,
+                    teamId: scope.trim() || undefined,
+                    model: effectiveModel,
                     playbooks,
+                    channels: deploySlack ? [{ kind: "slack" }] : undefined,
+                    activate: activateDeployment,
                   })
                 }
               >
-                {saved || current?.status === "ready" ? "Redeploy" : "Deploy"}
+                {current?.status === "ready" ? "Redeploy" : "Deploy"}
               </Button>
             )}
           </footer>
         </main>
-
-        <aside className="border p-4">
-          <p className="text-sm font-medium">Deployment package</p>
-          <div className="mt-3 border-t pt-2">
-            <FileRow name="agent/" />
-            <FileRow depth={1} name="instructions.md" />
-            <FileRow depth={1} name="agent.ts" />
-            <FileRow depth={1} name={`skills/ (${playbooks.length})`} />
-            <FileRow depth={1} name="subagents/ (5)" />
-            <FileRow depth={1} name="schedules/ (local only)" />
-            <FileRow depth={1} name="connections/executor.ts" />
-          </div>
-        </aside>
       </div>
     </div>
   );

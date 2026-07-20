@@ -83,7 +83,10 @@ export function getWorkspaceProvider(
   if (!workspaceId) return null;
   retireLegacyGlobalState();
   const value = migratedValue(PROVIDER_KEY, LEGACY_PROVIDER_KEY, workspaceId);
-  return value === "claude" || value === "codex" || value === "opencode"
+  return value === "claude" ||
+    value === "codex" ||
+    value === "opencode" ||
+    value === "remote"
     ? value
     : null;
 }
@@ -91,6 +94,12 @@ export function getWorkspaceProvider(
 export function setWorkspaceProvider(workspaceId: string, driver: DriverType) {
   retireLegacyGlobalState();
   localStorage.setItem(workspaceKey(PROVIDER_KEY, workspaceId), driver);
+  window.dispatchEvent(new CustomEvent(EVENT));
+}
+
+export function clearWorkspaceProvider(workspaceId: string) {
+  retireLegacyGlobalState();
+  localStorage.removeItem(workspaceKey(PROVIDER_KEY, workspaceId));
   window.dispatchEvent(new CustomEvent(EVENT));
 }
 
