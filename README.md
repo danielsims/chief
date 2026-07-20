@@ -6,7 +6,7 @@
 
 # Chief
 
-Chief is a workspace for building, running, and supervising proactive AI agents. It combines agent instructions, tools, playbooks, schedules, runs, and review surfaces in a local-first desktop app.
+Chief is a workspace for building, running, and supervising proactive AI agents. It combines agent instructions, tools, playbooks, schedules, conversations, and action items in a local-first desktop app.
 
 Chief is in early preview. The current product is focused on marketing teams, with desktop apps for macOS and Windows.
 
@@ -14,7 +14,7 @@ Chief is in early preview. The current product is focused on marketing teams, wi
 
 - Runs specialist agents for strategy, content, analytics, prospecting, advertising, and integration setup.
 - Turns reusable playbooks into work that can run now or on a schedule.
-- Keeps scheduled runs separate from conversations, with live progress and a durable run history.
+- Executes scheduled work in private sessions while keeping conversations focused on decisions and useful outcomes.
 - Produces reviewable results with structured artifacts such as charts, tables, drafts, and action items.
 - Connects agents to approved tools while keeping publishing, outreach, and spend behind explicit approval rules.
 - Runs the agent runtime locally and packages it with the desktop app.

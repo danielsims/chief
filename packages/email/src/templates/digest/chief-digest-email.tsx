@@ -19,10 +19,10 @@ export interface DigestIntegration {
 
 /**
  * Digest data intentionally mirrors records Chief already stores locally:
- * recurring-work runs, attention items, workspace records, and schedules.
+ * completed work, action items, workspace records, and schedules.
  * The email renderer does not infer outcomes or create marketing metrics.
  */
-export interface DigestRun {
+export interface DigestCompletedWork {
   id: string;
   title: string;
   agentName: string;
@@ -31,7 +31,7 @@ export interface DigestRun {
   url?: string;
 }
 
-export interface DigestAttentionItem {
+export interface DigestActionItem {
   id: string;
   title: string;
   reason: string;
@@ -44,7 +44,7 @@ export interface DigestScheduleItem {
   id: string;
   title: string;
   agentName: string;
-  nextRunLabel: string;
+  nextAtLabel: string;
   timezone: string;
   integrations?: DigestIntegration[];
   url?: string;
@@ -62,8 +62,8 @@ export interface ChiefDigestEmailProps {
   periodLabel?: string;
   dashboardUrl?: string;
   logoUrl?: string;
-  completedRuns?: DigestRun[];
-  attentionItems?: DigestAttentionItem[];
+  completedWork?: DigestCompletedWork[];
+  actionItems?: DigestActionItem[];
   upcomingWork?: DigestScheduleItem[];
   workspaceRecords?: DigestWorkspaceRecords;
 }
@@ -80,16 +80,16 @@ export function ChiefDigestEmail({
   periodLabel = "This week",
   dashboardUrl = "https://heychief.sh",
   logoUrl,
-  completedRuns = [],
-  attentionItems = [],
+  completedWork = [],
+  actionItems = [],
   upcomingWork = [],
   workspaceRecords = emptyWorkspaceRecords,
 }: ChiefDigestEmailProps) {
   const headingText = frequency === "daily" ? "Daily digest" : "Weekly digest";
   const intro = digestIntro({
     firstName,
-    completedCount: completedRuns.length,
-    attentionCount: attentionItems.length,
+    completedCount: completedWork.length,
+    actionCount: actionItems.length,
     records: workspaceRecords,
   });
 
@@ -97,38 +97,38 @@ export function ChiefDigestEmail({
     <EmailShell
       footerNote={`You’re receiving your ${frequency} Chief digest. You can change or pause it in Schedule.`}
       logoUrl={logoUrl}
-      preview={`${completedRuns.length} runs completed. ${attentionItems.length} items need attention.`}
+      preview={`Work completed: ${completedWork.length}. Actions needed: ${actionItems.length}.`}
     >
       <Text style={heading}>{headingText}</Text>
       <Text style={period}>{periodLabel}</Text>
       <Text style={introStyle}>{intro}</Text>
 
-      {attentionItems.length > 0 ? (
-        <DigestSection title="Needs you">
-          {attentionItems.map((item, index) => (
-            <AttentionRow
+      {actionItems.length > 0 ? (
+        <DigestSection title="Actions">
+          {actionItems.map((item, index) => (
+            <ActionRow
               item={item}
               key={item.id}
-              showBorder={index < attentionItems.length - 1}
+              showBorder={index < actionItems.length - 1}
             />
           ))}
         </DigestSection>
       ) : null}
 
-      {completedRuns.length > 0 ? (
+      {completedWork.length > 0 ? (
         <DigestSection title="Completed work">
-          {completedRuns.map((run, index) => (
-            <RunRow
-              key={run.id}
-              run={run}
-              showBorder={index < completedRuns.length - 1}
+          {completedWork.map((work, index) => (
+            <CompletedWorkRow
+              key={work.id}
+              showBorder={index < completedWork.length - 1}
+              work={work}
             />
           ))}
         </DigestSection>
       ) : null}
 
       {upcomingWork.length > 0 ? (
-        <DigestSection title="Running next">
+        <DigestSection title="Up next">
           {upcomingWork.slice(0, 3).map((work, index) => (
             <ScheduleRow
               key={work.id}
@@ -147,12 +147,12 @@ export function ChiefDigestEmail({
 }
 
 function digestIntro({
-  attentionCount,
+  actionCount,
   completedCount,
   firstName,
   records,
 }: {
-  attentionCount: number;
+  actionCount: number;
   completedCount: number;
   firstName?: string;
   records: DigestWorkspaceRecords;
@@ -169,15 +169,15 @@ function digestIntro({
       ? `${records.draftsReady} ${records.draftsReady === 1 ? "draft" : "drafts"}`
       : null,
   ].filter((value): value is string => Boolean(value));
-  const completed = `${completedCount} ${completedCount === 1 ? "run" : "runs"}`;
-  const attention =
-    attentionCount === 1
-      ? "One item needs you."
-      : attentionCount > 1
-        ? `${attentionCount} items need you.`
-        : "Nothing needs your attention.";
+  const completed = `${completedCount} ${completedCount === 1 ? "piece" : "pieces"} of work`;
+  const actions =
+    actionCount === 1
+      ? "One action needs you."
+      : actionCount > 1
+        ? `${actionCount} actions need you.`
+        : "No actions needed.";
   const savedText = saved.length > 0 ? ` and saved ${sentenceList(saved)}` : "";
-  return `${greeting} Your agents completed ${completed}${savedText}. ${attention}`;
+  return `${greeting} Your agents completed ${completed}${savedText}. ${actions}`;
 }
 
 function sentenceList(items: string[]) {
@@ -201,11 +201,11 @@ function DigestSection({
   );
 }
 
-function AttentionRow({
+function ActionRow({
   item,
   showBorder,
 }: {
-  item: DigestAttentionItem;
+  item: DigestActionItem;
   showBorder: boolean;
 }) {
   return (
@@ -235,26 +235,32 @@ function AttentionRow({
   );
 }
 
-function RunRow({ run, showBorder }: { run: DigestRun; showBorder: boolean }) {
+function CompletedWorkRow({
+  showBorder,
+  work,
+}: {
+  showBorder: boolean;
+  work: DigestCompletedWork;
+}) {
   return (
     <Section style={{ ...listRow, borderBottom: showBorder ? border : 0 }}>
       <Row>
         <Column>
-          <Text style={itemTitle}>{run.title}</Text>
-          <Text style={itemDetail}>{run.summary}</Text>
+          <Text style={itemTitle}>{work.title}</Text>
+          <Text style={itemDetail}>{work.summary}</Text>
           <Row style={itemFooter}>
             <Column>
-              <Text style={agentName}>{run.agentName}</Text>
+              <Text style={agentName}>{work.agentName}</Text>
             </Column>
             <Column style={integrationStackColumn}>
-              <IntegrationStack integrations={run.integrations} />
+              <IntegrationStack integrations={work.integrations} />
             </Column>
           </Row>
         </Column>
-        {run.url ? (
+        {work.url ? (
           <Column style={actionColumn}>
-            <Link href={run.url} style={textAction}>
-              View run
+            <Link href={work.url} style={textAction}>
+              View work
             </Link>
           </Column>
         ) : null}
@@ -276,7 +282,7 @@ function ScheduleRow({
         <Column>
           <Text style={itemTitle}>{work.title}</Text>
           <Text style={scheduleDetail}>
-            {work.nextRunLabel} · {work.timezone}
+            {work.nextAtLabel} · {work.timezone}
           </Text>
           <Row style={itemFooter}>
             <Column>
@@ -467,7 +473,7 @@ export const digestPreviewProps = {
   frequency: "weekly",
   periodLabel: "7–13 July 2026",
   logoUrl: PREVIEW_EMAIL_LOGO_URL,
-  completedRuns: [
+  completedWork: [
     {
       id: "growth-report",
       agentName: "Analyst",
@@ -493,13 +499,13 @@ export const digestPreviewProps = {
       integrations: [googleAnalytics, x, linkedIn, instagram, tiktok, youtube],
     },
   ],
-  attentionItems: [
+  actionItems: [
     {
       id: "connect-google-analytics",
       agentName: "Setup",
       title: "Finish Google Analytics setup",
       reason:
-        "Sign in once so Analyst can run read-only reports from the connected property.",
+        "Sign in once so Analyst can create read-only reports from the connected property.",
       integrations: [googleAnalytics],
     },
   ],
@@ -508,7 +514,7 @@ export const digestPreviewProps = {
       id: "next-buying-signals",
       agentName: "Prospector",
       title: "Find buying signals",
-      nextRunLabel: "Tomorrow at 9:00 am",
+      nextAtLabel: "Tomorrow at 9:00 am",
       timezone: "Australia/Brisbane",
       integrations: [reddit, x, linkedIn, facebook, instagram, tiktok],
     },
@@ -516,7 +522,7 @@ export const digestPreviewProps = {
       id: "next-growth-report",
       agentName: "Analyst",
       title: "Weekly growth report",
-      nextRunLabel: "Saturday at 1:10 pm",
+      nextAtLabel: "Saturday at 1:10 pm",
       timezone: "Australia/Brisbane",
       integrations: [googleAnalytics, posthog],
     },
