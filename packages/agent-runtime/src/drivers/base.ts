@@ -3,9 +3,8 @@ import { EventEmitter } from "node:events";
 import type { AgentEvent, StartOptions } from "../types.js";
 
 /**
- * A driver adapts one coding-agent backend (Claude Code, Codex) to a
- * normalized event stream. Inference always runs on the user's own
- * subscription — drivers delegate auth to each CLI's own login.
+ * A driver adapts one local or hosted agent backend to Chief's normalized
+ * event stream. The concrete driver owns authentication and continuation.
  */
 export abstract class BaseDriver extends EventEmitter {
   abstract start(opts: StartOptions): Promise<void>;
@@ -26,5 +25,9 @@ export abstract class BaseDriver extends EventEmitter {
 
   protected emitEvent(event: AgentEvent) {
     this.emit("event", event);
+  }
+
+  protected emitState(state: unknown) {
+    this.emit("state", state);
   }
 }

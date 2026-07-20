@@ -10,6 +10,7 @@
     "CONVEX_SITE_URL",
     "EXECUTOR_*",
     "GOOGLE_*",
+    "AI_GATEWAY_API_KEY",
     "MARKETER_*",
     "OPENCODE_PATH",
     "STRIPE_*",

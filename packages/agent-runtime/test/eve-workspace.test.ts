@@ -22,6 +22,9 @@ void test("materializes one Chief root with private inspect-only specialists", (
   try {
     const result = materializeEveWorkspace(root, {
       context: "Acme sells anvils.",
+      hostedExecutor: true,
+      controlPlane: true,
+      channels: [{ kind: "slack" }],
     });
 
     assert.equal(result.agent.id, "cmo");
@@ -31,11 +34,23 @@ void test("materializes one Chief root with private inspect-only specialists", (
       "analyst",
       "prospector",
       "ads",
+      "setup",
     ]);
     assert.match(read(root, "agent/agent.ts"), /experimental_chatgpt\(\)/);
-    assert.doesNotMatch(read(root, "agent/agent.ts"), /WORKSPACE_MODEL/);
+    assert.match(read(root, "agent/agent.ts"), /xai\/grok-4\.3/);
+    assert.match(
+      read(root, "agent/agent.ts"),
+      /maxInputTokensPerSession: 500_000/,
+    );
     assert.match(read(root, "agent/sandbox.ts"), /networkPolicy: "deny-all"/);
-    assert.match(read(root, "agent/tools/agent.ts"), /disableTool\(\)/);
+    assert.match(read(root, "agent/sandbox.ts"), /defaultBackend/);
+    assert.equal(existsSync(join(root, "agent/tools/agent.ts")), false);
+    assert.match(read(root, "agent/channels/eve.ts"), /httpBasic/);
+    assert.match(read(root, "agent/channels/slack.ts"), /slackChannel/);
+    assert.match(
+      read(root, "agent/connections/chief.ts"),
+      /CHIEF_CONTROL_PLANE_TOKEN/,
+    );
     assert.match(
       read(root, "agent/connections/executor.ts"),
       /https:\/\/executor\.invalid\/mcp/,
@@ -55,6 +70,7 @@ void test("materializes one Chief root with private inspect-only specialists", (
       "analyst",
       "prospector",
       "ads",
+      "setup",
     ]) {
       const base = `agent/subagents/${specialist}`;
       const instructions = read(root, `${base}/instructions.md`);
@@ -65,6 +81,10 @@ void test("materializes one Chief root with private inspect-only specialists", (
         /brandProfileSave|contentSave|uiPresentChart|prospectsSave|campaignsSave|localTools|tools\.chief/,
       );
       assert.match(read(root, `${base}/agent.ts`), /experimental_chatgpt\(\)/);
+      assert.match(
+        read(root, `${base}/agent.ts`),
+        /maxInputTokensPerSession: 100_000/,
+      );
       assert.match(
         read(root, `${base}/agent.ts`),
         /Private inspect-only specialist/,
@@ -78,7 +98,12 @@ void test("materializes one Chief root with private inspect-only specialists", (
         read(root, `${base}/tools/write_file.ts`),
         /disableTool\(\)/,
       );
-      assert.equal(existsSync(join(root, base, "connections")), false);
+      assert.equal(
+        existsSync(join(root, base, "connections")),
+        specialist === "setup" ||
+          specialist === "prospector" ||
+          specialist === "brand",
+      );
     }
   } finally {
     rmSync(root, { recursive: true, force: true });

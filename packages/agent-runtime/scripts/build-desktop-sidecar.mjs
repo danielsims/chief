@@ -16,13 +16,11 @@ import {
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
-import { create as createTar } from "tar";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(packageRoot, "../..");
 const tauriRoot = join(repoRoot, "apps/desktop/src-tauri");
 const runtimeRoot = join(tauriRoot, "resources/agent-runtime");
-const runtimeArchive = join(tauriRoot, "resources/agent-runtime.tar.gz");
 const runtimeVersionFile = join(tauriRoot, "resources/agent-runtime.version");
 const binariesRoot = join(tauriRoot, "binaries");
 const macEntitlements = join(tauriRoot, "Entitlements.plist");
@@ -130,14 +128,8 @@ function signDarwinNativePayloads(root) {
     .filter(({ description }) => description.includes("Mach-O"));
 
   for (const { description, path } of nativeFiles) {
-    const args = [
-      "--force",
-      "--sign",
-      identity,
-      "--options",
-      "runtime",
-      "--timestamp",
-    ];
+    const args = ["--force", "--sign", identity];
+    if (identity !== "-") args.push("--options", "runtime", "--timestamp");
     if (description.includes("executable") && existsSync(macEntitlements)) {
       args.push("--entitlements", macEntitlements);
     }
@@ -183,6 +175,10 @@ console.log(
   `Selected Node ${selectedNode.version} (${selectedNode.platform}/${selectedNode.arch}) at ${nodeBinary} for ${target}.`,
 );
 
+const codexPlatformPackage = `codex-${expectedRuntime.platform === "win32" ? "win32" : expectedRuntime.platform}-${expectedRuntime.arch === "arm64" ? "arm64" : "x64"}`;
+const codexExecutableName =
+  expectedRuntime.platform === "win32" ? "codex.exe" : "codex";
+
 rmSync(runtimeRoot, { recursive: true, force: true });
 mkdirSync(dirname(runtimeRoot), { recursive: true });
 
@@ -191,6 +187,7 @@ execFileSync(
   runner,
   [
     ...runnerArgs,
+    "--config.node-linker=hoisted",
     "--dir",
     repoRoot,
     "--filter",
@@ -269,9 +266,45 @@ cpSync(deploymentTemplateSource, deploymentTemplateTarget, {
     !deploymentTemplateExcludes.has(basename(path)),
 });
 
+const convexTemplateSource = join(packageRoot, "templates/convex");
+const convexTemplateTarget = join(runtimeRoot, "convex-deployment-workspace");
+cpSync(convexTemplateSource, convexTemplateTarget, {
+  recursive: true,
+  filter: (path) =>
+    path === convexTemplateSource ||
+    !deploymentTemplateExcludes.has(basename(path)),
+});
+
 for (const path of [".turbo", "src", "tsconfig.json", "drizzle.config.ts"]) {
   rmSync(join(runtimeRoot, path), { recursive: true, force: true });
 }
+
+const nativeCodexRoot = join(
+  runtimeRoot,
+  "node_modules",
+  "@openai",
+  codexPlatformPackage,
+  "vendor",
+  target,
+);
+const nativeCodex = join(nativeCodexRoot, "bin", codexExecutableName);
+if (!existsSync(nativeCodex)) {
+  throw new Error(`Target-native Codex binary is missing: ${nativeCodex}`);
+}
+const bundledCodexRoot = join(runtimeRoot, "codex");
+cpSync(nativeCodexRoot, bundledCodexRoot, { recursive: true });
+const bundledCodex = join(bundledCodexRoot, "bin", codexExecutableName);
+chmodSync(bundledCodex, 0o755);
+execFileSync(bundledCodex, ["--version"], { stdio: "inherit" });
+rmSync(join(runtimeRoot, "node_modules", ".bin", "codex"), { force: true });
+rmSync(join(runtimeRoot, "node_modules", "@openai", "codex"), {
+  recursive: true,
+  force: true,
+});
+rmSync(join(runtimeRoot, "node_modules", "@openai", codexPlatformPackage), {
+  recursive: true,
+  force: true,
+});
 
 mkdirSync(binariesRoot, { recursive: true });
 const sidecarName = `chief-agent-runtime-${target}${process.platform === "win32" ? ".exe" : ""}`;
@@ -279,11 +312,22 @@ const sidecarPath = join(binariesRoot, sidecarName);
 copyFileSync(nodeBinary, sidecarPath);
 chmodSync(sidecarPath, 0o755);
 
-for (const name of ["codex", "executor"]) {
+for (const name of ["convex", "executor"]) {
   const path = executablePath(runtimeRoot, name);
   if (!existsSync(path)) {
     throw new Error(`Required bundled agent binary is missing: ${path}`);
   }
+}
+
+for (const cli of [
+  join(runtimeRoot, "node_modules", "convex", "bin", "main.js"),
+  join(runtimeRoot, "node_modules", "eve", "bin", "eve.js"),
+  join(runtimeRoot, "node_modules", "pnpm", "bin", "pnpm.cjs"),
+  join(runtimeRoot, "node_modules", "vercel", "dist", "vc.js"),
+]) {
+  if (!existsSync(cli))
+    throw new Error(`Required deployment CLI is missing: ${cli}`);
+  execFileSync(nodeBinary, [cli, "--version"], { stdio: "inherit" });
 }
 
 for (const dependency of [
@@ -306,19 +350,9 @@ for (const dependency of [
 
 signDarwinNativePayloads(runtimeRoot);
 
-rmSync(runtimeArchive, { force: true });
-createTar(
-  {
-    cwd: runtimeRoot,
-    file: runtimeArchive,
-    gzip: true,
-    portable: true,
-    sync: true,
-  },
-  ["."],
-);
-const runtimeVersion = (await hashFile(runtimeArchive)).slice(0, 16);
+const runtimeVersion = (
+  await hashFile(join(runtimeRoot, "dist/server.mjs"))
+).slice(0, 16);
 writeFileSync(runtimeVersionFile, `${runtimeVersion}\n`);
-rmSync(runtimeRoot, { recursive: true, force: true });
 
 console.log(`Prepared Chief runtime sidecar for ${target}.`);

@@ -59,11 +59,6 @@ VITE_AUTH_BASE_URL=https://<your-domain>
 Do not put `AUTH_GOOGLE_SECRET` in either app. `NEXT_PUBLIC_*` and `VITE_*`
 values are embedded into client bundles and are intentionally public.
 
-Google Analytics authorization is a separate integration. Prefer its dedicated
-`GOOGLE_ANALYTICS_CLIENT_ID` and `GOOGLE_ANALYTICS_CLIENT_SECRET` variables and
-the callback shown by that integration rather than coupling it to the login
-client.
-
 Billing also uses `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. `STRIPE_TRIAL_DAYS` is optional and defaults to 14.
 
 Deploy with:
