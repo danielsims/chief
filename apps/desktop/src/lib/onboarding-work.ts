@@ -77,6 +77,7 @@ export function buildOnboardingWorkJobs(
             attachments,
             instructions: [
               "Launch this as one independent delegation in the initial concurrent Chief kickoff.",
+              "This job must never block Setup, Prospector, or any other independent kickoff work. If it fails, Chief must continue and label the brand profile as provisional.",
               "Inspect workspace context and already-connected sources before asking the user for anything.",
               "Build and save a practical brand profile for every agent in this workspace.",
               `Company: ${input.companyName}`,

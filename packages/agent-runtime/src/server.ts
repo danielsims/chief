@@ -1172,6 +1172,7 @@ export function startServer(port = PORT) {
               schedules: msg.schedules,
               workspaceContext: msg.workspaceContext,
               driver: msg.driver,
+              model: msg.model,
             });
             const activeBootstrap = onboardingBootstraps.get(msg.workspaceId);
             if (activeBootstrap && activeBootstrap.signature !== signature) {
@@ -1202,11 +1203,23 @@ export function startServer(port = PORT) {
                     "Choose a CMO agent app before starting the initial business review.",
                   );
                 }
+                const requestedModel = msg.model?.trim();
+                if (requestedModel && requestedModel.length > 200) {
+                  throw new Error("Model name is too long.");
+                }
+                const model =
+                  msg.model === null
+                    ? undefined
+                    : (requestedModel ??
+                      (existingPreference?.driver === driver
+                        ? existingPreference.model
+                        : undefined));
                 await manager.saveAgentPreference(msg.workspaceId, {
                   ...existingPreference,
                   agentId: "cmo",
                   enabled: true,
                   driver,
+                  model,
                 });
 
                 const onboardingDirectory = join(
@@ -1296,8 +1309,8 @@ export function startServer(port = PORT) {
                     (job) => job.agentId === "brand",
                   )
                     ? driver === "remote"
-                      ? "Launch business and brand research exactly once through the declared Brand Researcher in the initial parallel batch. Never start an equivalent second Brand Researcher. Verify its result when available, then save the complete Markdown through chief files.save at brand/working-brand-profile.md so it is durable and visible."
-                      : "Launch business and brand research exactly once through localTools.specialistsDelegate in the initial parallel batch. Omit waitSeconds so the child continues in the background. A working response is healthy; reuse one stable delegation ID, never start an equivalent second Brand Researcher, and use its automatically saved versioned brand-profile file when available."
+                      ? "Launch business and brand research exactly once through the declared Brand Researcher in the initial parallel batch. Never start an equivalent second Brand Researcher. Verify its result when available, then save the complete Markdown through chief files.save at brand/working-brand-profile.md so it is durable and visible. If Brand fails, continue every other job and synthesize with a clearly labeled provisional brand gap."
+                      : "Launch business and brand research exactly once through localTools.specialistsDelegate in the initial parallel batch. Omit waitSeconds so the child continues in the background. A working response is healthy; reuse one stable delegation ID, never start an equivalent second Brand Researcher, and use its automatically saved versioned brand-profile file when available. If Brand fails, do not retry or stop the review: continue every other job and synthesize with a clearly labeled provisional brand gap."
                     : "The user skipped brand research. Use the supplied workspace context without creating a Brand Researcher delegation.",
                   onboardingPlan.launchableJobs.some(
                     (job) => job.agentId === "setup",
@@ -1317,7 +1330,7 @@ export function startServer(port = PORT) {
                   driver === "remote"
                     ? "Launch initial prospecting exactly once through the declared Prospector in the initial parallel batch. Require five to eight recent, high-confidence results with direct source URLs and require every qualified result to be saved through chief prospects.save before returning. Never start an equivalent second Prospector."
                     : "Launch initial prospecting exactly once through localTools.specialistsDelegate in the initial parallel batch and omit waitSeconds. Require five to eight recent, high-confidence results with direct source URLs and require the Prospector to save every qualified result with prospectsSave before returning. A working response means it continues in the background; never start an equivalent second Prospector.",
-                  "After every independent child is underway, inspect workspace context and prepare the recurring work and review structure while children run. Then reconcile each stable delegation ID. Do not repeatedly poll one child while another initial job has not been launched. Final synthesis may wait for research results, but must not wait for a Setup job blocked on user action.",
+                  "After every independent child is underway, inspect workspace context and prepare the recurring work and review structure while children run. Then reconcile each stable delegation ID. Do not repeatedly poll one child while another initial job has not been launched. A failed independent child is a labeled gap, never a reason to abandon or withhold all other results. Final synthesis may wait for healthy research results, but must not wait for failed work or a Setup job blocked on user action.",
                   "Inspect workspace context and already-connected Chief sources before asking the user for anything. Treat the underlying connection service as an internal implementation detail.",
                   "Initial jobs:",
                   jobs.length > 0 ? jobs.join("\n") : "- None selected.",
@@ -1333,7 +1346,7 @@ export function startServer(port = PORT) {
                   chatId,
                   "Initial business review",
                   driver,
-                  existingPreference?.model,
+                  model,
                 );
                 if (onboardingPlan.deferredGoogleAnalytics) {
                   const setupAttemptId =
@@ -1373,7 +1386,7 @@ export function startServer(port = PORT) {
                       organizationId: msg.workspaceId,
                       agentId: "cmo",
                       driver,
-                      model: existingPreference?.model,
+                      model,
                     },
                     [
                       {
