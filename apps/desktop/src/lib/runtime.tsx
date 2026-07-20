@@ -1,3 +1,5 @@
+/* eslint-disable max-lines */
+
 import type { ChatTransport } from "ai";
 import type { ReactNode } from "react";
 import {
@@ -14,16 +16,19 @@ import { useAction, useConvexAuth, useMutation } from "convex/react";
 import { toast } from "sonner";
 
 import type {
+  ActionItem,
   AgentDefinition,
   AgentEvent,
   AgentPreference,
   AgentQuestion,
-  AttentionItem,
+  AnalyticsDataset,
   CampaignRecord,
+  ChatExecutionSelection,
   ChiefUIMessage,
   ClientMessage,
   ContentBlock,
   ContentDraftRecord,
+  DiagnosticEventRecord,
   DriverType,
   ExecutorCapability,
   InputRequest,
@@ -33,8 +38,8 @@ import type {
   ProspectRecord,
   ProviderModelOption,
   RecurringWorkRecord,
-  RecurringWorkRunRecord,
   ServerMessage,
+  SessionRecord,
   TrendRecord,
   WorkspaceEnvironmentVariable,
   WorkspaceFileRecord,
@@ -50,18 +55,11 @@ import { buildWorkspaceContext } from "./workspace-context";
 // localhost hostname for insecure websockets inside WKWebView.
 const RUNTIME_URL = "ws://localhost:4318";
 const EXECUTOR_CAPABILITY_PREFIX = "chief:executor-capability:";
-const LEGACY_EXECUTOR_CAPABILITY_PREFIX = "marketer:executor-capability:";
 const workspaceCapabilityCache = new Map<string, ExecutorCapability>();
 
 function workspaceCapabilityToken(organizationId: string): string {
   const key = `${EXECUTOR_CAPABILITY_PREFIX}${organizationId}`;
-  const legacyKey = `${LEGACY_EXECUTOR_CAPABILITY_PREFIX}${organizationId}`;
-  const existing =
-    window.localStorage.getItem(key) ?? window.localStorage.getItem(legacyKey);
-  if (existing && !window.localStorage.getItem(key)) {
-    window.localStorage.setItem(key, existing);
-    window.localStorage.removeItem(legacyKey);
-  }
+  const existing = window.localStorage.getItem(key);
   if (existing && /^[A-Za-z0-9_-]{43,128}$/.test(existing)) return existing;
 
   const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -249,6 +247,7 @@ const RuntimeContext = createContext<RuntimeContextValue | null>(null);
 
 export function RuntimeProvider({ children }: { children: ReactNode }) {
   const { cloudOrganizationId } = useAuth();
+  const markIntegrationConnected = useMutation(api.integrations.markConnected);
   const clientRef = useRef<RuntimeClient | null>(null);
   if (!clientRef.current) clientRef.current = new RuntimeClient();
   const client = clientRef.current;
@@ -264,29 +263,37 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     const unsub = client.subscribe((msg) => {
       if (msg.type === "agents") setAgents(msg.agents);
       if (
+        msg.type === "integrationVerified" &&
+        msg.workspaceId === cloudOrganizationId
+      ) {
+        void markIntegrationConnected({
+          provider: msg.provider,
+          category: msg.category,
+          displayName: msg.displayName,
+          externalId: msg.externalId,
+        }).catch((error: unknown) =>
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Chief could not save the verified integration.",
+          ),
+        );
+      }
+      if (
         msg.type === "runtimeNotice" &&
         msg.workspaceId === cloudOrganizationId
       ) {
-        const workId = msg.notice.sourceId?.replace(/^automation-/, "");
-        const route = msg.notice.runId
-          ? `/schedule/history?run=${encodeURIComponent(msg.notice.runId)}`
-          : workId
-            ? `/schedule/history?work=${encodeURIComponent(workId)}`
-            : undefined;
+        const isWorkNotice =
+          msg.notice.kind === "work-started" ||
+          msg.notice.kind === "work-completed";
+        const route = isWorkNotice ? "/schedule" : "/";
         toast(msg.notice.title, {
           description: msg.notice.detail,
           duration: 10_000,
-          action: route
-            ? {
-                label:
-                  msg.notice.kind === "run-started"
-                    ? "View run"
-                    : msg.notice.kind === "setup-required"
-                      ? "Complete setup"
-                      : "View results",
-                onClick: () => navigateApp(route),
-              }
-            : undefined,
+          action: {
+            label: isWorkNotice ? "View schedule" : "Review action",
+            onClick: () => navigateApp(route),
+          },
         });
         void notifySystem(msg.notice.title, msg.notice.detail, route);
       }
@@ -296,7 +303,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       unsub();
       client.destroy();
     };
-  }, [client, cloudOrganizationId]);
+  }, [client, cloudOrganizationId, markIntegrationConnected]);
 
   const value = useMemo(
     () => ({ client, status, agents }),
@@ -304,7 +311,6 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   );
   return (
     <RuntimeContext.Provider value={value}>
-      <LocalIntegrationReconciler />
       <WorkspaceDataProvider>{children}</WorkspaceDataProvider>
     </RuntimeContext.Provider>
   );
@@ -337,6 +343,9 @@ export function useLocalChats(workspaceId: string | null) {
   const [chats, setChats] = useState<LocalChatSummary[]>(
     () => (workspaceId && chatsCache.get(workspaceId)) || [],
   );
+  const [resolved, setResolved] = useState(() =>
+    Boolean(workspaceId && chatsCache.has(workspaceId)),
+  );
   const chatsWorkspaceRef = useRef<string | null>(workspaceId);
 
   useEffect(() => {
@@ -345,6 +354,7 @@ export function useLocalChats(workspaceId: string | null) {
     if (chatsWorkspaceRef.current !== workspaceId) {
       chatsWorkspaceRef.current = workspaceId;
       setChats((workspaceId && chatsCache.get(workspaceId)) || []);
+      setResolved(Boolean(workspaceId && chatsCache.has(workspaceId)));
     }
     if (
       !workspaceId ||
@@ -358,6 +368,7 @@ export function useLocalChats(workspaceId: string | null) {
       if (message.type === "chats" && message.workspaceId === workspaceId) {
         chatsCache.set(workspaceId, message.chats);
         setChats(message.chats);
+        setResolved(true);
       }
     });
     client.send({
@@ -387,7 +398,7 @@ export function useLocalChats(workspaceId: string | null) {
     });
   };
 
-  return { chats, remove };
+  return { chats, loading: !resolved, remove };
 }
 
 const providerModelsCache = new Map<DriverType, ProviderModelOption[]>();
@@ -425,21 +436,23 @@ export function useProviderModels(driver: DriverType | null) {
 interface WorkspaceDataState {
   prospects: ProspectRecord[];
   trends: TrendRecord[];
+  analyticsDatasets: AnalyticsDataset[];
   drafts: ContentDraftRecord[];
   campaigns: CampaignRecord[];
   recurringWork: RecurringWorkRecord[];
-  recurringWorkRuns: RecurringWorkRunRecord[];
-  attentionItems: AttentionItem[];
+  activity: SessionRecord[];
+  actionItems: ActionItem[];
 }
 
 const emptyWorkspaceData: WorkspaceDataState = {
   prospects: [],
   trends: [],
+  analyticsDatasets: [],
   drafts: [],
   campaigns: [],
   recurringWork: [],
-  recurringWorkRuns: [],
-  attentionItems: [],
+  activity: [],
+  actionItems: [],
 };
 
 const workspaceDataCache = new Map<string, WorkspaceDataState>();
@@ -449,16 +462,25 @@ function onboardingJobsStorageKey(workspaceId: string) {
 }
 
 function readOnboardingJobs(workspaceId: string) {
-  const currentKey = onboardingJobsStorageKey(workspaceId);
-  const current = window.localStorage.getItem(currentKey);
-  if (current !== null) return current;
-  const legacyKey = `marketer:onboarding-work:${workspaceId}`;
-  const legacy = window.localStorage.getItem(legacyKey);
-  if (legacy !== null) {
-    window.localStorage.setItem(currentKey, legacy);
-    window.localStorage.removeItem(legacyKey);
+  return window.localStorage.getItem(onboardingJobsStorageKey(workspaceId));
+}
+
+export function updatePendingOnboardingDriver(
+  workspaceId: string,
+  driver: DriverType,
+) {
+  const stored = readOnboardingJobs(workspaceId);
+  if (!stored) return false;
+  try {
+    const pending = JSON.parse(stored) as Record<string, unknown>;
+    window.localStorage.setItem(
+      onboardingJobsStorageKey(workspaceId),
+      JSON.stringify({ ...pending, driver }),
+    );
+    return true;
+  } catch {
+    return false;
   }
-  return legacy;
 }
 
 function useWorkspaceDataSource(workspaceId: string | null) {
@@ -481,6 +503,17 @@ function useWorkspaceDataSource(workspaceId: string | null) {
   );
   const [now, setNow] = useState(() => Date.now());
   const dataWorkspaceRef = useRef<string | null>(workspaceId);
+  const workspaceRevisionRef = useRef(0);
+  const pendingActionRequestsRef = useRef(
+    new Map<
+      string,
+      {
+        resolve: () => void;
+        reject: (error: Error) => void;
+        timer: number;
+      }
+    >(),
+  );
 
   useEffect(() => {
     const updateClock = () => setNow(Date.now());
@@ -500,6 +533,7 @@ function useWorkspaceDataSource(workspaceId: string | null) {
   useEffect(() => {
     if (dataWorkspaceRef.current !== workspaceId) {
       dataWorkspaceRef.current = workspaceId;
+      workspaceRevisionRef.current = 0;
       const cached = workspaceId
         ? workspaceDataCache.get(workspaceId)
         : undefined;
@@ -514,29 +548,137 @@ function useWorkspaceDataSource(workspaceId: string | null) {
     ) {
       return;
     }
+    // Runtime revisions restart from one after a process reconnect.
+    workspaceRevisionRef.current = 0;
+    let pendingOnboardingRequestId: string | null = null;
+    let pendingOnboardingRetryTimer: number | undefined;
+    let pendingOnboardingRetryAttempt = 0;
+    const clearPendingOnboardingRetry = () => {
+      if (pendingOnboardingRetryTimer === undefined) return;
+      window.clearTimeout(pendingOnboardingRetryTimer);
+      pendingOnboardingRetryTimer = undefined;
+    };
+    const replayPendingOnboarding = () => {
+      clearPendingOnboardingRetry();
+      const stored = readOnboardingJobs(workspaceId);
+      if (!stored) {
+        pendingOnboardingRequestId = null;
+        return;
+      }
+      try {
+        const pending = JSON.parse(stored) as {
+          jobs: OnboardingWorkJob[];
+          schedules: OnboardingSchedule[];
+          workspaceContext?: string;
+          driver?: DriverType;
+        };
+        if (!Array.isArray(pending.jobs) || !Array.isArray(pending.schedules)) {
+          throw new Error("Invalid pending onboarding payload.");
+        }
+        pendingOnboardingRequestId = crypto.randomUUID();
+        client.send({
+          type: "bootstrapOnboardingWork",
+          workspaceId,
+          requestId: pendingOnboardingRequestId,
+          jobs: pending.jobs,
+          schedules: pending.schedules,
+          workspaceContext: pending.workspaceContext,
+          driver: pending.driver,
+          executorCapability: capability,
+        });
+        pendingOnboardingRetryTimer = window.setTimeout(
+          replayPendingOnboarding,
+          120_000,
+        );
+      } catch {
+        window.localStorage.removeItem(onboardingJobsStorageKey(workspaceId));
+        pendingOnboardingRequestId = null;
+      }
+    };
+    const retryPendingOnboarding = () => {
+      clearPendingOnboardingRetry();
+      pendingOnboardingRequestId = null;
+      pendingOnboardingRetryTimer = window.setTimeout(
+        replayPendingOnboarding,
+        Math.min(30_000, 2_000 * 2 ** pendingOnboardingRetryAttempt),
+      );
+      pendingOnboardingRetryAttempt = Math.min(
+        pendingOnboardingRetryAttempt + 1,
+        4,
+      );
+    };
     const unsubscribe = client.subscribe((message) => {
       if (
         message.type === "workspaceData" &&
         message.workspaceId === workspaceId
       ) {
+        if (message.revision <= workspaceRevisionRef.current) return;
+        workspaceRevisionRef.current = message.revision;
         const next = {
           prospects: message.prospects,
           trends: message.trends,
+          analyticsDatasets: message.analyticsDatasets,
           drafts: message.drafts,
           campaigns: message.campaigns,
           recurringWork: message.recurringWork,
-          recurringWorkRuns: message.recurringWorkRuns,
-          attentionItems: message.attentionItems,
+          activity: message.activity,
+          actionItems: message.actionItems,
         };
         workspaceDataCache.set(workspaceId, next);
         setData(next);
         setLoading(false);
       }
       if (
-        message.type === "onboardingWorkBootstrapped" &&
+        message.type === "actionRequestResolved" &&
         message.workspaceId === workspaceId
       ) {
+        const pending = pendingActionRequestsRef.current.get(message.requestId);
+        if (pending) {
+          window.clearTimeout(pending.timer);
+          pendingActionRequestsRef.current.delete(message.requestId);
+          pending.resolve();
+        }
+        setData((current) => {
+          const next = {
+            ...current,
+            actionItems: current.actionItems.filter(
+              (item) => item.id !== message.actionItemId,
+            ),
+          };
+          workspaceDataCache.set(workspaceId, next);
+          return next;
+        });
+      }
+      if (message.type === "error" && message.requestId) {
+        const pending = pendingActionRequestsRef.current.get(message.requestId);
+        if (pending) {
+          window.clearTimeout(pending.timer);
+          pendingActionRequestsRef.current.delete(message.requestId);
+          const error = new Error(message.message);
+          toast.error(error.message);
+          pending.reject(error);
+        }
+      }
+      if (
+        message.type === "onboardingWorkBootstrapped" &&
+        message.workspaceId === workspaceId &&
+        message.requestId === pendingOnboardingRequestId
+      ) {
+        clearPendingOnboardingRetry();
+        pendingOnboardingRequestId = null;
+        pendingOnboardingRetryAttempt = 0;
         window.localStorage.removeItem(onboardingJobsStorageKey(workspaceId));
+      }
+      if (
+        message.type === "error" &&
+        message.requestId === pendingOnboardingRequestId
+      ) {
+        if (message.code === "deployment_not_found") {
+          clearPendingOnboardingRetry();
+          pendingOnboardingRequestId = null;
+        } else {
+          retryPendingOnboarding();
+        }
       }
     });
     const refresh = () => {
@@ -554,30 +696,9 @@ function useWorkspaceDataSource(workspaceId: string | null) {
     };
     window.addEventListener("focus", refreshOnFocus);
     document.addEventListener("visibilitychange", refreshWhenVisible);
-    const pendingJobs = readOnboardingJobs(workspaceId);
-    if (pendingJobs) {
-      try {
-        const pending = JSON.parse(pendingJobs) as {
-          jobs: OnboardingWorkJob[];
-          schedules?: OnboardingSchedule[];
-          workspaceContext?: string;
-          driver?: DriverType;
-        };
-        client.send({
-          type: "bootstrapOnboardingWork",
-          workspaceId,
-          requestId: crypto.randomUUID(),
-          jobs: pending.jobs,
-          schedules: pending.schedules ?? [],
-          workspaceContext: pending.workspaceContext,
-          driver: pending.driver,
-          executorCapability: capability,
-        });
-      } catch {
-        window.localStorage.removeItem(onboardingJobsStorageKey(workspaceId));
-      }
-    }
+    replayPendingOnboarding();
     return () => {
+      clearPendingOnboardingRetry();
       window.clearInterval(refreshInterval);
       window.removeEventListener("focus", refreshOnFocus);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
@@ -638,29 +759,28 @@ function useWorkspaceDataSource(workspaceId: string | null) {
         !capability ||
         status !== "connected"
       ) {
-        return Promise.resolve(false);
+        return Promise.reject(
+          new Error("Chief is still connecting to this workspace."),
+        );
       }
       const requestId = crypto.randomUUID();
-      return new Promise<boolean>((resolve, reject) => {
+      return new Promise<string>((resolve, reject) => {
         const timeout = window.setTimeout(() => {
           unsubscribe();
           reject(new Error("Chief could not finish preparing this workspace."));
-        }, 20_000);
+        }, 120_000);
         const unsubscribe = client.subscribe((message) => {
-          const acknowledgedRequestId = (message as { requestId?: string })
-            .requestId;
           if (
             message.type === "onboardingWorkBootstrapped" &&
             message.workspaceId === workspaceId &&
-            // Runtime updates are installed independently from the webview.
-            // Accept the pre-acknowledgement protocol once so an older healthy
-            // runtime can finish the idempotent write while the supervisor
-            // replaces it with the current bundle.
-            (!acknowledgedRequestId || acknowledgedRequestId === requestId)
+            message.requestId === requestId
           ) {
             window.clearTimeout(timeout);
             unsubscribe();
-            resolve(true);
+            window.localStorage.removeItem(
+              onboardingJobsStorageKey(workspaceId),
+            );
+            resolve(message.chatId);
           }
           if (message.type === "error" && message.requestId === requestId) {
             window.clearTimeout(timeout);
@@ -735,47 +855,62 @@ function useWorkspaceDataSource(workspaceId: string | null) {
     });
   };
 
-  const deleteRecurringWorkRun = (runId: string) => {
+  const dismissActionItem = (actionItemId: string) => {
     if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
       return;
     }
     setData((current) => {
       const next = {
         ...current,
-        recurringWorkRuns: current.recurringWorkRuns.filter(
-          (run) => run.id !== runId,
+        actionItems: current.actionItems.filter(
+          (item) => item.id !== actionItemId,
         ),
       };
       workspaceDataCache.set(workspaceId, next);
       return next;
     });
     client.send({
-      type: "deleteRecurringWorkRun",
+      type: "dismissActionItem",
       workspaceId,
-      runId,
+      actionItemId,
       executorCapability: capability,
     });
   };
 
-  const dismissAttentionItem = (attentionItemId: string) => {
+  const resolveActionRequest = (
+    actionItemId: string,
+    requestId: string,
+    answers: Record<string, string>,
+    values: Record<string, string>,
+  ) => {
     if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
-      return;
+      return Promise.reject(new Error("Workspace runtime is unavailable."));
     }
-    setData((current) => {
-      const next = {
-        ...current,
-        attentionItems: current.attentionItems.filter(
-          (item) => item.id !== attentionItemId,
-        ),
-      };
-      workspaceDataCache.set(workspaceId, next);
-      return next;
-    });
-    client.send({
-      type: "dismissAttentionItem",
-      workspaceId,
-      attentionItemId,
-      executorCapability: capability,
+    return new Promise<void>((resolve, reject) => {
+      const existing = pendingActionRequestsRef.current.get(requestId);
+      if (existing) window.clearTimeout(existing.timer);
+      const timer = window.setTimeout(() => {
+        pendingActionRequestsRef.current.delete(requestId);
+        const error = new Error(
+          "Chief did not confirm the saved input. Try again.",
+        );
+        toast.error(error.message);
+        reject(error);
+      }, 30_000);
+      pendingActionRequestsRef.current.set(requestId, {
+        resolve,
+        reject,
+        timer,
+      });
+      client.send({
+        type: "resolveActionRequest",
+        workspaceId,
+        actionItemId,
+        requestId,
+        answers,
+        values,
+        executorCapability: capability,
+      });
     });
   };
 
@@ -815,8 +950,8 @@ function useWorkspaceDataSource(workspaceId: string | null) {
     saveRecurringWork,
     runRecurringWorkNow,
     deleteRecurringWork,
-    deleteRecurringWorkRun,
-    dismissAttentionItem,
+    dismissActionItem,
+    resolveActionRequest,
     expandRecurringWorkGrant,
   };
 }
@@ -847,6 +982,77 @@ export function useWorkspaceData(workspaceId: string | null) {
   // listener or briefly replace live data with an empty page.
   void workspaceId;
   return value;
+}
+
+interface DiagnosticsState {
+  sessions: SessionRecord[];
+  events: DiagnosticEventRecord[];
+}
+
+const diagnosticsCache = new Map<string, DiagnosticsState>();
+
+export function useDiagnostics(workspaceId: string | null) {
+  const { client, status } = useRuntime();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const [state, setState] = useState<
+    DiagnosticsState & { workspaceId: string | null; loaded: boolean }
+  >(() => {
+    const cached = workspaceId ? diagnosticsCache.get(workspaceId) : undefined;
+    return {
+      workspaceId,
+      sessions: cached?.sessions ?? [],
+      events: cached?.events ?? [],
+      loaded: Boolean(cached),
+    };
+  });
+  const cached = workspaceId ? diagnosticsCache.get(workspaceId) : undefined;
+  const active =
+    state.workspaceId === workspaceId
+      ? state
+      : {
+          workspaceId,
+          sessions: cached?.sessions ?? [],
+          events: cached?.events ?? [],
+          loaded: Boolean(cached),
+        };
+
+  useEffect(() => {
+    if (
+      !workspaceId ||
+      workspaceId !== cloudOrganizationId ||
+      !capability ||
+      status !== "connected"
+    ) {
+      return;
+    }
+    const unsubscribe = client.subscribe((message) => {
+      if (
+        message.type === "diagnostics" &&
+        message.workspaceId === workspaceId
+      ) {
+        const next = {
+          sessions: message.sessions,
+          events: message.events,
+        };
+        diagnosticsCache.set(workspaceId, next);
+        setState({ workspaceId, ...next, loaded: true });
+      }
+    });
+    client.send({
+      type: "listDiagnostics",
+      workspaceId,
+      executorCapability: capability,
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [capability, client, cloudOrganizationId, status, workspaceId]);
+
+  return {
+    sessions: active.sessions,
+    events: active.events,
+    loading: Boolean(workspaceId && !active.loaded),
+  };
 }
 
 const workspaceFilesCache = new Map<string, WorkspaceFileRecord[]>();
@@ -1061,7 +1267,7 @@ export function useWorkspaceFile(
         expectedVersionId: active.file.currentVersionId,
         createdBy: "user",
         sourceAgentId: active.file.sourceAgentId,
-        sourceRunId: active.file.sourceRunId,
+        sourceSessionId: active.file.sourceSessionId,
       },
       executorCapability: capability,
     });
@@ -1450,35 +1656,45 @@ export function useLocalIntegrationStatus() {
   return { integrations, refresh };
 }
 
-function LocalIntegrationReconciler() {
-  const { integrations } = useLocalIntegrationStatus();
-  const saveGoogleAnalyticsProperty = useMutation(
-    api.googleAnalytics.saveProperty,
-  );
-  const reconciled = useRef(new Set<string>());
+export function useDisconnectGoogleAnalytics() {
+  const { client, status } = useRuntime();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
 
-  useEffect(() => {
-    const googleAnalytics = integrations?.find(
-      (integration) =>
-        integration.provider === "google-analytics" &&
-        integration.status === "connected" &&
-        integration.externalId,
-    );
-    if (!googleAnalytics?.externalId) return;
-    const key = `${googleAnalytics.externalId}:${googleAnalytics.displayName ?? ""}`;
-    if (reconciled.current.has(key)) return;
-    reconciled.current.add(key);
-    void saveGoogleAnalyticsProperty({
-      propertyId: googleAnalytics.externalId,
-      ...(googleAnalytics.displayName
-        ? { propertyName: googleAnalytics.displayName }
-        : {}),
-    }).catch(() => {
-      reconciled.current.delete(key);
+  return () =>
+    new Promise<void>((resolve, reject) => {
+      if (status !== "connected" || !cloudOrganizationId || !capability) {
+        reject(new Error("The local integration service is unavailable."));
+        return;
+      }
+      const requestId = crypto.randomUUID();
+      const timeout = window.setTimeout(() => {
+        unsubscribe();
+        reject(new Error("Disconnecting Google Analytics timed out."));
+      }, 15_000);
+      const unsubscribe = client.subscribe((message) => {
+        if (
+          message.type === "integrationDisconnected" &&
+          message.workspaceId === cloudOrganizationId &&
+          message.requestId === requestId
+        ) {
+          window.clearTimeout(timeout);
+          unsubscribe();
+          resolve();
+          return;
+        }
+        if (message.type === "error" && message.requestId === requestId) {
+          window.clearTimeout(timeout);
+          unsubscribe();
+          reject(new Error(message.message));
+        }
+      });
+      client.send({
+        type: "disconnectGoogleAnalytics",
+        workspaceId: cloudOrganizationId,
+        requestId,
+        executorCapability: capability,
+      });
     });
-  }, [integrations, saveGoogleAnalyticsProperty]);
-
-  return null;
 }
 
 // ---- Chat state ----
@@ -1525,6 +1741,7 @@ function reduceChatControls(
       return {
         ...controls,
         status: event.role === "user" ? "running" : controls.status,
+        error: event.role === "user" ? undefined : controls.error,
       };
     case "toolProgress": {
       const current = controls.toolProgress[event.toolUseId] ?? "";
@@ -1591,6 +1808,7 @@ function reduceChatControls(
       return {
         ...controls,
         status: event.status === "running" ? "running" : "idle",
+        error: event.status === "running" ? undefined : controls.error,
       };
     case "error":
       return { ...controls, error: event.message, status: "idle" };
@@ -1661,8 +1879,10 @@ function mergeRuntimeMessage(
 ) {
   const existing = current.findIndex((message) => message.id === persisted.id);
   if (existing >= 0) {
-    return current.map((message, index) =>
-      index === existing ? persisted : message,
+    return deduplicateDocumentParts(
+      current.map((message, index) =>
+        index === existing ? persisted : message,
+      ),
     );
   }
   const streamingIndex = current.findIndex(
@@ -1670,11 +1890,29 @@ function mergeRuntimeMessage(
       message.role === "assistant" && message.id.startsWith("stream:"),
   );
   if (persisted.role === "assistant" && streamingIndex >= 0) {
-    return current.map((message, index) =>
-      index === streamingIndex ? persisted : message,
+    return deduplicateDocumentParts(
+      current.map((message, index) =>
+        index === streamingIndex ? persisted : message,
+      ),
     );
   }
-  return [...current, persisted];
+  return deduplicateDocumentParts([...current, persisted]);
+}
+
+function deduplicateDocumentParts(messages: ChiefUIMessage[]) {
+  const seen = new Set<string>();
+  return [...messages]
+    .reverse()
+    .map((message) => ({
+      ...message,
+      parts: message.parts.filter((part) => {
+        if (part.type !== "data-document") return true;
+        if (seen.has(part.data.fileId)) return false;
+        seen.add(part.data.fileId);
+        return true;
+      }),
+    }))
+    .reverse();
 }
 
 function replayStreamingText(events: AgentEvent[]) {
@@ -1693,7 +1931,15 @@ function replayStreamingText(events: AgentEvent[]) {
   return text;
 }
 
-function useRuntimeChat(chatId: string | null, mode: "open" | "observe") {
+function useRuntimeChat(
+  chatId: string | null,
+  mode: "open" | "observe",
+  initialExecution?: ChatExecutionSelection,
+  selectedExecution?: ChatExecutionSelection,
+  access?: "full" | "guarded",
+  purpose?: "integration-setup" | "analytics-report",
+  integrationDomain?: string,
+) {
   const { client, status: runtimeStatus } = useRuntime();
   const {
     cloudOrganizationId,
@@ -1702,6 +1948,15 @@ function useRuntimeChat(chatId: string | null, mode: "open" | "observe") {
   } = useWorkspaceCapability();
   const [controls, setControls] = useState<ChatControlState>(emptyChatControls);
   const [chatReady, setChatReady] = useState(false);
+  const [execution, setExecution] = useState<
+    ChatExecutionSelection | undefined
+  >(undefined);
+  const executionRef = useRef<ChatExecutionSelection | undefined>(
+    selectedExecution ?? initialExecution,
+  );
+  useEffect(() => {
+    executionRef.current = selectedExecution ?? execution ?? initialExecution;
+  }, [execution, initialExecution, selectedExecution]);
   const transport = useMemo<ChatTransport<ChiefUIMessage>>(
     () => ({
       sendMessages: ({ messages }) => {
@@ -1729,6 +1984,7 @@ function useRuntimeChat(chatId: string | null, mode: "open" | "observe") {
             chatId,
             messageId: message.id,
             text,
+            execution: executionRef.current,
             executorCapability,
           });
         }
@@ -1771,6 +2027,7 @@ function useRuntimeChat(chatId: string | null, mode: "open" | "observe") {
     setControls(emptyChatControls);
     setMessages([]);
     setChatReady(false);
+    setExecution(undefined);
     let cancelled = false;
     if (mode === "observe") {
       client.send({
@@ -1791,28 +2048,16 @@ function useRuntimeChat(chatId: string | null, mode: "open" | "observe") {
             chatId,
             workspaceContext,
             workspaceId: cloudOrganizationId,
+            execution: executionRef.current,
+            access,
+            purpose,
+            integrationDomain,
             executorCapability,
           });
         });
     }
 
     const unsub = client.subscribe((msg) => {
-      if (
-        mode === "open" &&
-        msg.type === "agentPreferences" &&
-        msg.workspaceId === cloudOrganizationId &&
-        msg.preferences.some(
-          (preference) =>
-            preference.agentId === "cmo" && Boolean(preference.driver),
-        )
-      ) {
-        client.send({
-          type: "openChat",
-          chatId,
-          workspaceId: cloudOrganizationId,
-          executorCapability,
-        });
-      }
       if (msg.type === "error" && msg.chatId === chatId) {
         setControls((current) => ({
           ...current,
@@ -1822,24 +2067,34 @@ function useRuntimeChat(chatId: string | null, mode: "open" | "observe") {
         return;
       }
       if (
+        msg.type === "chatOpened" &&
+        msg.workspaceId === cloudOrganizationId &&
+        msg.chatId === chatId
+      ) {
+        setExecution(msg.execution);
+        return;
+      }
+      if (
         msg.type === "history" &&
         msg.workspaceId === cloudOrganizationId &&
         msg.chatId === chatId
       ) {
         const streamingText = replayStreamingText(msg.events);
         setMessages(
-          streamingText
-            ? [
-                ...msg.messages,
-                {
-                  id: `stream:${chatId}`,
-                  role: "assistant",
-                  parts: [
-                    { type: "text", text: streamingText, state: "streaming" },
-                  ],
-                },
-              ]
-            : msg.messages,
+          deduplicateDocumentParts(
+            streamingText
+              ? [
+                  ...msg.messages,
+                  {
+                    id: `stream:${chatId}`,
+                    role: "assistant",
+                    parts: [
+                      { type: "text", text: streamingText, state: "streaming" },
+                    ],
+                  },
+                ]
+              : msg.messages,
+          ),
         );
         setControls(msg.events.reduce(reduceChatControls, emptyChatControls));
         setChatReady(true);
@@ -1906,6 +2161,9 @@ function useRuntimeChat(chatId: string | null, mode: "open" | "observe") {
     cloudOrganizationId,
     executorCapability,
     mode,
+    access,
+    purpose,
+    integrationDomain,
   ]);
 
   const interrupt = () => {
@@ -1973,12 +2231,53 @@ function useRuntimeChat(chatId: string | null, mode: "open" | "observe") {
     respondQuestion,
     provideInput,
     chatReady,
+    execution,
   };
 }
 
-/** A user-composable top-level Chief chat. No agent/provider input exists. */
-export function useChiefChat(chatId: string | null) {
-  return useRuntimeChat(chatId, "open");
+/** A user-composable top-level Chief chat with a per-conversation backend. */
+export function useChiefChat(
+  chatId: string | null,
+  initialExecution?: ChatExecutionSelection,
+  selectedExecution?: ChatExecutionSelection,
+  access?: "full" | "guarded",
+) {
+  return useRuntimeChat(
+    chatId,
+    "open",
+    initialExecution,
+    selectedExecution,
+    access,
+  );
+}
+
+export function useIntegrationSetupChat(
+  chatId: string | null,
+  integrationDomain: string,
+) {
+  return useRuntimeChat(
+    chatId,
+    "open",
+    undefined,
+    undefined,
+    "full",
+    "integration-setup",
+    integrationDomain,
+  );
+}
+
+export function useAnalyticsReportChat(
+  chatId: string | null,
+  access: "full" | "guarded",
+) {
+  return useRuntimeChat(
+    chatId,
+    "open",
+    undefined,
+    undefined,
+    access,
+    "analytics-report",
+  );
 }
 
 /** A hard read-only transcript API. It intentionally exposes no send method. */

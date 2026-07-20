@@ -31,7 +31,7 @@ export function RecurringWorkApprovalFlow({
   onApprove: (work: RecurringWorkRecord) => void;
   onReject: (work: RecurringWorkRecord) => void;
 }) {
-  const revisionChat = useChiefChat(work?.chatId ?? null);
+  const revisionChat = useChiefChat(work?.conversationId ?? null);
   const revisionNote = useMemo(() => {
     for (let i = revisionChat.messages.length - 1; i >= 0; i -= 1) {
       const item = revisionChat.messages[i]!;
@@ -58,6 +58,7 @@ export function RecurringWorkApprovalFlow({
       title: work.title,
       cron: work.cron,
       timezone: work.timezone,
+      onceAt: work.onceAt,
       instructions: work.instructions,
       approvalSummary: work.approvalSummary,
       proposedToolPatterns: work.proposedToolPatterns,
@@ -68,7 +69,7 @@ export function RecurringWorkApprovalFlow({
         `Current draft (JSON): ${JSON.stringify(draft)}`,
         `Feedback: "${text}"`,
         `Right now it is ${new Date().toString()}.`,
-        "Apply the feedback by calling the recurringWorkPropose local tool with the SAME id and ALL fields (id, title, agentId, cron, timezone, instructions, approvalSummary, proposedToolPatterns), changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
+        "Apply the feedback by calling the recurringWorkPropose local tool with the SAME id and ALL fields (id, title, agentId, cron, timezone, onceAt when present, instructions, approvalSummary, proposedToolPatterns), changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
       ].join("\n"),
     });
   };
@@ -80,11 +81,14 @@ export function RecurringWorkApprovalFlow({
           <>
             <DialogHeader>
               <DialogTitle className="font-serif text-2xl">
-                Approve recurring work
+                {work.onceAt === undefined
+                  ? "Approve recurring work"
+                  : "Approve task"}
               </DialogTitle>
               <DialogDescription>
-                Approve this once and {work.agentId} will keep running it until
-                you pause or revoke it.
+                {work.onceAt === undefined
+                  ? `Approve this once and ${work.agentId} will keep running it until you pause or revoke it.`
+                  : `Approve this once and ${work.agentId} will run it at the scheduled time.`}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -94,7 +98,10 @@ export function RecurringWorkApprovalFlow({
                   {work.approvalSummary}
                 </p>
                 <p className="text-muted-foreground mt-3 font-mono text-[11px]">
-                  {work.cron} · {work.timezone}
+                  {work.onceAt === undefined
+                    ? work.cron
+                    : new Date(work.onceAt).toLocaleString()}{" "}
+                  · {work.timezone}
                 </p>
               </div>
               <div>

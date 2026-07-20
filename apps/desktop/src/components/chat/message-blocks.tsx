@@ -1,16 +1,44 @@
+/* eslint-disable max-lines */
+
 import { Fragment, useEffect, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ArrowRight, ChevronDown, ListChecks } from "lucide-react";
 
 import type {
   AgentCapabilityId,
   ContentBlock,
+  SessionRecord,
 } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
 
 import { renderGenerativePart } from "../generative-ui/registry";
+import { executorToolLabel } from "./executor-tool-label";
+import { specialistTasksForInput } from "./specialist-task-display";
 import { StreamingMarkdown } from "./streaming-markdown";
 
 const MAX_RESULT_CHARS = 3000;
+const AGENT_ACTIVITY_STYLES: Record<string, string> = {
+  brand: "border-sky-300/15 bg-sky-300/[0.055] text-sky-300",
+  content: "border-amber-200/15 bg-amber-200/[0.055] text-amber-200",
+  analyst: "border-emerald-300/15 bg-emerald-300/[0.055] text-emerald-300",
+  prospector: "border-violet-300/15 bg-violet-300/[0.055] text-violet-300",
+  ads: "border-rose-300/15 bg-rose-300/[0.055] text-rose-300",
+};
+
+function SpecialistActivity({ agentId }: { agentId: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "relative flex size-5 shrink-0 items-center justify-center border",
+        AGENT_ACTIVITY_STYLES[agentId] ??
+          "border-blue-300/15 bg-blue-300/[0.055] text-blue-300",
+      )}
+    >
+      <i className="absolute size-2.5 animate-[spin_1.6s_linear_infinite] rounded-full border border-current/15 border-t-current/80 border-r-current/35 motion-reduce:animate-none" />
+      <i className="size-0.5 rounded-full bg-current opacity-70" />
+    </span>
+  );
+}
 
 function toolResultText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -56,25 +84,100 @@ function skillName(input: unknown) {
   return null;
 }
 
-function executorToolLabel(input: unknown) {
-  if (!input || typeof input !== "object") return null;
-  const code = (input as Record<string, unknown>).code;
-  if (typeof code !== "string") return null;
-  const calls = Array.from(
-    code.matchAll(/agentTools\.([A-Za-z0-9_]+)\s*\(/g),
-    (match) => match[1],
+export function ToolActivityGroup({
+  blocks,
+  progress = {},
+  active,
+}: {
+  blocks: ContentBlock[];
+  progress?: Record<string, string>;
+  active: boolean;
+}) {
+  const results = new Map(
+    blocks.flatMap((block) =>
+      block.type === "tool_result" ? [[block.tool_use_id, block] as const] : [],
+    ),
   );
-  if (calls.includes("uiPresentChart")) return "Present chart";
-  const reports = calls.filter((call) => call === "analyticsRunReport");
-  if (reports.length > 1) return "Compare analytics periods";
-  if (reports.length === 1) return "Fetch analytics report";
-  if (calls.includes("sourcesList")) return "Check connected sources";
-  const first = calls[0];
-  return first
-    ? first
-        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-        .replace(/^./, (character) => character.toUpperCase())
-    : null;
+  const seen = new Set<string>();
+  const tools = blocks.flatMap((block) => {
+    if (block.type !== "tool_use" || seen.has(block.id)) return [];
+    seen.add(block.id);
+    return [block];
+  });
+  if (tools.length === 0) return null;
+  const completed = tools.filter((tool) => results.has(tool.id)).length;
+  const failed = tools.filter((tool) => results.get(tool.id)?.is_error).length;
+  const working = active && completed < tools.length;
+
+  return (
+    <details
+      className="group border border-white/[0.07] bg-white/[0.012]"
+      open={active || undefined}
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3.5 py-2.5 text-xs [&::-webkit-details-marker]:hidden">
+        <ListChecks className="text-muted-foreground" size={14} />
+        <span className="font-medium">
+          {working ? "Working" : "Workspace activity"}
+        </span>
+        <span className="text-muted-foreground min-w-0 flex-1 truncate">
+          {tools.length} {tools.length === 1 ? "step" : "steps"}
+        </span>
+        <span
+          className={cn(
+            "text-muted-foreground text-[10px]",
+            failed > 0 && "text-red-400",
+          )}
+        >
+          {failed > 0
+            ? `${failed} failed`
+            : working
+              ? `${completed}/${tools.length}`
+              : "Done"}
+        </span>
+        <ChevronDown
+          size={12}
+          className="text-muted-foreground transition-transform group-open:rotate-180"
+        />
+      </summary>
+      <div className="space-y-2 border-t border-white/[0.06] px-3.5 py-3">
+        {tools.map((tool) => {
+          const result = results.get(tool.id);
+          const label = toolPresentation(tool.name, tool.input);
+          const summary = toolSummary(tool.input);
+          const detail = summary.startsWith("const ") ? "" : summary;
+          return (
+            <div key={tool.id} className="flex min-w-0 items-center gap-2.5">
+              <span
+                className={cn(
+                  "bg-muted-foreground/40 size-1.5 shrink-0 rounded-full",
+                  !result && active && "animate-pulse bg-blue-400",
+                  result?.is_error && "bg-red-400",
+                  result && !result.is_error && "bg-emerald-400/80",
+                )}
+              />
+              <span className="shrink-0 text-xs">{label}</span>
+              {detail ? (
+                <span className="text-muted-foreground min-w-0 flex-1 truncate font-mono text-[10px]">
+                  {detail}
+                </span>
+              ) : (
+                <span className="flex-1" />
+              )}
+              <span className="text-muted-foreground shrink-0 text-[10px]">
+                {result
+                  ? result.is_error
+                    ? "Failed"
+                    : "Done"
+                  : active || progress[tool.id]
+                    ? "Working"
+                    : "Stopped"}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </details>
+  );
 }
 
 function toolPresentation(name: string, input: unknown) {
@@ -96,6 +199,7 @@ export function toolSummary(input: unknown): string {
   for (const key of [
     "description",
     "file_path",
+    "file",
     "path",
     "command",
     "query",
@@ -115,11 +219,15 @@ function ToolCard({
   result,
   progress,
   active,
+  task,
+  onOpenTask,
 }: {
   block: Extract<ContentBlock, { type: "tool_use" }>;
   result?: Extract<ContentBlock, { type: "tool_result" }>;
   progress?: string;
   active: boolean;
+  task?: SessionRecord;
+  onOpenTask?: (taskId: string) => void;
 }) {
   const kind = canonicalTool(block.name);
   const label = toolPresentation(block.name, block.input);
@@ -149,6 +257,61 @@ function ToolCard({
     );
     return () => window.clearInterval(timer);
   }, [active, result]);
+
+  if (task) {
+    const running = task.status === "running" || task.status === "waiting";
+    const agent =
+      task.agent === "brand"
+        ? "Brand Researcher"
+        : task.agent === "content"
+          ? "Content Writer"
+          : task.agent === "analyst"
+            ? "Analyst"
+            : task.agent === "prospector"
+              ? "Prospector"
+              : task.agent === "ads"
+                ? "Ads Manager"
+                : task.agent;
+    return (
+      <button
+        type="button"
+        onClick={() => onOpenTask?.(task.id)}
+        className="hover:bg-foreground/[0.025] flex w-full items-center gap-3 border border-white/[0.07] bg-white/[0.012] px-3.5 py-3 text-left text-xs transition-colors"
+      >
+        {running ? (
+          <SpecialistActivity agentId={task.agent} />
+        ) : (
+          <span
+            className={cn(
+              "flex size-5 shrink-0 items-center justify-center border border-white/10 bg-white/[0.025]",
+              task.status === "completed" && "text-emerald-300",
+              task.status === "failed" && "text-red-300",
+            )}
+          >
+            <span className="size-1 rounded-full bg-current opacity-80" />
+          </span>
+        )}
+        <span className="min-w-0 flex-1">
+          <strong className="block truncate font-medium">{task.title}</strong>
+          <small className="text-muted-foreground mt-0.5 block">
+            {agent} ·{" "}
+            {running
+              ? "Working"
+              : task.status === "completed"
+                ? "Complete"
+                : task.status === "failed"
+                  ? "Failed"
+                  : "Stopped"}
+          </small>
+        </span>
+        <ArrowRight
+          aria-hidden
+          className="text-muted-foreground/60 shrink-0"
+          size={13}
+        />
+      </button>
+    );
+  }
 
   if (kind === "skill") {
     return (
@@ -247,11 +410,19 @@ export function Blocks({
   progress = {},
   capabilities = [],
   active = true,
+  tasks = [],
+  taskOwners,
+  ownerId,
+  onOpenTask,
 }: {
   blocks: ContentBlock[];
   progress?: Record<string, string>;
   capabilities?: readonly AgentCapabilityId[];
   active?: boolean;
+  tasks?: readonly SessionRecord[];
+  taskOwners?: ReadonlyMap<string, string>;
+  ownerId?: string;
+  onOpenTask?: (taskId: string) => void;
 }) {
   const results = new Map(
     blocks
@@ -261,6 +432,7 @@ export function Blocks({
       )
       .map((block) => [block.tool_use_id, block]),
   );
+  const renderedTasks = new Set<string>();
 
   return (
     <div className="max-w-full min-w-0 space-y-3 overflow-hidden">
@@ -302,7 +474,27 @@ export function Blocks({
                 </p>
               </details>
             );
-          case "tool_use":
+          case "tool_use": {
+            const blockTasks = specialistTasksForInput(block.input, tasks);
+            const visibleTasks = blockTasks.filter(
+              (task) =>
+                taskOwners?.get(task.id) === ownerId &&
+                !renderedTasks.has(task.id),
+            );
+            for (const task of visibleTasks) renderedTasks.add(task.id);
+            if (blockTasks.length > 0) {
+              return visibleTasks.map((task) => (
+                <ToolCard
+                  key={`${block.id}-${task.id}`}
+                  block={block}
+                  result={results.get(block.id)}
+                  progress={progress[block.id]}
+                  active={active}
+                  task={task}
+                  onOpenTask={onOpenTask}
+                />
+              ));
+            }
             return (
               <ToolCard
                 key={block.id}
@@ -310,8 +502,10 @@ export function Blocks({
                 result={results.get(block.id)}
                 progress={progress[block.id]}
                 active={active}
+                onOpenTask={onOpenTask}
               />
             );
+          }
           case "tool_result": {
             if (
               blocks.some(

@@ -78,32 +78,34 @@ function QuestionBlock({
           );
         })}
       </div>
-      <Input
-        value={state.other}
-        placeholder="Other…"
-        onFocus={() => {
-          if (!state.selected.has(OTHER)) {
+      {question.allowFreeform !== false ? (
+        <Input
+          value={state.other}
+          placeholder={question.options.length ? "Other…" : "Your answer"}
+          onFocus={() => {
+            if (!state.selected.has(OTHER)) {
+              const selected = new Set(state.selected);
+              if (!question.multiSelect) selected.clear();
+              selected.add(OTHER);
+              onChange({ ...state, selected });
+            }
+          }}
+          onChange={(e) => {
             const selected = new Set(state.selected);
-            if (!question.multiSelect) selected.clear();
-            selected.add(OTHER);
-            onChange({ ...state, selected });
-          }
-        }}
-        onChange={(e) => {
-          const selected = new Set(state.selected);
-          if (e.target.value) {
-            if (!question.multiSelect) selected.clear();
-            selected.add(OTHER);
-          } else {
-            selected.delete(OTHER);
-          }
-          onChange({ selected, other: e.target.value });
-        }}
-        className={cn(
-          "h-9 text-sm",
-          state.selected.has(OTHER) && "border-foreground/40",
-        )}
-      />
+            if (e.target.value) {
+              if (!question.multiSelect) selected.clear();
+              selected.add(OTHER);
+            } else {
+              selected.delete(OTHER);
+            }
+            onChange({ selected, other: e.target.value });
+          }}
+          className={cn(
+            "h-9 text-sm",
+            state.selected.has(OTHER) && "border-foreground/40",
+          )}
+        />
+      ) : null}
     </div>
   );
 }
@@ -141,13 +143,19 @@ export function QuestionCard({
         />
       ))}
       <div className="flex items-center justify-between border-t pt-3">
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="text-muted-foreground hover:text-foreground text-xs transition-colors"
-        >
-          Skip these questions
-        </button>
+        {pending.questions.every(
+          (question) => question.dismissible !== false,
+        ) ? (
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="text-muted-foreground hover:text-foreground text-xs transition-colors"
+          >
+            Skip these questions
+          </button>
+        ) : (
+          <span />
+        )}
         <Button
           size="sm"
           disabled={!complete}

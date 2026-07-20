@@ -11,9 +11,10 @@ import { cn } from "@chief/ui/lib/utils";
 
 import type { ChatLogEntry } from "../lib/chat-log";
 import { ChiefChat } from "../components/chat/chief-chat";
+import { ObservedChat } from "../components/chat/observed-chat";
 import { useAuth } from "../lib/auth/auth-context";
 import { createChat } from "../lib/chat-log";
-import { useLocalChats, useRuntime } from "../lib/runtime";
+import { useLocalChats, useRuntime, useWorkspaceData } from "../lib/runtime";
 
 function useRunningChats(): Record<string, boolean> {
   const { client } = useRuntime();
@@ -115,13 +116,19 @@ function ConversationRow({
 export function ConversationsPage() {
   const { cloudOrganizationId } = useAuth();
   const localChats = useLocalChats(cloudOrganizationId);
+  const workspaceData = useWorkspaceData(cloudOrganizationId);
   const [params, setParams] = useSearchParams();
   const running = useRunningChats();
   const activeChatId = params.get("chat");
+  const activeChildId = params.get("child");
   const activeEntry = localChats.chats.find(
     (entry) => entry.id === activeChatId,
   );
-  const isNew = Boolean(activeChatId && !activeEntry);
+  const isNew = Boolean(activeChatId && !localChats.loading && !activeEntry);
+  const activeChild = workspaceData.activity.find(
+    (session) =>
+      session.id === activeChildId && session.parentId === activeChatId,
+  );
 
   useEffect(() => {
     const first = localChats.chats[0];
@@ -150,15 +157,16 @@ export function ConversationsPage() {
     <div className="-mx-4 -mb-4 flex h-[calc(100vh-48px)] min-w-0 flex-col sm:-mx-8 sm:-mb-8 sm:flex-row">
       <aside className="flex max-h-48 shrink-0 flex-col border-b px-4 sm:max-h-none sm:w-72 sm:border-r sm:border-b-0 sm:px-5">
         <div className="shrink-0 pt-4 sm:pt-10">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <h1 className="font-serif text-3xl">Conversations</h1>
             <button
               type="button"
               onClick={openNew}
-              className="text-muted-foreground hover:bg-accent hover:text-foreground flex items-center gap-2 border px-2.5 py-2 text-xs transition-colors"
+              aria-label="New chat"
+              title="New chat"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground flex size-9 shrink-0 items-center justify-center border transition-colors"
             >
               <Plus size={14} />
-              New chat
             </button>
           </div>
         </div>
@@ -176,11 +184,33 @@ export function ConversationsPage() {
         </div>
       </aside>
       <main className="min-h-0 min-w-0 flex-1 px-4 pb-4 sm:pb-6 sm:pl-6">
-        {activeChatId ? (
+        {activeChatId && activeChild ? (
+          <ObservedChat
+            key={activeChild.id}
+            chatId={activeChild.id}
+            label={
+              <div className="flex min-w-0 items-center justify-start gap-2 px-4">
+                <button
+                  type="button"
+                  className="hover:text-foreground max-w-[40%] truncate transition-colors"
+                  onClick={() => setParams({ chat: activeChatId })}
+                >
+                  {activeEntry?.title ?? "Chief"}
+                </button>
+                <span aria-hidden>/</span>
+                <strong className="text-foreground truncate font-medium">
+                  {activeChild.title}
+                </strong>
+              </div>
+            }
+          />
+        ) : activeChatId ? (
           <ChiefChat
             key={activeChatId}
             chatId={activeChatId}
             isNew={isNew}
+            initialDriver={activeEntry?.driver}
+            initialModel={activeEntry?.model}
             composer={
               params.get("compose") === "recurring"
                 ? "recurring"
@@ -202,6 +232,9 @@ export function ConversationsPage() {
                 { replace: true },
               );
             }}
+            onOpenChild={(childId) =>
+              setParams({ chat: activeChatId, child: childId })
+            }
           />
         ) : (
           <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-3 text-center text-sm">

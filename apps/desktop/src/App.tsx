@@ -32,8 +32,8 @@ import { ConversationsPage } from "./pages/conversations";
 import { DashboardPage } from "./pages/dashboard";
 import { OnboardingPage } from "./pages/onboarding";
 import { ProspectsPage } from "./pages/prospects";
-import { ResultsPage } from "./pages/results";
 import { SchedulePage } from "./pages/schedule";
+import { DiagnosticsSettings } from "./pages/settings/diagnostics";
 import { EnvironmentSettings } from "./pages/settings/environment";
 import {
   IntegrationSettingsDetail,
@@ -346,7 +346,6 @@ function AuthenticatedApp() {
                 <Route path="analytics" element={<AnalyticsPage />} />
                 <Route path="campaigns" element={<CampaignsPage />} />
                 <Route path="schedule" element={<SchedulePage />} />
-                <Route path="schedule/history" element={<ResultsPage />} />
                 <Route path="prospects" element={<ProspectsPage />} />
                 <Route path="trending" element={<TrendingPage />} />
                 <Route path="conversations" element={<ConversationsPage />} />
@@ -360,11 +359,8 @@ function AuthenticatedApp() {
                   />
                   <Route path="profile" element={<ProfileSettings />} />
                   <Route path="workspace" element={<WorkspaceSettings />} />
+                  <Route path="diagnostics" element={<DiagnosticsSettings />} />
                   <Route path="environment" element={<EnvironmentSettings />} />
-                  <Route
-                    path="deployment"
-                    element={<Navigate to="/agents" replace />}
-                  />
                   <Route
                     path="integrations"
                     element={<IntegrationsSettings />}

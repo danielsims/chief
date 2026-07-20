@@ -1,7 +1,12 @@
+/* eslint-disable max-lines */
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Square } from "lucide-react";
 
-import type { DriverType } from "@chief/agent-runtime/types";
+import type {
+  ChatExecutionSelection,
+  DriverType,
+} from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 import {
   Select,
@@ -12,10 +17,6 @@ import {
 
 import type { SchedulingDraft } from "./recurring-work-composer";
 import { useAgentConfig } from "../../lib/agent-config";
-import {
-  getWorkspaceProvider,
-  setWorkspaceProvider,
-} from "../../lib/agent-overrides";
 import { useAuth } from "../../lib/auth/auth-context";
 import {
   findPendingInputRequest,
@@ -31,13 +32,16 @@ import {
 } from "../../lib/runtime";
 import { InputRequestSection } from "../integrations/input-request-section";
 import { ApprovalCard } from "./approval-card";
-import { Blocks } from "./message-blocks";
+import { Blocks, ToolActivityGroup } from "./message-blocks";
 import { QuestionCard } from "./question-card";
 import { RecurringWorkComposer } from "./recurring-work-composer";
+import {
+  ordinaryToolMessageGroups,
+  specialistTaskOwners,
+} from "./specialist-task-display";
 import { StreamingMarkdown } from "./streaming-markdown";
 
-// The local runtime only runs CLI-backed providers.
-const CHAT_PROVIDERS: DriverType[] = ["claude", "codex", "opencode"];
+const CHAT_PROVIDERS: DriverType[] = ["claude", "codex", "opencode", "remote"];
 
 const CHAT_SUGGESTIONS = [
   "What should we focus on this week?",
@@ -63,7 +67,10 @@ export function ChiefChat({
   composerPlaybookId,
   initialPrompt,
   initialDraft,
+  initialDriver,
+  initialModel,
   onInitialPromptSent,
+  onOpenChild,
 }: {
   chatId: string;
   /** True for a draft chat with no persisted transcript to replay. */
@@ -76,19 +83,33 @@ export function ChiefChat({
   composerPlaybookId?: string;
   initialPrompt?: string;
   initialDraft?: string;
+  initialDriver?: DriverType;
+  initialModel?: string;
   onInitialPromptSent?: () => void;
+  onOpenChild?: (childId: string) => void;
 }) {
   const { status: runtimeStatus } = useRuntime();
   const { cloudOrganizationId } = useAuth();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
+  const childSessions = workspaceData.activity
+    .filter(
+      (session) =>
+        session.parentId === chatId &&
+        session.kind === "task" &&
+        session.visibility === "private" &&
+        !session.scheduleId,
+    )
+    .sort((a, b) => a.createdAt - b.createdAt);
   const agentConfig = useAgentConfig();
   const resolved = agentConfig.forAgent("cmo");
-  const [chosenDriver, setChosenDriver] = useState<DriverType | null>(null);
-  const [chosenModel, setChosenModel] = useState<string | null>(null);
-  const driver = chosenDriver ?? resolved.driver;
-  const model = chosenModel ?? resolved.model;
+  const initialExecution = initialDriver
+    ? { driver: initialDriver, model: initialModel }
+    : resolved.driver
+      ? { driver: resolved.driver, model: resolved.model }
+      : undefined;
+  const [selectedExecution, setSelectedExecution] =
+    useState<ChatExecutionSelection | null>(null);
   const activeCapabilities = resolved.capabilities;
-  const providerModels = useProviderModels(driver);
   const {
     messages,
     controls,
@@ -98,7 +119,17 @@ export function ChiefChat({
     respondQuestion,
     provideInput,
     chatReady,
-  } = useChiefChat(chatId);
+    execution,
+  } = useChiefChat(
+    chatId,
+    initialExecution,
+    selectedExecution ?? undefined,
+    agentConfig.access,
+  );
+  const activeExecution = selectedExecution ?? execution ?? initialExecution;
+  const driver = activeExecution?.driver;
+  const model = activeExecution?.model;
+  const providerModels = useProviderModels(driver ?? null);
   const [answeredInputs, setAnsweredInputs] = useState<ReadonlySet<string>>(
     new Set(),
   );
@@ -221,7 +252,8 @@ export function ChiefChat({
   const activeMeta = driver ? PROVIDER_META[driver] : null;
   const activeModel =
     providerModels.models.find((option) => option.value === model)?.label ??
-    (model || "Auto");
+    model ??
+    "Auto";
   const showOptimisticInitialPrompt = Boolean(
     optimisticInitialPrompt &&
     !messages.some(
@@ -233,21 +265,31 @@ export function ChiefChat({
         ),
     ),
   );
-
-  const savePreferences = (nextDriver: DriverType, nextModel: string) => {
-    agentConfig.savePreference({
-      agentId: "cmo",
-      enabled: resolved.enabled,
-      driver: nextDriver,
-      model: nextModel || undefined,
-      capabilities: resolved.capabilities,
-      integrations: resolved.integrations,
-    });
-  };
+  const childSessionOwners = specialistTaskOwners(
+    messages.flatMap((message) =>
+      message.role === "assistant"
+        ? [
+            {
+              id: message.id,
+              blocks: withoutMarkerLines(messageBlocks(message)),
+            },
+          ]
+        : [],
+    ),
+    childSessions,
+  );
+  const ordinaryToolGroups = ordinaryToolMessageGroups(
+    messages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      blocks: withoutMarkerLines(messageBlocks(message)),
+    })),
+    childSessions,
+  );
 
   return (
     <div className="flex h-full min-w-0 flex-col overflow-hidden">
-      <div className="min-w-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto py-6 pr-2">
+      <div className="min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto py-6 pr-2">
         {/* A new chat has nothing to replay, so its identity header renders
             immediately; existing chats wait for history so the empty state
             never flashes before the transcript. */}
@@ -261,6 +303,11 @@ export function ChiefChat({
               onSubmit={submit}
               onDismiss={() => setComposerOpen(false)}
             />
+          </div>
+        ) : null}
+        {!chatReady && !isNew && !composerOpen && messages.length === 0 ? (
+          <div className="text-muted-foreground flex h-full items-center justify-center font-mono text-xs">
+            Loading conversation…
           </div>
         ) : null}
         {(chatReady || isNew) &&
@@ -286,21 +333,59 @@ export function ChiefChat({
         ) : null}
         {messages.map((message) =>
           message.role === "user" ? (
-            <UserMessage
-              key={message.id}
-              text={messageBlocks(message)
-                .flatMap((part) => (part.type === "text" ? [part.text] : []))
-                .join("\n")}
-            />
-          ) : message.role === "assistant" ? (
-            <div key={message.id} className="mx-auto w-full max-w-3xl min-w-0">
-              <Blocks
-                blocks={withoutMarkerLines(messageBlocks(message))}
-                progress={controls.toolProgress}
-                capabilities={activeCapabilities}
-                active={controls.status === "running"}
+            message.id === `${chatId}-kickoff` ? (
+              <div
+                key={message.id}
+                className="mx-auto w-full max-w-3xl border-y py-4"
+              >
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <span className="size-1.5 bg-blue-500" />
+                  Initial business review
+                </div>
+                <p className="text-muted-foreground mt-1 pl-3.5 text-xs">
+                  Chief is learning your business. Research and specialist work
+                  will appear here as it happens.
+                </p>
+              </div>
+            ) : (
+              <UserMessage
+                key={message.id}
+                text={messageBlocks(message)
+                  .flatMap((part) => (part.type === "text" ? [part.text] : []))
+                  .join("\n")}
               />
-            </div>
+            )
+          ) : message.role === "assistant" ? (
+            ordinaryToolGroups.get(message.id) ? (
+              ordinaryToolGroups.get(message.id)?.ownerId === message.id ? (
+                <div
+                  key={message.id}
+                  className="mx-auto w-full max-w-3xl min-w-0"
+                >
+                  <ToolActivityGroup
+                    blocks={ordinaryToolGroups.get(message.id)?.blocks ?? []}
+                    progress={controls.toolProgress}
+                    active={controls.status === "running"}
+                  />
+                </div>
+              ) : null
+            ) : (
+              <div
+                key={message.id}
+                className="mx-auto w-full max-w-3xl min-w-0"
+              >
+                <Blocks
+                  blocks={withoutMarkerLines(messageBlocks(message))}
+                  progress={controls.toolProgress}
+                  capabilities={activeCapabilities}
+                  active={controls.status === "running"}
+                  tasks={childSessions}
+                  taskOwners={childSessionOwners}
+                  ownerId={message.id}
+                  onOpenTask={onOpenChild}
+                />
+              </div>
+            )
           ) : (
             <div key={message.id} />
           ),
@@ -390,19 +475,10 @@ export function ChiefChat({
             <div className="flex items-center gap-3">
               <Select
                 value={driver ?? undefined}
+                disabled={controls.status === "running"}
                 onValueChange={(value) => {
                   const next = value as DriverType;
-                  setChosenDriver(next);
-                  setChosenModel("");
-                  savePreferences(next, "");
-                  // The first explicit choice becomes the workspace default,
-                  // so no later chat ever opens unresolved again.
-                  if (
-                    cloudOrganizationId &&
-                    !getWorkspaceProvider(cloudOrganizationId)
-                  ) {
-                    setWorkspaceProvider(cloudOrganizationId, next);
-                  }
+                  setSelectedExecution({ driver: next });
                 }}
               >
                 <SelectTrigger className="text-muted-foreground hover:text-foreground data-[state=open]:text-foreground h-6 w-auto gap-1.5 border-transparent px-1 text-xs">
@@ -433,11 +509,13 @@ export function ChiefChat({
                 <>
                   <span className="text-muted-foreground/50 text-xs">/</span>
                   <Select
-                    value={model || "__auto__"}
+                    value={model ?? "__auto__"}
+                    disabled={controls.status === "running"}
                     onValueChange={(value) => {
-                      const next = value === "__auto__" ? "" : value;
-                      setChosenModel(next);
-                      savePreferences(driver, next);
+                      setSelectedExecution({
+                        driver,
+                        model: value === "__auto__" ? undefined : value,
+                      });
                     }}
                   >
                     <SelectTrigger className="text-muted-foreground hover:text-foreground data-[state=open]:text-foreground h-6 w-auto max-w-48 gap-1.5 border-transparent px-1 text-xs">
