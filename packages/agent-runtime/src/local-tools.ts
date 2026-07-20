@@ -1,24 +1,25 @@
-import { randomUUID } from "node:crypto";
+/* eslint-disable max-lines */
+
+import { createHash, randomUUID } from "node:crypto";
 
 import type { SessionManager } from "./manager.js";
 import type {
+  AnalyticsDataset,
   CampaignRecord,
   ContentDraftRecord,
+  InputRequest,
   ProspectRecord,
   RecurringWorkRecord,
   TrendRecord,
 } from "./types.js";
-import {
-  googleAnalyticsMetadata,
-  googleAnalyticsProperties,
-  googleAnalyticsRunReport,
-} from "./google-analytics-local.js";
+import { assertSafeInputRequest } from "./input-values.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
+import { runSpecialistDelegation } from "./specialist-delegation.js";
 import {
+  readWorkspaceBrandProfile,
   readWorkspaceContext,
   writeWorkspaceBrandProfile,
 } from "./workspace-context.js";
-import { workspaceSecrets } from "./workspace-secrets.js";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -42,6 +43,173 @@ function requiredValue(input: unknown, name: string, maximum: number) {
   const result = value(input, name, maximum);
   if (!result) throw new Error(`${name} is required.`);
   return result;
+}
+
+function actionInputRequest(
+  input: unknown,
+  id: string,
+  title: string,
+  reason: string,
+): InputRequest | undefined {
+  if (input === undefined) return undefined;
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("request must be an object.");
+  }
+  const raw = input as Record<string, unknown>;
+  const steps = Array.isArray(raw.steps)
+    ? raw.steps.slice(0, 8).map((step, index) => {
+        if (!step || typeof step !== "object" || Array.isArray(step)) {
+          throw new Error(`request.steps[${index}] must be an object.`);
+        }
+        const item = step as Record<string, unknown>;
+        const text = requiredValue(
+          item.text,
+          `request.steps[${index}].text`,
+          500,
+        );
+        const url = value(
+          item.url,
+          `request.steps[${index}].url`,
+          1_000,
+          false,
+        );
+        if (url && !/^https?:\/\//i.test(url) && !/^\/(?!\/)/.test(url)) {
+          throw new Error(
+            "Action step URLs must use HTTP, HTTPS, or an absolute Chief app path.",
+          );
+        }
+        return { text, ...(url ? { url } : {}) };
+      })
+    : undefined;
+  const questions = Array.isArray(raw.questions)
+    ? raw.questions.slice(0, 6).map((question, index) => {
+        if (
+          !question ||
+          typeof question !== "object" ||
+          Array.isArray(question)
+        ) {
+          throw new Error(`request.questions[${index}] must be an object.`);
+        }
+        const item = question as Record<string, unknown>;
+        const options = Array.isArray(item.options)
+          ? item.options.slice(0, 8).map((option, optionIndex) => {
+              if (
+                !option ||
+                typeof option !== "object" ||
+                Array.isArray(option)
+              ) {
+                throw new Error(
+                  `request.questions[${index}].options[${optionIndex}] must be an object.`,
+                );
+              }
+              const value = option as Record<string, unknown>;
+              return {
+                label: requiredValue(
+                  value.label,
+                  `request.questions[${index}].options[${optionIndex}].label`,
+                  120,
+                ),
+                description: value.description
+                  ? requiredValue(
+                      value.description,
+                      `request.questions[${index}].options[${optionIndex}].description`,
+                      300,
+                    )
+                  : undefined,
+              };
+            })
+          : [];
+        return {
+          question: requiredValue(
+            item.question,
+            `request.questions[${index}].question`,
+            500,
+          ),
+          header: value(
+            item.header,
+            `request.questions[${index}].header`,
+            80,
+            false,
+          ),
+          multiSelect: item.multiSelect === true,
+          options,
+        };
+      })
+    : undefined;
+  const fields = Array.isArray(raw.fields)
+    ? raw.fields.slice(0, 8).map((field, index) => {
+        if (!field || typeof field !== "object" || Array.isArray(field)) {
+          throw new Error(`request.fields[${index}] must be an object.`);
+        }
+        const item = field as Record<string, unknown>;
+        const save = item.save;
+        if (!save || typeof save !== "object" || Array.isArray(save)) {
+          throw new Error(`request.fields[${index}].save must be an object.`);
+        }
+        const destination = save as Record<string, unknown>;
+        const envKey = value(
+          destination.envKey,
+          `request.fields[${index}].save.envKey`,
+          120,
+          false,
+        );
+        const file = value(
+          destination.file,
+          `request.fields[${index}].save.file`,
+          240,
+          false,
+        );
+        if (Boolean(envKey) === Boolean(file)) {
+          throw new Error(
+            `request.fields[${index}] must have exactly one vault destination.`,
+          );
+        }
+        if (envKey && !/^[A-Z][A-Z0-9_]{1,119}$/.test(envKey)) {
+          throw new Error(`${envKey} is not a valid environment key.`);
+        }
+        let fieldDestination: { envKey: string } | { file: string };
+        if (envKey) {
+          fieldDestination = { envKey };
+        } else if (file) {
+          fieldDestination = { file };
+        } else {
+          throw new Error(
+            `request.fields[${index}] must have a vault destination.`,
+          );
+        }
+        return {
+          key: requiredValue(item.key, `request.fields[${index}].key`, 80),
+          label: requiredValue(
+            item.label,
+            `request.fields[${index}].label`,
+            160,
+          ),
+          type: choice(
+            item.type,
+            `request.fields[${index}].type`,
+            ["text", "secret", "multiline"] as const,
+            "text",
+          ),
+          save: fieldDestination,
+        };
+      })
+    : [];
+  if ((questions?.length ?? 0) === 0 && fields.length === 0) {
+    throw new Error("An action request needs at least one question or field.");
+  }
+  if (new Set(fields.map((field) => field.key)).size !== fields.length) {
+    throw new Error("Action request field keys must be unique.");
+  }
+  const request: InputRequest = {
+    id,
+    title,
+    reason,
+    steps,
+    questions,
+    fields,
+  };
+  assertSafeInputRequest(request);
+  return request;
 }
 
 function choice<T extends string>(
@@ -87,18 +255,7 @@ function fileSlug(value: string) {
 
 function stringList(input: unknown, name: string, maximum = 30) {
   if (!Array.isArray(input)) throw new Error(`${name} must be a list.`);
-  return input.slice(0, maximum).map((item) => value(item, name, 300)!);
-}
-
-function googleAnalyticsFieldList(input: unknown, name: string) {
-  if (!Array.isArray(input)) throw new Error(`${name} must be a list.`);
-  return input.map((item) => {
-    if (typeof item === "string") return item;
-    if (item && typeof item === "object" && "name" in item) {
-      return value((item as { name?: unknown }).name, name, 200)!;
-    }
-    throw new Error(`${name} must contain field names.`);
-  });
+  return input.slice(0, maximum).map((item) => requiredValue(item, name, 300));
 }
 
 function toolAddressList(input: unknown) {
@@ -109,6 +266,42 @@ function toolAddressList(input: unknown) {
     );
   }
   return [...new Set(addresses)];
+}
+
+function analyticsDatasetInput(
+  input: Record<string, unknown>,
+): Omit<AnalyticsDataset, "capturedAt"> {
+  if (JSON.stringify(input).length > 1_500_000) {
+    throw new Error("Analytics dataset is too large.");
+  }
+  const provider = requiredValue(input.provider, "provider", 160);
+  const sourceId = requiredValue(input.sourceId, "sourceId", 240);
+  const key = requiredValue(input.key, "key", 120);
+  const title = requiredValue(input.title, "title", 200);
+  if (
+    !Array.isArray(input.metrics) ||
+    input.metrics.length < 1 ||
+    input.metrics.length > 40 ||
+    !Array.isArray(input.dimensions) ||
+    input.dimensions.length > 20 ||
+    !Array.isArray(input.periods) ||
+    input.periods.length > 24 ||
+    (input.rows !== undefined &&
+      (!Array.isArray(input.rows) || input.rows.length > 1_000)) ||
+    (input.series !== undefined &&
+      (!Array.isArray(input.series) || input.series.length > 12)) ||
+    (input.charts !== undefined &&
+      (!Array.isArray(input.charts) || input.charts.length > 8))
+  ) {
+    throw new Error("A valid bounded analytics dataset is required.");
+  }
+  return {
+    ...(input as unknown as Omit<AnalyticsDataset, "capturedAt">),
+    provider,
+    sourceId,
+    key,
+    title,
+  };
 }
 
 export function localToolsOpenApi(origin: string) {
@@ -167,6 +360,21 @@ export function localToolsOpenApi(origin: string) {
           responses: saveResponse,
         },
       },
+      "/local-tools/analytics/datasets": {
+        get: {
+          operationId: "analytics.listDatasets",
+          summary: "Read locally saved analytics datasets",
+          responses: { "200": { description: "Workspace analytics datasets" } },
+        },
+        post: {
+          operationId: "analytics.saveDataset",
+          summary: "Save a provider-neutral analytics dataset on this Mac",
+          description:
+            "Atomically saves a reusable report projection. Use key overview and the connected account or property id as sourceId.",
+          requestBody: body("AnalyticsDatasetInput"),
+          responses: saveResponse,
+        },
+      },
       "/local-tools/content": {
         get: {
           operationId: "content.list",
@@ -222,14 +430,13 @@ export function localToolsOpenApi(origin: string) {
           responses: saveResponse,
         },
       },
-      "/local-tools/attention": {
+      "/local-tools/action": {
         post: {
-          operationId: "attention.raise",
-          summary:
-            "Flag something that genuinely requires the user's attention",
+          operationId: "action.raise",
+          summary: "Create an action that genuinely requires the user",
           description:
-            "Use sparingly: only for items the user must personally decide or act on. A concrete reason is required; routine output and successes must never be flagged.",
-          requestBody: body("AttentionInput"),
+            "Use sparingly: only for items the user must personally decide or act on. Include a structured request when Chief can collect the answer or credentials directly. Recording an action never completes the current task; continue every independent part.",
+          requestBody: body("ActionInput"),
           responses: saveResponse,
         },
       },
@@ -238,9 +445,61 @@ export function localToolsOpenApi(origin: string) {
           operationId: "brandProfile.save",
           summary: "Save the workspace brand profile",
           description:
-            "Stores a researched or user-supplied brand profile so every agent receives it in future sessions and runs.",
+            "Stores a researched or user-supplied brand profile so every agent receives it in future sessions and scheduled work.",
           requestBody: body("BrandProfileInput"),
           responses: saveResponse,
+        },
+      },
+      "/local-tools/specialists/delegate": {
+        post: {
+          operationId: "specialists.delegate",
+          summary: "Delegate bounded work to a private specialist",
+          description:
+            "Creates or reuses an inspectable private child session. Returns its result when already available, otherwise returns working promptly while the specialist continues in the background. A working response is not a timeout and must not be retried immediately.",
+          requestBody: body("SpecialistDelegationInput"),
+          responses: saveResponse,
+        },
+      },
+      "/local-tools/integrations/google-analytics/authorize": {
+        post: {
+          operationId: "googleAnalytics.authorize",
+          summary: "Start Google Analytics authorization",
+          description:
+            "Starts the preconfigured read-only Google OAuth connection and returns the browser URL. Use only in a user-started integration setup run.",
+          requestBody: body("IntegrationSetupSessionInput"),
+          responses: { "200": { description: "Authorization URL and state" } },
+        },
+      },
+      "/local-tools/integrations/google-analytics/complete": {
+        post: {
+          operationId: "googleAnalytics.complete",
+          summary: "Complete and verify Google Analytics authorization",
+          description:
+            "Waits for browser consent when state is supplied, discovers accessible properties, runs a live report, and saves a single-property connection. If several properties exist it returns choices without guessing.",
+          requestBody: body("GoogleAnalyticsCompleteInput"),
+          responses: {
+            "200": { description: "Verified connection or property choices" },
+          },
+        },
+      },
+      "/local-tools/integrations/google-analytics/select": {
+        post: {
+          operationId: "googleAnalytics.select",
+          summary: "Select and verify a Google Analytics property",
+          requestBody: body("GoogleAnalyticsSelectInput"),
+          responses: {
+            "200": { description: "Verified Google Analytics property" },
+          },
+        },
+      },
+      "/local-tools/integrations/handoff/open": {
+        post: {
+          operationId: "integration.openHandoff",
+          summary: "Open a secure local connection handoff",
+          description:
+            "Opens an Executor connection or OAuth-client handoff in the system browser with local authentication added by Chief. Use only in a user-started integration setup run.",
+          requestBody: body("IntegrationHandoffInput"),
+          responses: { "200": { description: "Handoff opened" } },
         },
       },
       "/local-tools/recurring-work": {
@@ -258,46 +517,30 @@ export function localToolsOpenApi(origin: string) {
           responses: saveResponse,
         },
       },
-      "/local-tools/google-analytics/metadata": {
-        post: {
-          operationId: "googleAnalytics.metadata",
-          summary: "Discover live GA4 metrics and dimensions",
-          description:
-            "Uses this Mac's existing Google Analytics login. Query by a concept such as conversion, landing page, acquisition, or revenue before building a report.",
-          requestBody: body("GoogleAnalyticsMetadataInput"),
-          responses: saveResponse,
-        },
-      },
-      "/local-tools/google-analytics/properties": {
-        post: {
-          operationId: "googleAnalytics.properties",
-          summary: "List GA4 properties available on this Mac",
-          description:
-            "Uses this Mac's existing Google Analytics login to list the properties the user can report on.",
-          requestBody: body("GoogleAnalyticsPropertiesInput"),
-          responses: saveResponse,
-        },
-      },
-      "/local-tools/google-analytics/report": {
-        post: {
-          operationId: "googleAnalytics.runReport",
-          summary: "Run a live GA4 report from this Mac",
-          description:
-            "Builds and runs a live Google Analytics Data API request. Pass body fields directly as propertyId, startDate, endDate, metrics as strings, dimensions as strings, and limit. Do not wrap field names in name objects.",
-          requestBody: body("GoogleAnalyticsReportInput"),
-          responses: saveResponse,
-        },
-      },
     },
     components: {
       securitySchemes: {
         localWorkspaceCapability: { type: "http", scheme: "bearer" },
       },
       schemas: {
-        AttentionInput: {
+        ActionInput: {
           type: "object",
+          additionalProperties: false,
           required: ["title", "reason"],
           properties: {
+            agentId: { type: "string", maxLength: 120 },
+            sourceId: {
+              type: "string",
+              maxLength: 160,
+              description:
+                "Exact current Chief session ID from the runtime context",
+            },
+            dedupeKey: {
+              type: "string",
+              maxLength: 120,
+              description:
+                "Stable semantic key reused for equivalent actions from the same source session",
+            },
             title: { type: "string", maxLength: 200 },
             reason: {
               type: "string",
@@ -305,6 +548,89 @@ export function localToolsOpenApi(origin: string) {
               maxLength: 1000,
               description:
                 "Why this needs the user personally: the decision to make or action to take, stated concretely.",
+            },
+            request: {
+              type: "object",
+              description:
+                "A beginner-safe form rendered directly on Overview. Give exact numbered steps in click order, link every web or Chief destination, request only values needed at this stage, and never ask for an account/property id before a connected API can list named choices.",
+              additionalProperties: false,
+              properties: {
+                steps: {
+                  type: "array",
+                  maxItems: 8,
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["text"],
+                    properties: {
+                      text: {
+                        type: "string",
+                        maxLength: 500,
+                        description:
+                          "One beginner-safe instruction naming the exact page, control, value, and expected result. Do not use vague directions such as open settings or connect the source.",
+                      },
+                      url: {
+                        type: "string",
+                        maxLength: 1000,
+                        description:
+                          "Direct HTTPS destination or absolute Chief route such as /settings/integrations. Include this whenever the step tells the user to open or click somewhere.",
+                      },
+                    },
+                  },
+                },
+                questions: {
+                  type: "array",
+                  maxItems: 6,
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["question"],
+                    properties: {
+                      header: { type: "string", maxLength: 80 },
+                      question: { type: "string", maxLength: 500 },
+                      multiSelect: { type: "boolean" },
+                      options: {
+                        type: "array",
+                        maxItems: 8,
+                        items: {
+                          type: "object",
+                          additionalProperties: false,
+                          required: ["label"],
+                          properties: {
+                            label: { type: "string", maxLength: 120 },
+                            description: { type: "string", maxLength: 300 },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+                fields: {
+                  type: "array",
+                  maxItems: 8,
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["key", "label", "save"],
+                    properties: {
+                      key: { type: "string", maxLength: 80 },
+                      label: { type: "string", maxLength: 160 },
+                      type: {
+                        type: "string",
+                        enum: ["text", "secret", "multiline"],
+                      },
+                      save: {
+                        type: "object",
+                        additionalProperties: false,
+                        properties: {
+                          envKey: { type: "string", maxLength: 120 },
+                          file: { type: "string", maxLength: 240 },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -320,10 +646,101 @@ export function localToolsOpenApi(origin: string) {
             },
           },
         },
+        SpecialistDelegationInput: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "conversationId",
+            "delegationId",
+            "agentId",
+            "title",
+            "task",
+          ],
+          properties: {
+            conversationId: { type: "string", maxLength: 160 },
+            delegationId: {
+              type: "string",
+              pattern: "^[a-z0-9][a-z0-9-]{5,63}$",
+              description:
+                "A stable caller correlation id. Reuse it for retries; equivalent tasks are deduplicated server-side.",
+            },
+            agentId: {
+              type: "string",
+              enum: [
+                "brand",
+                "content",
+                "analyst",
+                "prospector",
+                "ads",
+                "setup",
+              ],
+            },
+            title: { type: "string", maxLength: 160 },
+            task: { type: "string", maxLength: 8000 },
+            setupDomain: {
+              type: "string",
+              description: "Required only for a Setup delegation.",
+            },
+            setupAttemptId: {
+              type: "string",
+              description: "Required only for a Setup delegation.",
+            },
+            waitSeconds: {
+              type: "number",
+              minimum: 1,
+              maximum: 90,
+              description:
+                "How long to wait for a completed result before returning working. Use 90 for a user-requested Analyst query; omit for background research.",
+            },
+          },
+        },
+        GoogleAnalyticsCompleteInput: {
+          type: "object",
+          additionalProperties: false,
+          required: ["sessionId", "attemptId"],
+          properties: {
+            sessionId: { type: "string" },
+            attemptId: { type: "string" },
+            state: {
+              type: "string",
+              description:
+                "OAuth state returned by googleAnalytics.authorize. Omit when a connection already exists.",
+            },
+          },
+        },
+        GoogleAnalyticsSelectInput: {
+          type: "object",
+          additionalProperties: false,
+          required: ["sessionId", "attemptId", "propertyId"],
+          properties: {
+            sessionId: { type: "string" },
+            attemptId: { type: "string" },
+            propertyId: { type: "string" },
+          },
+        },
+        IntegrationSetupSessionInput: {
+          type: "object",
+          additionalProperties: false,
+          required: ["sessionId", "attemptId"],
+          properties: {
+            sessionId: { type: "string" },
+            attemptId: { type: "string" },
+          },
+        },
+        IntegrationHandoffInput: {
+          type: "object",
+          additionalProperties: false,
+          required: ["sessionId", "attemptId", "url"],
+          properties: {
+            sessionId: { type: "string" },
+            attemptId: { type: "string" },
+            url: { type: "string" },
+          },
+        },
         ProspectInput: {
           type: "object",
           additionalProperties: false,
-          required: ["name", "source", "summary"],
+          required: ["name", "source", "sourceUrl", "summary"],
           properties: {
             id: { type: "string" },
             playbookId: {
@@ -334,7 +751,11 @@ export function localToolsOpenApi(origin: string) {
             name: { type: "string" },
             company: { type: "string" },
             source: { type: "string" },
-            sourceUrl: { type: "string" },
+            sourceUrl: {
+              type: "string",
+              description:
+                "Direct HTTP or HTTPS URL to the exact public post, profile, company page, or conversation that supports this prospect.",
+            },
             summary: { type: "string" },
             relevance: { type: "string", enum: ["high", "medium", "low"] },
             status: {
@@ -360,6 +781,87 @@ export function localToolsOpenApi(origin: string) {
               enum: ["new", "watching", "acted", "dismissed"],
             },
             foundAt: { oneOf: [{ type: "number" }, { type: "string" }] },
+          },
+        },
+        AnalyticsDatasetInput: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "provider",
+            "sourceId",
+            "key",
+            "title",
+            "metrics",
+            "dimensions",
+            "periods",
+          ],
+          properties: {
+            provider: { type: "string", maxLength: 160 },
+            sourceId: { type: "string", maxLength: 240 },
+            key: { type: "string", maxLength: 120 },
+            title: { type: "string", maxLength: 200 },
+            description: { type: "string", maxLength: 2000 },
+            metrics: {
+              type: "array",
+              minItems: 1,
+              maxItems: 40,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["key", "label", "format"],
+                properties: {
+                  key: { type: "string" },
+                  label: { type: "string" },
+                  format: {
+                    type: "string",
+                    enum: ["number", "currency", "percent", "duration"],
+                  },
+                  unit: { type: "string" },
+                  currency: { type: "string" },
+                },
+              },
+            },
+            dimensions: {
+              type: "array",
+              maxItems: 20,
+              items: {
+                type: "object",
+                required: ["key", "label"],
+                properties: {
+                  key: { type: "string" },
+                  label: { type: "string" },
+                },
+              },
+            },
+            periods: {
+              type: "array",
+              maxItems: 24,
+              items: {
+                type: "object",
+                required: ["key", "label", "startDate", "endDate", "values"],
+                properties: {
+                  key: { type: "string" },
+                  label: { type: "string" },
+                  startDate: { type: "string" },
+                  endDate: { type: "string" },
+                  values: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      required: ["metric", "value"],
+                      properties: {
+                        metric: { type: "string" },
+                        value: { type: "number" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            rows: { type: "array", maxItems: 1000 },
+            series: { type: "array", maxItems: 12 },
+            charts: { type: "array", maxItems: 8 },
+            provenance: { type: "object", additionalProperties: true },
           },
         },
         ContentInput: {
@@ -407,7 +909,7 @@ export function localToolsOpenApi(origin: string) {
             kind: { type: "string", enum: ["document", "email"] },
             expectedVersionId: { type: "string" },
             agentId: { type: "string" },
-            sourceRunId: { type: "string" },
+            sourceSessionId: { type: "string" },
           },
         },
         CampaignInput: {
@@ -429,56 +931,11 @@ export function localToolsOpenApi(origin: string) {
             revenue: { type: "number", minimum: 0 },
           },
         },
-        GoogleAnalyticsMetadataInput: {
-          type: "object",
-          additionalProperties: false,
-          required: ["propertyId"],
-          properties: {
-            propertyId: { type: "string" },
-            query: {
-              type: "string",
-              description:
-                "Optional concept used to narrow the GA4 metadata catalogue",
-            },
-          },
-        },
-        GoogleAnalyticsPropertiesInput: {
-          type: "object",
-          additionalProperties: false,
-          properties: {},
-        },
-        GoogleAnalyticsReportInput: {
-          type: "object",
-          additionalProperties: false,
-          required: ["propertyId", "startDate", "endDate", "metrics"],
-          properties: {
-            propertyId: { type: "string" },
-            startDate: { type: "string", examples: ["7daysAgo"] },
-            endDate: { type: "string", examples: ["yesterday"] },
-            metrics: {
-              type: "array",
-              minItems: 1,
-              maxItems: 10,
-              items: { type: "string" },
-            },
-            dimensions: {
-              type: "array",
-              maxItems: 9,
-              default: [],
-              items: { type: "string" },
-            },
-            limit: {
-              type: "integer",
-              minimum: 1,
-              maximum: 10000,
-              default: 100,
-            },
-          },
-        },
         RecurringWorkInput: {
           type: "object",
           additionalProperties: false,
           required: [
+            "conversationId",
             "agentId",
             "title",
             "instructions",
@@ -489,6 +946,11 @@ export function localToolsOpenApi(origin: string) {
           ],
           properties: {
             id: { type: "string" },
+            conversationId: {
+              type: "string",
+              description:
+                "Exact owning Chief conversation ID from the runtime context",
+            },
             playbookId: {
               type: "string",
               description:
@@ -502,10 +964,10 @@ export function localToolsOpenApi(origin: string) {
               description: "Standard five-field cron expression",
             },
             timezone: { type: "string", description: "IANA timezone" },
-            runOnceAt: {
+            onceAt: {
               oneOf: [{ type: "number" }, { type: "string" }],
               description:
-                "Exact timestamp for a one-off task. Omit for recurring work.",
+                "Exact timestamp for one-off work. Omit for recurring work.",
             },
             approvalSummary: {
               type: "string",
@@ -535,6 +997,40 @@ export async function handleLocalTool(
   request: Request,
   workspaceId: string,
   manager: SessionManager,
+  context: {
+    conversationId?: string;
+    onActivity?: () => void | Promise<void>;
+    onFilesChanged?: () => void | Promise<void>;
+    openIntegrationHandoff?: (
+      sessionId: string,
+      attemptId: string,
+      url: string,
+    ) => Promise<void>;
+    activateIntegrationSetup?: (
+      sessionId: string,
+      attemptId: string,
+      domain: string,
+    ) => void | Promise<void>;
+    googleAnalytics?: {
+      startAuthorization: (
+        sessionId: string,
+        attemptId: string,
+      ) => Promise<{
+        authorizationUrl: string;
+        state: string;
+      }>;
+      completeAuthorization: (
+        sessionId: string,
+        attemptId: string,
+        state?: string,
+      ) => Promise<unknown>;
+      selectProperty: (
+        sessionId: string,
+        attemptId: string,
+        propertyId: string,
+      ) => Promise<unknown>;
+    };
+  } = {},
 ) {
   const path = new URL(request.url).pathname;
   const data = await manager.workspaceData(workspaceId);
@@ -542,6 +1038,16 @@ export async function handleLocalTool(
     if (path === "/local-tools/prospects")
       return json({ prospects: data.prospects });
     if (path === "/local-tools/trends") return json({ trends: data.trends });
+    if (path === "/local-tools/analytics/datasets") {
+      const provider = new URL(request.url).searchParams.get("provider");
+      return json({
+        datasets: provider
+          ? data.analyticsDatasets.filter(
+              (dataset) => dataset.provider === provider,
+            )
+          : data.analyticsDatasets,
+      });
+    }
     if (path === "/local-tools/content") return json({ drafts: data.drafts });
     if (path === "/local-tools/files") {
       return json({ files: await manager.listWorkspaceFiles(workspaceId) });
@@ -550,7 +1056,9 @@ export async function handleLocalTool(
       return json({ campaigns: data.campaigns });
     }
     if (path === "/local-tools/brand-profile") {
-      return json({ configured: Boolean(readWorkspaceContext(workspaceId)) });
+      return json({
+        configured: Boolean(readWorkspaceBrandProfile(workspaceId)?.trim()),
+      });
     }
     if (path === "/local-tools/recurring-work") {
       return json({ recurringWork: data.recurringWork });
@@ -564,52 +1072,121 @@ export async function handleLocalTool(
     return json({ error: "Request body must be JSON." }, 400);
   }
   try {
-    if (path === "/local-tools/google-analytics/properties") {
-      const environment = await workspaceSecrets.materialize(workspaceId);
+    if (path === "/local-tools/integrations/google-analytics/authorize") {
+      if (!context.googleAnalytics) {
+        throw new Error("Google Analytics setup is unavailable.");
+      }
       return json(
-        await googleAnalyticsProperties({
-          credentialsPath: environment.GOOGLE_APPLICATION_CREDENTIALS,
-        }),
+        await context.googleAnalytics.startAuthorization(
+          requiredValue(body.sessionId, "sessionId", 160),
+          requiredValue(body.attemptId, "attemptId", 160),
+        ),
       );
     }
-    if (path === "/local-tools/google-analytics/metadata") {
-      const environment = await workspaceSecrets.materialize(workspaceId);
+    if (path === "/local-tools/integrations/google-analytics/complete") {
+      if (!context.googleAnalytics) {
+        throw new Error("Google Analytics setup is unavailable.");
+      }
       return json(
-        await googleAnalyticsMetadata({
-          propertyId: body.propertyId,
-          query: body.query,
-          credentialsPath: environment.GOOGLE_APPLICATION_CREDENTIALS,
-        }),
+        await context.googleAnalytics.completeAuthorization(
+          requiredValue(body.sessionId, "sessionId", 160),
+          requiredValue(body.attemptId, "attemptId", 160),
+          value(body.state, "state", 240, false),
+        ),
       );
     }
-    if (path === "/local-tools/google-analytics/report") {
-      const environment = await workspaceSecrets.materialize(workspaceId);
-      const dateRange = Array.isArray(body.dateRanges)
-        ? (body.dateRanges[0] as Record<string, unknown> | undefined)
-        : undefined;
+    if (path === "/local-tools/integrations/google-analytics/select") {
+      if (!context.googleAnalytics) {
+        throw new Error("Google Analytics setup is unavailable.");
+      }
       return json(
-        await googleAnalyticsRunReport({
-          propertyId: body.propertyId,
-          startDate: body.startDate ?? dateRange?.startDate,
-          endDate: body.endDate ?? dateRange?.endDate,
-          metrics: googleAnalyticsFieldList(body.metrics, "metrics"),
-          dimensions:
-            body.dimensions === undefined
-              ? []
-              : googleAnalyticsFieldList(body.dimensions, "dimensions"),
-          limit: body.limit,
-          credentialsPath: environment.GOOGLE_APPLICATION_CREDENTIALS,
-        }),
+        await context.googleAnalytics.selectProperty(
+          requiredValue(body.sessionId, "sessionId", 160),
+          requiredValue(body.attemptId, "attemptId", 160),
+          requiredValue(body.propertyId, "propertyId", 240),
+        ),
       );
+    }
+    if (path === "/local-tools/integrations/handoff/open") {
+      if (!context.openIntegrationHandoff) {
+        throw new Error("Integration setup is unavailable.");
+      }
+      await context.openIntegrationHandoff(
+        requiredValue(body.sessionId, "sessionId", 160),
+        requiredValue(body.attemptId, "attemptId", 160),
+        requiredValue(body.url, "url", 2000),
+      );
+      return json({ opened: true });
+    }
+    if (path === "/local-tools/specialists/delegate") {
+      const delegationId = requiredValue(body.delegationId, "delegationId", 64);
+      if (!/^[a-z0-9][a-z0-9-]{5,63}$/.test(delegationId)) {
+        throw new Error("delegationId must be a unique lowercase slug.");
+      }
+      const agentId = requiredValue(body.agentId, "agentId", 120);
+      const setupDomain =
+        agentId === "setup"
+          ? requiredValue(body.setupDomain, "setupDomain", 255)
+          : undefined;
+      const setupAttemptId =
+        agentId === "setup"
+          ? requiredValue(body.setupAttemptId, "setupAttemptId", 160)
+          : undefined;
+      const delegation = runSpecialistDelegation({
+        manager,
+        workspaceId,
+        conversationId: requiredValue(
+          body.conversationId,
+          "conversationId",
+          160,
+        ),
+        delegationId,
+        agentId,
+        title: requiredValue(body.title, "title", 160),
+        task: requiredValue(body.task, "task", 8_000),
+        onStateChange: context.onActivity,
+        onFilesChange: context.onFilesChanged,
+        onSessionReady:
+          setupDomain && setupAttemptId && context.activateIntegrationSetup
+            ? (sessionId) =>
+                context.activateIntegrationSetup?.(
+                  sessionId,
+                  setupAttemptId,
+                  setupDomain,
+                )
+            : undefined,
+      });
+      const waitSeconds =
+        typeof body.waitSeconds === "number" &&
+        Number.isFinite(body.waitSeconds)
+          ? Math.max(1, Math.min(90, body.waitSeconds))
+          : 10;
+      let timer: NodeJS.Timeout | undefined;
+      const result = await Promise.race([
+        delegation,
+        new Promise<{ status: "working"; delegationId: string }>((resolve) => {
+          timer = setTimeout(
+            () => resolve({ status: "working", delegationId }),
+            waitSeconds * 1_000,
+          );
+        }),
+      ]).finally(() => {
+        if (timer) clearTimeout(timer);
+      });
+      return json(result);
     }
     if (path === "/local-tools/prospects") {
+      const sourceUrl = requiredValue(body.sourceUrl, "sourceUrl", 500);
+      if (!/^https?:\/\//i.test(sourceUrl)) {
+        throw new Error("sourceUrl must be a direct HTTP or HTTPS URL.");
+      }
       const prospect: ProspectRecord = {
         id: value(body.id, "id", 120, false) ?? randomUUID(),
-        name: value(body.name, "name", 160)!,
+        name: requiredValue(body.name, "name", 160),
         company: value(body.company, "company", 160, false),
-        source: value(body.source, "source", 120)!,
-        sourceUrl: value(body.sourceUrl, "sourceUrl", 500, false),
-        summary: value(body.summary, "summary", 2_000)!,
+        source: requiredValue(body.source, "source", 120),
+        sourceUrl,
+        summary: requiredValue(body.summary, "summary", 2_000),
         relevance: choice(
           body.relevance,
           "relevance",
@@ -628,12 +1205,16 @@ export async function handleLocalTool(
       return json({ prospect });
     }
     if (path === "/local-tools/trends") {
+      const sourceUrl = value(body.sourceUrl, "sourceUrl", 500, false);
+      if (sourceUrl && !/^https?:\/\//i.test(sourceUrl)) {
+        throw new Error("sourceUrl must be a direct HTTP or HTTPS URL.");
+      }
       const trend: TrendRecord = {
         id: value(body.id, "id", 120, false) ?? randomUUID(),
-        title: value(body.title, "title", 200)!,
-        source: value(body.source, "source", 120)!,
-        sourceUrl: value(body.sourceUrl, "sourceUrl", 500, false),
-        summary: value(body.summary, "summary", 2_000)!,
+        title: requiredValue(body.title, "title", 200),
+        source: requiredValue(body.source, "source", 120),
+        sourceUrl,
+        summary: requiredValue(body.summary, "summary", 2_000),
         signal: choice(
           body.signal,
           "signal",
@@ -651,13 +1232,20 @@ export async function handleLocalTool(
       await manager.saveTrend(workspaceId, trend);
       return json({ trend });
     }
+    if (path === "/local-tools/analytics/datasets") {
+      const dataset = await manager.saveAnalyticsDataset(
+        workspaceId,
+        analyticsDatasetInput(body),
+      );
+      return json({ dataset });
+    }
     if (path === "/local-tools/content") {
       const now = Date.now();
       const scheduledFor =
         body.scheduledFor === undefined ? undefined : time(body.scheduledFor);
       const id = value(body.id, "id", 120, false) ?? randomUUID();
-      const title = value(body.title, "title", 200)!;
-      const content = value(body.body, "body", 20_000)!;
+      const title = requiredValue(body.title, "title", 200);
+      const content = requiredValue(body.body, "body", 20_000);
       if (content.length < 100) {
         throw new Error(
           "body must contain the complete platform-ready draft, not an idea or outline.",
@@ -690,7 +1278,7 @@ export async function handleLocalTool(
           "cmo",
         title,
         body: content,
-        platform: value(body.platform, "platform", 80)!,
+        platform: requiredValue(body.platform, "platform", 80),
         fileId: file.id,
         status: choice(
           body.status,
@@ -731,7 +1319,12 @@ export async function handleLocalTool(
         ),
         createdBy: "agent",
         sourceAgentId: value(body.agentId, "agentId", 80, false),
-        sourceRunId: value(body.sourceRunId, "sourceRunId", 120, false),
+        sourceSessionId: value(
+          body.sourceSessionId,
+          "sourceSessionId",
+          120,
+          false,
+        ),
       });
       return json({ file });
     }
@@ -739,8 +1332,8 @@ export async function handleLocalTool(
       const now = Date.now();
       const campaign: CampaignRecord = {
         id: value(body.id, "id", 120, false) ?? randomUUID(),
-        name: value(body.name, "name", 200)!,
-        provider: value(body.provider, "provider", 120)!,
+        name: requiredValue(body.name, "name", 200),
+        provider: requiredValue(body.provider, "provider", 120),
         objective: value(body.objective, "objective", 500, false),
         status: choice(
           body.status,
@@ -759,7 +1352,7 @@ export async function handleLocalTool(
       return json({ campaign });
     }
     if (path === "/local-tools/brand-profile") {
-      const markdown = value(body.markdown, "markdown", 20_000)!;
+      const markdown = requiredValue(body.markdown, "markdown", 20_000);
       if (markdown.length < 100) {
         throw new Error("brand profile must contain at least 100 characters.");
       }
@@ -770,14 +1363,14 @@ export async function handleLocalTool(
       const now = Date.now();
       const id = value(body.id, "id", 120, false) ?? randomUUID();
       const existing = await manager.recurringWorkById(workspaceId, id);
-      const cron = value(body.cron, "cron", 120)!;
-      const timezone = value(body.timezone, "timezone", 120)!;
-      const runOnceAt =
-        body.runOnceAt === undefined
-          ? existing?.runOnceAt
-          : time(body.runOnceAt, Number.NaN);
-      if (runOnceAt !== undefined && !Number.isFinite(runOnceAt)) {
-        throw new Error("runOnceAt must be a valid timestamp.");
+      const cron = requiredValue(body.cron, "cron", 120);
+      const timezone = requiredValue(body.timezone, "timezone", 120);
+      const onceAt =
+        body.onceAt === undefined
+          ? existing?.onceAt
+          : time(body.onceAt, Number.NaN);
+      if (onceAt !== undefined && !Number.isFinite(onceAt)) {
+        throw new Error("onceAt must be a valid timestamp.");
       }
       validateCron(cron, timezone);
       const activate = body.activate === true;
@@ -790,7 +1383,7 @@ export async function handleLocalTool(
           "This workspace requires schedule review. Create a draft without activate.",
         );
       }
-      const agentId = value(body.agentId, "agentId", 120)!;
+      const agentId = requiredValue(body.agentId, "agentId", 120);
       const playbookId = value(body.playbookId, "playbookId", 120, false);
       if (activate) {
         let scope: {
@@ -803,7 +1396,21 @@ export async function handleLocalTool(
           const encoded = workspaceContext?.match(
             /^Automatic schedule scope:\s*(.+)$/im,
           )?.[1];
-          scope = encoded ? JSON.parse(encoded) : [];
+          const parsed: unknown = encoded ? JSON.parse(encoded) : [];
+          scope = Array.isArray(parsed)
+            ? (parsed as unknown[]).filter(
+                (item): item is (typeof scope)[number] =>
+                  Boolean(item) &&
+                  typeof item === "object" &&
+                  !Array.isArray(item) &&
+                  ["playbookId", "agentId", "cron", "timezone"].every(
+                    (key) =>
+                      (item as Record<string, unknown>)[key] === undefined ||
+                      typeof (item as Record<string, unknown>)[key] ===
+                        "string",
+                  ),
+              )
+            : [];
         } catch {
           scope = [];
         }
@@ -821,37 +1428,48 @@ export async function handleLocalTool(
         }
       }
       const proposedToolPatterns = toolAddressList(body.proposedToolPatterns);
+      const conversationId =
+        value(body.conversationId, "conversationId", 160, false) ??
+        context.conversationId ??
+        existing?.conversationId;
+      if (!conversationId) {
+        throw new Error(
+          "conversationId from the current runtime context is required.",
+        );
+      }
       const work: RecurringWorkRecord = {
         id,
-        chatId: existing?.chatId ?? randomUUID(),
+        conversationId,
         agentId,
-        title: value(body.title, "title", 200)!,
-        instructions: value(body.instructions, "instructions", 8_000)!,
+        title: requiredValue(body.title, "title", 200),
+        instructions: requiredValue(body.instructions, "instructions", 8_000),
         cron,
         timezone,
-        runOnceAt,
+        onceAt,
         status: activate ? "active" : "draft",
         placement: "local",
-        approvalSummary: value(body.approvalSummary, "approvalSummary", 2_000)!,
+        approvalSummary: requiredValue(
+          body.approvalSummary,
+          "approvalSummary",
+          2_000,
+        ),
         proposedToolPatterns,
         grant: activate
           ? { version: 1, approvedAt: now, toolPatterns: proposedToolPatterns }
           : undefined,
-        nextRunAt: activate
-          ? runOnceAt !== undefined && runOnceAt <= now
+        nextAt: activate
+          ? onceAt !== undefined && onceAt <= now
             ? now
-            : (runOnceAt ?? nextRunAt(cron, timezone))
+            : (onceAt ?? nextRunAt(cron, timezone))
           : undefined,
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       };
-      await manager.createRootChat(workspaceId, work.chatId, work.title);
       await manager.saveRecurringWork(workspaceId, work);
       if (!activate) {
-        // The proposal itself is the action item; agents must not raise a
-        // second one by hand.
-        await manager.raiseAttentionItem(workspaceId, {
-          id: `attention-${work.id}-approval`,
+        // The proposal itself is the action item; agents must not raise a second one.
+        await manager.raiseActionItem(workspaceId, {
+          id: `action-${work.id}-approval`,
           agentId: work.agentId,
           title: `Approve: ${work.title}`,
           reason: work.approvalSummary,
@@ -866,24 +1484,51 @@ export async function handleLocalTool(
         activated: activate,
       });
     }
-    if (path === "/local-tools/attention") {
-      const title = value(body.title, "title", 200)!;
-      const reason = value(body.reason, "reason", 1_000)!;
+    if (path === "/local-tools/action") {
+      const title = requiredValue(body.title, "title", 200);
+      const reason = requiredValue(body.reason, "reason", 1_000);
       if (reason.trim().length < 20) {
         throw new Error(
           "A concrete reason is required: state the decision or action the user must take.",
         );
       }
+      const sourceId = value(body.sourceId, "sourceId", 160, false);
+      const dedupeKey =
+        value(body.dedupeKey, "dedupeKey", 120, false) ??
+        title.toLowerCase().replaceAll(/\s+/g, "-");
+      const id = sourceId
+        ? `action-${createHash("sha256")
+            .update(`${workspaceId}\0${sourceId}\0${dedupeKey}`)
+            .digest("hex")
+            .slice(0, 32)}`
+        : randomUUID();
+      const existingAction = await manager.actionItem(workspaceId, id);
+      if (existingAction && existingAction.title !== title) {
+        throw new Error(
+          `Action dedupeKey collision: ${dedupeKey} already belongs to "${existingAction.title}". Use one provider- or decision-scoped key per distinct action.`,
+        );
+      }
       const item = {
-        id: randomUUID(),
+        id,
         agentId: value(body.agentId, "agentId", 120, false) ?? "cmo",
         title,
         reason,
+        sourceId,
+        request: actionInputRequest(
+          body.request,
+          `${id}-request`,
+          title,
+          reason,
+        ),
         status: "open" as const,
         createdAt: Date.now(),
       };
-      await manager.raiseAttentionItem(workspaceId, item);
-      return json({ attentionItem: item });
+      await manager.raiseActionItem(workspaceId, item);
+      return json({
+        actionItem: item,
+        instruction:
+          "Action recorded. Continue every independent part of the current task and do not raise an equivalent action again.",
+      });
     }
     return json({ error: "Not found" }, 404);
   } catch (error) {

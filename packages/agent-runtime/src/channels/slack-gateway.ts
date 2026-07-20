@@ -12,20 +12,51 @@ import {
 import { existingExecutorWorkspace } from "../tools/control-plane.js";
 import { executorToolServer } from "../tools/spec.js";
 import { readWorkspaceContext } from "../workspace-context.js";
+import { workspaceKey } from "../workspace-secrets.js";
 import { REMOTE_CHANNEL_ACCESS } from "./access.js";
 
 export interface SlackGatewayConfig {
   workspaceId: string;
   botToken: string;
   appToken: string;
-  driver: DriverType;
+  driver: Exclude<DriverType, "remote">;
   model?: string;
+  allowedUserIds: string[];
+  allowedChannelIds: string[];
 }
 
 const SLACK_MESSAGE_LIMIT = 3_500;
 const SPECIALIST_IDS = ["analyst", "content", "prospector", "ads"] as const;
 
+export function slackConversationId(input: {
+  workspaceId: string;
+  teamId: string;
+  channelId: string;
+  messageTs: string;
+  threadTs?: string;
+  direct: boolean;
+}) {
+  const conversationKey = input.direct
+    ? `dm-${input.channelId}`
+    : `channel-${input.channelId}-thread-${input.threadTs ?? input.messageTs}`;
+  return `slack-${workspaceKey(input.workspaceId)}-${input.teamId}-${conversationKey}`;
+}
+
+export function slackSourceAllowed(
+  userId: string | undefined,
+  channelId: string,
+  allowedUserIds: readonly string[],
+  allowedChannelIds: readonly string[],
+) {
+  return (
+    Boolean(userId && allowedUserIds.includes(userId)) ||
+    allowedChannelIds.includes(channelId)
+  );
+}
+
 interface SlackEnvelope {
+  envelope_id?: string;
+  team_id?: string;
   ack: (response?: unknown) => Promise<void>;
   event?: {
     type?: string;
@@ -87,10 +118,9 @@ export class SlackGateway {
   private socket: SocketModeClient | null = null;
   private web: WebClient;
   private botUserId: string | undefined;
-  private listeners = new Map<
-    string,
-    { session: AgentSession; listener: (event: AgentEvent) => void }
-  >();
+  private teamId: string | undefined;
+  private listeners = new Map<string, AgentSession>();
+  private delivered = new Set<string>();
 
   constructor(
     private readonly manager: SessionManager,
@@ -102,6 +132,7 @@ export class SlackGateway {
   async start(): Promise<void> {
     const identity = await this.web.auth.test();
     this.botUserId = identity.user_id;
+    this.teamId = identity.team_id;
 
     // SocketModeClient reconnects itself (autoReconnectEnabled defaults to
     // true, with backoff); we only log transitions.
@@ -111,6 +142,15 @@ export class SlackGateway {
     );
     const handle = (envelope: SlackEnvelope) => {
       void envelope.ack();
+      if (envelope.envelope_id && this.delivered.has(envelope.envelope_id))
+        return;
+      if (envelope.envelope_id) {
+        this.delivered.add(envelope.envelope_id);
+        if (this.delivered.size > 1_000) {
+          const oldest = this.delivered.values().next().value;
+          if (oldest) this.delivered.delete(oldest);
+        }
+      }
       void this.dispatch(envelope).catch((error) =>
         console.error("[slack] event failed:", error),
       );
@@ -124,8 +164,7 @@ export class SlackGateway {
   }
 
   async stop(): Promise<void> {
-    for (const [chatId, entry] of this.listeners) {
-      entry.session.off("event", entry.listener);
+    for (const [chatId] of this.listeners) {
       await this.manager
         .release(this.config.workspaceId, chatId)
         .catch(() => {});
@@ -138,6 +177,9 @@ export class SlackGateway {
   private async dispatch(envelope: SlackEnvelope) {
     const event = envelope.event;
     if (!event?.channel || !event.ts) return;
+    const channel = event.channel;
+    if (envelope.team_id && this.teamId && envelope.team_id !== this.teamId)
+      return;
     // Only human messages: skip our own posts, other bots, and edits/joins.
     if (event.bot_id || event.subtype) return;
     if (this.botUserId && event.user === this.botUserId) return;
@@ -145,6 +187,16 @@ export class SlackGateway {
     // channel ALSO arrives as a message event — handle mentions only via
     // app_mention and DMs only via message to avoid double replies.
     if (event.type === "message" && event.channel_type !== "im") return;
+    if (
+      !slackSourceAllowed(
+        event.user,
+        channel,
+        this.config.allowedUserIds,
+        this.config.allowedChannelIds,
+      )
+    ) {
+      return;
+    }
 
     const raw = (event.text ?? "").trim();
     const withoutMention = this.botUserId
@@ -153,19 +205,36 @@ export class SlackGateway {
     const threadTs = event.thread_ts ?? event.ts;
 
     if (!withoutMention || /^help$/i.test(withoutMention)) {
-      await this.post(event.channel, threadTs, rosterText());
+      await this.post(channel, threadTs, rosterText());
       return;
     }
 
     const routed = this.route(withoutMention);
-    const chatId = `slack-${event.channel}-${threadTs}`;
-    const session = await this.ensureSession(chatId, event.channel, threadTs);
+    const chatId = slackConversationId({
+      workspaceId: this.config.workspaceId,
+      teamId: this.teamId ?? "team",
+      channelId: channel,
+      messageTs: event.ts,
+      threadTs: event.thread_ts,
+      direct: event.channel_type === "im",
+    });
+    const session = await this.ensureSession(chatId);
     const releaseExecution = this.manager.acquireExecution(
       this.config.workspaceId,
       chatId,
       "channel",
     );
+    const turnStart = session.events.length;
     const releaseOnTerminal = (agentEvent: AgentEvent) => {
+      if (agentEvent.type === "permission") {
+        session.respondPermission(agentEvent.requestId, "deny");
+        void this.post(
+          channel,
+          threadTs,
+          "This action needs approval in the Chief desktop app.",
+        );
+        return;
+      }
       if (
         agentEvent.type === "result" ||
         agentEvent.type === "error" ||
@@ -173,6 +242,16 @@ export class SlackGateway {
       ) {
         session.off("event", releaseOnTerminal);
         releaseExecution();
+        if (agentEvent.type === "error") {
+          void this.post(
+            channel,
+            threadTs,
+            `Something went wrong: ${agentEvent.message}`,
+          );
+        } else if (agentEvent.type === "result") {
+          const text = lastAssistantText(session.events.slice(turnStart));
+          if (text) void this.post(channel, threadTs, text);
+        }
       }
     };
     session.on("event", releaseOnTerminal);
@@ -187,31 +266,21 @@ export class SlackGateway {
 
   private route(text: string): string {
     const match = /^@?([a-z-]+):?\s+/i.exec(text);
-    const specialist = match
-      ? SPECIALIST_IDS.find((id) => id === match[1]!.toLowerCase())
+    const requested = match?.[1]?.toLowerCase();
+    const specialist = requested
+      ? SPECIALIST_IDS.find((id) => id === requested)
       : undefined;
     if (!specialist) return text;
     const agent = getAgent(specialist);
-    return `Route this to your ${agent?.name ?? specialist} specialist and answer as them:\n\n${text.slice(match![0].length)}`;
+    return `Route this to your ${agent?.name ?? specialist} specialist and answer as them:\n\n${text.slice(match?.[0].length ?? 0)}`;
   }
 
-  private async ensureSession(
-    chatId: string,
-    channel: string,
-    threadTs: string,
-  ): Promise<AgentSession> {
+  private async ensureSession(chatId: string): Promise<AgentSession> {
     const existing = this.listeners.get(chatId);
-    if (existing) return existing.session;
+    if (existing) return existing;
 
     const cmo = getAgent("cmo");
     if (!cmo) throw new Error("CMO persona missing from the roster.");
-    const preference = await this.manager.agentPreference(
-      this.config.workspaceId,
-      "cmo",
-    );
-    if (!preference?.driver || preference.enabled === false) {
-      throw new Error("Configure the CMO agent app before using Slack.");
-    }
     const instructions = `${composeWorkspaceInstructions(
       cmo.instructions,
       readWorkspaceContext(this.config.workspaceId),
@@ -221,11 +290,12 @@ export class SlackGateway {
       { ...cmo, instructions },
       chatId,
       {
-        driver: preference.driver,
+        driver: this.config.driver,
         access: REMOTE_CHANNEL_ACCESS,
         workspaceId: this.config.workspaceId,
-        model: preference.model,
+        model: this.config.model,
         executionOwner: "channel",
+        secretAccess: false,
         mcpServers: [
           executorToolServer(
             existingExecutorWorkspace(this.config.workspaceId),
@@ -236,26 +306,17 @@ export class SlackGateway {
     );
     this.manager.retain(this.config.workspaceId, chatId);
 
-    const listener = (event: AgentEvent) => {
-      if (event.type === "error") {
-        void this.post(
-          channel,
-          threadTs,
-          `Something went wrong: ${event.message}`,
-        );
-        return;
-      }
-      if (event.type !== "result") return;
-      const text = lastAssistantText(session.events);
-      if (text) void this.post(channel, threadTs, text);
-    };
-    session.on("event", listener);
-    this.listeners.set(chatId, { session, listener });
+    this.listeners.set(chatId, session);
     return session;
   }
 
   private async post(channel: string, threadTs: string, text: string) {
-    for (const chunk of chunkText(text)) {
+    const safeText = text
+      .split("\n")
+      .filter((line) => !/^CHIEF_[A-Z_]+\s/.test(line.trim()))
+      .join("\n")
+      .trim();
+    for (const chunk of chunkText(safeText)) {
       await this.web.chat.postMessage({
         channel,
         thread_ts: threadTs,

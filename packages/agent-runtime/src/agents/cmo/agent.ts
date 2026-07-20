@@ -6,7 +6,7 @@ export const cmo = {
   role: "Chief Marketing Officer",
   description:
     "Top-level orchestrator. Owns strategy, delegates to specialist agents, answers anything about your marketing.",
-  delegates: ["content", "analyst", "prospector", "ads"],
+  delegates: ["brand", "content", "analyst", "prospector", "ads", "setup"],
   capabilities: [
     "prospect-memory",
     "trend-memory",

@@ -1,3 +1,5 @@
+/* eslint-disable max-lines */
+
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -34,11 +36,52 @@ interface Connection {
   owner: "org" | "user";
   integration: string;
   name: string;
+  identityLabel?: string | null;
+  lastHealth?: { status?: string } | null;
+}
+
+interface OAuthClient {
+  owner: "org" | "user";
+  slug: string;
+}
+
+interface OAuthStart {
+  status: "connected" | "redirect";
+  authorizationUrl?: string;
+  state?: string;
+}
+
+interface OAuthResult {
+  ok: boolean;
+  error?: string;
+  errorDetails?: string;
 }
 
 interface Tool {
   address: string;
   name: string;
+  description?: string | null;
+  requiresApproval?: boolean | null;
+}
+
+interface ToolSchemaView {
+  inputSchema?: {
+    properties?: Record<string, { $ref?: string }>;
+    required?: string[];
+  };
+}
+
+interface ExecutionResponse {
+  status: "completed" | "paused";
+  text: string;
+  structured: unknown;
+  isError?: boolean;
+}
+
+export interface GoogleAnalyticsProperty {
+  accountName: string;
+  propertyId: string;
+  propertyName: string;
 }
 
 interface Policy {
@@ -48,12 +91,125 @@ interface Policy {
   action: "approve" | "require_approval" | "block";
 }
 
+function policyMatches(pattern: string, tool: string) {
+  if (pattern === "*") return true;
+  const patternSegments = pattern.split(".");
+  const toolSegments = tool.split(".");
+  for (let index = 0; index < patternSegments.length; index += 1) {
+    const segment = patternSegments[index];
+    if (segment === "*") {
+      return (
+        index === patternSegments.length - 1 || index < toolSegments.length
+      );
+    }
+    if (segment !== toolSegments[index]) return false;
+  }
+  return patternSegments.length === toolSegments.length;
+}
+
 export interface ExecutorWorkspace {
   scopeDir: string;
   dataDir: string;
+  keychainServiceName: string;
 }
 
 const pending = new Map<string, Promise<ExecutorWorkspace>>();
+const preparedGoogleAnalytics = new Set<string>();
+
+const GOOGLE_ANALYTICS_INTEGRATION = "google_analytics";
+const GOOGLE_ANALYTICS_CONNECTION = "main";
+const GOOGLE_ANALYTICS_OAUTH_CLIENT = "chief_google_analytics";
+const GOOGLE_ANALYTICS_AUTH_TEMPLATE = "google-analytics";
+const GOOGLE_ANALYTICS_SCOPE =
+  "https://www.googleapis.com/auth/analytics.readonly";
+const GOOGLE_ANALYTICS_OPENAPI_URL =
+  "https://api.apis.guru/v2/specs/googleapis.com/analyticsdata/v1beta/openapi.json";
+
+export function googleAnalyticsSpecOverrides() {
+  return [
+    {
+      op: "add",
+      path: "/paths/~1v1beta~1accountSummaries",
+      value: {
+        get: {
+          operationId: "accountSummariesList",
+          "x-executor-toolPath": "accountSummaries.list",
+          servers: [{ url: "https://analyticsadmin.googleapis.com" }],
+          parameters: [
+            {
+              name: "pageSize",
+              in: "query",
+              required: false,
+              schema: { type: "integer", minimum: 1, maximum: 200 },
+            },
+            {
+              name: "pageToken",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            200: {
+              description:
+                "Accessible Google Analytics accounts and properties",
+              content: {
+                "application/json": {
+                  schema: { type: "object", additionalProperties: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  ];
+}
+
+/** Repairs reserved Google resource names lost by the APIs.guru conversion. */
+export function prepareGoogleAnalyticsSpec(source: unknown) {
+  if (!source || typeof source !== "object") {
+    throw new Error("Google Analytics returned an invalid OpenAPI document.");
+  }
+  const spec = structuredClone(source) as Record<string, unknown>;
+  const paths =
+    spec.paths && typeof spec.paths === "object"
+      ? (spec.paths as Record<string, Record<string, unknown>>)
+      : {};
+  spec.paths = paths;
+  for (const pathItem of Object.values(paths)) {
+    for (const operation of [pathItem, ...Object.values(pathItem)]) {
+      if (!operation || typeof operation !== "object") continue;
+      const parameters = (operation as { parameters?: unknown }).parameters;
+      if (!Array.isArray(parameters)) continue;
+      for (const parameter of parameters) {
+        if (
+          parameter &&
+          typeof parameter === "object" &&
+          (parameter as { in?: unknown }).in === "path"
+        ) {
+          (parameter as { allowReserved?: boolean }).allowReserved = true;
+        }
+      }
+    }
+  }
+  const accountSummaries = googleAnalyticsSpecOverrides()[0];
+  if (!accountSummaries) {
+    throw new Error("Google Analytics account discovery is unavailable.");
+  }
+  paths["/v1beta/accountSummaries"] = accountSummaries.value;
+  return spec;
+}
+
+const googleAnalyticsAuthentication = [
+  {
+    slug: GOOGLE_ANALYTICS_AUTH_TEMPLATE,
+    kind: "oauth2",
+    authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+    tokenUrl: "https://oauth2.googleapis.com/token",
+    scopes: [GOOGLE_ANALYTICS_SCOPE],
+  },
+];
 
 function workspaceKey(workspaceId: string): string {
   return createHash("sha256").update(workspaceId).digest("hex").slice(0, 24);
@@ -73,11 +229,16 @@ function capabilityKey(
 }
 
 function pathsForWorkspace(workspaceId: string): ExecutorWorkspace {
-  const relative = join("executor", "workspaces", workspaceKey(workspaceId));
+  const key = workspaceKey(workspaceId);
+  const relative = join("executor", "workspaces", key);
   const current = join(homedir(), ".chief", relative);
   const legacy = join(homedir(), ".marketer", relative);
   const root = !existsSync(current) && existsSync(legacy) ? legacy : current;
-  return { scopeDir: join(root, "scope"), dataDir: join(root, "data") };
+  return {
+    scopeDir: join(root, "scope"),
+    dataDir: join(root, "data"),
+    keychainServiceName: `chief-executor-${key}`,
+  };
 }
 
 function portForWorkspace(workspaceId: string): number {
@@ -109,6 +270,10 @@ function manifestPath(dataDir: string) {
   return join(dataDir, "server-control", "server.json");
 }
 
+function keychainMarkerPath(dataDir: string) {
+  return join(dataDir, "server-control", "keychain-service-name");
+}
+
 async function readManifest(dataDir: string): Promise<ServerManifest | null> {
   try {
     const manifest = JSON.parse(
@@ -134,7 +299,7 @@ async function waitForManifest(dataDir: string): Promise<ServerManifest> {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(
-    `Executor daemon did not become ready${lastError instanceof Error ? `: ${lastError.message}` : "."}`,
+    `Local connection service did not become ready${lastError instanceof Error ? `: ${lastError.message}` : "."}`,
   );
 }
 
@@ -161,10 +326,67 @@ async function request<T>(
   const text = await response.text();
   if (!response.ok) {
     throw new Error(
-      `Executor ${init?.method ?? "GET"} ${path} failed (${response.status}): ${text.slice(0, 500)}`,
+      `Local connection ${init?.method ?? "GET"} ${path} failed (${response.status}): ${text.slice(0, 500)}`,
     );
   }
   return (text ? JSON.parse(text) : undefined) as T;
+}
+
+export function executorStructuredResult(response: ExecutionResponse): unknown {
+  if (response.status !== "completed") {
+    throw new Error(
+      "The local connection unexpectedly paused a trusted Chief operation.",
+    );
+  }
+  if (response.isError) throw new Error(response.text);
+  if (
+    response.structured &&
+    typeof response.structured === "object" &&
+    Object.prototype.hasOwnProperty.call(response.structured, "result")
+  ) {
+    return (response.structured as { result: unknown }).result;
+  }
+  throw new Error(
+    "The local connection completed without a structured result.",
+  );
+}
+
+function executorToolData(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const envelope = value as { ok?: unknown; data?: unknown; error?: unknown };
+  if (envelope.ok === false) {
+    throw new Error(
+      typeof envelope.error === "string"
+        ? envelope.error
+        : JSON.stringify(envelope.error ?? "Local connection tool failed."),
+    );
+  }
+  return envelope.ok === true ? envelope.data : value;
+}
+
+function toolInvocationCode(tool: Tool, args: Record<string, unknown>) {
+  const segments = tool.address.replace(/^tools\./, "").split(".");
+  const access = segments
+    .map((segment) => `[${JSON.stringify(segment)}]`)
+    .join("");
+  return `return await tools${access}(${JSON.stringify(args)});`;
+}
+
+async function executeTool(
+  manifest: ServerManifest,
+  tool: Tool,
+  args: Record<string, unknown>,
+) {
+  const response = await request<ExecutionResponse>(manifest, "/executions", {
+    method: "POST",
+    body: JSON.stringify({
+      code: toolInvocationCode(tool, args),
+      // This endpoint is only used with runtime-authored read-only calls. The
+      // user's Connect click is the approval; block policies still apply.
+      autoApprove: true,
+    }),
+  });
+  return executorToolData(executorStructuredResult(response));
 }
 
 const bearerAuthentication = [
@@ -265,6 +487,92 @@ async function configureLocalIntegration(
   }
 }
 
+async function configureGoogleAnalyticsIntegration(manifest: ServerManifest) {
+  const preparationKey = manifest.connection.apiBaseUrl;
+  if (preparedGoogleAnalytics.has(preparationKey)) return;
+  const integrations = await request<Integration[]>(manifest, "/integrations");
+  const specResponse = await fetch(GOOGLE_ANALYTICS_OPENAPI_URL, {
+    headers: { Accept: "application/json" },
+  });
+  if (!specResponse.ok) {
+    throw new Error(
+      `Google Analytics specification returned ${specResponse.status}.`,
+    );
+  }
+  const spec = {
+    kind: "blob",
+    value: JSON.stringify(
+      prepareGoogleAnalyticsSpec(await specResponse.json()),
+    ),
+  };
+  if (
+    integrations.some(
+      (integration) => integration.slug === GOOGLE_ANALYTICS_INTEGRATION,
+    )
+  ) {
+    await request(
+      manifest,
+      `/openapi/integrations/${GOOGLE_ANALYTICS_INTEGRATION}/spec`,
+      {
+        method: "POST",
+        body: JSON.stringify({ spec }),
+      },
+    );
+    await request(
+      manifest,
+      `/openapi/integrations/${GOOGLE_ANALYTICS_INTEGRATION}/config`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          mode: "replace",
+          authenticationTemplate: googleAnalyticsAuthentication,
+        }),
+      },
+    );
+    preparedGoogleAnalytics.add(preparationKey);
+    return;
+  }
+  await request(manifest, "/openapi/specs", {
+    method: "POST",
+    body: JSON.stringify({
+      spec,
+      slug: GOOGLE_ANALYTICS_INTEGRATION,
+      name: "Google Analytics",
+      description: "Read GA4 properties and reports.",
+      family: "google",
+      authenticationTemplate: googleAnalyticsAuthentication,
+    }),
+  });
+  preparedGoogleAnalytics.add(preparationKey);
+}
+
+async function configureReadOnlyConnectionPolicies(
+  manifest: ServerManifest,
+  tools: Tool[],
+) {
+  const policies = await request<Policy[]>(manifest, "/policies");
+  for (const tool of tools.filter((candidate) => candidate.requiresApproval)) {
+    const pattern = tool.address.replace(/^tools\./, "");
+    // Do not let a new exact approval shadow an existing broader restriction.
+    if (
+      !policies.some(
+        (policy) =>
+          policy.owner === "org" &&
+          policy.action !== "approve" &&
+          policyMatches(policy.pattern, pattern),
+      ) &&
+      !policies.some(
+        (policy) => policy.owner === "org" && policy.pattern === pattern,
+      )
+    ) {
+      await request(manifest, "/policies", {
+        method: "POST",
+        body: JSON.stringify({ owner: "org", pattern, action: "approve" }),
+      });
+    }
+  }
+}
+
 async function replaceConnection(
   manifest: ServerManifest,
   capability: ExecutorCapability,
@@ -318,24 +626,27 @@ async function configureToolPolicies(manifest: ServerManifest) {
   const actions = new Map<string, Policy["action"]>([
     ...[
       "agentTools.sourcesList",
-      "agentTools.analyticsRunReport",
       "agentTools.integrationsMarkConnected",
       "agentTools.uiPresentChart",
       "localTools.prospectsList",
       "localTools.prospectsSave",
       "localTools.trendsList",
       "localTools.trendsSave",
+      "localTools.analyticsListDatasets",
+      "localTools.analyticsSaveDataset",
       "localTools.contentList",
       "localTools.contentSave",
       "localTools.campaignsList",
       "localTools.campaignsSave",
-      "localTools.attentionRaise",
+      "localTools.actionRaise",
       "localTools.brandProfileSave",
+      "localTools.googleAnalyticsAuthorize",
+      "localTools.googleAnalyticsComplete",
+      "localTools.googleAnalyticsSelect",
+      "localTools.integrationOpenHandoff",
+      "localTools.specialistsDelegate",
       "localTools.recurringWorkList",
       "localTools.recurringWorkPropose",
-      "localTools.googleAnalyticsMetadata",
-      "localTools.googleAnalyticsProperties",
-      "localTools.googleAnalyticsRunReport",
     ].map((name) => [name, "approve"] as const),
   ]);
   const governedTools = [...cloudTools, ...localTools].filter((tool) =>
@@ -344,19 +655,19 @@ async function configureToolPolicies(manifest: ServerManifest) {
 
   for (const tool of governedTools) {
     const pattern = tool.address.replace(/^tools\./, "");
-    const action = actions.get(tool.name)!;
-    const existing = policies.filter((item) => item.pattern === pattern);
-    const keep = existing.find(
-      (item) => item.owner === "org" && item.action === action,
-    );
-    for (const policy of existing) {
-      if (policy === keep) continue;
-      await request(manifest, `/policies/${encodeURIComponent(policy.id)}`, {
-        method: "DELETE",
-        body: JSON.stringify({ owner: policy.owner }),
-      });
-    }
-    if (!keep) {
+    const action = actions.get(tool.name);
+    if (!action) continue;
+    if (
+      !policies.some(
+        (policy) =>
+          policy.owner === "org" &&
+          policy.action !== "approve" &&
+          policyMatches(policy.pattern, pattern),
+      ) &&
+      !policies.some(
+        (policy) => policy.owner === "org" && policy.pattern === pattern,
+      )
+    ) {
       await request(manifest, "/policies", {
         method: "POST",
         body: JSON.stringify({ owner: "org", pattern, action }),
@@ -379,12 +690,33 @@ async function provision(
   });
 
   let manifest = await readManifest(workspace.dataDir);
+  let migratedKeychain = false;
   if (manifest) {
     try {
       await request(manifest, "/integrations");
     } catch {
       manifest = null;
       await rm(manifestPath(workspace.dataDir), { force: true });
+    }
+  }
+
+  if (manifest) {
+    const configuredService = await readFile(
+      keychainMarkerPath(workspace.dataDir),
+      "utf8",
+    ).catch(() => "");
+    if (configuredService.trim() !== workspace.keychainServiceName) {
+      await execFileAsync(
+        executorBinary(),
+        ["daemon", "stop", "--base-url", manifest.connection.apiBaseUrl],
+        {
+          env: { ...process.env, EXECUTOR_DATA_DIR: workspace.dataDir },
+          timeout: 15_000,
+        },
+      );
+      await rm(manifestPath(workspace.dataDir), { force: true });
+      manifest = null;
+      migratedKeychain = true;
     }
   }
 
@@ -403,11 +735,55 @@ async function provision(
         workspace.scopeDir,
       ],
       {
-        env: { ...process.env, EXECUTOR_DATA_DIR: workspace.dataDir },
+        env: {
+          ...process.env,
+          EXECUTOR_DATA_DIR: workspace.dataDir,
+          EXECUTOR_KEYCHAIN_SERVICE_NAME: workspace.keychainServiceName,
+        },
         timeout: 30_000,
       },
     );
     manifest = await waitForManifest(workspace.dataDir);
+    await writeFile(
+      keychainMarkerPath(workspace.dataDir),
+      `${workspace.keychainServiceName}\n`,
+    );
+  }
+  if (migratedKeychain) {
+    const [connections, clients] = await Promise.all([
+      request<Connection[]>(manifest, "/connections"),
+      request<OAuthClient[]>(manifest, "/oauth/clients"),
+    ]);
+    if (
+      connections.some(
+        (connection) =>
+          connection.owner === "org" &&
+          connection.integration === GOOGLE_ANALYTICS_INTEGRATION &&
+          connection.name === GOOGLE_ANALYTICS_CONNECTION,
+      )
+    ) {
+      await request(
+        manifest,
+        `/connections/org/${GOOGLE_ANALYTICS_INTEGRATION}/${GOOGLE_ANALYTICS_CONNECTION}`,
+        { method: "DELETE" },
+      );
+    }
+    if (
+      clients.some(
+        (client) =>
+          client.owner === "org" &&
+          client.slug === GOOGLE_ANALYTICS_OAUTH_CLIENT,
+      )
+    ) {
+      await request(
+        manifest,
+        `/oauth/clients/${GOOGLE_ANALYTICS_OAUTH_CLIENT}`,
+        {
+          method: "DELETE",
+          body: JSON.stringify({ owner: "org" }),
+        },
+      );
+    }
   }
   await configureIntegration(manifest, capability);
   await configureLocalIntegration(manifest, capability);
@@ -420,6 +796,25 @@ async function provision(
   );
   await configureToolPolicies(manifest);
   return workspace;
+}
+
+export async function openExecutorHandoff(workspaceId: string, url: string) {
+  const manifest = await readManifest(pathsForWorkspace(workspaceId).dataDir);
+  if (manifest?.connection.auth.kind !== "bearer") {
+    throw new Error("The local connection service is not running.");
+  }
+  const handoff = new URL(url, manifest.connection.apiBaseUrl);
+  if (
+    handoff.origin !== new URL(manifest.connection.apiBaseUrl).origin ||
+    (!handoff.pathname.includes("/integrations/") &&
+      !handoff.pathname.includes("/resume/"))
+  ) {
+    throw new Error("The connection handoff URL is invalid.");
+  }
+  handoff.searchParams.set("_token", manifest.connection.auth.token);
+  await execFileAsync("/usr/bin/open", [handoff.toString()], {
+    timeout: 10_000,
+  });
 }
 
 /** Returns the isolated on-disk Executor scope for an already-provisioned workspace. */
@@ -441,4 +836,329 @@ export function ensureExecutorWorkspace(
   });
   pending.set(key, task);
   return task;
+}
+
+async function prepareGoogleAnalyticsIntegration(
+  workspaceId: string,
+  capability: ExecutorCapability,
+) {
+  const workspace = await ensureExecutorWorkspace(workspaceId, capability);
+  const manifest = await readManifest(workspace.dataDir);
+  if (!manifest)
+    throw new Error("The local connection service is not running.");
+  await configureGoogleAnalyticsIntegration(manifest);
+}
+
+/** Provider adapters prepare exceptional surfaces; generic setup uses Executor directly. */
+export async function prepareIntegrationSetup(
+  workspaceId: string,
+  capability: ExecutorCapability,
+  domain: string,
+) {
+  if (domain === "analytics.googleapis.com") {
+    await prepareGoogleAnalyticsIntegration(workspaceId, capability);
+  }
+}
+
+async function replaceGoogleAnalyticsOAuthClient(
+  manifest: ServerManifest,
+  credentials: { clientId: string; clientSecret: string },
+) {
+  const clients = await request<OAuthClient[]>(manifest, "/oauth/clients");
+  if (
+    clients.some(
+      (client) =>
+        client.owner === "org" && client.slug === GOOGLE_ANALYTICS_OAUTH_CLIENT,
+    )
+  ) {
+    await request(manifest, `/oauth/clients/${GOOGLE_ANALYTICS_OAUTH_CLIENT}`, {
+      method: "DELETE",
+      body: JSON.stringify({ owner: "org" }),
+    });
+  }
+  await request(manifest, "/oauth/clients", {
+    method: "POST",
+    body: JSON.stringify({
+      owner: "org",
+      slug: GOOGLE_ANALYTICS_OAUTH_CLIENT,
+      authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      grant: "authorization_code",
+      clientId: credentials.clientId,
+      clientSecret: credentials.clientSecret,
+      originIntegration: GOOGLE_ANALYTICS_INTEGRATION,
+    }),
+  });
+}
+
+export async function storeGoogleAnalyticsOAuthClient(
+  workspaceId: string,
+  capability: ExecutorCapability,
+  credentials: { clientId: string; clientSecret: string },
+) {
+  const workspace = await ensureExecutorWorkspace(workspaceId, capability);
+  const manifest = await readManifest(workspace.dataDir);
+  if (!manifest)
+    throw new Error("The local connection service is not running.");
+  await configureGoogleAnalyticsIntegration(manifest);
+  await replaceGoogleAnalyticsOAuthClient(manifest, credentials);
+}
+
+export async function startGoogleAnalyticsAuthorization(
+  workspaceId: string,
+  capability: ExecutorCapability,
+  credentials?: { clientId: string; clientSecret: string },
+) {
+  const workspace = await ensureExecutorWorkspace(workspaceId, capability);
+  const manifest = await readManifest(workspace.dataDir);
+  if (!manifest)
+    throw new Error("The local connection service is not running.");
+  await configureGoogleAnalyticsIntegration(manifest);
+
+  if (credentials) {
+    await replaceGoogleAnalyticsOAuthClient(manifest, credentials);
+  } else if (
+    !(await request<OAuthClient[]>(manifest, "/oauth/clients")).some(
+      (client) =>
+        client.owner === "org" && client.slug === GOOGLE_ANALYTICS_OAUTH_CLIENT,
+    )
+  ) {
+    throw new Error("Google Analytics OAuth credentials are required.");
+  }
+
+  const redirectUri = new URL(
+    "/api/oauth/callback",
+    manifest.connection.apiBaseUrl,
+  ).toString();
+  const started = await request<OAuthStart>(manifest, "/oauth/start", {
+    method: "POST",
+    body: JSON.stringify({
+      client: GOOGLE_ANALYTICS_OAUTH_CLIENT,
+      clientOwner: "org",
+      owner: "org",
+      name: GOOGLE_ANALYTICS_CONNECTION,
+      integration: GOOGLE_ANALYTICS_INTEGRATION,
+      template: GOOGLE_ANALYTICS_AUTH_TEMPLATE,
+      identityLabel: "Google Analytics",
+      redirectUri,
+    }),
+  });
+  if (
+    started.status !== "redirect" ||
+    !started.authorizationUrl ||
+    !started.state
+  ) {
+    throw new Error("Chief could not start Google authorization.");
+  }
+  const authorizationUrl = new URL(started.authorizationUrl);
+  if (
+    authorizationUrl.protocol !== "https:" ||
+    authorizationUrl.hostname !== "accounts.google.com"
+  ) {
+    throw new Error("Google returned an invalid authorization URL.");
+  }
+  await execFileAsync("/usr/bin/open", [authorizationUrl.toString()], {
+    timeout: 10_000,
+  });
+  return {
+    authorizationUrl: authorizationUrl.toString(),
+    state: started.state,
+  };
+}
+
+export async function awaitGoogleAnalyticsAuthorization(
+  workspaceId: string,
+  state: string,
+) {
+  const manifest = await readManifest(pathsForWorkspace(workspaceId).dataDir);
+  if (!manifest)
+    throw new Error("The local connection service is not running.");
+  for (let attempt = 0; attempt < 600; attempt += 1) {
+    const result = await request<OAuthResult | null>(
+      manifest,
+      `/oauth/await/${encodeURIComponent(state)}`,
+    );
+    if (result) {
+      if (!result.ok) {
+        throw new Error(
+          result.errorDetails ?? result.error ?? "Google authorization failed.",
+        );
+      }
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  await request(manifest, "/oauth/cancel", {
+    method: "POST",
+    body: JSON.stringify({ state }),
+  }).catch(() => undefined);
+  throw new Error("Google authorization timed out.");
+}
+
+export async function listExecutorConnections(
+  workspaceId: string,
+  capability: ExecutorCapability,
+) {
+  const workspace = await ensureExecutorWorkspace(workspaceId, capability);
+  const manifest = await readManifest(workspace.dataDir);
+  if (!manifest)
+    throw new Error("The local connection service is not running.");
+  return request<Connection[]>(manifest, "/connections");
+}
+
+export async function inspectGoogleAnalyticsConfiguration(
+  workspaceId: string,
+  capability: ExecutorCapability,
+) {
+  const workspace = await ensureExecutorWorkspace(workspaceId, capability);
+  const manifest = await readManifest(workspace.dataDir);
+  if (!manifest)
+    throw new Error("The local connection service is not running.");
+  const [connections, clients] = await Promise.all([
+    request<Connection[]>(manifest, "/connections"),
+    request<OAuthClient[]>(manifest, "/oauth/clients"),
+  ]);
+  return {
+    connection: connections.find(
+      (connection) =>
+        connection.owner === "org" &&
+        connection.integration === GOOGLE_ANALYTICS_INTEGRATION &&
+        connection.name === GOOGLE_ANALYTICS_CONNECTION,
+    ),
+    oauthClientConfigured: clients.some(
+      (client) =>
+        client.owner === "org" && client.slug === GOOGLE_ANALYTICS_OAUTH_CLIENT,
+    ),
+  };
+}
+
+export async function disconnectGoogleAnalyticsConnection(
+  workspaceId: string,
+  capability: ExecutorCapability,
+) {
+  const workspace = await ensureExecutorWorkspace(workspaceId, capability);
+  const manifest = await readManifest(workspace.dataDir);
+  if (!manifest)
+    throw new Error("The local connection service is not running.");
+  const connections = await request<Connection[]>(manifest, "/connections");
+  const exists = connections.some(
+    (connection) =>
+      connection.owner === "org" &&
+      connection.integration === GOOGLE_ANALYTICS_INTEGRATION &&
+      connection.name === GOOGLE_ANALYTICS_CONNECTION,
+  );
+  if (exists) {
+    await request(
+      manifest,
+      `/connections/org/${GOOGLE_ANALYTICS_INTEGRATION}/${GOOGLE_ANALYTICS_CONNECTION}`,
+      { method: "DELETE" },
+    );
+  }
+}
+
+export async function verifyGoogleAnalyticsConnection(
+  workspaceId: string,
+  capability: ExecutorCapability,
+  selectedPropertyId?: string,
+): Promise<
+  | { status: "selection-required"; properties: GoogleAnalyticsProperty[] }
+  | { status: "connected"; property: GoogleAnalyticsProperty }
+> {
+  const workspace = await ensureExecutorWorkspace(workspaceId, capability);
+  const manifest = await readManifest(workspace.dataDir);
+  if (!manifest)
+    throw new Error("The local connection service is not running.");
+  await configureGoogleAnalyticsIntegration(manifest);
+  const tools = await request<Tool[]>(
+    manifest,
+    `/tools?integration=${GOOGLE_ANALYTICS_INTEGRATION}&owner=org&connection=${GOOGLE_ANALYTICS_CONNECTION}&includeAnnotations=true`,
+  );
+  const catalog = await Promise.all(
+    tools.map(async (tool) => ({
+      tool,
+      schema: await request<ToolSchemaView>(
+        manifest,
+        `/tools/schema?address=${encodeURIComponent(tool.address)}`,
+      ),
+    })),
+  );
+  const accountTool = catalog.find(({ schema }) => {
+    const properties = schema.inputSchema?.properties ?? {};
+    return (
+      "pageSize" in properties &&
+      "pageToken" in properties &&
+      !("property" in properties) &&
+      !("body" in properties)
+    );
+  })?.tool;
+  const reportTool = catalog.find(({ schema }) => {
+    const input = schema.inputSchema;
+    return (
+      input?.required?.includes("property") === true &&
+      input.properties?.body?.$ref?.endsWith("/RunReportRequest") === true
+    );
+  })?.tool;
+  if (!accountTool || !reportTool) {
+    throw new Error("Google Analytics reporting tools are unavailable.");
+  }
+  const accountData = (await executeTool(manifest, accountTool, {
+    pageSize: 200,
+  })) as {
+    accountSummaries?: {
+      displayName?: string;
+      propertySummaries?: { property?: string; displayName?: string }[];
+    }[];
+  };
+  const properties = (accountData.accountSummaries ?? []).flatMap((account) =>
+    (account.propertySummaries ?? []).flatMap((property) =>
+      property.property
+        ? [
+            {
+              accountName: account.displayName ?? "Google Analytics",
+              propertyId: property.property,
+              propertyName: property.displayName ?? property.property,
+            },
+          ]
+        : [],
+    ),
+  );
+  if (properties.length === 0) {
+    throw new Error("This Google account has no accessible GA4 properties.");
+  }
+  const normalizedSelection = selectedPropertyId?.startsWith("properties/")
+    ? selectedPropertyId
+    : selectedPropertyId
+      ? `properties/${selectedPropertyId}`
+      : undefined;
+  if (!normalizedSelection && properties.length > 1) {
+    return { status: "selection-required", properties };
+  }
+  const property = normalizedSelection
+    ? properties.find(
+        (candidate) => candidate.propertyId === normalizedSelection,
+      )
+    : properties[0];
+  if (!property) {
+    throw new Error("The selected Google Analytics property is unavailable.");
+  }
+
+  await executeTool(manifest, reportTool, {
+    property: property.propertyId,
+    body: {
+      dateRanges: [{ startDate: "7daysAgo", endDate: "today" }],
+      dimensions: [{ name: "date" }],
+      metrics: [{ name: "activeUsers" }],
+      limit: "1",
+    },
+  });
+  await configureReadOnlyConnectionPolicies(manifest, tools);
+  await request(
+    manifest,
+    `/connections/org/${GOOGLE_ANALYTICS_INTEGRATION}/${GOOGLE_ANALYTICS_CONNECTION}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ identityLabel: property.propertyName }),
+    },
+  );
+  return { status: "connected", property };
 }
