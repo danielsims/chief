@@ -27,6 +27,7 @@ export function workspaceContextFromOrganization(
   const onboarding = record(metadata.onboarding);
   const goals = record(onboarding.goals);
   const ads = record(onboarding.ads);
+  const aeo = record(onboarding.aeo);
   const monitoring = record(onboarding.monitoring);
   const analytics = record(onboarding.analytics);
   const automation = record(onboarding.automation);
@@ -54,6 +55,17 @@ export function workspaceContextFromOrganization(
     lines.push(`Time the user can spend on marketing: ${timeBudget}`);
   const budget = text(ads.budget);
   if (budget) lines.push(`Paid ads: ${budget}`);
+  const adIntegrations = Array.isArray(ads.integrations)
+    ? ads.integrations.map((item) => text(record(item).name)).filter(Boolean)
+    : [];
+  if (adIntegrations.length > 0) {
+    lines.push(`Ad accounts chosen at setup: ${adIntegrations.join(", ")}`);
+  }
+  if (aeo.trackAiReferrals === true) {
+    lines.push(
+      "AI referral tracking: enabled. Include attributable traffic from ChatGPT, Claude, Perplexity, Copilot and other AI assistants in analytics reporting.",
+    );
+  }
   const channels = Array.isArray(monitoring.channels)
     ? monitoring.channels.filter((c): c is string => typeof c === "string")
     : [];
