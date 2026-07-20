@@ -113,17 +113,6 @@ export function grantAllowsAddress(
   const requested = canonicalExecutorAddress(address);
   return patterns.some((rawPattern) => {
     const pattern = canonicalExecutorAddress(rawPattern);
-    // The cached workspace report and the Mac's live GA4 report represent the
-    // same read-only analytics capability. Older schedules approved the
-    // cached address before the live connector existed, so preserve that
-    // approval while routing them to fresher data.
-    if (
-      pattern === "tools.chief.org.workspace.agentTools.analyticsRunReport" &&
-      requested ===
-        "tools.chief-local.org.localworkspace.localTools.googleAnalyticsRunReport"
-    ) {
-      return true;
-    }
     if (pattern === requested) return true;
     if (!pattern.endsWith(".*")) return false;
     return requested.startsWith(pattern.slice(0, -1));

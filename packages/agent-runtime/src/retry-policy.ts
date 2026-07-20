@@ -2,8 +2,6 @@ import type { RecurringWorkRecord } from "./types.js";
 
 export const TRANSIENT_RETRY_DELAY_MS = 30_000;
 
-const SETUP_RETRY_MESSAGE =
-  "Setup is reconnecting to the local agent service and will continue automatically.";
 const WORK_RETRY_MESSAGE =
   "Chief is reconnecting to the local agent service and will continue this work automatically.";
 const RETRY_EXHAUSTED_MESSAGE =
@@ -34,23 +32,21 @@ export function isTransientRuntimeError(error: unknown) {
   );
 }
 
-export function isAutomaticRetryResult(result: string | null | undefined) {
-  return result === SETUP_RETRY_MESSAGE || result === WORK_RETRY_MESSAGE;
+export function isAutomaticRetrySummary(summary: string | null | undefined) {
+  return summary === WORK_RETRY_MESSAGE;
 }
 
 export function transientRetryOutcome(
   error: unknown,
-  work: Pick<RecurringWorkRecord, "agentId" | "lastResult">,
+  work: Pick<RecurringWorkRecord, "lastSummary">,
 ) {
   const transient = isTransientRuntimeError(error);
-  const isAutomaticRetry = isAutomaticRetryResult(work.lastResult);
+  const isAutomaticRetry = isAutomaticRetrySummary(work.lastSummary);
   const retrying = transient && !isAutomaticRetry;
   return {
     retrying,
     message: retrying
-      ? work.agentId === "setup"
-        ? SETUP_RETRY_MESSAGE
-        : WORK_RETRY_MESSAGE
+      ? WORK_RETRY_MESSAGE
       : transient
         ? RETRY_EXHAUSTED_MESSAGE
         : null,

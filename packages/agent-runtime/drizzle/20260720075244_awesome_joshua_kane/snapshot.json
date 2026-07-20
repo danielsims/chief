@@ -1,17 +1,21 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "56ac709c-e4e7-4d98-a3f2-e0aefd45a55f",
+  "id": "afebc097-c64d-44ed-aa27-ebfa8f30d289",
   "prevIds": [
-    "00000000-0000-0000-0000-000000000000"
+    "d4a76e94-a24b-438a-9717-b4ef76c9d8be"
   ],
   "ddl": [
+    {
+      "name": "action",
+      "entityType": "tables"
+    },
     {
       "name": "preference",
       "entityType": "tables"
     },
     {
-      "name": "attention",
+      "name": "dataset",
       "entityType": "tables"
     },
     {
@@ -19,11 +23,11 @@
       "entityType": "tables"
     },
     {
-      "name": "chat",
+      "name": "content",
       "entityType": "tables"
     },
     {
-      "name": "content",
+      "name": "event",
       "entityType": "tables"
     },
     {
@@ -39,7 +43,7 @@
       "entityType": "tables"
     },
     {
-      "name": "run",
+      "name": "session",
       "entityType": "tables"
     },
     {
@@ -56,11 +60,101 @@
     },
     {
       "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "action"
+    },
+    {
+      "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "workspace_id",
+      "name": "organization_id",
+      "entityType": "columns",
+      "table": "action"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "agent_id",
+      "entityType": "columns",
+      "table": "action"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "title",
+      "entityType": "columns",
+      "table": "action"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "reason",
+      "entityType": "columns",
+      "table": "action"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_id",
+      "entityType": "columns",
+      "table": "action"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "request",
+      "entityType": "columns",
+      "table": "action"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "status",
+      "entityType": "columns",
+      "table": "action"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "action"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "organization_id",
       "entityType": "columns",
       "table": "preference"
     },
@@ -136,13 +230,13 @@
     },
     {
       "type": "text",
-      "notNull": false,
+      "notNull": true,
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "id",
+      "name": "organization_id",
       "entityType": "columns",
-      "table": "attention"
+      "table": "dataset"
     },
     {
       "type": "text",
@@ -150,9 +244,9 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "workspace_id",
+      "name": "provider",
       "entityType": "columns",
-      "table": "attention"
+      "table": "dataset"
     },
     {
       "type": "text",
@@ -160,39 +254,19 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "agent_id",
+      "name": "key",
       "entityType": "columns",
-      "table": "attention"
+      "table": "dataset"
     },
     {
       "type": "text",
       "notNull": true,
       "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "title",
-      "entityType": "columns",
-      "table": "attention"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "reason",
-      "entityType": "columns",
-      "table": "attention"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
+      "default": "''",
       "generated": null,
       "name": "source_id",
       "entityType": "columns",
-      "table": "attention"
+      "table": "dataset"
     },
     {
       "type": "text",
@@ -200,9 +274,9 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "status",
+      "name": "data",
       "entityType": "columns",
-      "table": "attention"
+      "table": "dataset"
     },
     {
       "type": "integer",
@@ -210,9 +284,9 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "created_at",
+      "name": "captured_at",
       "entityType": "columns",
-      "table": "attention"
+      "table": "dataset"
     },
     {
       "type": "text",
@@ -230,7 +304,7 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "workspace_id",
+      "name": "organization_id",
       "entityType": "columns",
       "table": "campaign"
     },
@@ -342,156 +416,6 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
-      "table": "chat"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "workspace_id",
-      "entityType": "columns",
-      "table": "chat"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "parent_id",
-      "entityType": "columns",
-      "table": "chat"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "trigger_id",
-      "entityType": "columns",
-      "table": "chat"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "visibility",
-      "entityType": "columns",
-      "table": "chat"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "agent",
-      "entityType": "columns",
-      "table": "chat"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "''",
-      "generated": null,
-      "name": "title",
-      "entityType": "columns",
-      "table": "chat"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "''",
-      "generated": null,
-      "name": "last_text",
-      "entityType": "columns",
-      "table": "chat"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "provider",
-      "entityType": "columns",
-      "table": "chat"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "model",
-      "entityType": "columns",
-      "table": "chat"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "provider_state",
-      "entityType": "columns",
-      "table": "chat"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "eve_state",
-      "entityType": "columns",
-      "table": "chat"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "'idle'",
-      "generated": null,
-      "name": "status",
-      "entityType": "columns",
-      "table": "chat"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "table": "chat"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "table": "chat"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "id",
-      "entityType": "columns",
       "table": "content"
     },
     {
@@ -500,7 +424,7 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "workspace_id",
+      "name": "organization_id",
       "entityType": "columns",
       "table": "content"
     },
@@ -602,6 +526,86 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
+      "table": "event"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "table": "event"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "event"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "position",
+      "entityType": "columns",
+      "table": "event"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "type",
+      "entityType": "columns",
+      "table": "event"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "level",
+      "entityType": "columns",
+      "table": "event"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "data",
+      "entityType": "columns",
+      "table": "event"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "event"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
       "table": "message"
     },
     {
@@ -610,7 +614,17 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "chat_id",
+      "name": "organization_id",
+      "entityType": "columns",
+      "table": "message"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
       "entityType": "columns",
       "table": "message"
     },
@@ -680,7 +694,7 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "workspace_id",
+      "name": "organization_id",
       "entityType": "columns",
       "table": "prospect"
     },
@@ -790,17 +804,17 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "workspace_id",
+      "name": "organization_id",
       "entityType": "columns",
       "table": "schedule"
     },
     {
       "type": "text",
-      "notNull": true,
+      "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "chat_id",
+      "name": "conversation_id",
       "entityType": "columns",
       "table": "schedule"
     },
@@ -860,7 +874,7 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "run_once_at",
+      "name": "once_at",
       "entityType": "columns",
       "table": "schedule"
     },
@@ -930,7 +944,7 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "next_run_at",
+      "name": "next_at",
       "entityType": "columns",
       "table": "schedule"
     },
@@ -940,7 +954,7 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "last_run_at",
+      "name": "last_completed_at",
       "entityType": "columns",
       "table": "schedule"
     },
@@ -950,7 +964,7 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "last_result",
+      "name": "last_summary",
       "entityType": "columns",
       "table": "schedule"
     },
@@ -982,17 +996,47 @@
       "generated": null,
       "name": "id",
       "entityType": "columns",
-      "table": "run"
+      "table": "session"
     },
     {
       "type": "text",
       "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "table": "session"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "parent_id",
+      "entityType": "columns",
+      "table": "session"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "trigger_id",
+      "entityType": "columns",
+      "table": "session"
+    },
+    {
+      "type": "text",
+      "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "schedule_id",
       "entityType": "columns",
-      "table": "run"
+      "table": "session"
     },
     {
       "type": "text",
@@ -1000,9 +1044,9 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "workspace_id",
+      "name": "kind",
       "entityType": "columns",
-      "table": "run"
+      "table": "session"
     },
     {
       "type": "text",
@@ -1010,39 +1054,109 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "chat_id",
+      "name": "visibility",
       "entityType": "columns",
-      "table": "run"
+      "table": "session"
     },
     {
       "type": "text",
       "notNull": true,
       "autoincrement": false,
       "default": null,
+      "generated": null,
+      "name": "agent",
+      "entityType": "columns",
+      "table": "session"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "''",
+      "generated": null,
+      "name": "title",
+      "entityType": "columns",
+      "table": "session"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "''",
+      "generated": null,
+      "name": "last_text",
+      "entityType": "columns",
+      "table": "session"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "provider",
+      "entityType": "columns",
+      "table": "session"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "model",
+      "entityType": "columns",
+      "table": "session"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "provider_state",
+      "entityType": "columns",
+      "table": "session"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "eve_state",
+      "entityType": "columns",
+      "table": "session"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "'idle'",
       "generated": null,
       "name": "status",
       "entityType": "columns",
-      "table": "run"
+      "table": "session"
     },
     {
       "type": "integer",
-      "notNull": true,
+      "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "scheduled_for",
       "entityType": "columns",
-      "table": "run"
+      "table": "session"
     },
     {
       "type": "integer",
-      "notNull": true,
+      "notNull": false,
       "autoincrement": false,
       "default": null,
       "generated": null,
       "name": "started_at",
       "entityType": "columns",
-      "table": "run"
+      "table": "session"
     },
     {
       "type": "integer",
@@ -1052,7 +1166,17 @@
       "generated": null,
       "name": "finished_at",
       "entityType": "columns",
-      "table": "run"
+      "table": "session"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": "1",
+      "generated": null,
+      "name": "attempt",
+      "entityType": "columns",
+      "table": "session"
     },
     {
       "type": "text",
@@ -1062,7 +1186,7 @@
       "generated": null,
       "name": "summary",
       "entityType": "columns",
-      "table": "run"
+      "table": "session"
     },
     {
       "type": "text",
@@ -1072,7 +1196,7 @@
       "generated": null,
       "name": "error",
       "entityType": "columns",
-      "table": "run"
+      "table": "session"
     },
     {
       "type": "text",
@@ -1082,7 +1206,7 @@
       "generated": null,
       "name": "artifacts",
       "entityType": "columns",
-      "table": "run"
+      "table": "session"
     },
     {
       "type": "text",
@@ -1092,7 +1216,27 @@
       "generated": null,
       "name": "blocked_tools",
       "entityType": "columns",
-      "table": "run"
+      "table": "session"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "session"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "session"
     },
     {
       "type": "text",
@@ -1110,7 +1254,7 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "workspace_id",
+      "name": "organization_id",
       "entityType": "columns",
       "table": "trend"
     },
@@ -1220,7 +1364,7 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "workspace_id",
+      "name": "organization_id",
       "entityType": "columns",
       "table": "version"
     },
@@ -1270,7 +1414,7 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "source_run_id",
+      "name": "source_session_id",
       "entityType": "columns",
       "table": "version"
     },
@@ -1300,7 +1444,7 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "workspace_id",
+      "name": "organization_id",
       "entityType": "columns",
       "table": "file"
     },
@@ -1390,7 +1534,7 @@
       "autoincrement": false,
       "default": null,
       "generated": null,
-      "name": "source_run_id",
+      "name": "source_session_id",
       "entityType": "columns",
       "table": "file"
     },
@@ -1416,48 +1560,48 @@
     },
     {
       "columns": [
-        "parent_id"
+        "session_id"
       ],
-      "tableTo": "chat",
+      "tableTo": "session",
       "columnsTo": [
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
-      "name": "fk_chat_parent_id_chat_id_fk",
+      "name": "fk_event_session_id_session_id_fk",
       "entityType": "fks",
-      "table": "chat"
+      "table": "event"
     },
     {
       "columns": [
-        "chat_id"
+        "session_id"
       ],
-      "tableTo": "chat",
+      "tableTo": "session",
       "columnsTo": [
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
-      "name": "fk_message_chat_id_chat_id_fk",
+      "name": "fk_message_session_id_session_id_fk",
       "entityType": "fks",
       "table": "message"
     },
     {
       "columns": [
-        "chat_id"
+        "parent_id"
       ],
-      "tableTo": "chat",
+      "tableTo": "session",
       "columnsTo": [
         "id"
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
-      "name": "fk_schedule_chat_id_chat_id_fk",
+      "name": "fk_session_parent_id_session_id_fk",
       "entityType": "fks",
-      "table": "schedule"
+      "table": "session"
     },
     {
       "columns": [
@@ -1470,24 +1614,9 @@
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
-      "name": "fk_run_schedule_id_schedule_id_fk",
+      "name": "fk_session_schedule_id_schedule_id_fk",
       "entityType": "fks",
-      "table": "run"
-    },
-    {
-      "columns": [
-        "chat_id"
-      ],
-      "tableTo": "chat",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "nameExplicit": false,
-      "name": "fk_run_chat_id_chat_id_fk",
-      "entityType": "fks",
-      "table": "run"
+      "table": "session"
     },
     {
       "columns": [
@@ -1506,7 +1635,7 @@
     },
     {
       "columns": [
-        "workspace_id",
+        "organization_id",
         "agent_id"
       ],
       "nameExplicit": false,
@@ -1516,11 +1645,23 @@
     },
     {
       "columns": [
+        "organization_id",
+        "provider",
+        "key",
+        "source_id"
+      ],
+      "nameExplicit": false,
+      "name": "dataset_pk",
+      "entityType": "pks",
+      "table": "dataset"
+    },
+    {
+      "columns": [
         "id"
       ],
       "nameExplicit": false,
-      "name": "attention_pk",
-      "table": "attention",
+      "name": "action_pk",
+      "table": "action",
       "entityType": "pks"
     },
     {
@@ -1537,8 +1678,8 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "chat_pk",
-      "table": "chat",
+      "name": "content_pk",
+      "table": "content",
       "entityType": "pks"
     },
     {
@@ -1546,8 +1687,8 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "content_pk",
-      "table": "content",
+      "name": "event_pk",
+      "table": "event",
       "entityType": "pks"
     },
     {
@@ -1582,8 +1723,8 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "run_pk",
-      "table": "run",
+      "name": "session_pk",
+      "table": "session",
       "entityType": "pks"
     },
     {
@@ -1616,7 +1757,7 @@
     {
       "columns": [
         {
-          "value": "workspace_id",
+          "value": "organization_id",
           "isExpression": false
         },
         {
@@ -1627,14 +1768,32 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "attention_workspace_status_idx",
+      "name": "action_organization_status",
       "entityType": "indexes",
-      "table": "attention"
+      "table": "action"
     },
     {
       "columns": [
         {
-          "value": "workspace_id",
+          "value": "organization_id",
+          "isExpression": false
+        },
+        {
+          "value": "captured_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "dataset_organization_captured",
+      "entityType": "indexes",
+      "table": "dataset"
+    },
+    {
+      "columns": [
+        {
+          "value": "organization_id",
           "isExpression": false
         },
         {
@@ -1645,14 +1804,190 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "campaign_workspace_updated",
+      "name": "campaign_organization_updated",
       "entityType": "indexes",
       "table": "campaign"
     },
     {
       "columns": [
         {
-          "value": "workspace_id",
+          "value": "organization_id",
+          "isExpression": false
+        },
+        {
+          "value": "scheduled_for",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "content_organization_schedule",
+      "entityType": "indexes",
+      "table": "content"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        },
+        {
+          "value": "position",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "event_session_position",
+      "entityType": "indexes",
+      "table": "event"
+    },
+    {
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false
+        },
+        {
+          "value": "session_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "event_organization_session",
+      "entityType": "indexes",
+      "table": "event"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        },
+        {
+          "value": "created_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "event_session_created",
+      "entityType": "indexes",
+      "table": "event"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        },
+        {
+          "value": "position",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "message_session_position",
+      "entityType": "indexes",
+      "table": "message"
+    },
+    {
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false
+        },
+        {
+          "value": "session_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "message_organization_session",
+      "entityType": "indexes",
+      "table": "message"
+    },
+    {
+      "columns": [
+        {
+          "value": "session_id",
+          "isExpression": false
+        },
+        {
+          "value": "created_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "message_session_created",
+      "entityType": "indexes",
+      "table": "message"
+    },
+    {
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false
+        },
+        {
+          "value": "found_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "prospect_organization_found",
+      "entityType": "indexes",
+      "table": "prospect"
+    },
+    {
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false
+        },
+        {
+          "value": "next_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "schedule_organization_next",
+      "entityType": "indexes",
+      "table": "schedule"
+    },
+    {
+      "columns": [
+        {
+          "value": "conversation_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "schedule_conversation",
+      "entityType": "indexes",
+      "table": "schedule"
+    },
+    {
+      "columns": [
+        {
+          "value": "organization_id",
           "isExpression": false
         },
         {
@@ -1663,9 +1998,9 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "chat_workspace_updated",
+      "name": "session_organization_updated",
       "entityType": "indexes",
-      "table": "chat"
+      "table": "session"
     },
     {
       "columns": [
@@ -1677,118 +2012,14 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "chat_parent",
+      "name": "session_parent",
       "entityType": "indexes",
-      "table": "chat"
+      "table": "session"
     },
     {
       "columns": [
         {
-          "value": "workspace_id",
-          "isExpression": false
-        },
-        {
-          "value": "scheduled_for",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "content_workspace_schedule",
-      "entityType": "indexes",
-      "table": "content"
-    },
-    {
-      "columns": [
-        {
-          "value": "chat_id",
-          "isExpression": false
-        },
-        {
-          "value": "position",
-          "isExpression": false
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "origin": "manual",
-      "name": "message_chat_position",
-      "entityType": "indexes",
-      "table": "message"
-    },
-    {
-      "columns": [
-        {
-          "value": "chat_id",
-          "isExpression": false
-        },
-        {
-          "value": "created_at",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "message_chat_created",
-      "entityType": "indexes",
-      "table": "message"
-    },
-    {
-      "columns": [
-        {
-          "value": "workspace_id",
-          "isExpression": false
-        },
-        {
-          "value": "found_at",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "prospect_workspace_found",
-      "entityType": "indexes",
-      "table": "prospect"
-    },
-    {
-      "columns": [
-        {
-          "value": "workspace_id",
-          "isExpression": false
-        },
-        {
-          "value": "next_run_at",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "schedule_workspace_next",
-      "entityType": "indexes",
-      "table": "schedule"
-    },
-    {
-      "columns": [
-        {
-          "value": "chat_id",
-          "isExpression": false
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "origin": "manual",
-      "name": "schedule_chat",
-      "entityType": "indexes",
-      "table": "schedule"
-    },
-    {
-      "columns": [
-        {
-          "value": "workspace_id",
+          "value": "schedule_id",
           "isExpression": false
         },
         {
@@ -1799,9 +2030,27 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "run_workspace_started",
+      "name": "session_schedule_started",
       "entityType": "indexes",
-      "table": "run"
+      "table": "session"
+    },
+    {
+      "columns": [
+        {
+          "value": "schedule_id",
+          "isExpression": false
+        },
+        {
+          "value": "scheduled_for",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "origin": "manual",
+      "name": "session_schedule_occurrence",
+      "entityType": "indexes",
+      "table": "session"
     },
     {
       "columns": [
@@ -1811,16 +2060,16 @@
         }
       ],
       "isUnique": true,
-      "where": "\"run\".\"status\" = 'running'",
+      "where": "\"session\".\"status\" IN ('running', 'waiting')",
       "origin": "manual",
-      "name": "run_one_active_per_schedule",
+      "name": "session_one_active_per_schedule",
       "entityType": "indexes",
-      "table": "run"
+      "table": "session"
     },
     {
       "columns": [
         {
-          "value": "workspace_id",
+          "value": "organization_id",
           "isExpression": false
         },
         {
@@ -1831,7 +2080,7 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "trend_workspace_found",
+      "name": "trend_organization_found",
       "entityType": "indexes",
       "table": "trend"
     },
@@ -1856,7 +2105,7 @@
     {
       "columns": [
         {
-          "value": "workspace_id",
+          "value": "organization_id",
           "isExpression": false
         },
         {
@@ -1867,14 +2116,14 @@
       "isUnique": true,
       "where": null,
       "origin": "manual",
-      "name": "file_workspace_path",
+      "name": "file_organization_path",
       "entityType": "indexes",
       "table": "file"
     },
     {
       "columns": [
         {
-          "value": "workspace_id",
+          "value": "organization_id",
           "isExpression": false
         },
         {
@@ -1885,7 +2134,7 @@
       "isUnique": false,
       "where": null,
       "origin": "manual",
-      "name": "file_workspace_updated",
+      "name": "file_organization_updated",
       "entityType": "indexes",
       "table": "file"
     }
