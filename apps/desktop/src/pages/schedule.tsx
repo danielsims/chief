@@ -1,3 +1,5 @@
+/* eslint-disable max-lines */
+
 import type { MouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
@@ -22,7 +24,6 @@ import { useNavigate } from "react-router";
 import type {
   ContentDraftRecord,
   RecurringWorkRecord,
-  RecurringWorkRunRecord,
 } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 import {
@@ -47,12 +48,9 @@ import {
 } from "@chief/ui/components/select";
 import { cn } from "@chief/ui/lib/utils";
 
-import type { RunReview } from "../components/run-review-dialog";
-import { RunReviewDialog } from "../components/run-review-dialog";
 import { useAgentConfig } from "../lib/agent-config";
 import { useAuth } from "../lib/auth/auth-context";
 import { createChat } from "../lib/chat-log";
-import { presentRunText } from "../lib/run-copy";
 import { messageBlocks, useChiefChat, useWorkspaceData } from "../lib/runtime";
 
 type ScheduledDraft = ContentDraftRecord;
@@ -188,200 +186,8 @@ function RecurringWorkChip({
         </span>
       </div>
       <p className="text-muted-foreground mt-1 truncate text-[10px]">
-        {work.status === "draft" ? "Approval needed" : work.agentId}
+        {work.agentId} · {work.status.replace("_", " ")}
       </p>
-    </div>
-  );
-}
-
-interface PastRunEntry {
-  id: string;
-  workId: string;
-  agentId: string;
-  title: string;
-  status: "running" | "completed" | "waiting" | "failed" | "needs_approval";
-  scheduledFor: number;
-  summary?: string;
-  blockedTools?: string[];
-}
-
-function previewText(markdown: string) {
-  return markdown
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/^\s{0,3}(?:#{1,6}|>|[-+*]|\d+\.)\s+/gm, "")
-    .replace(/[*_~`]+/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** A finished occurrence stays on the calendar, quietly greyed. */
-function PastRunChip({
-  run,
-  onOpen,
-  onContextMenu,
-}: {
-  run: PastRunEntry;
-  onOpen?: (run: PastRunEntry) => void;
-  onContextMenu?: (run: PastRunEntry, x: number, y: number) => void;
-}) {
-  const running = run.status === "running";
-  return (
-    <div
-      onClick={(event) => {
-        if (!onOpen) return;
-        event.preventDefault();
-        event.stopPropagation();
-        onOpen(run);
-      }}
-      onContextMenu={(event) => {
-        if (!onContextMenu) return;
-        event.preventDefault();
-        event.stopPropagation();
-        onContextMenu(run, event.clientX, event.clientY);
-      }}
-      className={cn(
-        "min-w-0 border px-2 py-1.5 select-none",
-        running
-          ? "border-border bg-card"
-          : "border-border/60 bg-card/50 opacity-60",
-      )}
-    >
-      <div className="flex min-w-0 items-center gap-1.5">
-        <span
-          className={cn(
-            "size-1.5 shrink-0",
-            running
-              ? "animate-pulse bg-emerald-500"
-              : run.status === "completed"
-                ? "bg-muted-foreground"
-                : run.status === "waiting"
-                  ? "bg-sky-400"
-                  : run.status === "failed"
-                    ? "bg-destructive"
-                    : "bg-amber-400",
-          )}
-        />
-        <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
-          {run.title}
-        </span>
-      </div>
-      <p className="text-muted-foreground mt-1 truncate text-[10px]">
-        {running
-          ? "Running…"
-          : run.status === "completed"
-            ? "Completed"
-            : run.status === "waiting"
-              ? "Waiting for setup"
-              : run.status === "failed"
-                ? "Failed"
-                : "Needs approval"}
-      </p>
-    </div>
-  );
-}
-
-function PastRunContextMenu({
-  context,
-  onClose,
-  onReview,
-  onRemove,
-  onEditSeries,
-  onCancelSeries,
-}: {
-  context: { run: PastRunEntry; x: number; y: number } | null;
-  onClose: () => void;
-  onReview: (run: PastRunEntry) => void;
-  onRemove: (run: PastRunEntry) => void;
-  onEditSeries: (run: PastRunEntry) => void;
-  onCancelSeries: (run: PastRunEntry) => void;
-}) {
-  useEffect(() => {
-    if (!context) return;
-    const close = () => onClose();
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("pointerdown", close);
-    window.addEventListener("keydown", escape);
-    return () => {
-      window.removeEventListener("pointerdown", close);
-      window.removeEventListener("keydown", escape);
-    };
-  }, [context, onClose]);
-
-  if (!context) return null;
-  const { run } = context;
-  const items: {
-    label: string;
-    detail: string;
-    action: () => void;
-    destructive?: boolean;
-  }[] = [
-    {
-      label: "Review",
-      detail: "Outcome and follow-up",
-      action: () => onReview(run),
-    },
-    {
-      label: "Edit schedule",
-      detail: "Change the series timing",
-      action: () => onEditSeries(run),
-    },
-    {
-      label: "Remove from history",
-      detail: "Deletes this record only",
-      action: () => onRemove(run),
-      destructive: true,
-    },
-    {
-      label: "Cancel series",
-      detail: "Removes the automation and its history",
-      action: () => onCancelSeries(run),
-      destructive: true,
-    },
-  ];
-  return (
-    <div
-      role="menu"
-      onPointerDown={(event) => event.stopPropagation()}
-      className="bg-popover text-popover-foreground fixed z-50 w-64 border p-1.5 shadow-md"
-      style={{
-        left: Math.min(context.x, window.innerWidth - 272),
-        top: Math.min(context.y, window.innerHeight - 200),
-      }}
-    >
-      <p className="text-muted-foreground truncate px-2 py-1.5 text-[10px]">
-        {run.title}
-      </p>
-      {items.map((item, index) => (
-        <button
-          key={item.label}
-          type="button"
-          role="menuitem"
-          onClick={() => {
-            item.action();
-            onClose();
-          }}
-          className={cn(
-            "hover:bg-accent flex w-full flex-col px-2 py-2 text-left transition-colors",
-            item.destructive && index === 2 && "mt-1 border-t pt-2.5",
-          )}
-        >
-          <span
-            className={cn(
-              "text-xs font-medium",
-              item.destructive && "text-destructive",
-            )}
-          >
-            {item.label}
-          </span>
-          <span className="text-muted-foreground mt-0.5 text-[10px]">
-            {item.detail}
-          </span>
-        </button>
-      ))}
     </div>
   );
 }
@@ -390,21 +196,17 @@ function DayCell({
   date,
   drafts,
   recurringWork,
-  pastRuns = [],
   today,
   selected,
   onSelect,
   onContextMenu,
   onWorkContext,
-  onPastRunOpen,
-  onPastRunContext,
   boundaryRow = false,
   tall = false,
 }: {
   date: Date;
   drafts: ScheduledDraft[];
   recurringWork: RecurringWorkRecord[];
-  pastRuns?: PastRunEntry[];
   today: Date;
   selected: Date;
   onSelect: (date: Date) => void;
@@ -415,8 +217,6 @@ function DayCell({
     x: number,
     y: number,
   ) => void;
-  onPastRunContext?: (run: PastRunEntry, x: number, y: number) => void;
-  onPastRunOpen?: (run: PastRunEntry) => void;
   boundaryRow?: boolean;
   tall?: boolean;
 }) {
@@ -424,8 +224,7 @@ function DayCell({
   const isToday = key === dayKey(today);
   const isSelected = key === dayKey(selected);
   const visibleLimit = tall ? 8 : boundaryRow ? 2 : 3;
-  const workLimit = Math.max(0, visibleLimit - pastRuns.length);
-  const draftLimit = Math.max(0, workLimit - recurringWork.length);
+  const draftLimit = Math.max(0, visibleLimit - recurringWork.length);
 
   return (
     <button
@@ -452,15 +251,7 @@ function DayCell({
         {date.getDate()}
       </span>
       <div className={cn("min-w-0 space-y-1", boundaryRow ? "mt-8" : "mt-2")}>
-        {pastRuns.slice(0, visibleLimit).map((run) => (
-          <PastRunChip
-            key={run.id}
-            run={run}
-            onOpen={onPastRunOpen}
-            onContextMenu={onPastRunContext}
-          />
-        ))}
-        {recurringWork.slice(0, workLimit).map((work) => (
+        {recurringWork.slice(0, visibleLimit).map((work) => (
           <RecurringWorkChip
             key={work.id}
             work={work}
@@ -474,15 +265,9 @@ function DayCell({
         {drafts.slice(0, draftLimit).map((draft) => (
           <DraftChip key={draft.id} draft={draft} />
         ))}
-        {drafts.length + recurringWork.length + pastRuns.length >
-        visibleLimit ? (
+        {drafts.length + recurringWork.length > visibleLimit ? (
           <p className="text-muted-foreground px-1 text-[10px]">
-            +
-            {drafts.length +
-              recurringWork.length +
-              pastRuns.length -
-              visibleLimit}{" "}
-            more
+            +{drafts.length + recurringWork.length - visibleLimit} more
           </p>
         ) : null}
       </div>
@@ -567,11 +352,8 @@ function ContinuousMonthView({
   onSelect,
   onDateContext,
   onWorkContext,
-  onPastRunOpen,
-  onPastRunContext,
   byDay,
   recurringByDay,
-  pastRunsByDay,
   showPosts,
   showAgentWork,
   scrollRequest,
@@ -589,11 +371,8 @@ function ContinuousMonthView({
     x: number,
     y: number,
   ) => void;
-  onPastRunContext: (run: PastRunEntry, x: number, y: number) => void;
-  onPastRunOpen: (run: PastRunEntry) => void;
   byDay: ReadonlyMap<string, ScheduledDraft[]>;
   recurringByDay: ReadonlyMap<string, RecurringWorkRecord[]>;
-  pastRunsByDay: ReadonlyMap<string, PastRunEntry[]>;
   showPosts: boolean;
   showAgentWork: boolean;
   scrollRequest: { month: Date; token: number };
@@ -702,16 +481,11 @@ function ContinuousMonthView({
                       ? (recurringByDay.get(dayKey(date)) ?? [])
                       : []
                   }
-                  pastRuns={
-                    showAgentWork ? (pastRunsByDay.get(dayKey(date)) ?? []) : []
-                  }
                   today={today}
                   selected={selected}
                   onSelect={onSelect}
                   onContextMenu={onDateContext}
                   onWorkContext={onWorkContext}
-                  onPastRunOpen={onPastRunOpen}
-                  onPastRunContext={onPastRunContext}
                   boundaryRow={index < 7}
                 />
               ) : (
@@ -736,11 +510,8 @@ function FocusedCalendarView({
   onSelect,
   onDateContext,
   onWorkContext,
-  onPastRunOpen,
-  onPastRunContext,
   byDay,
   recurringByDay,
-  pastRunsByDay,
   showPosts,
   showAgentWork,
 }: {
@@ -755,11 +526,8 @@ function FocusedCalendarView({
     x: number,
     y: number,
   ) => void;
-  onPastRunContext: (run: PastRunEntry, x: number, y: number) => void;
-  onPastRunOpen: (run: PastRunEntry) => void;
   byDay: ReadonlyMap<string, ScheduledDraft[]>;
   recurringByDay: ReadonlyMap<string, RecurringWorkRecord[]>;
-  pastRunsByDay: ReadonlyMap<string, PastRunEntry[]>;
   showPosts: boolean;
   showAgentWork: boolean;
 }) {
@@ -801,16 +569,11 @@ function FocusedCalendarView({
             recurringWork={
               showAgentWork ? (recurringByDay.get(dayKey(date)) ?? []) : []
             }
-            pastRuns={
-              showAgentWork ? (pastRunsByDay.get(dayKey(date)) ?? []) : []
-            }
             today={today}
             selected={selected}
             onSelect={onSelect}
             onContextMenu={onDateContext}
             onWorkContext={onWorkContext}
-            onPastRunOpen={onPastRunOpen}
-            onPastRunContext={onPastRunContext}
             tall
           />
         ))}
@@ -1024,7 +787,7 @@ function RecurringWorkContextMenu({
             Cancel series
           </span>
           <span className="text-muted-foreground mt-0.5 block text-[10px]">
-            Removes the automation and its history
+            Removes the automation and upcoming occurrences
           </span>
         </span>
       </button>
@@ -1318,7 +1081,7 @@ function RecurringWorkApprovalDialog({
 }) {
   const [feedback, setFeedback] = useState("");
   const missedOneOff = Boolean(
-    work?.runOnceAt !== undefined && work.runOnceAt <= Date.now(),
+    work?.onceAt !== undefined && work.onceAt <= Date.now(),
   );
   const submitFeedback = () => {
     const text = feedback.trim();
@@ -1333,14 +1096,14 @@ function RecurringWorkApprovalDialog({
           <>
             <DialogHeader>
               <DialogTitle className="font-serif text-2xl">
-                {work.runOnceAt === undefined
+                {work.onceAt === undefined
                   ? "Approve recurring work"
                   : "Approve task"}
               </DialogTitle>
               <DialogDescription>
                 {missedOneOff
                   ? "Its scheduled time has passed. Approving will run it now."
-                  : work.runOnceAt === undefined
+                  : work.onceAt === undefined
                     ? `Approve this once and ${work.agentId} will keep running it until you pause or revoke it.`
                     : `Approve this once and ${work.agentId} will run it at the scheduled time.`}
               </DialogDescription>
@@ -1352,7 +1115,10 @@ function RecurringWorkApprovalDialog({
                   {work.approvalSummary}
                 </p>
                 <p className="text-muted-foreground mt-3 font-mono text-[11px]">
-                  {work.cron} · {work.timezone}
+                  {work.onceAt === undefined
+                    ? work.cron
+                    : new Date(work.onceAt).toLocaleString()}{" "}
+                  · {work.timezone}
                 </p>
               </div>
               <div>
@@ -1479,7 +1245,12 @@ function RecurringWorkDetail({
   return (
     <div className="border p-3" onContextMenu={onContextMenu}>
       <div className="flex items-start gap-2">
-        <span className="bg-foreground mt-1 size-1.5 shrink-0" />
+        <span
+          className={cn(
+            "mt-1 size-1.5 shrink-0",
+            approvalNeeded ? "bg-amber-400" : "bg-foreground",
+          )}
+        />
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-medium">{work.title}</p>
           <p className="text-muted-foreground mt-1 text-[10px] capitalize">
@@ -1487,23 +1258,39 @@ function RecurringWorkDetail({
           </p>
         </div>
       </div>
-      {work.lastResult ? (
+      <p className="text-muted-foreground mt-3 font-mono text-[10px]">
+        {work.onceAt === undefined
+          ? work.cron
+          : new Date(work.onceAt).toLocaleString()}{" "}
+        · {work.timezone}
+      </p>
+      {work.nextAt ? (
+        <p className="text-muted-foreground mt-2 text-[10px]">
+          Next {new Date(work.nextAt).toLocaleString()}
+        </p>
+      ) : null}
+      {work.lastCompletedAt ? (
+        <p className="text-muted-foreground mt-1 text-[10px]">
+          Last completed {new Date(work.lastCompletedAt).toLocaleString()}
+        </p>
+      ) : null}
+      {work.lastSummary ? (
         <p className="text-muted-foreground mt-3 line-clamp-3 text-xs leading-5">
-          {presentRunText(work.lastResult, "No result was recorded.")}
+          {work.lastSummary}
         </p>
       ) : null}
       <div className="mt-3 flex gap-1.5">
         {approvalNeeded ? (
           <Button size="sm" className="flex-1" onClick={onReview}>
             {work.status === "needs_approval"
-              ? "Review run"
+              ? "Open conversation"
               : "Review approval"}
           </Button>
         ) : (
           <>
             <Button variant="outline" size="sm" onClick={onRun}>
               <Play size={12} />
-              Run now
+              Start now
             </Button>
             <Button variant="outline" size="sm" onClick={onToggle}>
               {work.status === "active" ? (
@@ -1541,7 +1328,7 @@ export function SchedulePage() {
   const today = useMemo(() => startOfDay(new Date()), []);
   const currentMonth = useMemo(() => startOfMonth(today), [today]);
   const [selected, setSelected] = useState(today);
-  const [view, setView] = useState<CalendarView>("month");
+  const [view, setView] = useState<CalendarView>("week");
   const [activeMonth, setActiveMonth] = useState(currentMonth);
   const [monthDirection, setMonthDirection] = useState<1 | -1>(1);
   const [scrollRequest, setScrollRequest] = useState({
@@ -1552,7 +1339,6 @@ export function SchedulePage() {
     () => new Set<ScheduleKind>(["post", "agent-work"]),
   );
   const [approvalWorkId, setApprovalWorkId] = useState<string | null>(null);
-  const [runReview, setRunReview] = useState<RunReview | null>(null);
   const [dateMenu, setDateMenu] = useState<{
     date: Date;
     x: number;
@@ -1561,11 +1347,6 @@ export function SchedulePage() {
   const [workMenu, setWorkMenu] = useState<{
     work: RecurringWorkRecord;
     date: Date;
-    x: number;
-    y: number;
-  } | null>(null);
-  const [pastRunMenu, setPastRunMenu] = useState<{
-    run: PastRunEntry;
     x: number;
     y: number;
   } | null>(null);
@@ -1580,7 +1361,7 @@ export function SchedulePage() {
       null)
     : null;
   const revisionDriver = agentConfig.forAgent("cmo").driver;
-  const revisionChat = useChiefChat(approvalWork?.chatId ?? null);
+  const revisionChat = useChiefChat(approvalWork?.conversationId ?? null);
   const revisionNote = useMemo(() => {
     for (let i = revisionChat.messages.length - 1; i >= 0; i -= 1) {
       const item = revisionChat.messages[i]!;
@@ -1594,31 +1375,15 @@ export function SchedulePage() {
     return null;
   }, [revisionChat.messages]);
   const openWorkReview = (work: RecurringWorkRecord) => {
-    if (work.status !== "needs_approval") {
+    if (work.status === "draft") {
       setApprovalWorkId(work.id);
       return;
     }
-    const latest = workspaceData.recurringWorkRuns
-      .filter((run) => run.recurringWorkId === work.id)
-      .sort((a, b) => b.startedAt - a.startedAt)[0];
-    const attentionItem = workspaceData.attentionItems.find(
-      (item) => item.sourceId === `automation-${work.id}`,
-    );
-    setRunReview({
-      title: work.title,
-      agentId: work.agentId,
-      recurringWorkId: work.id,
-      runId: latest?.id,
-      attentionItemId: attentionItem?.id,
-      detail:
-        latest?.summary ??
-        latest?.error ??
-        work.lastResult ??
-        "The last run stopped before finishing.",
-      status: latest?.status ?? "needs_approval",
-      at: latest?.startedAt ?? work.lastRunAt,
-      blockedTools: latest?.blockedTools ?? [],
-    });
+    if (work.conversationId) {
+      void navigate(
+        `/conversations?chat=${encodeURIComponent(work.conversationId)}`,
+      );
+    }
   };
 
   const requestRevision = (feedback: string) => {
@@ -1629,7 +1394,7 @@ export function SchedulePage() {
       title: approvalWork.title,
       cron: approvalWork.cron,
       timezone: approvalWork.timezone,
-      runOnceAt: approvalWork.runOnceAt,
+      onceAt: approvalWork.onceAt,
       instructions: approvalWork.instructions,
       approvalSummary: approvalWork.approvalSummary,
       proposedToolPatterns: approvalWork.proposedToolPatterns,
@@ -1640,7 +1405,7 @@ export function SchedulePage() {
         `Current draft (JSON): ${JSON.stringify(draft)}`,
         `Feedback: "${feedback}"`,
         `Right now it is ${new Date().toString()}.`,
-        "Apply the feedback by calling the recurringWorkPropose local tool with the SAME id and ALL fields (id, title, agentId, cron, timezone, runOnceAt when present, instructions, approvalSummary, proposedToolPatterns), changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
+        "Apply the feedback by calling the recurringWorkPropose local tool with the SAME id and ALL fields (id, title, agentId, cron, timezone, onceAt when present, instructions, approvalSummary, proposedToolPatterns), changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
       ].join("\n"),
     });
   };
@@ -1696,56 +1461,18 @@ export function SchedulePage() {
     return map;
   }, [workspaceData.drafts]);
 
-  const pastRunsByDay = useMemo(() => {
-    const works = new Map(
-      workspaceData.recurringWork.map((work) => [work.id, work]),
-    );
-    const latestByOccurrence = new Map<string, RecurringWorkRunRecord>();
-    for (const run of workspaceData.recurringWorkRuns) {
-      const occurrenceKey = `${run.recurringWorkId}:${dayKey(new Date(run.scheduledFor))}`;
-      const current = latestByOccurrence.get(occurrenceKey);
-      if (!current || run.startedAt > current.startedAt) {
-        latestByOccurrence.set(occurrenceKey, run);
-      }
-    }
-    const map = new Map<string, PastRunEntry[]>();
-    for (const run of latestByOccurrence.values()) {
-      const key = dayKey(new Date(run.scheduledFor));
-      const items = map.get(key) ?? [];
-      items.push({
-        id: run.id,
-        workId: run.recurringWorkId,
-        agentId: works.get(run.recurringWorkId)?.agentId ?? "cmo",
-        title: works.get(run.recurringWorkId)?.title ?? "Automation",
-        status: run.status,
-        scheduledFor: run.scheduledFor,
-        summary: run.summary ?? run.error ?? undefined,
-        blockedTools: run.blockedTools,
-      });
-      map.set(key, items);
-    }
-    return map;
-  }, [workspaceData.recurringWork, workspaceData.recurringWorkRuns]);
-
   const recurringByDay = useMemo(() => {
-    const occupiedOccurrences = new Set<string>();
-    for (const [key, runs] of pastRunsByDay) {
-      for (const run of runs) {
-        occupiedOccurrences.add(`${run.workId}:${key}`);
-      }
-    }
     const map = new Map<string, RecurringWorkRecord[]>();
     for (const work of workspaceData.recurringWork) {
       for (const timestamp of work.upcomingRuns ?? []) {
         const key = dayKey(new Date(timestamp));
-        if (occupiedOccurrences.has(`${work.id}:${key}`)) continue;
         const items = map.get(key) ?? [];
         if (!items.some((item) => item.id === work.id)) items.push(work);
         map.set(key, items);
       }
     }
     return map;
-  }, [pastRunsByDay, workspaceData.recurringWork]);
+  }, [workspaceData.recurringWork]);
 
   const showPosts = visibleKinds.has("post");
   const showAgentWork = visibleKinds.has("agent-work");
@@ -1753,15 +1480,8 @@ export function SchedulePage() {
   const selectedRecurringWork = showAgentWork
     ? (recurringByDay.get(dayKey(selected)) ?? [])
     : [];
-  const selectedPastRuns = showAgentWork
-    ? [...(pastRunsByDay.get(dayKey(selected)) ?? [])].sort(
-        (a, b) => a.scheduledFor - b.scheduledFor,
-      )
-    : [];
-  // Initial proposals only. A run that stopped mid-flight is reviewed from
-  // the Overview digest or the automation's own card, not this list.
   const pendingApprovals = workspaceData.recurringWork.filter(
-    (work) => work.status === "draft",
+    (work) => work.status === "draft" || work.status === "needs_approval",
   );
 
   const requestMonth = (month: Date) => {
@@ -1781,23 +1501,6 @@ export function SchedulePage() {
     void navigate(
       `/conversations?chat=${chat.id}&${send ? "prompt" : "draft"}=${encodeURIComponent(prompt)}`,
     );
-  };
-
-  const openPastRun = (run: PastRunEntry) => {
-    if (run.status === "running") {
-      void navigate(`/schedule/history?run=${encodeURIComponent(run.id)}`);
-      return;
-    }
-    setRunReview({
-      title: run.title,
-      agentId: run.agentId,
-      recurringWorkId: run.workId,
-      runId: run.id,
-      detail: run.summary ?? "No summary was recorded.",
-      status: run.status,
-      at: run.scheduledFor,
-      blockedTools: run.blockedTools ?? [],
-    });
   };
 
   const handleDateAction = (action: DateMenuAction, date: Date) => {
@@ -1969,15 +1672,12 @@ export function SchedulePage() {
               onWorkContext={(work, date, x, y) =>
                 setWorkMenu({ work, date, x, y })
               }
-              onPastRunContext={(run, x, y) => setPastRunMenu({ run, x, y })}
-              onPastRunOpen={openPastRun}
               onDateContext={(date, x, y) => {
                 setSelected(date);
                 setDateMenu({ date, x, y });
               }}
               byDay={byDay}
               recurringByDay={recurringByDay}
-              pastRunsByDay={pastRunsByDay}
               showPosts={showPosts}
               showAgentWork={showAgentWork}
               scrollRequest={scrollRequest}
@@ -1991,15 +1691,12 @@ export function SchedulePage() {
               onWorkContext={(work, date, x, y) =>
                 setWorkMenu({ work, date, x, y })
               }
-              onPastRunContext={(run, x, y) => setPastRunMenu({ run, x, y })}
-              onPastRunOpen={openPastRun}
               onDateContext={(date, x, y) => {
                 setSelected(date);
                 setDateMenu({ date, x, y });
               }}
               byDay={byDay}
               recurringByDay={recurringByDay}
-              pastRunsByDay={pastRunsByDay}
               showPosts={showPosts}
               showAgentWork={showAgentWork}
             />
@@ -2016,7 +1713,7 @@ export function SchedulePage() {
                 <RecurringWorkDetail
                   key={work.id}
                   work={work}
-                  onReview={() => setApprovalWorkId(work.id)}
+                  onReview={() => openWorkReview(work)}
                   onRun={() => {}}
                   onToggle={() => {}}
                 />
@@ -2030,56 +1727,6 @@ export function SchedulePage() {
             {selected.toLocaleDateString([], { month: "long", day: "numeric" })}
           </h2>
           <div className="mt-6 space-y-2">
-            {selectedPastRuns.map((run) => (
-              <button
-                key={run.id}
-                type="button"
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  setPastRunMenu({ run, x: event.clientX, y: event.clientY });
-                }}
-                onClick={() => openPastRun(run)}
-                className={cn(
-                  "w-full border p-3 text-left",
-                  run.status === "running"
-                    ? "opacity-100"
-                    : "opacity-60 transition-opacity hover:opacity-100",
-                )}
-              >
-                <div className="flex items-start gap-2">
-                  <span
-                    className={cn(
-                      "mt-1 size-1.5 shrink-0",
-                      run.status === "running"
-                        ? "animate-pulse bg-emerald-500"
-                        : run.status === "completed"
-                          ? "bg-muted-foreground"
-                          : run.status === "failed"
-                            ? "bg-destructive"
-                            : "bg-amber-400",
-                    )}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="truncate text-xs font-medium">
-                        {run.title}
-                      </p>
-                      <p className="text-muted-foreground shrink-0 text-[10px]">
-                        {new Date(run.scheduledFor).toLocaleTimeString([], {
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
-                      </p>
-                    </div>
-                    {run.summary ? (
-                      <p className="text-muted-foreground mt-1 line-clamp-2 text-[11px] leading-4">
-                        {previewText(run.summary)}
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-              </button>
-            ))}
             {selectedDrafts.map((draft) => (
               <DraftChip key={draft.id} draft={draft} />
             ))}
@@ -2115,8 +1762,7 @@ export function SchedulePage() {
                 }
               />
             ))}
-            {selectedPastRuns.length === 0 &&
-            selectedDrafts.length === 0 &&
+            {selectedDrafts.length === 0 &&
             selectedRecurringWork.length === 0 ? (
               <div className="flex min-h-[420px] items-center justify-center text-center">
                 <p className="text-muted-foreground text-sm">
@@ -2127,33 +1773,10 @@ export function SchedulePage() {
           </div>
         </aside>
       </div>
-      <RunReviewDialog
-        review={runReview}
-        onClose={() => setRunReview(null)}
-        onDismiss={(target) => {
-          if (target.attentionItemId) {
-            workspaceData.dismissAttentionItem(target.attentionItemId);
-          }
-        }}
-        onAllowAndRerun={(target) => {
-          if (target.recurringWorkId) {
-            workspaceData.expandRecurringWorkGrant(
-              target.recurringWorkId,
-              target.blockedTools,
-              true,
-            );
-          }
-        }}
-        onRerun={(target) => {
-          if (target.recurringWorkId) {
-            workspaceData.runRecurringWorkNow(target.recurringWorkId);
-          }
-        }}
-      />
       <RecurringWorkApprovalDialog
         work={approvalWork}
         onClose={() => setApprovalWorkId(null)}
-        onApprove={(work) =>
+        onApprove={(work) => {
           workspaceData.saveRecurringWork({
             ...work,
             status: "active",
@@ -2163,9 +1786,19 @@ export function SchedulePage() {
               toolPatterns: work.proposedToolPatterns,
             },
             updatedAt: Date.now(),
-          })
-        }
-        onReject={(work) => workspaceData.deleteRecurringWork(work.id)}
+          });
+          const actionItem = workspaceData.actionItems.find(
+            (item) => item.id === `action-${work.id}-approval`,
+          );
+          if (actionItem) workspaceData.dismissActionItem(actionItem.id);
+        }}
+        onReject={(work) => {
+          workspaceData.deleteRecurringWork(work.id);
+          const actionItem = workspaceData.actionItems.find(
+            (item) => item.id === `action-${work.id}-approval`,
+          );
+          if (actionItem) workspaceData.dismissActionItem(actionItem.id);
+        }}
         revision={{
           available: Boolean(revisionDriver),
           busy:
@@ -2179,28 +1812,6 @@ export function SchedulePage() {
         context={dateMenu}
         onClose={() => setDateMenu(null)}
         onAction={handleDateAction}
-      />
-      <PastRunContextMenu
-        context={pastRunMenu}
-        onClose={() => setPastRunMenu(null)}
-        onReview={(run) =>
-          setRunReview({
-            title: run.title,
-            agentId: run.agentId,
-            recurringWorkId: run.workId,
-            runId: run.id,
-            detail:
-              run.status === "running"
-                ? "Running now…"
-                : (run.summary ?? "No summary was recorded."),
-            status: run.status,
-            at: run.scheduledFor,
-            blockedTools: run.blockedTools ?? [],
-          })
-        }
-        onRemove={(run) => workspaceData.deleteRecurringWorkRun(run.id)}
-        onEditSeries={(run) => setEditWorkId(run.workId)}
-        onCancelSeries={(run) => workspaceData.deleteRecurringWork(run.workId)}
       />
       <RecurringWorkContextMenu
         context={workMenu}

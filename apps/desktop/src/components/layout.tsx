@@ -1,22 +1,20 @@
-import { Bell } from "lucide-react";
-import { NavLink, Outlet, useLocation } from "react-router";
+import { Outlet, useLocation } from "react-router";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@chief/ui/components/tooltip";
+import { TooltipProvider } from "@chief/ui/components/tooltip";
 import { cn } from "@chief/ui/lib/utils";
 
-import { useAuth } from "../lib/auth/auth-context";
-import { useRuntime, useWorkspaceData } from "../lib/runtime";
+import { useRuntime } from "../lib/runtime";
 import { Sidebar } from "./sidebar";
 
 function ConnectionDot() {
   const { status } = useRuntime();
   return (
-    <div className="text-muted-foreground flex items-center gap-2 text-[11px]">
+    <div
+      role="status"
+      aria-label={`Runtime ${status}`}
+      title={`Runtime ${status}`}
+      className="flex h-6 items-center gap-2"
+    >
       <span
         className={cn(
           "inline-block h-1.5 w-1.5",
@@ -25,40 +23,12 @@ function ConnectionDot() {
           status === "disconnected" && "bg-destructive",
         )}
       />
-      {status === "connected" ? "runtime" : status}
+      {status === "connecting" ? (
+        <span className="text-muted-foreground font-mono text-[10px]">
+          Connecting
+        </span>
+      ) : null}
     </div>
-  );
-}
-
-function HistoryButton() {
-  const { cloudOrganizationId } = useAuth();
-  const { attentionItems } = useWorkspaceData(cloudOrganizationId);
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <NavLink
-          to="/schedule/history"
-          aria-label="Notifications and run history"
-          className={({ isActive }) =>
-            cn(
-              "text-muted-foreground hover:text-foreground relative flex size-7 items-center justify-center transition-colors",
-              isActive && "bg-accent text-foreground",
-            )
-          }
-        >
-          <span className="relative inline-flex">
-            <Bell size={14} />
-            {attentionItems.length > 0 ? (
-              <span className="absolute -top-0.5 -right-0.5 size-1.5 bg-amber-400" />
-            ) : null}
-          </span>
-        </NavLink>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">
-        Notifications and run history
-      </TooltipContent>
-    </Tooltip>
   );
 }
 
@@ -85,8 +55,7 @@ export function Layout() {
               remains available as a native window drag target. */}
           <header className="relative h-12 shrink-0">
             <div data-tauri-drag-region className="absolute inset-0" />
-            <div className="absolute inset-y-0 right-6 z-10 flex items-center gap-4">
-              <HistoryButton />
+            <div className="absolute inset-y-0 right-6 z-10 flex items-center">
               <ConnectionDot />
             </div>
           </header>

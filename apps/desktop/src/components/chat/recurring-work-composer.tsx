@@ -200,7 +200,7 @@ export function RecurringWorkComposer({
       : "Create one narrow approval for me to review in Schedule.";
     const text = task
       ? oneOff
-        ? `Schedule a one-off task for ${new Date(`${onDate}T00:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })} at ${timePhrase(time)} (${timezone}): ${task} It runs once on that date only. Set runOnceAt to ${new Date(`${onDate}T${time}:00`).toISOString()}. Configure everything else yourself. ${approvalInstruction}`
+        ? `Schedule a one-off task for ${new Date(`${onDate}T00:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })} at ${timePhrase(time)} (${timezone}): ${task} It runs once on that date only. Set onceAt to ${new Date(`${onDate}T${time}:00`).toISOString()}. Configure everything else yourself. ${approvalInstruction}`
         : `Set up recurring work for me: ${task} Run it ${frequencyPhrase(frequency, weekday, dayOfMonth)} at ${timePhrase(time)} (${timezone}). Configure everything else yourself. ${approvalInstruction}`
       : "";
     onCompose({ text, approveAfterCreation });
