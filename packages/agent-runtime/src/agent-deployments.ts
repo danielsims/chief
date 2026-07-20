@@ -1,9 +1,9 @@
-import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   cpSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -14,32 +14,59 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ChildProcess } from "node:child_process";
 
+import type {
+  AgentDeploymentProvider,
+  DeploymentReporter,
+} from "./deployments/types.js";
 import type { SessionManager } from "./manager.js";
 import type {
+  AgentDeploymentChannel,
   AgentDeploymentPlaybook,
   AgentDeploymentRecord,
+  AgentDeploymentTarget,
 } from "./types.js";
+import { materializeConvexWorkspace } from "./convex-workspace.js";
+import { ConvexDeploymentProvider } from "./deployments/convex.js";
+import { DeploymentNeedsConfigurationError } from "./deployments/types.js";
+import { VercelDeploymentProvider } from "./deployments/vercel.js";
 import { materializeEveWorkspace } from "./eve-workspace.js";
 import { readWorkspaceContext } from "./workspace-context.js";
-import { workspaceKey, workspaceSecrets } from "./workspace-secrets.js";
+import {
+  workspaceKey,
+  workspaceRoot,
+  workspaceSecrets,
+} from "./workspace-secrets.js";
 
-const MAX_LOG_LINES = 200;
-const VERCEL_API = "https://api.vercel.com";
+const MAX_LOG_LINES = 300;
+const DEFAULT_DEPLOYMENT_MODEL = "xai/grok-4.3";
+
+function nonEmpty(value: string | undefined) {
+  const trimmed = value?.trim();
+  return trimmed?.length ? trimmed : undefined;
+}
+
+export function deploymentModel(
+  requested: string | undefined,
+  environment: Record<string, string>,
+) {
+  const model =
+    nonEmpty(requested) ??
+    nonEmpty(environment.CHIEF_DEPLOYMENT_MODEL) ??
+    DEFAULT_DEPLOYMENT_MODEL;
+  if (model.length > 200) throw new Error("Deployment model is too long.");
+  return model;
+}
 
 interface StartDeploymentInput {
   workspaceId: string;
+  target: AgentDeploymentTarget;
   projectName: string;
   teamId?: string;
+  model?: string;
   playbooks: AgentDeploymentPlaybook[];
-}
-
-interface VercelProject {
-  id: string;
-  name: string;
-}
-
-function deploymentRoot(workspaceId: string) {
-  return join(homedir(), ".chief", "deployments", workspaceKey(workspaceId));
+  channels?: AgentDeploymentChannel[];
+  activate?: boolean;
+  controlPlane: { apiBaseUrl: string; token: string };
 }
 
 export function hostedExecutorEnvironment(environment: Record<string, string>) {
@@ -47,7 +74,7 @@ export function hostedExecutorEnvironment(environment: Record<string, string>) {
   const token = environment.EXECUTOR_MCP_TOKEN?.trim();
   if (!rawUrl || !token) {
     throw new Error(
-      "Add hosted EXECUTOR_MCP_URL and EXECUTOR_MCP_TOKEN values in Environment before deploying.",
+      "Add hosted EXECUTOR_MCP_URL and EXECUTOR_MCP_TOKEN values before using a hosted Executor.",
     );
   }
   let url: URL;
@@ -75,11 +102,41 @@ export function hostedExecutorEnvironment(environment: Record<string, string>) {
   return { executorMcpToken: token, executorMcpUrl: url.toString() };
 }
 
-function templateRoot() {
-  const configured = process.env.CHIEF_EVE_WORKSPACE_TEMPLATE;
+function deploymentRoot(workspaceId: string, target: AgentDeploymentTarget) {
+  return join(
+    homedir(),
+    ".chief",
+    "deployments",
+    workspaceKey(workspaceId),
+    target,
+  );
+}
+
+function deploymentRecordPath(workspaceId: string) {
+  return join(workspaceRoot(workspaceId), "deployment.json");
+}
+
+function templateRoot(target: AgentDeploymentTarget) {
+  const configured =
+    target === "convex"
+      ? process.env.CHIEF_CONVEX_WORKSPACE_TEMPLATE
+      : process.env.CHIEF_EVE_WORKSPACE_TEMPLATE;
   if (configured) return resolve(configured);
   const runtime = process.env.CHIEF_RUNTIME_ROOT;
-  if (runtime) return join(runtime, "deployment-workspace");
+  if (runtime) {
+    return join(
+      runtime,
+      target === "convex"
+        ? "convex-deployment-workspace"
+        : "deployment-workspace",
+    );
+  }
+  if (target === "convex") {
+    return resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "../templates/convex",
+    );
+  }
   return resolve(
     dirname(fileURLToPath(import.meta.url)),
     "../../../apps/workspace",
@@ -89,10 +146,27 @@ function templateRoot() {
 function runtimeModules() {
   const runtime = process.env.CHIEF_RUNTIME_ROOT;
   if (runtime) return join(runtime, "node_modules");
-  return join(templateRoot(), "node_modules");
+  return resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../../apps/workspace/node_modules",
+  );
 }
 
-function copyTemplate(source: string, target: string) {
+function copyTemplate(
+  source: string,
+  target: string,
+  preserveIdentity: boolean,
+  linkRuntimeDependencies: boolean,
+) {
+  const preserved = preserveIdentity
+    ? [".env.local", ".chief-convex.json"].flatMap((name) => {
+        try {
+          return [{ name, value: readFileSync(join(target, name), "utf8") }];
+        } catch {
+          return [];
+        }
+      })
+    : [];
   rmSync(target, { recursive: true, force: true });
   mkdirSync(target, { recursive: true });
   const excluded = new Set([
@@ -109,100 +183,42 @@ function copyTemplate(source: string, target: string) {
     recursive: true,
     filter: (path) => path === source || !excluded.has(basename(path)),
   });
-  symlinkSync(runtimeModules(), join(target, "node_modules"), "junction");
-}
-
-function vercelUrl(path: string, teamId?: string) {
-  const url = new URL(path, VERCEL_API);
-  if (teamId) url.searchParams.set("teamId", teamId);
-  return url;
-}
-
-async function vercelRequest<T>(
-  token: string,
-  path: string,
-  init: RequestInit = {},
-  teamId?: string,
-): Promise<T> {
-  const response = await fetch(vercelUrl(path, teamId), {
-    ...init,
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-      ...init.headers,
-    },
-  });
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(
-      `Vercel returned ${response.status}: ${body.slice(0, 300)}`,
-    );
+  if (linkRuntimeDependencies) {
+    symlinkSync(runtimeModules(), join(target, "node_modules"), "junction");
   }
-  return (await response.json()) as T;
-}
-
-async function resolveVercelProject(
-  token: string,
-  name: string,
-  teamId?: string,
-) {
-  const response = await fetch(
-    vercelUrl(`/v9/projects/${encodeURIComponent(name)}`, teamId),
-    { headers: { authorization: `Bearer ${token}` } },
-  );
-  if (response.ok) return (await response.json()) as VercelProject;
-  if (response.status !== 404) {
-    throw new Error(`Vercel project lookup returned ${response.status}.`);
+  for (const { name, value } of preserved) {
+    writeFileSync(join(target, name), value, { mode: 0o600 });
   }
-  return vercelRequest<VercelProject>(
-    token,
-    "/v10/projects",
-    { method: "POST", body: JSON.stringify({ name }) },
-    teamId,
-  );
 }
 
-async function resolveVercelOwner(token: string, teamId?: string) {
-  if (teamId) return teamId;
-  const user = await vercelRequest<{ user: { id: string } }>(token, "/v2/user");
-  return user.user.id;
+function readRecord(workspaceId: string): AgentDeploymentRecord | undefined {
+  try {
+    const value = JSON.parse(
+      readFileSync(deploymentRecordPath(workspaceId), "utf8"),
+    ) as AgentDeploymentRecord;
+    return value.workspaceId === workspaceId && value.status === "ready"
+      ? value
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
-async function configureVercelEnvironment(
-  token: string,
-  projectId: string,
-  values: Record<string, string>,
-  teamId?: string,
-) {
-  await Promise.all(
-    Object.entries(values).map(([key, value]) =>
-      vercelRequest(
-        token,
-        `/v10/projects/${encodeURIComponent(projectId)}/env?upsert=true`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            key,
-            value,
-            type: "encrypted",
-            target: ["production", "preview"],
-          }),
-        },
-        teamId,
-      ),
-    ),
-  );
-}
-
-function deploymentUrl(logs: string[]) {
-  return logs
-    .flatMap((line) => line.match(/https:\/\/[a-z0-9.-]+\.vercel\.app/gi) ?? [])
-    .at(-1);
+function persistRecord(record: AgentDeploymentRecord) {
+  if (record.status !== "ready") return;
+  const path = deploymentRecordPath(record.workspaceId);
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
 }
 
 export class AgentDeploymentManager {
   private records = new Map<string, AgentDeploymentRecord>();
   private processes = new Map<string, ChildProcess>();
+  private canceled = new Set<string>();
+  private providers = new Map<AgentDeploymentTarget, AgentDeploymentProvider>([
+    ["vercel", new VercelDeploymentProvider()],
+    ["convex", new ConvexDeploymentProvider()],
+  ]);
 
   constructor(
     private manager: SessionManager,
@@ -210,6 +226,10 @@ export class AgentDeploymentManager {
   ) {}
 
   list(workspaceId: string) {
+    const persisted = readRecord(workspaceId);
+    if (persisted && !this.records.has(persisted.id)) {
+      this.records.set(persisted.id, persisted);
+    }
     return [...this.records.values()]
       .filter((record) => record.workspaceId === workspaceId)
       .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -221,35 +241,44 @@ export class AgentDeploymentManager {
     );
     if (existing) return existing;
     if (!/^[a-z0-9][a-z0-9._-]{0,99}$/.test(input.projectName)) {
-      throw new Error("Use a valid Vercel project name.");
+      throw new Error("Use a valid deployment project name.");
+    }
+    const provider = this.providers.get(input.target);
+    if (!provider) {
+      throw new Error(`${input.target} deployment is not installed.`);
     }
     const now = Date.now();
     const record: AgentDeploymentRecord = {
       id: randomUUID(),
       workspaceId: input.workspaceId,
-      target: "vercel",
+      target: input.target,
       projectName: input.projectName,
       teamId: input.teamId,
+      model: nonEmpty(input.model),
+      channels: input.channels,
+      activated: input.activate === true,
       status: "running",
       phase: "preparing",
+      detail: `Preparing ${input.target}.`,
       logs: [],
       createdAt: now,
       updatedAt: now,
     };
     this.records.set(record.id, record);
     this.emit(record);
-    void this.run(record.id, input);
+    void this.run(record.id, input, provider);
     return record;
   }
 
   cancel(workspaceId: string, deploymentId: string) {
     const record = this.records.get(deploymentId);
-    if (record?.workspaceId !== workspaceId) return;
+    if (record?.workspaceId !== workspaceId || record.status !== "running") {
+      return;
+    }
+    this.canceled.add(deploymentId);
     this.processes.get(deploymentId)?.kill("SIGTERM");
     this.update(deploymentId, {
-      status: "canceled",
-      phase: undefined,
-      detail: "Deployment canceled.",
+      detail: "Canceling deployment...",
     });
   }
 
@@ -262,6 +291,7 @@ export class AgentDeploymentManager {
     if (!current) return;
     const next = { ...current, ...patch, updatedAt: Date.now() };
     this.records.set(id, next);
+    persistRecord(next);
     this.emit(next);
   }
 
@@ -273,48 +303,60 @@ export class AgentDeploymentManager {
     });
   }
 
-  private async run(id: string, input: StartDeploymentInput) {
+  private reporter(id: string): DeploymentReporter {
+    return {
+      phase: (phase, detail) => this.update(id, { phase, detail }),
+      log: (line) => this.log(id, line),
+      process: (child) => {
+        if (child) this.processes.set(id, child);
+        else this.processes.delete(id);
+      },
+      canceled: () => this.canceled.has(id),
+    };
+  }
+
+  private async run(
+    id: string,
+    input: StartDeploymentInput,
+    provider: AgentDeploymentProvider,
+  ) {
     try {
-      const environment = await workspaceSecrets.materialize(input.workspaceId);
-      const data = await this.manager.workspaceData(input.workspaceId);
-      const activeCloudSchedules = data.recurringWork.filter(
-        (work) => work.status === "active" && work.placement === "cloud",
-      );
-      if (activeCloudSchedules.length > 0) {
+      const source = templateRoot(input.target);
+      if (!existsSync(source)) {
         throw new Error(
-          `Cloud schedules cannot be deployed until Executor supports schedule-scoped capabilities. Move these schedules to this Mac or pause them: ${activeCloudSchedules.map((work) => work.title).join(", ")}.`,
+          `The packaged ${input.target} workspace template is unavailable.`,
         );
       }
-      const token = environment.VERCEL_TOKEN;
-      if (!token) {
-        this.update(id, {
-          status: "needs_configuration",
-          phase: undefined,
-          detail: "Add VERCEL_TOKEN in Environment before deploying.",
-        });
-        return;
-      }
-      let executor: ReturnType<typeof hostedExecutorEnvironment>;
-      try {
-        executor = hostedExecutorEnvironment(environment);
-      } catch (error) {
-        this.update(id, {
-          status: "needs_configuration",
-          phase: undefined,
-          detail: error instanceof Error ? error.message : String(error),
-        });
-        return;
-      }
-
-      const source = templateRoot();
-      if (!existsSync(source)) {
-        throw new Error("The packaged Eve workspace template is unavailable.");
-      }
-      const target = deploymentRoot(input.workspaceId);
-      copyTemplate(source, target);
-      materializeEveWorkspace(target, {
+      this.reporter(id).phase(
+        "preparing",
+        `Preparing an isolated ${input.target} workspace.`,
+      );
+      if (this.canceled.has(id)) throw new Error("Deployment canceled.");
+      const environment = await workspaceSecrets.materialize(input.workspaceId);
+      const model = deploymentModel(input.model, environment);
+      this.update(id, { model });
+      const data = await this.manager.workspaceData(input.workspaceId);
+      const target = deploymentRoot(input.workspaceId, input.target);
+      copyTemplate(
+        source,
+        target,
+        input.target === "convex",
+        input.target === "convex",
+      );
+      if (this.canceled.has(id)) throw new Error("Deployment canceled.");
+      const hasAnyHostedExecutorValue = [
+        environment.EXECUTOR_MCP_URL,
+        environment.EXECUTOR_MCP_TOKEN,
+      ].some((value) => Boolean(value?.trim()));
+      const hostedExecutor =
+        hasAnyHostedExecutorValue && input.target === "vercel"
+          ? hostedExecutorEnvironment(environment)
+          : undefined;
+      const workspaceInput = {
         context: readWorkspaceContext(input.workspaceId),
         playbooks: input.playbooks,
+        hostedExecutor: Boolean(hostedExecutor),
+        controlPlane: true,
         automations: data.recurringWork.map((work) => ({
           id: work.id,
           agentId: work.agentId,
@@ -323,89 +365,105 @@ export class AgentDeploymentManager {
           instructions: work.instructions,
           grant: work.grant,
           placement: work.placement,
-          runOnceAt: work.runOnceAt,
+          onceAt: work.onceAt,
           status: work.status,
         })),
-      });
-
-      const project = await resolveVercelProject(
-        token,
-        input.projectName,
-        input.teamId,
-      );
-      const ownerId = await resolveVercelOwner(token, input.teamId);
-      await configureVercelEnvironment(
-        token,
-        project.id,
-        {
-          EXECUTOR_MCP_TOKEN: executor.executorMcpToken,
-          EXECUTOR_MCP_URL: executor.executorMcpUrl,
-        },
-        input.teamId,
-      );
-      mkdirSync(join(target, ".vercel"), { recursive: true });
-      writeFileSync(
-        join(target, ".vercel", "project.json"),
-        JSON.stringify({ orgId: ownerId, projectId: project.id }, null, 2),
-      );
-
-      this.update(id, { phase: "building", detail: "Building the Eve agent." });
-      const eveBin = join(runtimeModules(), "eve", "bin", "eve.js");
-      if (!existsSync(eveBin)) {
-        throw new Error("The packaged Eve deployment runtime is unavailable.");
+        channels: input.channels,
+      };
+      if (input.target === "convex") {
+        materializeConvexWorkspace(target, workspaceInput);
+      } else {
+        materializeEveWorkspace(target, workspaceInput);
       }
-      const child = spawn(process.execPath, [eveBin, "deploy"], {
-        cwd: target,
-        env: {
-          ...process.env,
-          ...environment,
-          CI: "1",
-          EXECUTOR_MCP_TOKEN: executor.executorMcpToken,
-          EXECUTOR_MCP_URL: executor.executorMcpUrl,
-          VERCEL_TOKEN: token,
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      this.processes.set(id, child);
-      this.update(id, { phase: "deploying", detail: "Deploying to Vercel." });
-      child.stdout.setEncoding("utf8");
-      child.stderr.setEncoding("utf8");
-      child.stdout.on("data", (chunk: string) =>
-        chunk.split("\n").forEach((line) => this.log(id, line)),
-      );
-      child.stderr.on("data", (chunk: string) =>
-        chunk.split("\n").forEach((line) => this.log(id, line)),
-      );
-      const code = await new Promise<number | null>((resolveCode, reject) => {
-        child.once("error", reject);
-        child.once("exit", resolveCode);
-      });
-      this.processes.delete(id);
-      if (this.records.get(id)?.status === "canceled") return;
-      if (code !== 0)
-        throw new Error(`Eve deployment exited with code ${code}.`);
 
-      const url = deploymentUrl(this.records.get(id)?.logs ?? []);
-      if (!url) throw new Error("Vercel completed without returning a URL.");
-      this.update(id, {
-        phase: "verifying",
-        detail: "Verifying the live agent.",
-      });
-      const health = await fetch(new URL("/eve/v1/health", url));
-      if (!health.ok)
-        throw new Error(`Health check returned ${health.status}.`);
+      const routePassword =
+        nonEmpty(environment.CHIEF_EVE_ROUTE_PASSWORD) ??
+        randomBytes(32).toString("base64url");
+      if (!environment.CHIEF_EVE_ROUTE_PASSWORD) {
+        await workspaceSecrets.storeEnv(
+          input.workspaceId,
+          "CHIEF_EVE_ROUTE_PASSWORD",
+          routePassword,
+        );
+      }
+      const result = await provider.deploy(
+        {
+          workspaceId: input.workspaceId,
+          projectName: input.projectName,
+          scope: input.teamId,
+          workspaceRoot: target,
+          runtimeModules: runtimeModules(),
+          routePassword,
+          model,
+          environment: {
+            ...environment,
+            CHIEF_CONTROL_PLANE_API_BASE_URL:
+              input.controlPlane.apiBaseUrl.replace(/\/$/, ""),
+            CHIEF_CONTROL_PLANE_TOKEN: input.controlPlane.token,
+          },
+          channelEnvironmentKeys:
+            input.channels && input.channels.length > 0
+              ? ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"]
+              : [],
+        },
+        this.reporter(id),
+      );
+      if (this.canceled.has(id)) throw new Error("Deployment canceled.");
+      await Promise.all([
+        workspaceSecrets.storeEnv(
+          input.workspaceId,
+          "CHIEF_REMOTE_AGENT_URL",
+          result.url,
+        ),
+        workspaceSecrets.storeEnv(
+          input.workspaceId,
+          "CHIEF_REMOTE_AGENT_TARGET",
+          result.target,
+        ),
+      ]);
+      if (input.activate) {
+        const cmo = await this.manager.agentPreference(
+          input.workspaceId,
+          "cmo",
+        );
+        await this.manager.saveAgentPreference(input.workspaceId, {
+          ...cmo,
+          agentId: "cmo",
+          enabled: true,
+          driver: "remote",
+          model: undefined,
+        });
+      }
       this.update(id, {
         status: "ready",
         phase: undefined,
-        detail: "Agent is live.",
-        url,
+        detail: input.activate
+          ? "Agent is live and is now Chief's default app."
+          : "Agent is live. Local Chief and schedules remain unchanged.",
+        url: result.url,
+        projectId: result.projectId,
+        teamId: result.scope ?? input.teamId,
       });
     } catch (error) {
+      if (this.canceled.has(id)) {
+        this.update(id, {
+          status: "canceled",
+          phase: undefined,
+          detail: "Deployment canceled.",
+        });
+        return;
+      }
       this.update(id, {
-        status: "failed",
+        status:
+          error instanceof DeploymentNeedsConfigurationError
+            ? "needs_configuration"
+            : "failed",
         phase: undefined,
         detail: error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      this.processes.delete(id);
+      this.canceled.delete(id);
     }
   }
 }

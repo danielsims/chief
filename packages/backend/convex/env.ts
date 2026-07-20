@@ -66,22 +66,6 @@ export function convexSiteUrl(): string {
   }).CONVEX_SITE_URL;
 }
 
-export function googleAnalyticsEnv() {
-  return createEnv({
-    server: {
-      AUTH_GOOGLE_ID: z.string().min(1).optional(),
-      AUTH_GOOGLE_SECRET: z.string().min(1).optional(),
-      CONVEX_SITE_URL: z.url().optional(),
-      GOOGLE_ANALYTICS_CLIENT_ID: z.string().min(1).optional(),
-      GOOGLE_ANALYTICS_CLIENT_SECRET: z.string().min(1).optional(),
-      GOOGLE_ANALYTICS_REDIRECT_URI: z.url().optional(),
-    },
-    runtimeEnv: process.env,
-    emptyStringAsUndefined: true,
-    skipValidation,
-  });
-}
-
 export function stripeSecretKey(): string {
   return billingEnv().STRIPE_SECRET_KEY;
 }

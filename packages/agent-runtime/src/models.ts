@@ -1,6 +1,13 @@
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,6 +23,8 @@ const cache = new Map<
   DriverType,
   { at: number; models: ProviderModelOption[] }
 >();
+let codexModelsInFlight: Promise<ProviderModelOption[]> | undefined;
+let gatewayModelsInFlight: Promise<ProviderModelOption[]> | undefined;
 
 function binary(name: DriverType) {
   const upper = name.toUpperCase();
@@ -181,92 +190,206 @@ function commandModels(
 }
 
 function codexModels(): Promise<ProviderModelOption[]> {
-  return withTimeout(
-    new Promise((resolve, reject) => {
-      const child = spawn(binary("codex"), ["app-server"], {
-        cwd: homedir(),
-        env: { ...process.env },
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-      let buffer = "";
-      let nextId = 0;
-      const pending = new Map<
-        number,
-        { resolve: (value: unknown) => void; reject: (error: Error) => void }
-      >();
-      const stop = () => child.kill("SIGTERM");
-      child.on("error", reject);
-      child.stdout.on("data", (chunk) => {
-        buffer += String(chunk);
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          try {
-            const message = JSON.parse(line) as {
-              id?: number;
-              result?: unknown;
-              error?: { message?: string };
-            };
-            if (message.id === undefined) continue;
-            const request = pending.get(message.id);
-            if (!request) continue;
-            pending.delete(message.id);
-            if (message.error) {
-              request.reject(new Error(message.error.message ?? "RPC error"));
-            } else request.resolve(message.result);
-          } catch {
-            // Ignore diagnostics written to stdout.
-          }
-        }
-      });
-      const request = (method: string, params: Record<string, unknown> = {}) =>
-        new Promise<unknown>((done, fail) => {
-          const id = ++nextId;
-          pending.set(id, { resolve: done, reject: fail });
-          child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
+  if (codexModelsInFlight) return codexModelsInFlight;
+  const discovery = new Promise<ProviderModelOption[]>((resolve, reject) => {
+    const codexHome = mkdtempSync(join(tmpdir(), "chief-codex-models-"));
+    const child = spawn(binary("codex"), ["app-server"], {
+      cwd: homedir(),
+      env: { ...process.env, CODEX_HOME: codexHome },
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: true,
+    });
+    let buffer = "";
+    let nextId = 0;
+    let settled = false;
+    let stderr = "";
+    const pending = new Map<
+      number,
+      { resolve: (value: unknown) => void; reject: (error: Error) => void }
+    >();
+    const stop = () => {
+      child.stdin.end();
+      if (!child.pid) return;
+      try {
+        process.kill(-child.pid, "SIGTERM");
+      } catch {
+        child.kill("SIGTERM");
+      }
+    };
+    const finish = (
+      outcome: { models: ProviderModelOption[] } | { error: Error },
+    ) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      for (const request of pending.values()) {
+        request.reject(
+          "error" in outcome
+            ? outcome.error
+            : new Error("Model discovery stopped."),
+        );
+      }
+      pending.clear();
+      stop();
+      if ("error" in outcome) reject(outcome.error);
+      else resolve(outcome.models);
+    };
+    const timeout = setTimeout(
+      () => finish({ error: new Error("Model discovery timed out.") }),
+      15_000,
+    );
+    timeout.unref();
+    child.on("error", (error) => finish({ error }));
+    child.on("exit", (code) => {
+      rmSync(codexHome, { recursive: true, force: true });
+      if (!settled) {
+        finish({
+          error: new Error(
+            stderr.trim() || `Codex model discovery exited ${code}.`,
+          ),
         });
-      void (async () => {
+      }
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr = `${stderr}${String(chunk)}`.slice(-2_000);
+    });
+    child.stdout.on("data", (chunk) => {
+      buffer += String(chunk);
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
         try {
-          await request("initialize", {
-            clientInfo: { name: "chief", version: "0.1.0" },
-          });
-          child.stdin.write(
-            `${JSON.stringify({ method: "initialized", params: {} })}\n`,
-          );
-          const result = (await request("model/list")) as Record<
-            string,
-            unknown
-          >;
-          const candidates = [
-            result,
-            result?.data,
-            result?.models,
-            (result?.data as Record<string, unknown> | undefined)?.models,
-          ];
-          const values = candidates
-            .flatMap((candidate) => (Array.isArray(candidate) ? candidate : []))
-            .flatMap((record) => {
-              if (typeof record === "string") return [record];
-              if (!record || typeof record !== "object") return [];
-              const item = record as Record<string, unknown>;
-              const value = item.model ?? item.id ?? item.name ?? item.slug;
-              return typeof value === "string" ? [value] : [];
-            });
-          stop();
-          resolve(
-            [...new Set(values)].map((value) => ({
-              value,
-              label: label(value),
-            })),
-          );
-        } catch (error) {
-          stop();
-          reject(error);
+          const message = JSON.parse(line) as {
+            id?: number;
+            result?: unknown;
+            error?: { message?: string };
+          };
+          if (message.id === undefined) continue;
+          const request = pending.get(message.id);
+          if (!request) continue;
+          pending.delete(message.id);
+          if (message.error) {
+            request.reject(new Error(message.error.message ?? "RPC error"));
+          } else request.resolve(message.result);
+        } catch {
+          // Ignore diagnostics written to stdout.
         }
-      })();
+      }
+    });
+    const request = (method: string, params: Record<string, unknown> = {}) =>
+      new Promise<unknown>((done, fail) => {
+        const id = ++nextId;
+        pending.set(id, { resolve: done, reject: fail });
+        child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
+      });
+    void (async () => {
+      try {
+        await request("initialize", {
+          clientInfo: { name: "chief", version: "0.1.0" },
+          capabilities: null,
+        });
+        child.stdin.write(
+          `${JSON.stringify({ method: "initialized", params: {} })}\n`,
+        );
+        const result = (await request("model/list")) as Record<string, unknown>;
+        const candidates = [
+          result,
+          result.data,
+          result.models,
+          (result.data as Record<string, unknown> | undefined)?.models,
+        ];
+        const values = candidates
+          .flatMap((candidate) => (Array.isArray(candidate) ? candidate : []))
+          .flatMap((record) => {
+            if (typeof record === "string") return [record];
+            if (!record || typeof record !== "object") return [];
+            const item = record as Record<string, unknown>;
+            const value = item.model ?? item.id ?? item.name ?? item.slug;
+            return typeof value === "string" ? [value] : [];
+          });
+        finish({
+          models: [...new Set(values)].map((value) => ({
+            value,
+            label: label(value),
+          })),
+        });
+      } catch (error) {
+        finish({
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+      }
+    })();
+  });
+  codexModelsInFlight = discovery.finally(() => {
+    codexModelsInFlight = undefined;
+  });
+  return codexModelsInFlight;
+}
+
+function gatewayModels(): Promise<ProviderModelOption[]> {
+  if (gatewayModelsInFlight) return gatewayModelsInFlight;
+  gatewayModelsInFlight = withTimeout(
+    fetch("https://ai-gateway.vercel.sh/v1/models").then(async (response) => {
+      if (!response.ok) {
+        throw new Error(
+          `Gateway model discovery returned HTTP ${response.status}.`,
+        );
+      }
+      const body = (await response.json()) as {
+        data?: {
+          id?: unknown;
+          name?: unknown;
+          description?: unknown;
+          context_window?: unknown;
+          type?: unknown;
+          tags?: unknown;
+          pricing?: { input?: unknown; output?: unknown };
+        }[];
+      };
+      return (body.data ?? [])
+        .filter(
+          (model) =>
+            model.type === "language" &&
+            typeof model.id === "string" &&
+            model.id.length > 0,
+        )
+        .map((model) => ({
+          value: model.id as string,
+          label:
+            typeof model.name === "string" && model.name
+              ? model.name
+              : label(model.id as string),
+          description:
+            typeof model.description === "string"
+              ? model.description
+              : undefined,
+          contextWindow:
+            typeof model.context_window === "number"
+              ? model.context_window
+              : undefined,
+          tags: Array.isArray(model.tags)
+            ? model.tags.filter((tag): tag is string => typeof tag === "string")
+            : undefined,
+          pricing: model.pricing
+            ? {
+                input:
+                  typeof model.pricing.input === "string"
+                    ? model.pricing.input
+                    : undefined,
+                output:
+                  typeof model.pricing.output === "string"
+                    ? model.pricing.output
+                    : undefined,
+              }
+            : undefined,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label));
     }),
     10_000,
-  );
+  ).finally(() => {
+    gatewayModelsInFlight = undefined;
+  });
+  return gatewayModelsInFlight;
 }
 
 export async function listModels(
@@ -278,6 +401,7 @@ export async function listModels(
   try {
     if (driver === "claude") discovered = claudeModels();
     else if (driver === "codex") discovered = await codexModels();
+    else if (driver === "remote") discovered = await gatewayModels();
     else discovered = await commandModels(binary("opencode"), ["models"]);
   } catch (error) {
     console.error(`[models] ${driver}:`, error);

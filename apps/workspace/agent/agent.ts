@@ -5,6 +5,13 @@ import { experimental_chatgpt } from "eve/models/openai";
 export default defineAgent({
   description:
     "Top-level orchestrator. Owns strategy, delegates to specialist agents, answers anything about your marketing.",
-  model: experimental_chatgpt(),
+  model:
+    process.env.VERCEL || process.env.NODE_ENV === "production"
+      ? (process.env.CHIEF_DEPLOYMENT_MODEL ?? "xai/grok-4.3")
+      : experimental_chatgpt(),
   modelContextWindowTokens: 200_000,
+  limits: {
+    maxInputTokensPerSession: 500_000,
+    maxOutputTokensPerSession: 32_000,
+  },
 });
