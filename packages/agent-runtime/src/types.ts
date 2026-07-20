@@ -722,6 +722,8 @@ export type ClientMessage =
       workspaceContext?: string;
       /** Agent app explicitly chosen during onboarding. */
       driver?: DriverType;
+      /** Null explicitly selects the agent app's automatic model. */
+      model?: string | null;
       executorCapability: ExecutorCapability;
     }
   | {

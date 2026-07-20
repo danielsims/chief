@@ -1,5 +1,6 @@
 /* eslint-disable max-lines */
 
+import type { ReactNode } from "react";
 import type { SimpleIcon } from "simple-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Claude, OpenAI, Vercel } from "@lobehub/icons";
@@ -80,6 +81,7 @@ import { getPlaybook, playbookInstructions, PLAYBOOKS } from "../lib/playbooks";
 import {
   updatePendingOnboardingDriver,
   useAgentPreferences,
+  useProviderModels,
   useRuntime,
   useStoredInputs,
   useWorkspaceData,
@@ -117,6 +119,8 @@ interface OnboardingDraft {
   providerMode: "local" | "deployed";
   /** Null until the user explicitly picks an agent app, never defaulted. */
   provider: DriverType | null;
+  /** Empty means the selected agent app chooses its model automatically. */
+  model: string;
   deploymentProvider: AgentDeploymentTarget | null;
   cloudDeploymentUrl: string;
   billingPlan: BillingPlan;
@@ -442,6 +446,7 @@ function baseDraft(): OnboardingDraft {
     socials: {},
     providerMode: "local",
     provider: null,
+    model: "",
     deploymentProvider: null,
     cloudDeploymentUrl: "",
     billingPlan: "monthly",
@@ -609,6 +614,7 @@ function draftFromOrg(
       typeof metadata.websiteUrl === "string" ? metadata.websiteUrl : "",
     providerMode: onboarding.providerMode === "deployed" ? "deployed" : "local",
     provider,
+    model: typeof onboarding.model === "string" ? onboarding.model : "",
     deploymentProvider:
       onboarding.deploymentProvider === "convex"
         ? "convex"
@@ -725,6 +731,7 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
             ? "remote"
             : parsedProvider
           : base.provider,
+      model: typeof parsed.model === "string" ? parsed.model : base.model,
       deploymentProvider:
         parsed.deploymentProvider === "convex"
           ? "convex"
@@ -1667,7 +1674,7 @@ function ProviderControl({
         <button
           type="button"
           onClick={() =>
-            setField({ providerMode: "local", provider: "claude" })
+            setField({ providerMode: "local", provider: "claude", model: "" })
           }
           className={optionClass(
             draft.providerMode === "local" && draft.provider === "claude",
@@ -1684,7 +1691,9 @@ function ProviderControl({
         </button>
         <button
           type="button"
-          onClick={() => setField({ providerMode: "local", provider: "codex" })}
+          onClick={() =>
+            setField({ providerMode: "local", provider: "codex", model: "" })
+          }
           className={optionClass(
             draft.providerMode === "local" && draft.provider === "codex",
           )}
@@ -1711,7 +1720,7 @@ function ReadinessRow({
 }: {
   icon: typeof Server;
   label: string;
-  detail: string;
+  detail: ReactNode;
   ready: boolean;
 }) {
   return (
@@ -1724,7 +1733,7 @@ function ReadinessRow({
       >
         {ready ? <CheckCircle2 size={15} /> : <Icon size={15} />}
       </span>
-      <span className="min-w-0">
+      <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium">{label}</span>
         <span className="text-muted-foreground mt-1 block text-xs leading-5">
           {detail}
@@ -1744,6 +1753,7 @@ function HealthControl({
   onCancelDeployment,
   onChangeProvider,
   onUseLocal,
+  onModelChange,
   onContinue,
   saving,
 }: {
@@ -1756,9 +1766,13 @@ function HealthControl({
   onCancelDeployment: () => void;
   onChangeProvider: () => void;
   onUseLocal: () => void;
+  onModelChange: (model: string) => void;
   onContinue: () => void;
   saving: boolean;
 }) {
+  const providerModels = useProviderModels(
+    draft.workspaceMode === "local" ? draft.provider : null,
+  );
   const providerLabel =
     draft.workspaceMode === "cloud"
       ? deploymentProvider === "convex"
@@ -1773,6 +1787,9 @@ function HealthControl({
     draft.workspaceMode === "cloud"
       ? deployment?.status === "ready"
       : runtimeStatus === "connected";
+  const selectedModelLabel =
+    providerModels.models.find((model) => model.value === draft.model)?.label ??
+    (draft.model || "Auto");
 
   if (draft.workspaceMode === "cloud") {
     const running = deployment?.status === "running";
@@ -1906,7 +1923,34 @@ function HealthControl({
         <ReadinessRow
           icon={Server}
           label="Agent app"
-          detail={providerLabel}
+          detail={
+            <span className="flex flex-wrap items-center gap-2">
+              <span>{providerLabel}</span>
+              <Select
+                value={draft.model || "auto"}
+                onValueChange={(value) =>
+                  onModelChange(value === "auto" ? "" : value)
+                }
+              >
+                <SelectTrigger
+                  className="h-7 w-auto min-w-32 px-2 text-xs"
+                  aria-label="Initial review model"
+                >
+                  {providerModels.loading && providerModels.models.length === 0
+                    ? "Loading models..."
+                    : selectedModelLabel}
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto</SelectItem>
+                  {providerModels.models.map((model) => (
+                    <SelectItem key={model.value} value={model.value}>
+                      {model.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </span>
+          }
           ready={draft.provider === "claude" || draft.provider === "codex"}
         />
       </div>
@@ -3109,7 +3153,7 @@ export function OnboardingPage() {
     if (!draft) return;
     if (!draft.provider || !org) return;
     setWorkspaceProvider(org.id, draft.provider);
-    updatePendingOnboardingDriver(org.id, draft.provider);
+    updatePendingOnboardingDriver(org.id, draft.provider, draft.model || null);
     const existing = agentPreferences.preferences.find(
       (preference) => preference.agentId === "cmo",
     );
@@ -3118,7 +3162,7 @@ export function OnboardingPage() {
       agentId: "cmo",
       enabled: true,
       driver: draft.provider,
-      model: existing?.driver === draft.provider ? existing.model : undefined,
+      model: draft.model || undefined,
     });
   }, [agentPreferences, draft, org]);
 
@@ -3196,6 +3240,7 @@ export function OnboardingPage() {
         onboarding: {
           ...persistedOnboarding,
           provider: draft.provider,
+          model: draft.model || null,
           deploymentProvider: draft.deploymentProvider,
           providerMode: draft.providerMode,
           workspaceMode: draft.workspaceMode,
@@ -3240,6 +3285,7 @@ export function OnboardingPage() {
           metadata: kickoffMetadata,
         }),
         draft.provider ?? undefined,
+        draft.model || null,
       );
       if (!chatId) {
         throw new Error("Chief did not return an initial review conversation.");
@@ -3422,6 +3468,7 @@ export function OnboardingPage() {
           }}
           onChangeProvider={changeDeploymentProvider}
           onUseLocal={useLocalWorkspace}
+          onModelChange={(model) => setField({ model })}
           onContinue={advance}
           saving={saving}
         />

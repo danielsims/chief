@@ -198,6 +198,7 @@ export async function runSpecialistDelegation(input: {
     sessionId,
     specialist.name,
     parent.chat.provider,
+    parent.chat.model,
     initialReview,
   );
   const tracked: Promise<DelegationResult> = run.finally(() => {
@@ -212,6 +213,7 @@ async function executeSpecialistDelegation(
   sessionId: string,
   specialistName: string,
   parentProvider: string,
+  parentModel: string | undefined,
   initialReview: boolean,
 ): Promise<DelegationResult> {
   const existing = (
@@ -269,7 +271,9 @@ async function executeSpecialistDelegation(
           : input.agentId === "analyst"
             ? "You are working privately for Chief, not speaking directly to the user. Use Executor's live connected-provider catalog to answer the bounded analytics question below. Dynamically inspect schemas, call the narrowest read-only tools, state exact dates and numbers, and return evidence Chief can present directly. Do not use Chief's normalized analytics wrapper or ask the user questions."
             : input.agentId === "brand"
-              ? "You are working privately for Chief, not speaking directly to the user. Complete the bounded brand research below, save the finished profile with localTools.brandProfileSave, and return the complete Markdown to Chief. Do not create an ad hoc handoff file and do not ask the user questions."
+              ? initialReview
+                ? "You are working privately for Chief, not speaking directly to the user. Complete the bounded brand research and return the complete Markdown profile. Chief's runtime will save your returned Markdown automatically, so do not discover or call persistence tools. Do not inspect runtime source, environment variables, processes, ports, or Executor internals. Do not create an ad hoc handoff file or ask the user questions."
+                : 'You are working privately for Chief, not speaking directly to the user. Complete the bounded brand research, then use Executor operation localTools.brandProfileSave exactly once with input {"markdown":"<complete profile>"}. If it is not already visible, search once for the exact operation name; do not inspect runtime source, environment variables, processes, ports, or Executor internals. Return the complete Markdown to Chief and do not ask the user questions.'
               : "You are working privately for Chief, not speaking directly to the user. Complete only the bounded task below. Return concise evidence, analysis, or draft material for Chief to verify and synthesize. You have no connected integrations or durable product-write tools in this session. Do not ask the user questions.",
       workspace ? `# Workspace\n\n${workspace}` : undefined,
     ]
@@ -284,7 +288,9 @@ async function executeSpecialistDelegation(
       driver,
       access: "full",
       workspaceId: input.workspaceId,
-      model: preference?.model,
+      model:
+        preference?.model ??
+        (driver === parentProvider ? parentModel : undefined),
       executionOwner: "delegation",
       mcpServers:
         input.agentId === "prospector" ||

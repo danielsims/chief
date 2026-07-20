@@ -74,6 +74,7 @@ void test("independent post-onboarding work launches before analytics", () => {
   assert.equal(analyticsSetup.setupDomain, "analytics.googleapis.com");
   assert.ok(analyticsSetup.setupAttemptId);
   assert.match(analyticsSetup.instructions, /initial concurrent kickoff/);
+  assert.match(jobs[0]?.instructions ?? "", /must never block Setup/);
   assert.match(jobs[3]?.instructions ?? "", /Do not wait for brand research/);
   assert.match(jobs[4]?.instructions ?? "", /analyticsSaveDataset/);
 });

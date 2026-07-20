@@ -468,6 +468,7 @@ function readOnboardingJobs(workspaceId: string) {
 export function updatePendingOnboardingDriver(
   workspaceId: string,
   driver: DriverType,
+  model: string | null,
 ) {
   const stored = readOnboardingJobs(workspaceId);
   if (!stored) return false;
@@ -475,7 +476,7 @@ export function updatePendingOnboardingDriver(
     const pending = JSON.parse(stored) as Record<string, unknown>;
     window.localStorage.setItem(
       onboardingJobsStorageKey(workspaceId),
-      JSON.stringify({ ...pending, driver }),
+      JSON.stringify({ ...pending, driver, model }),
     );
     return true;
   } catch {
@@ -571,6 +572,7 @@ function useWorkspaceDataSource(workspaceId: string | null) {
           schedules: OnboardingSchedule[];
           workspaceContext?: string;
           driver?: DriverType;
+          model?: string | null;
         };
         if (!Array.isArray(pending.jobs) || !Array.isArray(pending.schedules)) {
           throw new Error("Invalid pending onboarding payload.");
@@ -584,6 +586,7 @@ function useWorkspaceDataSource(workspaceId: string | null) {
           schedules: pending.schedules,
           workspaceContext: pending.workspaceContext,
           driver: pending.driver,
+          model: pending.model,
           executorCapability: capability,
         });
         pendingOnboardingRetryTimer = window.setTimeout(
@@ -746,11 +749,12 @@ function useWorkspaceDataSource(workspaceId: string | null) {
       schedules: OnboardingSchedule[],
       workspaceContext?: string,
       driver?: DriverType,
+      model?: string | null,
     ) => {
       if (workspaceId) {
         window.localStorage.setItem(
           onboardingJobsStorageKey(workspaceId),
-          JSON.stringify({ jobs, schedules, workspaceContext, driver }),
+          JSON.stringify({ jobs, schedules, workspaceContext, driver, model }),
         );
       }
       if (
@@ -796,6 +800,7 @@ function useWorkspaceDataSource(workspaceId: string | null) {
           schedules,
           workspaceContext,
           driver,
+          model,
           executorCapability: capability,
         });
       });
