@@ -164,6 +164,26 @@ class WorkspaceSecrets {
     return readIndex(workspaceId).env;
   }
 
+  async readEnv(workspaceId: string, keys: string[]) {
+    const available = new Set(readIndex(workspaceId).env);
+    const entries = await Promise.all(
+      keys
+        .filter((key) => available.has(key))
+        .map(
+          async (key) =>
+            [
+              key,
+              await keychainRead(account(workspaceId, "env", key)),
+            ] as const,
+        ),
+    );
+    return Object.fromEntries(
+      entries.filter((entry): entry is readonly [string, string] =>
+        Boolean(entry[1]),
+      ),
+    );
+  }
+
   async storeEnv(workspaceId: string, key: string, value: string) {
     if (!ENV_KEY_PATTERN.test(key)) throw new Error("Invalid environment key.");
     await keychainWrite(account(workspaceId, "env", key), value);

@@ -304,10 +304,14 @@ export function withGenerativeDataParts(event: AgentEvent): AgentEvent {
     content.push(block);
     if (block.type !== "tool_result" || block.is_error) continue;
     const chart = chartFromContent(block.tool_use_id, block.content);
-    if (chart && !existingChartIds.has(chart.id ?? "")) content.push(chart);
+    if (chart && !existingChartIds.has(chart.id ?? "")) {
+      content.push(chart);
+      if (chart.id) existingChartIds.add(chart.id);
+    }
     const document = documentFromContent(block.content);
     if (document && !existingDocumentIds.has(document.id ?? "")) {
       content.push(document);
+      if (document.id) existingDocumentIds.add(document.id);
     }
   }
   return content.length === event.content.length

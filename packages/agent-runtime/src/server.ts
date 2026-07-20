@@ -1,4 +1,6 @@
-import { randomUUID } from "node:crypto";
+/* eslint-disable max-lines */
+
+import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { basename, join } from "node:path";
@@ -11,7 +13,9 @@ import type { AgentSession } from "./session.js";
 import type {
   AgentDeploymentRecord,
   AgentEvent,
+  ChatExecutionSelection,
   ClientMessage,
+  DriverType,
   ExecutorCapability,
   InputRequest,
   RuntimeNotice,
@@ -27,9 +31,16 @@ import {
   availableCapabilities,
   composeAgentCapabilities,
 } from "./capabilities/index.js";
-import { loadSlackGatewayConfig } from "./channels/slack-config.js";
+import {
+  loadSlackGatewayConfig,
+  readSlackGatewaySettings,
+  writeSlackGatewaySettings,
+} from "./channels/slack-config.js";
 import { SlackGateway } from "./channels/slack-gateway.js";
-import { googleAnalyticsProperties } from "./google-analytics-local.js";
+import {
+  isDeploymentNotFound,
+  safeRuntimeError,
+} from "./deployment-failure.js";
 import { hasInputReceipt, inputReceipt } from "./input-receipt.js";
 import {
   assertSafeInputRequest,
@@ -42,7 +53,17 @@ import { listModels } from "./models.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
 import { resumeDriverBlockedWork } from "./scheduled-agent-config.js";
 import { RecurringWorkScheduler } from "./scheduler.js";
-import { ensureExecutorWorkspace } from "./tools/control-plane.js";
+import {
+  awaitGoogleAnalyticsAuthorization,
+  disconnectGoogleAnalyticsConnection,
+  ensureExecutorWorkspace,
+  inspectGoogleAnalyticsConfiguration,
+  openExecutorHandoff,
+  prepareIntegrationSetup,
+  startGoogleAnalyticsAuthorization,
+  storeGoogleAnalyticsOAuthClient,
+  verifyGoogleAnalyticsConnection,
+} from "./tools/control-plane.js";
 import { executorToolServer } from "./tools/spec.js";
 import {
   capabilityWhoamiUrl,
@@ -76,17 +97,99 @@ function chatControlEvents(events: AgentEvent[]) {
   );
 }
 
+const SETUP_ATTEMPT_PREFIX = "[chief-integration-setup:";
+
+function activeSetupAttempt(events: readonly AgentEvent[]) {
+  let attemptId: string | null = null;
+  for (const event of events) {
+    if (event.type === "message") {
+      const text = event.content
+        .flatMap((block) => (block.type === "text" ? [block.text] : []))
+        .join("\n");
+      if (event.role === "user") {
+        const firstLine = text.split("\n", 1)[0] ?? "";
+        attemptId =
+          firstLine.startsWith(SETUP_ATTEMPT_PREFIX) && firstLine.endsWith("]")
+            ? firstLine.slice(SETUP_ATTEMPT_PREFIX.length, -1)
+            : attemptId;
+      } else if (text.includes("CHIEF_SETUP_RESULT")) {
+        attemptId = null;
+      }
+    }
+    if (
+      attemptId &&
+      (event.type === "error" ||
+        event.type === "exit" ||
+        (event.type === "result" && !event.ok))
+    ) {
+      attemptId = null;
+    }
+  }
+  return attemptId;
+}
+
+const DRIVER_TYPES = new Set<DriverType>([
+  "claude",
+  "codex",
+  "opencode",
+  "remote",
+]);
+
+function normalizedExecution(
+  execution: ChatExecutionSelection | undefined,
+): ChatExecutionSelection | undefined {
+  if (!execution) return undefined;
+  if (!DRIVER_TYPES.has(execution.driver)) {
+    throw new Error("Unsupported agent app.");
+  }
+  const trimmedModel = execution.model?.trim();
+  const model = trimmedModel?.length ? trimmedModel : undefined;
+  if (model && model.length > 200) throw new Error("Model name is too long.");
+  return { driver: execution.driver, model };
+}
+
 /**
  * Stores submitted values per each field's save target and returns
  * human-readable destinations for the agent (never the values themselves).
  */
+function isGoogleAnalyticsOAuthRequest(request: InputRequest) {
+  const destinations = new Map(
+    request.fields.flatMap((field) =>
+      "envKey" in field.save ? [[field.key, field.save.envKey] as const] : [],
+    ),
+  );
+  return (
+    destinations.get("clientId") === "GOOGLE_ANALYTICS_CLIENT_ID" &&
+    destinations.get("clientSecret") === "GOOGLE_ANALYTICS_CLIENT_SECRET"
+  );
+}
+
 async function storeInputValues(
   workspaceId: string,
   request: InputRequest,
   values: Record<string, string>,
   allowWorkspaceContext = false,
+  capability?: ExecutorCapability,
 ): Promise<string[]> {
   assertSafeInputRequest(request, allowWorkspaceContext);
+  if (
+    request.id === "google-analytics-oauth-client" ||
+    request.id.startsWith("google-analytics-oauth-client:") ||
+    isGoogleAnalyticsOAuthRequest(request)
+  ) {
+    const clientId = values.clientId?.trim();
+    const clientSecret = values.clientSecret?.trim();
+    if (!capability || !clientId || !clientSecret) {
+      throw new Error(
+        "Google Analytics client ID and client secret are required.",
+      );
+    }
+    await storeGoogleAnalyticsOAuthClient(workspaceId, capability, {
+      clientId,
+      clientSecret,
+    });
+    return ["the Google Analytics connection's local credential vault"];
+  }
   const saved: string[] = [];
   for (const field of request.fields) {
     const value = values[field.key];
@@ -128,10 +231,33 @@ export function startServer(port = PORT) {
     { apiBaseUrl: string; verifiedAt: number; workspaceId: string }
   >();
   const workspaceCapabilities = new Map<string, ExecutorCapability>();
+  const cloudSyncs = new Map<string, Promise<void>>();
   const onboardingBootstraps = new Map<
     string,
-    { signature: string; promise: Promise<void> }
+    { signature: string; promise: Promise<string> }
   >();
+  const activeIntegrationSetups = new Map<
+    string,
+    Map<string, { attemptId: string; domain: string; expiresAt: number }>
+  >();
+  const integrationSetupDomains = new Map<string, Map<string, string>>();
+  const assertActiveIntegrationSetup = (
+    workspaceId: string,
+    sessionId: string,
+    attemptId: string,
+    domain: string,
+  ) => {
+    const setup = activeIntegrationSetups.get(workspaceId)?.get(sessionId);
+    if (
+      !setup ||
+      setup.attemptId !== attemptId ||
+      setup.domain !== domain ||
+      setup.expiresAt <= Date.now()
+    ) {
+      activeIntegrationSetups.get(workspaceId)?.delete(sessionId);
+      throw new Error("This integration setup run is not active.");
+    }
+  };
   const authorizeWorkspace = async (
     workspaceId: string,
     capability: ExecutorCapability,
@@ -179,34 +305,112 @@ export function startServer(port = PORT) {
     void ensureSlackGateway(workspaceId);
   };
 
-  // Local Slack gateways: one Socket Mode connection per workspace that has
-  // enabled Slack and stored its tokens. Started lazily on first workspace
-  // authorization; config changes apply on the next runtime start.
+  // Local Slack gateways: one outbound Socket Mode connection per authorized
+  // workspace. Settings changes replace the connection immediately.
   const slackGateways = new Map<string, SlackGateway>();
-  const slackAttempted = new Set<string>();
-  const ensureSlackGateway = async (workspaceId: string) => {
-    if (slackAttempted.has(workspaceId)) return;
-    slackAttempted.add(workspaceId);
+  const slackErrors = new Map<string, string>();
+  const slackStarting = new Map<string, Promise<void>>();
+  const slackState = async (workspaceId: string) => {
+    const settings = readSlackGatewaySettings(workspaceId) ?? {
+      enabled: false,
+      driver: "codex" as const,
+      allowedUserIds: [],
+      allowedChannelIds: [],
+    };
+    const keys = new Set(await workspaceSecrets.keys(workspaceId));
+    return {
+      ...settings,
+      configured: keys.has("SLACK_BOT_TOKEN") && keys.has("SLACK_APP_TOKEN"),
+      connected: slackGateways.has(workspaceId),
+      error: slackErrors.get(workspaceId),
+    };
+  };
+  const reloadSlackGateway = async (workspaceId: string) => {
+    const existing = slackGateways.get(workspaceId);
+    if (existing) await existing.stop().catch(() => undefined);
+    slackGateways.delete(workspaceId);
+    slackErrors.delete(workspaceId);
     try {
       const config = await loadSlackGatewayConfig(workspaceId);
       if (!config) return;
+      if (
+        config.allowedUserIds.length === 0 &&
+        config.allowedChannelIds.length === 0
+      ) {
+        throw new Error("Add at least one allowed Slack user or channel ID.");
+      }
       const gateway = new SlackGateway(manager, config);
       await gateway.start();
       slackGateways.set(workspaceId, gateway);
-      console.log(`[slack] gateway connected for workspace ${workspaceId}`);
     } catch (error) {
-      console.error("[slack] gateway failed to start:", error);
+      const message = error instanceof Error ? error.message : String(error);
+      slackErrors.set(workspaceId, message);
+      throw error;
     }
+  };
+  const ensureSlackGateway = async (workspaceId: string) => {
+    if (slackGateways.has(workspaceId)) return;
+    const active = slackStarting.get(workspaceId);
+    if (active) return active;
+    const start = reloadSlackGateway(workspaceId)
+      .catch((error) =>
+        console.error("[slack] gateway failed to start:", error),
+      )
+      .finally(() => slackStarting.delete(workspaceId));
+    slackStarting.set(workspaceId, start);
+    return start;
   };
 
   let broadcastWorkspaceData = (_workspaceId: string) => Promise.resolve();
   let broadcastWorkspaceFiles = (_workspaceId: string) => Promise.resolve();
   let broadcastNotice = (_workspaceId: string, _notice: RuntimeNotice) =>
     undefined;
+  let broadcastIntegrationVerified = (
+    _workspaceId: string,
+    _integration: {
+      provider: string;
+      category: string;
+      displayName: string;
+      externalId?: string;
+    },
+  ) => undefined;
   let broadcastAgentDeployment = (_record: AgentDeploymentRecord) => undefined;
+  const workspaceRevisions = new Map<string, number>();
+  const workspaceSnapshotQueues = new Map<string, Promise<void>>();
   const deployments = new AgentDeploymentManager(manager, (record) =>
     broadcastAgentDeployment(record),
   );
+  const persistGoogleAnalyticsConnection = async (
+    workspaceId: string,
+    property: {
+      accountName: string;
+      propertyId: string;
+      propertyName: string;
+    },
+  ) => {
+    broadcastIntegrationVerified(workspaceId, {
+      provider: "google-analytics",
+      category: "analytics",
+      displayName: property.propertyName,
+      externalId: property.propertyId,
+    });
+    const workspace = await manager.workspaceData(workspaceId);
+    await Promise.all(
+      workspace.actionItems
+        .filter(
+          (action) =>
+            action.status === "open" &&
+            (action.request?.id === "google-analytics-oauth-client" ||
+              (action.request
+                ? isGoogleAnalyticsOAuthRequest(action.request)
+                : false) ||
+              (/google analytics/i.test(action.title) &&
+                /connect|connection|integration|source/i.test(action.title))),
+        )
+        .map((action) => manager.dismissActionItem(workspaceId, action.id)),
+    );
+    await broadcastWorkspaceData(workspaceId);
+  };
   const scheduler = new RecurringWorkScheduler(
     manager,
     (workspaceId) => broadcastWorkspaceData(workspaceId),
@@ -218,6 +422,187 @@ export function startServer(port = PORT) {
         : null;
     },
   );
+  const syncCloudRecords = async (workspaceId: string) => {
+    const active = cloudSyncs.get(workspaceId);
+    if (active) return active;
+    const sync = (async () => {
+      const preference = await manager.agentPreference(workspaceId, "cmo");
+      const capability = workspaceCapabilities.get(workspaceId);
+      if (preference?.driver !== "remote" || !capability) return;
+      const response = await fetch(
+        `${capability.apiBaseUrl.replace(/\/$/, "")}/agent-tools/records`,
+        { headers: { Authorization: `Bearer ${capability.token}` } },
+      );
+      if (!response.ok) {
+        throw new Error(`Cloud record sync returned ${response.status}.`);
+      }
+      const records = (await response.json()) as {
+        prospects?: {
+          id: string;
+          name: string;
+          company?: string;
+          source: string;
+          sourceUrl: string;
+          summary: string;
+          relevance: "high" | "medium" | "low";
+          status: "new" | "researching" | "contacted" | "dismissed";
+          foundAt: number;
+        }[];
+        files?: {
+          id: string;
+          name: string;
+          path: string;
+          mimeType: string;
+          kind: "document" | "email";
+          content: string;
+          createdBy: "agent" | "user";
+          sourceAgentId?: string;
+          sourceSessionId?: string;
+        }[];
+        actions?: {
+          id: string;
+          agentId: string;
+          title: string;
+          reason: string;
+          sourceId?: string;
+          request?: InputRequest;
+          status: "open" | "dismissed";
+          createdAt: number;
+        }[];
+      };
+      await Promise.all(
+        (records.prospects ?? []).map((prospect) =>
+          manager.saveProspect(workspaceId, prospect),
+        ),
+      );
+      for (const file of records.files ?? []) {
+        const existing = await manager
+          .workspaceFile(workspaceId, file.id)
+          .catch(() => undefined);
+        if (existing?.content === file.content) continue;
+        await manager.saveWorkspaceFile(workspaceId, {
+          id: file.id,
+          name: file.name,
+          path: file.path,
+          mimeType: file.mimeType,
+          kind: file.kind,
+          content: file.content,
+          createdBy: file.createdBy,
+          sourceAgentId: file.sourceAgentId,
+          sourceSessionId: file.sourceSessionId,
+          expectedVersionId: existing?.currentVersionId,
+        });
+      }
+      await Promise.all(
+        (records.actions ?? []).map((action) =>
+          manager.raiseActionItem(workspaceId, action),
+        ),
+      );
+    })()
+      .catch((error) => console.error("[cloud-sync]", error))
+      .finally(() => cloudSyncs.delete(workspaceId));
+    cloudSyncs.set(workspaceId, sync);
+    return sync;
+  };
+  const loadWorkspaceDataSnapshot = (workspaceId: string) => {
+    const previous =
+      workspaceSnapshotQueues.get(workspaceId) ?? Promise.resolve();
+    const snapshot = previous
+      .catch(() => undefined)
+      .then(async () => {
+        await syncCloudRecords(workspaceId);
+        const data = await manager.workspaceData(workspaceId);
+        const revision = (workspaceRevisions.get(workspaceId) ?? 0) + 1;
+        workspaceRevisions.set(workspaceId, revision);
+        return { data, revision };
+      });
+    const queued = snapshot.then(
+      () => undefined,
+      () => undefined,
+    );
+    workspaceSnapshotQueues.set(workspaceId, queued);
+    void queued.finally(() => {
+      if (workspaceSnapshotQueues.get(workspaceId) === queued) {
+        workspaceSnapshotQueues.delete(workspaceId);
+      }
+    });
+    return snapshot;
+  };
+  const dismissCloudAction = async (workspaceId: string, id: string) => {
+    const preference = await manager.agentPreference(workspaceId, "cmo");
+    const capability = workspaceCapabilities.get(workspaceId);
+    if (preference?.driver !== "remote" || !capability) return;
+    const response = await fetch(
+      `${capability.apiBaseUrl.replace(/\/$/, "")}/agent-tools/actions/dismiss`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${capability.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ id }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Cloud action dismissal returned ${response.status}.`);
+    }
+  };
+  const ensureChiefSession = async (
+    workspaceId: string,
+    chatId: string,
+    capability: ExecutorCapability,
+  ) => {
+    const current = manager.get(workspaceId, chatId);
+    if (current) return current;
+    const agent = getAgent("cmo");
+    if (!agent) throw new Error("CMO persona is missing.");
+    const preference = await manager.agentPreference(workspaceId, "cmo");
+    if (!preference?.driver || preference.enabled === false) {
+      throw new Error("Configure the CMO agent app before continuing work.");
+    }
+    const capableAgent = preference.capabilities
+      ? composeAgentCapabilities(
+          agent,
+          availableCapabilities.filter((item) =>
+            preference.capabilities?.includes(item.id),
+          ),
+        )
+      : agent;
+    const integratedAgent =
+      preference.integrations !== undefined
+        ? {
+            ...capableAgent,
+            instructions: `${capableAgent.instructions}\n\nAssigned integrations: ${preference.integrations.length > 0 ? preference.integrations.join(", ") : "none"}. Only search for and call integration tools from this assigned set.`,
+          }
+        : capableAgent;
+    const effectiveAgent = {
+      ...integratedAgent,
+      instructions: composeWorkspaceInstructions(
+        integratedAgent.instructions,
+        readWorkspaceContext(workspaceId),
+      ),
+    };
+    const executorWorkspace = await ensureExecutorWorkspace(
+      workspaceId,
+      capability,
+    ).catch((error: unknown) => {
+      console.error(
+        `[runtime] Executor workspace unavailable for ${chatId}:`,
+        error,
+      );
+      return null;
+    });
+    return manager.ensureRootChat(effectiveAgent, chatId, {
+      driver: preference.driver,
+      access: "full",
+      workspaceId,
+      model: preference.model,
+      mcpServers: executorWorkspace
+        ? [executorToolServer(executorWorkspace)]
+        : [],
+      executionOwner: "interactive",
+    });
+  };
   let schedulerReady = false;
   // Bind both loopback families — macOS clients resolving "localhost" may
   // dial ::1 or 127.0.0.1. Never bind non-loopback interfaces here.
@@ -270,7 +655,9 @@ export function startServer(port = PORT) {
         return;
       }
       const chunks: Buffer[] = [];
-      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      for await (const chunk of req) {
+        chunks.push(Buffer.from(chunk as Uint8Array));
+      }
       const request = new Request(`http://127.0.0.1:${port}${req.url}`, {
         method: req.method,
         headers: Object.fromEntries(
@@ -280,14 +667,155 @@ export function startServer(port = PORT) {
         ),
         ...(chunks.length > 0 ? { body: Buffer.concat(chunks) } : {}),
       });
-      const response = await handleLocalTool(request, workspaceId, manager);
+      const response = await handleLocalTool(request, workspaceId, manager, {
+        onActivity: () => broadcastWorkspaceData(workspaceId),
+        onFilesChanged: () => broadcastWorkspaceFiles(workspaceId),
+        activateIntegrationSetup: async (sessionId, attemptId, domain) => {
+          await prepareIntegrationSetup(
+            workspaceId,
+            { apiBaseUrl: cachedCapability.apiBaseUrl, token },
+            domain,
+          );
+          const domains =
+            integrationSetupDomains.get(workspaceId) ??
+            new Map<string, string>();
+          domains.set(sessionId, domain);
+          integrationSetupDomains.set(workspaceId, domains);
+          const active =
+            activeIntegrationSetups.get(workspaceId) ??
+            new Map<
+              string,
+              { attemptId: string; domain: string; expiresAt: number }
+            >();
+          active.set(sessionId, {
+            attemptId,
+            domain,
+            expiresAt: Date.now() + 30 * 60_000,
+          });
+          activeIntegrationSetups.set(workspaceId, active);
+        },
+        openIntegrationHandoff: async (sessionId, attemptId, url) => {
+          const domain =
+            integrationSetupDomains.get(workspaceId)?.get(sessionId) ?? "";
+          assertActiveIntegrationSetup(
+            workspaceId,
+            sessionId,
+            attemptId,
+            domain,
+          );
+          await openExecutorHandoff(workspaceId, url);
+        },
+        googleAnalytics: {
+          startAuthorization: async (sessionId, attemptId) => {
+            assertActiveIntegrationSetup(
+              workspaceId,
+              sessionId,
+              attemptId,
+              "analytics.googleapis.com",
+            );
+            const legacy = await workspaceSecrets.readEnv(workspaceId, [
+              "GOOGLE_ANALYTICS_CLIENT_ID",
+              "GOOGLE_ANALYTICS_CLIENT_SECRET",
+            ]);
+            const clientId = legacy.GOOGLE_ANALYTICS_CLIENT_ID;
+            const clientSecret = legacy.GOOGLE_ANALYTICS_CLIENT_SECRET;
+            const authorization = await startGoogleAnalyticsAuthorization(
+              workspaceId,
+              {
+                apiBaseUrl: cachedCapability.apiBaseUrl,
+                token,
+              },
+              clientId && clientSecret ? { clientId, clientSecret } : undefined,
+            );
+            if (clientId && clientSecret) {
+              await workspaceSecrets.deleteEnv(
+                workspaceId,
+                "GOOGLE_ANALYTICS_CLIENT_ID",
+              );
+              await workspaceSecrets.deleteEnv(
+                workspaceId,
+                "GOOGLE_ANALYTICS_CLIENT_SECRET",
+              );
+            }
+            return authorization;
+          },
+          completeAuthorization: async (sessionId, attemptId, state) => {
+            assertActiveIntegrationSetup(
+              workspaceId,
+              sessionId,
+              attemptId,
+              "analytics.googleapis.com",
+            );
+            const capability = {
+              apiBaseUrl: cachedCapability.apiBaseUrl,
+              token,
+            };
+            if (state) {
+              await awaitGoogleAnalyticsAuthorization(workspaceId, state);
+            }
+            const verification = await verifyGoogleAnalyticsConnection(
+              workspaceId,
+              capability,
+            );
+            if (verification.status === "selection-required") {
+              return verification;
+            }
+            await persistGoogleAnalyticsConnection(
+              workspaceId,
+              verification.property,
+            );
+            activeIntegrationSetups.get(workspaceId)?.delete(sessionId);
+            return {
+              status: "connected" as const,
+              provider: "google-analytics",
+              ...verification.property,
+            };
+          },
+          selectProperty: async (sessionId, attemptId, propertyId) => {
+            assertActiveIntegrationSetup(
+              workspaceId,
+              sessionId,
+              attemptId,
+              "analytics.googleapis.com",
+            );
+            const capability = {
+              apiBaseUrl: cachedCapability.apiBaseUrl,
+              token,
+            };
+            const verification = await verifyGoogleAnalyticsConnection(
+              workspaceId,
+              capability,
+              propertyId,
+            );
+            if (verification.status !== "connected") {
+              throw new Error("Select a Google Analytics property.");
+            }
+            await persistGoogleAnalyticsConnection(
+              workspaceId,
+              verification.property,
+            );
+            activeIntegrationSetups.get(workspaceId)?.delete(sessionId);
+            return {
+              status: "connected" as const,
+              provider: "google-analytics",
+              ...verification.property,
+            };
+          },
+        },
+      });
       res.writeHead(response.status, Object.fromEntries(response.headers));
       res.end(await response.text());
       if (req.method === "POST" && response.ok) {
         void broadcastWorkspaceData(workspaceId);
-        if (path === "/local-tools/attention") {
+        if (
+          path === "/local-tools/files/write" ||
+          path === "/local-tools/content"
+        ) {
+          void broadcastWorkspaceFiles(workspaceId);
+        }
+        if (path === "/local-tools/action") {
           broadcastNotice(workspaceId, {
-            kind: "attention",
+            kind: "action",
             title: "An agent flagged something for you",
           });
         }
@@ -313,10 +841,11 @@ export function startServer(port = PORT) {
   wss6.on("connection", (ws, req) => wss.emit("connection", ws, req));
   wss6.on("error", () => undefined);
   broadcastWorkspaceData = async (workspaceId) => {
-    const data = await manager.workspaceData(workspaceId);
+    const { data, revision } = await loadWorkspaceDataSnapshot(workspaceId);
     const message = JSON.stringify({
       type: "workspaceData",
       workspaceId,
+      revision,
       ...data,
     });
     for (const client of new Set([...wss.clients, ...wss6.clients])) {
@@ -329,6 +858,7 @@ export function startServer(port = PORT) {
     }
   };
   broadcastWorkspaceFiles = async (workspaceId) => {
+    await syncCloudRecords(workspaceId);
     const message = JSON.stringify({
       type: "workspaceFiles",
       workspaceId,
@@ -373,6 +903,21 @@ export function startServer(port = PORT) {
       }
     }
   };
+  broadcastIntegrationVerified = (workspaceId, integration) => {
+    const message = JSON.stringify({
+      type: "integrationVerified",
+      workspaceId,
+      ...integration,
+    } satisfies ServerMessage);
+    for (const client of new Set([...wss.clients, ...wss6.clients])) {
+      if (
+        client.readyState === WebSocket.OPEN &&
+        socketAuthorization.canReceive(client, workspaceId)
+      ) {
+        client.send(message);
+      }
+    }
+  };
 
   wss.on("connection", (ws, req) => {
     console.log(`[chief] client connected (${req.socket.remoteAddress})`);
@@ -389,6 +934,75 @@ export function startServer(port = PORT) {
         listener: (event: unknown) => void;
       }
     >();
+    const bindRootSession = (
+      workspaceId: string,
+      chatId: string,
+      session: AgentSession,
+    ) => {
+      const subscriptionKey = `${workspaceId}\0${chatId}`;
+      const registered = sessionListeners.get(subscriptionKey);
+      if (registered?.session === session) return;
+      if (registered) registered.session.off("event", registered.listener);
+      if (!subscriptions.has(subscriptionKey)) {
+        subscriptions.add(subscriptionKey);
+        manager.retain(workspaceId, chatId);
+      }
+      const handleEvent = async (event: unknown) => {
+        const agentEvent = event as AgentEvent;
+        if (agentEvent.type !== "message") {
+          send({
+            type: "event",
+            workspaceId,
+            chatId,
+            event: agentEvent,
+          });
+        }
+        if (
+          agentEvent.type === "message" ||
+          agentEvent.type === "result" ||
+          agentEvent.type === "error" ||
+          agentEvent.type === "permissionResolved"
+        ) {
+          await manager.waitForChatPersistence(workspaceId, chatId);
+          const messages = await manager.messages(workspaceId, chatId);
+          const persisted =
+            agentEvent.type === "message" && agentEvent.id
+              ? messages.find((message) => message.id === agentEvent.id)
+              : messages.at(-1);
+          if (persisted) {
+            send({
+              type: "message",
+              workspaceId,
+              chatId,
+              message: persisted,
+            });
+          }
+        }
+        if (agentEvent.type === "message" && agentEvent.role === "user") {
+          await manager.waitForChatPersistence(workspaceId, chatId);
+          send({
+            type: "chats",
+            workspaceId,
+            chats: await manager.listChats(workspaceId),
+          });
+        }
+        if (
+          agentEvent.type === "result" ||
+          agentEvent.type === "error" ||
+          agentEvent.type === "exit"
+        ) {
+          await manager.waitForChatPersistence(workspaceId, chatId);
+          await broadcastWorkspaceData(workspaceId);
+        }
+      };
+      const listener = (event: unknown) => {
+        void handleEvent(event).catch((error: unknown) =>
+          console.error("[runtime] root chat event:", error),
+        );
+      };
+      session.on("event", listener);
+      sessionListeners.set(subscriptionKey, { session, listener });
+    };
 
     // EventEmitter cannot await socket handlers; errors are handled inside.
     // eslint-disable-next-line @typescript-eslint/no-misused-promises
@@ -438,12 +1052,26 @@ export function startServer(port = PORT) {
             });
             break;
 
-          case "listWorkspaceData":
+          case "listWorkspaceData": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const { data, revision } = await loadWorkspaceDataSnapshot(
+              msg.workspaceId,
+            );
             send({
               type: "workspaceData",
               workspaceId: msg.workspaceId,
-              ...(await manager.workspaceData(msg.workspaceId)),
+              revision,
+              ...data,
+            });
+            break;
+          }
+
+          case "listDiagnostics":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            send({
+              type: "diagnostics",
+              workspaceId: msg.workspaceId,
+              ...(await manager.diagnostics(msg.workspaceId)),
             });
             break;
 
@@ -528,6 +1156,10 @@ export function startServer(port = PORT) {
 
           case "bootstrapOnboardingWork": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const chatId = `workspace-kickoff-${createHash("sha256")
+              .update(msg.workspaceId)
+              .digest("hex")
+              .slice(0, 32)}`;
             const signature = JSON.stringify({
               jobs: msg.jobs,
               schedules: msg.schedules,
@@ -544,137 +1176,163 @@ export function startServer(port = PORT) {
             if (!bootstrap) {
               bootstrap = (async () => {
                 console.log(
-                  `[chief] preparing onboarding work for ${msg.workspaceId}: ${msg.jobs.length} setup jobs, ${msg.schedules.length} schedules`,
+                  `[chief] preparing initial business review for ${msg.workspaceId}`,
                 );
-                if (msg.workspaceContext?.trim()) {
+                if (msg.workspaceContext !== undefined) {
                   writeWorkspaceContext(
                     msg.workspaceId,
                     msg.workspaceContext.slice(0, 40_000),
                   );
                 }
                 const now = Date.now();
-                const jobs = msg.jobs.slice(0, 8);
-                if (msg.driver) {
-                  const existing = await manager.agentPreference(
-                    msg.workspaceId,
-                    "cmo",
+                const existingPreference = await manager.agentPreference(
+                  msg.workspaceId,
+                  "cmo",
+                );
+                const driver = msg.driver ?? existingPreference?.driver;
+                if (!driver) {
+                  throw new Error(
+                    "Choose a CMO agent app before starting the initial business review.",
                   );
-                  await manager.saveAgentPreference(msg.workspaceId, {
-                    ...existing,
-                    agentId: "cmo",
-                    enabled: true,
-                    driver: msg.driver,
-                  });
                 }
-                for (const job of jobs) {
-                  console.log(`[chief] preparing onboarding job ${job.id}`);
-                  if (!/^[a-z0-9][a-z0-9_-]{2,96}$/i.test(job.id)) {
-                    throw new Error("Invalid onboarding job id.");
-                  }
-                  const existing = await manager.recurringWorkById(
-                    msg.workspaceId,
-                    job.id,
-                  );
-                  // Bootstrap requests can arrive from both onboarding and
-                  // the dashboard. Existing work is authoritative: never
-                  // reset its run state, schedule, or transcript on a replay.
-                  if (existing) {
-                    console.log(
-                      `[chief] onboarding job ${job.id} already exists`,
+                await manager.saveAgentPreference(msg.workspaceId, {
+                  ...existingPreference,
+                  agentId: "cmo",
+                  enabled: true,
+                  driver,
+                });
+
+                const onboardingDirectory = join(
+                  workspaceRoot(msg.workspaceId),
+                  "onboarding",
+                );
+                mkdirSync(onboardingDirectory, {
+                  recursive: true,
+                  mode: 0o700,
+                });
+                const attachmentPaths: string[][] = [];
+                let totalBytes = 0;
+                for (const [jobIndex, job] of msg.jobs.entries()) {
+                  const saved: string[] = [];
+                  for (const [attachmentIndex, attachment] of (
+                    job.attachments ?? []
+                  ).entries()) {
+                    const match = /^data:[^;]+;base64,(.+)$/.exec(
+                      attachment.dataUrl,
                     );
-                    continue;
-                  }
-                  // Onboarding should visibly come to life as soon as the user
-                  // reaches the dashboard. Keep a tiny dispatch buffer so the
-                  // bootstrap response and first workspace update land first.
-                  const runAt = Math.max(job.runAt, now + 1_000);
-                  let instructions = job.instructions.trim().slice(0, 40_000);
-                  const attachments = (job.attachments ?? []).slice(0, 4);
-                  if (attachments.length > 0) {
-                    const directory = join(
-                      workspaceRoot(msg.workspaceId),
-                      "onboarding",
-                      job.id,
+                    if (!match) {
+                      throw new Error("Invalid onboarding attachment.");
+                    }
+                    const encoded = match[1];
+                    if (!encoded) {
+                      throw new Error("Invalid onboarding attachment.");
+                    }
+                    const bytes = Buffer.from(encoded, "base64");
+                    totalBytes += bytes.byteLength;
+                    if (totalBytes > 6 * 1024 * 1024) {
+                      throw new Error("Onboarding attachments exceed 6 MB.");
+                    }
+                    const safeName = basename(attachment.name).replace(
+                      /[^a-zA-Z0-9._-]+/g,
+                      "-",
                     );
-                    mkdirSync(directory, { recursive: true, mode: 0o700 });
-                    const saved: string[] = [];
-                    let totalBytes = 0;
-                    for (const attachment of attachments) {
-                      const match = /^data:[^;]+;base64,(.+)$/.exec(
-                        attachment.dataUrl,
-                      );
-                      if (!match) continue;
-                      const bytes = Buffer.from(match[1]!, "base64");
-                      totalBytes += bytes.byteLength;
-                      if (totalBytes > 6 * 1024 * 1024) {
-                        throw new Error("Onboarding attachments exceed 6 MB.");
-                      }
-                      const safeName = basename(attachment.name).replace(
-                        /[^a-zA-Z0-9._-]+/g,
-                        "-",
-                      );
-                      const path = join(directory, safeName || "brand-file");
-                      writeFileSync(path, bytes, { mode: 0o600 });
-                      saved.push(path);
-                    }
-                    if (saved.length > 0) {
-                      instructions += `\n\nFiles supplied during onboarding:\n${saved.map((path) => `- ${path}`).join("\n")}`;
-                    }
+                    const path = join(
+                      onboardingDirectory,
+                      `${jobIndex + 1}-${attachmentIndex + 1}-${safeName || "attachment"}`,
+                    );
+                    writeFileSync(path, bytes, { mode: 0o600 });
+                    saved.push(path);
                   }
-                  const toolPatterns = Array.from(
-                    new Set(
-                      job.proposedToolPatterns
-                        .filter((pattern) => pattern.startsWith("tools."))
-                        .slice(0, 24),
-                    ),
-                  );
-                  const chatId = randomUUID();
-                  await manager.createRootChat(
-                    msg.workspaceId,
-                    chatId,
-                    job.title.trim().slice(0, 160),
-                  );
-                  await manager.saveRecurringWork(msg.workspaceId, {
-                    id: job.id,
-                    chatId,
-                    agentId: job.agentId,
-                    title: job.title.trim().slice(0, 160),
-                    instructions,
-                    cron: "0 0 1 1 *",
-                    timezone: job.timezone,
-                    runOnceAt: runAt,
-                    status: "active",
-                    placement: "local",
-                    approvalSummary:
-                      "Approved during onboarding and queued to run after setup completes.",
-                    proposedToolPatterns: toolPatterns,
-                    grant: {
-                      version: 1,
-                      approvedAt: now,
-                      toolPatterns,
+                  attachmentPaths[jobIndex] = saved;
+                }
+
+                const jobs = msg.jobs.map((job, jobIndex) => {
+                  const paths = attachmentPaths[jobIndex] ?? [];
+                  return [
+                    `- ${job.title.trim() || job.id} (${job.agentId}; target ${new Date(job.runAt).toISOString()} ${job.timezone}): ${job.instructions.trim().slice(0, 4_000)}`,
+                    ...paths.map((path) => `  Attachment: ${path}`),
+                  ].join("\n");
+                });
+                const schedules = msg.schedules.map(
+                  (schedule) =>
+                    `- ${schedule.title.trim() || schedule.id}: ${schedule.status}; cron ${schedule.cron} (${schedule.timezone}). ${schedule.instructions.trim().slice(0, 4_000)}`,
+                );
+                const kickoffPrompt = [
+                  "Own one coherent initial business review. Keep this conversation as its single user-visible home and own the final synthesis.",
+                  "In the first execution pass, launch every independent job concurrently: Brand Researcher, every selected Setup job, and Prospector. Issue all of those delegation tool calls before waiting for or polling any child. Only the Analyst is dependency-gated on a verified analytics connection.",
+                  msg.jobs.some((job) => job.agentId === "brand")
+                    ? driver === "remote"
+                      ? "Launch business and brand research exactly once through the declared Brand Researcher in the initial parallel batch. Never start an equivalent second Brand Researcher. Verify its result when available, then save the complete Markdown through chief files.save at brand/working-brand-profile.md so it is durable and visible."
+                      : "Launch business and brand research exactly once through localTools.specialistsDelegate in the initial parallel batch. Omit waitSeconds so the child continues in the background. A working response is healthy; reuse one stable delegation ID, never start an equivalent second Brand Researcher, and use its automatically saved versioned brand-profile file when available."
+                    : "The user skipped brand research. Use the supplied workspace context without creating a Brand Researcher delegation.",
+                  msg.jobs.some((job) => job.agentId === "setup")
+                    ? driver === "remote"
+                      ? "Launch every listed Setup job independently through the declared Setup subagent in the initial parallel batch. Do not wait for Brand or serialize unrelated providers."
+                      : "Launch every listed Setup job independently through localTools.specialistsDelegate in the initial parallel batch and omit waitSeconds. Copy each job's setupDomain and setupAttemptId into its matching tool fields. Do not wait for Brand or serialize unrelated providers. Setup may open a provider consent screen; if it returns a genuine user-only credential, consent, or account choice, raise one precise provider-scoped action while all unrelated work continues."
+                    : "No integration setup was selected during onboarding.",
+                  msg.jobs.some((job) => job.agentId === "analyst")
+                    ? "As soon as an analytics Setup job is verified connected, launch the listed Analyst job. This is the only dependent kickoff job. Require its saved local dataset and chart before including analytics in the synthesis; if setup is genuinely blocked, do not fabricate a report or hold up unrelated results."
+                    : "No initial analytics report was requested.",
+                  driver === "remote"
+                    ? "Launch initial prospecting exactly once through the declared Prospector in the initial parallel batch. Require five to eight recent, high-confidence results with direct source URLs and require every qualified result to be saved through chief prospects.save before returning. Never start an equivalent second Prospector."
+                    : "Launch initial prospecting exactly once through localTools.specialistsDelegate in the initial parallel batch and omit waitSeconds. Require five to eight recent, high-confidence results with direct source URLs and require the Prospector to save every qualified result with prospectsSave before returning. A working response means it continues in the background; never start an equivalent second Prospector.",
+                  "After every independent child is underway, inspect workspace context and prepare the recurring work and review structure while children run. Then reconcile each stable delegation ID. Do not repeatedly poll one child while another initial job has not been launched. Final synthesis may wait for research results, but must not wait for a Setup job blocked on user action.",
+                  "Inspect workspace context and already-connected Chief sources before asking the user for anything. Treat the underlying connection service as an internal implementation detail.",
+                  "Initial jobs:",
+                  jobs.length > 0 ? jobs.join("\n") : "- None selected.",
+                  "Recurring schedule plan:",
+                  schedules.length > 0
+                    ? schedules.join("\n")
+                    : "- No recurring schedules selected.",
+                  "Launch the concurrent kickoff now. Save the complete initial business review as a versioned Markdown workspace file under reviews/ and include it in the final synthesis. A blocked integration must not erase or delay completed brand or prospecting work.",
+                ].join("\n\n");
+
+                await manager.createRootChat(
+                  msg.workspaceId,
+                  chatId,
+                  "Initial business review",
+                  driver,
+                  existingPreference?.model,
+                );
+                let persistedMessages = await manager.transcript(
+                  msg.workspaceId,
+                  chatId,
+                );
+                const kickoffId = `${chatId}-kickoff`;
+                if (
+                  !persistedMessages.some(
+                    (event) =>
+                      event.type === "message" &&
+                      event.role === "user" &&
+                      event.id === kickoffId,
+                  )
+                ) {
+                  await manager.saveTranscript(
+                    {
+                      id: chatId,
+                      organizationId: msg.workspaceId,
+                      agentId: "cmo",
+                      driver,
+                      model: existingPreference?.model,
                     },
-                    nextRunAt: runAt,
-                    createdAt: now,
-                    updatedAt: now,
-                  });
-                  await manager.raiseAttentionItem(msg.workspaceId, {
-                    id: `attention-${job.id}-onboarding`,
-                    agentId: job.agentId,
-                    title: job.title.trim().slice(0, 160),
-                    reason:
-                      "Chief is starting this setup work now. Open it to follow the run as it progresses.",
-                    sourceId: `automation-${job.id}`,
-                    status: "open",
-                    createdAt: now,
-                  });
-                  console.log(`[chief] onboarding job ${job.id} ready`);
-                }
-                for (const [scheduleIndex, schedule] of msg.schedules
-                  .slice(0, 8)
-                  .entries()) {
-                  console.log(
-                    `[chief] preparing onboarding schedule ${schedule.id}`,
+                    [
+                      {
+                        type: "message",
+                        id: kickoffId,
+                        role: "user",
+                        content: [{ type: "text", text: kickoffPrompt }],
+                      },
+                    ],
+                    "Initial business review",
                   );
+                  persistedMessages = await manager.transcript(
+                    msg.workspaceId,
+                    chatId,
+                  );
+                  await broadcastWorkspaceData(msg.workspaceId);
+                }
+
+                for (const schedule of msg.schedules) {
                   if (!/^[a-z0-9][a-z0-9_-]{2,96}$/i.test(schedule.id)) {
                     throw new Error("Invalid onboarding schedule id.");
                   }
@@ -683,11 +1341,12 @@ export function startServer(port = PORT) {
                     msg.workspaceId,
                     schedule.id,
                   );
-                  if (existing) {
-                    console.log(
-                      `[chief] onboarding schedule ${schedule.id} already exists`,
-                    );
-                    continue;
+                  if (existing?.conversationId !== undefined) {
+                    if (existing.conversationId !== chatId) {
+                      throw new Error(
+                        "An onboarding schedule belongs to another conversation.",
+                      );
+                    }
                   }
                   const toolPatterns = Array.from(
                     new Set(
@@ -696,15 +1355,9 @@ export function startServer(port = PORT) {
                         .slice(0, 24),
                     ),
                   );
-                  const chatId = randomUUID();
-                  await manager.createRootChat(
-                    msg.workspaceId,
-                    chatId,
-                    schedule.title.trim().slice(0, 160),
-                  );
                   await manager.saveRecurringWork(msg.workspaceId, {
                     id: schedule.id,
-                    chatId,
+                    conversationId: chatId,
                     agentId: schedule.agentId,
                     title: schedule.title.trim().slice(0, 160),
                     instructions: schedule.instructions.trim().slice(0, 40_000),
@@ -720,56 +1373,144 @@ export function startServer(port = PORT) {
                       schedule.status === "active"
                         ? { version: 1, approvedAt: now, toolPatterns }
                         : undefined,
-                    // Run a newly activated onboarding schedule once while the
-                    // user is still finishing onboarding, then let the scheduler
-                    // return it to its normal cron cadence after that first run.
-                    nextRunAt:
+                    nextAt:
                       schedule.status === "active"
-                        ? now + 5_000 + scheduleIndex * 2_000
+                        ? nextRunAt(schedule.cron, schedule.timezone)
                         : undefined,
-                    createdAt: now,
+                    lastCompletedAt: existing?.lastCompletedAt,
+                    lastSummary: existing?.lastSummary,
+                    createdAt: existing?.createdAt ?? now,
                     updatedAt: now,
                   });
-                  if (schedule.status === "active") {
-                    await manager.raiseAttentionItem(msg.workspaceId, {
-                      id: `attention-${schedule.id}-onboarding`,
-                      agentId: schedule.agentId,
-                      title: schedule.title.trim().slice(0, 160),
-                      reason:
-                        "Chief is starting this recurring work now. Open it to follow the first run as it progresses.",
-                      sourceId: `automation-${schedule.id}`,
-                      status: "open",
-                      createdAt: now,
-                    });
-                  }
-                  console.log(
-                    `[chief] onboarding schedule ${schedule.id} ready`,
+                }
+
+                const agent = getAgent("cmo");
+                if (!agent) throw new Error("CMO persona is missing.");
+                const preference = await manager.agentPreference(
+                  msg.workspaceId,
+                  "cmo",
+                );
+                const capabilities = preference?.capabilities;
+                const capableAgent = capabilities
+                  ? composeAgentCapabilities(
+                      agent,
+                      availableCapabilities.filter((capability) =>
+                        capabilities.includes(capability.id),
+                      ),
+                    )
+                  : agent;
+                const integratedAgent =
+                  preference?.integrations !== undefined
+                    ? {
+                        ...capableAgent,
+                        instructions: `${capableAgent.instructions}\n\nAssigned integrations: ${preference.integrations.length > 0 ? preference.integrations.join(", ") : "none"}. Only search for and call integration tools from this assigned set.`,
+                      }
+                    : capableAgent;
+                const effectiveAgent = {
+                  ...integratedAgent,
+                  instructions: composeWorkspaceInstructions(
+                    integratedAgent.instructions,
+                    readWorkspaceContext(msg.workspaceId),
+                  ),
+                };
+                const executorWorkspace = await ensureExecutorWorkspace(
+                  msg.workspaceId,
+                  msg.executorCapability,
+                );
+                const session = await manager.ensureRootChat(
+                  effectiveAgent,
+                  chatId,
+                  {
+                    driver,
+                    access: "full",
+                    workspaceId: msg.workspaceId,
+                    model: preference?.model,
+                    mcpServers: [executorToolServer(executorWorkspace)],
+                    executionOwner: "interactive",
+                  },
+                  "Initial business review",
+                );
+                await manager.waitForChatPersistence(msg.workspaceId, chatId);
+                if (
+                  !persistedMessages.some(
+                    (event) =>
+                      (event.type === "message" &&
+                        event.role === "assistant") ||
+                      (event.type === "result" && event.ok),
+                  )
+                ) {
+                  const releaseExecution = manager.acquireExecution(
+                    msg.workspaceId,
+                    chatId,
+                    "interactive",
                   );
+                  const releaseOnTerminal = (event: AgentEvent) => {
+                    if (
+                      event.type === "result" ||
+                      event.type === "error" ||
+                      event.type === "exit"
+                    ) {
+                      session.off("event", releaseOnTerminal);
+                      session.off("event", broadcastOnActivity);
+                      releaseExecution();
+                    }
+                  };
+                  session.on("event", releaseOnTerminal);
+                  const broadcastOnActivity = (event: AgentEvent) => {
+                    if (
+                      event.type === "status" ||
+                      event.type === "result" ||
+                      event.type === "error" ||
+                      event.type === "exit"
+                    ) {
+                      void broadcastWorkspaceData(msg.workspaceId);
+                    }
+                  };
+                  session.on("event", broadcastOnActivity);
+                  try {
+                    await session.sendPrompt(kickoffPrompt, undefined, false);
+                    await manager.waitForChatPersistence(
+                      msg.workspaceId,
+                      chatId,
+                    );
+                  } catch (error) {
+                    session.off("event", releaseOnTerminal);
+                    session.off("event", broadcastOnActivity);
+                    releaseExecution();
+                    throw error;
+                  }
                 }
                 await broadcastWorkspaceData(msg.workspaceId);
+                return chatId;
               })();
               onboardingBootstraps.set(msg.workspaceId, {
                 signature,
                 promise: bootstrap,
               });
-              void bootstrap
-                .finally(() => {
-                  if (
-                    onboardingBootstraps.get(msg.workspaceId)?.promise ===
-                    bootstrap
-                  ) {
-                    onboardingBootstraps.delete(msg.workspaceId);
-                  }
-                })
-                .catch(() => undefined);
             }
-            await bootstrap;
-            send({
-              type: "onboardingWorkBootstrapped",
-              workspaceId: msg.workspaceId,
-              requestId: msg.requestId,
-            });
-            console.log(`[chief] onboarding work ready for ${msg.workspaceId}`);
+            try {
+              await bootstrap;
+              send({
+                type: "onboardingWorkBootstrapped",
+                workspaceId: msg.workspaceId,
+                requestId: msg.requestId,
+                chatId,
+              });
+              send({
+                type: "chats",
+                workspaceId: msg.workspaceId,
+                chats: await manager.listChats(msg.workspaceId),
+              });
+              console.log(
+                `[chief] initial business review started for ${msg.workspaceId}`,
+              );
+            } finally {
+              if (
+                onboardingBootstraps.get(msg.workspaceId)?.promise === bootstrap
+              ) {
+                onboardingBootstraps.delete(msg.workspaceId);
+              }
+            }
             break;
           }
 
@@ -806,9 +1547,7 @@ export function startServer(port = PORT) {
             const active = msg.work.status === "active";
             const now = Date.now();
             const missedOneOff =
-              active &&
-              existing.runOnceAt !== undefined &&
-              existing.runOnceAt <= now;
+              active && existing.onceAt !== undefined && existing.onceAt <= now;
             if (active && !msg.work.grant) {
               throw new Error(
                 "Explicit approval is required before activation.",
@@ -826,21 +1565,26 @@ export function startServer(port = PORT) {
               skipDates: msg.work.skipDates,
               status: msg.work.status,
               grant: msg.work.grant,
-              nextRunAt: active
+              nextAt: active
                 ? missedOneOff
                   ? now
-                  : (existing.runOnceAt ??
+                  : (existing.onceAt ??
                     nextRunAt(msg.work.cron, msg.work.timezone))
-                : msg.work.nextRunAt,
+                : msg.work.nextAt,
               updatedAt: now,
             });
             if (active) {
-              // Approving IS the action the attention item asked for — the
-              // app knows the user acted; never make them dismiss it too.
-              for (const suffix of ["approval", "needs_approval", "failed"]) {
-                await manager.dismissAttentionItem(
+              // The app knows approval resolved the action item, so do not
+              // make the user dismiss it too.
+              for (const suffix of [
+                "approval",
+                "blocked",
+                "failed",
+                "required-source",
+              ]) {
+                await manager.dismissActionItem(
                   msg.workspaceId,
-                  `attention-${msg.work.id}-${suffix}`,
+                  `action-${msg.work.id}-${suffix}`,
                 );
               }
             }
@@ -860,14 +1604,125 @@ export function startServer(port = PORT) {
               .catch((error) => console.error("[recurring-work]", error));
             break;
 
-          case "dismissAttentionItem":
+          case "dismissActionItem":
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await manager.dismissAttentionItem(
-              msg.workspaceId,
-              msg.attentionItemId,
-            );
+            await manager.dismissActionItem(msg.workspaceId, msg.actionItemId);
+            await dismissCloudAction(msg.workspaceId, msg.actionItemId);
             await broadcastWorkspaceData(msg.workspaceId);
             break;
+
+          case "resolveActionRequest": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const action = await manager.actionItem(
+              msg.workspaceId,
+              msg.actionItemId,
+            );
+            if (
+              action?.status !== "open" ||
+              action.request?.id !== msg.requestId
+            ) {
+              throw new Error("This action request is no longer available.");
+            }
+            const questionKeys = new Set(
+              (action.request.questions ?? []).map(
+                (question) => question.question,
+              ),
+            );
+            const fieldKeys = new Set(
+              action.request.fields.map((field) => field.key),
+            );
+            if (
+              Object.keys(msg.answers).some((key) => !questionKeys.has(key)) ||
+              Object.keys(msg.values).some((key) => !fieldKeys.has(key)) ||
+              [...questionKeys].some(
+                (key) => !(msg.answers[key] ?? "").trim(),
+              ) ||
+              [...fieldKeys].some((key) => !(msg.values[key] ?? ""))
+            ) {
+              throw new Error("The submitted action response is incomplete.");
+            }
+            const saved = await storeInputValues(
+              msg.workspaceId,
+              action.request,
+              msg.values,
+              false,
+              msg.executorCapability,
+            );
+            const directGoogleSetup = isGoogleAnalyticsOAuthRequest(
+              action.request,
+            );
+            const receipt = [
+              `The user resolved the action: ${action.title}`,
+              ...Object.entries(msg.answers).map(
+                ([question, answer]) => `- ${question}: ${answer.trim()}`,
+              ),
+              ...saved.map((destination) => `- Saved input to ${destination}`),
+              "Continue the setup or review now using these answers. This is explicit authorization to run the supported local integration setup and open its browser consent flow. Never expose stored credential values, and complete every remaining independent part.",
+            ].join("\n");
+            const sourceId = action.sourceId;
+            if (sourceId && !directGoogleSetup) {
+              const dispatch = async () => {
+                const session = await ensureChiefSession(
+                  msg.workspaceId,
+                  sourceId,
+                  msg.executorCapability,
+                );
+                if (session.isBusy) {
+                  const resume = (event: AgentEvent) => {
+                    if (
+                      event.type !== "result" &&
+                      event.type !== "error" &&
+                      event.type !== "exit"
+                    ) {
+                      return;
+                    }
+                    session.off("event", resume);
+                    setTimeout(() => {
+                      void dispatch().catch((error: unknown) =>
+                        console.error("[action] continuation failed:", error),
+                      );
+                    }, 0);
+                  };
+                  session.on("event", resume);
+                  return;
+                }
+                const releaseExecution = manager.acquireExecution(
+                  msg.workspaceId,
+                  sourceId,
+                  "interactive",
+                );
+                const releaseOnTerminal = (event: AgentEvent) => {
+                  if (
+                    event.type === "result" ||
+                    event.type === "error" ||
+                    event.type === "exit"
+                  ) {
+                    session.off("event", releaseOnTerminal);
+                    releaseExecution();
+                  }
+                };
+                session.on("event", releaseOnTerminal);
+                try {
+                  await session.sendPrompt(receipt);
+                } catch (error) {
+                  session.off("event", releaseOnTerminal);
+                  releaseExecution();
+                  throw error;
+                }
+              };
+              await dispatch();
+            }
+            await manager.dismissActionItem(msg.workspaceId, action.id);
+            await dismissCloudAction(msg.workspaceId, action.id);
+            send({
+              type: "actionRequestResolved",
+              workspaceId: msg.workspaceId,
+              actionItemId: action.id,
+              requestId: msg.requestId,
+            });
+            await broadcastWorkspaceData(msg.workspaceId);
+            break;
+          }
 
           case "expandRecurringWorkGrant": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
@@ -878,7 +1733,7 @@ export function startServer(port = PORT) {
             if (!work?.grant) {
               throw new Error("Only approved automations can be widened.");
             }
-            const blocked = await manager.latestRunBlockedTools(
+            const blocked = await manager.latestSessionBlockedTools(
               msg.workspaceId,
               msg.recurringWorkId,
             );
@@ -892,13 +1747,13 @@ export function startServer(port = PORT) {
               );
             if (!valid) {
               throw new Error(
-                "Only tools a run was actually blocked on can be allowed.",
+                "Only tools a session was actually blocked on can be allowed.",
               );
             }
             await manager.saveRecurringWork(msg.workspaceId, {
               ...work,
-              nextRunAt:
-                work.runOnceAt === undefined
+              nextAt:
+                work.onceAt === undefined
                   ? nextRunAt(work.cron, work.timezone)
                   : msg.rerun
                     ? Date.now()
@@ -916,15 +1771,18 @@ export function startServer(port = PORT) {
                 ],
               },
               status:
-                work.runOnceAt !== undefined && !msg.rerun
-                  ? "paused"
-                  : "active",
+                work.onceAt !== undefined && !msg.rerun ? "paused" : "active",
               updatedAt: Date.now(),
             });
-            for (const suffix of ["approval", "needs_approval", "failed"]) {
-              await manager.dismissAttentionItem(
+            for (const suffix of [
+              "approval",
+              "blocked",
+              "failed",
+              "required-source",
+            ]) {
+              await manager.dismissActionItem(
                 msg.workspaceId,
-                `attention-${msg.recurringWorkId}-${suffix}`,
+                `action-${msg.recurringWorkId}-${suffix}`,
               );
             }
             await broadcastWorkspaceData(msg.workspaceId);
@@ -943,18 +1801,17 @@ export function startServer(port = PORT) {
               msg.recurringWorkId,
             );
             // Rejecting is also an action: clear anything it was flagged for.
-            for (const suffix of ["approval", "needs_approval", "failed"]) {
-              await manager.dismissAttentionItem(
+            for (const suffix of [
+              "approval",
+              "blocked",
+              "failed",
+              "required-source",
+            ]) {
+              await manager.dismissActionItem(
                 msg.workspaceId,
-                `attention-${msg.recurringWorkId}-${suffix}`,
+                `action-${msg.recurringWorkId}-${suffix}`,
               );
             }
-            await broadcastWorkspaceData(msg.workspaceId);
-            break;
-
-          case "deleteRecurringWorkRun":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await manager.deleteRecurringWorkRun(msg.workspaceId, msg.runId);
             await broadcastWorkspaceData(msg.workspaceId);
             break;
 
@@ -998,9 +1855,17 @@ export function startServer(port = PORT) {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             deployments.start({
               workspaceId: msg.workspaceId,
+              target: msg.target,
               projectName: msg.projectName,
               teamId: msg.teamId,
+              model: msg.model,
               playbooks: msg.playbooks,
+              channels: msg.channels,
+              activate: msg.activate,
+              controlPlane: {
+                apiBaseUrl: msg.executorCapability.apiBaseUrl,
+                token: msg.executorCapability.token,
+              },
             });
             break;
 
@@ -1008,6 +1873,59 @@ export function startServer(port = PORT) {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             deployments.cancel(msg.workspaceId, msg.deploymentId);
             break;
+
+          case "getSlackChannel":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            send({
+              type: "slackChannel",
+              workspaceId: msg.workspaceId,
+              state: await slackState(msg.workspaceId),
+            });
+            break;
+
+          case "saveSlackChannel": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const ids = [
+              ...msg.settings.allowedUserIds,
+              ...msg.settings.allowedChannelIds,
+            ];
+            if (ids.some((id) => !/^[A-Z0-9]{2,32}$/.test(id))) {
+              throw new Error("Slack user and channel IDs are invalid.");
+            }
+            if (msg.settings.model && msg.settings.model.length > 200) {
+              throw new Error("Slack model is too long.");
+            }
+            const botToken = msg.credentials?.botToken?.trim();
+            const appToken = msg.credentials?.appToken?.trim();
+            if (botToken) {
+              await workspaceSecrets.storeEnv(
+                msg.workspaceId,
+                "SLACK_BOT_TOKEN",
+                botToken,
+              );
+            }
+            if (appToken) {
+              await workspaceSecrets.storeEnv(
+                msg.workspaceId,
+                "SLACK_APP_TOKEN",
+                appToken,
+              );
+            }
+            const model = msg.settings.model?.trim();
+            writeSlackGatewaySettings(msg.workspaceId, {
+              ...msg.settings,
+              model: model?.length ? model : undefined,
+              allowedUserIds: [...new Set(msg.settings.allowedUserIds)],
+              allowedChannelIds: [...new Set(msg.settings.allowedChannelIds)],
+            });
+            await reloadSlackGateway(msg.workspaceId).catch(() => undefined);
+            send({
+              type: "slackChannel",
+              workspaceId: msg.workspaceId,
+              state: await slackState(msg.workspaceId),
+            });
+            break;
+          }
 
           case "listChats":
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
@@ -1095,138 +2013,258 @@ export function startServer(port = PORT) {
 
           case "openChat": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const onboardingBootstrap = msg.chatId.startsWith(
+              "workspace-kickoff-",
+            )
+              ? onboardingBootstraps.get(msg.workspaceId)?.promise
+              : undefined;
+            if (onboardingBootstrap) await onboardingBootstrap;
             await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
-            const agent = getAgent("cmo");
-            if (!agent) throw new Error("CMO persona is missing.");
-            const preference = await manager.agentPreference(
-              msg.workspaceId,
-              "cmo",
-            );
-            if (!preference?.driver || preference.enabled === false) {
+            const agentId =
+              msg.purpose === "integration-setup"
+                ? "setup"
+                : msg.purpose === "analytics-report"
+                  ? "analyst"
+                  : "cmo";
+            const agent = getAgent(agentId);
+            if (!agent) throw new Error(`${agentId} persona is missing.`);
+            const preference =
+              (await manager.agentPreference(
+                msg.workspaceId,
+                agentId === "setup" ? "cmo" : agentId,
+              )) ??
+              (agentId === "analyst"
+                ? await manager.agentPreference(msg.workspaceId, "cmo")
+                : undefined);
+            if (preference?.enabled === false) {
               throw new Error(
                 "Configure the CMO agent app before opening chat.",
               );
             }
-            // Workspace tools are additive: a control-plane failure here must
-            // degrade the session to no executor tools, not block chat.
-            const executorWorkspace = await ensureExecutorWorkspace(
-              msg.workspaceId,
-              msg.executorCapability,
-            ).catch((error: unknown) => {
-              console.error(
-                `[runtime] Executor workspace unavailable for ${msg.chatId}:`,
-                error,
+            const requestedExecution =
+              msg.purpose === "integration-setup" && preference?.driver
+                ? normalizedExecution({
+                    driver: preference.driver,
+                    model: preference.model,
+                  })
+                : normalizedExecution(msg.execution);
+            if (
+              msg.purpose === "integration-setup" &&
+              requestedExecution?.driver === "remote"
+            ) {
+              throw new Error(
+                "Integration setup requires a local agent app so it can reach this Mac's connection service.",
               );
-              return null;
-            });
-            const capableAgent = preference.capabilities
-              ? composeAgentCapabilities(
-                  agent,
-                  availableCapabilities.filter((capability) =>
-                    preference.capabilities!.includes(capability.id),
-                  ),
-                )
-              : agent;
-            const integratedAgent =
-              preference.integrations !== undefined
-                ? {
-                    ...capableAgent,
-                    instructions: `${capableAgent.instructions}\n\nAssigned integrations: ${preference.integrations.length > 0 ? preference.integrations.join(", ") : "none"}. Only search for and call integration tools from this assigned set.`,
-                  }
-                : capableAgent;
-            // Prime the session with the workspace's brand context and the
-            // shared operating rules, and persist the context so unattended
-            // recurring runs open with the same grounding.
-            const workspaceContext =
-              msg.workspaceContext ?? readWorkspaceContext(msg.workspaceId);
-            if (msg.workspaceContext) {
-              writeWorkspaceContext(msg.workspaceId, msg.workspaceContext);
             }
-            const effectiveAgent = {
-              ...integratedAgent,
-              instructions: composeWorkspaceInstructions(
-                integratedAgent.instructions,
-                workspaceContext,
-              ),
-            };
-            const session = await manager.ensureRootChat(
-              effectiveAgent,
+            if (msg.purpose === "integration-setup") {
+              await prepareIntegrationSetup(
+                msg.workspaceId,
+                msg.executorCapability,
+                msg.integrationDomain ?? "",
+              );
+            }
+            const storedChat = await manager.createRootChat(
+              msg.workspaceId,
               msg.chatId,
-              {
-                driver: preference.driver,
-                access: "guarded",
-                workspaceId: msg.workspaceId,
-                model: preference.model,
-                mcpServers: executorWorkspace
-                  ? [executorToolServer(executorWorkspace)]
-                  : [],
-                executionOwner: "interactive",
-              },
+              "",
+              requestedExecution?.driver,
+              requestedExecution?.model,
+              agentId,
             );
-            const subscriptionKey = `${msg.workspaceId}\0${msg.chatId}`;
-            if (!subscriptions.has(subscriptionKey)) {
-              subscriptions.add(subscriptionKey);
-              manager.retain(msg.workspaceId, msg.chatId);
-              const chatId = msg.chatId;
-              const handleEvent = async (event: unknown) => {
-                const agentEvent = event as AgentEvent;
-                if (agentEvent.type !== "message") {
-                  send({
-                    type: "event",
-                    workspaceId: msg.workspaceId,
-                    chatId,
-                    event: agentEvent,
-                  });
-                }
-                if (
-                  agentEvent.type === "message" ||
-                  agentEvent.type === "result" ||
-                  agentEvent.type === "error" ||
-                  agentEvent.type === "permissionResolved"
-                ) {
-                  await manager.waitForChatPersistence(msg.workspaceId, chatId);
-                  const messages = await manager.messages(
-                    msg.workspaceId,
-                    chatId,
-                  );
-                  const persisted =
-                    agentEvent.type === "message" && agentEvent.id
-                      ? messages.find((message) => message.id === agentEvent.id)
-                      : messages.at(-1);
-                  if (persisted) {
-                    send({
-                      type: "message",
-                      workspaceId: msg.workspaceId,
-                      chatId,
-                      message: persisted,
-                    });
-                  }
-                }
-                if (
-                  agentEvent.type === "message" &&
-                  agentEvent.role === "user"
-                ) {
-                  await manager.waitForChatPersistence(msg.workspaceId, chatId);
-                  send({
-                    type: "chats",
-                    workspaceId: msg.workspaceId,
-                    chats: await manager.listChats(msg.workspaceId),
-                  });
-                }
-              };
-              const listener = (event: unknown) => {
-                void handleEvent(event).catch((error: unknown) =>
-                  console.error("[runtime] root chat event:", error),
-                );
-              };
-              session.on("event", listener);
-              sessionListeners.set(subscriptionKey, { session, listener });
+            if (msg.purpose === "integration-setup") {
+              const domains =
+                integrationSetupDomains.get(msg.workspaceId) ??
+                new Map<string, string>();
+              domains.set(msg.chatId, msg.integrationDomain ?? "");
+              integrationSetupDomains.set(msg.workspaceId, domains);
+              const attemptId = activeSetupAttempt(
+                await manager.transcript(msg.workspaceId, msg.chatId),
+              );
+              if (attemptId) {
+                const active =
+                  activeIntegrationSetups.get(msg.workspaceId) ??
+                  new Map<
+                    string,
+                    { attemptId: string; domain: string; expiresAt: number }
+                  >();
+                active.set(msg.chatId, {
+                  attemptId,
+                  domain: msg.integrationDomain ?? "",
+                  expiresAt: Date.now() + 30 * 60_000,
+                });
+                activeIntegrationSetups.set(msg.workspaceId, active);
+              } else {
+                activeIntegrationSetups
+                  .get(msg.workspaceId)
+                  ?.delete(msg.chatId);
+              }
             }
+            if (
+              !storedChat ||
+              !DRIVER_TYPES.has(storedChat.provider as DriverType)
+            ) {
+              throw new Error("This chat has an unsupported agent app.");
+            }
+            const driver =
+              requestedExecution?.driver ?? (storedChat.provider as DriverType);
+            const model = requestedExecution
+              ? requestedExecution.model
+              : storedChat.model;
+            let recoveryPrompt: string | undefined;
+            if (
+              msg.chatId.startsWith("workspace-kickoff-") &&
+              !onboardingBootstrap
+            ) {
+              const events = await manager.transcript(
+                msg.workspaceId,
+                msg.chatId,
+              );
+              const reviewProducedOutput = events.some(
+                (event) =>
+                  (event.type === "message" && event.role === "assistant") ||
+                  (event.type === "result" && event.ok),
+              );
+              if (!reviewProducedOutput) {
+                recoveryPrompt = [
+                  "Resume the initial business review for this workspace.",
+                  driver === "remote"
+                    ? "Use current workspace context and connected cloud sources. Launch Brand Researcher and Prospector concurrently and exactly once through Eve's declared subagents before waiting for either. Persist the brand profile and full review through chief files.save, and persist five to eight qualified prospects with direct source URLs through chief prospects.save."
+                    : "Use the current workspace context and connected sources. Launch Brand Researcher and Prospector concurrently and exactly once with localTools.specialistsDelegate, omitting waitSeconds so both continue in the background. Save the verified brand Markdown with localTools.brandProfileSave and retain its visible versioned file. Require Prospector to persist five to eight qualified results with direct source URLs through prospectsSave. Reuse stable delegation IDs and never start equivalent duplicate specialists.",
+                  driver === "remote"
+                    ? "If workspace context names an unconnected analytics or advertising source, do not delegate setup. Persist one direct provider-specific connection action through chief actions.raise."
+                    : "If workspace context names an unconnected analytics or advertising source, do not delegate setup. Create one direct provider-specific connection action.",
+                  "Reconcile every analytics and advertising provider chosen in workspace context against connected sources. Create one exact setup action for each genuinely unconnected provider after useful work is complete. If AI referral tracking is enabled, include an attributable AI-referral measurement plan and any honest instrumentation gap.",
+                  "Do not ask the user for information Chief can discover. If authorization is genuinely required, complete everything else and create one distinct action per provider or user decision, with a provider-scoped stable dedupe key.",
+                  "Missing integrations are non-blocking. Complete and save all public-source, brand, and prospecting work first. Save the complete review as a versioned Markdown file under reviews/, include the document in the synthesis, then create only deduplicated structured setup actions with stable keys. Recording actions is not completion.",
+                ].join("\n\n");
+                const kickoffId = `${msg.chatId}-kickoff`;
+                if (
+                  !events.some(
+                    (event) =>
+                      event.type === "message" &&
+                      event.role === "user" &&
+                      event.id === kickoffId,
+                  )
+                ) {
+                  await manager.saveTranscript(
+                    {
+                      id: msg.chatId,
+                      organizationId: msg.workspaceId,
+                      agentId: "cmo",
+                      driver,
+                      model,
+                    },
+                    [
+                      {
+                        type: "message",
+                        id: kickoffId,
+                        role: "user",
+                        content: [{ type: "text", text: recoveryPrompt }],
+                      },
+                    ],
+                    "Initial business review",
+                  );
+                }
+              }
+            }
+            const runningSession = manager.get(msg.workspaceId, msg.chatId);
+            const session = runningSession?.isBusy
+              ? runningSession
+              : await (async () => {
+                  // Workspace tools are additive: a control-plane failure here
+                  // must degrade to no tools, not block chat.
+                  const executorWorkspace = await ensureExecutorWorkspace(
+                    msg.workspaceId,
+                    msg.executorCapability,
+                  ).catch((error: unknown) => {
+                    console.error(
+                      `[runtime] Executor workspace unavailable for ${msg.chatId}:`,
+                      error,
+                    );
+                    return null;
+                  });
+                  const directPurpose =
+                    msg.purpose === "integration-setup" ||
+                    msg.purpose === "analytics-report";
+                  const capabilities = preference?.capabilities;
+                  const capableAgent =
+                    !directPurpose && capabilities
+                      ? composeAgentCapabilities(
+                          agent,
+                          availableCapabilities.filter((capability) =>
+                            capabilities.includes(capability.id),
+                          ),
+                        )
+                      : agent;
+                  const integratedAgent =
+                    !directPurpose && preference?.integrations !== undefined
+                      ? {
+                          ...capableAgent,
+                          instructions: `${capableAgent.instructions}\n\nAssigned integrations: ${preference.integrations.length > 0 ? preference.integrations.join(", ") : "none"}. Only search for and call integration tools from this assigned set.`,
+                        }
+                      : capableAgent;
+                  // Prime the session with the workspace's brand context and the
+                  // shared operating rules, and persist the context so unattended
+                  // recurring sessions open with the same grounding.
+                  const workspaceContext =
+                    msg.workspaceContext ??
+                    readWorkspaceContext(msg.workspaceId);
+                  if (msg.workspaceContext) {
+                    writeWorkspaceContext(
+                      msg.workspaceId,
+                      msg.workspaceContext,
+                    );
+                  }
+                  const effectiveAgent = {
+                    ...integratedAgent,
+                    instructions: composeWorkspaceInstructions(
+                      msg.purpose === "integration-setup"
+                        ? `${integratedAgent.instructions}\n\nThis is a user-started integration setup run. Perform the setup directly. Do not delegate to another agent. Finish all safe local setup and verification yourself, and ask only for information that cannot be discovered.`
+                        : integratedAgent.instructions,
+                      workspaceContext,
+                    ),
+                  };
+                  const config = {
+                    driver,
+                    access:
+                      recoveryPrompt || msg.purpose === "integration-setup"
+                        ? "full"
+                        : (msg.access ?? "guarded"),
+                    workspaceId: msg.workspaceId,
+                    model,
+                    mcpServers: executorWorkspace
+                      ? [
+                          executorToolServer(
+                            executorWorkspace,
+                            msg.access === "full" &&
+                              msg.purpose !== "integration-setup"
+                              ? "model"
+                              : "browser",
+                          ),
+                        ]
+                      : [],
+                    executionOwner: "interactive",
+                  } as const;
+                  return storedChat.provider !== driver ||
+                    storedChat.model !== model
+                    ? manager.switchRootChatExecution(
+                        effectiveAgent,
+                        msg.chatId,
+                        config,
+                      )
+                    : manager.ensureRootChat(
+                        effectiveAgent,
+                        msg.chatId,
+                        config,
+                      );
+                })();
+            bindRootSession(msg.workspaceId, msg.chatId, session);
             send({
               type: "chatOpened",
               workspaceId: msg.workspaceId,
               chatId: msg.chatId,
               visibility: "user",
+              execution: { driver, model },
             });
             await manager.waitForChatPersistence(msg.workspaceId, msg.chatId);
             // Replay the buffered transcript so navigating away and back (or
@@ -1238,6 +2276,31 @@ export function startServer(port = PORT) {
               messages: await manager.messages(msg.workspaceId, msg.chatId),
               events: chatControlEvents(session.events),
             });
+            if (recoveryPrompt && !session.isBusy) {
+              const releaseExecution = manager.acquireExecution(
+                msg.workspaceId,
+                msg.chatId,
+                "interactive",
+              );
+              const releaseOnTerminal = (event: AgentEvent) => {
+                if (
+                  event.type === "result" ||
+                  event.type === "error" ||
+                  event.type === "exit"
+                ) {
+                  session.off("event", releaseOnTerminal);
+                  releaseExecution();
+                }
+              };
+              session.on("event", releaseOnTerminal);
+              try {
+                await session.sendPrompt(recoveryPrompt, undefined, false);
+              } catch (error) {
+                session.off("event", releaseOnTerminal);
+                releaseExecution();
+                throw error;
+              }
+            }
             break;
           }
 
@@ -1279,11 +2342,11 @@ export function startServer(port = PORT) {
           case "sendMessage": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
-            const { session } = await manager.rootChat(
+            const { session: openedSession } = await manager.rootChat(
               msg.workspaceId,
               msg.chatId,
             );
-            if (!session) {
+            if (!openedSession) {
               return send({
                 type: "error",
                 message:
@@ -1296,21 +2359,69 @@ export function startServer(port = PORT) {
               msg.chatId,
               "interactive",
             );
-            const releaseOnTerminal = (event: AgentEvent) => {
-              if (
-                event.type === "result" ||
-                event.type === "error" ||
-                event.type === "exit"
-              ) {
-                session.off("event", releaseOnTerminal);
-                releaseExecution();
-              }
-            };
-            session.on("event", releaseOnTerminal);
+            let session = openedSession;
+            let releaseOnTerminal: ((event: AgentEvent) => void) | undefined;
             try {
+              const firstLine = msg.text.split("\n", 1)[0] ?? "";
+              if (
+                firstLine.startsWith(SETUP_ATTEMPT_PREFIX) &&
+                firstLine.endsWith("]")
+              ) {
+                const domain = integrationSetupDomains
+                  .get(msg.workspaceId)
+                  ?.get(msg.chatId);
+                const attemptId = firstLine.slice(
+                  SETUP_ATTEMPT_PREFIX.length,
+                  -1,
+                );
+                if (domain && attemptId) {
+                  const active =
+                    activeIntegrationSetups.get(msg.workspaceId) ??
+                    new Map<
+                      string,
+                      { attemptId: string; domain: string; expiresAt: number }
+                    >();
+                  active.set(msg.chatId, {
+                    attemptId,
+                    domain,
+                    expiresAt: Date.now() + 30 * 60_000,
+                  });
+                  activeIntegrationSetups.set(msg.workspaceId, active);
+                }
+              }
+              const execution = normalizedExecution(msg.execution);
+              if (
+                execution &&
+                (execution.driver !== session.config.driver ||
+                  execution.model !== session.config.model)
+              ) {
+                session = await manager.switchRootChatExecution(
+                  session.agent,
+                  msg.chatId,
+                  {
+                    ...session.config,
+                    driver: execution.driver,
+                    model: execution.model,
+                  },
+                );
+                bindRootSession(msg.workspaceId, msg.chatId, session);
+              }
+              releaseOnTerminal = (event: AgentEvent) => {
+                if (
+                  event.type === "result" ||
+                  event.type === "error" ||
+                  event.type === "exit"
+                ) {
+                  session.off("event", releaseOnTerminal!);
+                  releaseExecution();
+                }
+              };
+              session.on("event", releaseOnTerminal);
               await session.sendPrompt(msg.text, msg.messageId);
             } catch (error) {
-              session.off("event", releaseOnTerminal);
+              if (releaseOnTerminal) {
+                session.off("event", releaseOnTerminal);
+              }
               releaseExecution();
               throw error;
             }
@@ -1325,6 +2436,7 @@ export function startServer(port = PORT) {
                 await manager.rootChat(msg.workspaceId, msg.chatId)
               ).session?.interrupt();
             } finally {
+              activeIntegrationSetups.get(msg.workspaceId)?.delete(msg.chatId);
               manager.releaseExecution(
                 msg.workspaceId,
                 msg.chatId,
@@ -1375,7 +2487,13 @@ export function startServer(port = PORT) {
 
           case "storeInput": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await storeInputValues(msg.workspaceId, msg.request, msg.values);
+            await storeInputValues(
+              msg.workspaceId,
+              msg.request,
+              msg.values,
+              false,
+              msg.executorCapability,
+            );
             send({
               type: "inputsStatus",
               workspaceId: msg.workspaceId,
@@ -1387,6 +2505,21 @@ export function startServer(port = PORT) {
               variables: (await workspaceSecrets.keys(msg.workspaceId)).map(
                 (key) => ({ key, sensitive: true as const }),
               ),
+            });
+            break;
+          }
+
+          case "disconnectGoogleAnalytics": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            await disconnectGoogleAnalyticsConnection(
+              msg.workspaceId,
+              msg.executorCapability,
+            );
+            send({
+              type: "integrationDisconnected",
+              workspaceId: msg.workspaceId,
+              provider: "google-analytics",
+              requestId: msg.requestId,
             });
             break;
           }
@@ -1437,37 +2570,31 @@ export function startServer(port = PORT) {
 
           case "inspectWorkspaceIntegrations": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const environment = await workspaceSecrets.materialize(
+            const googleAnalytics = await inspectGoogleAnalyticsConfiguration(
               msg.workspaceId,
+              msg.executorCapability,
             );
-            try {
-              const result = await googleAnalyticsProperties({
-                credentialsPath: environment.GOOGLE_APPLICATION_CREDENTIALS,
-              });
-              send({
-                type: "localIntegrationStatus",
-                workspaceId: msg.workspaceId,
-                integrations: result.properties.map((property) => ({
+            const unhealthy = ["error", "failed", "unhealthy"].includes(
+              googleAnalytics.connection?.lastHealth?.status ?? "",
+            );
+            send({
+              type: "localIntegrationStatus",
+              workspaceId: msg.workspaceId,
+              integrations: [
+                {
                   provider: "google-analytics",
                   category: "analytics",
-                  status: "connected" as const,
-                  displayName: property.propertyName,
-                  externalId: property.propertyId,
-                })),
-              });
-            } catch {
-              send({
-                type: "localIntegrationStatus",
-                workspaceId: msg.workspaceId,
-                integrations: [
-                  {
-                    provider: "google-analytics",
-                    category: "analytics",
-                    status: "needs-authorization" as const,
-                  },
-                ],
-              });
-            }
+                  status:
+                    googleAnalytics.connection && !unhealthy
+                      ? ("connected" as const)
+                      : ("needs-authorization" as const),
+                  needsCredentials: !googleAnalytics.oauthClientConfigured,
+                  ...(googleAnalytics.connection?.identityLabel
+                    ? { displayName: googleAnalytics.connection.identityLabel }
+                    : {}),
+                },
+              ],
+            });
             break;
           }
 
@@ -1476,22 +2603,20 @@ export function startServer(port = PORT) {
             if (!msg.recurringWorkId) {
               await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
             }
-            const inspected = await manager.rootChat(
-              msg.workspaceId,
-              msg.chatId,
-            );
+            const inspected = msg.recurringWorkId
+              ? await manager.inspectChat(msg.workspaceId, msg.chatId)
+              : await manager.rootChat(msg.workspaceId, msg.chatId);
             const session = inspected.session;
-            const historicalRun = Boolean(msg.recurringWorkId);
             if (msg.recurringWorkId) {
-              const work = await manager.recurringWorkById(
-                msg.workspaceId,
-                msg.recurringWorkId,
-              );
-              if (!work || work.chatId !== msg.chatId) {
-                throw new Error("Schedule does not own this root chat.");
+              if (
+                inspected.chat.kind !== "task" ||
+                inspected.chat.visibility !== "private" ||
+                inspected.chat.scheduleId !== msg.recurringWorkId
+              ) {
+                throw new Error("Schedule does not own this private session.");
               }
             }
-            if (!session || historicalRun) {
+            if (!session || msg.recurringWorkId) {
               await manager.waitForChatPersistence(msg.workspaceId, msg.chatId);
               const events = session ? session.events : inspected.events;
               if (hasInputReceipt(events, msg.request.id)) break;
@@ -1507,6 +2632,7 @@ export function startServer(port = PORT) {
                     msg.request,
                   ),
                 ),
+                msg.executorCapability,
               );
               const receipt = inputReceipt(msg.request, saved);
               if (session) {
@@ -1519,13 +2645,13 @@ export function startServer(port = PORT) {
                 const chat = await manager.chat(msg.workspaceId, msg.chatId);
                 if (!chat?.driver) {
                   throw new Error(
-                    "The original run transcript is unavailable.",
+                    "The original session transcript is unavailable.",
                   );
                 }
                 await manager.saveTranscript(
                   {
                     id: msg.chatId,
-                    workspaceId: msg.workspaceId,
+                    organizationId: msg.workspaceId,
                     agentId: "cmo",
                     driver: chat.driver,
                     model: chat.model,
@@ -1553,7 +2679,7 @@ export function startServer(port = PORT) {
                   .resumeAfterCurrent(msg.workspaceId, msg.recurringWorkId)
                   .catch((error) =>
                     console.error(
-                      "[scheduler] could not resume run after input:",
+                      "[scheduler] could not resume session after input:",
                       error,
                     ),
                   );
@@ -1565,6 +2691,8 @@ export function startServer(port = PORT) {
               session.config.workspaceId,
               msg.request,
               msg.values,
+              false,
+              msg.executorCapability,
             );
             await session.sendPrompt(inputReceipt(msg.request, saved));
             send({
@@ -1584,7 +2712,10 @@ export function startServer(port = PORT) {
         );
         send({
           type: "error",
-          message: String(err instanceof Error ? err.message : err),
+          message: safeRuntimeError(err),
+          ...(isDeploymentNotFound(err)
+            ? { code: "deployment_not_found" as const }
+            : {}),
           chatId: "chatId" in msg ? msg.chatId : undefined,
           requestId: "requestId" in msg ? msg.requestId : undefined,
         });
@@ -1611,8 +2742,13 @@ export function startServer(port = PORT) {
   // installed app next to dev) polling the same database must stay passive.
   http4.on("listening", () => {
     console.log(`[chief] agent runtime listening on ws://127.0.0.1:${port}`);
-    void scheduler
-      .start()
+    const startupCutoff = Date.now();
+    void manager
+      .reconcileInterruptedSpecialistSessions(startupCutoff)
+      .then(() =>
+        manager.reconcileStaleActivitySessions(startupCutoff - 10 * 60_000),
+      )
+      .then(() => scheduler.start())
       .then(() => {
         schedulerReady = true;
       })

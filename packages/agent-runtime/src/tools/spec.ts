@@ -67,13 +67,23 @@ function executorHttpEndpoint(
  */
 export function executorToolServer(
   workspace: ExecutorWorkspace,
+  elicitationMode: "browser" | "model" = "browser",
 ): McpServerSpec {
   const http = executorHttpEndpoint(workspace);
   return {
     name: "executor",
     command: executorBinary(),
-    args: ["mcp", "--scope", workspace.scopeDir, "--elicitation-mode", "model"],
-    env: { EXECUTOR_DATA_DIR: workspace.dataDir },
+    args: [
+      "mcp",
+      "--scope",
+      workspace.scopeDir,
+      "--elicitation-mode",
+      elicitationMode,
+    ],
+    env: {
+      EXECUTOR_DATA_DIR: workspace.dataDir,
+      EXECUTOR_KEYCHAIN_SERVICE_NAME: workspace.keychainServiceName,
+    },
     ...(http ?? {}),
   };
 }

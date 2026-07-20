@@ -32,6 +32,7 @@ function contextPayload(
     title: request.title,
     reason: request.reason,
     steps: request.steps,
+    questions: request.questions,
     fields: request.fields,
   });
 }

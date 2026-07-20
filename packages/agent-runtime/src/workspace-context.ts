@@ -11,22 +11,30 @@ function workspaceBrandProfilePath(workspaceId: string) {
   return join(workspaceRoot(workspaceId), "brand-profile.md");
 }
 
-/** Last brand context the app sent, kept for unattended recurring runs. */
-export function readWorkspaceContext(workspaceId: string): string | undefined {
+export function readWorkspaceBrandProfile(
+  workspaceId: string,
+): string | undefined {
   try {
-    const context = readFileSync(workspaceContextPath(workspaceId), "utf8");
-    try {
-      const brandProfile = readFileSync(
-        workspaceBrandProfilePath(workspaceId),
-        "utf8",
-      );
-      return `${context}\n\n# Approved brand profile\n\n${brandProfile}`;
-    } catch {
-      return context;
-    }
+    return readFileSync(workspaceBrandProfilePath(workspaceId), "utf8");
   } catch {
     return undefined;
   }
+}
+
+/** Last brand context the app sent, kept for unattended recurring runs. */
+export function readWorkspaceContext(workspaceId: string): string | undefined {
+  let context: string | undefined;
+  try {
+    context = readFileSync(workspaceContextPath(workspaceId), "utf8");
+  } catch {
+    // A profile can be the first durable context in a workspace.
+  }
+  const brandProfile = readWorkspaceBrandProfile(workspaceId);
+  const sections = [
+    context,
+    brandProfile ? `# Workspace brand profile\n\n${brandProfile}` : undefined,
+  ].filter((value): value is string => Boolean(value?.trim()));
+  return sections.length > 0 ? sections.join("\n\n") : undefined;
 }
 
 export function writeWorkspaceBrandProfile(
