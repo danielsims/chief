@@ -46,10 +46,17 @@ import {
   assertSafeInputRequest,
   verifyContextRequest,
 } from "./input-values.js";
+import {
+  GOOGLE_ANALYTICS_DOMAIN,
+  GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST,
+  googleAnalyticsOnboardingAttempt,
+  onboardingGoogleAnalyticsOAuthInputRequest,
+} from "./integration-requests.js";
 import { handleLocalTool, localToolsOpenApi } from "./local-tools.js";
 import { SessionManager } from "./manager.js";
 import { createChiefMcpHandler } from "./mcp-server.js";
 import { listModels } from "./models.js";
+import { planOnboardingWork } from "./onboarding-preflight.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
 import { resumeDriverBlockedWork } from "./scheduled-agent-config.js";
 import { RecurringWorkScheduler } from "./scheduler.js";
@@ -1210,6 +1217,30 @@ export function startServer(port = PORT) {
                   recursive: true,
                   mode: 0o700,
                 });
+                const hasGoogleAnalyticsSetup = msg.jobs.some(
+                  (job) =>
+                    job.agentId === "setup" &&
+                    job.setupDomain === GOOGLE_ANALYTICS_DOMAIN,
+                );
+                const googleAnalyticsConfiguration = hasGoogleAnalyticsSetup
+                  ? await inspectGoogleAnalyticsConfiguration(
+                      msg.workspaceId,
+                      msg.executorCapability,
+                    ).catch((error: unknown) => {
+                      console.error(
+                        "[onboarding] Google Analytics preflight failed:",
+                        error,
+                      );
+                      return undefined;
+                    })
+                  : undefined;
+                const onboardingPlan = planOnboardingWork(
+                  msg.jobs,
+                  googleAnalyticsConfiguration
+                    ? googleAnalyticsConfiguration.oauthClientConfigured ||
+                        Boolean(googleAnalyticsConfiguration.connection)
+                    : undefined,
+                );
                 const attachmentPaths: string[][] = [];
                 let totalBytes = 0;
                 for (const [jobIndex, job] of msg.jobs.entries()) {
@@ -1246,8 +1277,9 @@ export function startServer(port = PORT) {
                   attachmentPaths[jobIndex] = saved;
                 }
 
-                const jobs = msg.jobs.map((job, jobIndex) => {
-                  const paths = attachmentPaths[jobIndex] ?? [];
+                const jobs = onboardingPlan.launchableJobs.map((job) => {
+                  const originalIndex = msg.jobs.indexOf(job);
+                  const paths = attachmentPaths[originalIndex] ?? [];
                   return [
                     `- ${job.title.trim() || job.id} (${job.agentId}; target ${new Date(job.runAt).toISOString()} ${job.timezone}): ${job.instructions.trim().slice(0, 4_000)}`,
                     ...paths.map((path) => `  Attachment: ${path}`),
@@ -1260,19 +1292,28 @@ export function startServer(port = PORT) {
                 const kickoffPrompt = [
                   "Own one coherent initial business review. Keep this conversation as its single user-visible home and own the final synthesis.",
                   "In the first execution pass, launch every independent job concurrently: Brand Researcher, every selected Setup job, and Prospector. Issue all of those delegation tool calls before waiting for or polling any child. Only the Analyst is dependency-gated on a verified analytics connection.",
-                  msg.jobs.some((job) => job.agentId === "brand")
+                  onboardingPlan.launchableJobs.some(
+                    (job) => job.agentId === "brand",
+                  )
                     ? driver === "remote"
                       ? "Launch business and brand research exactly once through the declared Brand Researcher in the initial parallel batch. Never start an equivalent second Brand Researcher. Verify its result when available, then save the complete Markdown through chief files.save at brand/working-brand-profile.md so it is durable and visible."
                       : "Launch business and brand research exactly once through localTools.specialistsDelegate in the initial parallel batch. Omit waitSeconds so the child continues in the background. A working response is healthy; reuse one stable delegation ID, never start an equivalent second Brand Researcher, and use its automatically saved versioned brand-profile file when available."
                     : "The user skipped brand research. Use the supplied workspace context without creating a Brand Researcher delegation.",
-                  msg.jobs.some((job) => job.agentId === "setup")
+                  onboardingPlan.launchableJobs.some(
+                    (job) => job.agentId === "setup",
+                  )
                     ? driver === "remote"
                       ? "Launch every listed Setup job independently through the declared Setup subagent in the initial parallel batch. Do not wait for Brand or serialize unrelated providers."
                       : "Launch every listed Setup job independently through localTools.specialistsDelegate in the initial parallel batch and omit waitSeconds. Copy each job's setupDomain and setupAttemptId into its matching tool fields. Do not wait for Brand or serialize unrelated providers. Setup may open a provider consent screen; if it returns a genuine user-only credential, consent, or account choice, raise one precise provider-scoped action while all unrelated work continues."
                     : "No integration setup was selected during onboarding.",
-                  msg.jobs.some((job) => job.agentId === "analyst")
+                  onboardingPlan.launchableJobs.some(
+                    (job) => job.agentId === "analyst",
+                  )
                     ? "As soon as an analytics Setup job is verified connected, launch the listed Analyst job. This is the only dependent kickoff job. Require its saved local dataset and chart before including analytics in the synthesis; if setup is genuinely blocked, do not fabricate a report or hold up unrelated results."
                     : "No initial analytics report was requested.",
+                  onboardingPlan.deferredGoogleAnalytics
+                    ? "Google Analytics Setup and the initial Analyst report are deferred before any child attempt because the required Google OAuth client is predictably absent. Chief has already created one deterministic Overview action with exact Google Cloud instructions and secure fields. Do not delegate Google Analytics Setup, create another credential action, or poll for credentials; continue all launchable work until Chief sends a credential-saved continuation."
+                    : "No onboarding work was deferred by credential preflight.",
                   driver === "remote"
                     ? "Launch initial prospecting exactly once through the declared Prospector in the initial parallel batch. Require five to eight recent, high-confidence results with direct source URLs and require every qualified result to be saved through chief prospects.save before returning. Never start an equivalent second Prospector."
                     : "Launch initial prospecting exactly once through localTools.specialistsDelegate in the initial parallel batch and omit waitSeconds. Require five to eight recent, high-confidence results with direct source URLs and require the Prospector to save every qualified result with prospectsSave before returning. A working response means it continues in the background; never start an equivalent second Prospector.",
@@ -1294,6 +1335,25 @@ export function startServer(port = PORT) {
                   driver,
                   existingPreference?.model,
                 );
+                if (onboardingPlan.deferredGoogleAnalytics) {
+                  const setupAttemptId =
+                    onboardingPlan.deferredGoogleAnalytics.setupAttemptId;
+                  const request =
+                    onboardingGoogleAnalyticsOAuthInputRequest(setupAttemptId);
+                  await manager.raiseActionItem(msg.workspaceId, {
+                    id: `onboarding-google-analytics-${createHash("sha256")
+                      .update(msg.workspaceId)
+                      .digest("hex")
+                      .slice(0, 24)}`,
+                    agentId: "setup",
+                    title: GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST.title,
+                    reason: GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST.reason ?? "",
+                    sourceId: chatId,
+                    request,
+                    status: "open",
+                    createdAt: now,
+                  });
+                }
                 let persistedMessages = await manager.transcript(
                   msg.workspaceId,
                   chatId,
@@ -1651,16 +1711,23 @@ export function startServer(port = PORT) {
             const directGoogleSetup = isGoogleAnalyticsOAuthRequest(
               action.request,
             );
+            const deferredGoogleAnalyticsAttempt =
+              googleAnalyticsOnboardingAttempt(action.request.id);
             const receipt = [
               `The user resolved the action: ${action.title}`,
               ...Object.entries(msg.answers).map(
                 ([question, answer]) => `- ${question}: ${answer.trim()}`,
               ),
               ...saved.map((destination) => `- Saved input to ${destination}`),
-              "Continue the setup or review now using these answers. This is explicit authorization to run the supported local integration setup and open its browser consent flow. Never expose stored credential values, and complete every remaining independent part.",
+              deferredGoogleAnalyticsAttempt
+                ? `Launch the deferred Google Analytics Setup delegation now with setupDomain=${GOOGLE_ANALYTICS_DOMAIN} and setupAttemptId=${deferredGoogleAnalyticsAttempt}. This is its first attempt, not a retry. After it verifies a connection, launch the deferred Analyst report. Do not request the OAuth client credentials again.`
+                : "Continue the setup or review now using these answers. This is explicit authorization to run the supported local integration setup and open its browser consent flow. Never expose stored credential values, and complete every remaining independent part.",
             ].join("\n");
             const sourceId = action.sourceId;
-            if (sourceId && !directGoogleSetup) {
+            if (
+              sourceId &&
+              (!directGoogleSetup || deferredGoogleAnalyticsAttempt)
+            ) {
               const dispatch = async () => {
                 const session = await ensureChiefSession(
                   msg.workspaceId,

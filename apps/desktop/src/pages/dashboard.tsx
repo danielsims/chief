@@ -850,8 +850,7 @@ export function DashboardPage() {
                     task={currentActionTask}
                   />
                 ) : null}
-                {currentAction.request &&
-                !isGoogleAnalyticsConnectionAction(currentAction) ? (
+                {currentAction.request ? (
                   <div className="chief-overview-setup-input">
                     <InputRequestSection
                       key={currentAction.request.id}
@@ -891,7 +890,8 @@ export function DashboardPage() {
                         Deploy Chief
                       </button>
                     </>
-                  ) : isGoogleAnalyticsConnectionAction(currentAction) ? (
+                  ) : isGoogleAnalyticsConnectionAction(currentAction) &&
+                    !currentAction.request ? (
                     <button type="button" onClick={openAction}>
                       Connect Google Analytics
                     </button>

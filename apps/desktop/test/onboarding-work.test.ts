@@ -67,9 +67,13 @@ void test("independent post-onboarding work launches before analytics", () => {
     jobs.map((job) => job.agentId),
     ["brand", "setup", "setup", "prospector", "analyst"],
   );
-  assert.match(jobs[1]?.instructions ?? "", /analytics\.googleapis\.com/);
-  assert.match(jobs[1]?.instructions ?? "", /setupAttemptId=/);
-  assert.match(jobs[1]?.instructions ?? "", /initial concurrent kickoff/);
+  const analyticsSetup = jobs[1];
+  assert.ok(analyticsSetup);
+  assert.match(analyticsSetup.instructions, /analytics\.googleapis\.com/);
+  assert.match(analyticsSetup.instructions, /setupAttemptId=/);
+  assert.equal(analyticsSetup.setupDomain, "analytics.googleapis.com");
+  assert.ok(analyticsSetup.setupAttemptId);
+  assert.match(analyticsSetup.instructions, /initial concurrent kickoff/);
   assert.match(jobs[3]?.instructions ?? "", /Do not wait for brand research/);
   assert.match(jobs[4]?.instructions ?? "", /analyticsSaveDataset/);
 });
