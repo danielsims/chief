@@ -20,7 +20,7 @@ const capabilities = [
   ["Specialist AI agents", "Every specialist"],
   ["Connected channels and tools", "Included"],
   ["Recurring and one-off work", "Included"],
-  ["Run history and generated reports", "Included"],
+  ["Activity insights and generated reports", "Included"],
   ["Charts, tables and decision-ready artifacts", "Included"],
   ["Approval rules", "Automatic or review first"],
   ["Playbook library", "Included"],
