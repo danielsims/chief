@@ -1,3 +1,5 @@
+/* eslint-disable max-lines */
+
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";

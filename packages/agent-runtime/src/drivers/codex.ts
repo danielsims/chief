@@ -1,10 +1,12 @@
+/* eslint-disable max-lines */
+
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -79,6 +81,7 @@ export class CodexDriver extends BaseDriver {
   private currentStream = "";
   private opts: StartOptions | null = null;
   private stopping = false;
+  private stderrTail = "";
 
   private finishActiveTools(content: string, isError = false) {
     if (this.activeToolUseIds.size === 0) return;
@@ -131,8 +134,14 @@ export class CodexDriver extends BaseDriver {
       detached: true,
     });
 
-    this.proc.on("exit", (code) => {
-      this.rejectPending("Codex exited");
+    this.proc.on("exit", (code, signal) => {
+      const detail = this.stderrTail
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .at(-1);
+      const reason = `Codex exited${code === null ? "" : ` with code ${code}`}${signal ? ` (${signal})` : ""}${detail ? `: ${detail}` : "."}`;
+      this.rejectPending(reason);
       this.finishActiveTools(
         "Tool stopped because the agent runtime exited.",
         true,
@@ -146,14 +155,18 @@ export class CodexDriver extends BaseDriver {
       this.emitEvent({ type: "exit", code });
       this.emitEvent({ type: "status", status: "idle" });
     });
-    this.proc.on("error", (err) =>
-      this.emitEvent({ type: "error", message: err.message }),
-    );
+    this.proc.on("error", (err) => {
+      this.rejectPending(`Could not start Codex: ${err.message}`);
+      this.emitEvent({ type: "error", message: err.message });
+    });
     // Codex writes diagnostics to stderr. Always drain it so a full pipe can
     // never stall the app-server while a turn is streaming.
     this.proc.stderr?.on("data", (chunk) => {
       const text = String(chunk).trim();
-      if (text) console.error(`[codex] ${text.slice(0, 800)}`);
+      if (text) {
+        this.stderrTail = `${this.stderrTail}\n${text}`.slice(-4_000);
+        console.error(`[codex] ${text.slice(0, 800)}`);
+      }
     });
 
     const rl = createInterface({ input: this.proc.stdout! });
@@ -242,26 +255,16 @@ export class CodexDriver extends BaseDriver {
   }
 
   private prepareCodexHome(opts: StartOptions) {
-    const safeName = opts.cwd.replace(/[^a-z0-9_-]/gi, "-").slice(-80);
-    const target = join(homedir(), ".chief", "codex", safeName);
+    const storageKey = opts.storageKey ?? opts.cwd;
+    const storageId = createHash("sha256")
+      .update(storageKey)
+      .digest("hex")
+      .slice(0, 32);
+    const target = join(homedir(), ".chief", "codex", storageId);
     mkdirSync(target, { recursive: true });
     const userHome = join(homedir(), ".codex");
     const auth = join(userHome, "auth.json");
     if (existsSync(auth)) copyFileSync(auth, join(target, "auth.json"));
-
-    // Reuse the user's transcript store so persisted thread ids can resume,
-    // while keeping Chief's MCP configuration isolated from global Codex.
-    for (const name of ["sessions", "session_index.jsonl"]) {
-      const source = join(userHome, name);
-      const destination = join(target, name);
-      if (existsSync(source) && !existsSync(destination)) {
-        try {
-          symlinkSync(source, destination);
-        } catch {
-          // A concurrent session may have created it first.
-        }
-      }
-    }
 
     const lines: string[] = [];
     const model = opts.model ?? this.readUserCodexSetting("model");
@@ -778,30 +781,7 @@ export class CodexDriver extends BaseDriver {
   }
 
   private extractMcpResult(item: Record<string, any>): string {
-    if (item.error) {
-      return `Error: ${typeof item.error === "string" ? item.error : JSON.stringify(item.error)}`;
-    }
-    const content = item.result?.content;
-    if (Array.isArray(content)) {
-      return content
-        .map((part) =>
-          typeof part === "string"
-            ? part
-            : typeof part?.text === "string"
-              ? part.text
-              : JSON.stringify(part),
-        )
-        .join("\n");
-    }
-    if (item.result?.structuredContent) {
-      return JSON.stringify(item.result.structuredContent, null, 2);
-    }
-    const value = item.result ?? item.output ?? item.content;
-    return value === undefined
-      ? ""
-      : typeof value === "string"
-        ? value
-        : JSON.stringify(value, null, 2);
+    return codexMcpResultText(item);
   }
 
   async sendPrompt(text: string): Promise<void> {
@@ -891,4 +871,38 @@ export class CodexDriver extends BaseDriver {
   private write(obj: unknown) {
     this.proc?.stdin?.write(JSON.stringify(obj) + "\n");
   }
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+export function codexMcpResultText(item: Record<string, unknown>): string {
+  if (item.error) {
+    return `Error: ${typeof item.error === "string" ? item.error : JSON.stringify(item.error)}`;
+  }
+  const result = record(item.result);
+  if (result?.structuredContent !== undefined) {
+    return JSON.stringify(result.structuredContent, null, 2);
+  }
+  if (Array.isArray(result?.content)) {
+    return result.content
+      .map((part) => {
+        const value = record(part);
+        return typeof part === "string"
+          ? part
+          : typeof value?.text === "string"
+            ? value.text
+            : JSON.stringify(part);
+      })
+      .join("\n");
+  }
+  const value = item.result ?? item.output ?? item.content;
+  return value === undefined
+    ? ""
+    : typeof value === "string"
+      ? value
+      : JSON.stringify(value, null, 2);
 }
