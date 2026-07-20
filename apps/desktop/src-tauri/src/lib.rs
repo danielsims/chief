@@ -551,7 +551,8 @@ fn spawn_agent_runtime(app: &tauri::AppHandle) -> Option<Child> {
     };
     let sidecar = env::current_exe().ok()?.parent()?.join(executable_name);
     let runtime_root = installed_runtime_root(app)?;
-    let runtime_bin = install_node_alias(&runtime_root, &sidecar)?;
+    let writable_root = app.path().app_local_data_dir().ok()?;
+    let runtime_bin = install_node_alias(&writable_root, &sidecar)?;
     let script = runtime_root.join("dist/server.mjs");
     if !sidecar.is_file() || !script.is_file() {
         eprintln!(
@@ -594,7 +595,11 @@ fn spawn_agent_runtime(app: &tauri::AppHandle) -> Option<Child> {
         .env("CHIEF_RUNTIME_ROOT", &runtime_root)
         .env(
             "CHIEF_CODEX_BINARY",
-            runtime_root.join(format!("node_modules/.bin/codex{binary_suffix}")),
+            runtime_root.join(if cfg!(target_os = "windows") {
+                "codex/bin/codex.exe"
+            } else {
+                "codex/bin/codex"
+            }),
         )
         .env(
             "CHIEF_EXECUTOR_BINARY",
@@ -619,17 +624,14 @@ fn spawn_agent_runtime(app: &tauri::AppHandle) -> Option<Child> {
 }
 
 #[cfg(not(debug_assertions))]
-fn install_node_alias(runtime_root: &Path, sidecar: &Path) -> Option<PathBuf> {
-    let bin = runtime_root.join(".chief-bin");
+fn install_node_alias(writable_root: &Path, sidecar: &Path) -> Option<PathBuf> {
+    let bin = writable_root.join(".chief-bin");
     std::fs::create_dir_all(&bin).ok()?;
     let alias = bin.join(if cfg!(target_os = "windows") {
         "node.exe"
     } else {
         "node"
     });
-    if alias.is_file() {
-        return Some(bin);
-    }
     let _ = std::fs::remove_file(&alias);
 
     #[cfg(unix)]
@@ -651,6 +653,10 @@ fn installed_runtime_root(app: &tauri::AppHandle) -> Option<PathBuf> {
 
     let version = app.package_info().version.to_string();
     let resource_directory = app.path().resource_dir().ok()?;
+    let bundled = resource_directory.join("agent-runtime");
+    if bundled.join("dist/server.mjs").is_file() {
+        return Some(bundled);
+    }
     let runtime_version = read_to_string(resource_directory.join("agent-runtime.version"))
         .ok()
         .map(|value| value.trim().to_string())
