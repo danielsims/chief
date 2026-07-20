@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { ExternalLink } from "lucide-react";
 import { Link } from "react-router";
 
@@ -79,15 +80,18 @@ export function ProspectsPage() {
                 </div>
                 <div>
                   {prospect.sourceUrl ? (
-                    <a
-                      href={prospect.sourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (prospect.sourceUrl) {
+                          void openUrl(prospect.sourceUrl);
+                        }
+                      }}
+                      className="text-muted-foreground hover:text-foreground inline-flex cursor-pointer items-center gap-1 text-left text-xs underline-offset-2 hover:underline"
                     >
                       {prospect.source}
                       <ExternalLink size={11} />
-                    </a>
+                    </button>
                   ) : (
                     <span className="text-muted-foreground text-xs">
                       {prospect.source}

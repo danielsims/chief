@@ -20,15 +20,15 @@ export function SettingsLayout() {
           Manage your account and workspace.
         </p>
       </div>
-      <div className="mt-8 flex gap-10">
-        <nav className="w-40 shrink-0 space-y-0.5">
+      <div className="mt-8 flex flex-col gap-8 sm:flex-row sm:gap-10">
+        <nav className="flex max-w-full shrink-0 gap-1 overflow-x-auto sm:w-40 sm:flex-col sm:gap-0 sm:space-y-0.5">
           {sections.map((section) => (
             <NavLink
               key={section.to}
               to={section.to}
               className={({ isActive }) =>
                 cn(
-                  "text-muted-foreground hover:text-foreground block border border-transparent px-3 py-1.5 text-sm transition-colors",
+                  "text-muted-foreground hover:text-foreground block shrink-0 border border-transparent px-3 py-1.5 text-sm whitespace-nowrap transition-colors",
                   isActive && "border-border bg-accent text-foreground",
                 )
               }
