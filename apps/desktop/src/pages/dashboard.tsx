@@ -10,7 +10,7 @@ import {
   ChevronRight,
   LoaderCircle,
 } from "lucide-react";
-import { motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useNavigate } from "react-router";
 import {
   Line,
@@ -1017,6 +1017,8 @@ export function DashboardPage() {
     initialReviewPending ||
     preparationActive ||
     Boolean(continuingChatId);
+  const activeAnalyticsSlide =
+    analyticsSlides[analyticsIndex] ?? analyticsSlides[0];
 
   return (
     <div className="chief-overview-page">
@@ -1275,24 +1277,14 @@ export function DashboardPage() {
             onMouseEnter={() => setAnalyticsPaused(true)}
             onMouseLeave={() => setAnalyticsPaused(false)}
           >
-            {analyticsSlides.map((slide, index) => {
-              const isActive = index === analyticsIndex;
-              return (
+            <AnimatePresence initial={false} mode="wait">
+              {activeAnalyticsSlide ? (
                 <motion.article
-                  animate={{
-                    opacity: isActive ? 1 : 0,
-                    x: prefersReducedMotion
-                      ? 0
-                      : isActive
-                        ? 0
-                        : index < analyticsIndex
-                          ? -8
-                          : 8,
-                  }}
-                  aria-hidden={!isActive}
+                  animate={{ opacity: 1, x: 0 }}
                   className="chief-overview-analytics-slide"
-                  initial={false}
-                  key={slide.id}
+                  exit={{ opacity: 0, x: prefersReducedMotion ? 0 : -8 }}
+                  initial={{ opacity: 0, x: prefersReducedMotion ? 0 : 8 }}
+                  key={activeAnalyticsSlide.id}
                   onClick={() => navigate("/analytics")}
                   onKeyDown={(event) => {
                     if (event.key !== "Enter" && event.key !== " ") return;
@@ -1300,32 +1292,28 @@ export function DashboardPage() {
                     void navigate("/analytics");
                   }}
                   role="link"
-                  style={{
-                    pointerEvents: isActive ? "auto" : "none",
-                    zIndex: isActive ? 1 : 0,
-                  }}
-                  tabIndex={isActive ? 0 : -1}
+                  tabIndex={0}
                   transition={{
                     duration: prefersReducedMotion ? 0 : 0.28,
                     ease: [0.22, 1, 0.36, 1],
                   }}
                 >
-                  <h2>{slide.title}</h2>
+                  <h2>{activeAnalyticsSlide.title}</h2>
                   <div className="chief-overview-analytics-value">
-                    <strong>{slide.value}</strong>
-                    <span>{slide.label}</span>
-                    <Trend value={slide.trend} />
+                    <strong>{activeAnalyticsSlide.value}</strong>
+                    <span>{activeAnalyticsSlide.label}</span>
+                    <Trend value={activeAnalyticsSlide.trend} />
                   </div>
-                  {slide.points ? (
+                  {activeAnalyticsSlide.points ? (
                     <AnalyticsChart
-                      label={slide.label}
-                      points={slide.points}
+                      label={activeAnalyticsSlide.label}
+                      points={activeAnalyticsSlide.points}
                       reduceMotion={Boolean(prefersReducedMotion)}
                     />
                   ) : null}
                 </motion.article>
-              );
-            })}
+              ) : null}
+            </AnimatePresence>
             <div className="chief-overview-action-pagination chief-overview-analytics-pagination">
               <button
                 aria-label="Previous analytics card"
