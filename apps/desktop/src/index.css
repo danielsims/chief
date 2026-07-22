@@ -224,7 +224,9 @@
 }
 
 .chief-overview-grid {
+  width: 100%;
   min-height: 0;
+  max-height: 680px;
   display: grid;
   flex: 1;
   grid-template-columns: minmax(0, 1.7fr) minmax(310px, 0.9fr);
@@ -234,9 +236,7 @@
 .chief-overview-actions {
   min-width: 0;
   min-height: 0;
-  max-height: 620px;
   display: flex;
-  align-self: start;
   overflow: hidden;
   flex-direction: column;
   border: 1px solid var(--border);
@@ -928,11 +928,8 @@
   }
 
   .chief-overview-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .chief-overview-actions {
     max-height: none;
+    grid-template-columns: 1fr;
   }
 
   .chief-overview-side {
