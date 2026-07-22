@@ -48,6 +48,7 @@ import {
 } from "@chief/ui/components/select";
 import { cn } from "@chief/ui/lib/utils";
 
+import { AgentWorkingIndicator } from "../components/chat/agent-working-indicator";
 import { useAgentConfig } from "../lib/agent-config";
 import { useAuth } from "../lib/auth/auth-context";
 import { createChat } from "../lib/chat-log";
@@ -1183,9 +1184,7 @@ function RecurringWorkApprovalDialog({
                     </Button>
                   </div>
                   {revision.busy ? (
-                    <p className="agent-working mt-2 font-mono text-xs">
-                      updating the plan…
-                    </p>
+                    <AgentWorkingIndicator className="mt-2" />
                   ) : revision.note ? (
                     <p className="text-muted-foreground mt-2 text-xs leading-5">
                       {revision.note}

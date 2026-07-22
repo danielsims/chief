@@ -5,9 +5,11 @@ import type { AgentCapabilityId } from "@chief/agent-runtime/types";
 
 import { withoutMarkerLines } from "../../lib/integration-setup";
 import { messageBlocks, useObservedChat } from "../../lib/runtime";
-import { Blocks, ToolActivityGroup } from "./message-blocks";
+import { AgentWorkingIndicator } from "./agent-working-indicator";
+import { Blocks } from "./message-blocks";
 import { ordinaryToolMessageGroups } from "./specialist-task-display";
 import { StreamingMarkdown } from "./streaming-markdown";
+import { ToolActivityGroup } from "./tool-activity-group";
 
 export function ObservedChat({
   chatId,
@@ -113,9 +115,9 @@ export function ObservedChat({
           </p>
         ) : null}
         {controls.status === "running" && !hasActiveTool ? (
-          <p className="agent-working text-muted-foreground mx-auto w-full max-w-3xl font-mono text-xs">
-            Working on the next step…
-          </p>
+          <div className="mx-auto w-full max-w-3xl">
+            <AgentWorkingIndicator />
+          </div>
         ) : null}
         <div ref={bottomRef} />
       </div>

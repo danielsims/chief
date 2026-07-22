@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowUpRight, CircleAlert } from "lucide-react";
+import { ArrowUpRight, Check, CircleAlert } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import type { InputRequest } from "@chief/agent-runtime/types";
@@ -11,10 +11,13 @@ import { cn } from "@chief/ui/lib/utils";
 /** Renders **bold** spans from agent-authored step text: the exact things
  * the user clicks or types read in the foreground color, everything else
  * stays muted. */
-function inline(text: string) {
+function inline(text: string, muted = false) {
   return text.split(/\*\*(.+?)\*\*/g).map((part, index) =>
     index % 2 === 1 ? (
-      <span key={index} className="text-foreground font-medium">
+      <span
+        key={index}
+        className={cn(!muted && "text-foreground", "font-medium")}
+      >
         {part}
       </span>
     ) : (
@@ -25,14 +28,16 @@ function inline(text: string) {
 
 /**
  * A standalone section (not nested inside the chat) for an agent's input
- * request: plain numbered steps that open in the user's own browser (their
- * password manager and sessions work there), then the paste fields. Values
- * are stored locally by the runtime; they never enter the agent transcript.
+ * request: plain numbered steps and paste fields. Callers may route web links
+ * into Chief's embedded browser. Values are stored locally by the runtime;
+ * they never enter the agent transcript.
  */
 export function InputRequestSection({
   request,
   onSubmit,
   embedded = false,
+  progressive = false,
+  onOpenUrl,
 }: {
   request: InputRequest;
   onSubmit: (
@@ -41,12 +46,17 @@ export function InputRequestSection({
     answers: Record<string, string>,
   ) => void | Promise<void>;
   embedded?: boolean;
+  progressive?: boolean;
+  onOpenUrl?: (url: string) => void;
 }) {
   const navigate = useNavigate();
   const [values, setValues] = useState<Record<string, string>>({});
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [completedSteps, setCompletedSteps] = useState<ReadonlySet<number>>(
+    new Set(),
+  );
   const savesWorkspaceContext = request.fields.some(
     (field) => "contextKey" in field.save,
   );
@@ -56,6 +66,8 @@ export function InputRequestSection({
     (request.questions ?? []).every((question) =>
       Boolean((answers[question.question] ?? "").trim()),
     );
+  const activeStep =
+    request.steps?.findIndex((_, index) => !completedSteps.has(index)) ?? -1;
 
   const submit = async () => {
     if (!ready || submitting) return;
@@ -77,7 +89,7 @@ export function InputRequestSection({
   return (
     // Setup is paused on this; the label carries the urgency, the card stays
     // neutral.
-    <div className="bg-card border p-5">
+    <div className={cn("bg-card border", progressive ? "p-4" : "p-5")}>
       <p className="text-xs text-blue-400">
         <CircleAlert size={13} className="mr-1.5 inline-block align-[-2px]" />
         {savesWorkspaceContext
@@ -96,36 +108,86 @@ export function InputRequestSection({
       ) : null}
 
       {request.steps?.length ? (
-        <ol className="mt-4 space-y-2.5 border-t pt-4">
-          {request.steps.map((step, index) => (
-            <li
-              key={index}
-              className="flex items-baseline gap-3 text-sm leading-6"
-            >
-              <span className="text-muted-foreground shrink-0 text-xs">
-                {index + 1}
-              </span>
-              <span className="text-muted-foreground min-w-0">
-                {inline(step.text)}
-                {step.url ? (
+        <ol
+          className={cn(
+            "mt-4 border-t pt-4",
+            progressive ? "space-y-1" : "space-y-2.5",
+          )}
+        >
+          {request.steps.map((step, index) => {
+            const complete = completedSteps.has(index);
+            const active = index === activeStep;
+            return (
+              <li
+                key={index}
+                className={cn(
+                  "flex gap-3 text-sm leading-6 transition-colors",
+                  progressive && "py-0.5",
+                  complete && "text-muted-foreground/60 line-through",
+                  !complete && !active && "text-muted-foreground/45",
+                )}
+              >
+                {progressive ? (
                   <button
                     type="button"
-                    onClick={() => {
-                      if (step.url?.startsWith("/")) {
-                        void navigate(step.url);
-                      } else if (step.url) {
-                        void openUrl(step.url);
-                      }
-                    }}
-                    className="text-foreground ml-2 inline-flex cursor-pointer items-center gap-0.5 underline underline-offset-2"
+                    aria-label={
+                      complete
+                        ? `Reopen step ${index + 1}`
+                        : `Complete step ${index + 1}`
+                    }
+                    onClick={() =>
+                      setCompletedSteps((current) => {
+                        const next = new Set(current);
+                        if (complete) next.delete(index);
+                        else next.add(index);
+                        return next;
+                      })
+                    }
+                    className={cn(
+                      "mt-1 flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors",
+                      complete
+                        ? "border-muted-foreground/40 bg-muted-foreground/15"
+                        : active
+                          ? "border-foreground"
+                          : "border-muted-foreground/30",
+                    )}
                   >
-                    Open
-                    <ArrowUpRight size={12} />
+                    {complete ? <Check size={10} /> : null}
                   </button>
-                ) : null}
-              </span>
-            </li>
-          ))}
+                ) : (
+                  <span className="text-muted-foreground shrink-0 text-xs">
+                    {index + 1}
+                  </span>
+                )}
+                <span
+                  className={cn(
+                    "min-w-0",
+                    !progressive && "text-muted-foreground",
+                    active && "text-foreground",
+                  )}
+                >
+                  {inline(step.text, progressive && !active)}
+                  {step.url ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (step.url?.startsWith("/")) {
+                          void navigate(step.url);
+                        } else if (step.url) {
+                          if (onOpenUrl) onOpenUrl(step.url);
+                          else void openUrl(step.url);
+                        }
+                      }}
+                      className="text-foreground ml-2 inline-flex cursor-pointer items-center gap-0.5 underline underline-offset-2"
+                    >
+                      Open
+                      <ArrowUpRight size={12} />
+                    </button>
+                  ) : null}
+                </span>
+              </li>
+            );
+          })}
         </ol>
       ) : null}
 

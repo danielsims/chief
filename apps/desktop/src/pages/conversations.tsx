@@ -1,7 +1,8 @@
 import { startTransition, useEffect, useState } from "react";
-import { MoreVertical, Plus, Trash2 } from "lucide-react";
+import { LoaderCircle, MoreVertical, Plus, Trash2 } from "lucide-react";
 import { useSearchParams } from "react-router";
 
+import type { DriverType } from "@chief/agent-runtime/types";
 import {
   Popover,
   PopoverContent,
@@ -10,11 +11,30 @@ import {
 import { cn } from "@chief/ui/lib/utils";
 
 import type { ChatLogEntry } from "../lib/chat-log";
+import { BrowserPanel } from "../components/chat/browser-panel";
 import { ChiefChat } from "../components/chat/chief-chat";
+import { IntegrationSetupConversation } from "../components/chat/integration-setup-conversation";
 import { ObservedChat } from "../components/chat/observed-chat";
 import { useAuth } from "../lib/auth/auth-context";
 import { createChat } from "../lib/chat-log";
+import {
+  googleAnalyticsActionIdFromChat,
+  integrationSetupDomainFromChat,
+} from "../lib/integration-setup";
 import { useLocalChats, useRuntime, useWorkspaceData } from "../lib/runtime";
+
+const CHAT_DRIVERS = new Set<DriverType>([
+  "claude",
+  "codex",
+  "opencode",
+  "remote",
+]);
+
+function requestedDriver(value: string | null): DriverType | undefined {
+  return value && CHAT_DRIVERS.has(value as DriverType)
+    ? (value as DriverType)
+    : undefined;
+}
 
 function useRunningChats(): Record<string, boolean> {
   const { client } = useRuntime();
@@ -86,29 +106,35 @@ function ConversationRow({
         {entry.title}
       </button>
       {running ? (
-        <span className="size-1.5 shrink-0 animate-pulse bg-emerald-500" />
-      ) : null}
-      <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-        <PopoverTrigger
-          aria-label={`Manage ${entry.title}`}
-          className="text-muted-foreground hover:text-foreground mr-1 flex size-7 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover/row:opacity-100 data-[state=open]:opacity-100"
+        <span
+          className="text-muted-foreground mr-1 flex size-7 shrink-0 items-center justify-center"
+          aria-label={`${entry.title} is running`}
         >
-          <MoreVertical size={14} />
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-40 p-1">
-          <button
-            type="button"
-            onClick={() => {
-              setMenuOpen(false);
-              onDelete();
-            }}
-            className="text-destructive hover:bg-destructive/10 flex w-full items-center gap-2 px-2 py-2 text-left text-xs transition-colors"
+          <LoaderCircle className="animate-spin" size={13} />
+        </span>
+      ) : (
+        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+          <PopoverTrigger
+            aria-label={`Manage ${entry.title}`}
+            className="text-muted-foreground hover:text-foreground mr-1 flex size-7 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover/row:opacity-100 data-[state=open]:opacity-100"
           >
-            <Trash2 size={13} />
-            Delete chat
-          </button>
-        </PopoverContent>
-      </Popover>
+            <MoreVertical size={14} />
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-40 p-1">
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                onDelete();
+              }}
+              className="text-destructive hover:bg-destructive/10 flex w-full items-center gap-2 px-2 py-2 text-left text-xs transition-colors"
+            >
+              <Trash2 size={13} />
+              Delete chat
+            </button>
+          </PopoverContent>
+        </Popover>
+      )}
     </div>
   );
 }
@@ -119,8 +145,12 @@ export function ConversationsPage() {
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const [params, setParams] = useSearchParams();
   const running = useRunningChats();
+  const { browserUrl, browserConversationId, browserWorkspaceId } =
+    useRuntime();
   const activeChatId = params.get("chat");
   const activeChildId = params.get("child");
+  const activeSetupActionId = googleAnalyticsActionIdFromChat(activeChatId);
+  const activeSetupDomain = integrationSetupDomainFromChat(activeChatId);
   const activeEntry = localChats.chats.find(
     (entry) => entry.id === activeChatId,
   );
@@ -176,79 +206,114 @@ export function ConversationsPage() {
               key={entry.id}
               entry={entry}
               active={entry.id === activeChatId}
-              running={running[entry.id] ?? false}
+              running={running[entry.id] ?? entry.running}
               onSelect={() => selectChat(entry.id)}
               onDelete={() => removeChat(entry)}
             />
           ))}
         </div>
       </aside>
-      <main className="min-h-0 min-w-0 flex-1 px-4 pb-4 sm:pb-6 sm:pl-6">
-        {activeChatId && activeChild ? (
-          <ObservedChat
-            key={activeChild.id}
-            chatId={activeChild.id}
-            label={
-              <div className="flex min-w-0 items-center justify-start gap-2 px-4">
-                <button
-                  type="button"
-                  className="hover:text-foreground max-w-[40%] truncate transition-colors"
-                  onClick={() => setParams({ chat: activeChatId })}
-                >
-                  {activeEntry?.title ?? "Chief"}
-                </button>
-                <span aria-hidden>/</span>
-                <strong className="text-foreground truncate font-medium">
-                  {activeChild.title}
-                </strong>
-              </div>
-            }
-          />
-        ) : activeChatId ? (
-          <ChiefChat
-            key={activeChatId}
-            chatId={activeChatId}
-            isNew={isNew}
-            initialDriver={activeEntry?.driver}
-            initialModel={activeEntry?.model}
-            composer={
-              params.get("compose") === "recurring"
-                ? "recurring"
-                : params.get("compose") === "oneoff"
-                  ? "oneoff"
-                  : undefined
-            }
-            composerDate={params.get("date") ?? undefined}
-            composerPlaybookId={params.get("playbook") ?? undefined}
-            initialPrompt={params.get("prompt") ?? undefined}
-            initialDraft={params.get("draft") ?? undefined}
-            onInitialPromptSent={() => {
-              setParams(
-                (current) => {
-                  const next = new URLSearchParams(current);
-                  next.delete("prompt");
-                  return next;
-                },
-                { replace: true },
-              );
-            }}
-            onOpenChild={(childId) =>
-              setParams({ chat: activeChatId, child: childId })
-            }
-          />
-        ) : (
-          <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-3 text-center text-sm">
-            <p className="font-serif text-3xl text-current">Ask Chief</p>
-            <p>Start a chat and Chief will bring in the right specialist.</p>
-            <button
-              type="button"
-              onClick={openNew}
-              className="text-foreground hover:bg-accent border px-3 py-2 text-xs transition-colors"
-            >
-              New chat
-            </button>
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col px-4 pb-4 sm:pb-6 sm:pl-6 lg:flex-row">
+        <div
+          className={cn(
+            "min-h-0 min-w-0 flex-1",
+            browserUrl &&
+              browserWorkspaceId === cloudOrganizationId &&
+              browserConversationId === activeChatId &&
+              "lg:basis-1/2 lg:pr-4",
+          )}
+        >
+          {activeChatId && activeChild ? (
+            <ObservedChat
+              key={activeChild.id}
+              chatId={activeChild.id}
+              label={
+                <div className="flex min-w-0 items-center justify-start gap-2 px-4">
+                  <button
+                    type="button"
+                    className="hover:text-foreground max-w-[40%] truncate transition-colors"
+                    onClick={() => setParams({ chat: activeChatId })}
+                  >
+                    {activeEntry?.title ?? "Chief"}
+                  </button>
+                  <span aria-hidden>/</span>
+                  <strong className="text-foreground truncate font-medium">
+                    {activeChild.title}
+                  </strong>
+                </div>
+              }
+            />
+          ) : activeChatId && activeSetupDomain ? (
+            <IntegrationSetupConversation
+              key={activeChatId}
+              chatId={activeChatId}
+              domain={activeSetupDomain}
+              actionId={activeSetupActionId ?? undefined}
+            />
+          ) : activeChatId ? (
+            <ChiefChat
+              key={activeChatId}
+              chatId={activeChatId}
+              isNew={isNew}
+              initialDriver={
+                activeEntry?.driver ??
+                (isNew ? requestedDriver(params.get("driver")) : undefined)
+              }
+              initialModel={
+                activeEntry?.model ??
+                (isNew ? (params.get("model") ?? undefined) : undefined)
+              }
+              composer={
+                params.get("compose") === "recurring"
+                  ? "recurring"
+                  : params.get("compose") === "oneoff"
+                    ? "oneoff"
+                    : undefined
+              }
+              composerDate={params.get("date") ?? undefined}
+              composerPlaybookId={params.get("playbook") ?? undefined}
+              initialPrompt={params.get("prompt") ?? undefined}
+              initialDraft={params.get("draft") ?? undefined}
+              onInitialPromptSent={() => {
+                setParams(
+                  (current) => {
+                    const next = new URLSearchParams(current);
+                    next.delete("prompt");
+                    next.delete("driver");
+                    next.delete("model");
+                    return next;
+                  },
+                  { replace: true },
+                );
+              }}
+              onOpenChild={(childId) =>
+                setParams({ chat: activeChatId, child: childId })
+              }
+            />
+          ) : (
+            <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-3 text-center text-sm">
+              <p className="font-serif text-3xl text-current">Ask Chief</p>
+              <p>Start a chat and Chief will bring in the right specialist.</p>
+              <button
+                type="button"
+                onClick={openNew}
+                className="text-foreground hover:bg-accent border px-3 py-2 text-xs transition-colors"
+              >
+                New chat
+              </button>
+            </div>
+          )}
+        </div>
+        {activeChatId &&
+        browserUrl &&
+        browserWorkspaceId === cloudOrganizationId &&
+        browserConversationId === activeChatId ? (
+          <div className="h-[45%] min-h-64 min-w-0 lg:h-full lg:basis-1/2">
+            <BrowserPanel
+              operating={running[activeChatId] ?? activeEntry?.running ?? false}
+            />
           </div>
-        )}
+        ) : null}
       </main>
     </div>
   );

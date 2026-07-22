@@ -15,6 +15,7 @@ import {
   Laptop,
   Linkedin,
   MessageCircle,
+  Pencil,
   Search,
   Server,
   Twitter,
@@ -887,6 +888,28 @@ function UserBubble({ children }: { children: React.ReactNode }) {
       <div className="bg-muted/40 text-foreground max-w-[620px] border px-3 py-2 text-sm leading-6">
         {children}
       </div>
+    </div>
+  );
+}
+
+function EditableAnswer({
+  children,
+  onEdit,
+}: {
+  children: React.ReactNode;
+  onEdit: () => void;
+}) {
+  return (
+    <div className="group/answer flex flex-col items-end gap-1.5">
+      {children}
+      <button
+        type="button"
+        onClick={onEdit}
+        className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-[11px] opacity-0 transition-[color,opacity] group-hover/answer:opacity-100 focus-visible:opacity-100"
+      >
+        <Pencil size={10} />
+        Edit
+      </button>
     </div>
   );
 }
@@ -2793,9 +2816,11 @@ function PricingControl({
 
 function CompletionControl({
   onContinue,
+  ready,
   saving,
 }: {
   onContinue: () => void;
+  ready: boolean;
   saving: boolean;
 }) {
   return (
@@ -2805,16 +2830,21 @@ function CompletionControl({
         <div className="success-copy flex flex-col items-center">
           <h2 className="font-serif text-4xl leading-none">You're in.</h2>
           <p className="text-muted-foreground mt-4 text-sm leading-6">
-            Your workspace is ready. Chief will begin learning your business and
-            show the work on Overview.
+            {ready
+              ? "Your workspace is ready. Chief will begin learning your business and show the work on Overview."
+              : "Checkout is complete. Chief is preparing your local workspace now."}
           </p>
           <Button
             type="button"
             className="mt-9"
             onClick={onContinue}
-            disabled={saving}
+            disabled={saving || !ready}
           >
-            {saving ? "Starting..." : "Start initial review"}
+            {saving
+              ? "Starting..."
+              : ready
+                ? "Start initial review"
+                : "Preparing workspace..."}
           </Button>
         </div>
       </div>
@@ -2847,6 +2877,7 @@ export function OnboardingPage() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editingStep, setEditingStep] = useState<StepKey | null>(null);
   const currentQuestionRef = useRef<HTMLDivElement | null>(null);
   const completionStartedRef = useRef(false);
   const gatewayInputs = useStoredInputs(
@@ -2905,8 +2936,9 @@ export function OnboardingPage() {
     });
   }, [socialAccounts]);
 
-  const step = draft?.step ?? "mode";
-  const currentIndex = steps.indexOf(step);
+  const latestStep = draft?.step ?? "mode";
+  const step = editingStep ?? latestStep;
+  const currentIndex = steps.indexOf(latestStep);
   const billingActive = hasWorkspaceAccess(subscription);
   const billingResolved = subscription !== undefined;
   const billingStep = draft?.step;
@@ -3032,25 +3064,30 @@ export function OnboardingPage() {
         ? {
             ...current,
             analytics: { ...current.analytics, integrations: [] },
-            step: "ads",
+            ...(editingStep ? {} : { step: "ads" as const }),
           }
         : current,
     );
-  }, []);
+    if (editingStep) setEditingStep(null);
+  }, [editingStep]);
 
-  const clearAdsSelection = useCallback((nextStep: "adsBudget" | "aeo") => {
-    setNotice(null);
-    setError(null);
-    setDraft((current) =>
-      current
-        ? {
-            ...current,
-            ads: { ...current.ads, integrations: [] },
-            step: nextStep,
-          }
-        : current,
-    );
-  }, []);
+  const clearAdsSelection = useCallback(
+    (nextStep: "adsBudget" | "aeo") => {
+      setNotice(null);
+      setError(null);
+      setDraft((current) =>
+        current
+          ? {
+              ...current,
+              ads: { ...current.ads, integrations: [] },
+              ...(editingStep ? {} : { step: nextStep }),
+            }
+          : current,
+      );
+      if (editingStep) setEditingStep(null);
+    },
+    [editingStep],
+  );
 
   const goNext = useCallback(() => {
     setNotice(null);
@@ -3061,6 +3098,14 @@ export function OnboardingPage() {
       return { ...current, step: next };
     });
   }, []);
+
+  const finishCurrentStep = useCallback(() => {
+    if (editingStep) {
+      setEditingStep(null);
+      return;
+    }
+    goNext();
+  }, [editingStep, goNext]);
 
   const prepareWorkspace = useCallback(async () => {
     if (!draft || org) return false;
@@ -3199,10 +3244,6 @@ export function OnboardingPage() {
       return;
     }
     if (!workspaceData.onboardingBootstrapReady) {
-      setError(
-        workspaceData.onboardingBootstrapError ??
-          "Chief is still connecting to this workspace.",
-      );
       return;
     }
     if (
@@ -3331,7 +3372,7 @@ export function OnboardingPage() {
     try {
       if (step === "mode") {
         if (await prepareWorkspace()) return;
-        goNext();
+        finishCurrentStep();
         return;
       }
       if (step === "context" && (await persistContext())) return;
@@ -3347,7 +3388,7 @@ export function OnboardingPage() {
         await completeOnboarding();
         return;
       }
-      if (step === "ads" && draft.ads.integrations.length > 0) {
+      if (!editingStep && step === "ads" && draft.ads.integrations.length > 0) {
         setNotice(null);
         setError(null);
         setDraft((current) =>
@@ -3355,7 +3396,7 @@ export function OnboardingPage() {
         );
         return;
       }
-      goNext();
+      finishCurrentStep();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -3364,7 +3405,8 @@ export function OnboardingPage() {
   }, [
     completeOnboarding,
     draft,
-    goNext,
+    editingStep,
+    finishCurrentStep,
     persistContext,
     prepareWorkspace,
     persistProvider,
@@ -3632,6 +3674,7 @@ export function OnboardingPage() {
     return (
       <CompletionControl
         onContinue={() => void completeOnboarding()}
+        ready={workspaceData.onboardingBootstrapReady}
         saving={saving}
       />
     );
@@ -3663,6 +3706,7 @@ export function OnboardingPage() {
     startCloudDeployment,
     step,
     useLocalWorkspace,
+    workspaceData.onboardingBootstrapReady,
   ]);
 
   if (loading) {
@@ -3685,6 +3729,7 @@ export function OnboardingPage() {
             .slice(0, currentIndex)
             .filter(
               (pastStep) =>
+                pastStep !== editingStep &&
                 !(
                   pastStep === "adsBudget" && draft.ads.integrations.length > 0
                 ),
@@ -3692,7 +3737,19 @@ export function OnboardingPage() {
             .map((pastStep) => (
               <div key={pastStep} className="space-y-3">
                 <AgentBubble text={questionText(pastStep, draft)} />
-                <AnswerPreview step={pastStep} draft={draft} />
+                {pastStep === "health" ? (
+                  <AnswerPreview step={pastStep} draft={draft} />
+                ) : (
+                  <EditableAnswer
+                    onEdit={() => {
+                      setNotice(null);
+                      setError(null);
+                      setEditingStep(pastStep);
+                    }}
+                  >
+                    <AnswerPreview step={pastStep} draft={draft} />
+                  </EditableAnswer>
+                )}
               </div>
             ))}
           <div ref={currentQuestionRef} className="space-y-4">
@@ -3703,7 +3760,21 @@ export function OnboardingPage() {
                 current
               />
             )}
-            <div className="w-full max-w-[720px]">{currentControl}</div>
+            <div className="w-full max-w-[720px]">
+              {editingStep ? (
+                <div className="text-muted-foreground mb-2 flex items-center justify-between text-xs">
+                  <span>Editing your previous answer</span>
+                  <button
+                    type="button"
+                    onClick={() => setEditingStep(null)}
+                    className="hover:text-foreground transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : null}
+              {currentControl}
+            </div>
             <div className="min-h-5">
               {notice && step !== "analytics" ? (
                 <p className="text-muted-foreground text-xs">{notice}</p>

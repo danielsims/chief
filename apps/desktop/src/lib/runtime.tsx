@@ -32,6 +32,7 @@ import type {
   DriverType,
   ExecutorCapability,
   InputRequest,
+  IntegrationSetupProgress,
   LocalIntegrationStatus,
   OnboardingSchedule,
   OnboardingWorkJob,
@@ -49,6 +50,10 @@ import { api } from "@chief/backend/convex/_generated/api";
 
 import { useAuth } from "./auth/auth-context";
 import { navigateApp, notifySystem } from "./notifications";
+import {
+  deduplicateDocumentParts,
+  mergeRuntimeMessage,
+} from "./runtime-messages";
 import { buildWorkspaceContext } from "./workspace-context";
 
 // "localhost" (not 127.0.0.1) — macOS ATS only exempts the literal
@@ -56,6 +61,8 @@ import { buildWorkspaceContext } from "./workspace-context";
 const RUNTIME_URL = "ws://localhost:4318";
 const EXECUTOR_CAPABILITY_PREFIX = "chief:executor-capability:";
 const workspaceCapabilityCache = new Map<string, ExecutorCapability>();
+const EMPTY_SETUP_PROGRESS: Readonly<Record<string, IntegrationSetupProgress>> =
+  {};
 
 function workspaceCapabilityToken(organizationId: string): string {
   const key = `${EXECUTOR_CAPABILITY_PREFIX}${organizationId}`;
@@ -241,6 +248,17 @@ interface RuntimeContextValue {
   client: RuntimeClient;
   status: RuntimeStatus;
   agents: AgentDefinition[];
+  browserUrl: string | null;
+  browserStreamUrl: string | null;
+  browserConversationId: string | null;
+  browserWorkspaceId: string | null;
+  integrationSetupProgress: Readonly<Record<string, IntegrationSetupProgress>>;
+  openBrowser: (url: string, conversationId?: string) => void;
+  reportBrowserUrl: (url: string) => void;
+  reloadBrowser: () => void;
+  resizeBrowser: (width: number, height: number) => void;
+  takeBrowserControl: () => void;
+  closeBrowser: () => void;
 }
 
 const RuntimeContext = createContext<RuntimeContextValue | null>(null);
@@ -254,6 +272,157 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
 
   const [status, setStatus] = useState<RuntimeStatus>("connecting");
   const [agents, setAgents] = useState<AgentDefinition[]>([]);
+  const [browserUrl, setBrowserUrl] = useState<string | null>(null);
+  const [browserStreamUrl, setBrowserStreamUrl] = useState<string | null>(null);
+  const [browserConversationId, setBrowserConversationId] = useState<
+    string | null
+  >(null);
+  const [browserWorkspaceId, setBrowserWorkspaceId] = useState<string | null>(
+    null,
+  );
+  const browserViewportRef = useRef<{ width: number; height: number } | null>(
+    null,
+  );
+  const pendingBrowserNavigationRef = useRef<{
+    workspaceId: string;
+    conversationId: string;
+    url: string;
+  } | null>(null);
+  const browserResizeTimerRef = useRef<number | null>(null);
+  const pendingBrowserResizeRef = useRef<{
+    workspaceId: string;
+    conversationId: string;
+    width: number;
+    height: number;
+  } | null>(null);
+  const browserResizeSentAtRef = useRef(0);
+  const [setupProgressState, setSetupProgressState] = useState<{
+    workspaceId: string;
+    byConversation: Record<string, IntegrationSetupProgress>;
+  } | null>(null);
+  const integrationSetupProgress =
+    setupProgressState?.workspaceId === cloudOrganizationId
+      ? setupProgressState.byConversation
+      : EMPTY_SETUP_PROGRESS;
+  const openBrowser = useCallback(
+    (url: string, conversationId?: string) => {
+      setBrowserUrl(url);
+      setBrowserStreamUrl(null);
+      setBrowserWorkspaceId(cloudOrganizationId);
+      const owningConversation = conversationId ?? browserConversationId;
+      if (owningConversation) {
+        setBrowserConversationId(owningConversation);
+        if (cloudOrganizationId) {
+          const pending = {
+            workspaceId: cloudOrganizationId,
+            conversationId: owningConversation,
+            url,
+          };
+          pendingBrowserNavigationRef.current = pending;
+          const viewport = browserViewportRef.current;
+          if (viewport) {
+            client.send({
+              type: "browserNavigateRequest",
+              ...pending,
+              ...viewport,
+            });
+            pendingBrowserNavigationRef.current = null;
+          }
+        }
+      }
+    },
+    [browserConversationId, client, cloudOrganizationId],
+  );
+  const reloadBrowser = useCallback(() => {
+    if (!browserWorkspaceId || !browserConversationId) return;
+    client.send({
+      type: "browserReload",
+      workspaceId: browserWorkspaceId,
+      conversationId: browserConversationId,
+    });
+  }, [browserConversationId, browserWorkspaceId, client]);
+  const reportBrowserUrl = useCallback(
+    (url: string) => {
+      if (!browserWorkspaceId || !browserConversationId) return;
+      setBrowserUrl(url);
+      client.send({
+        type: "browserUrlChanged",
+        workspaceId: browserWorkspaceId,
+        conversationId: browserConversationId,
+        url,
+      });
+    },
+    [browserConversationId, browserWorkspaceId, client],
+  );
+  const flushBrowserResize = useCallback(() => {
+    browserResizeTimerRef.current = null;
+    const pending = pendingBrowserResizeRef.current;
+    if (!pending) return;
+    pendingBrowserResizeRef.current = null;
+    browserResizeSentAtRef.current = Date.now();
+    client.send({ type: "browserViewportResize", ...pending });
+  }, [client]);
+  const resizeBrowser = useCallback(
+    (width: number, height: number) => {
+      const viewport = { width, height };
+      browserViewportRef.current = viewport;
+      const pending = pendingBrowserNavigationRef.current;
+      if (pending) {
+        pendingBrowserNavigationRef.current = null;
+        client.send({
+          type: "browserNavigateRequest",
+          ...pending,
+          ...viewport,
+        });
+        return;
+      }
+      if (!browserWorkspaceId || !browserConversationId) return;
+      pendingBrowserResizeRef.current = {
+        workspaceId: browserWorkspaceId,
+        conversationId: browserConversationId,
+        width,
+        height,
+      };
+      if (browserResizeTimerRef.current !== null) return;
+      const wait = Math.max(
+        0,
+        50 - (Date.now() - browserResizeSentAtRef.current),
+      );
+      if (wait === 0) flushBrowserResize();
+      else {
+        browserResizeTimerRef.current = window.setTimeout(
+          flushBrowserResize,
+          wait,
+        );
+      }
+    },
+    [browserConversationId, browserWorkspaceId, client, flushBrowserResize],
+  );
+  const closeBrowser = useCallback(() => {
+    if (browserResizeTimerRef.current !== null) {
+      window.clearTimeout(browserResizeTimerRef.current);
+      browserResizeTimerRef.current = null;
+    }
+    browserViewportRef.current = null;
+    pendingBrowserNavigationRef.current = null;
+    pendingBrowserResizeRef.current = null;
+    browserResizeSentAtRef.current = 0;
+    setBrowserUrl(null);
+    setBrowserStreamUrl(null);
+    setBrowserConversationId(null);
+    setBrowserWorkspaceId(null);
+  }, []);
+  const takeBrowserControl = useCallback(() => {
+    if (!browserWorkspaceId || !browserConversationId) return;
+    const executorCapability = workspaceCapabilityCache.get(browserWorkspaceId);
+    if (!executorCapability) return;
+    client.send({
+      type: "interruptChat",
+      workspaceId: browserWorkspaceId,
+      chatId: browserConversationId,
+      executorCapability,
+    });
+  }, [browserConversationId, browserWorkspaceId, client]);
 
   useEffect(() => {
     client.onStatus = (s) => {
@@ -263,9 +432,38 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     const unsub = client.subscribe((msg) => {
       if (msg.type === "agents") setAgents(msg.agents);
       if (
+        (msg.type === "browserPrepare" || msg.type === "browserNavigate") &&
+        msg.workspaceId === cloudOrganizationId
+      ) {
+        setBrowserUrl(msg.url);
+        setBrowserStreamUrl(
+          msg.type === "browserNavigate" ? msg.streamUrl : null,
+        );
+        setBrowserWorkspaceId(msg.workspaceId);
+        setBrowserConversationId(msg.conversationId);
+        navigateApp(
+          `/conversations?chat=${encodeURIComponent(msg.conversationId)}`,
+        );
+      }
+      if (
+        msg.type === "integrationSetupProgress" &&
+        msg.workspaceId === cloudOrganizationId
+      ) {
+        setSetupProgressState((current) => ({
+          workspaceId: msg.workspaceId,
+          byConversation: {
+            ...(current?.workspaceId === msg.workspaceId
+              ? current.byConversation
+              : {}),
+            [msg.conversationId]: msg.progress,
+          },
+        }));
+      }
+      if (
         msg.type === "integrationVerified" &&
         msg.workspaceId === cloudOrganizationId
       ) {
+        closeBrowser();
         void markIntegrationConnected({
           provider: msg.provider,
           category: msg.category,
@@ -303,11 +501,41 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       unsub();
       client.destroy();
     };
-  }, [client, cloudOrganizationId, markIntegrationConnected]);
+  }, [client, closeBrowser, cloudOrganizationId, markIntegrationConnected]);
 
   const value = useMemo(
-    () => ({ client, status, agents }),
-    [client, status, agents],
+    () => ({
+      client,
+      status,
+      agents,
+      browserUrl,
+      browserStreamUrl,
+      browserConversationId,
+      browserWorkspaceId,
+      integrationSetupProgress,
+      openBrowser,
+      reportBrowserUrl,
+      reloadBrowser,
+      resizeBrowser,
+      takeBrowserControl,
+      closeBrowser,
+    }),
+    [
+      agents,
+      browserConversationId,
+      browserStreamUrl,
+      browserUrl,
+      browserWorkspaceId,
+      client,
+      closeBrowser,
+      integrationSetupProgress,
+      openBrowser,
+      reportBrowserUrl,
+      reloadBrowser,
+      resizeBrowser,
+      status,
+      takeBrowserControl,
+    ],
   );
   return (
     <RuntimeContext.Provider value={value}>
@@ -324,11 +552,13 @@ export function useRuntime() {
 
 export interface LocalChatSummary {
   id: string;
+  agent: string;
   title: string;
   lastText: string;
   lastAt: number;
   driver?: DriverType;
   model?: string;
+  running: boolean;
 }
 
 // Last-known workspace state, kept across component mounts so re-entering a
@@ -644,9 +874,16 @@ function useWorkspaceDataSource(workspaceId: string | null) {
         setData((current) => {
           const next = {
             ...current,
-            actionItems: current.actionItems.filter(
-              (item) => item.id !== message.actionItemId,
-            ),
+            actionItems: message.action
+              ? [
+                  message.action,
+                  ...current.actionItems.filter(
+                    (item) => item.id !== message.actionItemId,
+                  ),
+                ]
+              : current.actionItems.filter(
+                  (item) => item.id !== message.actionItemId,
+                ),
           };
           workspaceDataCache.set(workspaceId, next);
           return next;
@@ -887,6 +1124,7 @@ function useWorkspaceDataSource(workspaceId: string | null) {
     requestId: string,
     answers: Record<string, string>,
     values: Record<string, string>,
+    setup?: { chatId: string; domain: string },
   ) => {
     if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
       return Promise.reject(new Error("Workspace runtime is unavailable."));
@@ -914,6 +1152,7 @@ function useWorkspaceDataSource(workspaceId: string | null) {
         requestId,
         answers,
         values,
+        setup,
         executorCapability: capability,
       });
     });
@@ -1628,6 +1867,13 @@ export function useLocalIntegrationStatus() {
     if (status !== "connected" || !cloudOrganizationId || !capability) {
       return;
     }
+    const inspect = () => {
+      client.send({
+        type: "inspectWorkspaceIntegrations",
+        workspaceId: cloudOrganizationId,
+        executorCapability: capability,
+      });
+    };
     const unsubscribe = client.subscribe((message) => {
       if (
         message.type === "localIntegrationStatus" &&
@@ -1637,13 +1883,16 @@ export function useLocalIntegrationStatus() {
           workspaceId: message.workspaceId,
           integrations: message.integrations,
         });
+        return;
+      }
+      if (
+        message.type === "integrationVerified" &&
+        message.workspaceId === cloudOrganizationId
+      ) {
+        inspect();
       }
     });
-    client.send({
-      type: "inspectWorkspaceIntegrations",
-      workspaceId: cloudOrganizationId,
-      executorCapability: capability,
-    });
+    inspect();
     return () => {
       unsubscribe();
     };
@@ -1878,48 +2127,6 @@ export function messageBlocks(message: ChiefUIMessage): ContentBlock[] {
   });
 }
 
-function mergeRuntimeMessage(
-  current: ChiefUIMessage[],
-  persisted: ChiefUIMessage,
-) {
-  const existing = current.findIndex((message) => message.id === persisted.id);
-  if (existing >= 0) {
-    return deduplicateDocumentParts(
-      current.map((message, index) =>
-        index === existing ? persisted : message,
-      ),
-    );
-  }
-  const streamingIndex = current.findIndex(
-    (message) =>
-      message.role === "assistant" && message.id.startsWith("stream:"),
-  );
-  if (persisted.role === "assistant" && streamingIndex >= 0) {
-    return deduplicateDocumentParts(
-      current.map((message, index) =>
-        index === streamingIndex ? persisted : message,
-      ),
-    );
-  }
-  return deduplicateDocumentParts([...current, persisted]);
-}
-
-function deduplicateDocumentParts(messages: ChiefUIMessage[]) {
-  const seen = new Set<string>();
-  return [...messages]
-    .reverse()
-    .map((message) => ({
-      ...message,
-      parts: message.parts.filter((part) => {
-        if (part.type !== "data-document") return true;
-        if (seen.has(part.data.fileId)) return false;
-        seen.add(part.data.fileId);
-        return true;
-      }),
-    }))
-    .reverse();
-}
-
 function replayStreamingText(events: AgentEvent[]) {
   let text = "";
   for (const event of events) {
@@ -2101,7 +2308,14 @@ function useRuntimeChat(
               : msg.messages,
           ),
         );
-        setControls(msg.events.reduce(reduceChatControls, emptyChatControls));
+        const replayedControls = msg.events.reduce(
+          reduceChatControls,
+          emptyChatControls,
+        );
+        setControls({
+          ...replayedControls,
+          status: msg.running ? "running" : "idle",
+        });
         setChatReady(true);
         return;
       }
