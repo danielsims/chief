@@ -78,6 +78,10 @@ export class SessionManager {
   private retainCounts = new Map<string, number>();
   private released = new Set<string>();
   private persistence = new Map<string, Promise<void>>();
+  private creatingRootChats = new Map<
+    string,
+    Promise<LocalChatRecord | null>
+  >();
   private startingSessions = new Map<string, Promise<AgentSession>>();
   private executionOwners = new Map<
     string,
@@ -211,7 +215,68 @@ export class SessionManager {
     return this.ensureSession(agent, chatId, config);
   }
 
+  /**
+   * Starts a fresh provider thread for an interrupted interactive chat while
+   * preserving its durable Chief transcript. This is intentionally distinct
+   * from changing provider/model: a half-finished tool call cannot be resumed
+   * safely in the old provider thread after its local runtime disappeared.
+   */
+  async restartRootChatContinuation(
+    agent: AgentDefinition,
+    chatId: string,
+    config: SessionConfig,
+  ): Promise<AgentSession> {
+    const stored = await this.store.chatRecord(config.workspaceId, chatId);
+    if (!stored) throw new Error("Session was not found in this workspace.");
+    this.assertRootChat(stored);
+
+    const key = workspaceChatKey(config.workspaceId, chatId);
+    const existing = this.sessions.get(key);
+    if (existing?.isBusy) {
+      throw new Error("Wait for the current response before recovering it.");
+    }
+    await (this.persistence.get(key) ?? Promise.resolve());
+    if (existing) {
+      this.archivedEvents.set(key, existing.events.slice(-500));
+      this.sessions.delete(key);
+      await existing.stop();
+    }
+    await this.store.updateChatState(config.workspaceId, chatId, {
+      providerState: null,
+      eveState: null,
+      status: "idle",
+    });
+    return this.ensureSession(agent, chatId, config);
+  }
+
   async createRootChat(
+    workspaceId: string,
+    chatId: string,
+    title: string,
+    provider?: DriverType,
+    model?: string,
+    agentId: "cmo" | "setup" | "analyst" = "cmo",
+  ) {
+    const key = workspaceChatKey(workspaceId, chatId);
+    const pending = this.creatingRootChats.get(key);
+    if (pending) return pending;
+    const creation = this.createRootChatRecord(
+      workspaceId,
+      chatId,
+      title,
+      provider,
+      model,
+      agentId,
+    ).finally(() => {
+      if (this.creatingRootChats.get(key) === creation) {
+        this.creatingRootChats.delete(key);
+      }
+    });
+    this.creatingRootChats.set(key, creation);
+    return creation;
+  }
+
+  private async createRootChatRecord(
     workspaceId: string,
     chatId: string,
     title: string,
@@ -345,7 +410,7 @@ export class SessionManager {
     const runtimeContext = [
       `Runtime context: the current Chief session ID is ${chatId}. Pass this exact value as sourceId whenever you call action.raise.`,
       conversationId
-        ? `The owning Chief conversation ID is ${conversationId}. Pass this exact value as conversationId whenever you propose recurring or one-off scheduled work.`
+        ? `The owning Chief conversation ID is ${conversationId}. Pass this exact value as conversationId whenever you propose scheduled work or open Chief's embedded browser.`
         : undefined,
     ]
       .filter(Boolean)
@@ -600,8 +665,14 @@ export class SessionManager {
     if (session) this.lockWorkspaceIfInactive(session.config.workspaceId);
   }
 
-  listChats(workspaceId: string) {
-    return this.store.listChats(workspaceId);
+  async listChats(workspaceId: string) {
+    const chats = await this.store.listChats(workspaceId);
+    return chats.map((chat) => ({
+      ...chat,
+      running:
+        this.sessions.get(workspaceChatKey(workspaceId, chat.id))?.isBusy ??
+        false,
+    }));
   }
 
   messages(workspaceId: string, chatId: string) {

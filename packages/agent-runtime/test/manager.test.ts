@@ -71,6 +71,37 @@ function scheduleSession(parentId: string | undefined = "root"): SessionRecord {
   };
 }
 
+void test("concurrent setup opens create one durable root chat", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "chief-manager-root-race-"));
+  const store = new LocalStore(join(directory, "chief.sqlite"));
+  const manager = new SessionManager(store);
+  try {
+    const opened = await Promise.all(
+      Array.from({ length: 4 }, () =>
+        manager.createRootChat(
+          "workspace-a",
+          "integration-setup-v5-analytics.googleapis.com",
+          "Google Analytics setup",
+          "codex",
+          undefined,
+          "setup",
+        ),
+      ),
+    );
+
+    assert.ok(opened.every((chat) => chat?.agent === "setup"));
+    assert.equal(
+      (await store.listChats("workspace-a")).filter(
+        (chat) => chat.id === "integration-setup-v5-analytics.googleapis.com",
+      ).length,
+      1,
+    );
+  } finally {
+    await manager.stopAll();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 void test("private tasks cannot compose as roots or appear as conversation children", async () => {
   const directory = mkdtempSync(join(tmpdir(), "chief-manager-"));
   const store = new LocalStore(join(directory, "chief.sqlite"));

@@ -1,5 +1,4 @@
 import type { OnboardingWorkJob } from "./types.js";
-import { GOOGLE_ANALYTICS_DOMAIN } from "./integration-requests.js";
 
 export interface OnboardingWorkPlan {
   launchableJobs: OnboardingWorkJob[];
@@ -10,26 +9,26 @@ export interface OnboardingWorkPlan {
 
 export function planOnboardingWork(
   jobs: OnboardingWorkJob[],
-  googleAnalyticsCredentialsReady: boolean | undefined,
+  googleAnalyticsConnected: boolean | undefined,
 ): OnboardingWorkPlan {
   const googleAnalyticsSetup = jobs.find(
     (job) =>
-      job.agentId === "setup" && job.setupDomain === GOOGLE_ANALYTICS_DOMAIN,
+      job.agentId === "setup" && job.setupDomain === "analytics.googleapis.com",
   );
-  if (
-    !googleAnalyticsSetup ||
-    googleAnalyticsCredentialsReady !== false ||
-    !googleAnalyticsSetup.setupAttemptId
-  ) {
+  if (!googleAnalyticsSetup || googleAnalyticsConnected) {
     return { launchableJobs: jobs };
   }
 
+  // Google account selection and consent must happen in the dedicated,
+  // user-visible Setup conversation. A delegated onboarding child has no
+  // browser authority and must never attempt this flow in the background.
   return {
     launchableJobs: jobs.filter(
       (job) => job !== googleAnalyticsSetup && job.agentId !== "analyst",
     ),
     deferredGoogleAnalytics: {
-      setupAttemptId: googleAnalyticsSetup.setupAttemptId,
+      setupAttemptId:
+        googleAnalyticsSetup.setupAttemptId ?? googleAnalyticsSetup.id,
     },
   };
 }

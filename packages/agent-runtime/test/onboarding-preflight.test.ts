@@ -22,7 +22,7 @@ const job = (
   ...extra,
 });
 
-void test("defers Google Analytics setup and analysis before credentials", () => {
+void test("defers Google Analytics to its user-visible setup conversation", () => {
   const brand = job("brand");
   const setup = job("setup", {
     setupDomain: "analytics.googleapis.com",
@@ -41,13 +41,13 @@ void test("defers Google Analytics setup and analysis before credentials", () =>
     false,
   );
 
-  assert.deepEqual(plan.launchableJobs, [brand, adsSetup, prospector]);
-  assert.deepEqual(plan.deferredGoogleAnalytics, {
-    setupAttemptId: "ga-attempt",
+  assert.deepEqual(plan, {
+    launchableJobs: [brand, adsSetup, prospector],
+    deferredGoogleAnalytics: { setupAttemptId: "ga-attempt" },
   });
 });
 
-void test("keeps all onboarding jobs when credentials are ready", () => {
+void test("keeps all onboarding jobs when Google Analytics is connected", () => {
   const jobs = [
     job("setup", {
       setupDomain: "analytics.googleapis.com",
@@ -57,7 +57,8 @@ void test("keeps all onboarding jobs when credentials are ready", () => {
   ];
   assert.deepEqual(planOnboardingWork(jobs, true), { launchableJobs: jobs });
   assert.deepEqual(planOnboardingWork(jobs, undefined), {
-    launchableJobs: jobs,
+    launchableJobs: [],
+    deferredGoogleAnalytics: { setupAttemptId: "ga-attempt" },
   });
 });
 

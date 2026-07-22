@@ -82,6 +82,7 @@ function migrationFolder() {
 
 export interface LocalChatSummary {
   id: string;
+  agent: string;
   title: string;
   lastText: string;
   lastAt: number;
@@ -1224,19 +1225,21 @@ export class LocalStore {
           eq(schema.sessions.kind, "conversation"),
           eq(schema.sessions.visibility, "user"),
           isNull(schema.sessions.parentId),
-          eq(schema.sessions.agent, "cmo"),
         ),
       )
       .orderBy(desc(schema.sessions.updatedAt))
       .all();
-    return rows.map((chat) => ({
-      id: chat.id,
-      title: chat.title,
-      lastText: chat.lastText,
-      lastAt: chat.updatedAt,
-      driver: driver(chat.provider),
-      model: chat.model ?? undefined,
-    }));
+    return rows
+      .filter((chat) => chat.agent === "cmo" || chat.agent === "setup")
+      .map((chat) => ({
+        id: chat.id,
+        agent: chat.agent,
+        title: chat.title,
+        lastText: chat.lastText,
+        lastAt: chat.updatedAt,
+        driver: driver(chat.provider),
+        model: chat.model ?? undefined,
+      }));
   }
 
   async chat(
@@ -1257,6 +1260,7 @@ export class LocalStore {
     return chat
       ? {
           id: chat.id,
+          agent: chat.agent,
           title: chat.title,
           lastText: chat.lastText,
           lastAt: chat.updatedAt,

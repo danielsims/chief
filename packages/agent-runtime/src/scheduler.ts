@@ -660,7 +660,7 @@ export class RecurringWorkScheduler {
         title: work.title,
         detail:
           scheduledFor < startedAt - POLL_INTERVAL_MS * 3
-            ? "This was due while Chief was offline. It is starting now."
+            ? "This run was scheduled earlier. Starting now."
             : "Chief is working on this now.",
         sourceId: occurrence.id,
         agentId: "cmo",

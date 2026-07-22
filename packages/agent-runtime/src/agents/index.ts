@@ -69,6 +69,10 @@ const OPERATING_RULES = `# Operating rules
   providers. Call the exact approved address once. If it is unavailable, state
   which internal address is missing for diagnostics rather than asking the user
   to connect it.
+- When the user starts setup or asks to view a page, use localTools.browserOpen
+  with the owning conversation ID to open the exact HTTP or HTTPS URL beside
+  the chat. This tool only navigates. Never imply that it clicked, typed, read,
+  or completed anything in the page.
 - Ask only for a decision, secret, consent step, or business fact that cannot
   be discovered or safely inferred. Ask the smallest possible question and
   continue everything else that does not depend on its answer.

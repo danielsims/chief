@@ -36,9 +36,10 @@ export function isDeploymentNotFound(error: unknown, depth = 0): boolean {
 }
 
 export function safeRuntimeError(error: unknown) {
-  return isDeploymentNotFound(error)
-    ? DEPLOYMENT_REQUIRED_MESSAGE
-    : error instanceof Error
-      ? error.message
-      : String(error);
+  if (isDeploymentNotFound(error)) return DEPLOYMENT_REQUIRED_MESSAGE;
+  const message = error instanceof Error ? error.message : String(error);
+  if (/Failed query:|insert into|update .+ set|SQLITE_/i.test(message)) {
+    return "Chief could not open this conversation. Refresh to try again.";
+  }
+  return message.slice(0, 1_000);
 }

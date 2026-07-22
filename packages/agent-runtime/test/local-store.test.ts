@@ -69,10 +69,18 @@ void test("root chat lists exclude private roots and child executions", async ()
       agent: "scheduler",
       provider: "codex",
     });
+    await store.createChat({
+      id: "integration-setup-action-onboarding-google-analytics-test",
+      organizationId: "workspace-a",
+      visibility: "user",
+      agent: "setup",
+      provider: "claude",
+      title: "Google Analytics setup",
+    });
 
     assert.deepEqual(
-      (await store.listChats("workspace-a")).map((chat) => chat.id),
-      ["root"],
+      (await store.listChats("workspace-a")).map((chat) => chat.id).sort(),
+      ["integration-setup-action-onboarding-google-analytics-test", "root"],
     );
     const children = await store.listChildChats("workspace-a", "root");
     assert.equal(children.length, 1);
