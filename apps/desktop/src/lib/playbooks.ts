@@ -1,5 +1,7 @@
 /* eslint-disable max-lines */
 
+import { createMeasurementExperimentsPlaybook } from "./measurement-experiments-playbook";
+
 export type PlaybookCategory =
   "Find customers" | "Content" | "Search" | "Conversion" | "Research";
 
@@ -41,6 +43,8 @@ export const INTEGRATIONS = {
     access: "connected",
   },
   posthog: { domain: "posthog.com", label: "PostHog", access: "connected" },
+  github: { domain: "github.com", label: "GitHub", access: "connected" },
+  vercel: { domain: "vercel.com", label: "Vercel", access: "connected" },
   reddit: { domain: "reddit.com", label: "Reddit", access: "public" },
   hackerNews: {
     domain: "news.ycombinator.com",
@@ -126,6 +130,15 @@ const sharedGuardrails = [
 ];
 
 export const PLAYBOOKS: Playbook[] = [
+  createMeasurementExperimentsPlaybook({
+    integrations: [
+      INTEGRATIONS.github,
+      INTEGRATIONS.vercel,
+      INTEGRATIONS.analytics,
+      INTEGRATIONS.posthog,
+    ],
+    sharedGuardrails,
+  }),
   {
     id: "growth-brief",
     title: "Growth report",

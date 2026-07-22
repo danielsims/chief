@@ -159,6 +159,8 @@ export async function runSpecialistDelegation(input: {
   agentId: string;
   title: string;
   task: string;
+  setupDomain?: string;
+  setupAttemptId?: string;
   onStateChange?: () => void | Promise<void>;
   onFilesChange?: () => void | Promise<void>;
   onSessionReady?: (sessionId: string) => void | Promise<void>;
@@ -267,7 +269,9 @@ async function executeSpecialistDelegation(
       input.agentId === "prospector"
         ? "You are working privately for Chief, not speaking directly to the user. Complete only the bounded prospecting task below. Use native web research and the workspace tools. Save every qualified prospect with prospectsSave before returning; include its direct HTTP source URL, evidence-based rationale, relevance, and a useful reply angle. Do not leave a prospect only in chat. Do not ask the user questions."
         : input.agentId === "setup"
-          ? "You are working privately for Chief after onboarding, not speaking directly to the user. Inspect existing Executor connections and complete only the bounded source setup task below. Use the setupDomain and setupAttemptId supplied in the task with this current session ID when calling Chief-local setup tools. Never invent a successful connection. Complete safe setup steps, then return each distinct credential, consent, or account-selection requirement with its provider identity so Chief can present one structured action per requirement. Do not ask the user questions in this private thread."
+          ? input.setupDomain && input.setupAttemptId
+            ? "You are working privately for Chief after onboarding, not speaking directly to the user. Inspect existing Executor connections and complete only the bounded source setup task below. Use the supplied setupDomain and setupAttemptId with this current session ID when calling Chief-local setup tools. When an authorization tool returns a consent URL, open it with localTools.browserOpen using the owning Chief conversation ID from the runtime context. Never invent a successful connection. Complete safe setup steps, then return each distinct credential, consent, or account-selection requirement with its provider identity so Chief can present one structured action per requirement. Do not ask the user questions in this private thread."
+            : "You are working privately for Chief, not speaking directly to the user. Complete only the bounded technical growth task below. Audit connected GitHub, analytics, and deployment context read-only first. Do not call integration setup tools that require an active setup attempt. Prepare a narrow implementation plan, and create a branch or draft pull request only when the task states that the user explicitly requested or approved it. Never push to a default branch, merge, deploy to production, change secrets or repository settings, or perform unrelated engineering work. Return the evidence, checks, and pull-request link to Chief. Do not ask the user questions in this private thread."
           : input.agentId === "analyst"
             ? "You are working privately for Chief, not speaking directly to the user. Use Executor's live connected-provider catalog to answer the bounded analytics question below. Dynamically inspect schemas, call the narrowest read-only tools, state exact dates and numbers, and return evidence Chief can present directly. Do not use Chief's normalized analytics wrapper or ask the user questions."
             : input.agentId === "brand"
