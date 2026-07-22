@@ -21,13 +21,13 @@ export function EngineeringAccessControl({
       disabled={selected === null}
     >
       <p className="text-muted-foreground text-sm leading-6">
-        Chief can connect your repository and deployment tools, install
-        analytics or marketing integrations, and prepare reviewable pull
-        requests. It will not merge or deploy changes without your approval.
+        Chief can connect your code, deployment, or website platform to install
+        marketing integrations and prepare reviewable changes. It will not
+        merge, publish, or deploy anything without your approval.
       </p>
       <div className="mt-4 flex flex-wrap gap-2">
         <Chip selected={selected === true} onClick={() => setSelected(true)}>
-          Yes, help with technical setup
+          Yes, allow code changes
         </Chip>
         <Chip selected={selected === false} onClick={() => setSelected(false)}>
           Not right now
@@ -64,8 +64,8 @@ export function EngineeringToolsControl({
       disabled={selected.length === 0}
     >
       <p className="text-muted-foreground mb-4 text-sm leading-6">
-        Select the tools Chief should connect during Engineering setup. You can
-        add or remove integrations later in Settings.
+        Select the code, deployment, and website platforms Chief should connect.
+        You can add or remove integrations later in Settings.
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         {ENGINEERING_INTEGRATIONS.map((integration) => (
