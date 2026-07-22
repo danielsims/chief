@@ -16,6 +16,7 @@ import {
 } from "@chief/ui/components/dialog";
 
 import { ProviderLogo } from "../../components/provider-logo";
+import { integrationSetupChatId } from "../../lib/integration-setup";
 import { providerDetails } from "../../lib/provider-details";
 import {
   useDisconnectGoogleAnalytics,
@@ -153,6 +154,18 @@ function connectedIntegrations(
 }
 
 function IntegrationCatalog({ connected }: { connected: Set<string> }) {
+  const navigate = useNavigate();
+
+  const install = (integration: CatalogIntegration) => {
+    localStorage.setItem(
+      `chief:integration-setup:${integration.domain}`,
+      "active",
+    );
+    void navigate(
+      `/conversations?chat=${encodeURIComponent(integrationSetupChatId(integration.domain))}`,
+    );
+  };
+
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -172,7 +185,7 @@ function IntegrationCatalog({ connected }: { connected: Set<string> }) {
         <div className="space-y-6 pt-2">
           {INTEGRATION_CATALOG.map((group) => (
             <section key={group.category}>
-              <h3 className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
+              <h3 className="text-muted-foreground mb-2 text-[11px] font-medium">
                 {group.category}
               </h3>
               <div className="divide-y border">
@@ -205,9 +218,13 @@ function IntegrationCatalog({ connected }: { connected: Set<string> }) {
                           </Link>
                         </Button>
                       ) : (
-                        <span className="text-muted-foreground shrink-0 text-xs">
-                          Available
-                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => install(integration)}
+                        >
+                          Install
+                        </Button>
                       )}
                     </div>
                   );
@@ -306,7 +323,7 @@ export function IntegrationSettingsDetail() {
         await disconnectGoogleAnalytics();
       }
       await disconnectIntegration({ provider: normalizedProvider });
-      navigate("/settings/integrations", { replace: true });
+      void navigate("/settings/integrations", { replace: true });
     } finally {
       setBusy(false);
     }

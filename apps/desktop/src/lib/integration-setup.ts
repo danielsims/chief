@@ -7,9 +7,18 @@ import type {
   ContentBlock,
   InputRequest,
 } from "@chief/agent-runtime/types";
-import { GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST } from "@chief/agent-runtime/integration-requests";
+import {
+  GOOGLE_ANALYTICS_DOMAIN,
+  GOOGLE_ANALYTICS_SETUP_TASK,
+  googleAnalyticsActionIdFromChat,
+} from "@chief/agent-runtime/integration-requests";
 
 export { GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST } from "@chief/agent-runtime/integration-requests";
+export {
+  googleAnalyticsActionChatId,
+  googleAnalyticsActionIdFromChat,
+  isOnboardingGoogleAnalyticsAction,
+} from "@chief/agent-runtime/integration-requests";
 
 export const SETUP_RESULT_MARKER = "CHIEF_SETUP_RESULT";
 
@@ -19,6 +28,29 @@ export const SETUP_ATTEMPT_PREFIX = "[chief-integration-setup:";
 
 /** The runtime confirms stored input with a user-turn starting with this. */
 export const INPUT_PROVIDED_PREFIX = "Provided:";
+const DIRECT_SETUP_CHAT_PREFIX = "integration-setup-v5-";
+
+export function integrationSetupChatId(domain: string) {
+  if (!/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/i.test(domain)) {
+    throw new Error("Integration domain is invalid.");
+  }
+  return `${DIRECT_SETUP_CHAT_PREFIX}${domain.toLowerCase()}`;
+}
+
+export function integrationSetupDomainFromChat(chatId: string | null) {
+  if (!chatId) return null;
+  if (googleAnalyticsActionIdFromChat(chatId)) return GOOGLE_ANALYTICS_DOMAIN;
+  if (chatId.startsWith(DIRECT_SETUP_CHAT_PREFIX)) {
+    const domain = chatId.slice(DIRECT_SETUP_CHAT_PREFIX.length);
+    return /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/i.test(domain)
+      ? domain
+      : null;
+  }
+  return chatId.startsWith("integration-setup-v4-") &&
+    chatId.endsWith("-analytics-googleapis-com")
+    ? GOOGLE_ANALYTICS_DOMAIN
+    : null;
+}
 
 export interface SetupResult {
   provider: string;
@@ -75,10 +107,20 @@ export function setupResultMatchesIntegration(
   result: SetupResult,
   domain: string,
 ): boolean {
-  if (result.status !== "connected") return false;
+  return (
+    result.status === "connected" &&
+    integrationProviderMatchesDomain(result.provider, domain)
+  );
+}
+
+/** Matches the runtime's canonical provider id to its setup catalog domain. */
+export function integrationProviderMatchesDomain(
+  provider: string,
+  domain: string,
+): boolean {
   return domain === "analytics.googleapis.com"
-    ? isGoogleAnalyticsResult(result)
-    : result.provider === domain;
+    ? provider === "google-analytics" || provider === domain
+    : provider === domain;
 }
 
 /** Returns only the latest setup attempt and results emitted after it. */
@@ -205,18 +247,6 @@ const PROVIDER_HINTS: Record<string, string> = {
   "googleads.googleapis.com": `Google Ads specifics:
 - Chief does not yet ship a Google Ads integration spec. Google's shared gcloud client cannot use the adwords scope, and Google does not support dynamic OAuth client registration.
 - Do not install gcloud, request credentials, or claim a connection succeeded. Return one exact blocked requirement stating that Chief needs a supported Google Ads Executor connector.`,
-  "analytics.googleapis.com": `Google Analytics specifics:
-- Executor is an internal implementation detail. Never mention it in user-facing narration; say Chief or local connection service.
-- The user clicking Connect is explicit permission to perform the complete read-only setup. Never ask them to say go ahead, confirm a protected operation, or approve anything in chat.
-- Chief has already prepared the google_analytics integration. Never install gcloud or use global Google credentials.
-- Search the tool catalog for connection and OAuth-client list tools. Pass the exact current Chief session ID from runtime context as sessionId and the setup attempt ID from the first user-message marker as attemptId to every Chief-local Google Analytics setup tool. If org/google_analytics/main already exists, call googleAnalytics.complete without a state so it verifies the existing connection.
-- If chief_google_analytics is not registered, emit the exact google-analytics-oauth-client CHIEF_INPUT_REQUEST below. The values route directly to the integration credential provider and never enter chat or the workspace environment. Stop after the marker and continue when Chief confirms storage.
-- Call the Chief-local googleAnalytics.authorize tool immediately with sessionId and attemptId. Chief opens Google's consent screen directly; do not open an approval handoff or ask for confirmation. Then call googleAnalytics.complete with sessionId, attemptId and the returned state. That call waits while the user completes consent, discovers properties, runs a real report, installs read-only report permissions and saves the verified connection.
-- If complete returns several properties, present their property and account names, ask which one to use, then call googleAnalytics.select with sessionId and the chosen propertyId. Never ask the user to find or type a raw property ID.
-- The complete/select operation already performs the authoritative live report. Do not run a redundant report afterward. Result provider is "google-analytics", displayName is the property name, and externalId and propertyId are the property id.
-
-If the OAuth client is missing, emit exactly this request as the final line of the turn:
-${INPUT_REQUEST_MARKER} ${JSON.stringify(GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST)}`,
 };
 
 export function isGoogleAnalyticsResult(result: SetupResult): boolean {
@@ -255,13 +285,7 @@ export function integrationSetupTask(integration: SetupIntegration): string {
   }
   const hints = PROVIDER_HINTS[integration.domain];
   if (integration.domain === "analytics.googleapis.com") {
-    return `Connect ${integration.name} (${integration.domain}) for this workspace.
-
-${hints}
-
-When the connection is verified, end your final message with exactly one line:
-${SETUP_RESULT_MARKER} {"provider":"google-analytics","status":"connected","displayName":"<connected Google Analytics property>","externalId":"<property id>"}
-This line is machine-read; keep it valid single-line JSON.`;
+    return GOOGLE_ANALYTICS_SETUP_TASK;
   }
   return `Connect ${integration.name} (${integration.domain}) for this workspace using this machine. The user is watching your progress inside the app, so work autonomously and keep narration to one short line per step. Never use em dashes. The user may continue with other steps while you work; do not stop to wait for chat replies unless you asked a question.
 

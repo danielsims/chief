@@ -14,6 +14,7 @@ import {
 import { Input } from "@chief/ui/components/input";
 
 import { messageBlocks, useChiefChat } from "../lib/runtime";
+import { AgentWorkingIndicator } from "./chat/agent-working-indicator";
 
 /**
  * The one approval surface for proposed recurring work, usable from any
@@ -161,9 +162,7 @@ export function RecurringWorkApprovalFlow({
                   </Button>
                 </div>
                 {busy ? (
-                  <p className="agent-working mt-2 font-mono text-xs">
-                    updating the plan…
-                  </p>
+                  <AgentWorkingIndicator className="mt-2" />
                 ) : revisionNote ? (
                   <p className="text-muted-foreground mt-2 text-xs leading-5">
                     {revisionNote}

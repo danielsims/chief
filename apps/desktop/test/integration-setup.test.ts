@@ -5,6 +5,11 @@ import type { ChiefUIMessage } from "@chief/agent-runtime/types";
 
 import {
   GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST,
+  googleAnalyticsActionChatId,
+  googleAnalyticsActionIdFromChat,
+  integrationProviderMatchesDomain,
+  integrationSetupChatId,
+  integrationSetupDomainFromChat,
   integrationSetupTask,
   isGoogleAnalyticsOAuthRequest,
   latestSetupAttempt,
@@ -62,10 +67,33 @@ void test("Google Analytics uses inline customer OAuth and broad Executor tools"
   });
   assert.match(task, /googleAnalytics\.authorize/);
   assert.match(task, /googleAnalytics\.complete/);
-  assert.match(task, /integration credential provider/);
+  assert.match(task, /localTools\.browserOpen/);
+  assert.match(task, /googleOAuth\.provisionClient/);
+  assert.match(task, /without exposing its ID or secret in chat/);
+  assert.match(task, /googleOAuth\.captureClient/);
+  assert.match(task, /client-created dialog or exact client's edit page/);
+  assert.match(task, /Do not click Download JSON, OK/);
+  assert.match(task, /Chief - Google Analytics/);
+  assert.match(task, /never create another while an exact match exists/);
+  assert.match(task, /Never ask them to tell you when they are ready/);
+  assert.match(task, /Do not send the user into Google Cloud/);
   assert.match(task, /authoritative live report/);
   assert.doesNotMatch(task, /make one fresh read-only report/);
   assert.doesNotMatch(task, /gcloud auth|Application Default Credentials/);
+});
+
+void test("onboarding Google Analytics actions own distinct Setup chats", () => {
+  const actionId = "onboarding-google-analytics-workspace";
+  const chatId = googleAnalyticsActionChatId(actionId);
+  assert.equal(
+    chatId,
+    "integration-setup-action-onboarding-google-analytics-workspace",
+  );
+  assert.equal(googleAnalyticsActionIdFromChat(chatId), actionId);
+  assert.equal(googleAnalyticsActionIdFromChat("ordinary-chat"), null);
+  const directChatId = integrationSetupChatId("pendo.io");
+  assert.equal(directChatId, "integration-setup-v5-pendo.io");
+  assert.equal(integrationSetupDomainFromChat(directChatId), "pendo.io");
 });
 
 void test("setup completion must match the requested integration", () => {
@@ -87,6 +115,30 @@ void test("setup completion must match the requested integration", () => {
     setupResultMatchesIntegration(
       { provider: "unrelated.example", status: "connected" },
       "pendo.io",
+    ),
+    false,
+  );
+});
+
+void test("connected local providers match their setup catalog domains", () => {
+  assert.equal(
+    integrationProviderMatchesDomain(
+      "google-analytics",
+      "analytics.googleapis.com",
+    ),
+    true,
+  );
+  assert.equal(
+    integrationProviderMatchesDomain(
+      "gmail.googleapis.com",
+      "gmail.googleapis.com",
+    ),
+    true,
+  );
+  assert.equal(
+    integrationProviderMatchesDomain(
+      "google-analytics",
+      "gmail.googleapis.com",
     ),
     false,
   );

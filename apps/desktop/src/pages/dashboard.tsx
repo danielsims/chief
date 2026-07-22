@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownRight,
   ArrowRight,
-  ArrowUp,
   ArrowUpRight,
   BarChart3,
   CalendarClock,
@@ -12,23 +11,30 @@ import {
   ChevronLeft,
   ChevronRight,
   LoaderCircle,
-  Plus,
-  Sparkles,
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { useNavigate } from "react-router";
-import { Line, LineChart, ResponsiveContainer } from "recharts";
+import {
+  Line,
+  LineChart,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+} from "recharts";
 
 import type {
   ActionItem,
   AnalyticsDataset,
   AnalyticsDatasetPeriod,
+  ChatExecutionSelection,
   SessionRecord,
 } from "@chief/agent-runtime/types";
+import { cn } from "@chief/ui/lib/utils";
 
 import type { AuthOrganization } from "../lib/auth/better-auth-client";
+import { ChatComposer } from "../components/chat/chat-composer";
 import { InputRequestSection } from "../components/integrations/input-request-section";
 import { OrgLogo } from "../components/org-logo";
+import { useAgentConfig } from "../lib/agent-config";
 import { setAgentOverride, setWorkspaceProvider } from "../lib/agent-overrides";
 import { useAuth } from "../lib/auth/auth-context";
 import {
@@ -42,10 +48,13 @@ import {
 } from "../lib/deployment-recovery";
 import {
   findPendingInputRequest,
+  googleAnalyticsActionChatId,
   isGoogleAnalyticsOAuthRequest,
+  isOnboardingGoogleAnalyticsAction,
 } from "../lib/integration-setup";
 import {
   useAgentPreferences,
+  useLocalIntegrationStatus,
   useObservedChat,
   useWorkspaceData,
 } from "../lib/runtime";
@@ -60,11 +69,14 @@ const AGENT_NAMES: Record<string, string> = {
   setup: "Setup",
 };
 
-const SUGGESTIONS = [
-  "What should we focus on this week?",
-  "Review our current marketing plan",
-  "Where are we losing momentum?",
-];
+const LEARNING_ACTION_ID = "workspace-initial-review";
+
+interface OverviewAction {
+  id: string;
+  title: string;
+  agentId: string;
+  action?: ActionItem;
+}
 
 function greeting(now: number) {
   const hour = new Date(now).getHours();
@@ -79,7 +91,7 @@ interface AnalyticsSlide {
   value: string;
   label: string;
   trend: number | null;
-  points: { index: number; value: number }[] | null;
+  points: { x: string; value: number }[] | null;
 }
 
 interface AgentWorkTimelineItem {
@@ -139,10 +151,33 @@ function isConnectionAction(action: ActionItem) {
 
 function isGoogleAnalyticsConnectionAction(action: ActionItem) {
   return (
+    isOnboardingGoogleAnalyticsAction(action.id) ||
     action.request?.id === "google-analytics-oauth-client" ||
     (action.request ? isGoogleAnalyticsOAuthRequest(action.request) : false) ||
     (/google analytics/i.test(`${action.title} ${action.reason}`) &&
       isConnectionAction(action))
+  );
+}
+
+function selectedGoogleAnalyticsDuringOnboarding(
+  organization: AuthOrganization | null,
+) {
+  if (!organization) return false;
+  const metadata = parseOrganizationMetadata(organization);
+  const onboarding = metadata.onboarding;
+  if (!onboarding || typeof onboarding !== "object") return false;
+  const analytics = (onboarding as Record<string, unknown>).analytics;
+  if (!analytics || typeof analytics !== "object") return false;
+  const integrations = (analytics as Record<string, unknown>).integrations;
+  return (
+    Array.isArray(integrations) &&
+    integrations.some(
+      (integration) =>
+        integration !== null &&
+        typeof integration === "object" &&
+        (integration as Record<string, unknown>).domain ===
+          "analytics.googleapis.com",
+    )
   );
 }
 
@@ -160,8 +195,16 @@ function percentageChange(current?: number, previous?: number) {
   return ((current - previous) / previous) * 100;
 }
 
-function normalizedMetricKey(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+function normalizedMetricKey(value: unknown) {
+  return typeof value === "string"
+    ? value.toLowerCase().replace(/[^a-z0-9]/g, "")
+    : "";
+}
+
+function metricLabel(value: unknown, fallback: string) {
+  return typeof value === "string" && value.trim()
+    ? value.toLowerCase()
+    : fallback;
 }
 
 function periodMetric(
@@ -182,16 +225,30 @@ function trendTitle(label: string, trend: number | null, hasData: boolean) {
   return `${label} is holding steady.`;
 }
 
-function chartPoints(values: number[]) {
-  if (values.length < 2) return null;
-  return values.map((value, index) => ({ index, value }));
+function chartPoints(points: { x: string; value: number }[]) {
+  return points.length < 2 ? null : points;
+}
+
+function chartPointLabel(value: string) {
+  const compactDate = /^(\d{4})(\d{2})(\d{2})$/.exec(value);
+  const dashedDate = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const match = compactDate ?? dashedDate;
+  if (!match) return value;
+
+  const [, year, month, day] = match;
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+  }).format(new Date(Number(year), Number(month) - 1, Number(day)));
 }
 
 function AnalyticsChart({
+  label,
   points,
   reduceMotion,
 }: {
-  points: { index: number; value: number }[];
+  label: string;
+  points: { x: string; value: number }[];
   reduceMotion: boolean;
 }) {
   return (
@@ -201,7 +258,35 @@ function AnalyticsChart({
           data={points}
           margin={{ bottom: 2, left: 2, right: 2, top: 2 }}
         >
+          <RechartsTooltip
+            allowEscapeViewBox={{ x: true, y: true }}
+            content={({ active, payload }) => {
+              const point = payload[0]?.payload as
+                { x?: string; value?: number } | undefined;
+              if (!active || point?.value === undefined) return null;
+
+              return (
+                <div className="border-border bg-popover text-popover-foreground min-w-28 border px-2.5 py-2 shadow-lg">
+                  {point.x ? (
+                    <p className="text-muted-foreground text-[10px]">
+                      {chartPointLabel(point.x)}
+                    </p>
+                  ) : null}
+                  <p className="mt-0.5 flex items-baseline justify-between gap-4 text-xs">
+                    <span>{label}</span>
+                    <strong className="font-medium">
+                      {formatNumber(point.value)}
+                    </strong>
+                  </p>
+                </div>
+              );
+            }}
+            cursor={false}
+            isAnimationActive={false}
+            wrapperStyle={{ pointerEvents: "none", zIndex: 5 }}
+          />
           <Line
+            activeDot={{ fill: "var(--foreground)", r: 3, strokeWidth: 0 }}
             animationDuration={420}
             dataKey="value"
             dot={false}
@@ -209,7 +294,7 @@ function AnalyticsChart({
             stroke="var(--foreground)"
             strokeOpacity={0.68}
             strokeWidth={1.25}
-            type="monotone"
+            type="linear"
           />
         </LineChart>
       </ResponsiveContainer>
@@ -260,6 +345,84 @@ function WorkspaceIndicator({
   );
 }
 
+function OverviewActionPagination({
+  actions,
+  index,
+  onMove,
+  className,
+}: {
+  actions: OverviewAction[];
+  index: number;
+  onMove: (direction: number) => void;
+  className?: string;
+}) {
+  return (
+    <div className={cn("chief-overview-action-pagination", className)}>
+      <button
+        aria-label="Previous action item"
+        onClick={() => onMove(-1)}
+        type="button"
+      >
+        <ChevronLeft size={14} />
+      </button>
+      <span aria-hidden="true">
+        {actions.map((item, itemIndex) => (
+          <i className={itemIndex === index ? "is-active" : ""} key={item.id} />
+        ))}
+      </span>
+      <button
+        aria-label="Next action item"
+        onClick={() => onMove(1)}
+        type="button"
+      >
+        <ChevronRight size={14} />
+      </button>
+    </div>
+  );
+}
+
+function WorkspaceLearningCard({
+  reviewChatId,
+  onOpen,
+  actions,
+  index,
+  onMove,
+}: {
+  reviewChatId?: string;
+  onOpen: () => void;
+  actions: OverviewAction[];
+  index: number;
+  onMove: (direction: number) => void;
+}) {
+  return (
+    <article className="chief-overview-caught-up">
+      <span>
+        <LoaderCircle className="animate-spin" size={17} />
+      </span>
+      <h2>Chief is learning your business.</h2>
+      <p>
+        Chief is reviewing your website, saved context and connected sources.
+        You can leave this open; the work will continue.
+      </p>
+      <button
+        className="is-primary"
+        type="button"
+        disabled={!reviewChatId}
+        onClick={onOpen}
+      >
+        {reviewChatId ? "View initial review" : "Preparing initial review"}{" "}
+        <ArrowRight size={13} />
+      </button>
+      <OverviewActionPagination
+        actions={actions}
+        className="chief-overview-learning-pagination"
+        index={index}
+        onMove={onMove}
+      />
+    </article>
+  );
+}
+
 function dayKey(date: Date, timezone: string) {
   return new Intl.DateTimeFormat("en-CA", {
     year: "numeric",
@@ -294,19 +457,28 @@ function scheduleDate(timestamp: number, timezone: string, now: number) {
 export function DashboardPage() {
   const navigate = useNavigate();
   const prefersReducedMotion = useReducedMotion();
-  const composerRef = useRef<HTMLTextAreaElement>(null);
   const scheduleScrollRef = useRef<HTMLDivElement>(null);
   const scheduleFocusRef = useRef<HTMLButtonElement>(null);
   const [ask, setAsk] = useState("");
+  const [selectedExecution, setSelectedExecution] =
+    useState<ChatExecutionSelection | null>(null);
   const [organization, setOrganization] = useState<AuthOrganization | null>(
     null,
   );
-  const [selectedAction, setSelectedAction] = useState(0);
+  const [selectedActionId, setSelectedActionId] = useState<string | null>(null);
   const [continuingChatId, setContinuingChatId] = useState<string | null>(null);
   const [analyticsIndex, setAnalyticsIndex] = useState(0);
   const [analyticsPaused, setAnalyticsPaused] = useState(false);
   const { cloudOrganizationId, user } = useAuth();
+  const agentConfig = useAgentConfig();
+  const chiefConfig = agentConfig.forAgent("cmo");
+  const overviewExecution =
+    selectedExecution ??
+    (chiefConfig.driver
+      ? { driver: chiefConfig.driver, model: chiefConfig.model || undefined }
+      : undefined);
   const workspaceData = useWorkspaceData(cloudOrganizationId);
+  const { integrations: localIntegrations } = useLocalIntegrationStatus();
   const datasets = workspaceData.loading
     ? undefined
     : workspaceData.analyticsDatasets.filter(
@@ -351,7 +523,43 @@ export function DashboardPage() {
       ),
     [workspaceData.activity],
   );
-  const actions = workspaceData.actionItems;
+  const actions = useMemo(() => {
+    const tracked = workspaceData.actionItems;
+    const hasGoogleAnalyticsAction = tracked.some(
+      isGoogleAnalyticsConnectionAction,
+    );
+    const googleAnalyticsConnected = localIntegrations?.some(
+      (integration) =>
+        integration.provider === "google-analytics" &&
+        integration.status === "connected",
+    );
+    if (
+      !cloudOrganizationId ||
+      localIntegrations === null ||
+      googleAnalyticsConnected ||
+      hasGoogleAnalyticsAction ||
+      !selectedGoogleAnalyticsDuringOnboarding(organization)
+    ) {
+      return tracked;
+    }
+    return [
+      {
+        id: `onboarding-google-analytics-recovery-${cloudOrganizationId}`,
+        agentId: "setup",
+        title: "Connect Google Analytics",
+        reason:
+          "Google Analytics was selected during onboarding. Open Setup and sign in with the Google account that administers the Analytics property you want Chief to use.",
+        status: "open" as const,
+        createdAt: 0,
+      },
+      ...tracked,
+    ];
+  }, [
+    cloudOrganizationId,
+    localIntegrations,
+    organization,
+    workspaceData.actionItems,
+  ]);
   const preparationRoot = workspaceData.activity.find(
     (session) =>
       session.id.startsWith("workspace-kickoff-") &&
@@ -389,6 +597,27 @@ export function DashboardPage() {
     workspaceData.now - initialReviewStartedAt < 10 * 60_000 &&
     (!preparationRoot || preparationRoot.status === "idle"),
   );
+  const showLearningCard = initialReviewPending || preparationActive;
+  const overviewActions = useMemo<OverviewAction[]>(
+    () => [
+      ...(showLearningCard
+        ? [
+            {
+              id: LEARNING_ACTION_ID,
+              title: "Chief is learning your business",
+              agentId: "cmo",
+            },
+          ]
+        : []),
+      ...actions.map((action) => ({
+        id: action.id,
+        title: action.title,
+        agentId: action.agentId,
+        action,
+      })),
+    ],
+    [actions, showLearningCard],
+  );
   useEffect(() => {
     if (
       cloudOrganizationId &&
@@ -398,11 +627,13 @@ export function DashboardPage() {
       sessionStorage.removeItem(`chief:initial-review:${cloudOrganizationId}`);
     }
   }, [cloudOrganizationId, preparationRoot]);
-  const resolvedActionIndex = Math.min(
-    selectedAction,
-    Math.max(0, actions.length - 1),
-  );
-  const currentAction = actions[resolvedActionIndex];
+  const requestedOverviewActionIndex = selectedActionId
+    ? overviewActions.findIndex((item) => item.id === selectedActionId)
+    : 0;
+  const resolvedOverviewActionIndex = Math.max(0, requestedOverviewActionIndex);
+  const selectedOverviewAction = overviewActions[resolvedOverviewActionIndex];
+  const learningSelected = selectedOverviewAction?.id === LEARNING_ACTION_ID;
+  const currentAction = selectedOverviewAction?.action;
   const deploymentRecovery = isDeploymentRecoveryAction(currentAction);
   const currentActionTask = currentAction?.sourceId
     ? privateTasksById.get(currentAction.sourceId)
@@ -554,7 +785,7 @@ export function DashboardPage() {
     );
     const trafficSeries = analytics?.series?.find((series) =>
       ["activeusers", "users", "sessions"].includes(
-        normalizedMetricKey(series.metric),
+        normalizedMetricKey(series.metric || series.id || series.label),
       ),
     );
     return [
@@ -562,21 +793,28 @@ export function DashboardPage() {
         id: "traffic",
         title: trendTitle("Traffic", trafficTrend, hasTraffic),
         value: datasets === undefined ? "—" : formatNumber(currentTraffic ?? 0),
-        label: trafficMetric?.label.toLowerCase() ?? "traffic",
+        label: metricLabel(trafficMetric?.label, "traffic"),
         trend: trafficTrend,
-        points: chartPoints(
-          (trafficSeries?.points ?? []).slice(-14).map((point) => point.value),
-        ),
+        points: chartPoints((trafficSeries?.points ?? []).slice(-14)),
       },
       {
         id: "signups",
         title: trendTitle("Signups", signupTrend, hasSignups),
         value: datasets === undefined ? "—" : formatNumber(currentSignups ?? 0),
-        label: signupMetric?.label.toLowerCase() ?? "tracked conversions",
+        label: metricLabel(signupMetric?.label, "tracked conversions"),
         trend: signupTrend,
         points:
           currentSignups !== undefined && previousSignups !== undefined
-            ? chartPoints([previousSignups, currentSignups])
+            ? chartPoints([
+                {
+                  x: previous30?.label ?? "Previous period",
+                  value: previousSignups,
+                },
+                {
+                  x: analytics30?.label ?? "Current period",
+                  value: currentSignups,
+                },
+              ])
             : null,
       },
       {
@@ -683,15 +921,27 @@ export function DashboardPage() {
   };
 
   const moveAction = (direction: number) => {
-    if (actions.length < 2) return;
-    setSelectedAction(
-      (current) => (current + direction + actions.length) % actions.length,
+    if (overviewActions.length < 2) return;
+    setSelectedActionId(
+      overviewActions[
+        (resolvedOverviewActionIndex + direction + overviewActions.length) %
+          overviewActions.length
+      ]?.id ?? null,
     );
   };
 
-  const openAction = () => {
-    if (!currentAction) return;
-    if (isGoogleAnalyticsConnectionAction(currentAction)) {
+  const openAction = (action = currentAction) => {
+    if (!action) return;
+    if (
+      isGoogleAnalyticsConnectionAction(action) &&
+      isOnboardingGoogleAnalyticsAction(action.id)
+    ) {
+      void navigate(
+        `/conversations?chat=${encodeURIComponent(googleAnalyticsActionChatId(action.id))}`,
+      );
+      return;
+    }
+    if (isGoogleAnalyticsConnectionAction(action)) {
       localStorage.setItem(
         "chief:integration-setup:analytics.googleapis.com",
         "active",
@@ -699,17 +949,17 @@ export function DashboardPage() {
       void navigate("/analytics");
       return;
     }
-    if (currentAction.sourceId === "agent-cmo") {
+    if (action.sourceId === "agent-cmo") {
       void navigate("/agents");
       return;
     }
-    if (isConnectionAction(currentAction)) {
+    if (isConnectionAction(action)) {
       void navigate("/settings/integrations");
       return;
     }
     if (
-      currentActionTask?.scheduleId ||
-      currentAction.sourceId?.startsWith("automation-")
+      privateTasksById.get(action.sourceId ?? "")?.scheduleId ||
+      action.sourceId?.startsWith("automation-")
     ) {
       void navigate("/schedule");
       return;
@@ -753,25 +1003,17 @@ export function DashboardPage() {
     workspaceData.dismissActionItem(currentAction.id);
   };
 
-  const chooseSuggestion = (suggestion: string) => {
-    setAsk(suggestion);
-    window.requestAnimationFrame(() => composerRef.current?.focus());
-  };
-
-  const resizeComposer = () => {
-    const textarea = composerRef.current;
-    if (!textarea) return;
-    textarea.style.height = "0px";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 112)}px`;
-  };
-
   const submit = () => {
     const text = ask.trim();
-    if (!text) return;
+    if (!text || !overviewExecution?.driver) return;
     const conversation = createChat(text);
-    void navigate(
-      `/conversations?chat=${conversation.id}&prompt=${encodeURIComponent(text)}`,
-    );
+    const params = new URLSearchParams({
+      chat: conversation.id,
+      prompt: text,
+      driver: overviewExecution.driver,
+    });
+    if (overviewExecution.model) params.set("model", overviewExecution.model);
+    void navigate(`/conversations?${params.toString()}`);
   };
 
   const profileFirstName = user?.name.trim().split(/\s+/)[0];
@@ -795,9 +1037,34 @@ export function DashboardPage() {
       </header>
 
       <section className="chief-overview-grid">
-        <section className="chief-overview-actions" aria-label="Action items">
-          {currentAction ? (
-            <article className="chief-overview-action-card">
+        <section
+          className={cn(
+            "chief-overview-actions",
+            learningSelected && "is-learning",
+          )}
+          aria-label="Action items"
+        >
+          {learningSelected ? (
+            <WorkspaceLearningCard
+              actions={overviewActions}
+              index={resolvedOverviewActionIndex}
+              onMove={moveAction}
+              reviewChatId={preparationRoot?.id}
+              onOpen={() => {
+                if (preparationRoot) {
+                  void navigate(
+                    `/conversations?chat=${encodeURIComponent(preparationRoot.id)}`,
+                  );
+                }
+              }}
+            />
+          ) : currentAction ? (
+            <article
+              className={cn(
+                "chief-overview-action-card",
+                !currentAction.request && "is-centered",
+              )}
+            >
               <header>
                 <div>
                   <span className="chief-overview-agent-icon">
@@ -830,9 +1097,6 @@ export function DashboardPage() {
                     </small>
                   </span>
                 </div>
-                <small>
-                  {resolvedActionIndex + 1} of {actions.length}
-                </small>
               </header>
               <div className="chief-overview-action-copy">
                 <h2>
@@ -850,7 +1114,8 @@ export function DashboardPage() {
                     task={currentActionTask}
                   />
                 ) : null}
-                {currentAction.request ? (
+                {currentAction.request &&
+                !isGoogleAnalyticsConnectionAction(currentAction) ? (
                   <div className="chief-overview-setup-input">
                     <InputRequestSection
                       key={currentAction.request.id}
@@ -890,10 +1155,11 @@ export function DashboardPage() {
                         Deploy Chief
                       </button>
                     </>
-                  ) : isGoogleAnalyticsConnectionAction(currentAction) &&
-                    !currentAction.request ? (
-                    <button type="button" onClick={openAction}>
-                      Connect Google Analytics
+                  ) : isGoogleAnalyticsConnectionAction(currentAction) ? (
+                    <button type="button" onClick={() => openAction()}>
+                      {currentAction.request
+                        ? "Continue setup"
+                        : "Connect integration"}
                     </button>
                   ) : !currentAction.request ? (
                     <button type="button" onClick={resolveAction}>
@@ -906,7 +1172,10 @@ export function DashboardPage() {
                             : "Review"}
                     </button>
                   ) : null}
-                  {!currentActionInProgress ? (
+                  {!currentActionInProgress &&
+                  !currentAction.id.startsWith(
+                    "onboarding-google-analytics-recovery-",
+                  ) ? (
                     <button
                       type="button"
                       aria-keyshortcuts="E"
@@ -919,32 +1188,11 @@ export function DashboardPage() {
                     </button>
                   ) : null}
                 </div>
-                <div className="chief-overview-action-pagination">
-                  <button
-                    aria-label="Previous action item"
-                    onClick={() => moveAction(-1)}
-                    type="button"
-                  >
-                    <ChevronLeft size={14} />
-                  </button>
-                  <span aria-hidden="true">
-                    {actions.map((item, index) => (
-                      <i
-                        className={
-                          index === resolvedActionIndex ? "is-active" : ""
-                        }
-                        key={item.id}
-                      />
-                    ))}
-                  </span>
-                  <button
-                    aria-label="Next action item"
-                    onClick={() => moveAction(1)}
-                    type="button"
-                  >
-                    <ChevronRight size={14} />
-                  </button>
-                </div>
+                <OverviewActionPagination
+                  actions={overviewActions}
+                  index={resolvedOverviewActionIndex}
+                  onMove={moveAction}
+                />
               </footer>
             </article>
           ) : (
@@ -977,49 +1225,34 @@ export function DashboardPage() {
                     : "Nothing needs your judgment. Choose recurring work when you’re ready to put the team in motion."}
               </p>
               <button
-                className={
-                  preparationActive || initialReviewPending || continuingChatId
-                    ? "is-initial-review"
-                    : undefined
-                }
+                className={continuingChatId ? "is-primary" : undefined}
                 type="button"
-                disabled={
-                  (preparationActive || initialReviewPending) &&
-                  !preparationRoot &&
-                  !continuingChatId
-                }
                 onClick={() =>
                   continuingChatId
                     ? navigate(
                         `/conversations?chat=${encodeURIComponent(continuingChatId)}`,
                       )
-                    : (preparationActive || initialReviewPending) &&
-                        preparationRoot
-                      ? navigate(
-                          `/conversations?chat=${encodeURIComponent(preparationRoot.id)}`,
-                        )
-                      : navigate("/schedule")
+                    : navigate("/schedule")
                 }
               >
-                {continuingChatId
-                  ? "View Chief's work"
-                  : preparationActive || initialReviewPending
-                    ? preparationRoot
-                      ? "View initial review"
-                      : "Preparing initial review"
-                    : "View schedule"}{" "}
+                {continuingChatId ? "View Chief's work" : "View schedule"}{" "}
                 <ArrowRight size={13} />
               </button>
             </article>
           )}
 
-          {actions.length > 1 ? (
-            <div className="chief-overview-action-queue">
-              {actions.slice(0, 4).map((item, index) => (
+          {overviewActions.length > 1 ? (
+            <nav
+              aria-label="Choose an action item"
+              className="chief-overview-action-queue"
+            >
+              {overviewActions.slice(0, 4).map((item, index) => (
                 <button
-                  className={index === resolvedActionIndex ? "is-active" : ""}
+                  className={
+                    index === resolvedOverviewActionIndex ? "is-active" : ""
+                  }
                   key={item.id}
-                  onClick={() => setSelectedAction(index)}
+                  onClick={() => setSelectedActionId(item.id)}
                   type="button"
                 >
                   <span>{String(index + 1).padStart(2, "0")}</span>
@@ -1027,7 +1260,7 @@ export function DashboardPage() {
                   <small>{AGENT_NAMES[item.agentId] ?? item.agentId}</small>
                 </button>
               ))}
-            </div>
+            </nav>
           ) : null}
         </section>
 
@@ -1066,7 +1299,7 @@ export function DashboardPage() {
                   onKeyDown={(event) => {
                     if (event.key !== "Enter" && event.key !== " ") return;
                     event.preventDefault();
-                    navigate("/analytics");
+                    void navigate("/analytics");
                   }}
                   role="link"
                   style={{
@@ -1087,6 +1320,7 @@ export function DashboardPage() {
                   </div>
                   {slide.points ? (
                     <AnalyticsChart
+                      label={slide.label}
                       points={slide.points}
                       reduceMotion={Boolean(prefersReducedMotion)}
                     />
@@ -1234,61 +1468,14 @@ export function DashboardPage() {
       </section>
 
       <div className="chief-overview-composer-dock">
-        <div
-          className="chief-overview-suggestions"
-          aria-label="Suggested questions"
-        >
-          {SUGGESTIONS.map((suggestion) => (
-            <button
-              key={suggestion}
-              onClick={() => chooseSuggestion(suggestion)}
-              type="button"
-            >
-              {suggestion}
-            </button>
-          ))}
-        </div>
-        <div className="chief-overview-composer">
-          <textarea
-            aria-label="Message your Chief Marketing Officer"
-            className="chief-overview-composer-input"
-            onChange={(event) => {
-              setAsk(event.target.value);
-              resizeComposer();
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                submit();
-              }
-            }}
-            placeholder="Ask your Chief Marketing Officer a question"
-            ref={composerRef}
-            rows={1}
-            value={ask}
-          />
-          <footer>
-            <button
-              aria-label="Add context"
-              className="chief-overview-add-context"
-              type="button"
-            >
-              <Plus size={15} />
-            </button>
-            <span>
-              <Sparkles size={12} /> Chief
-            </span>
-            <button
-              aria-label="Send message"
-              className="chief-overview-send"
-              disabled={!ask.trim()}
-              onClick={submit}
-              type="button"
-            >
-              <ArrowUp size={15} />
-            </button>
-          </footer>
-        </div>
+        <ChatComposer
+          className="pointer-events-auto w-full max-w-3xl"
+          value={ask}
+          onValueChange={setAsk}
+          onSubmit={submit}
+          execution={overviewExecution}
+          onExecutionChange={setSelectedExecution}
+        />
       </div>
     </div>
   );
