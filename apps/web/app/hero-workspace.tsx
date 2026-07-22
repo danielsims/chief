@@ -235,10 +235,6 @@ function HeroIcon({ name, size = 18 }: { name: IconName; size?: number }) {
   );
 }
 
-function MetricCard({ children }: { children: ReactNode }) {
-  return <div className="hero-metric">{children}</div>;
-}
-
 export function HeroWorkspace() {
   const [demo, setDemo] = useState({
     eventIndex: 0,
@@ -320,45 +316,96 @@ export function HeroWorkspace() {
             <p>An overview of your channels and agents.</p>
           </div>
 
-          <div className="hero-metrics">
-            <MetricCard>
-              <span>
-                Action items
-                <i className="hero-attention-dot" />
-              </span>
-              <strong>{demo.actionCount}</strong>
-              <small>{dashboard.actionDetail}</small>
-            </MetricCard>
-            <MetricCard>
-              <span>Website traffic</span>
-              <div>
-                <strong>{dashboard.traffic}</strong>
-                {dashboard.trafficTrend ? (
-                  <b>{dashboard.trafficTrend}</b>
-                ) : null}
+          <div className="hero-overview-grid">
+            <section className="hero-overview-actions">
+              <article className="hero-overview-action-card">
+                <header>
+                  <div>
+                    <span className="hero-overview-agent-icon">
+                      <HeroIcon name="users" size={15} />
+                    </span>
+                    <span>
+                      <strong>{event.agent}</strong>
+                      <small>Action ready for review</small>
+                    </span>
+                  </div>
+                  <small>Now</small>
+                </header>
+                <div className="hero-overview-action-copy">
+                  <h3>{event.title}</h3>
+                  <p>{event.body}</p>
+                </div>
+                <footer>
+                  <span>{dashboard.actionDetail}</span>
+                  <div>
+                    <button type="button">Review</button>
+                    <button type="button" aria-label="Dismiss action">
+                      ×
+                    </button>
+                  </div>
+                </footer>
+              </article>
+              <div className="hero-overview-action-queue">
+                <span>
+                  <i />
+                  {demo.actionCount} action{demo.actionCount === 1 ? "" : "s"}{" "}
+                  ready
+                </span>
+                <span>
+                  View all <b>→</b>
+                </span>
               </div>
-              <small>{dashboard.trafficDetail}</small>
-            </MetricCard>
-            <MetricCard>
-              <span>Signups</span>
-              <strong>{dashboard.signups}</strong>
-              <small>{dashboard.signupDetail}</small>
-            </MetricCard>
-            <MetricCard>
-              <span>New prospects</span>
-              <strong>{dashboard.prospects}</strong>
-              <small>{dashboard.prospectDetail}</small>
-            </MetricCard>
-            <MetricCard>
-              <span>Trending topics</span>
-              <strong>24</strong>
-              <small>New signals surfaced</small>
-            </MetricCard>
-            <MetricCard>
-              <span>Scheduled posts</span>
-              <strong>{dashboard.scheduled}</strong>
-              <small>{dashboard.scheduledDetail}</small>
-            </MetricCard>
+            </section>
+
+            <aside className="hero-overview-side">
+              <section className="hero-overview-analytics">
+                <header>
+                  <h3>Website traffic</h3>
+                  <span>Last 30 days</span>
+                </header>
+                <div className="hero-overview-analytics-value">
+                  <strong>{dashboard.traffic}</strong>
+                  <span>{dashboard.trafficTrend ?? "↗ 12.4%"}</span>
+                </div>
+                <div className="hero-overview-chart" aria-hidden="true">
+                  <svg viewBox="0 0 280 70" preserveAspectRatio="none">
+                    <path d="M0 61 28 49 54 54 82 38 110 43 138 28 166 34 194 19 222 25 250 9 280 14" />
+                  </svg>
+                </div>
+              </section>
+              <section className="hero-overview-schedule">
+                <header>
+                  <h3>Agent work</h3>
+                  <span>Today</span>
+                </header>
+                <ol>
+                  <li>
+                    <i className="complete" />
+                    <time>09:30</time>
+                    <span>
+                      <strong>Weekly review</strong>
+                      <small>Analyst</small>
+                    </span>
+                  </li>
+                  <li>
+                    <i className="active" />
+                    <time>11:00</time>
+                    <span>
+                      <strong>Content plan</strong>
+                      <small>Content writer</small>
+                    </span>
+                  </li>
+                  <li>
+                    <i />
+                    <time>14:00</time>
+                    <span>
+                      <strong>Prospect scan</strong>
+                      <small>Prospector</small>
+                    </span>
+                  </li>
+                </ol>
+              </section>
+            </aside>
           </div>
 
           <div className="hero-chief-composer">

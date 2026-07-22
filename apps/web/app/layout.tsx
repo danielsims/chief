@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Inter, Lato } from "next/font/google";
+import localFont from "next/font/local";
 
 import { getToken } from "../lib/auth-server";
 import { ConvexClientProvider } from "../lib/convex";
@@ -18,6 +19,13 @@ const inter = Inter({
   subsets: ["latin"],
   variable: "--font-openai-fallback",
   display: "swap",
+});
+
+const geistPixel = localFont({
+  src: "../../desktop/src/assets/fonts/GeistPixel-Square.woff2",
+  variable: "--font-pixel",
+  display: "swap",
+  weight: "400 700",
 });
 
 export const metadata: Metadata = {
@@ -58,7 +66,10 @@ export default async function RootLayout({
   const token = await getToken();
 
   return (
-    <html lang="en" className={`${lato.variable} ${inter.variable} dark`}>
+    <html
+      lang="en"
+      className={`${lato.variable} ${inter.variable} ${geistPixel.variable} dark`}
+    >
       <body>
         <ConvexClientProvider initialToken={token}>
           {children}

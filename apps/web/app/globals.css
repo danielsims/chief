@@ -20,6 +20,8 @@
 
 :root {
   scroll-behavior: smooth;
+  /* Keep editorial type consistent with the desktop app across public and auth pages. */
+  --font-serif: var(--font-pixel);
 }
 body {
   margin: 0;
@@ -400,6 +402,225 @@ body {
   margin: 8px 0 0;
   color: #777773;
   font-size: 10px;
+}
+.hero-overview-grid {
+  min-height: 0;
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1.55fr) minmax(180px, 0.85fr);
+  gap: 10px;
+}
+.hero-overview-actions,
+.hero-overview-analytics,
+.hero-overview-schedule {
+  border: 1px solid #272727;
+  background: #111;
+}
+.hero-overview-actions {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.hero-overview-action-card {
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding: 17px;
+}
+.hero-overview-action-card > header,
+.hero-overview-action-card > header > div,
+.hero-overview-action-card footer,
+.hero-overview-action-card footer > div,
+.hero-overview-analytics header,
+.hero-overview-schedule header,
+.hero-overview-analytics-value,
+.hero-overview-action-queue {
+  display: flex;
+  align-items: center;
+}
+.hero-overview-action-card > header,
+.hero-overview-action-card footer,
+.hero-overview-analytics header,
+.hero-overview-schedule header,
+.hero-overview-action-queue {
+  justify-content: space-between;
+}
+.hero-overview-action-card > header > div {
+  gap: 8px;
+}
+.hero-overview-agent-icon {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #343434;
+  color: #b8b8b3;
+}
+.hero-overview-action-card strong,
+.hero-overview-action-card small,
+.hero-overview-action-card footer,
+.hero-overview-analytics header,
+.hero-overview-schedule header,
+.hero-overview-schedule ol {
+  font-size: 8px;
+}
+.hero-overview-action-card > header small,
+.hero-overview-action-card > header > small,
+.hero-overview-action-card footer > span,
+.hero-overview-analytics header span,
+.hero-overview-schedule header span,
+.hero-overview-schedule small {
+  color: #777773;
+}
+.hero-overview-action-copy {
+  max-width: 350px;
+  margin: auto 0;
+}
+.hero-overview-action-copy h3,
+.hero-overview-analytics h3,
+.hero-overview-schedule h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+}
+.hero-overview-action-copy p {
+  max-width: 290px;
+  margin: 8px 0 0;
+  color: #93938f;
+  font-size: 9px;
+  line-height: 1.45;
+}
+.hero-overview-action-card footer > div {
+  gap: 5px;
+}
+.hero-overview-action-card footer button {
+  height: 21px;
+  padding: 0 8px;
+  border: 1px solid #363636;
+  background: transparent;
+  color: #dededa;
+  font-size: 8px;
+}
+.hero-overview-action-card footer button:first-child {
+  background: #ededeb;
+  color: #111;
+}
+.hero-overview-action-card footer button:last-child {
+  width: 21px;
+  padding: 0;
+}
+.hero-overview-action-queue {
+  min-height: 37px;
+  padding: 0 13px;
+  border-top: 1px solid #272727;
+  color: #92928e;
+  font-size: 8px;
+}
+.hero-overview-action-queue i,
+.hero-overview-schedule li > i {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 6px;
+  background: #747470;
+}
+.hero-overview-action-queue i {
+  background: #efb64d;
+}
+.hero-overview-action-queue b {
+  margin-left: 4px;
+  color: #dededa;
+}
+.hero-overview-side {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 0.93fr 1.07fr;
+  gap: 10px;
+}
+.hero-overview-analytics,
+.hero-overview-schedule {
+  min-height: 0;
+  padding: 14px;
+  overflow: hidden;
+}
+.hero-overview-analytics header,
+.hero-overview-schedule header {
+  color: #a8a8a4;
+}
+.hero-overview-analytics h3,
+.hero-overview-schedule h3 {
+  font-size: 9px;
+  font-weight: 550;
+  letter-spacing: 0;
+}
+.hero-overview-analytics-value {
+  gap: 7px;
+  margin-top: 12px;
+}
+.hero-overview-analytics-value strong {
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: -0.04em;
+}
+.hero-overview-analytics-value span {
+  color: #28b984;
+  font-size: 8px;
+}
+.hero-overview-chart {
+  height: 50px;
+  margin-top: 6px;
+  border-bottom: 1px solid #232323;
+}
+.hero-overview-chart svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.hero-overview-chart path {
+  fill: none;
+  stroke: #d7d7d1;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.hero-overview-schedule ol {
+  display: grid;
+  gap: 10px;
+  margin: 13px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.hero-overview-schedule li {
+  display: grid;
+  grid-template-columns: 7px 31px minmax(0, 1fr);
+  align-items: start;
+  color: #aaa9a5;
+}
+.hero-overview-schedule li > i {
+  margin-top: 3px;
+}
+.hero-overview-schedule li > i.complete {
+  background: #23ca91;
+}
+.hero-overview-schedule li > i.active {
+  background: #efb64d;
+}
+.hero-overview-schedule time {
+  color: #777773;
+  font-size: 7px;
+}
+.hero-overview-schedule li span {
+  display: grid;
+  gap: 2px;
+}
+.hero-overview-schedule li strong {
+  font-weight: 500;
+  font-size: 8px;
+}
+.hero-overview-schedule small {
+  font-size: 7px;
 }
 .hero-metrics {
   display: grid;
@@ -3590,4 +3811,10 @@ footer > span {
   .download-grid article {
     min-height: 330px;
   }
+}
+
+/* Marketing pages keep the calmer sans display treatment; Pixel is reserved
+   for the product UI and non-marketing flows. */
+.landing :is(h1, h2, h3) {
+  font-family: var(--font-sans);
 }
