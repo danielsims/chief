@@ -163,6 +163,9 @@ void test("generic setup uses Executor handoffs without executing registry code"
   assert.match(task, /integrations\.sh\/api\.json/);
   assert.match(task, /connection creation handoff/);
   assert.match(task, /OAuth-client creation handoff/);
+  assert.match(task, /returned approvalUrl/);
+  assert.match(task, /immediately call Executor's resume tool/);
+  assert.match(task, /do not wait for a chat reply/);
   assert.doesNotMatch(task, /\bnpx\b|CHIEF_INPUT_REQUEST \{/);
   assert.throws(
     () =>

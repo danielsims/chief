@@ -804,7 +804,7 @@ async function provision(
   return workspace;
 }
 
-export async function openExecutorHandoff(workspaceId: string, url: string) {
+export async function executorHandoffUrl(workspaceId: string, url: string) {
   const manifest = await readManifest(pathsForWorkspace(workspaceId).dataDir);
   if (manifest?.connection.auth.kind !== "bearer") {
     throw new Error("The local connection service is not running.");
@@ -818,9 +818,7 @@ export async function openExecutorHandoff(workspaceId: string, url: string) {
     throw new Error("The connection handoff URL is invalid.");
   }
   handoff.searchParams.set("_token", manifest.connection.auth.token);
-  await execFileAsync("/usr/bin/open", [handoff.toString()], {
-    timeout: 10_000,
-  });
+  return handoff.toString();
 }
 
 /** Returns the isolated on-disk Executor scope for an already-provisioned workspace. */
