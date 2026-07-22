@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Square } from "lucide-react";
 
+import type { ChatExecutionSelection } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 
 import type { SetupResult } from "../../lib/integration-setup";
@@ -14,10 +15,10 @@ import {
   setupResultMatchesIntegration,
   withoutMarkerLines,
 } from "../../lib/integration-setup";
+import { useLocalIntegrationStatus } from "../../lib/local-integration-status";
 import {
   messageBlocks,
   useIntegrationSetupChat,
-  useLocalIntegrationStatus,
   useRuntime,
   useWorkspaceData,
 } from "../../lib/runtime";
@@ -59,10 +60,17 @@ export function IntegrationSetupPanel({
   const { cloudOrganizationId } = useAuth();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const { integrations: localIntegrations } = useLocalIntegrationStatus();
-  const chatId = providedChatId ?? integrationSetupChatId(sessionKey);
+  const chatId =
+    providedChatId ??
+    (cloudOrganizationId
+      ? integrationSetupChatId(cloudOrganizationId, sessionKey)
+      : null);
   const action = actionId
     ? workspaceData.actionItems.find((item) => item.id === actionId)
     : undefined;
+  const [selectedExecution, setSelectedExecution] = useState<
+    ChatExecutionSelection | undefined
+  >();
   const {
     messages,
     controls,
@@ -73,7 +81,7 @@ export function IntegrationSetupPanel({
     provideInput,
     chatReady,
     execution,
-  } = useIntegrationSetupChat(chatId, sessionKey);
+  } = useIntegrationSetupChat(chatId, sessionKey, selectedExecution);
   const [draft, setDraft] = useState("");
   const [submittedInputId, setSubmittedInputId] = useState<string | null>(null);
   const pendingInput = useMemo(
@@ -87,7 +95,7 @@ export function IntegrationSetupPanel({
   const autoContinuedAttemptsRef = useRef<Set<string>>(new Set());
   const reportedRef = useRef<Set<string>>(new Set());
   const latestAttempt = useMemo(() => latestSetupAttempt(messages), [messages]);
-  const setupProgress = integrationSetupProgress[chatId];
+  const setupProgress = integrationSetupProgress[chatId ?? ""];
   const integrationConnected =
     localIntegrations?.some(
       (integration) =>
@@ -253,7 +261,7 @@ export function IntegrationSetupPanel({
     void sendMessage({ text });
   };
 
-  if (runtimeStatus !== "connected") {
+  if (runtimeStatus !== "connected" || !chatId) {
     return (
       <div className="text-muted-foreground border border-dashed px-3 py-2 text-xs">
         Waiting for the local agent service before setup can start.
@@ -385,11 +393,11 @@ export function IntegrationSetupPanel({
             value={draft}
             onValueChange={setDraft}
             onSubmit={submit}
-            execution={execution}
+            execution={selectedExecution ?? execution}
+            onExecutionChange={setSelectedExecution}
             running={controls.status === "running"}
             onInterrupt={interrupt}
             showSuggestions={false}
-            showExecutionControls={false}
           />
         ) : (
           <div className="flex items-center gap-2 border-t px-2 py-1.5">

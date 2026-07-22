@@ -76,7 +76,11 @@ import {
   updateAuthOrganization,
 } from "../lib/auth/better-auth-client";
 import { hasWorkspaceAccess, openWorkspaceCheckout } from "../lib/billing";
-import { searchIntegrations } from "../lib/integrations";
+import {
+  cachedIntegrationSearch,
+  searchIntegrations,
+} from "../lib/integrations";
+import { primeLocalIntegrationStatus } from "../lib/local-integration-status-cache";
 import {
   LOCAL_ONBOARDING_FALLBACK,
   nextOnboardingStep,
@@ -191,8 +195,8 @@ const questions: Record<StepKey, string> = {
     "Where should your agents proactively search for prospects, buying signals and relevant conversations?",
   analytics: "Which analytics platforms do you use today?",
   ads: "Where do you run paid ads today?",
-  adsBudget: "No ads today. Want your agents to run them for you?",
-  aeo: "One more thing. Want to know when ChatGPT, Claude or Perplexity send you customers?",
+  adsBudget: "Roughly how much could you put toward paid ads each month?",
+  aeo: "One last thing. Want to know when ChatGPT, Claude or Perplexity send you customers?",
   engineering: "Would you like Chief to make code changes to your website?",
   engineeringTools: "Which tools power your website?",
   automation:
@@ -1013,9 +1017,13 @@ function modeLabel(draft: OnboardingDraft) {
 }
 
 function questionText(step: StepKey, draft: OnboardingDraft) {
-  return step === "inference" && draft.workspaceMode === "cloud"
-    ? "Which cloud provider should Chief use?"
-    : questions[step];
+  if (step === "inference" && draft.workspaceMode === "cloud") {
+    return "Which cloud provider should Chief use?";
+  }
+  if (step === "adsBudget" && draft.ads.integrations.length > 0) {
+    return "Roughly how much do you spend on paid ads each month?";
+  }
+  return questions[step];
 }
 
 function AnswerPreview({
@@ -2498,13 +2506,21 @@ function IntegrationPickerControl({
   saving: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const [results, setResults] =
-    useState<IntegrationSearchResult[]>(fallbackIntegrations);
+  const [results, setResults] = useState<IntegrationSearchResult[]>(
+    () => cachedIntegrationSearch(defaultSearchQuery) ?? fallbackIntegrations,
+  );
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    const trimmed = query.trim() || defaultSearchQuery;
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setResults(
+        cachedIntegrationSearch(defaultSearchQuery) ?? fallbackIntegrations,
+      );
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const timeout = window.setTimeout(() => {
       void searchIntegrations(trimmed)
@@ -2801,7 +2817,6 @@ export function OnboardingPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     void listAuthOrganizations().then((orgs) => {
       if (cancelled) return;
       const active =
@@ -2825,6 +2840,13 @@ export function OnboardingPage() {
       cancelled = true;
     };
   }, [cloudOrganizationId, searchParams, setSearchParams, user?.name]);
+
+  useEffect(() => {
+    void Promise.allSettled([
+      searchIntegrations("analytics"),
+      searchIntegrations("ads"),
+    ]);
+  }, []);
 
   useEffect(() => {
     if (!draft) return;
@@ -2995,23 +3017,20 @@ export function OnboardingPage() {
     if (editingStep) setEditingStep(null);
   }, [editingStep]);
 
-  const clearAdsSelection = useCallback(
-    (nextStep: "adsBudget" | "aeo") => {
-      setNotice(null);
-      setError(null);
-      setDraft((current) =>
-        current
-          ? {
-              ...current,
-              ads: { ...current.ads, integrations: [] },
-              ...(editingStep ? {} : { step: nextStep }),
-            }
-          : current,
-      );
-      if (editingStep) setEditingStep(null);
-    },
-    [editingStep],
-  );
+  const clearAdsSelection = useCallback(() => {
+    setNotice(null);
+    setError(null);
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            ads: { ...current.ads, integrations: [] },
+            ...(editingStep ? {} : { step: "adsBudget" as const }),
+          }
+        : current,
+    );
+    if (editingStep) setEditingStep(null);
+  }, [editingStep]);
 
   const goNext = useCallback(() => {
     setNotice(null);
@@ -3052,7 +3071,15 @@ export function OnboardingPage() {
     const nextDraft = { ...draft, step: "inference" as const };
     localStorage.setItem(storageKey(created.id), JSON.stringify(nextDraft));
     localStorage.removeItem(pendingStorageKey());
-    window.location.assign("/onboarding");
+    primeLocalIntegrationStatus(created.id, []);
+    setOrg({
+      ...created,
+      metadata: {
+        ...metadata,
+        onboarding: { ...onboarding, provisional: true },
+      },
+    });
+    setDraft(nextDraft);
     return true;
   }, [draft, org]);
 
@@ -3313,22 +3340,12 @@ export function OnboardingPage() {
         await completeOnboarding();
         return;
       }
-      if (!editingStep && step === "ads" && draft.ads.integrations.length > 0) {
-        setNotice(null);
-        setError(null);
-        setDraft((current) =>
-          current ? { ...current, step: "aeo" } : current,
-        );
-        return;
-      }
       if (!editingStep && step === "engineering") {
         setDraft((current) =>
           current
             ? {
                 ...current,
-                step: current.engineering.enabled
-                  ? "engineeringTools"
-                  : "automation",
+                step: current.engineering.enabled ? "engineeringTools" : "aeo",
               }
             : current,
         );
@@ -3562,8 +3579,8 @@ export function OnboardingPage() {
           searchPlaceholder="Search ads tools"
           emptySelectionLabel="I don't run ads"
           skipLabel="Skip for now"
-          onEmptySelection={() => clearAdsSelection("adsBudget")}
-          onSkip={() => clearAdsSelection("aeo")}
+          onEmptySelection={clearAdsSelection}
+          onSkip={clearAdsSelection}
           onContinue={advance}
           saving={saving}
         />
@@ -3574,16 +3591,6 @@ export function OnboardingPage() {
         <AdsBudgetControl
           budget={draft.ads.budget}
           setBudget={setAdsBudget}
-          onContinue={advance}
-          saving={saving}
-        />
-      );
-    }
-    if (step === "aeo") {
-      return (
-        <AeoControl
-          selected={draft.aeo.trackAiReferrals}
-          setSelected={(trackAiReferrals) => setAeo({ trackAiReferrals })}
           onContinue={advance}
           saving={saving}
         />
@@ -3609,6 +3616,16 @@ export function OnboardingPage() {
         <EngineeringToolsControl
           selected={draft.engineering.integrations}
           setSelected={(integrations) => setEngineering({ integrations })}
+          onContinue={advance}
+          saving={saving}
+        />
+      );
+    }
+    if (step === "aeo") {
+      return (
+        <AeoControl
+          selected={draft.aeo.trackAiReferrals}
+          setSelected={(trackAiReferrals) => setAeo({ trackAiReferrals })}
           onContinue={advance}
           saving={saving}
         />
@@ -3694,9 +3711,6 @@ export function OnboardingPage() {
             .filter(
               (pastStep) =>
                 pastStep !== editingStep &&
-                !(
-                  pastStep === "adsBudget" && draft.ads.integrations.length > 0
-                ) &&
                 !(
                   pastStep === "engineeringTools" && !draft.engineering.enabled
                 ),

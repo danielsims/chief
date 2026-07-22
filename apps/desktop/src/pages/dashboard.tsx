@@ -36,6 +36,7 @@ import { useAgentConfig } from "../lib/agent-config";
 import { setAgentOverride, setWorkspaceProvider } from "../lib/agent-overrides";
 import { useAuth } from "../lib/auth/auth-context";
 import {
+  cachedAuthOrganization,
   listAuthOrganizations,
   parseOrganizationMetadata,
 } from "../lib/auth/better-auth-client";
@@ -52,6 +53,7 @@ import {
   isGoogleAnalyticsConnectionAction,
   isOnboardingGoogleAnalyticsAction,
 } from "../lib/integration-setup";
+import { useLocalIntegrationStatus } from "../lib/local-integration-status";
 import {
   isOnboardingEngineeringAction,
   onboardingEngineeringSetup,
@@ -59,7 +61,6 @@ import {
 } from "../lib/onboarding-engineering";
 import {
   useAgentPreferences,
-  useLocalIntegrationStatus,
   useObservedChat,
   useWorkspaceData,
 } from "../lib/runtime";
@@ -429,14 +430,14 @@ export function DashboardPage() {
   const [ask, setAsk] = useState("");
   const [selectedExecution, setSelectedExecution] =
     useState<ChatExecutionSelection | null>(null);
+  const { cloudOrganizationId, user } = useAuth();
   const [organization, setOrganization] = useState<AuthOrganization | null>(
-    null,
+    () => cachedAuthOrganization(cloudOrganizationId),
   );
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null);
   const [continuingChatId, setContinuingChatId] = useState<string | null>(null);
   const [analyticsIndex, setAnalyticsIndex] = useState(0);
   const [analyticsPaused, setAnalyticsPaused] = useState(false);
-  const { cloudOrganizationId, user } = useAuth();
   const agentConfig = useAgentConfig();
   const chiefConfig = agentConfig.forAgent("cmo");
   const overviewExecution =
@@ -914,14 +915,21 @@ export function DashboardPage() {
 
   const openAction = (action = currentAction) => {
     if (!action) return;
-    if (isOnboardingEngineeringAction(action) && nextEngineeringIntegration) {
+    if (
+      isOnboardingEngineeringAction(action) &&
+      nextEngineeringIntegration &&
+      cloudOrganizationId
+    ) {
       localStorage.setItem(
         `chief:integration-setup:${nextEngineeringIntegration.domain}`,
         "active",
       );
       void navigate(
         `/conversations?chat=${encodeURIComponent(
-          integrationSetupChatId(nextEngineeringIntegration.domain),
+          integrationSetupChatId(
+            cloudOrganizationId,
+            nextEngineeringIntegration.domain,
+          ),
         )}`,
       );
       return;

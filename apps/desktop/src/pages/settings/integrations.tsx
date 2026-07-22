@@ -17,13 +17,12 @@ import {
 
 import type { CatalogIntegration } from "../../lib/integration-catalog";
 import { ProviderLogo } from "../../components/provider-logo";
+import { useAuth } from "../../lib/auth/auth-context";
 import { INTEGRATION_CATALOG } from "../../lib/integration-catalog";
 import { integrationSetupChatId } from "../../lib/integration-setup";
+import { useLocalIntegrationStatus } from "../../lib/local-integration-status";
 import { providerDetails } from "../../lib/provider-details";
-import {
-  useDisconnectGoogleAnalytics,
-  useLocalIntegrationStatus,
-} from "../../lib/runtime";
+import { useDisconnectGoogleAnalytics } from "../../lib/runtime";
 
 interface ConnectedIntegration {
   _id?: string;
@@ -81,14 +80,18 @@ function connectedIntegrations(
 
 function IntegrationCatalog({ connected }: { connected: Set<string> }) {
   const navigate = useNavigate();
+  const { cloudOrganizationId } = useAuth();
 
   const install = (integration: CatalogIntegration) => {
+    if (!cloudOrganizationId) return;
     localStorage.setItem(
       `chief:integration-setup:${integration.domain}`,
       "active",
     );
     void navigate(
-      `/conversations?chat=${encodeURIComponent(integrationSetupChatId(integration.domain))}`,
+      `/conversations?chat=${encodeURIComponent(
+        integrationSetupChatId(cloudOrganizationId, integration.domain),
+      )}`,
     );
   };
 

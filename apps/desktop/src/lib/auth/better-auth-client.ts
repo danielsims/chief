@@ -164,10 +164,82 @@ let organizationCache:
   | undefined;
 let organizationRequest:
   { token: string; promise: Promise<AuthOrganization[]> } | undefined;
+const ORGANIZATION_CACHE_KEY = "chief-auth-organizations";
+
+function persistOrganizationCache() {
+  const session = getStoredSession();
+  if (!session || organizationCache?.token !== session.token) return;
+  localStorage.setItem(
+    ORGANIZATION_CACHE_KEY,
+    JSON.stringify({
+      userId: session.user.id,
+      organizations: organizationCache.organizations,
+      cachedAt: organizationCache.cachedAt,
+    }),
+  );
+}
+
+function restoreOrganizationCache() {
+  const session = getStoredSession();
+  if (!session || organizationCache?.token === session.token) return;
+  try {
+    const stored = JSON.parse(
+      localStorage.getItem(ORGANIZATION_CACHE_KEY) ?? "null",
+    ) as {
+      userId?: unknown;
+      organizations?: unknown;
+      cachedAt?: unknown;
+    } | null;
+    if (
+      stored?.userId === session.user.id &&
+      Array.isArray(stored.organizations) &&
+      typeof stored.cachedAt === "number"
+    ) {
+      organizationCache = {
+        token: session.token,
+        organizations: stored.organizations as AuthOrganization[],
+        cachedAt: stored.cachedAt,
+      };
+    }
+  } catch {
+    localStorage.removeItem(ORGANIZATION_CACHE_KEY);
+  }
+}
 
 function invalidateOrganizationCache() {
   organizationCache = undefined;
   organizationRequest = undefined;
+  localStorage.removeItem(ORGANIZATION_CACHE_KEY);
+}
+
+function cacheOrganization(organization: AuthOrganization) {
+  const token = getStoredSession()?.token;
+  if (!token) return;
+  const organizations =
+    organizationCache?.token === token
+      ? organizationCache.organizations.filter(
+          (candidate) => candidate.id !== organization.id,
+        )
+      : [];
+  organizationCache = {
+    token,
+    organizations: [...organizations, organization],
+    cachedAt: Date.now(),
+  };
+  persistOrganizationCache();
+}
+
+export function cachedAuthOrganization(organizationId: string | null) {
+  restoreOrganizationCache();
+  const token = getStoredSession()?.token;
+  if (!organizationId || !token || organizationCache?.token !== token) {
+    return null;
+  }
+  return (
+    organizationCache.organizations.find(
+      (organization) => organization.id === organizationId,
+    ) ?? null
+  );
 }
 
 export async function listAuthOrganizations(
@@ -180,6 +252,7 @@ export async function listAuthOrganizations(
   const storedSession = getStoredSession();
   if (!storedSession?.token) return [];
   const token = storedSession.token;
+  restoreOrganizationCache();
   if (
     !force &&
     organizationCache?.token === token &&
@@ -211,6 +284,7 @@ export async function listAuthOrganizations(
           organizations,
           cachedAt: Date.now(),
         };
+        persistOrganizationCache();
         return organizations;
       } finally {
         if (organizationRequest?.token === token) {
@@ -253,8 +327,6 @@ export async function setActiveAuthOrganization(
       `Failed to switch organization: ${response.status} ${text}`,
     );
   }
-  invalidateOrganizationCache();
-
   setStoredSession({
     ...storedSession,
     organizationId,
@@ -290,7 +362,9 @@ export async function updateAuthOrganization(
       `Failed to update organization: ${response.status} ${text}`,
     );
   }
-  invalidateOrganizationCache();
+  const cached = cachedAuthOrganization(organizationId);
+  if (cached) cacheOrganization({ ...cached, ...data });
+  else invalidateOrganizationCache();
 }
 
 export async function deleteAuthOrganization(
@@ -371,6 +445,6 @@ export async function createAuthOrganization(input: {
 
   const responseData = (await response.json()) as AuthOrganization | null;
   if (!responseData) throw new Error("No organization returned");
-  invalidateOrganizationCache();
+  cacheOrganization(responseData);
   return responseData;
 }

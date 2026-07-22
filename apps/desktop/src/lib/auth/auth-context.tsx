@@ -33,6 +33,7 @@ import {
   storePkceVerifier,
 } from "./pkce";
 import {
+  AUTH_SESSION_CHANGED_EVENT,
   clearStoredSession,
   getStoredSession,
   setStoredSession,
@@ -72,6 +73,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
   const authFlowCleanupRef = useRef<(() => void) | null>(null);
   const authFlowCompletedRef = useRef(false);
+
+  useEffect(() => {
+    const syncStoredSession = () => setStoredSessionState(getStoredSession());
+    window.addEventListener(AUTH_SESSION_CHANGED_EVENT, syncStoredSession);
+    return () =>
+      window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, syncStoredSession);
+  }, []);
 
   const invalidateSession = useCallback(() => {
     authFlowCleanupRef.current?.();
