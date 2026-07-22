@@ -1,0 +1,400 @@
+import { useCallback, useEffect, useRef } from "react";
+
+import type {
+  BrowserFrameMetadata,
+  BrowserStreamMessage,
+  BrowserViewportStatus,
+} from "./protocol.js";
+import { browserKeyboardInput } from "./protocol.js";
+
+export interface AgentBrowserViewportProps {
+  ariaLabel?: string;
+  className?: string;
+  streamUrl: string;
+  onStatusChange?: (status: BrowserViewportStatus) => void;
+  onUrlChange?: (url: string) => void;
+  onViewportResize?: (width: number, height: number) => void;
+}
+
+interface ActivePointer {
+  button: "left" | "middle" | "right";
+  clickCount: number;
+  modifiers: number;
+  pointerId: number;
+  x: number;
+  y: number;
+}
+
+function modifiers(event: {
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+}) {
+  return (
+    (event.altKey ? 1 : 0) |
+    (event.ctrlKey ? 2 : 0) |
+    (event.metaKey ? 4 : 0) |
+    (event.shiftKey ? 8 : 0)
+  );
+}
+
+/** A visible, interactive client for agent-browser's pair-browsing stream. */
+export function AgentBrowserViewport({
+  ariaLabel = "Interactive browser",
+  className,
+  streamUrl,
+  onStatusChange,
+  onUrlChange,
+  onViewportResize,
+}: AgentBrowserViewportProps) {
+  const elementRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const metadataRef = useRef<BrowserFrameMetadata | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+  const moveFrameRef = useRef<number | null>(null);
+  const pendingMoveRef = useRef<Record<string, unknown> | null>(null);
+  const activePointerRef = useRef<ActivePointer | null>(null);
+  const statusChangeRef = useRef(onStatusChange);
+  const urlChangeRef = useRef(onUrlChange);
+  const viewportResizeRef = useRef(onViewportResize);
+  statusChangeRef.current = onStatusChange;
+  urlChangeRef.current = onUrlChange;
+  viewportResizeRef.current = onViewportResize;
+
+  const send = useCallback((message: unknown) => {
+    const socket = socketRef.current;
+    if (socket?.readyState !== WebSocket.OPEN) return false;
+    try {
+      socket.send(JSON.stringify(message));
+      return true;
+    } catch {
+      socket.close();
+      return false;
+    }
+  }, []);
+
+  const point = useCallback((clientX: number, clientY: number) => {
+    const element = elementRef.current;
+    const metadata = metadataRef.current;
+    if (!element || !metadata) return null;
+    const rect = element.getBoundingClientRect();
+    const scaleX = rect.width / metadata.deviceWidth;
+    const scaleY = rect.height / metadata.deviceHeight;
+    return {
+      x: Math.max(
+        0,
+        Math.min(metadata.deviceWidth, (clientX - rect.left) / scaleX),
+      ),
+      y: Math.max(
+        0,
+        Math.min(metadata.deviceHeight, (clientY - rect.top) / scaleY),
+      ),
+    };
+  }, []);
+
+  const releaseActivePointer = useCallback(() => {
+    const active = activePointerRef.current;
+    if (!active) return true;
+    const released = send({
+      type: "input_mouse",
+      eventType: "mouseReleased",
+      x: active.x,
+      y: active.y,
+      button: active.button,
+      clickCount: active.clickCount,
+      modifiers: active.modifiers,
+    });
+    if (released) activePointerRef.current = null;
+    return released;
+  }, [send]);
+
+  useEffect(() => {
+    let closed = false;
+    let decoding = false;
+    let frameVersion = 0;
+    let pendingFrame: Extract<BrowserStreamMessage, { type: "frame" }> | null =
+      null;
+    const drawLatestFrame = async () => {
+      if (decoding || !pendingFrame) return;
+      decoding = true;
+      try {
+        while (!closed && pendingFrame) {
+          const message = pendingFrame;
+          const messageVersion = frameVersion;
+          pendingFrame = null;
+          metadataRef.current = message.metadata;
+          const binary = atob(message.data);
+          const bytes = new Uint8Array(binary.length);
+          for (let index = 0; index < binary.length; index += 1) {
+            bytes[index] = binary.charCodeAt(index);
+          }
+          const bitmap = await createImageBitmap(
+            new Blob([bytes], { type: "image/jpeg" }),
+          );
+          if (messageVersion === frameVersion) {
+            const canvas = canvasRef.current;
+            if (canvas) {
+              if (canvas.width !== bitmap.width) canvas.width = bitmap.width;
+              if (canvas.height !== bitmap.height)
+                canvas.height = bitmap.height;
+              canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
+            }
+          }
+          bitmap.close();
+        }
+      } finally {
+        decoding = false;
+        if (!closed && pendingFrame) void drawLatestFrame();
+      }
+    };
+    let reconnectAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    const connect = () => {
+      if (closed) return;
+      statusChangeRef.current?.("connecting");
+      const socket = new WebSocket(streamUrl);
+      socketRef.current = socket;
+      socket.addEventListener("open", () => {
+        if (closed || socketRef.current !== socket) return;
+        reconnectAttempt = 0;
+        elementRef.current?.focus({ preventScroll: true });
+        // If the previous socket vanished between down/up, explicitly release
+        // the remote button before accepting another interaction.
+        releaseActivePointer();
+        statusChangeRef.current?.("connected");
+      });
+      socket.addEventListener("close", () => {
+        if (socketRef.current === socket) socketRef.current = null;
+        if (closed) return;
+        statusChangeRef.current?.("disconnected");
+        const delay = Math.min(2_000, 250 * 2 ** reconnectAttempt);
+        reconnectAttempt += 1;
+        reconnectTimer = setTimeout(connect, delay);
+      });
+      socket.addEventListener("error", () => {
+        if (closed || socketRef.current !== socket) return;
+        statusChangeRef.current?.("error");
+        socket.close();
+      });
+      socket.addEventListener("message", (event) => {
+        if (typeof event.data !== "string") return;
+        let message: BrowserStreamMessage;
+        try {
+          message = JSON.parse(event.data) as BrowserStreamMessage;
+        } catch {
+          return;
+        }
+        if (message.type === "url") {
+          urlChangeRef.current?.(message.url);
+          return;
+        }
+        if (message.type === "cursor") {
+          if (elementRef.current) {
+            elementRef.current.style.cursor = message.cursor;
+          }
+          return;
+        }
+        if (message.type !== "frame") return;
+        frameVersion += 1;
+        pendingFrame = message;
+        void drawLatestFrame();
+      });
+    };
+    connect();
+    return () => {
+      closed = true;
+      pendingFrame = null;
+      releaseActivePointer();
+      if (moveFrameRef.current) cancelAnimationFrame(moveFrameRef.current);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      socketRef.current?.close();
+      socketRef.current = null;
+    };
+  }, [releaseActivePointer, streamUrl]);
+
+  useEffect(() => {
+    const element = elementRef.current;
+    if (!element) return;
+    let last = "";
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return;
+      const width = Math.round(entry.contentRect.width);
+      const height = Math.round(entry.contentRect.height);
+      const key = `${width}x${height}`;
+      if (width < 1 || height < 1 || key === last) return;
+      last = key;
+      viewportResizeRef.current?.(width, height);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const handleKeyboard = (event: KeyboardEvent) => {
+      if (document.activeElement !== elementRef.current) return;
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        String(event.key).toLowerCase() === "v"
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      send(
+        browserKeyboardInput(
+          {
+            altKey: Boolean(event.altKey),
+            code: String(event.code),
+            ctrlKey: Boolean(event.ctrlKey),
+            key: String(event.key),
+            metaKey: Boolean(event.metaKey),
+            shiftKey: Boolean(event.shiftKey),
+          },
+          event.type === "keydown" ? "keyDown" : "keyUp",
+        ),
+      );
+    };
+    const handlePaste = (event: ClipboardEvent) => {
+      if (document.activeElement !== elementRef.current) return;
+      const text = event.clipboardData?.getData("text/plain");
+      if (!text) return;
+      event.preventDefault();
+      event.stopPropagation();
+      for (const character of text) {
+        const input = {
+          altKey: false,
+          code: "",
+          ctrlKey: false,
+          key: character,
+          metaKey: false,
+          shiftKey: false,
+        };
+        send(browserKeyboardInput(input, "keyDown"));
+        send(browserKeyboardInput(input, "keyUp"));
+      }
+    };
+    const releasePointer = () => releaseActivePointer();
+    const releasePointerWhenHidden = () => {
+      if (document.visibilityState === "hidden") releaseActivePointer();
+    };
+    window.addEventListener("keydown", handleKeyboard, true);
+    window.addEventListener("keyup", handleKeyboard, true);
+    window.addEventListener("paste", handlePaste, true);
+    window.addEventListener("blur", releasePointer, true);
+    document.addEventListener("visibilitychange", releasePointerWhenHidden);
+    return () => {
+      releaseActivePointer();
+      window.removeEventListener("keydown", handleKeyboard, true);
+      window.removeEventListener("keyup", handleKeyboard, true);
+      window.removeEventListener("paste", handlePaste, true);
+      window.removeEventListener("blur", releasePointer, true);
+      document.removeEventListener(
+        "visibilitychange",
+        releasePointerWhenHidden,
+      );
+    };
+  }, [releaseActivePointer, send]);
+
+  const mouse = (
+    eventType: "mouseMoved" | "mousePressed",
+    event: React.PointerEvent<HTMLDivElement>,
+  ) => {
+    const position = point(event.clientX, event.clientY);
+    if (!position) return;
+    const button: ActivePointer["button"] =
+      event.button === 2 ? "right" : event.button === 1 ? "middle" : "left";
+    const message = {
+      type: "input_mouse",
+      eventType,
+      ...position,
+      button,
+      clickCount: event.detail || 1,
+      modifiers: modifiers(event),
+    };
+    if (eventType === "mousePressed") {
+      if (!releaseActivePointer()) return;
+      const activePointer = {
+        button: message.button,
+        clickCount: message.clickCount,
+        modifiers: message.modifiers,
+        pointerId: event.pointerId,
+        x: message.x,
+        y: message.y,
+      };
+      if (send(message)) activePointerRef.current = activePointer;
+      return;
+    }
+    if (activePointerRef.current?.pointerId === event.pointerId) {
+      activePointerRef.current.x = message.x;
+      activePointerRef.current.y = message.y;
+    }
+    pendingMoveRef.current = message;
+    if (moveFrameRef.current) return;
+    moveFrameRef.current = requestAnimationFrame(() => {
+      moveFrameRef.current = null;
+      if (pendingMoveRef.current) send(pendingMoveRef.current);
+    });
+  };
+
+  return (
+    <div
+      ref={elementRef}
+      role="application"
+      tabIndex={0}
+      aria-label={ariaLabel}
+      className={className}
+      onContextMenu={(event) => event.preventDefault()}
+      onPointerDown={(event) => {
+        event.currentTarget.focus();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        mouse("mousePressed", event);
+      }}
+      onPointerMove={(event) => mouse("mouseMoved", event)}
+      onPointerUp={(event) => {
+        if (activePointerRef.current?.pointerId === event.pointerId) {
+          const position = point(event.clientX, event.clientY);
+          if (position) {
+            activePointerRef.current.x = position.x;
+            activePointerRef.current.y = position.y;
+          }
+          releaseActivePointer();
+        }
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      }}
+      onPointerCancel={(event) => {
+        releaseActivePointer();
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      }}
+      onLostPointerCapture={releaseActivePointer}
+      onWheel={(event) => {
+        event.preventDefault();
+        const position = point(event.clientX, event.clientY);
+        if (!position) return;
+        send({
+          type: "input_mouse",
+          eventType: "mouseWheel",
+          ...position,
+          deltaX: event.deltaX,
+          deltaY: event.deltaY,
+          modifiers: modifiers(event),
+        });
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        style={{
+          display: "block",
+          height: "100%",
+          pointerEvents: "none",
+          userSelect: "none",
+          width: "100%",
+        }}
+      />
+    </div>
+  );
+}
