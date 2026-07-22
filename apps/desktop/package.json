@@ -21,6 +21,8 @@
     "@ai-sdk/react": "4.0.33",
     "@chief/agent-runtime": "workspace:*",
     "@chief/backend": "workspace:*",
+    "@chief/browser": "workspace:*",
+    "@chief/google-oauth-connector": "workspace:*",
     "@chief/ui": "workspace:*",
     "@lobehub/icons": "^5.10.1",
     "@t3-oss/env-core": "^0.13.8",

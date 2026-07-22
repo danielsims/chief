@@ -218,9 +218,50 @@ await build({
         }));
       },
     },
+    {
+      name: "bundle-google-oauth-connector",
+      setup(build) {
+        build.onResolve({ filter: /^@chief\/google-oauth-connector$/ }, () => ({
+          path: join(repoRoot, "packages/google-oauth-connector/src/index.ts"),
+        }));
+      },
+    },
+    {
+      name: "bundle-chief-browser",
+      setup(build) {
+        build.onResolve({ filter: /^@chief\/browser\/node$/ }, () => ({
+          path: join(repoRoot, "packages/browser/src/node.ts"),
+        }));
+      },
+    },
   ],
   platform: "node",
   target: "node24",
+});
+
+const bundledRuntime = readFileSync(
+  join(runtimeRoot, "dist/server.mjs"),
+  "utf8",
+);
+if (
+  bundledRuntime.includes('"@chief/google-oauth-connector"') ||
+  bundledRuntime.includes("'@chief/google-oauth-connector'")
+) {
+  throw new Error("Google OAuth connector escaped the desktop runtime bundle.");
+}
+rmSync(join(runtimeRoot, "node_modules/@chief/google-oauth-connector"), {
+  recursive: true,
+  force: true,
+});
+if (
+  bundledRuntime.includes('"@chief/browser/node"') ||
+  bundledRuntime.includes("'@chief/browser/node'")
+) {
+  throw new Error("Chief browser client escaped the desktop runtime bundle.");
+}
+rmSync(join(runtimeRoot, "node_modules/@chief/browser"), {
+  recursive: true,
+  force: true,
 });
 
 // Prompts are runtime assets, not bundled strings. Shipping the canonical

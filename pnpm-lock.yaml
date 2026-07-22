@@ -66,6 +66,12 @@ importers:
       "@chief/backend":
         specifier: workspace:*
         version: link:../../packages/backend
+      "@chief/browser":
+        specifier: workspace:*
+        version: link:../../packages/browser
+      "@chief/google-oauth-connector":
+        specifier: workspace:*
+        version: link:../../packages/google-oauth-connector
       "@chief/ui":
         specifier: workspace:*
         version: link:../../packages/ui
@@ -330,9 +336,15 @@ importers:
       "@anthropic-ai/claude-agent-sdk":
         specifier: ^0.1.5
         version: 0.1.77(zod@3.25.76)
+      "@chief/browser":
+        specifier: workspace:*
+        version: link:../browser
       "@chief/email":
         specifier: workspace:*
         version: link:../email
+      "@chief/google-oauth-connector":
+        specifier: workspace:*
+        version: link:../google-oauth-connector
       "@libsql/client":
         specifier: 0.17.4
         version: 0.17.4
@@ -441,7 +453,7 @@ importers:
         version: 0.13.11(typescript@5.9.3)(zod@4.4.3)
       better-auth:
         specifier: 1.6.16
-        version: 1.6.16(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        version: 1.6.16(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       convex:
         specifier: ^1.31.6
         version: 1.42.1(react@19.2.7)
@@ -470,6 +482,43 @@ importers:
       prettier:
         specifier: "catalog:"
         version: 3.9.4
+      typescript:
+        specifier: "catalog:"
+        version: 5.9.3
+
+  packages/browser:
+    dependencies:
+      agent-browser:
+        specifier: 0.32.3
+        version: 0.32.3
+    devDependencies:
+      "@chief/eslint-config":
+        specifier: workspace:*
+        version: link:../../tooling/eslint
+      "@chief/prettier-config":
+        specifier: workspace:*
+        version: link:../../tooling/prettier
+      "@chief/tsconfig":
+        specifier: workspace:*
+        version: link:../../tooling/typescript
+      "@types/node":
+        specifier: "catalog:"
+        version: 24.13.3
+      "@types/react":
+        specifier: "catalog:"
+        version: 19.2.17
+      eslint:
+        specifier: "catalog:"
+        version: 9.39.5(jiti@2.7.0)
+      prettier:
+        specifier: "catalog:"
+        version: 3.9.4
+      react:
+        specifier: ^19.1.0
+        version: 19.2.7
+      tsx:
+        specifier: ^4.20.3
+        version: 4.23.0
       typescript:
         specifier: "catalog:"
         version: 5.9.3
@@ -513,6 +562,33 @@ importers:
       react-email:
         specifier: 6.7.0
         version: 6.7.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      typescript:
+        specifier: "catalog:"
+        version: 5.9.3
+
+  packages/google-oauth-connector:
+    devDependencies:
+      "@chief/eslint-config":
+        specifier: workspace:*
+        version: link:../../tooling/eslint
+      "@chief/prettier-config":
+        specifier: workspace:*
+        version: link:../../tooling/prettier
+      "@chief/tsconfig":
+        specifier: workspace:*
+        version: link:../../tooling/typescript
+      "@types/node":
+        specifier: "catalog:"
+        version: 24.13.3
+      eslint:
+        specifier: "catalog:"
+        version: 9.39.5(jiti@2.7.0)
+      prettier:
+        specifier: "catalog:"
+        version: 3.9.4
+      tsx:
+        specifier: ^4.20.3
+        version: 4.23.0
       typescript:
         specifier: "catalog:"
         version: 5.9.3
@@ -606,7 +682,7 @@ importers:
         version: 16.2.10
       eslint-plugin-import:
         specifier: ^2.32.0
-        version: 2.32.0(@typescript-eslint/parser@8.64.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.5(jiti@2.7.0))
+        version: 2.32.0(eslint@9.39.5(jiti@2.7.0))
       eslint-plugin-react:
         specifier: ^7.37.5
         version: 7.37.5(eslint@9.39.5(jiti@2.7.0))
@@ -7349,6 +7425,14 @@ packages:
         integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==,
       }
     engines: { node: ">= 14" }
+
+  agent-browser@0.32.3:
+    resolution:
+      {
+        integrity: sha512-jwmqex/vEFNWx7X/W3JnZSWm5C+46SFKWDXYD7timGPCcvqHZtdVIBnKGUz7iCJYflQg4DrtxWUWzuin9+zoyA==,
+      }
+    engines: { node: ">=24.0.0", pnpm: ">=11.0.0" }
+    hasBin: true
 
   ahooks@3.9.7:
     resolution:
@@ -15755,7 +15839,7 @@ snapshots:
       "@better-fetch/fetch": 1.2.2
       "@opentelemetry/semantic-conventions": 1.42.0
       "@standard-schema/spec": 1.1.0
-      better-call: 1.3.6(zod@4.3.6)
+      better-call: 1.3.6(zod@4.4.3)
       jose: 6.2.3
       kysely: 0.29.3
       nanostores: 1.4.0
@@ -19612,6 +19696,8 @@ snapshots:
 
   agent-base@7.1.4: {}
 
+  agent-browser@0.32.3: {}
+
   ahooks@3.9.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
     dependencies:
       "@babel/runtime": 7.29.7
@@ -19935,7 +20021,7 @@ snapshots:
       "@better-fetch/fetch": 1.2.2
       "@noble/ciphers": 2.2.0
       "@noble/hashes": 2.2.0
-      better-call: 1.3.6(zod@4.3.6)
+      better-call: 1.3.6(zod@4.4.3)
       defu: 6.1.7
       jose: 6.2.3
       kysely: 0.29.3
@@ -20021,6 +20107,15 @@ snapshots:
       set-cookie-parser: 3.1.1
     optionalDependencies:
       zod: 4.3.6
+
+  better-call@1.3.6(zod@4.4.3):
+    dependencies:
+      "@better-auth/utils": 0.4.1
+      "@better-fetch/fetch": 1.2.2
+      rou3: 0.7.12
+      set-cookie-parser: 3.1.1
+    optionalDependencies:
+      zod: 4.4.3
 
   better-sqlite3@12.4.1:
     dependencies:
@@ -21028,17 +21123,16 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-module-utils@2.14.0(@typescript-eslint/parser@8.64.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3))(eslint-import-resolver-node@0.3.10)(eslint@9.39.5(jiti@2.7.0)):
+  eslint-module-utils@2.14.0(eslint-import-resolver-node@0.3.10)(eslint@9.39.5(jiti@2.7.0)):
     dependencies:
       debug: 3.2.7
     optionalDependencies:
-      "@typescript-eslint/parser": 8.64.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
       eslint: 9.39.5(jiti@2.7.0)
       eslint-import-resolver-node: 0.3.10
     transitivePeerDependencies:
       - supports-color
 
-  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.64.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.5(jiti@2.7.0)):
+  eslint-plugin-import@2.32.0(eslint@9.39.5(jiti@2.7.0)):
     dependencies:
       "@rtsao/scc": 1.1.0
       array-includes: 3.1.9
@@ -21049,7 +21143,7 @@ snapshots:
       doctrine: 2.1.0
       eslint: 9.39.5(jiti@2.7.0)
       eslint-import-resolver-node: 0.3.10
-      eslint-module-utils: 2.14.0(@typescript-eslint/parser@8.64.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3))(eslint-import-resolver-node@0.3.10)(eslint@9.39.5(jiti@2.7.0))
+      eslint-module-utils: 2.14.0(eslint-import-resolver-node@0.3.10)(eslint@9.39.5(jiti@2.7.0))
       hasown: 2.0.4
       is-core-module: 2.16.2
       is-glob: 4.0.3
@@ -21060,8 +21154,6 @@ snapshots:
       semver: 6.3.1
       string.prototype.trimend: 1.0.10
       tsconfig-paths: 3.15.0
-    optionalDependencies:
-      "@typescript-eslint/parser": 8.64.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
     transitivePeerDependencies:
       - eslint-import-resolver-typescript
       - eslint-import-resolver-webpack
