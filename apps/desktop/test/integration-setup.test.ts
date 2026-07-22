@@ -91,9 +91,13 @@ void test("onboarding Google Analytics actions own distinct Setup chats", () => 
   );
   assert.equal(googleAnalyticsActionIdFromChat(chatId), actionId);
   assert.equal(googleAnalyticsActionIdFromChat("ordinary-chat"), null);
-  const directChatId = integrationSetupChatId("pendo.io");
-  assert.equal(directChatId, "integration-setup-v5-pendo.io");
+  const directChatId = integrationSetupChatId("workspace-one", "pendo.io");
+  assert.equal(directChatId, "integration-setup-v6-workspace-one--pendo.io");
   assert.equal(integrationSetupDomainFromChat(directChatId), "pendo.io");
+  assert.notEqual(
+    directChatId,
+    integrationSetupChatId("workspace-two", "pendo.io"),
+  );
 });
 
 void test("setup completion must match the requested integration", () => {

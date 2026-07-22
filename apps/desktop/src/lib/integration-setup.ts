@@ -30,28 +30,30 @@ export const SETUP_ATTEMPT_PREFIX = "[chief-integration-setup:";
 
 /** The runtime confirms stored input with a user-turn starting with this. */
 export const INPUT_PROVIDED_PREFIX = "Provided:";
-const DIRECT_SETUP_CHAT_PREFIX = "integration-setup-v5-";
+const DIRECT_SETUP_CHAT_PREFIX = "integration-setup-v6-";
 
-export function integrationSetupChatId(domain: string) {
+export function integrationSetupChatId(workspaceId: string, domain: string) {
+  if (!/^[a-z0-9_-]+$/i.test(workspaceId)) {
+    throw new Error("Workspace ID is invalid.");
+  }
   if (!/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/i.test(domain)) {
     throw new Error("Integration domain is invalid.");
   }
-  return `${DIRECT_SETUP_CHAT_PREFIX}${domain.toLowerCase()}`;
+  return `${DIRECT_SETUP_CHAT_PREFIX}${workspaceId}--${domain.toLowerCase()}`;
 }
 
 export function integrationSetupDomainFromChat(chatId: string | null) {
   if (!chatId) return null;
   if (googleAnalyticsActionIdFromChat(chatId)) return GOOGLE_ANALYTICS_DOMAIN;
   if (chatId.startsWith(DIRECT_SETUP_CHAT_PREFIX)) {
-    const domain = chatId.slice(DIRECT_SETUP_CHAT_PREFIX.length);
+    const scoped = chatId.slice(DIRECT_SETUP_CHAT_PREFIX.length);
+    const separator = scoped.indexOf("--");
+    const domain = separator < 0 ? "" : scoped.slice(separator + 2);
     return /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/i.test(domain)
       ? domain
       : null;
   }
-  return chatId.startsWith("integration-setup-v4-") &&
-    chatId.endsWith("-analytics-googleapis-com")
-    ? GOOGLE_ANALYTICS_DOMAIN
-    : null;
+  return null;
 }
 
 export interface SetupResult {

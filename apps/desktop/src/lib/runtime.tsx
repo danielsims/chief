@@ -33,7 +33,6 @@ import type {
   ExecutorCapability,
   InputRequest,
   IntegrationSetupProgress,
-  LocalIntegrationStatus,
   OnboardingSchedule,
   OnboardingWorkJob,
   ProspectRecord,
@@ -1851,65 +1850,6 @@ export function useWorkspaceEnvironmentVariables() {
   };
 }
 
-export function useLocalIntegrationStatus() {
-  const { client, status } = useRuntime();
-  const { cloudOrganizationId, capability } = useWorkspaceCapability();
-  const [integrationState, setIntegrationState] = useState<{
-    workspaceId: string;
-    integrations: LocalIntegrationStatus[];
-  } | null>(null);
-  const integrations =
-    integrationState?.workspaceId === cloudOrganizationId
-      ? integrationState.integrations
-      : null;
-
-  useEffect(() => {
-    if (status !== "connected" || !cloudOrganizationId || !capability) {
-      return;
-    }
-    const inspect = () => {
-      client.send({
-        type: "inspectWorkspaceIntegrations",
-        workspaceId: cloudOrganizationId,
-        executorCapability: capability,
-      });
-    };
-    const unsubscribe = client.subscribe((message) => {
-      if (
-        message.type === "localIntegrationStatus" &&
-        message.workspaceId === cloudOrganizationId
-      ) {
-        setIntegrationState({
-          workspaceId: message.workspaceId,
-          integrations: message.integrations,
-        });
-        return;
-      }
-      if (
-        message.type === "integrationVerified" &&
-        message.workspaceId === cloudOrganizationId
-      ) {
-        inspect();
-      }
-    });
-    inspect();
-    return () => {
-      unsubscribe();
-    };
-  }, [capability, client, cloudOrganizationId, status]);
-
-  const refresh = () => {
-    if (!cloudOrganizationId || !capability) return;
-    client.send({
-      type: "inspectWorkspaceIntegrations",
-      workspaceId: cloudOrganizationId,
-      executorCapability: capability,
-    });
-  };
-
-  return { integrations, refresh };
-}
-
 export function useDisconnectGoogleAnalytics() {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
@@ -2473,12 +2413,13 @@ export function useChiefChat(
 export function useIntegrationSetupChat(
   chatId: string | null,
   integrationDomain: string,
+  selectedExecution?: ChatExecutionSelection,
 ) {
   return useRuntimeChat(
     chatId,
     "open",
     undefined,
-    undefined,
+    selectedExecution,
     "full",
     "integration-setup",
     integrationDomain,
