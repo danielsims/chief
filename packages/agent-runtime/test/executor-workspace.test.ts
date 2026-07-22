@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { codexMcpResultText } from "../src/drivers/codex.js";
@@ -8,6 +11,7 @@ import {
   googleAnalyticsSpecOverrides,
   prepareGoogleAnalyticsSpec,
 } from "../src/tools/control-plane.js";
+import { redactExecutorHandoffCredentials } from "../src/tools/redaction.js";
 import { executorToolServer } from "../src/tools/spec.js";
 
 void test("Executor keychain storage is isolated per Chief workspace", () => {
@@ -21,6 +25,44 @@ void test("Executor keychain storage is isolated per Chief workspace", () => {
   assert.equal(
     executorToolServer(first).env?.EXECUTOR_KEYCHAIN_SERVICE_NAME,
     first.keychainServiceName,
+  );
+});
+
+void test("Executor HTTP transports preserve the requested approval mode", (context) => {
+  const root = mkdtempSync(join(tmpdir(), "chief-executor-transport-"));
+  context.after(() => rmSync(root, { force: true, recursive: true }));
+  const workspace = {
+    scopeDir: join(root, "scope"),
+    dataDir: join(root, "data"),
+    keychainServiceName: "chief-executor-test",
+  };
+  const controlDirectory = join(workspace.dataDir, "server-control");
+  mkdirSync(controlDirectory, { recursive: true });
+  writeFileSync(
+    join(controlDirectory, "server.json"),
+    JSON.stringify({
+      connection: {
+        origin: "http://127.0.0.1:4123",
+        auth: { kind: "bearer", token: "test-token" },
+      },
+    }),
+  );
+  assert.equal(
+    executorToolServer(workspace, "browser").url,
+    "http://127.0.0.1:4123/mcp?elicitation_mode=browser",
+  );
+  assert.equal(
+    executorToolServer(workspace, "model").url,
+    "http://127.0.0.1:4123/mcp?elicitation_mode=model",
+  );
+});
+
+void test("Executor handoff credentials are redacted from browser snapshots", () => {
+  assert.equal(
+    redactExecutorHandoffCredentials(
+      "http://127.0.0.1:4123/resume/run?_token=secret&next=1",
+    ),
+    "http://127.0.0.1:4123/resume/run?_token=[redacted]&next=1",
   );
 });
 

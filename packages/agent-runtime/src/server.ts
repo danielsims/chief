@@ -85,13 +85,14 @@ import {
   awaitGoogleAnalyticsAuthorization,
   disconnectGoogleAnalyticsConnection,
   ensureExecutorWorkspace,
+  executorHandoffUrl,
   inspectGoogleAnalyticsConfiguration,
-  openExecutorHandoff,
   prepareIntegrationSetup,
   startGoogleAnalyticsAuthorization,
   storeGoogleAnalyticsOAuthClient,
   verifyGoogleAnalyticsConnection,
 } from "./tools/control-plane.js";
+import { redactExecutorHandoffCredentials } from "./tools/redaction.js";
 import { executorToolServer } from "./tools/spec.js";
 import {
   capabilityWhoamiUrl,
@@ -588,12 +589,16 @@ export function startServer(port = PORT) {
           .get(workspaceId)
           ?.get(conversationId)
           ?.endsWith(".googleapis.com") === true;
-      const visibleUrl = isGoogleSetup
-        ? redactGoogleOAuthCredentials(snapshot.url)
-        : snapshot.url;
-      const visibleSnapshot = isGoogleSetup
-        ? redactGoogleOAuthCredentials(snapshot.snapshot)
-        : snapshot.snapshot;
+      const visibleUrl = redactExecutorHandoffCredentials(
+        isGoogleSetup
+          ? redactGoogleOAuthCredentials(snapshot.url)
+          : snapshot.url,
+      );
+      const visibleSnapshot = redactExecutorHandoffCredentials(
+        isGoogleSetup
+          ? redactGoogleOAuthCredentials(snapshot.snapshot)
+          : snapshot.snapshot,
+      );
       return {
         snapshot: {
           url: visibleUrl,
@@ -1148,15 +1153,9 @@ export function startServer(port = PORT) {
           activeIntegrationSetups.set(workspaceId, active);
         },
         openIntegrationHandoff: async (sessionId, attemptId, url) => {
-          const domain =
-            integrationSetupDomains.get(workspaceId)?.get(sessionId) ?? "";
-          assertActiveIntegrationSetup(
-            workspaceId,
-            sessionId,
-            attemptId,
-            domain,
-          );
-          await openExecutorHandoff(workspaceId, url);
+          activeIntegrationSetup(workspaceId, sessionId, attemptId);
+          const handoffUrl = await executorHandoffUrl(workspaceId, url);
+          await openBrowserSession(workspaceId, sessionId, handoffUrl);
         },
         googleOAuth: {
           provisionClient: async (sessionId, attemptId) => {
