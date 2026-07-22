@@ -1,5 +1,3 @@
-/* eslint-disable max-lines */
-
 import type { ReactNode } from "react";
 import type { SimpleIcon } from "simple-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -48,8 +46,16 @@ import type { IntegrationSearchResult } from "../lib/integrations";
 import type { OnboardingStep } from "../lib/onboarding-flow";
 import type { SocialPlatform } from "../lib/social-platforms";
 import { ConvexLogo } from "../components/convex-logo";
-import { GoogleLogo } from "../components/google-logo";
 import { IntegrationAvatarStack } from "../components/integrations/integration-avatar-stack";
+import { IntegrationChoiceCard } from "../components/integrations/integration-choice-card";
+import {
+  EngineeringAccessControl,
+  EngineeringToolsControl,
+} from "../components/onboarding/engineering-setup-controls";
+import {
+  Chip,
+  StepFrame,
+} from "../components/onboarding/onboarding-step-frame";
 import { resolveFaviconUrl } from "../components/org-logo";
 import { useAgentDeployments } from "../lib/agent-deployments";
 import {
@@ -70,7 +76,7 @@ import {
   updateAuthOrganization,
 } from "../lib/auth/better-auth-client";
 import { hasWorkspaceAccess, openWorkspaceCheckout } from "../lib/billing";
-import { integrationLogoUrl, searchIntegrations } from "../lib/integrations";
+import { searchIntegrations } from "../lib/integrations";
 import {
   LOCAL_ONBOARDING_FALLBACK,
   nextOnboardingStep,
@@ -152,6 +158,10 @@ interface OnboardingDraft {
   aeo: {
     trackAiReferrals: boolean;
   };
+  engineering: {
+    enabled: boolean | null;
+    integrations: IntegrationSearchResult[];
+  };
   automation: {
     defaultsVersion: number;
     mode: AutomationMode;
@@ -183,6 +193,8 @@ const questions: Record<StepKey, string> = {
   ads: "Where do you run paid ads today?",
   adsBudget: "No ads today. Want your agents to run them for you?",
   aeo: "One more thing. Want to know when ChatGPT, Claude or Perplexity send you customers?",
+  engineering: "Would you like Chief to help with technical growth changes?",
+  engineeringTools: "Which code and deployment tools do you use?",
   automation:
     "Here is the recurring work I recommend starting with. Review the schedule, then activate what you want.",
   pricing: "Choose how this workspace is billed.",
@@ -477,6 +489,10 @@ function baseDraft(): OnboardingDraft {
     aeo: {
       trackAiReferrals: true,
     },
+    engineering: {
+      enabled: null,
+      integrations: [],
+    },
     automation: {
       defaultsVersion: 2,
       mode: "automatic",
@@ -580,6 +596,10 @@ function draftFromOrg(
     onboarding.aeo && typeof onboarding.aeo === "object"
       ? (onboarding.aeo as Partial<OnboardingDraft["aeo"]>)
       : {};
+  const engineering =
+    onboarding.engineering && typeof onboarding.engineering === "object"
+      ? (onboarding.engineering as Partial<OnboardingDraft["engineering"]>)
+      : {};
   const brand =
     onboarding.brand && typeof onboarding.brand === "object"
       ? (onboarding.brand as Record<string, unknown>)
@@ -669,6 +689,11 @@ function draftFromOrg(
       trackAiReferrals:
         typeof aeo.trackAiReferrals === "boolean" ? aeo.trackAiReferrals : true,
     },
+    engineering: {
+      enabled:
+        typeof engineering.enabled === "boolean" ? engineering.enabled : null,
+      integrations: normaliseIntegrations(engineering.integrations),
+    },
     automation: {
       defaultsVersion: 2,
       mode:
@@ -705,6 +730,8 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
       Partial<OnboardingDraft["analytics"]> | undefined;
     const parsedAds = parsed.ads as Partial<OnboardingDraft["ads"]> | undefined;
     const parsedAeo = parsed.aeo as Partial<OnboardingDraft["aeo"]> | undefined;
+    const parsedEngineering = parsed.engineering as
+      Partial<OnboardingDraft["engineering"]> | undefined;
     const parsedBrand = parsed.brand as
       Partial<OnboardingDraft["brand"]> | undefined;
     const parsedAutomation = parsed.automation as
@@ -799,6 +826,13 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
           typeof parsedAeo?.trackAiReferrals === "boolean"
             ? parsedAeo.trackAiReferrals
             : base.aeo.trackAiReferrals,
+      },
+      engineering: {
+        enabled:
+          typeof parsedEngineering?.enabled === "boolean"
+            ? parsedEngineering.enabled
+            : base.engineering.enabled,
+        integrations: normaliseIntegrations(parsedEngineering?.integrations),
       },
       automation: {
         defaultsVersion: 2,
@@ -1141,6 +1175,25 @@ function AnswerPreview({
     );
   }
 
+  if (step === "engineering") {
+    return (
+      <UserBubble>
+        {draft.engineering.enabled
+          ? "Yes, help with technical setup"
+          : "Not right now"}
+      </UserBubble>
+    );
+  }
+
+  if (step === "engineeringTools") {
+    return (
+      <UserBubble>
+        {selectedIntegrationNames(draft.engineering.integrations) ??
+          "No engineering tools selected"}
+      </UserBubble>
+    );
+  }
+
   if (step === "automation") {
     const enabled = draft.automation.plan.filter((item) => item.enabled);
     const modeLabel =
@@ -1170,72 +1223,6 @@ function AnswerPreview({
   }
 
   return null;
-}
-
-function Chip({
-  selected,
-  children,
-  onClick,
-}: {
-  selected: boolean;
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "hover:border-foreground inline-flex min-h-9 items-center gap-2 border px-3 py-1.5 text-sm transition-colors",
-        selected
-          ? "border-foreground bg-accent text-foreground"
-          : "bg-background text-muted-foreground",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-function StepFrame({
-  children,
-  onContinue,
-  disabled,
-  saving,
-  continueLabel = "Continue",
-  actionsLeft,
-  actionsAlign = "left",
-}: {
-  children: React.ReactNode;
-  onContinue: () => void;
-  disabled?: boolean;
-  saving?: boolean;
-  continueLabel?: string;
-  actionsLeft?: React.ReactNode;
-  actionsAlign?: "left" | "right";
-}) {
-  return (
-    <div className="bg-card/60 w-full border p-5 shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]">
-      {children}
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-        <div
-          className={cn(
-            "flex flex-wrap items-center gap-2",
-            actionsAlign === "right" && "ml-auto",
-          )}
-        >
-          {actionsLeft}
-        </div>
-        <Button
-          type="button"
-          onClick={() => void onContinue()}
-          disabled={disabled || saving}
-        >
-          {saving ? "Saving..." : continueLabel}
-        </Button>
-      </div>
-    </div>
-  );
 }
 
 function ModeControl({
@@ -2485,84 +2472,6 @@ function MonitoringControl({
   );
 }
 
-function IntegrationLogo({
-  integration,
-}: {
-  integration: IntegrationSearchResult;
-}) {
-  const [failed, setFailed] = useState(false);
-  if (integration.domain.endsWith(".googleapis.com")) {
-    return (
-      <span className="bg-background flex h-7 w-7 shrink-0 items-center justify-center border">
-        <GoogleLogo className="h-4 w-4" />
-      </span>
-    );
-  }
-
-  if (integration.domain === "none" || failed) {
-    return (
-      <span className="bg-background text-muted-foreground flex h-7 w-7 shrink-0 items-center justify-center border text-[10px]">
-        {integration.name.slice(0, 1)}
-      </span>
-    );
-  }
-
-  return (
-    <span className="bg-background flex h-7 w-7 shrink-0 items-center justify-center border">
-      <img
-        src={integrationLogoUrl(integration.domain)}
-        alt=""
-        className="h-4 w-4"
-        loading="lazy"
-        onError={() => setFailed(true)}
-      />
-    </span>
-  );
-}
-
-function IntegrationCard({
-  integration,
-  selected,
-  onClick,
-}: {
-  integration: IntegrationSearchResult;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "bg-background hover:border-foreground flex h-[100px] items-start gap-3 overflow-hidden border p-4 text-left transition-colors",
-        selected && "border-foreground bg-muted",
-      )}
-    >
-      <IntegrationLogo integration={integration} />
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-medium">
-          {integration.name}
-        </span>
-        <span className="text-muted-foreground mt-1 line-clamp-2 block text-xs leading-5">
-          {integration.description || integration.domain}
-        </span>
-        {integration.kinds.length ? (
-          <span className="mt-2 flex flex-wrap gap-1">
-            {integration.kinds.slice(0, 3).map((kind) => (
-              <span
-                key={kind}
-                className="text-muted-foreground border px-1.5 py-0.5 text-[10px] uppercase"
-              >
-                {kind}
-              </span>
-            ))}
-          </span>
-        ) : null}
-      </span>
-    </button>
-  );
-}
-
 function IntegrationPickerControl({
   selected,
   setSelected,
@@ -2668,7 +2577,7 @@ function IntegrationPickerControl({
       </div>
       <div className="mt-4 grid h-[360px] auto-rows-[100px] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
         {options.map((integration) => (
-          <IntegrationCard
+          <IntegrationChoiceCard
             key={integration.domain}
             integration={integration}
             selected={selected.some(
@@ -2758,6 +2667,7 @@ function AeoControl({
     </StepFrame>
   );
 }
+
 function PricingControl({
   plan,
   setPlan,
@@ -3042,6 +2952,20 @@ export function OnboardingPage() {
     );
   }, []);
 
+  const setEngineering = useCallback(
+    (patch: Partial<OnboardingDraft["engineering"]>) => {
+      setDraft((current) =>
+        current
+          ? {
+              ...current,
+              engineering: { ...current.engineering, ...patch },
+            }
+          : current,
+      );
+    },
+    [],
+  );
+
   const setAutomation = useCallback(
     (patch: Partial<OnboardingDraft["automation"]>) => {
       setDraft((current) =>
@@ -3303,6 +3227,7 @@ export function OnboardingPage() {
           analytics: draft.analytics,
           ads: draft.ads,
           aeo: draft.aeo,
+          engineering: draft.engineering,
           automation: draft.automation,
         },
       };
@@ -3393,6 +3318,19 @@ export function OnboardingPage() {
         setError(null);
         setDraft((current) =>
           current ? { ...current, step: "aeo" } : current,
+        );
+        return;
+      }
+      if (!editingStep && step === "engineering") {
+        setDraft((current) =>
+          current
+            ? {
+                ...current,
+                step: current.engineering.enabled
+                  ? "engineeringTools"
+                  : "automation",
+              }
+            : current,
         );
         return;
       }
@@ -3651,6 +3589,31 @@ export function OnboardingPage() {
         />
       );
     }
+    if (step === "engineering") {
+      return (
+        <EngineeringAccessControl
+          selected={draft.engineering.enabled}
+          setSelected={(enabled) =>
+            setEngineering({
+              enabled,
+              ...(enabled ? {} : { integrations: [] }),
+            })
+          }
+          onContinue={advance}
+          saving={saving}
+        />
+      );
+    }
+    if (step === "engineeringTools") {
+      return (
+        <EngineeringToolsControl
+          selected={draft.engineering.integrations}
+          setSelected={(integrations) => setEngineering({ integrations })}
+          onContinue={advance}
+          saving={saving}
+        />
+      );
+    }
     if (step === "automation") {
       return (
         <AutomationControl
@@ -3693,6 +3656,7 @@ export function OnboardingPage() {
     setBrand,
     setGoals,
     setAeo,
+    setEngineering,
     setAutomation,
     setAdsIntegrations,
     setAdsBudget,
@@ -3732,6 +3696,9 @@ export function OnboardingPage() {
                 pastStep !== editingStep &&
                 !(
                   pastStep === "adsBudget" && draft.ads.integrations.length > 0
+                ) &&
+                !(
+                  pastStep === "engineeringTools" && !draft.engineering.enabled
                 ),
             )
             .map((pastStep) => (

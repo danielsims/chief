@@ -16,6 +16,9 @@ void test("onboarding chooses execution before company context", () => {
 void test("integration choices capture intent without setup screens", () => {
   assert.equal(nextOnboardingStep("analytics"), "ads");
   assert.equal(nextOnboardingStep("ads"), "adsBudget");
+  assert.equal(nextOnboardingStep("aeo"), "engineering");
+  assert.equal(nextOnboardingStep("engineering"), "engineeringTools");
+  assert.equal(nextOnboardingStep("engineeringTools"), "automation");
 });
 
 void test("cloud deployment can fall back to local setup atomically", () => {

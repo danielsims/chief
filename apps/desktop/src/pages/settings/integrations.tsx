@@ -15,7 +15,9 @@ import {
   DialogTrigger,
 } from "@chief/ui/components/dialog";
 
+import type { CatalogIntegration } from "../../lib/integration-catalog";
 import { ProviderLogo } from "../../components/provider-logo";
+import { INTEGRATION_CATALOG } from "../../lib/integration-catalog";
 import { integrationSetupChatId } from "../../lib/integration-setup";
 import { providerDetails } from "../../lib/provider-details";
 import {
@@ -32,82 +34,6 @@ interface ConnectedIntegration {
   connectedAt?: number;
   lastSyncAt?: number;
 }
-
-interface CatalogIntegration {
-  provider: string;
-  domain: string;
-  name: string;
-  description: string;
-}
-
-const INTEGRATION_CATALOG: {
-  category: string;
-  integrations: CatalogIntegration[];
-}[] = [
-  {
-    category: "Analytics",
-    integrations: [
-      {
-        provider: "google-analytics",
-        domain: "analytics.googleapis.com",
-        name: "Google Analytics",
-        description: "GA4 acquisition, traffic, and conversion reporting.",
-      },
-      {
-        provider: "posthog.com",
-        domain: "posthog.com",
-        name: "PostHog",
-        description: "Product analytics, funnels, and event data.",
-      },
-      {
-        provider: "mixpanel.com",
-        domain: "mixpanel.com",
-        name: "Mixpanel",
-        description: "Product behavior, cohorts, and retention.",
-      },
-    ],
-  },
-  {
-    category: "Advertising",
-    integrations: [
-      {
-        provider: "google-ads",
-        domain: "googleads.googleapis.com",
-        name: "Google Ads",
-        description: "Campaign performance and conversion data.",
-      },
-      {
-        provider: "meta",
-        domain: "facebook.com",
-        name: "Meta Ads",
-        description: "Campaign, ad set, and creative performance.",
-      },
-      {
-        provider: "api.linkedin.com",
-        domain: "api.linkedin.com",
-        name: "LinkedIn Ads",
-        description: "B2B campaign and audience reporting.",
-      },
-    ],
-  },
-  {
-    category: "Website & deployment",
-    integrations: [
-      {
-        provider: "github.com",
-        domain: "github.com",
-        name: "GitHub",
-        description: "Repository access, pull requests, and releases.",
-      },
-      {
-        provider: "vercel.com",
-        domain: "vercel.com",
-        name: "Vercel",
-        description: "Projects, deployments, domains, and configuration.",
-      },
-    ],
-  },
-];
 
 function canonicalProvider(provider: string) {
   if (provider === "analytics.googleapis.com") return "google-analytics";
