@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { ENGINEERING_INTEGRATIONS } from "../src/lib/integration-catalog.js";
 import { onboardingEngineeringSetup } from "../src/lib/onboarding-engineering.js";
 
 const organization = {
@@ -20,7 +21,7 @@ const organization = {
 void test("engineering setup advances through selected unconnected tools", () => {
   const first = onboardingEngineeringSetup("workspace-1", organization, []);
   assert.equal(first.nextIntegration?.name, "GitHub");
-  assert.equal(first.action?.title, "Set up engineering tools");
+  assert.equal(first.action?.title, "Connect engineering tools");
 
   const second = onboardingEngineeringSetup("workspace-1", organization, [
     {
@@ -59,4 +60,11 @@ void test("engineering setup stays absent when onboarding opted out", () => {
     },
   };
   assert.deepEqual(onboardingEngineeringSetup("workspace-1", optedOut, []), {});
+});
+
+void test("engineering onboarding offers every catalog-backed website tool", () => {
+  assert.deepEqual(
+    ENGINEERING_INTEGRATIONS.map((integration) => integration.name),
+    ["GitHub", "Vercel", "Shopify", "WordPress.com"],
+  );
 });

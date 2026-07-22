@@ -193,8 +193,8 @@ const questions: Record<StepKey, string> = {
   ads: "Where do you run paid ads today?",
   adsBudget: "No ads today. Want your agents to run them for you?",
   aeo: "One more thing. Want to know when ChatGPT, Claude or Perplexity send you customers?",
-  engineering: "Would you like Chief to help with technical growth changes?",
-  engineeringTools: "Which code and deployment tools do you use?",
+  engineering: "Would you like Chief to make code changes to your website?",
+  engineeringTools: "Which tools power your website?",
   automation:
     "Here is the recurring work I recommend starting with. Review the schedule, then activate what you want.",
   pricing: "Choose how this workspace is billed.",

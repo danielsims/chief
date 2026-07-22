@@ -87,6 +87,23 @@ export const INTEGRATION_CATALOG: IntegrationCatalogGroup[] = [
         kinds: ["oauth", "mcp"],
         url: "https://integrations.sh/vercel.com/",
       },
+      {
+        provider: "shopify.com",
+        domain: "shopify.com",
+        name: "Shopify",
+        description: "Storefront, products, inventory, and store management.",
+        kinds: ["mcp"],
+        url: "https://integrations.sh/shopify.com/",
+      },
+      {
+        provider: "wordpress.com",
+        domain: "wordpress.com",
+        name: "WordPress.com",
+        description:
+          "WordPress.com pages, posts, comments, and site statistics.",
+        kinds: ["mcp"],
+        url: "https://integrations.sh/wordpress.com/",
+      },
     ],
   },
 ];

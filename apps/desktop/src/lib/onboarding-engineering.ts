@@ -101,10 +101,10 @@ export function onboardingEngineeringSetup(
     action: {
       id: `${ACTION_PREFIX}${workspaceId}`,
       agentId: "setup",
-      title: "Set up engineering tools",
+      title: "Connect engineering tools",
       reason:
         remaining.length === 1
-          ? `Connect ${nextIntegration.name} so Chief can prepare approved technical growth changes in your workspace.`
+          ? `Connect ${nextIntegration.name} so Chief can prepare approved website and code changes.`
           : `Connect ${nextIntegration.name} next, then Chief will continue with ${remaining
               .slice(1)
               .map((integration) => integration.name)

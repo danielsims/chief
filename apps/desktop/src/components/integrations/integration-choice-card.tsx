@@ -67,18 +67,6 @@ export function IntegrationChoiceCard({
         <span className="text-muted-foreground mt-1 line-clamp-2 block text-xs leading-5">
           {integration.description || integration.domain}
         </span>
-        {integration.kinds.length ? (
-          <span className="mt-2 flex flex-wrap gap-1">
-            {integration.kinds.slice(0, 3).map((kind) => (
-              <span
-                key={kind}
-                className="text-muted-foreground border px-1.5 py-0.5 text-[10px] uppercase"
-              >
-                {kind}
-              </span>
-            ))}
-          </span>
-        ) : null}
       </span>
     </button>
   );
