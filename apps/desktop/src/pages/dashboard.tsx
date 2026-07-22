@@ -1,5 +1,3 @@
-/* eslint-disable max-lines */
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownRight,
@@ -49,9 +47,16 @@ import {
 import {
   findPendingInputRequest,
   googleAnalyticsActionChatId,
-  isGoogleAnalyticsOAuthRequest,
+  integrationSetupChatId,
+  isConnectionAction,
+  isGoogleAnalyticsConnectionAction,
   isOnboardingGoogleAnalyticsAction,
 } from "../lib/integration-setup";
+import {
+  isOnboardingEngineeringAction,
+  onboardingEngineeringSetup,
+  selectedGoogleAnalyticsDuringOnboarding,
+} from "../lib/onboarding-engineering";
 import {
   useAgentPreferences,
   useLocalIntegrationStatus,
@@ -140,44 +145,6 @@ function OverviewTaskInput({ task }: { task: SessionRecord }) {
         }}
       />
     </div>
-  );
-}
-
-function isConnectionAction(action: ActionItem) {
-  return /\b(connect|connection|integration|source)\b/i.test(
-    [action.id, action.sourceId, action.title].filter(Boolean).join(" "),
-  );
-}
-
-function isGoogleAnalyticsConnectionAction(action: ActionItem) {
-  return (
-    isOnboardingGoogleAnalyticsAction(action.id) ||
-    action.request?.id === "google-analytics-oauth-client" ||
-    (action.request ? isGoogleAnalyticsOAuthRequest(action.request) : false) ||
-    (/google analytics/i.test(`${action.title} ${action.reason}`) &&
-      isConnectionAction(action))
-  );
-}
-
-function selectedGoogleAnalyticsDuringOnboarding(
-  organization: AuthOrganization | null,
-) {
-  if (!organization) return false;
-  const metadata = parseOrganizationMetadata(organization);
-  const onboarding = metadata.onboarding;
-  if (!onboarding || typeof onboarding !== "object") return false;
-  const analytics = (onboarding as Record<string, unknown>).analytics;
-  if (!analytics || typeof analytics !== "object") return false;
-  const integrations = (analytics as Record<string, unknown>).integrations;
-  return (
-    Array.isArray(integrations) &&
-    integrations.some(
-      (integration) =>
-        integration !== null &&
-        typeof integration === "object" &&
-        (integration as Record<string, unknown>).domain ===
-          "analytics.googleapis.com",
-    )
   );
 }
 
@@ -523,6 +490,16 @@ export function DashboardPage() {
       ),
     [workspaceData.activity],
   );
+  const engineeringSetup = useMemo(
+    () =>
+      onboardingEngineeringSetup(
+        cloudOrganizationId,
+        organization,
+        localIntegrations,
+      ),
+    [cloudOrganizationId, localIntegrations, organization],
+  );
+  const nextEngineeringIntegration = engineeringSetup.nextIntegration;
   const actions = useMemo(() => {
     const tracked = workspaceData.actionItems;
     const hasGoogleAnalyticsAction = tracked.some(
@@ -533,17 +510,15 @@ export function DashboardPage() {
         integration.provider === "google-analytics" &&
         integration.status === "connected",
     );
+    const additions: ActionItem[] = [];
     if (
-      !cloudOrganizationId ||
-      localIntegrations === null ||
-      googleAnalyticsConnected ||
-      hasGoogleAnalyticsAction ||
-      !selectedGoogleAnalyticsDuringOnboarding(organization)
+      cloudOrganizationId &&
+      localIntegrations !== null &&
+      !googleAnalyticsConnected &&
+      !hasGoogleAnalyticsAction &&
+      selectedGoogleAnalyticsDuringOnboarding(organization)
     ) {
-      return tracked;
-    }
-    return [
-      {
+      additions.push({
         id: `onboarding-google-analytics-recovery-${cloudOrganizationId}`,
         agentId: "setup",
         title: "Connect Google Analytics",
@@ -551,12 +526,19 @@ export function DashboardPage() {
           "Google Analytics was selected during onboarding. Open Setup and sign in with the Google account that administers the Analytics property you want Chief to use.",
         status: "open" as const,
         createdAt: 0,
-      },
-      ...tracked,
-    ];
+      });
+    }
+    if (
+      engineeringSetup.action &&
+      !tracked.some(isOnboardingEngineeringAction)
+    ) {
+      additions.push(engineeringSetup.action);
+    }
+    return [...additions, ...tracked];
   }, [
     cloudOrganizationId,
     localIntegrations,
+    engineeringSetup.action,
     organization,
     workspaceData.actionItems,
   ]);
@@ -932,6 +914,18 @@ export function DashboardPage() {
 
   const openAction = (action = currentAction) => {
     if (!action) return;
+    if (isOnboardingEngineeringAction(action) && nextEngineeringIntegration) {
+      localStorage.setItem(
+        `chief:integration-setup:${nextEngineeringIntegration.domain}`,
+        "active",
+      );
+      void navigate(
+        `/conversations?chat=${encodeURIComponent(
+          integrationSetupChatId(nextEngineeringIntegration.domain),
+        )}`,
+      );
+      return;
+    }
     if (
       isGoogleAnalyticsConnectionAction(action) &&
       isOnboardingGoogleAnalyticsAction(action.id)
@@ -1155,11 +1149,14 @@ export function DashboardPage() {
                         Deploy Chief
                       </button>
                     </>
-                  ) : isGoogleAnalyticsConnectionAction(currentAction) ? (
+                  ) : isGoogleAnalyticsConnectionAction(currentAction) ||
+                    isOnboardingEngineeringAction(currentAction) ? (
                     <button type="button" onClick={() => openAction()}>
-                      {currentAction.request
-                        ? "Continue setup"
-                        : "Connect integration"}
+                      {isOnboardingEngineeringAction(currentAction)
+                        ? `Connect ${nextEngineeringIntegration?.name ?? "tool"}`
+                        : currentAction.request
+                          ? "Continue setup"
+                          : "Connect integration"}
                     </button>
                   ) : !currentAction.request ? (
                     <button type="button" onClick={resolveAction}>
@@ -1175,7 +1172,8 @@ export function DashboardPage() {
                   {!currentActionInProgress &&
                   !currentAction.id.startsWith(
                     "onboarding-google-analytics-recovery-",
-                  ) ? (
+                  ) &&
+                  !isOnboardingEngineeringAction(currentAction) ? (
                     <button
                       type="button"
                       aria-keyshortcuts="E"

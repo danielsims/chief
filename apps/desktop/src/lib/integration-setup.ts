@@ -3,6 +3,7 @@
 // results, structured input requests).
 
 import type {
+  ActionItem,
   ChiefUIMessage,
   ContentBlock,
   InputRequest,
@@ -11,6 +12,7 @@ import {
   GOOGLE_ANALYTICS_DOMAIN,
   GOOGLE_ANALYTICS_SETUP_TASK,
   googleAnalyticsActionIdFromChat,
+  isOnboardingGoogleAnalyticsAction,
 } from "@chief/agent-runtime/integration-requests";
 
 export { GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST } from "@chief/agent-runtime/integration-requests";
@@ -69,6 +71,22 @@ export interface SetupResult {
 export interface SetupIntegration {
   domain: string;
   name: string;
+}
+
+export function isConnectionAction(action: ActionItem) {
+  return /\b(connect|connection|integration|source)\b/i.test(
+    [action.id, action.sourceId, action.title].filter(Boolean).join(" "),
+  );
+}
+
+export function isGoogleAnalyticsConnectionAction(action: ActionItem) {
+  return (
+    isOnboardingGoogleAnalyticsAction(action.id) ||
+    action.request?.id === "google-analytics-oauth-client" ||
+    (action.request ? isGoogleAnalyticsOAuthRequest(action.request) : false) ||
+    (/google analytics/i.test(`${action.title} ${action.reason}`) &&
+      isConnectionAction(action))
+  );
 }
 
 export function isGoogleAnalyticsOAuthRequest(request: InputRequest) {
