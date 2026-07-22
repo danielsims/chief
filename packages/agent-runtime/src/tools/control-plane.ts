@@ -639,7 +639,13 @@ async function configureToolPolicies(manifest: ServerManifest) {
       "localTools.campaignsList",
       "localTools.campaignsSave",
       "localTools.actionRaise",
+      "localTools.browserOpen",
+      "localTools.browserSnapshot",
+      "localTools.browserClick",
+      "localTools.browserFill",
       "localTools.brandProfileSave",
+      "localTools.googleOAuthProvisionClient",
+      "localTools.googleOAuthCaptureClient",
       "localTools.googleAnalyticsAuthorize",
       "localTools.googleAnalyticsComplete",
       "localTools.googleAnalyticsSelect",
@@ -957,9 +963,6 @@ export async function startGoogleAnalyticsAuthorization(
   ) {
     throw new Error("Google returned an invalid authorization URL.");
   }
-  await execFileAsync("/usr/bin/open", [authorizationUrl.toString()], {
-    timeout: 10_000,
-  });
   return {
     authorizationUrl: authorizationUrl.toString(),
     state: started.state,

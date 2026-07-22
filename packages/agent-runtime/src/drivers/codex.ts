@@ -15,7 +15,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { ChildProcess } from "node:child_process";
 
-import type { ContentBlock, StartOptions } from "../types.js";
+import type { AgentQuestion, ContentBlock, StartOptions } from "../types.js";
 import {
   executorAddressesFromCode,
   executorAddressFromElicitation,
@@ -76,6 +76,17 @@ export class CodexDriver extends BaseDriver {
   private approvals = new Map<
     string,
     { rpcId: number; kind: "codex" | "mcp" }
+  >();
+  private pendingQuestions = new Map<
+    string,
+    {
+      rpcId: number;
+      questions: {
+        id: string;
+        question: string;
+        optionLabels: Set<string>;
+      }[];
+    }
   >();
   private activeToolUseIds = new Set<string>();
   private currentStream = "";
@@ -270,6 +281,7 @@ export class CodexDriver extends BaseDriver {
     const model = opts.model ?? this.readUserCodexSetting("model");
     if (model) lines.push(`model = ${JSON.stringify(model)}`);
     lines.push('model_reasoning_effort = "medium"');
+    lines.push("", "[features]", "default_mode_request_user_input = true");
     for (const server of opts.mcpServers ?? []) {
       lines.push("", `[mcp_servers.${server.name}]`);
       if (server.url) {
@@ -337,6 +349,85 @@ export class CodexDriver extends BaseDriver {
       Boolean(msg.method) &&
       msg.result === undefined &&
       !msg.error;
+
+    if (
+      msg.id !== undefined &&
+      msg.method === "item/tool/requestUserInput" &&
+      isServerRequest
+    ) {
+      const rawQuestions = Array.isArray(p.questions) ? p.questions : [];
+      const parsed = rawQuestions.flatMap((candidate: unknown) => {
+        if (!candidate || typeof candidate !== "object") return [];
+        const question = candidate as Record<string, unknown>;
+        if (
+          typeof question.id !== "string" ||
+          typeof question.question !== "string" ||
+          question.isSecret === true
+        ) {
+          return [];
+        }
+        const options = Array.isArray(question.options)
+          ? question.options.flatMap((candidateOption: unknown) => {
+              if (!candidateOption || typeof candidateOption !== "object") {
+                return [];
+              }
+              const option = candidateOption as Record<string, unknown>;
+              return typeof option.label === "string"
+                ? [
+                    {
+                      label: option.label,
+                      description:
+                        typeof option.description === "string"
+                          ? option.description
+                          : undefined,
+                    },
+                  ]
+                : [];
+            })
+          : [];
+        if (options.length === 0) return [];
+        return [
+          {
+            driver: {
+              id: question.id,
+              question: question.question,
+              optionLabels: new Set(options.map((option) => option.label)),
+            },
+            ui: {
+              question: question.question,
+              header:
+                typeof question.header === "string"
+                  ? question.header
+                  : undefined,
+              multiSelect: false,
+              allowFreeform: question.isOther !== false,
+              dismissible: false,
+              options,
+            } satisfies AgentQuestion,
+          },
+        ];
+      });
+      if (parsed.length !== rawQuestions.length || parsed.length === 0) {
+        this.write({
+          jsonrpc: "2.0",
+          id: msg.id,
+          result: { answers: {} },
+        });
+        return;
+      }
+      const requestId = `codex-input-${msg.id}`;
+      this.pendingQuestions.set(requestId, {
+        rpcId: msg.id,
+        questions: parsed.map((question) => question.driver),
+      });
+      this.emitEvent({
+        type: "question",
+        requestId,
+        questions: parsed.map((question) => question.ui),
+      });
+      this.emitEvent({ type: "status", status: "waiting" });
+      return;
+    }
 
     // Server -> client approval requests (RPC with id)
     if (
@@ -463,9 +554,11 @@ export class CodexDriver extends BaseDriver {
           });
         }
         this.currentStream = "";
+        this.pendingQuestions.clear();
         this.emitEvent({ type: "status", status: "idle" });
         break;
       case "turn/failed":
+        this.pendingQuestions.clear();
         this.finishActiveTools("Tool stopped before completing.", true);
         this.emitEvent({
           type: "result",
@@ -478,6 +571,17 @@ export class CodexDriver extends BaseDriver {
         });
         this.emitEvent({ type: "status", status: "idle" });
         break;
+      case "serverRequest/resolved": {
+        const resolvedId = String(p.requestId ?? "");
+        const pending = [...this.pendingQuestions.entries()].find(
+          ([, question]) => String(question.rpcId) === resolvedId,
+        );
+        if (pending) {
+          this.pendingQuestions.delete(pending[0]);
+          this.emitEvent({ type: "questionResolved", requestId: pending[0] });
+        }
+        break;
+      }
       case "mcpServer/elicitation/request":
         if (isServerRequest) {
           const requestId = `mcp-${msg.id}`;
@@ -803,6 +907,37 @@ export class CodexDriver extends BaseDriver {
           ? { action: behavior === "allow" ? "accept" : "decline", content: {} }
           : { decision: behavior === "allow" ? "accept" : "decline" },
     });
+    this.emitEvent({ type: "status", status: "running" });
+  }
+
+  override respondQuestion(
+    requestId: string,
+    answers: Record<string, string> | null,
+  ) {
+    const pending = this.pendingQuestions.get(requestId);
+    if (!pending) return;
+    this.pendingQuestions.delete(requestId);
+    this.write({
+      jsonrpc: "2.0",
+      id: pending.rpcId,
+      result: {
+        answers: Object.fromEntries(
+          pending.questions.flatMap((question) => {
+            const answer = answers?.[question.question]?.trim();
+            if (!answer) return [];
+            const values = answer
+              .split(", ")
+              .map((value) =>
+                question.optionLabels.has(value)
+                  ? value
+                  : `user_note: ${value}`,
+              );
+            return [[question.id, { answers: values }]];
+          }),
+        ),
+      },
+    });
+    this.emitEvent({ type: "questionResolved", requestId });
     this.emitEvent({ type: "status", status: "running" });
   }
 

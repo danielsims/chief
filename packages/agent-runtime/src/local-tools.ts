@@ -5,6 +5,8 @@ import { createHash, randomUUID } from "node:crypto";
 import type { SessionManager } from "./manager.js";
 import type {
   AnalyticsDataset,
+  BrowserAutomationCommand,
+  BrowserAutomationResult,
   CampaignRecord,
   ContentDraftRecord,
   InputRequest,
@@ -268,6 +270,50 @@ function toolAddressList(input: unknown) {
   return [...new Set(addresses)];
 }
 
+function analyticsSeries(input: unknown): AnalyticsDataset["series"] {
+  if (input === undefined) return undefined;
+  if (!Array.isArray(input)) throw new Error("series must be a list.");
+  return input.slice(0, 12).map((item, seriesIndex) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`series[${seriesIndex}] must be an object.`);
+    }
+    const record = item as Record<string, unknown>;
+    if (!Array.isArray(record.points) || record.points.length > 5_000) {
+      throw new Error(`series[${seriesIndex}].points must be a bounded list.`);
+    }
+    return {
+      id: requiredValue(record.id, `series[${seriesIndex}].id`, 120),
+      label: requiredValue(record.label, `series[${seriesIndex}].label`, 200),
+      metric: requiredValue(
+        record.metric,
+        `series[${seriesIndex}].metric`,
+        120,
+      ),
+      points: record.points.map((point, pointIndex) => {
+        if (!point || typeof point !== "object" || Array.isArray(point)) {
+          throw new Error(
+            `series[${seriesIndex}].points[${pointIndex}] must be an object.`,
+          );
+        }
+        const value = point as Record<string, unknown>;
+        if (typeof value.value !== "number" || !Number.isFinite(value.value)) {
+          throw new Error(
+            `series[${seriesIndex}].points[${pointIndex}].value must be a number.`,
+          );
+        }
+        return {
+          x: requiredValue(
+            value.x,
+            `series[${seriesIndex}].points[${pointIndex}].x`,
+            200,
+          ),
+          value: value.value,
+        };
+      }),
+    };
+  });
+}
+
 function analyticsDatasetInput(
   input: Record<string, unknown>,
 ): Omit<AnalyticsDataset, "capturedAt"> {
@@ -278,6 +324,7 @@ function analyticsDatasetInput(
   const sourceId = requiredValue(input.sourceId, "sourceId", 240);
   const key = requiredValue(input.key, "key", 120);
   const title = requiredValue(input.title, "title", 200);
+  const series = analyticsSeries(input.series);
   if (
     !Array.isArray(input.metrics) ||
     input.metrics.length < 1 ||
@@ -301,6 +348,7 @@ function analyticsDatasetInput(
     sourceId,
     key,
     title,
+    ...(series ? { series } : {}),
   };
 }
 
@@ -440,6 +488,56 @@ export function localToolsOpenApi(origin: string) {
           responses: saveResponse,
         },
       },
+      "/local-tools/browser/open": {
+        post: {
+          operationId: "browser.open",
+          summary: "Open or navigate Chief's embedded browser",
+          description:
+            "Shows an HTTP or HTTPS page beside the owning Chief conversation. Use the semantic browser tools to inspect and interact with it.",
+          requestBody: body("BrowserOpenInput"),
+          responses: { "200": { description: "Browser navigation sent" } },
+        },
+      },
+      "/local-tools/browser/snapshot": {
+        post: {
+          operationId: "browser.snapshot",
+          summary: "Inspect Chief's visible embedded browser page",
+          description:
+            "Returns the current URL, title, readable text, and visible semantic controls. Re-inspect after navigation or a material page change.",
+          requestBody: body("BrowserConversationInput"),
+          responses: { "200": { description: "Semantic page snapshot" } },
+        },
+      },
+      "/local-tools/browser/click": {
+        post: {
+          operationId: "browser.click",
+          summary: "Click an agent-browser ref or visible control",
+          description:
+            "Clicks the first matching agent-browser snapshot ref or semantic label. Re-snapshot after navigation because refs are invalidated when the page changes.",
+          requestBody: body("BrowserLabelsInput"),
+          responses: { "200": { description: "Click result" } },
+        },
+      },
+      "/local-tools/browser/fill": {
+        post: {
+          operationId: "browser.fill",
+          summary: "Fill a visible browser field by label",
+          description:
+            "Fills a non-secret visible field in Chief's embedded browser. Never request or fill passwords, passkeys, MFA codes, or account credentials; the user handles authentication directly.",
+          requestBody: body("BrowserFillInput"),
+          responses: { "200": { description: "Fill result" } },
+        },
+      },
+      "/local-tools/browser/press": {
+        post: {
+          operationId: "browser.press",
+          summary: "Press a key in the visible browser",
+          description:
+            "Presses a key such as Enter, Tab, Escape, or ArrowDown in the shared agent-browser session.",
+          requestBody: body("BrowserPressInput"),
+          responses: { "200": { description: "Key press result" } },
+        },
+      },
       "/local-tools/brand-profile": {
         post: {
           operationId: "brandProfile.save",
@@ -468,6 +566,30 @@ export function localToolsOpenApi(origin: string) {
             "Starts the preconfigured read-only Google OAuth connection and returns the browser URL. Use only in a user-started integration setup run.",
           requestBody: body("IntegrationSetupSessionInput"),
           responses: { "200": { description: "Authorization URL and state" } },
+        },
+      },
+      "/local-tools/integrations/google-oauth/provision-client": {
+        post: {
+          operationId: "googleOAuth.provisionClient",
+          summary: "Begin user-owned Google OAuth client setup",
+          description:
+            "Opens Google's account chooser and arranges for this same agent to resume after the user authenticates. After resumption, use Chief's ordinary browser tools to complete Google Cloud setup.",
+          requestBody: body("IntegrationSetupSessionInput"),
+          responses: {
+            "200": {
+              description: "Configured, or one precise user action required",
+            },
+          },
+        },
+      },
+      "/local-tools/integrations/google-oauth/capture-client": {
+        post: {
+          operationId: "googleOAuth.captureClient",
+          summary: "Securely capture and store a Google OAuth client",
+          description:
+            "Call from Google's client-created dialog or the matching client edit page. Chief captures, validates, routes, and stores the client without returning its ID or secret.",
+          requestBody: body("IntegrationSetupSessionInput"),
+          responses: { "200": { description: "OAuth client stored" } },
         },
       },
       "/local-tools/integrations/google-analytics/complete": {
@@ -523,6 +645,66 @@ export function localToolsOpenApi(origin: string) {
         localWorkspaceCapability: { type: "http", scheme: "bearer" },
       },
       schemas: {
+        BrowserOpenInput: {
+          type: "object",
+          additionalProperties: false,
+          required: ["conversationId", "url"],
+          properties: {
+            conversationId: {
+              type: "string",
+              maxLength: 160,
+              description:
+                "Exact owning Chief conversation ID from the runtime context",
+            },
+            url: { type: "string", format: "uri", maxLength: 2000 },
+          },
+        },
+        BrowserConversationInput: {
+          type: "object",
+          additionalProperties: false,
+          required: ["conversationId"],
+          properties: {
+            conversationId: { type: "string", maxLength: 160 },
+          },
+        },
+        BrowserLabelsInput: {
+          type: "object",
+          additionalProperties: false,
+          required: ["conversationId", "labels"],
+          properties: {
+            conversationId: { type: "string", maxLength: 160 },
+            labels: {
+              type: "array",
+              minItems: 1,
+              maxItems: 8,
+              items: { type: "string", maxLength: 160 },
+            },
+          },
+        },
+        BrowserFillInput: {
+          type: "object",
+          additionalProperties: false,
+          required: ["conversationId", "labels", "value"],
+          properties: {
+            conversationId: { type: "string", maxLength: 160 },
+            labels: {
+              type: "array",
+              minItems: 1,
+              maxItems: 8,
+              items: { type: "string", maxLength: 160 },
+            },
+            value: { type: "string", maxLength: 2000 },
+          },
+        },
+        BrowserPressInput: {
+          type: "object",
+          additionalProperties: false,
+          required: ["conversationId", "key"],
+          properties: {
+            conversationId: { type: "string", maxLength: 160 },
+            key: { type: "string", minLength: 1, maxLength: 80 },
+          },
+        },
         ActionInput: {
           type: "object",
           additionalProperties: false,
@@ -552,7 +734,7 @@ export function localToolsOpenApi(origin: string) {
             request: {
               type: "object",
               description:
-                "A beginner-safe form rendered directly on Overview. Give exact numbered steps in click order, link every web or Chief destination, request only values needed at this stage, and never ask for an account/property id before a connected API can list named choices.",
+                "A beginner-safe form rendered in Chief's action UI. Give exact numbered steps in click order, link every web or Chief destination, request only values needed at this stage, and never ask for an account/property id before a connected API can list named choices.",
               additionalProperties: false,
               properties: {
                 steps: {
@@ -679,11 +861,13 @@ export function localToolsOpenApi(origin: string) {
             task: { type: "string", maxLength: 8000 },
             setupDomain: {
               type: "string",
-              description: "Required only for a Setup delegation.",
+              description:
+                "Optional for Setup. Supply together with setupAttemptId only for an active integration setup attempt; omit both for bounded technical growth work.",
             },
             setupAttemptId: {
               type: "string",
-              description: "Required only for a Setup delegation.",
+              description:
+                "Optional for Setup. Supply together with setupDomain only for an active integration setup attempt; omit both for bounded technical growth work.",
             },
             waitSeconds: {
               type: "number",
@@ -859,7 +1043,32 @@ export function localToolsOpenApi(origin: string) {
               },
             },
             rows: { type: "array", maxItems: 1000 },
-            series: { type: "array", maxItems: 12 },
+            series: {
+              type: "array",
+              maxItems: 12,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["id", "label", "metric", "points"],
+                properties: {
+                  id: { type: "string" },
+                  label: { type: "string" },
+                  metric: { type: "string" },
+                  points: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      additionalProperties: false,
+                      required: ["x", "value"],
+                      properties: {
+                        x: { type: "string" },
+                        value: { type: "number" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
             charts: { type: "array", maxItems: 8 },
             provenance: { type: "object", additionalProperties: true },
           },
@@ -1001,6 +1210,11 @@ export async function handleLocalTool(
     conversationId?: string;
     onActivity?: () => void | Promise<void>;
     onFilesChanged?: () => void | Promise<void>;
+    openBrowser?: (conversationId: string, url: string) => void | Promise<void>;
+    browserCommand?: (
+      conversationId: string,
+      command: BrowserAutomationCommand,
+    ) => Promise<BrowserAutomationResult>;
     openIntegrationHandoff?: (
       sessionId: string,
       attemptId: string,
@@ -1011,6 +1225,16 @@ export async function handleLocalTool(
       attemptId: string,
       domain: string,
     ) => void | Promise<void>;
+    googleOAuth?: {
+      provisionClient?: (
+        sessionId: string,
+        attemptId: string,
+      ) => Promise<unknown>;
+      captureClient?: (
+        sessionId: string,
+        attemptId: string,
+      ) => Promise<unknown>;
+    };
     googleAnalytics?: {
       startAuthorization: (
         sessionId: string,
@@ -1072,6 +1296,95 @@ export async function handleLocalTool(
     return json({ error: "Request body must be JSON." }, 400);
   }
   try {
+    if (path === "/local-tools/browser/open") {
+      if (!context.openBrowser) {
+        throw new Error("The embedded browser is unavailable.");
+      }
+      const conversationId = requiredValue(
+        body.conversationId,
+        "conversationId",
+        160,
+      );
+      const url = requiredValue(body.url, "url", 2_000);
+      let parsed: URL;
+      try {
+        parsed = new URL(url);
+      } catch {
+        throw new Error("url must be a valid HTTP or HTTPS URL.");
+      }
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        throw new Error("url must use HTTP or HTTPS.");
+      }
+      await context.openBrowser(conversationId, parsed.toString());
+      return json({ opened: true, url: parsed.toString() });
+    }
+    if (path.startsWith("/local-tools/browser/")) {
+      if (!context.browserCommand) {
+        throw new Error("The embedded browser is unavailable.");
+      }
+      const conversationId = requiredValue(
+        body.conversationId,
+        "conversationId",
+        160,
+      );
+      if (path === "/local-tools/browser/snapshot") {
+        return json(
+          await context.browserCommand(conversationId, { type: "snapshot" }),
+        );
+      }
+      if (path === "/local-tools/browser/press") {
+        return json(
+          await context.browserCommand(conversationId, {
+            type: "press",
+            key: requiredValue(body.key, "key", 80),
+          }),
+        );
+      }
+      const rawLabels = Array.isArray(body.labels) ? body.labels : [];
+      const labels = rawLabels
+        .slice(0, 8)
+        .map((label, index) => requiredValue(label, `labels[${index}]`, 160));
+      if (labels.length === 0) throw new Error("labels are required.");
+      if (path === "/local-tools/browser/click") {
+        return json(
+          await context.browserCommand(conversationId, {
+            type: "click",
+            labels,
+          }),
+        );
+      }
+      if (path === "/local-tools/browser/fill") {
+        return json(
+          await context.browserCommand(conversationId, {
+            type: "fill",
+            labels,
+            value: requiredValue(body.value, "value", 2_000),
+          }),
+        );
+      }
+    }
+    if (path === "/local-tools/integrations/google-oauth/provision-client") {
+      if (!context.googleOAuth?.provisionClient) {
+        throw new Error("Google OAuth client provisioning is unavailable.");
+      }
+      return json(
+        await context.googleOAuth.provisionClient(
+          requiredValue(body.sessionId, "sessionId", 160),
+          requiredValue(body.attemptId, "attemptId", 160),
+        ),
+      );
+    }
+    if (path === "/local-tools/integrations/google-oauth/capture-client") {
+      if (!context.googleOAuth?.captureClient) {
+        throw new Error("Google OAuth credential capture is unavailable.");
+      }
+      return json(
+        await context.googleOAuth.captureClient(
+          requiredValue(body.sessionId, "sessionId", 160),
+          requiredValue(body.attemptId, "attemptId", 160),
+        ),
+      );
+    }
     if (path === "/local-tools/integrations/google-analytics/authorize") {
       if (!context.googleAnalytics) {
         throw new Error("Google Analytics setup is unavailable.");
@@ -1125,13 +1438,18 @@ export async function handleLocalTool(
       }
       const agentId = requiredValue(body.agentId, "agentId", 120);
       const setupDomain =
-        agentId === "setup"
+        agentId === "setup" && typeof body.setupDomain === "string"
           ? requiredValue(body.setupDomain, "setupDomain", 255)
           : undefined;
       const setupAttemptId =
-        agentId === "setup"
+        agentId === "setup" && typeof body.setupAttemptId === "string"
           ? requiredValue(body.setupAttemptId, "setupAttemptId", 160)
           : undefined;
+      if (Boolean(setupDomain) !== Boolean(setupAttemptId)) {
+        throw new Error(
+          "setupDomain and setupAttemptId must be supplied together.",
+        );
+      }
       const delegation = runSpecialistDelegation({
         manager,
         workspaceId,
@@ -1144,6 +1462,8 @@ export async function handleLocalTool(
         agentId,
         title: requiredValue(body.title, "title", 160),
         task: requiredValue(body.task, "task", 8_000),
+        setupDomain,
+        setupAttemptId,
         onStateChange: context.onActivity,
         onFilesChange: context.onFilesChanged,
         onSessionReady:

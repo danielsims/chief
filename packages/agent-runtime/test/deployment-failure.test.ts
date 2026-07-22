@@ -28,3 +28,15 @@ void test("classifies only missing cloud deployments", () => {
   assert.equal(isDeploymentNotFound(new Error("SESSION_NOT_FOUND")), false);
   assert.equal(safeRuntimeError(missing), DEPLOYMENT_REQUIRED_MESSAGE);
 });
+
+void test("never exposes database statements to the desktop UI", () => {
+  const message = safeRuntimeError(
+    new Error('Failed query: insert into "session" values (?, ?)'),
+  );
+
+  assert.equal(
+    message,
+    "Chief could not open this conversation. Refresh to try again.",
+  );
+  assert.doesNotMatch(message, /query|insert|session/i);
+});

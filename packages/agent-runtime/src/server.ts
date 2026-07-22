@@ -1,23 +1,40 @@
 /* eslint-disable max-lines */
 
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { basename, join } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 
+import {
+  AgentBrowserSession,
+  lastUsedChromeProfile,
+} from "@chief/browser/node";
 import { renderEmailDocument } from "@chief/email/render";
+import {
+  captureGoogleDesktopOAuthClient,
+  googleAccountChooserUrl,
+  googleAnalyticsRecipe,
+  googleApiLibraryUrl,
+  googleAuthUserFromUrl,
+  isGoogleAccountChooserUrl,
+  redactGoogleOAuthCredentials,
+  withGoogleAuthUser,
+} from "@chief/google-oauth-connector";
 
 import type { AgentSession } from "./session.js";
 import type {
   AgentDeploymentRecord,
   AgentEvent,
+  BrowserAutomationCommand,
+  BrowserAutomationResult,
   ChatExecutionSelection,
   ClientMessage,
   DriverType,
   ExecutorCapability,
   InputRequest,
+  IntegrationSetupProgress,
   RuntimeNotice,
   ServerMessage,
 } from "./types.js";
@@ -41,6 +58,10 @@ import {
   isDeploymentNotFound,
   safeRuntimeError,
 } from "./deployment-failure.js";
+import {
+  googleOAuthAuthenticatedBrowserPrompt,
+  googleOAuthInterruptedBrowserPrompt,
+} from "./google-oauth-browser-prompt.js";
 import { hasInputReceipt, inputReceipt } from "./input-receipt.js";
 import {
   assertSafeInputRequest,
@@ -48,9 +69,9 @@ import {
 } from "./input-values.js";
 import {
   GOOGLE_ANALYTICS_DOMAIN,
-  GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST,
+  GOOGLE_ANALYTICS_SETUP_TASK,
+  googleAnalyticsActionChatId,
   googleAnalyticsOnboardingAttempt,
-  onboardingGoogleAnalyticsOAuthInputRequest,
 } from "./integration-requests.js";
 import { handleLocalTool, localToolsOpenApi } from "./local-tools.js";
 import { SessionManager } from "./manager.js";
@@ -122,14 +143,6 @@ function activeSetupAttempt(events: readonly AgentEvent[]) {
       } else if (text.includes("CHIEF_SETUP_RESULT")) {
         attemptId = null;
       }
-    }
-    if (
-      attemptId &&
-      (event.type === "error" ||
-        event.type === "exit" ||
-        (event.type === "result" && !event.ok))
-    ) {
-      attemptId = null;
     }
   }
   return attemptId;
@@ -248,21 +261,130 @@ export function startServer(port = PORT) {
     Map<string, { attemptId: string; domain: string; expiresAt: number }>
   >();
   const integrationSetupDomains = new Map<string, Map<string, string>>();
+  const pendingGoogleAuthentication = new Map<
+    string,
+    { attemptId: string; capability: ExecutorCapability }
+  >();
+  const googleAccountSessions = new Map<
+    string,
+    {
+      authuser?: string;
+      awaitingSelection: boolean;
+      attemptId?: string;
+      capability?: ExecutorCapability;
+    }
+  >();
+  const googleAnalyticsOAuthBrowserPromptOptions = {
+    recipe: googleAnalyticsRecipe,
+    afterCaptureInstruction:
+      "Then continue with googleAnalytics.authorize and the normal consent and verification flow.",
+  } as const;
+  const browserSessions = new Map<string, AgentBrowserSession>();
+  const browserViewportWaiters = new Map<
+    string,
+    (viewport?: { width: number; height: number }) => void
+  >();
+  const pendingBrowserViewports = new Map<
+    string,
+    { width: number; height: number }
+  >();
+  const browserViewportResizeTasks = new Map<string, Promise<void>>();
+  const browserKey = (workspaceId: string, conversationId: string) =>
+    `${workspaceId}\0${conversationId}`;
+  const browserProfileSetting = process.env.CHIEF_BROWSER_PROFILE?.trim();
+  const configuredBrowserProfile = browserProfileSetting?.length
+    ? browserProfileSetting
+    : undefined;
+  const inheritedChromeProfile =
+    configuredBrowserProfile === "none"
+      ? undefined
+      : (configuredBrowserProfile ?? lastUsedChromeProfile());
+  const configuredBrowserExtensions = (
+    process.env.CHIEF_BROWSER_EXTENSIONS ?? ""
+  )
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const systemChrome = [
+    process.env.CHIEF_BROWSER_EXECUTABLE,
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "/usr/bin/google-chrome",
+    "/usr/bin/chromium",
+  ].find((candidate): candidate is string =>
+    Boolean(candidate && existsSync(candidate)),
+  );
+  const browserSession = (workspaceId: string, conversationId: string) => {
+    const key = browserKey(workspaceId, conversationId);
+    const current = browserSessions.get(key);
+    if (current) return current;
+    const isGoogleSetup =
+      integrationSetupDomains
+        .get(workspaceId)
+        ?.get(conversationId)
+        ?.endsWith(".googleapis.com") === true;
+    const session = new AgentBrowserSession({
+      sessionId: `chief-${createHash("sha256").update(key).digest("hex").slice(0, 24)}`,
+      downloadPath: join(
+        workspaceRoot(workspaceId),
+        ".browser",
+        createHash("sha256").update(conversationId).digest("hex").slice(0, 16),
+        "downloads",
+      ),
+      executablePath: systemChrome,
+      extensions: isGoogleSetup ? configuredBrowserExtensions : undefined,
+      profile: isGoogleSetup ? inheritedChromeProfile : undefined,
+      restore: false,
+    });
+    browserSessions.set(key, session);
+    return session;
+  };
+  const resizeBrowserSession = (
+    workspaceId: string,
+    conversationId: string,
+    viewport: { width: number; height: number },
+  ) => {
+    const key = browserKey(workspaceId, conversationId);
+    pendingBrowserViewports.set(key, viewport);
+    const current = browserViewportResizeTasks.get(key);
+    if (current) return current;
+    const task = (async () => {
+      while (pendingBrowserViewports.has(key)) {
+        const next = pendingBrowserViewports.get(key);
+        pendingBrowserViewports.delete(key);
+        if (next) {
+          await browserSession(workspaceId, conversationId).setViewport(
+            next.width,
+            next.height,
+          );
+        }
+      }
+    })().finally(() => browserViewportResizeTasks.delete(key));
+    browserViewportResizeTasks.set(key, task);
+    return task;
+  };
+  const activeIntegrationSetup = (
+    workspaceId: string,
+    sessionId: string,
+    attemptId: string,
+  ) => {
+    const setup = activeIntegrationSetups.get(workspaceId)?.get(sessionId);
+    if (setup?.attemptId !== attemptId || setup.expiresAt <= Date.now()) {
+      activeIntegrationSetups.get(workspaceId)?.delete(sessionId);
+      throw new Error("This integration setup run is not active.");
+    }
+    return setup;
+  };
   const assertActiveIntegrationSetup = (
     workspaceId: string,
     sessionId: string,
     attemptId: string,
     domain: string,
   ) => {
-    const setup = activeIntegrationSetups.get(workspaceId)?.get(sessionId);
-    if (
-      !setup ||
-      setup.attemptId !== attemptId ||
-      setup.domain !== domain ||
-      setup.expiresAt <= Date.now()
-    ) {
-      activeIntegrationSetups.get(workspaceId)?.delete(sessionId);
-      throw new Error("This integration setup run is not active.");
+    const setup = activeIntegrationSetup(workspaceId, sessionId, attemptId);
+    if (setup.domain !== domain) {
+      throw new Error("This integration setup run targets another provider.");
     }
   };
   const authorizeWorkspace = async (
@@ -372,6 +494,129 @@ export function startServer(port = PORT) {
   let broadcastWorkspaceFiles = (_workspaceId: string) => Promise.resolve();
   let broadcastNotice = (_workspaceId: string, _notice: RuntimeNotice) =>
     undefined;
+  let broadcastBrowserNavigate = (
+    _workspaceId: string,
+    _conversationId: string,
+    _url: string,
+    _streamUrl: string,
+  ) => undefined;
+  let broadcastBrowserPrepare = (
+    _workspaceId: string,
+    _conversationId: string,
+    _url: string,
+  ) => undefined;
+  let broadcastIntegrationSetupProgress = (
+    _workspaceId: string,
+    _conversationId: string,
+    _progress: IntegrationSetupProgress,
+  ) => undefined;
+  const openBrowserSession = async (
+    workspaceId: string,
+    conversationId: string,
+    url: string,
+    viewport?: { width: number; height: number },
+  ) => {
+    const key = browserKey(workspaceId, conversationId);
+    if (isGoogleAccountChooserUrl(url)) {
+      googleAccountSessions.set(key, {
+        ...googleAccountSessions.get(key),
+        awaitingSelection: true,
+      });
+    }
+    const account = googleAccountSessions.get(key);
+    const lockedUrl = account?.authuser
+      ? withGoogleAuthUser(url, account.authuser)
+      : url;
+    const initialViewport =
+      viewport ??
+      (await new Promise<{ width: number; height: number } | undefined>(
+        (resolve) => {
+          const timer = setTimeout(() => {
+            browserViewportWaiters.delete(key);
+            resolve(undefined);
+          }, 750);
+          browserViewportWaiters.set(key, (next) => {
+            clearTimeout(timer);
+            browserViewportWaiters.delete(key);
+            resolve(next);
+          });
+          broadcastBrowserPrepare(workspaceId, conversationId, lockedUrl);
+        },
+      ));
+    const session = browserSession(workspaceId, conversationId);
+    const stream = await session.open(lockedUrl, initialViewport);
+    const currentUrl = await session.getUrl().catch(() => lockedUrl);
+    reportGoogleBrowserStep(workspaceId, conversationId, currentUrl);
+    broadcastBrowserNavigate(
+      workspaceId,
+      conversationId,
+      currentUrl,
+      stream.url,
+    );
+    return session;
+  };
+  const requestBrowserCommand = async (
+    workspaceId: string,
+    conversationId: string,
+    command: BrowserAutomationCommand,
+  ): Promise<BrowserAutomationResult> => {
+    const session = browserSession(workspaceId, conversationId);
+    const key = browserKey(workspaceId, conversationId);
+    const account = googleAccountSessions.get(key);
+    if (account?.authuser && !account.awaitingSelection) {
+      const currentUrl = await session.getUrl();
+      if (isGoogleAccountChooserUrl(currentUrl)) {
+        throw new Error(
+          "Google account selection was reopened without a human handoff. Open the explicit account chooser through browser.open and pause for the human.",
+        );
+      }
+      const lockedUrl = withGoogleAuthUser(currentUrl, account.authuser);
+      if (
+        lockedUrl !== currentUrl &&
+        googleAuthUserFromUrl(currentUrl) !== account.authuser
+      ) {
+        await session.open(lockedUrl);
+        throw new Error(
+          "Chief prevented a Google account switch and restored the human-selected identity. Take a fresh browser snapshot before continuing.",
+        );
+      }
+    }
+    if (command.type === "snapshot") {
+      const snapshot = await session.snapshot();
+      const isGoogleSetup =
+        integrationSetupDomains
+          .get(workspaceId)
+          ?.get(conversationId)
+          ?.endsWith(".googleapis.com") === true;
+      const visibleUrl = isGoogleSetup
+        ? redactGoogleOAuthCredentials(snapshot.url)
+        : snapshot.url;
+      const visibleSnapshot = isGoogleSetup
+        ? redactGoogleOAuthCredentials(snapshot.snapshot)
+        : snapshot.snapshot;
+      return {
+        snapshot: {
+          url: visibleUrl,
+          title: snapshot.title,
+          text: visibleSnapshot,
+          controls: visibleSnapshot
+            .split("\n")
+            .filter((line) => line.includes("@e"))
+            .slice(0, 300),
+        },
+      };
+    }
+    if (command.type === "click") {
+      await session.click(command.labels);
+      return { clicked: true };
+    }
+    if (command.type === "fill") {
+      await session.fill(command.labels, command.value);
+      return { filled: true };
+    }
+    await session.press(command.key);
+    return { pressed: true };
+  };
   let broadcastIntegrationVerified = (
     _workspaceId: string,
     _integration: {
@@ -382,6 +627,12 @@ export function startServer(port = PORT) {
     },
   ) => undefined;
   let broadcastAgentDeployment = (_record: AgentDeploymentRecord) => undefined;
+  let continueChiefSession = (
+    _workspaceId: string,
+    _chatId: string,
+    _receipt: string,
+    _capability: ExecutorCapability,
+  ) => Promise.resolve();
   const workspaceRevisions = new Map<string, number>();
   const workspaceSnapshotQueues = new Map<string, Promise<void>>();
   const deployments = new AgentDeploymentManager(manager, (record) =>
@@ -402,12 +653,45 @@ export function startServer(port = PORT) {
       externalId: property.propertyId,
     });
     const workspace = await manager.workspaceData(workspaceId);
+    const deferredSources = new Set(
+      workspace.actionItems.flatMap((action) =>
+        action.status === "open" &&
+        action.id.startsWith("onboarding-google-analytics-") &&
+        !action.request &&
+        action.sourceId
+          ? [action.sourceId]
+          : [],
+      ),
+    );
+    const capability = workspaceCapabilities.get(workspaceId);
+    if (capability) {
+      await Promise.all(
+        [...deferredSources].map((sourceId) =>
+          continueChiefSession(
+            workspaceId,
+            sourceId,
+            [
+              `Google Analytics is now verified as ${property.propertyName} (${property.propertyId}).`,
+              "Setup completed in its separate user-visible conversation. Do not launch or repeat Setup.",
+              "Launch the deferred initial Analyst report now. Require it to save the local overview dataset and chart, then incorporate the verified result into the initial business review without delaying completed independent work.",
+            ].join("\n"),
+            capability,
+          ).catch((error: unknown) =>
+            console.error(
+              "[onboarding] deferred Analyst continuation failed:",
+              error,
+            ),
+          ),
+        ),
+      );
+    }
     await Promise.all(
       workspace.actionItems
         .filter(
           (action) =>
             action.status === "open" &&
-            (action.request?.id === "google-analytics-oauth-client" ||
+            (action.id.startsWith("onboarding-google-analytics-") ||
+              action.request?.id === "google-analytics-oauth-client" ||
               (action.request
                 ? isGoogleAnalyticsOAuthRequest(action.request)
                 : false) ||
@@ -610,6 +894,160 @@ export function startServer(port = PORT) {
       executionOwner: "interactive",
     });
   };
+  continueChiefSession = async (workspaceId, chatId, receipt, capability) => {
+    const dispatch = async (): Promise<void> => {
+      const session = await ensureChiefSession(workspaceId, chatId, capability);
+      if (session.isBusy) {
+        const resume = (event: AgentEvent) => {
+          if (
+            event.type !== "result" &&
+            event.type !== "error" &&
+            event.type !== "exit"
+          ) {
+            return;
+          }
+          session.off("event", resume);
+          setTimeout(() => {
+            void dispatch().catch((error: unknown) =>
+              console.error("[action] continuation failed:", error),
+            );
+          }, 0);
+        };
+        session.on("event", resume);
+        return;
+      }
+      const releaseExecution = manager.acquireExecution(
+        workspaceId,
+        chatId,
+        "interactive",
+      );
+      const releaseOnTerminal = (event: AgentEvent) => {
+        if (
+          event.type === "result" ||
+          event.type === "error" ||
+          event.type === "exit"
+        ) {
+          session.off("event", releaseOnTerminal);
+          releaseExecution();
+        }
+      };
+      session.on("event", releaseOnTerminal);
+      try {
+        await session.sendPrompt(receipt);
+      } catch (error) {
+        session.off("event", releaseOnTerminal);
+        releaseExecution();
+        throw error;
+      }
+    };
+    await dispatch();
+  };
+  const reportGoogleBrowserStep = (
+    workspaceId: string,
+    sessionId: string,
+    rawUrl: string,
+  ) => {
+    if (
+      integrationSetupDomains.get(workspaceId)?.get(sessionId) !==
+      GOOGLE_ANALYTICS_DOMAIN
+    ) {
+      return;
+    }
+    let url: URL;
+    try {
+      url = new URL(rawUrl);
+    } catch {
+      return;
+    }
+    if (url.hostname !== "console.cloud.google.com") return;
+    const service = googleAnalyticsRecipe.services.find((candidate) =>
+      url.pathname.includes(`/apis/library/${candidate.service}`),
+    );
+    const progress: IntegrationSetupProgress | undefined = service
+      ? {
+          recipeId: "google-analytics",
+          phase: "enable-api",
+          service: service.name,
+          instruction: `Chief is enabling ${service.name}…`,
+          status: "active",
+        }
+      : url.pathname.startsWith("/auth/clients")
+        ? {
+            recipeId: "google-analytics",
+            phase: "create-client",
+            instruction: "Chief is creating the Desktop OAuth client…",
+            status: "active",
+          }
+        : url.pathname.startsWith("/auth/")
+          ? {
+              recipeId: "google-analytics",
+              phase: "auth-platform",
+              instruction: "Chief is configuring Google Auth Platform…",
+              status: "active",
+            }
+          : undefined;
+    if (progress) {
+      broadcastIntegrationSetupProgress(workspaceId, sessionId, progress);
+    }
+  };
+  const resumeGoogleAuthentication = async (
+    workspaceId: string,
+    sessionId: string,
+    rawUrl: string,
+  ) => {
+    let url: URL;
+    try {
+      url = new URL(rawUrl);
+    } catch {
+      return;
+    }
+    if (
+      url.protocol !== "https:" ||
+      url.hostname !== "console.cloud.google.com"
+    ) {
+      return;
+    }
+    const key = browserKey(workspaceId, sessionId);
+    const pending = pendingGoogleAuthentication.get(key);
+    const account = googleAccountSessions.get(key);
+    if (!pending && !account?.awaitingSelection) return;
+    const authuser = googleAuthUserFromUrl(url.toString());
+    if (!authuser) return;
+    const capability = pending?.capability ?? account?.capability;
+    const attemptId = pending?.attemptId ?? account?.attemptId;
+    if (!capability || !attemptId) return;
+    pendingGoogleAuthentication.delete(key);
+    googleAccountSessions.set(key, {
+      authuser,
+      awaitingSelection: false,
+      attemptId,
+      capability,
+    });
+    const browser = browserSession(workspaceId, sessionId);
+    const stream = await browser.stream();
+    broadcastBrowserNavigate(
+      workspaceId,
+      sessionId,
+      url.toString(),
+      stream.url,
+    );
+    broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+      recipeId: "google-analytics",
+      phase: "project",
+      instruction:
+        "Google sign-in is complete. Chief is taking control of the browser…",
+      status: "active",
+    });
+    await continueChiefSession(
+      workspaceId,
+      sessionId,
+      googleOAuthAuthenticatedBrowserPrompt({
+        ...googleAnalyticsOAuthBrowserPromptOptions,
+        lockedAuthUser: authuser,
+      }),
+      capability,
+    );
+  };
   let schedulerReady = false;
   // Bind both loopback families — macOS clients resolving "localhost" may
   // dial ::1 or 127.0.0.1. Never bind non-loopback interfaces here.
@@ -677,6 +1115,14 @@ export function startServer(port = PORT) {
       const response = await handleLocalTool(request, workspaceId, manager, {
         onActivity: () => broadcastWorkspaceData(workspaceId),
         onFilesChanged: () => broadcastWorkspaceFiles(workspaceId),
+        openBrowser: async (conversationId, url) => {
+          await manager.rootChat(workspaceId, conversationId);
+          await openBrowserSession(workspaceId, conversationId, url);
+        },
+        browserCommand: async (conversationId, command) => {
+          await manager.rootChat(workspaceId, conversationId);
+          return requestBrowserCommand(workspaceId, conversationId, command);
+        },
         activateIntegrationSetup: async (sessionId, attemptId, domain) => {
           await prepareIntegrationSetup(
             workspaceId,
@@ -712,6 +1158,90 @@ export function startServer(port = PORT) {
           );
           await openExecutorHandoff(workspaceId, url);
         },
+        googleOAuth: {
+          provisionClient: async (sessionId, attemptId) => {
+            const setup = activeIntegrationSetup(
+              workspaceId,
+              sessionId,
+              attemptId,
+            );
+            if (setup.domain !== "analytics.googleapis.com") {
+              throw new Error(
+                `Google OAuth client provisioning is not configured for ${setup.domain}.`,
+              );
+            }
+            const existing = await workspaceSecrets.readEnv(workspaceId, [
+              "GOOGLE_ANALYTICS_CLIENT_ID",
+              "GOOGLE_ANALYTICS_CLIENT_SECRET",
+            ]);
+            if (
+              existing.GOOGLE_ANALYTICS_CLIENT_ID &&
+              existing.GOOGLE_ANALYTICS_CLIENT_SECRET
+            ) {
+              return { status: "configured" as const };
+            }
+            pendingGoogleAuthentication.set(`${workspaceId}\0${sessionId}`, {
+              attemptId,
+              capability: {
+                apiBaseUrl: cachedCapability.apiBaseUrl,
+                token,
+              },
+            });
+            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+              recipeId: "google-analytics",
+              phase: "authenticated-session",
+              instruction:
+                "Sign in with the Google account that administers the Analytics property you want to connect. Chief will take control again automatically.",
+              status: "active",
+            });
+            const firstService = googleAnalyticsRecipe.services[0];
+            if (!firstService) throw new Error("Google API recipe is empty.");
+            await openBrowserSession(
+              workspaceId,
+              sessionId,
+              googleAccountChooserUrl(googleApiLibraryUrl(firstService)),
+            );
+            return {
+              status: "authentication-required" as const,
+              instruction:
+                "The user only needs to complete Google sign-in. Chief will resume this same agent automatically and operate the browser from there.",
+            };
+          },
+          captureClient: async (sessionId, attemptId) => {
+            const setup = activeIntegrationSetup(
+              workspaceId,
+              sessionId,
+              attemptId,
+            );
+            if (setup.domain !== "analytics.googleapis.com") {
+              throw new Error(
+                `Google OAuth credential storage is not configured for ${setup.domain}.`,
+              );
+            }
+            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+              recipeId: "google-analytics",
+              phase: "save-client",
+              instruction: "Capturing Google's OAuth client securely…",
+              status: "active",
+            });
+            const client = await captureGoogleDesktopOAuthClient(
+              browserSession(workspaceId, sessionId),
+            );
+            await storeGoogleAnalyticsOAuthClient(
+              workspaceId,
+              { apiBaseUrl: cachedCapability.apiBaseUrl, token },
+              { clientId: client.clientId, clientSecret: client.clientSecret },
+            );
+            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+              recipeId: "google-analytics",
+              phase: "authorize",
+              instruction:
+                "The user-owned OAuth client is stored. Starting Google Analytics authorization…",
+              status: "active",
+            });
+            return { status: "configured" as const };
+          },
+        },
         googleAnalytics: {
           startAuthorization: async (sessionId, attemptId) => {
             assertActiveIntegrationSetup(
@@ -734,6 +1264,13 @@ export function startServer(port = PORT) {
               },
               clientId && clientSecret ? { clientId, clientSecret } : undefined,
             );
+            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+              recipeId: "google-analytics",
+              phase: "authorize",
+              instruction:
+                "One final Google step: sign in again if asked, then approve read-only access to the Analytics account you want Chief to use. Chief will verify the connection automatically.",
+              status: "active",
+            });
             if (clientId && clientSecret) {
               await workspaceSecrets.deleteEnv(
                 workspaceId,
@@ -753,6 +1290,12 @@ export function startServer(port = PORT) {
               attemptId,
               "analytics.googleapis.com",
             );
+            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+              recipeId: "google-analytics",
+              phase: "verify",
+              instruction: "Verifying the Google Analytics connection…",
+              status: "active",
+            });
             const capability = {
               apiBaseUrl: cachedCapability.apiBaseUrl,
               token,
@@ -771,6 +1314,12 @@ export function startServer(port = PORT) {
               workspaceId,
               verification.property,
             );
+            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+              recipeId: "google-analytics",
+              phase: "complete",
+              instruction: "Google Analytics is connected.",
+              status: "complete",
+            });
             activeIntegrationSetups.get(workspaceId)?.delete(sessionId);
             return {
               status: "connected" as const,
@@ -785,6 +1334,12 @@ export function startServer(port = PORT) {
               attemptId,
               "analytics.googleapis.com",
             );
+            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+              recipeId: "google-analytics",
+              phase: "verify",
+              instruction: "Verifying the selected Analytics property…",
+              status: "active",
+            });
             const capability = {
               apiBaseUrl: cachedCapability.apiBaseUrl,
               token,
@@ -801,6 +1356,12 @@ export function startServer(port = PORT) {
               workspaceId,
               verification.property,
             );
+            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+              recipeId: "google-analytics",
+              phase: "complete",
+              instruction: "Google Analytics is connected.",
+              status: "complete",
+            });
             activeIntegrationSetups.get(workspaceId)?.delete(sessionId);
             return {
               status: "connected" as const,
@@ -886,6 +1447,59 @@ export function startServer(port = PORT) {
       workspaceId,
       notice,
     });
+    for (const client of new Set([...wss.clients, ...wss6.clients])) {
+      if (
+        client.readyState === WebSocket.OPEN &&
+        socketAuthorization.canReceive(client, workspaceId)
+      ) {
+        client.send(message);
+      }
+    }
+  };
+  broadcastBrowserNavigate = (workspaceId, conversationId, url, streamUrl) => {
+    const message = JSON.stringify({
+      type: "browserNavigate",
+      workspaceId,
+      conversationId,
+      url,
+      streamUrl,
+    } satisfies ServerMessage);
+    for (const client of new Set([...wss.clients, ...wss6.clients])) {
+      if (
+        client.readyState === WebSocket.OPEN &&
+        socketAuthorization.canReceive(client, workspaceId)
+      ) {
+        client.send(message);
+      }
+    }
+  };
+  broadcastBrowserPrepare = (workspaceId, conversationId, url) => {
+    const message = JSON.stringify({
+      type: "browserPrepare",
+      workspaceId,
+      conversationId,
+      url,
+    } satisfies ServerMessage);
+    for (const client of new Set([...wss.clients, ...wss6.clients])) {
+      if (
+        client.readyState === WebSocket.OPEN &&
+        socketAuthorization.canReceive(client, workspaceId)
+      ) {
+        client.send(message);
+      }
+    }
+  };
+  broadcastIntegrationSetupProgress = (
+    workspaceId,
+    conversationId,
+    progress,
+  ) => {
+    const message = JSON.stringify({
+      type: "integrationSetupProgress",
+      workspaceId,
+      conversationId,
+      progress,
+    } satisfies ServerMessage);
     for (const client of new Set([...wss.clients, ...wss6.clients])) {
       if (
         client.readyState === WebSocket.OPEN &&
@@ -1022,6 +1636,96 @@ export function startServer(port = PORT) {
       }
 
       try {
+        if (
+          msg.type === "browserNavigateRequest" ||
+          msg.type === "browserReload" ||
+          msg.type === "browserViewportResize" ||
+          msg.type === "browserUrlChanged"
+        ) {
+          if (!socketAuthorization.canReceive(ws, msg.workspaceId)) {
+            throw new Error("This browser action is not authorized.");
+          }
+          if (msg.type === "browserUrlChanged") {
+            const url = new URL(msg.url);
+            if (url.protocol !== "http:" && url.protocol !== "https:") {
+              throw new Error("Browser URLs must use HTTP or HTTPS.");
+            }
+            const key = browserKey(msg.workspaceId, msg.conversationId);
+            const account = googleAccountSessions.get(key);
+            if (
+              url.hostname === "console.cloud.google.com" &&
+              account?.authuser &&
+              !account.awaitingSelection
+            ) {
+              const lockedUrl = withGoogleAuthUser(
+                url.toString(),
+                account.authuser,
+              );
+              if (
+                lockedUrl !== url.toString() &&
+                googleAuthUserFromUrl(url.toString()) !== account.authuser
+              ) {
+                await openBrowserSession(
+                  msg.workspaceId,
+                  msg.conversationId,
+                  lockedUrl,
+                );
+                return;
+              }
+            }
+            reportGoogleBrowserStep(
+              msg.workspaceId,
+              msg.conversationId,
+              url.toString(),
+            );
+            await resumeGoogleAuthentication(
+              msg.workspaceId,
+              msg.conversationId,
+              url.toString(),
+            );
+            return;
+          }
+          await manager.rootChat(msg.workspaceId, msg.conversationId);
+          if (msg.type === "browserNavigateRequest") {
+            const url = new URL(msg.url);
+            if (url.protocol !== "http:" && url.protocol !== "https:") {
+              throw new Error("Browser URLs must use HTTP or HTTPS.");
+            }
+            await openBrowserSession(
+              msg.workspaceId,
+              msg.conversationId,
+              url.toString(),
+              { width: msg.width, height: msg.height },
+            );
+          } else {
+            const browser = browserSession(msg.workspaceId, msg.conversationId);
+            if (msg.type === "browserReload") {
+              await browser.reload();
+              const [url, stream] = await Promise.all([
+                browser.getUrl(),
+                browser.stream(),
+              ]);
+              broadcastBrowserNavigate(
+                msg.workspaceId,
+                msg.conversationId,
+                url,
+                stream.url,
+              );
+            } else {
+              const key = browserKey(msg.workspaceId, msg.conversationId);
+              const waiter = browserViewportWaiters.get(key);
+              if (waiter) waiter({ width: msg.width, height: msg.height });
+              else {
+                await resizeBrowserSession(
+                  msg.workspaceId,
+                  msg.conversationId,
+                  { width: msg.width, height: msg.height },
+                );
+              }
+            }
+          }
+          return;
+        }
         if ("workspaceId" in msg && "executorCapability" in msg) {
           await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
           const previousWorkspace = socketAuthorization.authorize(
@@ -1250,8 +1954,7 @@ export function startServer(port = PORT) {
                 const onboardingPlan = planOnboardingWork(
                   msg.jobs,
                   googleAnalyticsConfiguration
-                    ? googleAnalyticsConfiguration.oauthClientConfigured ||
-                        Boolean(googleAnalyticsConfiguration.connection)
+                    ? Boolean(googleAnalyticsConfiguration.connection)
                     : undefined,
                 );
                 const attachmentPaths: string[][] = [];
@@ -1325,7 +2028,7 @@ export function startServer(port = PORT) {
                     ? "As soon as an analytics Setup job is verified connected, launch the listed Analyst job. This is the only dependent kickoff job. Require its saved local dataset and chart before including analytics in the synthesis; if setup is genuinely blocked, do not fabricate a report or hold up unrelated results."
                     : "No initial analytics report was requested.",
                   onboardingPlan.deferredGoogleAnalytics
-                    ? "Google Analytics Setup and the initial Analyst report are deferred before any child attempt because the required Google OAuth client is predictably absent. Chief has already created one deterministic Overview action with exact Google Cloud instructions and secure fields. Do not delegate Google Analytics Setup, create another credential action, or poll for credentials; continue all launchable work until Chief sends a credential-saved continuation."
+                    ? "Google Analytics Setup and the initial Analyst report are deferred before any child attempt because the required Google OAuth client is predictably absent. Chief has already created one deterministic Overview action with exact Google Cloud instructions and secure fields. Setup will run in its own user-visible conversation. Do not delegate Google Analytics Setup, create another credential action, or poll for credentials; continue all launchable work until Chief sends a verified-connection continuation."
                     : "No onboarding work was deferred by credential preflight.",
                   driver === "remote"
                     ? "Launch initial prospecting exactly once through the declared Prospector in the initial parallel batch. Require five to eight recent, high-confidence results with direct source URLs and require every qualified result to be saved through chief prospects.save before returning. Never start an equivalent second Prospector."
@@ -1349,20 +2052,16 @@ export function startServer(port = PORT) {
                   model,
                 );
                 if (onboardingPlan.deferredGoogleAnalytics) {
-                  const setupAttemptId =
-                    onboardingPlan.deferredGoogleAnalytics.setupAttemptId;
-                  const request =
-                    onboardingGoogleAnalyticsOAuthInputRequest(setupAttemptId);
                   await manager.raiseActionItem(msg.workspaceId, {
                     id: `onboarding-google-analytics-${createHash("sha256")
                       .update(msg.workspaceId)
                       .digest("hex")
                       .slice(0, 24)}`,
                     agentId: "setup",
-                    title: GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST.title,
-                    reason: GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST.reason ?? "",
+                    title: "Connect Google Analytics",
+                    reason:
+                      "Google Analytics was selected during onboarding. Open Setup and sign in with the Google account that administers the Analytics property you want Chief to use.",
                     sourceId: chatId,
-                    request,
                     status: "open",
                     createdAt: now,
                   });
@@ -1714,6 +2413,39 @@ export function startServer(port = PORT) {
             ) {
               throw new Error("The submitted action response is incomplete.");
             }
+            const directGoogleSetup = isGoogleAnalyticsOAuthRequest(
+              action.request,
+            );
+            const deferredGoogleAnalyticsAttempt =
+              googleAnalyticsOnboardingAttempt(action.request.id);
+            if (deferredGoogleAnalyticsAttempt && !msg.setup) {
+              throw new Error(
+                "Open the Google Analytics Setup conversation to continue.",
+              );
+            }
+            let setupSession: AgentSession | undefined;
+            if (msg.setup) {
+              if (
+                !deferredGoogleAnalyticsAttempt ||
+                msg.setup.domain !== GOOGLE_ANALYTICS_DOMAIN ||
+                msg.setup.chatId !== googleAnalyticsActionChatId(action.id)
+              ) {
+                throw new Error(
+                  "This Setup conversation does not match the action.",
+                );
+              }
+              const setupChat = await manager.rootChat(
+                msg.workspaceId,
+                msg.setup.chatId,
+              );
+              if (setupChat.chat.agent !== "setup") {
+                throw new Error("This conversation is not owned by Setup.");
+              }
+              setupSession = manager.get(msg.workspaceId, msg.setup.chatId);
+              if (!setupSession || setupSession.isBusy) {
+                throw new Error("Wait for the Setup conversation to be ready.");
+              }
+            }
             const saved = await storeInputValues(
               msg.workspaceId,
               action.request,
@@ -1721,54 +2453,44 @@ export function startServer(port = PORT) {
               false,
               msg.executorCapability,
             );
-            const directGoogleSetup = isGoogleAnalyticsOAuthRequest(
-              action.request,
-            );
-            const deferredGoogleAnalyticsAttempt =
-              googleAnalyticsOnboardingAttempt(action.request.id);
-            const receipt = [
-              `The user resolved the action: ${action.title}`,
-              ...Object.entries(msg.answers).map(
-                ([question, answer]) => `- ${question}: ${answer.trim()}`,
-              ),
-              ...saved.map((destination) => `- Saved input to ${destination}`),
-              deferredGoogleAnalyticsAttempt
-                ? `Launch the deferred Google Analytics Setup delegation now with setupDomain=${GOOGLE_ANALYTICS_DOMAIN} and setupAttemptId=${deferredGoogleAnalyticsAttempt}. This is its first attempt, not a retry. After it verifies a connection, launch the deferred Analyst report. Do not request the OAuth client credentials again.`
-                : "Continue the setup or review now using these answers. This is explicit authorization to run the supported local integration setup and open its browser consent flow. Never expose stored credential values, and complete every remaining independent part.",
-            ].join("\n");
-            const sourceId = action.sourceId;
-            if (
-              sourceId &&
-              (!directGoogleSetup || deferredGoogleAnalyticsAttempt)
-            ) {
-              const dispatch = async () => {
-                const session = await ensureChiefSession(
-                  msg.workspaceId,
-                  sourceId,
-                  msg.executorCapability,
-                );
-                if (session.isBusy) {
-                  const resume = (event: AgentEvent) => {
-                    if (
-                      event.type !== "result" &&
-                      event.type !== "error" &&
-                      event.type !== "exit"
-                    ) {
-                      return;
-                    }
-                    session.off("event", resume);
-                    setTimeout(() => {
-                      void dispatch().catch((error: unknown) =>
-                        console.error("[action] continuation failed:", error),
-                      );
-                    }, 0);
-                  };
-                  session.on("event", resume);
-                  return;
-                }
+            if (msg.setup && deferredGoogleAnalyticsAttempt && setupSession) {
+              await prepareIntegrationSetup(
+                msg.workspaceId,
+                msg.executorCapability,
+                GOOGLE_ANALYTICS_DOMAIN,
+              );
+              const domains =
+                integrationSetupDomains.get(msg.workspaceId) ??
+                new Map<string, string>();
+              domains.set(msg.setup.chatId, GOOGLE_ANALYTICS_DOMAIN);
+              integrationSetupDomains.set(msg.workspaceId, domains);
+              const active =
+                activeIntegrationSetups.get(msg.workspaceId) ??
+                new Map<
+                  string,
+                  { attemptId: string; domain: string; expiresAt: number }
+                >();
+              active.set(msg.setup.chatId, {
+                attemptId: deferredGoogleAnalyticsAttempt,
+                domain: GOOGLE_ANALYTICS_DOMAIN,
+                expiresAt: Date.now() + 30 * 60_000,
+              });
+              activeIntegrationSetups.set(msg.workspaceId, active);
+              const updatedAction = {
+                ...action,
+                title: "Google Analytics setup is running",
+                reason:
+                  "Complete Google sign-in in the separate Setup conversation. Chief will verify the connection and continue the initial review automatically.",
+                request: undefined,
+              };
+              await manager.raiseActionItem(msg.workspaceId, updatedAction);
+              const existingAttempt = activeSetupAttempt(
+                await manager.transcript(msg.workspaceId, msg.setup.chatId),
+              );
+              if (existingAttempt !== deferredGoogleAnalyticsAttempt) {
                 const releaseExecution = manager.acquireExecution(
                   msg.workspaceId,
-                  sourceId,
+                  msg.setup.chatId,
                   "interactive",
                 );
                 const releaseOnTerminal = (event: AgentEvent) => {
@@ -1777,20 +2499,49 @@ export function startServer(port = PORT) {
                     event.type === "error" ||
                     event.type === "exit"
                   ) {
-                    session.off("event", releaseOnTerminal);
+                    setupSession.off("event", releaseOnTerminal);
                     releaseExecution();
                   }
                 };
-                session.on("event", releaseOnTerminal);
+                setupSession.on("event", releaseOnTerminal);
                 try {
-                  await session.sendPrompt(receipt);
+                  await setupSession.sendPrompt(
+                    `[chief-integration-setup:${deferredGoogleAnalyticsAttempt}]\nSet up this integration directly. Do not delegate this work to another agent.\n\n${GOOGLE_ANALYTICS_SETUP_TASK}`,
+                  );
                 } catch (error) {
-                  session.off("event", releaseOnTerminal);
+                  setupSession.off("event", releaseOnTerminal);
                   releaseExecution();
+                  await manager.raiseActionItem(msg.workspaceId, action);
+                  await broadcastWorkspaceData(msg.workspaceId);
                   throw error;
                 }
-              };
-              await dispatch();
+              }
+              send({
+                type: "actionRequestResolved",
+                workspaceId: msg.workspaceId,
+                actionItemId: action.id,
+                requestId: msg.requestId,
+                action: updatedAction,
+              });
+              await broadcastWorkspaceData(msg.workspaceId);
+              break;
+            }
+            const receipt = [
+              `The user resolved the action: ${action.title}`,
+              ...Object.entries(msg.answers).map(
+                ([question, answer]) => `- ${question}: ${answer.trim()}`,
+              ),
+              ...saved.map((destination) => `- Saved input to ${destination}`),
+              "Continue the setup or review now using these answers. This is explicit authorization to run the supported local integration setup and open its browser consent flow. Never expose stored credential values, and complete every remaining independent part.",
+            ].join("\n");
+            const sourceId = action.sourceId;
+            if (sourceId && !directGoogleSetup) {
+              await continueChiefSession(
+                msg.workspaceId,
+                sourceId,
+                receipt,
+                msg.executorCapability,
+              );
             }
             await manager.dismissActionItem(msg.workspaceId, action.id);
             await dismissCloudAction(msg.workspaceId, action.id);
@@ -2087,6 +2838,7 @@ export function startServer(port = PORT) {
               chatId: msg.chatId,
               messages: await manager.messages(msg.workspaceId, msg.chatId),
               events: chatControlEvents(inspected.events),
+              running: inspected.session?.isBusy ?? false,
             });
             break;
           }
@@ -2146,21 +2898,26 @@ export function startServer(port = PORT) {
             const storedChat = await manager.createRootChat(
               msg.workspaceId,
               msg.chatId,
-              "",
+              msg.purpose === "integration-setup"
+                ? msg.integrationDomain === GOOGLE_ANALYTICS_DOMAIN
+                  ? "Google Analytics setup"
+                  : "Integration setup"
+                : "",
               requestedExecution?.driver,
               requestedExecution?.model,
               agentId,
             );
+            let setupAttemptId: string | null = null;
             if (msg.purpose === "integration-setup") {
               const domains =
                 integrationSetupDomains.get(msg.workspaceId) ??
                 new Map<string, string>();
               domains.set(msg.chatId, msg.integrationDomain ?? "");
               integrationSetupDomains.set(msg.workspaceId, domains);
-              const attemptId = activeSetupAttempt(
+              setupAttemptId = activeSetupAttempt(
                 await manager.transcript(msg.workspaceId, msg.chatId),
               );
-              if (attemptId) {
+              if (setupAttemptId) {
                 const active =
                   activeIntegrationSetups.get(msg.workspaceId) ??
                   new Map<
@@ -2168,7 +2925,7 @@ export function startServer(port = PORT) {
                     { attemptId: string; domain: string; expiresAt: number }
                   >();
                 active.set(msg.chatId, {
-                  attemptId,
+                  attemptId: setupAttemptId,
                   domain: msg.integrationDomain ?? "",
                   expiresAt: Date.now() + 30 * 60_000,
                 });
@@ -2191,6 +2948,45 @@ export function startServer(port = PORT) {
               ? requestedExecution.model
               : storedChat.model;
             let recoveryPrompt: string | undefined;
+            let restartInterruptedSetup = false;
+            if (
+              msg.purpose === "integration-setup" &&
+              msg.integrationDomain === GOOGLE_ANALYTICS_DOMAIN &&
+              setupAttemptId &&
+              ["running", "waiting", "failed"].includes(storedChat.status)
+            ) {
+              const visibleUrl = await browserSession(
+                msg.workspaceId,
+                msg.chatId,
+              )
+                .getUrl()
+                .catch(() => "");
+              try {
+                const page = new URL(visibleUrl);
+                restartInterruptedSetup =
+                  page.hostname === "console.cloud.google.com";
+              } catch {
+                restartInterruptedSetup = false;
+              }
+              if (restartInterruptedSetup) {
+                const authuser = googleAuthUserFromUrl(visibleUrl);
+                if (authuser) {
+                  googleAccountSessions.set(
+                    browserKey(msg.workspaceId, msg.chatId),
+                    {
+                      authuser,
+                      awaitingSelection: false,
+                      attemptId: setupAttemptId,
+                      capability: msg.executorCapability,
+                    },
+                  );
+                }
+                recoveryPrompt = googleOAuthInterruptedBrowserPrompt({
+                  ...googleAnalyticsOAuthBrowserPromptOptions,
+                  lockedAuthUser: authuser ?? undefined,
+                });
+              }
+            }
             if (
               msg.chatId.startsWith("workspace-kickoff-") &&
               !onboardingBootstrap
@@ -2332,11 +3128,17 @@ export function startServer(port = PORT) {
                         msg.chatId,
                         config,
                       )
-                    : manager.ensureRootChat(
-                        effectiveAgent,
-                        msg.chatId,
-                        config,
-                      );
+                    : restartInterruptedSetup
+                      ? manager.restartRootChatContinuation(
+                          effectiveAgent,
+                          msg.chatId,
+                          config,
+                        )
+                      : manager.ensureRootChat(
+                          effectiveAgent,
+                          msg.chatId,
+                          config,
+                        );
                 })();
             bindRootSession(msg.workspaceId, msg.chatId, session);
             send({
@@ -2355,6 +3157,7 @@ export function startServer(port = PORT) {
               chatId: msg.chatId,
               messages: await manager.messages(msg.workspaceId, msg.chatId),
               events: chatControlEvents(session.events),
+              running: session.isBusy,
             });
             if (recoveryPrompt && !session.isBusy) {
               const releaseExecution = manager.acquireExecution(
@@ -2516,7 +3319,6 @@ export function startServer(port = PORT) {
                 await manager.rootChat(msg.workspaceId, msg.chatId)
               ).session?.interrupt();
             } finally {
-              activeIntegrationSetups.get(msg.workspaceId)?.delete(msg.chatId);
               manager.releaseExecution(
                 msg.workspaceId,
                 msg.chatId,

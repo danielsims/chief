@@ -245,8 +245,8 @@ export type AgentEvent =
       requestId: string;
       behavior: "allow" | "deny";
     }
-  /** The agent asked the user structured questions (Claude's
-   * AskUserQuestion); the UI renders them and answers via respondQuestion. */
+  /** The agent asked the user structured questions; the UI renders them and
+   * answers via respondQuestion for any supported driver. */
   | {
       type: "question";
       requestId: string;
@@ -662,6 +662,26 @@ export interface SlackChannelState extends SlackChannelSettings {
 
 // ---- WebSocket protocol between clients (desktop app, future Slack bridge) and the service ----
 
+export interface BrowserPageSnapshot {
+  url: string;
+  title: string;
+  text: string;
+  controls: string[];
+}
+
+export type BrowserAutomationCommand =
+  | { type: "snapshot" }
+  | { type: "click"; labels: string[] }
+  | { type: "fill"; labels: string[]; value: string }
+  | { type: "press"; key: string };
+
+export interface BrowserAutomationResult {
+  snapshot?: BrowserPageSnapshot;
+  clicked?: boolean;
+  filled?: boolean;
+  pressed?: boolean;
+}
+
 export type ClientMessage =
   | { type: "listAgents" }
   | {
@@ -762,6 +782,7 @@ export type ClientMessage =
       requestId: string;
       answers: Record<string, string>;
       values: Record<string, string>;
+      setup?: { chatId: string; domain: string };
       executorCapability: ExecutorCapability;
     }
   /** The user explicitly allows the exact tools a session was blocked on. */
@@ -940,6 +961,32 @@ export type ClientMessage =
       settings: SlackChannelSettings;
       credentials?: { botToken?: string; appToken?: string };
       executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "browserNavigateRequest";
+      workspaceId: string;
+      conversationId: string;
+      url: string;
+      width: number;
+      height: number;
+    }
+  | {
+      type: "browserReload";
+      workspaceId: string;
+      conversationId: string;
+    }
+  | {
+      type: "browserUrlChanged";
+      workspaceId: string;
+      conversationId: string;
+      url: string;
+    }
+  | {
+      type: "browserViewportResize";
+      workspaceId: string;
+      conversationId: string;
+      width: number;
+      height: number;
     };
 
 /** A short-lived event the app surfaces as a toast or OS notification. */
@@ -960,10 +1007,46 @@ export interface RuntimeNotice {
   recurringWorkId?: string;
 }
 
+export interface IntegrationSetupProgress {
+  recipeId: string;
+  phase:
+    | "authenticated-session"
+    | "project"
+    | "enable-api"
+    | "auth-platform"
+    | "create-client"
+    | "save-client"
+    | "authorize"
+    | "verify"
+    | "complete";
+  instruction: string;
+  service?: string;
+  status: "active" | "complete" | "error";
+}
+
 export type ServerMessage =
   | { type: "agents"; agents: AgentDefinition[] }
   | { type: "models"; driver: DriverType; models: ProviderModelOption[] }
+  | {
+      type: "browserNavigate";
+      workspaceId: string;
+      conversationId: string;
+      url: string;
+      streamUrl: string;
+    }
+  | {
+      type: "browserPrepare";
+      workspaceId: string;
+      conversationId: string;
+      url: string;
+    }
   | { type: "runtimeNotice"; workspaceId: string; notice: RuntimeNotice }
+  | {
+      type: "integrationSetupProgress";
+      workspaceId: string;
+      conversationId: string;
+      progress: IntegrationSetupProgress;
+    }
   | {
       type: "onboardingWorkBootstrapped";
       workspaceId: string;
@@ -1031,11 +1114,13 @@ export type ServerMessage =
       workspaceId: string;
       chats: {
         id: string;
+        agent: string;
         title: string;
         lastText: string;
         lastAt: number;
         driver?: DriverType;
         model?: string;
+        running: boolean;
       }[];
     }
   | {
@@ -1054,6 +1139,7 @@ export type ServerMessage =
       chatId: string;
       messages: ChiefUIMessage[];
       events: AgentEvent[];
+      running: boolean;
     }
   | {
       type: "message";
@@ -1107,6 +1193,7 @@ export type ServerMessage =
       workspaceId: string;
       actionItemId: string;
       requestId: string;
+      action?: ActionItem;
     }
   | {
       type: "error";
