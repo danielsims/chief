@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@ai-sdk/react": "4.0.33",
+    "@browser-ui/react": "0.2.0",
     "@chief/agent-runtime": "workspace:*",
     "@chief/backend": "workspace:*",
     "@chief/browser": "workspace:*",
