@@ -277,11 +277,8 @@ export function IntegrationSetupPanel({
           : "space-y-3"
       }
     >
-      {standalone &&
-      sessionKey === "analytics.googleapis.com" &&
-      localIntegrations !== null &&
-      !setupComplete ? (
-        <SetupProgressList progress={setupProgress} />
+      {standalone && localIntegrations !== null && !setupComplete ? (
+        <SetupProgressList recipeId={sessionKey} progress={setupProgress} />
       ) : null}
       <div
         className={

@@ -14,6 +14,7 @@ import {
   googleAnalyticsActionIdFromChat,
   isOnboardingGoogleAnalyticsAction,
 } from "@chief/agent-runtime/integration-requests";
+import { browserCredentialSetupRecipe } from "@chief/agent-runtime/integration-setup-recipes";
 
 export { GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST } from "@chief/agent-runtime/integration-requests";
 export {
@@ -303,7 +304,9 @@ export function integrationSetupTask(integration: SetupIntegration): string {
   if (!/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/i.test(integration.domain)) {
     throw new Error("Integration domain is invalid.");
   }
-  const hints = PROVIDER_HINTS[integration.domain];
+  const hints =
+    browserCredentialSetupRecipe(integration.domain)?.agentInstructions ??
+    PROVIDER_HINTS[integration.domain];
   if (integration.domain === "analytics.googleapis.com") {
     return GOOGLE_ANALYTICS_SETUP_TASK;
   }
@@ -314,9 +317,9 @@ Fetch the integration facts from Executor's canonical registry source with \`cur
 Pick the best setup path:
 0. Inspect existing Executor integrations, OAuth clients, and connections first. Never inspect global credentials or another workspace's files.
 1. Use an Executor-managed remote MCP or OpenAPI connection. Do not install or execute provider CLIs from registry data. If Executor cannot securely represent the authentication, state the exact unsupported requirement rather than creating a connection future agents cannot use.
-2. For API keys or tokens, use Executor's connection creation handoff so the user enters secrets directly into the credential provider. Open the returned handoff with Chief's integration.openHandoff tool, passing the current sessionId and the setup attempt ID from the first user-message marker as attemptId. Never ask for generic provider secrets through CHIEF_INPUT_REQUEST or save them as environment variables.
+2. For a supported one-time browser-generated token, operate the provider UI yourself after the human signs in, follow the provider hint below, and use integration.captureGeneratedCredential so the secret crosses only Chief's trusted host boundary. For other API keys or tokens, use Executor's connection creation handoff so the user enters the secret directly into the credential provider. Open the returned handoff with Chief's integration.openHandoff tool, passing the current sessionId and setup attempt ID. Never ask for generic provider secrets through CHIEF_INPUT_REQUEST or save them as environment variables.
 3. For a confidential OAuth app, use Executor's OAuth-client creation handoff and open it with integration.openHandoff. Then start OAuth through Executor, open its external authorization URL, and wait for consent to finish. Never use no-browser or copy-this-command fallbacks.
-4. If Executor pauses a protected mutation, open the returned approvalUrl with integration.openHandoff, then immediately call Executor's resume tool with that executionId. Browser-mode resume waits for the human's decision and returns the continued result, so do not wait for a chat reply and never approve it yourself. If the result has no approvalUrl, report an invalid Executor approval response instead of asking the user to find a missing prompt.
+4. The user's Connect action authorizes the narrow integration-provisioning mutations in this active setup run. Do not ask for a second approval or open an Executor approval page. A credential-entry or provider-consent handoff is still human-only. If a setup mutation unexpectedly pauses for generic approval, report it as an invalid setup response instead of asking the user to find a missing prompt.
 5. Verify the resulting connection with a real read-only provider call, then persist its canonical provider id, category, display name, and external id with integrationsMarkConnected. Summarize the verification in one line without dumping raw responses.
 6. If truly blocked by something only the user can do, state the single specific action needed and stop.
 

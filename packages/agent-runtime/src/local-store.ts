@@ -552,7 +552,7 @@ const STRING_SECRET_ASSIGNMENT =
   /(["']?(?:password|passwd|secret|token|access[_-]?token|refresh[_-]?token|authorization|cookie|api[_-]?key|credential|private[_-]?key|client[_-]?secret)["']?\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s,;&}\]]+)/gi;
 const BEARER_SECRET = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi;
 const PREFIXED_SECRET =
-  /\b(?:sk-(?:(?:proj|ant)-)?|[spr]k_live_|gh[pousr]_|github_pat_|glpat-|npm_|pypi-|xox[baprs]-|ya29\.|AIza|AKIA|ASIA|SG\.)[A-Za-z0-9_./+=-]{8,}/g;
+  /\b(?:sk-(?:(?:proj|ant)-)?|[spr]k_live_|gh[pousr]_|github_pat_|glpat-|v(?:cp|ci|ca|cr|ck)_|npm_|pypi-|xox[baprs]-|ya29\.|AIza|AKIA|ASIA|SG\.)[A-Za-z0-9_./+=-]{8,}/g;
 const JWT_SECRET = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g;
 const PRODUCT_ACTION_SOURCE = /^(?:agent|automation)-[A-Za-z0-9_-]+$/;
 

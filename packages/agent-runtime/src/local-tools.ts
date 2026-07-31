@@ -2,11 +2,11 @@
 
 import { createHash, randomUUID } from "node:crypto";
 
+import type { BrowserLocalToolContext } from "./browser-local-tools.js";
+import type { IntegrationSetupLocalToolContext } from "./integration-setup-local-tools.js";
 import type { SessionManager } from "./manager.js";
 import type {
   AnalyticsDataset,
-  BrowserAutomationCommand,
-  BrowserAutomationResult,
   CampaignRecord,
   ContentDraftRecord,
   InputRequest,
@@ -14,7 +14,17 @@ import type {
   RecurringWorkRecord,
   TrendRecord,
 } from "./types.js";
+import {
+  browserOpenApiPaths,
+  browserOpenApiSchemas,
+  handleBrowserLocalTool,
+} from "./browser-local-tools.js";
 import { assertSafeInputRequest } from "./input-values.js";
+import {
+  handleIntegrationSetupLocalTool,
+  integrationSetupOpenApiPaths,
+  integrationSetupOpenApiSchemas,
+} from "./integration-setup-local-tools.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
 import { runSpecialistDelegation } from "./specialist-delegation.js";
 import {
@@ -488,56 +498,7 @@ export function localToolsOpenApi(origin: string) {
           responses: saveResponse,
         },
       },
-      "/local-tools/browser/open": {
-        post: {
-          operationId: "browser.open",
-          summary: "Open or navigate Chief's embedded browser",
-          description:
-            "Shows an HTTP or HTTPS page beside the owning Chief conversation. Use the semantic browser tools to inspect and interact with it.",
-          requestBody: body("BrowserOpenInput"),
-          responses: { "200": { description: "Browser navigation sent" } },
-        },
-      },
-      "/local-tools/browser/snapshot": {
-        post: {
-          operationId: "browser.snapshot",
-          summary: "Inspect Chief's visible embedded browser page",
-          description:
-            "Returns the current URL, title, readable text, and visible semantic controls. Re-inspect after navigation or a material page change.",
-          requestBody: body("BrowserConversationInput"),
-          responses: { "200": { description: "Semantic page snapshot" } },
-        },
-      },
-      "/local-tools/browser/click": {
-        post: {
-          operationId: "browser.click",
-          summary: "Click an agent-browser ref or visible control",
-          description:
-            "Clicks the first matching agent-browser snapshot ref or semantic label. Re-snapshot after navigation because refs are invalidated when the page changes.",
-          requestBody: body("BrowserLabelsInput"),
-          responses: { "200": { description: "Click result" } },
-        },
-      },
-      "/local-tools/browser/fill": {
-        post: {
-          operationId: "browser.fill",
-          summary: "Fill a visible browser field by label",
-          description:
-            "Fills a non-secret visible field in Chief's embedded browser. Never request or fill passwords, passkeys, MFA codes, or account credentials; the user handles authentication directly.",
-          requestBody: body("BrowserFillInput"),
-          responses: { "200": { description: "Fill result" } },
-        },
-      },
-      "/local-tools/browser/press": {
-        post: {
-          operationId: "browser.press",
-          summary: "Press a key in the visible browser",
-          description:
-            "Presses a key such as Enter, Tab, Escape, or ArrowDown in the shared agent-browser session.",
-          requestBody: body("BrowserPressInput"),
-          responses: { "200": { description: "Key press result" } },
-        },
-      },
+      ...browserOpenApiPaths(body),
       "/local-tools/brand-profile": {
         post: {
           operationId: "brandProfile.save",
@@ -614,16 +575,7 @@ export function localToolsOpenApi(origin: string) {
           },
         },
       },
-      "/local-tools/integrations/handoff/open": {
-        post: {
-          operationId: "integration.openHandoff",
-          summary: "Open a secure local connection handoff",
-          description:
-            "Opens an Executor connection or OAuth-client handoff in the system browser with local authentication added by Chief. Use only in a user-started integration setup run.",
-          requestBody: body("IntegrationHandoffInput"),
-          responses: { "200": { description: "Handoff opened" } },
-        },
-      },
+      ...integrationSetupOpenApiPaths(body),
       "/local-tools/recurring-work": {
         get: {
           operationId: "recurringWork.list",
@@ -645,66 +597,7 @@ export function localToolsOpenApi(origin: string) {
         localWorkspaceCapability: { type: "http", scheme: "bearer" },
       },
       schemas: {
-        BrowserOpenInput: {
-          type: "object",
-          additionalProperties: false,
-          required: ["conversationId", "url"],
-          properties: {
-            conversationId: {
-              type: "string",
-              maxLength: 160,
-              description:
-                "Exact owning Chief conversation ID from the runtime context",
-            },
-            url: { type: "string", format: "uri", maxLength: 2000 },
-          },
-        },
-        BrowserConversationInput: {
-          type: "object",
-          additionalProperties: false,
-          required: ["conversationId"],
-          properties: {
-            conversationId: { type: "string", maxLength: 160 },
-          },
-        },
-        BrowserLabelsInput: {
-          type: "object",
-          additionalProperties: false,
-          required: ["conversationId", "labels"],
-          properties: {
-            conversationId: { type: "string", maxLength: 160 },
-            labels: {
-              type: "array",
-              minItems: 1,
-              maxItems: 8,
-              items: { type: "string", maxLength: 160 },
-            },
-          },
-        },
-        BrowserFillInput: {
-          type: "object",
-          additionalProperties: false,
-          required: ["conversationId", "labels", "value"],
-          properties: {
-            conversationId: { type: "string", maxLength: 160 },
-            labels: {
-              type: "array",
-              minItems: 1,
-              maxItems: 8,
-              items: { type: "string", maxLength: 160 },
-            },
-            value: { type: "string", maxLength: 2000 },
-          },
-        },
-        BrowserPressInput: {
-          type: "object",
-          additionalProperties: false,
-          required: ["conversationId", "key"],
-          properties: {
-            conversationId: { type: "string", maxLength: 160 },
-            key: { type: "string", minLength: 1, maxLength: 80 },
-          },
-        },
+        ...browserOpenApiSchemas,
         ActionInput: {
           type: "object",
           additionalProperties: false,
@@ -921,6 +814,7 @@ export function localToolsOpenApi(origin: string) {
             url: { type: "string" },
           },
         },
+        ...integrationSetupOpenApiSchemas,
         ProspectInput: {
           type: "object",
           additionalProperties: false,
@@ -1206,55 +1100,46 @@ export async function handleLocalTool(
   request: Request,
   workspaceId: string,
   manager: SessionManager,
-  context: {
-    conversationId?: string;
-    onActivity?: () => void | Promise<void>;
-    onFilesChanged?: () => void | Promise<void>;
-    openBrowser?: (conversationId: string, url: string) => void | Promise<void>;
-    browserCommand?: (
-      conversationId: string,
-      command: BrowserAutomationCommand,
-    ) => Promise<BrowserAutomationResult>;
-    openIntegrationHandoff?: (
-      sessionId: string,
-      attemptId: string,
-      url: string,
-    ) => Promise<void>;
-    activateIntegrationSetup?: (
-      sessionId: string,
-      attemptId: string,
-      domain: string,
-    ) => void | Promise<void>;
-    googleOAuth?: {
-      provisionClient?: (
+  context: BrowserLocalToolContext &
+    IntegrationSetupLocalToolContext & {
+      conversationId?: string;
+      onActivity?: () => void | Promise<void>;
+      onFilesChanged?: () => void | Promise<void>;
+      activateIntegrationSetup?: (
         sessionId: string,
         attemptId: string,
-      ) => Promise<unknown>;
-      captureClient?: (
-        sessionId: string,
-        attemptId: string,
-      ) => Promise<unknown>;
-    };
-    googleAnalytics?: {
-      startAuthorization: (
-        sessionId: string,
-        attemptId: string,
-      ) => Promise<{
-        authorizationUrl: string;
-        state: string;
-      }>;
-      completeAuthorization: (
-        sessionId: string,
-        attemptId: string,
-        state?: string,
-      ) => Promise<unknown>;
-      selectProperty: (
-        sessionId: string,
-        attemptId: string,
-        propertyId: string,
-      ) => Promise<unknown>;
-    };
-  } = {},
+        domain: string,
+      ) => void | Promise<void>;
+      googleOAuth?: {
+        provisionClient?: (
+          sessionId: string,
+          attemptId: string,
+        ) => Promise<unknown>;
+        captureClient?: (
+          sessionId: string,
+          attemptId: string,
+        ) => Promise<unknown>;
+      };
+      googleAnalytics?: {
+        startAuthorization: (
+          sessionId: string,
+          attemptId: string,
+        ) => Promise<{
+          authorizationUrl: string;
+          state: string;
+        }>;
+        completeAuthorization: (
+          sessionId: string,
+          attemptId: string,
+          state?: string,
+        ) => Promise<unknown>;
+        selectProperty: (
+          sessionId: string,
+          attemptId: string,
+          propertyId: string,
+        ) => Promise<unknown>;
+      };
+    } = {},
 ) {
   const path = new URL(request.url).pathname;
   const data = await manager.workspaceData(workspaceId);
@@ -1296,73 +1181,8 @@ export async function handleLocalTool(
     return json({ error: "Request body must be JSON." }, 400);
   }
   try {
-    if (path === "/local-tools/browser/open") {
-      if (!context.openBrowser) {
-        throw new Error("The embedded browser is unavailable.");
-      }
-      const conversationId = requiredValue(
-        body.conversationId,
-        "conversationId",
-        160,
-      );
-      const url = requiredValue(body.url, "url", 2_000);
-      let parsed: URL;
-      try {
-        parsed = new URL(url);
-      } catch {
-        throw new Error("url must be a valid HTTP or HTTPS URL.");
-      }
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        throw new Error("url must use HTTP or HTTPS.");
-      }
-      await context.openBrowser(conversationId, parsed.toString());
-      return json({ opened: true, url: parsed.toString() });
-    }
-    if (path.startsWith("/local-tools/browser/")) {
-      if (!context.browserCommand) {
-        throw new Error("The embedded browser is unavailable.");
-      }
-      const conversationId = requiredValue(
-        body.conversationId,
-        "conversationId",
-        160,
-      );
-      if (path === "/local-tools/browser/snapshot") {
-        return json(
-          await context.browserCommand(conversationId, { type: "snapshot" }),
-        );
-      }
-      if (path === "/local-tools/browser/press") {
-        return json(
-          await context.browserCommand(conversationId, {
-            type: "press",
-            key: requiredValue(body.key, "key", 80),
-          }),
-        );
-      }
-      const rawLabels = Array.isArray(body.labels) ? body.labels : [];
-      const labels = rawLabels
-        .slice(0, 8)
-        .map((label, index) => requiredValue(label, `labels[${index}]`, 160));
-      if (labels.length === 0) throw new Error("labels are required.");
-      if (path === "/local-tools/browser/click") {
-        return json(
-          await context.browserCommand(conversationId, {
-            type: "click",
-            labels,
-          }),
-        );
-      }
-      if (path === "/local-tools/browser/fill") {
-        return json(
-          await context.browserCommand(conversationId, {
-            type: "fill",
-            labels,
-            value: requiredValue(body.value, "value", 2_000),
-          }),
-        );
-      }
-    }
+    const browser = await handleBrowserLocalTool(path, body, context);
+    if (browser.handled) return json(browser.value);
     if (path === "/local-tools/integrations/google-oauth/provision-client") {
       if (!context.googleOAuth?.provisionClient) {
         throw new Error("Google OAuth client provisioning is unavailable.");
@@ -1420,17 +1240,12 @@ export async function handleLocalTool(
         ),
       );
     }
-    if (path === "/local-tools/integrations/handoff/open") {
-      if (!context.openIntegrationHandoff) {
-        throw new Error("Integration setup is unavailable.");
-      }
-      await context.openIntegrationHandoff(
-        requiredValue(body.sessionId, "sessionId", 160),
-        requiredValue(body.attemptId, "attemptId", 160),
-        requiredValue(body.url, "url", 2000),
-      );
-      return json({ opened: true });
-    }
+    const integrationSetup = await handleIntegrationSetupLocalTool(
+      path,
+      body,
+      context,
+    );
+    if (integrationSetup.handled) return json(integrationSetup.value);
     if (path === "/local-tools/specialists/delegate") {
       const delegationId = requiredValue(body.delegationId, "delegationId", 64);
       if (!/^[a-z0-9][a-z0-9-]{5,63}$/.test(delegationId)) {

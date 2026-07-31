@@ -282,6 +282,10 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   const browserViewportRef = useRef<{ width: number; height: number } | null>(
     null,
   );
+  const browserOwnerRef = useRef<{
+    workspaceId: string;
+    conversationId: string;
+  } | null>(null);
   const pendingBrowserNavigationRef = useRef<{
     workspaceId: string;
     conversationId: string;
@@ -317,6 +321,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
             conversationId: owningConversation,
             url,
           };
+          browserOwnerRef.current = pending;
           pendingBrowserNavigationRef.current = pending;
           const viewport = browserViewportRef.current;
           if (viewport) {
@@ -397,7 +402,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     },
     [browserConversationId, browserWorkspaceId, client, flushBrowserResize],
   );
-  const closeBrowser = useCallback(() => {
+  const resetBrowser = useCallback(() => {
     if (browserResizeTimerRef.current !== null) {
       window.clearTimeout(browserResizeTimerRef.current);
       browserResizeTimerRef.current = null;
@@ -406,11 +411,22 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     pendingBrowserNavigationRef.current = null;
     pendingBrowserResizeRef.current = null;
     browserResizeSentAtRef.current = 0;
+    browserOwnerRef.current = null;
     setBrowserUrl(null);
     setBrowserStreamUrl(null);
     setBrowserConversationId(null);
     setBrowserWorkspaceId(null);
   }, []);
+  const closeBrowser = useCallback(() => {
+    const owner = browserOwnerRef.current;
+    if (owner) {
+      client.send({
+        type: "browserClose",
+        ...owner,
+      });
+    }
+    resetBrowser();
+  }, [client, resetBrowser]);
   const takeBrowserControl = useCallback(() => {
     if (!browserWorkspaceId || !browserConversationId) return;
     const executorCapability = workspaceCapabilityCache.get(browserWorkspaceId);
@@ -438,11 +454,25 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         setBrowserStreamUrl(
           msg.type === "browserNavigate" ? msg.streamUrl : null,
         );
+        browserOwnerRef.current = {
+          workspaceId: msg.workspaceId,
+          conversationId: msg.conversationId,
+        };
         setBrowserWorkspaceId(msg.workspaceId);
         setBrowserConversationId(msg.conversationId);
         navigateApp(
           `/conversations?chat=${encodeURIComponent(msg.conversationId)}`,
         );
+      }
+      const browserOwner = browserOwnerRef.current;
+      if (
+        msg.type === "browserClosed" &&
+        msg.workspaceId === cloudOrganizationId &&
+        browserOwner !== null &&
+        msg.workspaceId === browserOwner.workspaceId &&
+        msg.conversationId === browserOwner.conversationId
+      ) {
+        resetBrowser();
       }
       if (
         msg.type === "integrationSetupProgress" &&
@@ -500,7 +530,13 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       unsub();
       client.destroy();
     };
-  }, [client, closeBrowser, cloudOrganizationId, markIntegrationConnected]);
+  }, [
+    client,
+    closeBrowser,
+    cloudOrganizationId,
+    markIntegrationConnected,
+    resetBrowser,
+  ]);
 
   const value = useMemo(
     () => ({

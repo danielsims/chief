@@ -2,6 +2,8 @@
 
 import type { UIMessage } from "ai";
 
+import type { IntegrationSetupPhase } from "./integration-setup-recipes.js";
+
 // Normalized event vocabulary across all drivers (claude, codex, ...).
 // Content blocks mirror the shape both the Claude Agent SDK and the UI expect.
 
@@ -673,6 +675,7 @@ export type BrowserAutomationCommand =
   | { type: "snapshot" }
   | { type: "click"; labels: string[] }
   | { type: "fill"; labels: string[]; value: string }
+  | { type: "select"; labels: string[]; values: string[] }
   | { type: "press"; key: string };
 
 export interface BrowserAutomationResult {
@@ -680,6 +683,13 @@ export interface BrowserAutomationResult {
   clicked?: boolean;
   filled?: boolean;
   pressed?: boolean;
+  selected?: boolean;
+}
+
+interface BrowserConversationMessage<T extends string> {
+  type: T;
+  workspaceId: string;
+  conversationId: string;
 }
 
 export type ClientMessage =
@@ -970,11 +980,8 @@ export type ClientMessage =
       width: number;
       height: number;
     }
-  | {
-      type: "browserReload";
-      workspaceId: string;
-      conversationId: string;
-    }
+  | BrowserConversationMessage<"browserReload">
+  | BrowserConversationMessage<"browserClose">
   | {
       type: "browserUrlChanged";
       workspaceId: string;
@@ -1009,16 +1016,7 @@ export interface RuntimeNotice {
 
 export interface IntegrationSetupProgress {
   recipeId: string;
-  phase:
-    | "authenticated-session"
-    | "project"
-    | "enable-api"
-    | "auth-platform"
-    | "create-client"
-    | "save-client"
-    | "authorize"
-    | "verify"
-    | "complete";
+  phase: IntegrationSetupPhase;
   instruction: string;
   service?: string;
   status: "active" | "complete" | "error";
@@ -1040,6 +1038,7 @@ export type ServerMessage =
       conversationId: string;
       url: string;
     }
+  | BrowserConversationMessage<"browserClosed">
   | { type: "runtimeNotice"; workspaceId: string; notice: RuntimeNotice }
   | {
       type: "integrationSetupProgress";
