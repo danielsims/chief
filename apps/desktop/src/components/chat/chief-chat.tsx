@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
@@ -18,6 +19,7 @@ import {
   useRuntime,
   useWorkspaceData,
 } from "../../lib/runtime";
+import { ChiefMark } from "../chief-mark";
 import { InputRequestSection } from "../integrations/input-request-section";
 import { AgentWorkingIndicator } from "./agent-working-indicator";
 import { ApprovalCard } from "./approval-card";
@@ -31,6 +33,25 @@ import {
 } from "./specialist-task-display";
 import { ToolActivityGroup } from "./tool-activity-group";
 import { UserMessage } from "./user-message";
+
+function ChiefMessage({ children }: { children: ReactNode }) {
+  return (
+    <div className="group/message mx-auto flex w-full max-w-3xl min-w-0 gap-3 py-2">
+      <span className="bg-foreground text-background flex size-8 shrink-0 items-center justify-center">
+        <ChiefMark className="size-4" />
+      </span>
+      <div className="min-w-0 flex-1 pt-0.5">
+        <div className="mb-1 flex items-baseline gap-2">
+          <strong className="text-[13px] font-semibold">Chief</strong>
+          <span className="text-muted-foreground text-[10px]">
+            chief marketing officer
+          </span>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 export function ChiefChat({
   chatId,
@@ -324,22 +345,16 @@ export function ChiefChat({
           ) : message.role === "assistant" ? (
             ordinaryToolGroups.get(message.id) ? (
               ordinaryToolGroups.get(message.id)?.ownerId === message.id ? (
-                <div
-                  key={message.id}
-                  className="mx-auto w-full max-w-3xl min-w-0"
-                >
+                <ChiefMessage key={message.id}>
                   <ToolActivityGroup
                     blocks={ordinaryToolGroups.get(message.id)?.blocks ?? []}
                     progress={controls.toolProgress}
                     active={controls.status === "running"}
                   />
-                </div>
+                </ChiefMessage>
               ) : null
             ) : (
-              <div
-                key={message.id}
-                className="mx-auto w-full max-w-3xl min-w-0"
-              >
+              <ChiefMessage key={message.id}>
                 <Blocks
                   blocks={withoutMarkerLines(messageBlocks(message))}
                   progress={controls.toolProgress}
@@ -350,7 +365,7 @@ export function ChiefChat({
                   ownerId={message.id}
                   onOpenTask={onOpenChild}
                 />
-              </div>
+              </ChiefMessage>
             )
           ) : (
             <div key={message.id} />
@@ -386,9 +401,9 @@ export function ChiefChat({
         {controls.status === "running" &&
           !hasActiveTool &&
           controls.approvals.length === 0 && (
-            <div className="mx-auto w-full max-w-3xl">
+            <ChiefMessage>
               <AgentWorkingIndicator />
-            </div>
+            </ChiefMessage>
           )}
         {controls.error && (
           <p className="border-destructive/40 text-destructive mx-auto max-w-3xl border px-3 py-2 text-xs">
