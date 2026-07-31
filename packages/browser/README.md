@@ -47,17 +47,19 @@ existing Chrome session. `lastUsedChromeProfile()` resolves only Chrome's last
 active profile directory; agent-browser then copies that profile into a
 temporary directory so the original is never modified.
 
-Chief opts into this profile copy only for a user-initiated Google setup run.
-That makes existing Google sessions and installed browser extensions available
-in the shared browser without silently authenticating unrelated agent browsing.
+Chief opts into this profile copy only for a user-initiated integration setup
+run. That makes existing provider sessions available in the shared browser
+without silently authenticating unrelated agent browsing.
 Set `CHIEF_BROWSER_PROFILE` to a Chrome profile name/directory to override the
 selection, or to `none` to keep Google setup fully isolated.
 
-For an isolated session that still loads explicitly approved unpacked browser
-extensions, set `CHIEF_BROWSER_PROFILE=none` and provide their absolute paths
-as a comma-separated `CHIEF_BROWSER_EXTENSIONS` value. Chief never discovers or
-loads password-manager extensions implicitly; that boundary stays under the
-user's control.
+Chief deliberately does not load copied-profile extensions in its embedded
+browser. Password-manager native messaging, biometric prompts, and passkeys
+can depend on a foreground browser registered with macOS; trying to make that
+work by spawning a second headed Chrome creates two competing browser surfaces.
+The human can still use an existing provider session, or select the provider's
+password or other sign-in method in the embedded viewport. Chief never reads,
+fills, or places those authentication values in agent context.
 
 ## React viewport
 
@@ -90,7 +92,10 @@ remote browser cannot remain stuck in a button-down state.
 ## Authentication handoff
 
 For sign-in, the agent opens the provider page and pauses. The human completes
-only password, passkey, MFA, account choice, or consent in the same viewport.
+only password, MFA, account choice, or consent in the same viewport. If the
+provider initially offers a passkey or biometric extension flow that cannot
+run inside the embedded browser, the agent keeps the same account and asks the
+human to choose the provider's password or other sign-in method instead.
 The host waits for the expected post-authentication URL and resumes the same
 agent with the same browser session. There is no second browser, DOM scraper,
 or scripted click runner competing for control.
