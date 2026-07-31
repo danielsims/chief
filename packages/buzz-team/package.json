@@ -1,0 +1,37 @@
+{
+  "name": "@chief/buzz-team",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "description": "Chief's portable marketing team for Buzz.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "artifacts",
+    "src",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsx scripts/build.ts",
+    "clean": "git clean -xdf .cache .turbo dist node_modules",
+    "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
+    "lint": "eslint --flag unstable_native_nodejs_ts_config",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@chief/eslint-config": "workspace:*",
+    "@chief/prettier-config": "workspace:*",
+    "@chief/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "prettier": "catalog:",
+    "tsx": "^4.20.3",
+    "typescript": "catalog:"
+  },
+  "prettier": "@chief/prettier-config"
+}

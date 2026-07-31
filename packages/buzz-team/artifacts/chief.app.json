@@ -1,0 +1,169 @@
+{
+  "format": "chief-buzz-app",
+  "version": 1,
+  "app": {
+    "id": "sh.heychief.marketing",
+    "name": "Chief",
+    "description": "A complete Chief marketing team for a Buzz workspace.",
+    "publisher": {
+      "id": "sh.heychief",
+      "name": "Chief",
+      "website": "https://heychief.sh"
+    }
+  },
+  "release": {
+    "teamSnapshot": "./chief.team.json",
+    "includedAgents": [
+      "chief",
+      "setup",
+      "analyst",
+      "content",
+      "prospector",
+      "engineering"
+    ]
+  },
+  "workspace": {
+    "channels": [
+      {
+        "id": "chief-hq",
+        "purpose": "Chief's town hall for weekly all-hands reviews, decisions, and cross-team coordination.",
+        "visibility": "open",
+        "channelType": "stream",
+        "includeInstaller": true,
+        "members": [
+          "chief",
+          "setup",
+          "analyst",
+          "content",
+          "prospector",
+          "engineering"
+        ]
+      },
+      {
+        "id": "chief-marketing",
+        "purpose": "Marketing strategy, analytics, and content execution.",
+        "visibility": "open",
+        "channelType": "stream",
+        "includeInstaller": true,
+        "members": ["chief", "analyst", "content"]
+      },
+      {
+        "id": "chief-prospecting",
+        "purpose": "Qualified prospects and timely market conversations.",
+        "visibility": "open",
+        "channelType": "stream",
+        "includeInstaller": true,
+        "members": ["chief", "prospector"]
+      },
+      {
+        "id": "chief-engineering",
+        "purpose": "Reviewable technical changes tied to marketing outcomes.",
+        "visibility": "open",
+        "channelType": "stream",
+        "includeInstaller": true,
+        "members": ["chief", "engineering"]
+      },
+      {
+        "id": "chief-setup",
+        "purpose": "Private onboarding, integration setup, authentication handoffs, and verification.",
+        "visibility": "private",
+        "channelType": "stream",
+        "includeInstaller": true,
+        "members": ["chief", "setup"]
+      }
+    ]
+  },
+  "sharedHostCapabilities": [
+    "buzz.conversation",
+    "buzz.artifacts",
+    "buzz.pulse"
+  ],
+  "toolProfiles": [
+    {
+      "id": "chief",
+      "executorToolkit": "chief",
+      "hostCapabilities": [
+        "buzz.channels",
+        "buzz.teams",
+        "buzz.canvas",
+        "buzz.workflows",
+        "buzz.pulse"
+      ],
+      "description": "Coordinates onboarding, the workspace, scheduled work, weekly reviews, and approved business tools."
+    },
+    {
+      "id": "chief-setup",
+      "executorToolkit": "chief-setup",
+      "hostCapabilities": [],
+      "description": "Connects services through the pinned agent-browser CLI while keeping credentials out of chat."
+    },
+    {
+      "id": "chief-analyst",
+      "executorToolkit": "chief-analyst",
+      "hostCapabilities": ["buzz.workflows", "buzz.pulse", "chief.reports"],
+      "description": "Reads approved analytics and reporting sources."
+    },
+    {
+      "id": "chief-content",
+      "executorToolkit": "chief-content",
+      "hostCapabilities": ["buzz.pulse"],
+      "description": "Creates content with approved publishing tools."
+    },
+    {
+      "id": "chief-prospector",
+      "executorToolkit": "chief-prospector",
+      "hostCapabilities": ["buzz.pulse"],
+      "description": "Finds qualified prospects and timely market conversations."
+    },
+    {
+      "id": "chief-engineering",
+      "executorToolkit": "chief-engineering",
+      "hostCapabilities": ["buzz.pulse"],
+      "description": "Makes approved repository and deployment changes."
+    }
+  ],
+  "agents": [
+    {
+      "id": "chief",
+      "displayName": "Chief",
+      "description": "Leads the team, configures its workspace, and owns the user-facing result.",
+      "release": "included",
+      "toolProfile": "chief"
+    },
+    {
+      "id": "setup",
+      "displayName": "Setup",
+      "description": "Connects services through a visible browser and prepares the workspace.",
+      "release": "included",
+      "toolProfile": "chief-setup"
+    },
+    {
+      "id": "analyst",
+      "displayName": "Analyst",
+      "description": "Turns marketing and business data into decisions.",
+      "release": "included",
+      "toolProfile": "chief-analyst"
+    },
+    {
+      "id": "content",
+      "displayName": "Content Writer",
+      "description": "Plans, drafts, and improves marketing content.",
+      "release": "included",
+      "toolProfile": "chief-content"
+    },
+    {
+      "id": "prospector",
+      "displayName": "Prospector",
+      "description": "Finds qualified prospects and timely market conversations.",
+      "release": "included",
+      "toolProfile": "chief-prospector"
+    },
+    {
+      "id": "engineering",
+      "displayName": "Engineering",
+      "description": "Implements approved technical growth changes.",
+      "release": "included",
+      "toolProfile": "chief-engineering"
+    }
+  ]
+}
