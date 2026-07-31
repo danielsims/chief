@@ -28,6 +28,11 @@
   --border: hsl(42 6% 85%);
   --input: hsl(42 6% 85%);
   --ring: hsl(240 6% 10%);
+  --sidebar: hsl(42 18% 94%);
+  --sidebar-foreground: hsl(0 0% 16%);
+  --sidebar-accent: hsl(40 11% 88%);
+  --sidebar-muted: hsl(0 0% 43%);
+  --sidebar-border: hsl(42 8% 82%);
 
   --chart-grid: #e6e6e6;
   --chart-axis-text: #707070;
@@ -58,6 +63,11 @@
   --border: hsl(0 0% 11%);
   --input: hsl(0 0% 11%);
   --ring: hsl(240 5% 84%);
+  --sidebar: hsl(0 0% 7%);
+  --sidebar-foreground: hsl(0 0% 92%);
+  --sidebar-accent: hsl(0 0% 13%);
+  --sidebar-muted: hsl(0 0% 56%);
+  --sidebar-border: hsl(0 0% 14%);
 
   --chart-grid: #1d1d1d;
   --chart-axis-text: #666666;
@@ -88,6 +98,11 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-border: var(--sidebar-border);
 
   --font-sans: "Geist Variable", system-ui, sans-serif;
   --font-serif: "Newsreader Variable", Georgia, serif;

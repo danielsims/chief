@@ -1,40 +1,53 @@
+import { useState } from "react";
 import { Outlet, useLocation } from "react-router";
 
 import { TooltipProvider } from "@chief/ui/components/tooltip";
 import { cn } from "@chief/ui/lib/utils";
 
-import { useRuntime } from "../lib/runtime";
 import { Sidebar } from "./sidebar";
 
-function ConnectionDot() {
-  const { status } = useRuntime();
-  return (
-    <div
-      role="status"
-      aria-label={`Runtime ${status}`}
-      title={`Runtime ${status}`}
-      className="flex h-6 items-center gap-2"
-    >
-      <span
-        className={cn(
-          "inline-block h-1.5 w-1.5",
-          status === "connected" && "bg-emerald-500",
-          status === "connecting" && "animate-pulse bg-blue-500",
-          status === "disconnected" && "bg-destructive",
-        )}
-      />
-      {status === "connecting" ? (
-        <span className="text-muted-foreground font-mono text-[10px]">
-          Connecting
-        </span>
-      ) : null}
-    </div>
-  );
-}
+const DEFAULT_SIDEBAR_WIDTH = 272;
+const MIN_SIDEBAR_WIDTH = 232;
+const MAX_SIDEBAR_WIDTH = 360;
 
 export function Layout() {
   const location = useLocation();
   const overview = location.pathname === "/";
+  const channel = location.pathname.startsWith("/conversations");
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const stored = Number(window.localStorage.getItem("chief:sidebar-width"));
+    return Number.isFinite(stored)
+      ? Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, stored))
+      : DEFAULT_SIDEBAR_WIDTH;
+  });
+
+  const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+    const move = (moveEvent: PointerEvent) => {
+      setSidebarWidth(
+        Math.min(
+          MAX_SIDEBAR_WIDTH,
+          Math.max(MIN_SIDEBAR_WIDTH, startWidth + moveEvent.clientX - startX),
+        ),
+      );
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      setSidebarWidth((value) => {
+        window.localStorage.setItem("chief:sidebar-width", String(value));
+        return value;
+      });
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
 
   return (
     <TooltipProvider>
@@ -44,25 +57,29 @@ export function Layout() {
           overview ? "h-screen overflow-hidden" : "min-h-screen",
         )}
       >
-        <Sidebar />
+        <Sidebar width={sidebarWidth} onResizeStart={startSidebarResize} />
         <div
+          style={{ marginLeft: sidebarWidth }}
           className={cn(
-            "ml-[70px] flex flex-col",
+            "flex flex-col",
             overview ? "h-screen overflow-hidden" : "min-h-screen",
           )}
         >
           {/* The controls sit above the drag strip so the rest of the header
               remains available as a native window drag target. */}
-          <header className="relative h-12 shrink-0">
+          <header
+            className={cn(
+              "relative h-12 shrink-0 border-b",
+              channel && "hidden",
+            )}
+          >
             <div data-tauri-drag-region className="absolute inset-0" />
-            <div className="absolute inset-y-0 right-6 z-10 flex items-center">
-              <ConnectionDot />
-            </div>
           </header>
           <main
             className={cn(
               "flex-1 px-8 pb-8",
               overview && "chief-overview-layout-main min-h-0 overflow-hidden",
+              channel && "min-h-0 overflow-hidden p-0",
             )}
           >
             <Outlet />

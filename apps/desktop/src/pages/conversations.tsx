@@ -1,17 +1,10 @@
-import { startTransition, useEffect, useState } from "react";
-import { LoaderCircle, MoreVertical, Plus, Trash2 } from "lucide-react";
+import { lazy, startTransition, Suspense, useEffect, useState } from "react";
+import { Hash, MoreHorizontal, Plus, Sparkles, Users } from "lucide-react";
 import { useSearchParams } from "react-router";
 
 import type { DriverType } from "@chief/agent-runtime/types";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@chief/ui/components/popover";
 import { cn } from "@chief/ui/lib/utils";
 
-import type { ChatLogEntry } from "../lib/chat-log";
-import { BrowserPanel } from "../components/chat/browser-panel";
 import { ChiefChat } from "../components/chat/chief-chat";
 import { IntegrationSetupConversation } from "../components/chat/integration-setup-conversation";
 import { ObservedChat } from "../components/chat/observed-chat";
@@ -29,6 +22,12 @@ const CHAT_DRIVERS = new Set<DriverType>([
   "opencode",
   "remote",
 ]);
+
+const BrowserPanel = lazy(() =>
+  import("../components/chat/browser-panel").then((module) => ({
+    default: module.BrowserPanel,
+  })),
+);
 
 function requestedDriver(value: string | null): DriverType | undefined {
   return value && CHAT_DRIVERS.has(value as DriverType)
@@ -77,68 +76,6 @@ function useRunningChats(): Record<string, boolean> {
   return running;
 }
 
-function ConversationRow({
-  entry,
-  active,
-  running,
-  onSelect,
-  onDelete,
-}: {
-  entry: ChatLogEntry;
-  active: boolean;
-  running: boolean;
-  onSelect: () => void;
-  onDelete: () => void;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  return (
-    <div
-      className={cn(
-        "group/row hover:bg-accent flex w-full items-center text-sm transition-colors",
-        active && "bg-accent text-foreground",
-      )}
-    >
-      <button
-        type="button"
-        onClick={onSelect}
-        className="min-w-0 flex-1 truncate py-2 pr-2 pl-3 text-left"
-      >
-        {entry.title}
-      </button>
-      {running ? (
-        <span
-          className="text-muted-foreground mr-1 flex size-7 shrink-0 items-center justify-center"
-          aria-label={`${entry.title} is running`}
-        >
-          <LoaderCircle className="animate-spin" size={13} />
-        </span>
-      ) : (
-        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-          <PopoverTrigger
-            aria-label={`Manage ${entry.title}`}
-            className="text-muted-foreground hover:text-foreground mr-1 flex size-7 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover/row:opacity-100 data-[state=open]:opacity-100"
-          >
-            <MoreVertical size={14} />
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-40 p-1">
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpen(false);
-                onDelete();
-              }}
-              className="text-destructive hover:bg-destructive/10 flex w-full items-center gap-2 px-2 py-2 text-left text-xs transition-colors"
-            >
-              <Trash2 size={13} />
-              Delete chat
-            </button>
-          </PopoverContent>
-        </Popover>
-      )}
-    </div>
-  );
-}
-
 export function ConversationsPage() {
   const { cloudOrganizationId } = useAuth();
   const localChats = useLocalChats(cloudOrganizationId);
@@ -166,57 +103,58 @@ export function ConversationsPage() {
     setParams({ chat: first.id }, { replace: true });
   }, [activeChatId, localChats.chats, setParams]);
 
-  const selectChat = (chatId: string) => {
-    startTransition(() => setParams({ chat: chatId }));
-  };
   const openNew = () => {
     const chat = createChat();
     startTransition(() => setParams({ chat: chat.id }));
   };
-  const removeChat = (entry: ChatLogEntry) => {
-    const next = localChats.chats.find((chat) => chat.id !== entry.id);
-    localChats.remove(entry.id);
-    if (entry.id === activeChatId) {
-      startTransition(() =>
-        setParams(next ? { chat: next.id } : {}, { replace: true }),
-      );
-    }
-  };
+  const channelTitle =
+    activeEntry?.title ?? (activeChatId ? "New channel" : "Channels");
 
   return (
-    <div className="-mx-4 -mb-4 flex h-[calc(100vh-48px)] min-w-0 flex-col sm:-mx-8 sm:-mb-8 sm:flex-row">
-      <aside className="flex max-h-48 shrink-0 flex-col border-b px-4 sm:max-h-none sm:w-72 sm:border-r sm:border-b-0 sm:px-5">
-        <div className="shrink-0 pt-4 sm:pt-10">
-          <div className="flex items-center justify-between gap-3">
-            <h1 className="font-serif text-3xl">Conversations</h1>
-            <button
-              type="button"
-              onClick={openNew}
-              aria-label="New chat"
-              title="New chat"
-              className="text-muted-foreground hover:bg-accent hover:text-foreground flex size-9 shrink-0 items-center justify-center border transition-colors"
-            >
-              <Plus size={14} />
-            </button>
+    <div className="bg-background flex h-screen min-w-0 flex-col overflow-hidden">
+      <header className="relative flex h-[66px] shrink-0 items-end border-b px-5 pb-2.5">
+        <div data-tauri-drag-region className="absolute inset-0" />
+        <div className="relative z-10 flex min-w-0 flex-1 items-center gap-2">
+          <Hash size={17} className="text-muted-foreground shrink-0" />
+          <div className="min-w-0">
+            <h1 className="truncate text-[14px] leading-4 font-semibold">
+              {channelTitle}
+            </h1>
+            <p className="text-muted-foreground mt-0.5 truncate text-[10px]">
+              Chief and its specialists work here with you
+            </p>
           </div>
         </div>
-        <div className="mt-3 flex-1 space-y-0.5 overflow-y-auto pb-3 sm:mt-6 sm:pb-5">
-          {localChats.chats.map((entry) => (
-            <ConversationRow
-              key={entry.id}
-              entry={entry}
-              active={entry.id === activeChatId}
-              running={running[entry.id] ?? entry.running}
-              onSelect={() => selectChat(entry.id)}
-              onDelete={() => removeChat(entry)}
-            />
-          ))}
+        <div className="relative z-10 flex items-center gap-1.5">
+          <div className="border-border bg-card flex h-8 items-center gap-1 border px-2">
+            <span className="bg-foreground text-background flex size-4 items-center justify-center text-[8px] font-semibold">
+              C
+            </span>
+            <span className="bg-muted text-muted-foreground flex size-4 items-center justify-center">
+              <Sparkles size={9} />
+            </span>
+            <span className="text-muted-foreground ml-0.5 text-[10px]">2</span>
+          </div>
+          <button
+            type="button"
+            aria-label="Channel members"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground flex size-8 items-center justify-center border"
+          >
+            <Users size={14} />
+          </button>
+          <button
+            type="button"
+            aria-label="Channel actions"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground flex size-8 items-center justify-center border"
+          >
+            <MoreHorizontal size={15} />
+          </button>
         </div>
-      </aside>
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col px-4 pb-4 sm:pb-6 sm:pl-6 lg:flex-row">
+      </header>
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
         <div
           className={cn(
-            "min-h-0 min-w-0 flex-1",
+            "min-h-0 min-w-0 flex-1 px-5 pb-5",
             browserUrl &&
               browserWorkspaceId === cloudOrganizationId &&
               browserConversationId === activeChatId &&
@@ -292,14 +230,17 @@ export function ConversationsPage() {
             />
           ) : (
             <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-3 text-center text-sm">
-              <p className="font-serif text-3xl text-current">Ask Chief</p>
-              <p>Start a chat and Chief will bring in the right specialist.</p>
+              <span className="border-border bg-card flex size-10 items-center justify-center border">
+                <Hash size={18} />
+              </span>
+              <p className="font-serif text-3xl text-current">Open a channel</p>
+              <p>Give Chief a goal and the right specialists will join in.</p>
               <button
                 type="button"
                 onClick={openNew}
-                className="text-foreground hover:bg-accent border px-3 py-2 text-xs transition-colors"
+                className="text-foreground hover:bg-accent flex items-center gap-2 border px-3 py-2 text-xs transition-colors"
               >
-                New chat
+                <Plus size={13} /> New channel
               </button>
             </div>
           )}
@@ -309,9 +250,13 @@ export function ConversationsPage() {
         browserWorkspaceId === cloudOrganizationId &&
         browserConversationId === activeChatId ? (
           <div className="h-[45%] min-h-64 min-w-0 lg:h-full lg:basis-1/2">
-            <BrowserPanel
-              operating={running[activeChatId] ?? activeEntry?.running ?? false}
-            />
+            <Suspense fallback={<div className="bg-card size-full border-l" />}>
+              <BrowserPanel
+                operating={
+                  running[activeChatId] ?? activeEntry?.running ?? false
+                }
+              />
+            </Suspense>
           </div>
         ) : null}
       </main>

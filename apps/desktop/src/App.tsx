@@ -25,6 +25,7 @@ import { hasWorkspaceAccess, openWorkspaceCheckout } from "./lib/billing";
 import { missingDesktopConfiguration } from "./lib/config";
 import { ConvexClientProvider } from "./lib/convex";
 import { RuntimeProvider } from "./lib/runtime";
+import { ThemeProvider, useTheme } from "./lib/theme";
 import { AgentsPage } from "./pages/agents";
 import { AnalyticsPage } from "./pages/analytics";
 import { CampaignsPage } from "./pages/campaigns";
@@ -309,6 +310,7 @@ function AuthSessionBoundary({ children }: { children: ReactNode }) {
 
 function AuthenticatedApp() {
   const { isAuthenticated, isLoading } = useAuth();
+  const { resolved } = useTheme();
 
   if (isLoading) {
     return <EntryState />;
@@ -323,7 +325,7 @@ function AuthenticatedApp() {
       <Toaster
         closeButton
         position="bottom-right"
-        theme="dark"
+        theme={resolved}
         toastOptions={{
           classNames: {
             actionButton: "chief-toast-action",
@@ -386,13 +388,15 @@ export default function App() {
 
   return (
     <AppErrorBoundary>
-      <AuthProvider>
-        <AuthSessionBoundary>
-          <ConvexClientProvider>
-            <AuthenticatedApp />
-          </ConvexClientProvider>
-        </AuthSessionBoundary>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <AuthSessionBoundary>
+            <ConvexClientProvider>
+              <AuthenticatedApp />
+            </ConvexClientProvider>
+          </AuthSessionBoundary>
+        </AuthProvider>
+      </ThemeProvider>
     </AppErrorBoundary>
   );
 }

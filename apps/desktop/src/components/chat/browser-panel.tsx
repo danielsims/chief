@@ -1,12 +1,9 @@
-import { useRef } from "react";
-import { ArrowUpRight, LoaderCircle, RotateCw, X } from "lucide-react";
-
-import { AgentBrowserViewport } from "@chief/browser/react";
-import { BrowserSurface } from "@chief/browser/surface";
+import { Browser, BrowserDisplayTrigger } from "@browser-ui/react";
+import { X } from "lucide-react";
 
 import { normalizeBrowserUrl } from "../../lib/browser-url";
 import { useRuntime } from "../../lib/runtime";
-import { BrowserOperatingOverlay } from "./browser-operating-overlay";
+import { useTheme } from "../../lib/theme";
 
 export function BrowserPanel({ operating = false }: { operating?: boolean }) {
   const {
@@ -19,89 +16,43 @@ export function BrowserPanel({ operating = false }: { operating?: boolean }) {
     resizeBrowser,
     takeBrowserControl,
   } = useRuntime();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const { resolved } = useTheme();
 
   if (!browserUrl) return null;
 
-  const navigate = () => {
-    const url = normalizeBrowserUrl(inputRef.current?.value ?? "");
-    if (url) openBrowser(url);
-  };
-
   return (
-    <section className="bg-card flex h-full min-h-0 min-w-0 flex-col border-t lg:border-t-0 lg:border-l">
-      <header className="flex h-11 shrink-0 items-center gap-1 border-b px-2">
-        <button
-          type="button"
-          aria-label="Reload page"
-          onClick={reloadBrowser}
-          className="text-muted-foreground hover:bg-accent hover:text-foreground flex size-8 items-center justify-center transition-colors"
-        >
-          <RotateCw size={14} />
-        </button>
-        <form
-          className="min-w-0 flex-1"
-          onSubmit={(event) => {
-            event.preventDefault();
-            navigate();
-          }}
-        >
-          <div className="bg-muted/40 flex min-w-0 items-center gap-2 border px-2.5 py-1.5">
-            <input
-              key={browserUrl}
-              ref={inputRef}
-              defaultValue={browserUrl}
-              spellCheck={false}
-              aria-label="Browser address"
-              className="placeholder:text-muted-foreground min-w-0 flex-1 bg-transparent text-xs outline-none"
-            />
-            <button
-              type="submit"
-              aria-label="Open address"
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <ArrowUpRight size={14} />
-            </button>
-          </div>
-        </form>
-        <button
-          type="button"
-          aria-label="Close browser"
-          onClick={closeBrowser}
-          className="text-muted-foreground hover:bg-accent hover:text-foreground flex size-8 items-center justify-center transition-colors"
-        >
-          <X size={14} />
-        </button>
-      </header>
-      <BrowserSurface
-        className="min-h-0 flex-1 bg-black"
-        loading={!browserStreamUrl}
-        loadingFallback={
-          <div className="flex size-full items-center justify-center bg-black">
-            <LoaderCircle
-              aria-label="Opening browser"
-              size={15}
-              className="animate-spin text-white/35"
-            />
-          </div>
+    <section className="bg-card chief-browser-panel flex h-full min-h-0 min-w-0 flex-col border-t lg:border-t-0 lg:border-l">
+      <Browser
+        ariaLabel="Chief browser session"
+        className="chief-browser size-full min-h-0"
+        colorScheme={resolved}
+        interactive
+        operating={operating}
+        operatingLabel="Chief is working in this browser"
+        streamUrl={browserStreamUrl ?? undefined}
+        url={browserUrl}
+        variant="bare"
+        showControls
+        showPictureInPicture
+        showFullscreen
+        onNavigate={(draftUrl) => {
+          const url = normalizeBrowserUrl(draftUrl);
+          if (url) openBrowser(url);
+        }}
+        onReload={reloadBrowser}
+        onTakeControl={takeBrowserControl}
+        onUrlChange={reportBrowserUrl}
+        onViewportResize={resizeBrowser}
+        displayControls={
+          <BrowserDisplayTrigger
+            aria-label="Close browser"
+            title="Close browser"
+            onClick={closeBrowser}
+          >
+            <X size={14} />
+          </BrowserDisplayTrigger>
         }
-        overlay={
-          operating ? (
-            <BrowserOperatingOverlay onTakeControl={takeBrowserControl} />
-          ) : null
-        }
-      >
-        {browserStreamUrl ? (
-          <AgentBrowserViewport
-            streamUrl={browserStreamUrl}
-            onUrlChange={reportBrowserUrl}
-            onViewportResize={resizeBrowser}
-            className="size-full overflow-hidden bg-black outline-none"
-          />
-        ) : (
-          <span />
-        )}
-      </BrowserSurface>
+      />
     </section>
   );
 }
