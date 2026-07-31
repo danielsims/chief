@@ -296,7 +296,7 @@ async function waitForManifest(dataDir: string): Promise<ServerManifest> {
   );
 }
 
-async function request<T>(
+export async function request<T>(
   manifest: ServerManifest,
   path: string,
   init?: RequestInit,
@@ -324,7 +324,7 @@ async function request<T>(
   }
   return (text ? JSON.parse(text) : undefined) as T;
 }
-
+export { readManifest };
 export function executorStructuredResult(response: ExecutionResponse): unknown {
   if (response.status !== "completed") {
     throw new Error(

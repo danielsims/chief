@@ -89,6 +89,7 @@ import { ProviderAuthentication } from "./provider-authentication.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
 import { resumeDriverBlockedWork } from "./scheduled-agent-config.js";
 import { RecurringWorkScheduler } from "./scheduler.js";
+import { executorArtifactsMessage } from "./tools/artifacts.js";
 import {
   awaitGoogleAnalyticsAuthorization,
   disconnectGoogleAnalyticsConnection,
@@ -2756,7 +2757,6 @@ export function startServer(port = PORT) {
             });
             break;
           }
-
           case "listChats":
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             send({
@@ -2765,7 +2765,10 @@ export function startServer(port = PORT) {
               chats: await manager.listChats(msg.workspaceId),
             });
             break;
-
+          case "listArtifacts":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            send(await executorArtifactsMessage(msg));
+            break;
           case "observeChat": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             const inspected = await manager.inspectChat(

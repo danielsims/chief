@@ -2,10 +2,8 @@
 
 import type { UIMessage } from "ai";
 
+import type * as Artifacts from "./artifact-types.js";
 import type { IntegrationSetupPhase } from "./integration-setup-recipes.js";
-
-// Normalized event vocabulary across all drivers (claude, codex, ...).
-// Content blocks mirror the shape both the Claude Agent SDK and the UI expect.
 
 export interface GenerativeChartPoint {
   x: string;
@@ -694,6 +692,7 @@ interface BrowserConversationMessage<T extends string> {
 
 export type ClientMessage =
   | { type: "listAgents" }
+  | Artifacts.ListArtifactsMessage
   | {
       type: "listChats";
       workspaceId: string;
@@ -1025,6 +1024,7 @@ export interface IntegrationSetupProgress {
 export type ServerMessage =
   | { type: "agents"; agents: AgentDefinition[] }
   | { type: "models"; driver: DriverType; models: ProviderModelOption[] }
+  | Artifacts.ArtifactsMessage
   | {
       type: "browserNavigate";
       workspaceId: string;
