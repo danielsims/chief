@@ -167,9 +167,10 @@ void test("generic setup uses Executor handoffs without executing registry code"
   assert.match(task, /integrations\.sh\/api\.json/);
   assert.match(task, /connection creation handoff/);
   assert.match(task, /OAuth-client creation handoff/);
-  assert.match(task, /returned approvalUrl/);
-  assert.match(task, /immediately call Executor's resume tool/);
-  assert.match(task, /do not wait for a chat reply/);
+  assert.match(task, /Connect action authorizes/);
+  assert.match(task, /Do not ask for a second approval/);
+  assert.match(task, /invalid setup response/);
+  assert.match(task, /do not stop to wait for chat replies/);
   assert.doesNotMatch(task, /\bnpx\b|CHIEF_INPUT_REQUEST \{/);
   assert.throws(
     () =>
@@ -179,6 +180,21 @@ void test("generic setup uses Executor handoffs without executing registry code"
       }),
     /domain is invalid/,
   );
+});
+
+void test("GitHub setup makes Chief create a repository-scoped token", () => {
+  const task = integrationSetupTask({ domain: "github.com", name: "GitHub" });
+  assert.match(task, /After sign-in, you own the entire token form/);
+  assert.match(task, /Chief - <repository name>/);
+  assert.match(task, /today in YYYY-MM-DD/);
+  assert.match(task, /90-day expiration/);
+  assert.match(task, /Only select repositories/);
+  assert.match(task, /Never choose All repositories/);
+  assert.match(task, /Contents read and write/);
+  assert.match(task, /Pull requests read and write/);
+  assert.match(task, /open Add permissions/);
+  assert.match(task, /shows Repositories \(3\)/);
+  assert.match(task, /Never tell the human to create/);
 });
 
 void test("setup results belong only to the latest connection attempt", () => {

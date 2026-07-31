@@ -9,7 +9,16 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
+import type { PreparedIntegrationSetup } from "../integration-setup-recipes.js";
 import type { ExecutorCapability } from "../types.js";
+import {
+  configureBrowserCredentialIntegration,
+  configureIntegrationSetupPolicies,
+  configureReadOnlyConnectionPolicies,
+  policyMatches,
+  storeBrowserGeneratedCredential,
+} from "../integration-setup-control.js";
+import { browserCredentialSetupRecipe } from "../integration-setup-recipes.js";
 import { executorBinary } from "./spec.js";
 
 const execFileAsync = promisify(execFile);
@@ -89,22 +98,6 @@ interface Policy {
   owner: "org" | "user";
   pattern: string;
   action: "approve" | "require_approval" | "block";
-}
-
-function policyMatches(pattern: string, tool: string) {
-  if (pattern === "*") return true;
-  const patternSegments = pattern.split(".");
-  const toolSegments = tool.split(".");
-  for (let index = 0; index < patternSegments.length; index += 1) {
-    const segment = patternSegments[index];
-    if (segment === "*") {
-      return (
-        index === patternSegments.length - 1 || index < toolSegments.length
-      );
-    }
-    if (segment !== toolSegments[index]) return false;
-  }
-  return patternSegments.length === toolSegments.length;
 }
 
 export interface ExecutorWorkspace {
@@ -381,8 +374,6 @@ async function executeTool(
     method: "POST",
     body: JSON.stringify({
       code: toolInvocationCode(tool, args),
-      // This endpoint is only used with runtime-authored read-only calls. The
-      // user's Connect click is the approval; block policies still apply.
       autoApprove: true,
     }),
   });
@@ -546,33 +537,6 @@ async function configureGoogleAnalyticsIntegration(manifest: ServerManifest) {
   preparedGoogleAnalytics.add(preparationKey);
 }
 
-async function configureReadOnlyConnectionPolicies(
-  manifest: ServerManifest,
-  tools: Tool[],
-) {
-  const policies = await request<Policy[]>(manifest, "/policies");
-  for (const tool of tools.filter((candidate) => candidate.requiresApproval)) {
-    const pattern = tool.address.replace(/^tools\./, "");
-    // Do not let a new exact approval shadow an existing broader restriction.
-    if (
-      !policies.some(
-        (policy) =>
-          policy.owner === "org" &&
-          policy.action !== "approve" &&
-          policyMatches(policy.pattern, pattern),
-      ) &&
-      !policies.some(
-        (policy) => policy.owner === "org" && policy.pattern === pattern,
-      )
-    ) {
-      await request(manifest, "/policies", {
-        method: "POST",
-        body: JSON.stringify({ owner: "org", pattern, action: "approve" }),
-      });
-    }
-  }
-}
-
 async function replaceConnection(
   manifest: ServerManifest,
   capability: ExecutorCapability,
@@ -643,6 +607,8 @@ async function configureToolPolicies(manifest: ServerManifest) {
       "localTools.browserSnapshot",
       "localTools.browserClick",
       "localTools.browserFill",
+      "localTools.browserSelect",
+      "localTools.browserPress",
       "localTools.brandProfileSave",
       "localTools.googleOAuthProvisionClient",
       "localTools.googleOAuthCaptureClient",
@@ -650,6 +616,8 @@ async function configureToolPolicies(manifest: ServerManifest) {
       "localTools.googleAnalyticsComplete",
       "localTools.googleAnalyticsSelect",
       "localTools.integrationOpenHandoff",
+      "localTools.integrationCaptureGeneratedCredential",
+      "localTools.integrationOpenProviderPage",
       "localTools.specialistsDelegate",
       "localTools.recurringWorkList",
       "localTools.recurringWorkPropose",
@@ -853,15 +821,32 @@ async function prepareGoogleAnalyticsIntegration(
   await configureGoogleAnalyticsIntegration(manifest);
 }
 
-/** Provider adapters prepare exceptional surfaces; generic setup uses Executor directly. */
+/** Prepare the setup surface after the user's explicit Connect action. */
 export async function prepareIntegrationSetup(
   workspaceId: string,
   capability: ExecutorCapability,
   domain: string,
-) {
-  if (domain === "analytics.googleapis.com") {
-    await prepareGoogleAnalyticsIntegration(workspaceId, capability);
+): Promise<PreparedIntegrationSetup> {
+  const normalizedDomain = domain.trim().toLowerCase();
+  const workspace = await ensureExecutorWorkspace(workspaceId, capability);
+  const manifest = await readManifest(workspace.dataDir);
+  if (!manifest) {
+    throw new Error("The local connection service is not running.");
   }
+  await configureIntegrationSetupPolicies(manifest, request, policyMatches);
+  if (normalizedDomain === "analytics.googleapis.com") {
+    await prepareGoogleAnalyticsIntegration(workspaceId, capability);
+    return { recipeId: "google-analytics" };
+  }
+  const recipe = browserCredentialSetupRecipe(normalizedDomain);
+  if (recipe) {
+    await configureBrowserCredentialIntegration(manifest, recipe, request);
+    return {
+      integrationSlug: recipe.integration.slug,
+      recipeId: recipe.id,
+    };
+  }
+  return { recipeId: normalizedDomain };
 }
 
 async function replaceGoogleAnalyticsOAuthClient(
@@ -1005,6 +990,23 @@ export async function listExecutorConnections(
   if (!manifest)
     throw new Error("The local connection service is not running.");
   return request<Connection[]>(manifest, "/connections");
+}
+
+/** Stores a browser-generated bearer token directly in Executor's keychain. */
+export async function storeGeneratedCredentialConnection(
+  workspaceId: string,
+  capability: ExecutorCapability,
+  input: {
+    domain: string;
+    integrationSlug: string;
+    credential: string;
+  },
+) {
+  const workspace = await ensureExecutorWorkspace(workspaceId, capability);
+  const manifest = await readManifest(workspace.dataDir);
+  if (!manifest)
+    throw new Error("The local connection service is not running.");
+  return storeBrowserGeneratedCredential(manifest, input, request);
 }
 
 export async function inspectGoogleAnalyticsConfiguration(
@@ -1152,7 +1154,7 @@ export async function verifyGoogleAnalyticsConnection(
       limit: "1",
     },
   });
-  await configureReadOnlyConnectionPolicies(manifest, tools);
+  await configureReadOnlyConnectionPolicies(manifest, tools, request);
   await request(
     manifest,
     `/connections/org/${GOOGLE_ANALYTICS_INTEGRATION}/${GOOGLE_ANALYTICS_CONNECTION}`,

@@ -459,7 +459,7 @@ void test("diagnostics are workspace scoped, redacted, capped, and leveled", asy
         "https://example.test/path?token=query-secret&view=useful",
         '{"apiKey":"json-secret"}',
         "client_secret=assignment-secret",
-        "github_pat_1234567890abcdef",
+        "github_pat_1234567890abcdef vcp_1234567890abcdefghijklmnop",
         "sk-proj-1234567890abcdef",
       ].join(" "),
     });
