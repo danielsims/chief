@@ -28,6 +28,7 @@ import { RuntimeProvider } from "./lib/runtime";
 import { ThemeProvider, useTheme } from "./lib/theme";
 import { AgentsPage } from "./pages/agents";
 import { AnalyticsPage } from "./pages/analytics";
+import { ArtifactsPage } from "./pages/artifacts";
 import { CampaignsPage } from "./pages/campaigns";
 import { ConversationsPage } from "./pages/conversations";
 import { DashboardPage } from "./pages/dashboard";
@@ -346,6 +347,7 @@ function AuthenticatedApp() {
               <Route element={<Layout />}>
                 <Route index element={<DashboardPage />} />
                 <Route path="analytics" element={<AnalyticsPage />} />
+                <Route path="artifacts" element={<ArtifactsPage />} />
                 <Route path="campaigns" element={<CampaignsPage />} />
                 <Route path="schedule" element={<SchedulePage />} />
                 <Route path="prospects" element={<ProspectsPage />} />
