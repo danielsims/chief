@@ -54,6 +54,14 @@ export function AgentBrowserViewport({
   const socketRef = useRef<WebSocket | null>(null);
   const moveFrameRef = useRef<number | null>(null);
   const pendingMoveRef = useRef<Record<string, unknown> | null>(null);
+  const wheelFrameRef = useRef<number | null>(null);
+  const pendingWheelRef = useRef<{
+    deltaX: number;
+    deltaY: number;
+    modifiers: number;
+    x: number;
+    y: number;
+  } | null>(null);
   const activePointerRef = useRef<ActivePointer | null>(null);
   const statusChangeRef = useRef(onStatusChange);
   const urlChangeRef = useRef(onUrlChange);
@@ -207,6 +215,7 @@ export function AgentBrowserViewport({
       pendingFrame = null;
       releaseActivePointer();
       if (moveFrameRef.current) cancelAnimationFrame(moveFrameRef.current);
+      if (wheelFrameRef.current) cancelAnimationFrame(wheelFrameRef.current);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       socketRef.current?.close();
       socketRef.current = null;
@@ -375,13 +384,37 @@ export function AgentBrowserViewport({
         event.preventDefault();
         const position = point(event.clientX, event.clientY);
         if (!position) return;
-        send({
-          type: "input_mouse",
-          eventType: "mouseWheel",
+        const unit =
+          event.deltaMode === WheelEvent.DOM_DELTA_LINE
+            ? 16
+            : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+              ? event.currentTarget.clientHeight
+              : 1;
+        const pending = pendingWheelRef.current;
+        pendingWheelRef.current = {
           ...position,
-          deltaX: event.deltaX,
-          deltaY: event.deltaY,
+          deltaX: Math.max(
+            -240,
+            Math.min(240, (pending?.deltaX ?? 0) + event.deltaX * unit),
+          ),
+          deltaY: Math.max(
+            -240,
+            Math.min(240, (pending?.deltaY ?? 0) + event.deltaY * unit),
+          ),
           modifiers: modifiers(event),
+        };
+        if (wheelFrameRef.current) return;
+        wheelFrameRef.current = requestAnimationFrame(() => {
+          wheelFrameRef.current = null;
+          const wheel = pendingWheelRef.current;
+          pendingWheelRef.current = null;
+          if (wheel) {
+            send({
+              type: "input_mouse",
+              eventType: "mouseWheel",
+              ...wheel,
+            });
+          }
         });
       }}
     >

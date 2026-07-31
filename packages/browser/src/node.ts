@@ -1,14 +1,34 @@
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { readdirSync, readFileSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
 const agentBrowserEntry = require.resolve("agent-browser/bin/agent-browser.js");
+
+function resolveAgentBrowserExecutable() {
+  const directory = dirname(agentBrowserEntry);
+  const platform = process.platform === "win32" ? "win32" : process.platform;
+  const architecture = process.arch === "x64" ? "x64" : process.arch;
+  const extension = process.platform === "win32" ? ".exe" : "";
+  const executable = readdirSync(directory).find(
+    (entry) =>
+      entry.startsWith(`agent-browser-${platform}`) &&
+      entry.endsWith(`-${architecture}${extension}`),
+  );
+  if (!executable) {
+    throw new Error(
+      `agent-browser does not include a native client for ${process.platform}-${process.arch}.`,
+    );
+  }
+  return join(directory, executable);
+}
+
+const agentBrowserExecutable = resolveAgentBrowserExecutable();
 
 interface AgentBrowserEnvelope<T> {
   success?: boolean;
@@ -133,6 +153,8 @@ function commandError(error: unknown) {
  * a human interacts through the WebSocket viewport.
  */
 export class AgentBrowserSession {
+  private commandQueue: Promise<void> = Promise.resolve();
+  private readonly configPath: string;
   readonly downloadPath: string;
   readonly sessionId: string;
   private readonly options: AgentBrowserSessionOptions;
@@ -141,12 +163,17 @@ export class AgentBrowserSession {
     this.options = options;
     this.sessionId = safeSessionId(options.sessionId);
     this.downloadPath = options.downloadPath;
+    this.configPath = join(this.downloadPath, "agent-browser.json");
   }
 
   private globalArgs() {
     const args = [
       "--session",
       this.sessionId,
+      "--config",
+      this.configPath,
+      "--headed",
+      "false",
       "--json",
       "--content-boundaries",
       "--download-path",
@@ -172,13 +199,41 @@ export class AgentBrowserSession {
     return args;
   }
 
-  async command<T>(args: string[], timeout = 30_000): Promise<T> {
+  command<T>(args: string[], timeout = 30_000): Promise<T> {
+    const task = this.commandQueue
+      .catch(() => undefined)
+      .then(() => this.runCommand<T>(args, timeout));
+    this.commandQueue = task.then(
+      () => undefined,
+      () => undefined,
+    );
+    return task;
+  }
+
+  private async runCommand<T>(args: string[], timeout: number): Promise<T> {
     await mkdir(this.downloadPath, { recursive: true });
+    await writeFile(this.configPath, '{"headed":false}\n', {
+      flag: "wx",
+    }).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "EEXIST") throw error;
+    });
     try {
       const { stdout } = await execFileAsync(
-        process.execPath,
-        [agentBrowserEntry, ...this.globalArgs(), ...args],
-        { encoding: "utf8", maxBuffer: 10 * 1024 * 1024, timeout },
+        agentBrowserExecutable,
+        [...this.globalArgs(), ...args],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            AGENT_BROWSER_CONFIG: this.configPath,
+            AGENT_BROWSER_DEFAULT_TIMEOUT: "20000",
+            AGENT_BROWSER_EXTENSIONS: "",
+            AGENT_BROWSER_HEADED: "false",
+            AGENT_BROWSER_IDLE_TIMEOUT_MS: "30m",
+          },
+          maxBuffer: 10 * 1024 * 1024,
+          timeout,
+        },
       );
       return parseJson<T>(stdout.trim());
     } catch (error) {
@@ -262,6 +317,16 @@ export class AgentBrowserSession {
     );
   }
 
+  async select(labels: string[], values: string[]) {
+    return this.trySemanticCommands(
+      labels.flatMap((label) =>
+        label.startsWith("@")
+          ? [["select", label, ...values]]
+          : [["find", "label", label, "select", ...values]],
+      ),
+    );
+  }
+
   private async trySemanticCommands(commands: string[][]) {
     let lastError: unknown;
     for (const command of commands) {
@@ -289,6 +354,7 @@ export class AgentBrowserSession {
       "viewport",
       String(Math.max(320, Math.round(width))),
       String(Math.max(240, Math.round(height))),
+      "2",
     ]);
   }
 
