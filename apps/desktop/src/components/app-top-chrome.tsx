@@ -15,15 +15,20 @@ const controlClass =
 export function AppTopChrome({
   sidebarOpen,
   onToggleSidebar,
+  hasWorkspaceRail,
 }: {
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
+  hasWorkspaceRail: boolean;
 }) {
   const { canGoBack, canGoForward, goBack, goForward } = useNavigationHistory();
 
   return (
     <header
-      className="bg-sidebar relative z-40 flex h-10 shrink-0 items-center pr-3 pl-8"
+      className={cn(
+        "bg-sidebar relative z-40 flex h-10 shrink-0 translate-y-[3px] items-center pr-3",
+        hasWorkspaceRail ? "pl-8" : "pl-20",
+      )}
       data-tauri-drag-region
     >
       <div className="relative z-10 flex items-center gap-0.5">

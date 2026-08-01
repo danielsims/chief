@@ -18,8 +18,7 @@ import {
 } from "@chief/ui/components/dialog";
 import { cn } from "@chief/ui/lib/utils";
 
-import type { LocalChatSummary } from "../lib/runtime";
-import { channelForChat, WORKSPACE_CHANNELS } from "../lib/workspace-channels";
+import { WORKSPACE_CHANNELS } from "../lib/workspace-channels";
 
 const DESTINATIONS = [
   { label: "Overview", hint: "Workspace home", to: "/", icon: LayoutGrid },
@@ -39,10 +38,10 @@ interface SearchItem {
   hint: string;
   to: string;
   icon: typeof Search;
-  kind: "Destination" | "Channel" | "Conversation";
+  kind: "Destination" | "Channel";
 }
 
-export function WorkspaceSearch({ chats }: { chats: LocalChatSummary[] }) {
+export function WorkspaceSearch() {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
@@ -63,26 +62,15 @@ export function WorkspaceSearch({ chats }: { chats: LocalChatSummary[] }) {
       icon: Hash,
       kind: "Channel" as const,
     }));
-    const conversations = chats.map((chat) => {
-      const channelId = channelForChat(chat);
-      return {
-        id: chat.id,
-        label: chat.title,
-        hint: chat.lastText || `Conversation in #${channelId}`,
-        to: `/conversations?channel=${channelId}&chat=${encodeURIComponent(chat.id)}`,
-        icon: chat.running ? Search : Hash,
-        kind: "Conversation" as const,
-      };
-    });
     const needle = query.trim().toLocaleLowerCase();
-    const searchable = [...destinations, ...channels, ...conversations];
+    const searchable = [...destinations, ...channels];
     if (!needle) return searchable.slice(0, 12);
     return searchable
       .filter((item) =>
         `${item.label} ${item.hint}`.toLocaleLowerCase().includes(needle),
       )
       .slice(0, 12);
-  }, [chats, query]);
+  }, [query]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -162,13 +150,15 @@ export function WorkspaceSearch({ chats }: { chats: LocalChatSummary[] }) {
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => choose(item)}
                     className={cn(
-                      "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left",
+                      "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left",
                       index === activeIndex && "bg-accent",
                     )}
                   >
-                    <span className="bg-background text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-lg border">
-                      <Icon size={15} />
-                    </span>
+                    <Icon
+                      size={15}
+                      strokeWidth={1.7}
+                      className="text-muted-foreground shrink-0"
+                    />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px] font-medium">
                         {item.label}

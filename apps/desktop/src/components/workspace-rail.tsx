@@ -1,13 +1,43 @@
+import { useEffect, useState } from "react";
 import { Home } from "lucide-react";
 import { useLocation, useNavigate } from "react-router";
 
 import { cn } from "@chief/ui/lib/utils";
 
+import { useAuth } from "../lib/auth/auth-context";
+import { listAuthOrganizations } from "../lib/auth/better-auth-client";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 
-export function WorkspaceRail() {
+export function WorkspaceRail({
+  onVisibilityChange,
+}: {
+  onVisibilityChange?: (visible: boolean) => void;
+}) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { isAuthenticated } = useAuth();
+  const [workspaceCount, setWorkspaceCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      onVisibilityChange?.(false);
+      return;
+    }
+    let cancelled = false;
+    void listAuthOrganizations().then((organizations) => {
+      if (!cancelled) {
+        setWorkspaceCount(organizations.length);
+        onVisibilityChange?.(organizations.length > 1);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, onVisibilityChange]);
+
+  if (!isAuthenticated || workspaceCount === null || workspaceCount < 2) {
+    return null;
+  }
 
   return (
     <nav

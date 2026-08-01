@@ -1,16 +1,12 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { CalendarClock, FolderOpen, LayoutGrid, Network } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 
 import { cn } from "@chief/ui/lib/utils";
 
-import type { LocalChatSummary } from "../lib/runtime";
 import type { WorkspaceChannelId } from "../lib/workspace-channels";
 import { useAuth } from "../lib/auth/auth-context";
-import { createChat } from "../lib/chat-log";
-import { useLocalChats } from "../lib/runtime";
 import {
-  channelForChat,
   WORKSPACE_CHANNELS,
   workspaceChannel,
 } from "../lib/workspace-channels";
@@ -76,70 +72,32 @@ export function Sidebar({
   onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
 }) {
   const { cloudOrganizationId } = useAuth();
-  const chats = useLocalChats(cloudOrganizationId);
   const location = useLocation();
   const navigate = useNavigate();
   const [pinnedIds, setPinnedIds] = useState(() =>
     readPinnedChannels(cloudOrganizationId),
   );
   const params = new URLSearchParams(location.search);
-  const activeChatId = params.get("chat");
-  const activeChat = chats.chats.find((chat) => chat.id === activeChatId);
   const requestedChannel = workspaceChannel(params.get("channel"));
   const activeChannelId = location.pathname.startsWith("/conversations")
-    ? (requestedChannel?.id ??
-      (activeChat ? channelForChat(activeChat) : "general"))
+    ? (requestedChannel?.id ?? null)
     : null;
 
-  const conversationsByChannel = useMemo(() => {
-    const groups = new Map<WorkspaceChannelId, LocalChatSummary[]>(
-      WORKSPACE_CHANNELS.map((channel) => [channel.id, []]),
-    );
-    for (const chat of chats.chats) {
-      groups.get(channelForChat(chat))?.push(chat);
-    }
-    return groups;
-  }, [chats.chats]);
-
-  const counts = useMemo(
-    () =>
-      Object.fromEntries(
-        WORKSPACE_CHANNELS.map((channel) => [
-          channel.id,
-          conversationsByChannel.get(channel.id)?.length ?? 0,
-        ]),
-      ) as Record<WorkspaceChannelId, number>,
-    [conversationsByChannel],
-  );
-
   const openChannel = (channelId: WorkspaceChannelId) => {
-    const latest = conversationsByChannel.get(channelId)?.[0];
-    const chat = latest ?? createChat(`#${channelId}`);
-    void navigate(
-      `/conversations?channel=${channelId}&chat=${encodeURIComponent(chat.id)}`,
-    );
+    void navigate(`/conversations?channel=${channelId}`);
   };
 
-  const createInChannel = (channelId: WorkspaceChannelId) => {
-    const chat = createChat(`#${channelId}`);
-    void navigate(
-      `/conversations?channel=${channelId}&chat=${encodeURIComponent(chat.id)}`,
+  const updatePinned = (nextIds: WorkspaceChannelId[]) => {
+    const next = nextIds.filter(
+      (id, index) =>
+        WORKSPACE_CHANNELS.some((channel) => channel.id === id) &&
+        nextIds.indexOf(id) === index,
     );
-  };
-
-  const updatePinned = (channelId: WorkspaceChannelId, pinned: boolean) => {
-    setPinnedIds((current) => {
-      const next = pinned
-        ? WORKSPACE_CHANNELS.map((channel) => channel.id).filter(
-            (id) => id === channelId || current.includes(id),
-          )
-        : current.filter((id) => id !== channelId);
-      window.localStorage.setItem(
-        pinnedStorageKey(cloudOrganizationId),
-        JSON.stringify(next),
-      );
-      return next;
-    });
+    window.localStorage.setItem(
+      pinnedStorageKey(cloudOrganizationId),
+      JSON.stringify(next),
+    );
+    setPinnedIds(next);
   };
 
   return (
@@ -148,7 +106,7 @@ export function Sidebar({
       className="bg-sidebar text-sidebar-foreground relative z-30 flex h-full shrink-0 flex-col"
     >
       <div className="shrink-0 px-3 pt-3 pb-2">
-        <WorkspaceSearch chats={chats.chats} />
+        <WorkspaceSearch />
       </div>
       <nav className="min-h-0 flex-1 [scrollbar-width:thin] [scrollbar-color:color-mix(in_srgb,var(--sidebar-muted)_22%,transparent)_transparent] overflow-y-auto px-2 pb-5">
         <div className="space-y-0.5 px-0.5 pb-1">
@@ -158,10 +116,8 @@ export function Sidebar({
         </div>
         <SidebarChannels
           activeChannelId={activeChannelId}
-          counts={counts}
           pinnedIds={pinnedIds}
           onOpen={openChannel}
-          onCreate={createInChannel}
           onPinnedChange={updatePinned}
         />
       </nav>
