@@ -20,16 +20,19 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronDown, Hash, Pin, PinOff } from "lucide-react";
+import { ChevronDown, Hash, MoreHorizontal, Pin, PinOff } from "lucide-react";
 
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuLabel,
-  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@chief/ui/components/context-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@chief/ui/components/popover";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { WorkspaceChannelId } from "../lib/workspace-channels";
@@ -60,6 +63,51 @@ interface ChannelRowProps {
   onPinChange: (pinned: boolean) => void;
 }
 
+function ChannelContextActions({
+  pinned,
+  onOpen,
+  onPinChange,
+}: Pick<ChannelRowProps, "pinned" | "onOpen" | "onPinChange">) {
+  return (
+    <>
+      <ContextMenuItem className="rounded-lg" onSelect={onOpen}>
+        <Hash size={14} /> Open channel
+      </ContextMenuItem>
+      <ContextMenuItem
+        className="rounded-lg"
+        onSelect={() => onPinChange(!pinned)}
+      >
+        {pinned ? <PinOff size={14} /> : <Pin size={14} />}
+        {pinned ? "Remove from pinned" : "Pin channel"}
+      </ContextMenuItem>
+    </>
+  );
+}
+
+function ChannelPopoverActions({
+  onOpen,
+  onPinChange,
+}: Pick<ChannelRowProps, "onOpen" | "onPinChange">) {
+  return (
+    <>
+      <button
+        type="button"
+        className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
+        onClick={onOpen}
+      >
+        <Hash size={14} /> Open channel
+      </button>
+      <button
+        type="button"
+        className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
+        onClick={() => onPinChange(true)}
+      >
+        <Pin size={14} /> Pin channel
+      </button>
+    </>
+  );
+}
+
 function ChannelRow({
   channelId,
   active,
@@ -68,6 +116,7 @@ function ChannelRow({
   onOpen,
   onPinChange,
 }: ChannelRowProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
   const channel = WORKSPACE_CHANNELS.find((item) => item.id === channelId);
   const source = useDraggable({
     id: `channel:${channelId}`,
@@ -95,7 +144,7 @@ function ChannelRow({
       ref={drag.setNodeRef}
       style={style}
       className={cn(
-        "relative touch-none select-none",
+        "group/channel relative touch-none select-none",
         sortable.isOver &&
           "before:bg-sidebar-foreground before:absolute before:-top-px before:right-2 before:left-2 before:z-10 before:h-px",
         drag.isDragging && "z-20 opacity-45",
@@ -111,7 +160,7 @@ function ChannelRow({
             onClick={onOpen}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "group/channel text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full min-w-0 cursor-grab touch-none items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors select-none active:cursor-grabbing",
+              "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full min-w-0 cursor-grab touch-none items-center gap-2 rounded-lg px-2 pr-9 text-left text-[13px] transition-colors select-none active:cursor-grabbing",
               active && "bg-sidebar-accent text-sidebar-foreground font-medium",
               drag.isDragging && "cursor-grabbing",
             )}
@@ -120,23 +169,62 @@ function ChannelRow({
             <span className="min-w-0 flex-1 truncate">{channel.label}</span>
           </button>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-52 rounded-xl p-1.5 shadow-xl">
-          <ContextMenuLabel className="px-2 py-1.5 text-xs font-medium normal-case">
-            #{channel.label}
-          </ContextMenuLabel>
-          <ContextMenuItem className="rounded-lg" onSelect={onOpen}>
-            <Hash size={14} /> Open channel
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            className="rounded-lg"
-            onSelect={() => onPinChange(!pinned)}
-          >
-            {pinned ? <PinOff size={14} /> : <Pin size={14} />}
-            {pinned ? "Remove from pinned" : "Pin channel"}
-          </ContextMenuItem>
+        <ContextMenuContent className="w-48 rounded-xl p-1.5 shadow-xl">
+          <ChannelContextActions
+            pinned={pinned}
+            onOpen={onOpen}
+            onPinChange={onPinChange}
+          />
         </ContextMenuContent>
       </ContextMenu>
+      {pinned ? (
+        <button
+          type="button"
+          aria-label={`Unpin ${channel.label}`}
+          title="Remove from pinned"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onPinChange(false);
+          }}
+          className="text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground pointer-events-none absolute top-1 right-1 flex size-6 items-center justify-center rounded-md opacity-0 transition-[opacity,color,background-color] group-hover/channel:pointer-events-auto group-hover/channel:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none"
+        >
+          <PinOff size={13} strokeWidth={1.8} />
+        </button>
+      ) : (
+        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label={`More options for ${channel.label}`}
+              title="Channel options"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+              className="text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground pointer-events-none absolute top-1 right-1 flex size-6 items-center justify-center rounded-md opacity-0 transition-[opacity,color,background-color] group-hover/channel:pointer-events-auto group-hover/channel:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
+            >
+              <MoreHorizontal size={14} strokeWidth={1.8} />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            side="right"
+            align="start"
+            sideOffset={8}
+            className="w-44 p-1.5"
+            onOpenAutoFocus={(event) => event.preventDefault()}
+          >
+            <ChannelPopoverActions
+              onOpen={() => {
+                setMenuOpen(false);
+                onOpen();
+              }}
+              onPinChange={(next) => {
+                setMenuOpen(false);
+                onPinChange(next);
+              }}
+            />
+          </PopoverContent>
+        </Popover>
+      )}
     </div>
   );
 }
@@ -227,48 +315,50 @@ export function SidebarChannels({
       onDragCancel={() => setDraggingId(null)}
       onDragEnd={onDragEnd}
     >
-      <section
-        ref={pinnedDrop.setNodeRef}
-        className={cn(
-          "mt-3 rounded-lg px-0.5 transition-colors",
-          pinnedDrop.isOver && "bg-sidebar-accent/45",
-        )}
-      >
-        <GroupLabel
-          collapsed={pinnedCollapsed}
-          onToggle={() => setPinnedCollapsed((current) => !current)}
+      {pinnedIds.length > 0 ? (
+        <section
+          ref={pinnedDrop.setNodeRef}
+          className={cn(
+            "mt-3 rounded-lg px-0.5 transition-colors",
+            pinnedDrop.isOver && "bg-sidebar-accent/45",
+          )}
         >
-          Pinned
-        </GroupLabel>
-        {!pinnedCollapsed ? (
-          <div
-            className={cn(
-              "min-h-2 rounded-lg py-0.5 transition-shadow",
-              pinnedDrop.isOver &&
-                "shadow-[inset_0_1px_0_var(--sidebar-foreground)]",
-            )}
+          <GroupLabel
+            collapsed={pinnedCollapsed}
+            onToggle={() => setPinnedCollapsed((current) => !current)}
           >
-            <SortableContext
-              items={pinnedIds.map((id) => `pinned:${id}`)}
-              strategy={verticalListSortingStrategy}
+            Pinned
+          </GroupLabel>
+          {!pinnedCollapsed ? (
+            <div
+              className={cn(
+                "min-h-2 rounded-lg py-0.5 transition-shadow",
+                pinnedDrop.isOver &&
+                  "shadow-[inset_0_1px_0_var(--sidebar-foreground)]",
+              )}
             >
-              <div className="space-y-0.5">
-                {pinnedIds.map((channelId) => (
-                  <ChannelRow
-                    key={channelId}
-                    channelId={channelId}
-                    active={activeChannelId === channelId}
-                    pinned
-                    dragKind="sortable"
-                    onOpen={() => onOpen(channelId)}
-                    onPinChange={(next) => setPinned(channelId, next)}
-                  />
-                ))}
-              </div>
-            </SortableContext>
-          </div>
-        ) : null}
-      </section>
+              <SortableContext
+                items={pinnedIds.map((id) => `pinned:${id}`)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-0.5">
+                  {pinnedIds.map((channelId) => (
+                    <ChannelRow
+                      key={channelId}
+                      channelId={channelId}
+                      active={activeChannelId === channelId}
+                      pinned
+                      dragKind="sortable"
+                      onOpen={() => onOpen(channelId)}
+                      onPinChange={(next) => setPinned(channelId, next)}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="mt-3 px-0.5">
         <GroupLabel
