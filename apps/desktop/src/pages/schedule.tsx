@@ -131,45 +131,46 @@ function buildMonthCells(month: Date): (Date | null)[] {
   });
 }
 
-function draftTone(status: ScheduledDraft["status"], past = false) {
+function eventSurface(past = false) {
   if (past) {
-    return "bg-zinc-200 text-zinc-600 shadow-[inset_0_1px_rgba(255,255,255,0.7),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-zinc-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600";
+    return "bg-muted/35 hover:bg-muted/50 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_4%,transparent)]";
   }
-  if (status === "published") {
-    return "bg-[#3c8365] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#347257]";
-  }
-  if (status === "scheduled") {
-    return "bg-[#357d92] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#2e6d7f]";
-  }
-  if (status === "approved") {
-    return "bg-[#7257a8] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#634b92]";
-  }
-  return "bg-[#60616a] text-white shadow-[inset_0_1px_rgba(255,255,255,0.12),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#53545c]";
+  return "bg-muted/70 hover:bg-muted shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent),0_1px_2px_rgba(0,0,0,0.035)]";
 }
 
-function agentWorkTone(agentId: string, past = false) {
-  if (past) {
-    return "bg-zinc-200 text-zinc-600 shadow-[inset_0_1px_rgba(255,255,255,0.7),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-zinc-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600";
+function draftAccent(status: ScheduledDraft["status"]) {
+  if (status === "published") {
+    return "bg-emerald-500";
   }
+  if (status === "scheduled") {
+    return "bg-cyan-500";
+  }
+  if (status === "approved") {
+    return "bg-violet-500";
+  }
+  return "bg-zinc-500";
+}
+
+function agentWorkAccent(agentId: string) {
   if (agentId === "prospector") {
-    return "bg-[#7257a8] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#634b92]";
+    return "bg-violet-500";
   }
   if (agentId === "content") {
-    return "bg-[#b64f66] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#9f4559]";
+    return "bg-rose-500";
   }
   if (agentId === "brand") {
-    return "bg-[#995181] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#85466f]";
+    return "bg-fuchsia-500";
   }
   if (agentId === "analyst") {
-    return "bg-[#357da2] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#2e6d8d]";
+    return "bg-sky-500";
   }
   if (agentId === "ads") {
-    return "bg-[#38877f] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#30756e]";
+    return "bg-teal-500";
   }
   if (agentId === "setup") {
-    return "bg-[#3c8365] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#347257]";
+    return "bg-emerald-500";
   }
-  return "bg-[#5b6595] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#4f5882]";
+  return "bg-indigo-500";
 }
 
 function workStatusLabel(status: RecurringWorkRecord["status"]) {
@@ -201,7 +202,7 @@ function CalendarEventContent({
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-[11px] leading-[15px] font-semibold tracking-[-0.012em]",
-            muted ? "text-zinc-700 dark:text-zinc-200" : "text-white",
+            muted ? "text-muted-foreground/75" : "text-foreground",
           )}
         >
           {title}
@@ -210,7 +211,7 @@ function CalendarEventContent({
           <span
             className={cn(
               "shrink-0 text-[9px] leading-[13px] font-medium tabular-nums",
-              muted ? "text-zinc-500 dark:text-zinc-400" : "text-white/75",
+              muted ? "text-muted-foreground/60" : "text-muted-foreground",
             )}
           >
             {time}
@@ -221,7 +222,7 @@ function CalendarEventContent({
         <span
           className={cn(
             "flex min-w-0 flex-1 items-center gap-1 truncate capitalize",
-            muted ? "text-zinc-500 dark:text-zinc-400" : "text-white/75",
+            muted ? "text-muted-foreground/60" : "text-muted-foreground",
           )}
         >
           {agentInitial ? (
@@ -229,8 +230,8 @@ function CalendarEventContent({
               className={cn(
                 "flex size-3.5 shrink-0 items-center justify-center rounded-full text-[7px] leading-none font-semibold",
                 muted
-                  ? "bg-zinc-500/12 text-zinc-600 dark:bg-white/10 dark:text-zinc-300"
-                  : "bg-white/16 text-white",
+                  ? "bg-foreground/[0.035] text-muted-foreground/65"
+                  : "bg-background/75 text-foreground/70 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]",
               )}
             >
               {agentInitial}
@@ -241,13 +242,32 @@ function CalendarEventContent({
         <span
           className={cn(
             "shrink-0",
-            muted ? "text-zinc-500 dark:text-zinc-400" : "text-white/90",
+            muted ? "text-muted-foreground/60" : "text-foreground/70",
           )}
         >
           {status}
         </span>
       </span>
     </span>
+  );
+}
+
+function CalendarEventAccent({
+  color,
+  muted,
+}: {
+  color: string;
+  muted?: boolean;
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "absolute inset-y-2 left-1.5 w-[3px] rounded-full",
+        color,
+        muted && "opacity-30",
+      )}
+    />
   );
 }
 
@@ -324,10 +344,11 @@ function DraftChip({
         onOpen(draft);
       }}
       className={cn(
-        "block min-h-11 w-full min-w-0 rounded-[10px] px-2.5 py-2 text-left transition-colors select-none",
-        draftTone(draft.status, past),
+        "relative block min-h-11 w-full min-w-0 overflow-hidden rounded-[10px] py-2 pr-2.5 pl-4 text-left transition-colors select-none",
+        eventSurface(past),
       )}
     >
+      <CalendarEventAccent color={draftAccent(draft.status)} muted={past} />
       <DraftEventContent draft={draft} time={time || undefined} muted={past} />
     </button>
   );
@@ -365,10 +386,11 @@ function RecurringWorkChip({
         onContextMenu(work, event.clientX, event.clientY);
       }}
       className={cn(
-        "min-h-11 min-w-0 rounded-[10px] px-2.5 py-2 transition-colors select-none",
-        agentWorkTone(work.agentId, past),
+        "relative min-h-11 min-w-0 overflow-hidden rounded-[10px] py-2 pr-2.5 pl-4 transition-colors select-none",
+        eventSurface(past),
       )}
     >
+      <CalendarEventAccent color={agentWorkAccent(work.agentId)} muted={past} />
       <WorkEventContent work={work} muted={past} />
     </div>
   );
@@ -939,11 +961,15 @@ function FocusedCalendarView({
                       onWorkContext(work, date, event.clientX, event.clientY);
                     }}
                     className={cn(
-                      "absolute right-1.5 left-1.5 overflow-hidden rounded-[10px] px-2.5 py-2 text-left transition-colors",
-                      agentWorkTone(work.agentId, timestamp < now),
+                      "absolute right-1.5 left-1.5 overflow-hidden rounded-[10px] py-2 pr-2.5 pl-4 text-left transition-colors",
+                      eventSurface(timestamp < now),
                     )}
                     style={{ top: eventTop(timestamp), minHeight: 42 }}
                   >
+                    <CalendarEventAccent
+                      color={agentWorkAccent(work.agentId)}
+                      muted={timestamp < now}
+                    />
                     <WorkEventContent
                       work={work}
                       time={new Date(timestamp).toLocaleTimeString([], {
@@ -963,14 +989,18 @@ function FocusedCalendarView({
                       onDraftOpen(draft);
                     }}
                     className={cn(
-                      "absolute right-1.5 left-1.5 overflow-hidden rounded-[10px] px-2.5 py-2 text-left transition-colors",
-                      draftTone(draft.status, draft.scheduledFor < now),
+                      "absolute right-1.5 left-1.5 overflow-hidden rounded-[10px] py-2 pr-2.5 pl-4 text-left transition-colors",
+                      eventSurface(draft.scheduledFor < now),
                     )}
                     style={{
                       top: eventTop(draft.scheduledFor),
                       minHeight: 42,
                     }}
                   >
+                    <CalendarEventAccent
+                      color={draftAccent(draft.status)}
+                      muted={draft.scheduledFor < now}
+                    />
                     <DraftEventContent
                       draft={draft}
                       time={new Date(draft.scheduledFor).toLocaleTimeString(
@@ -2315,15 +2345,15 @@ export function SchedulePage() {
         <footer className="text-muted-foreground flex h-11 shrink-0 items-center justify-between px-6 text-[10px]">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-2">
-              <span className="size-1.5 rounded-full bg-[#7257a8]" />
+              <span className="size-1.5 rounded-full bg-violet-500" />
               Prospecting
             </span>
             <span className="flex items-center gap-2">
-              <span className="size-1.5 rounded-full bg-[#357da2]" />
+              <span className="size-1.5 rounded-full bg-sky-500" />
               Analytics
             </span>
             <span className="flex items-center gap-2">
-              <span className="size-1.5 rounded-full bg-[#b64f66]" />
+              <span className="size-1.5 rounded-full bg-rose-500" />
               Content
             </span>
           </div>
