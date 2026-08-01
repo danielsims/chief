@@ -49,6 +49,7 @@ import {
   availableCapabilities,
   composeAgentCapabilities,
 } from "./capabilities/index.js";
+import * as channelBridge from "./channels/server-bridge.js";
 import {
   loadSlackGatewayConfig,
   readSlackGatewaySettings,
@@ -1575,6 +1576,13 @@ export function startServer(port = PORT) {
               message: persisted,
             });
           }
+          if (agentEvent.type === "message") {
+            await channelBridge
+              .mirrorEvent(manager, send, workspaceId, chatId, agentEvent)
+              .catch((error: unknown) =>
+                console.error("[runtime] channel event mirror:", error),
+              );
+          }
         }
         if (agentEvent.type === "message" && agentEvent.role === "user") {
           await manager.waitForChatPersistence(workspaceId, chatId);
@@ -1756,11 +1764,11 @@ export function startServer(port = PORT) {
             }
           }
         }
+        if (await channelBridge.handleRequest(manager, msg, send)) return;
         switch (msg.type) {
           case "listAgents":
             send({ type: "agents", agents: defaultAgents });
             break;
-
           case "listModels":
             send({
               type: "models",
@@ -2901,14 +2909,9 @@ export function startServer(port = PORT) {
             if (msg.purpose === "integration-setup" && !preparedSetup) {
               throw new Error("Integration setup preparation failed.");
             }
-            const storedChat = await manager.createRootChat(
-              msg.workspaceId,
-              msg.chatId,
-              msg.purpose === "integration-setup"
-                ? msg.integrationDomain === GOOGLE_ANALYTICS_DOMAIN
-                  ? "Google Analytics setup"
-                  : "Integration setup"
-                : "",
+            const { channel, storedChat } = await channelBridge.openRootChat(
+              manager,
+              msg,
               requestedExecution?.driver,
               requestedExecution?.model,
               agentId,
@@ -3090,15 +3093,12 @@ export function startServer(port = PORT) {
                       msg.workspaceContext,
                     );
                   }
-                  const effectiveAgent = {
-                    ...integratedAgent,
-                    instructions: composeWorkspaceInstructions(
-                      msg.purpose === "integration-setup"
-                        ? `${integratedAgent.instructions}\n\nThis is a user-started integration setup run. Perform the setup directly. Do not delegate to another agent. Finish all safe local setup and verification yourself, and ask only for information that cannot be discovered.`
-                        : integratedAgent.instructions,
-                      workspaceContext,
-                    ),
-                  };
+                  const effectiveAgent = channelBridge.agentForChannel(
+                    integratedAgent,
+                    msg.purpose,
+                    channel,
+                    workspaceContext,
+                  );
                   const config = {
                     driver,
                     access:

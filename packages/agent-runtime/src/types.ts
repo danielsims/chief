@@ -3,7 +3,22 @@
 import type { UIMessage } from "ai";
 
 import type * as Artifacts from "./artifact-types.js";
+import type {
+  ChannelClientMessage,
+  ChannelServerMessage,
+} from "./channel-types.js";
 import type { IntegrationSetupPhase } from "./integration-setup-recipes.js";
+
+export type {
+  ChannelActor,
+  ChannelEvent,
+  WorkspaceChannel,
+} from "./channel-types.js";
+export type {
+  BrowserAutomationCommand,
+  BrowserAutomationResult,
+  BrowserPageSnapshot,
+} from "./browser-types.js";
 
 export interface GenerativeChartPoint {
   x: string;
@@ -662,28 +677,6 @@ export interface SlackChannelState extends SlackChannelSettings {
 
 // ---- WebSocket protocol between clients (desktop app, future Slack bridge) and the service ----
 
-export interface BrowserPageSnapshot {
-  url: string;
-  title: string;
-  text: string;
-  controls: string[];
-}
-
-export type BrowserAutomationCommand =
-  | { type: "snapshot" }
-  | { type: "click"; labels: string[] }
-  | { type: "fill"; labels: string[]; value: string }
-  | { type: "select"; labels: string[]; values: string[] }
-  | { type: "press"; key: string };
-
-export interface BrowserAutomationResult {
-  snapshot?: BrowserPageSnapshot;
-  clicked?: boolean;
-  filled?: boolean;
-  pressed?: boolean;
-  selected?: boolean;
-}
-
 interface BrowserConversationMessage<T extends string> {
   type: T;
   workspaceId: string;
@@ -692,6 +685,7 @@ interface BrowserConversationMessage<T extends string> {
 
 export type ClientMessage =
   | { type: "listAgents" }
+  | ChannelClientMessage
   | Artifacts.ListArtifactsMessage
   | {
       type: "listChats";
@@ -1023,6 +1017,7 @@ export interface IntegrationSetupProgress {
 
 export type ServerMessage =
   | { type: "agents"; agents: AgentDefinition[] }
+  | ChannelServerMessage
   | { type: "models"; driver: DriverType; models: ProviderModelOption[] }
   | Artifacts.ArtifactsMessage
   | {
