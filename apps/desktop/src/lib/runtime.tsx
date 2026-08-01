@@ -1942,6 +1942,8 @@ export interface PendingQuestion {
 
 export interface ChatControlState {
   status: "idle" | "running";
+  /** True after the runtime has emitted real output for the current turn. */
+  hasAgentOutput: boolean;
   /** Tool calls waiting on the user's allow/deny decision. */
   approvals: PendingApproval[];
   /** Agent questions waiting on the user's answers. */
@@ -1953,6 +1955,7 @@ export interface ChatControlState {
 
 const emptyChatControls: ChatControlState = {
   status: "idle",
+  hasAgentOutput: false,
   approvals: [],
   questions: [],
   toolProgress: {},
@@ -1966,17 +1969,19 @@ function reduceChatControls(
 ): ChatControlState {
   switch (event.type) {
     case "stream":
-      return { ...controls, status: "running" };
+      return { ...controls, status: "running", hasAgentOutput: true };
     case "message":
       return {
         ...controls,
         status: event.role === "user" ? "running" : controls.status,
+        hasAgentOutput: event.role !== "user",
         error: event.role === "user" ? undefined : controls.error,
       };
     case "toolProgress": {
       const current = controls.toolProgress[event.toolUseId] ?? "";
       return {
         ...controls,
+        hasAgentOutput: true,
         toolProgress: {
           ...controls.toolProgress,
           [event.toolUseId]: `${current}${event.text}`.slice(-8_000),
@@ -1986,6 +1991,7 @@ function reduceChatControls(
     case "permission":
       return {
         ...controls,
+        hasAgentOutput: true,
         approvals: controls.approvals.some(
           (approval) => approval.requestId === event.requestId,
         )
@@ -2009,6 +2015,7 @@ function reduceChatControls(
     case "question":
       return {
         ...controls,
+        hasAgentOutput: true,
         questions: controls.questions.some(
           (question) => question.requestId === event.requestId,
         )
@@ -2135,6 +2142,7 @@ function useRuntimeChat(
     error: capabilityError,
   } = useWorkspaceCapability();
   const [controls, setControls] = useState<ChatControlState>(emptyChatControls);
+  const pendingStreamRef = useRef("");
   const [chatReady, setChatReady] = useState(false);
   const [execution, setExecution] = useState<
     ChatExecutionSelection | undefined
@@ -2164,6 +2172,8 @@ function useRuntimeChat(
           setControls((current) => ({
             ...current,
             status: "running",
+            hasAgentOutput: false,
+            toolProgress: {},
             error: undefined,
           }));
           client.send({
@@ -2213,6 +2223,7 @@ function useRuntimeChat(
       return;
     }
     setControls(emptyChatControls);
+    pendingStreamRef.current = "";
     setMessages([]);
     setChatReady(false);
     setExecution(undefined);
@@ -2267,23 +2278,8 @@ function useRuntimeChat(
         msg.workspaceId === cloudOrganizationId &&
         msg.chatId === chatId
       ) {
-        const streamingText = replayStreamingText(msg.events);
-        setMessages(
-          deduplicateDocumentParts(
-            streamingText
-              ? [
-                  ...msg.messages,
-                  {
-                    id: `stream:${chatId}`,
-                    role: "assistant",
-                    parts: [
-                      { type: "text", text: streamingText, state: "streaming" },
-                    ],
-                  },
-                ]
-              : msg.messages,
-          ),
-        );
+        pendingStreamRef.current = replayStreamingText(msg.events);
+        setMessages(deduplicateDocumentParts(msg.messages));
         const replayedControls = msg.events.reduce(
           reduceChatControls,
           emptyChatControls,
@@ -2300,40 +2296,52 @@ function useRuntimeChat(
         msg.workspaceId === cloudOrganizationId &&
         msg.chatId === chatId
       ) {
-        setMessages((current) => mergeRuntimeMessage(current, msg.message));
+        const hasAssistantText =
+          msg.message.role === "assistant" &&
+          msg.message.parts.some(
+            (part) => part.type === "text" && part.text.trim().length > 0,
+          );
+        const bufferedText = pendingStreamRef.current;
+        if (hasAssistantText && bufferedText) {
+          pendingStreamRef.current = "";
+          const completed = mergeRuntimeMessage(
+            [
+              {
+                id: `stream:${chatId}`,
+                role: "assistant",
+                parts: [
+                  { type: "text", text: bufferedText, state: "streaming" },
+                ],
+              },
+            ],
+            msg.message,
+          );
+          setMessages((current) =>
+            completed.reduce(
+              (next, message) => mergeRuntimeMessage(next, message),
+              current,
+            ),
+          );
+        } else {
+          setMessages((current) => mergeRuntimeMessage(current, msg.message));
+        }
         return;
       }
       if (msg.type !== "event" || msg.chatId !== chatId) return;
       if (msg.event.type === "stream") {
-        const delta = msg.event.text;
-        setMessages((current) => {
-          const streamId = `stream:${chatId}`;
-          const index = current.findIndex((message) => message.id === streamId);
-          if (index < 0) {
-            return [
-              ...current,
-              {
-                id: streamId,
-                role: "assistant",
-                parts: [{ type: "text", text: delta, state: "streaming" }],
-              },
-            ];
-          }
-          return current.map((message, messageIndex) =>
-            messageIndex === index
-              ? {
-                  ...message,
-                  parts: [
-                    {
-                      type: "text",
-                      text: `${message.parts[0]?.type === "text" ? message.parts[0].text : ""}${delta}`,
-                      state: "streaming",
-                    },
-                  ],
-                }
-              : message,
-          );
-        });
+        pendingStreamRef.current += msg.event.text;
+      }
+      if (msg.event.type === "result" && pendingStreamRef.current.trim()) {
+        const completedText = pendingStreamRef.current;
+        pendingStreamRef.current = "";
+        setMessages((current) => [
+          ...current,
+          {
+            id: `stream:${chatId}`,
+            role: "assistant",
+            parts: [{ type: "text", text: completedText, state: "streaming" }],
+          },
+        ]);
       }
       setControls((current) => reduceChatControls(current, msg.event));
     });

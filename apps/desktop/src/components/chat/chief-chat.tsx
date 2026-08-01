@@ -21,8 +21,10 @@ import {
 } from "../../lib/runtime";
 import { ChiefMark } from "../chief-mark";
 import { InputRequestSection } from "../integrations/input-request-section";
-import { AgentWorkingIndicator } from "./agent-working-indicator";
+import { AgentActivityComposerRow } from "./agent-activity-composer-row";
+import { AgentActivityPanel } from "./agent-activity-panel";
 import { ApprovalCard } from "./approval-card";
+import { channelActivityState } from "./channel-activity-state";
 import { ChatComposer } from "./chat-composer";
 import { Blocks } from "./message-blocks";
 import { QuestionCard } from "./question-card";
@@ -44,7 +46,7 @@ function ChiefMessage({ children }: { children: ReactNode }) {
         <div className="mb-1 flex items-baseline gap-2">
           <strong className="text-[13px] font-semibold">Chief</strong>
           <span className="text-muted-foreground text-[10px]">
-            chief marketing officer
+            Chief Marketing Officer
           </span>
         </div>
         {children}
@@ -130,6 +132,13 @@ export function ChiefChat({
     selectedExecution ?? undefined,
     agentConfig.access,
   );
+  const [activityOpen, setActivityOpen] = useState(false);
+  const currentTurn = useMemo(
+    () => channelActivityState(messages, controls.hasAgentOutput),
+    [controls.hasAgentOutput, messages],
+  );
+  const currentTurnBlocks = currentTurn.blocks;
+  const statusLabel = currentTurn.statusLabel;
   const activeExecution = selectedExecution ?? execution ?? initialExecution;
   const driver = activeExecution?.driver;
   const [answeredInputs, setAnsweredInputs] = useState<ReadonlySet<string>>(
@@ -138,23 +147,6 @@ export function ChiefChat({
   const pendingInput = useMemo(
     () => findPendingInputRequest(messages, answeredInputs),
     [messages, answeredInputs],
-  );
-  const hasActiveTool = useMemo(
-    () =>
-      messages.some(
-        (message) =>
-          message.role === "assistant" &&
-          messageBlocks(message).some(
-            (block) =>
-              block.type === "tool_use" &&
-              !messageBlocks(message).some(
-                (candidate) =>
-                  candidate.type === "tool_result" &&
-                  candidate.tool_use_id === block.id,
-              ),
-          ),
-      ),
-    [messages],
   );
   const send = (text: string) => void sendMessage({ text });
   const [draft, setDraft] = useState(initialDraft ?? "");
@@ -285,13 +277,170 @@ export function ChiefChat({
   );
 
   return (
-    <div className="flex h-full min-w-0 flex-col overflow-hidden">
-      <div className="min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto py-6 pr-2">
-        {/* A new chat has nothing to replay, so its identity header renders
+    <div className="relative flex h-full min-w-0 overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto py-6 pr-2">
+          {/* A new chat has nothing to replay, so its identity header renders
             immediately; existing chats wait for history so the empty state
             never flashes before the transcript. */}
-        {composerOpen && messages.length === 0 ? (
-          <div className="mx-auto flex h-full w-full max-w-3xl items-center justify-center py-6">
+          {composerOpen && messages.length === 0 ? (
+            <div className="mx-auto flex h-full w-full max-w-3xl items-center justify-center py-6">
+              <RecurringWorkComposer
+                mode={composer === "oneoff" ? "one-off" : "recurring"}
+                date={composerDate}
+                playbookId={composerPlaybookId}
+                onCompose={composeSchedule}
+                onSubmit={submit}
+                onDismiss={() => setComposerOpen(false)}
+              />
+            </div>
+          ) : null}
+          {!chatReady && !isNew && !composerOpen && messages.length === 0 ? (
+            <div className="text-muted-foreground flex h-full items-center justify-center font-mono text-xs">
+              Loading conversation…
+            </div>
+          ) : null}
+          {(chatReady || isNew) &&
+          !composerOpen &&
+          messages.length === 0 &&
+          !showOptimisticInitialPrompt ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+              <p className="text-2xl font-medium tracking-[-0.03em]">
+                {channel ? `#${channel.label}` : "Chief"}
+              </p>
+              <p className="text-muted-foreground max-w-md text-sm">
+                {channel
+                  ? channel.description
+                  : "Your CMO. Ask anything, and Chief will bring in the right specialist."}
+              </p>
+              {channel ? (
+                <p className="text-muted-foreground/75 text-xs">
+                  {channel.agentIds.length} agents share this channel’s context.
+                </p>
+              ) : null}
+              {runtimeStatus !== "connected" && (
+                <p className="text-muted-foreground mt-4 border border-dashed px-3 py-2 text-xs">
+                  Agent runtime not connected. Run <code>pnpm dev</code> in the
+                  repo root.
+                </p>
+              )}
+            </div>
+          ) : null}
+          {showOptimisticInitialPrompt && optimisticInitialPrompt ? (
+            <UserMessage text={optimisticInitialPrompt} author={userAuthor} />
+          ) : null}
+          {messages.map((message) => {
+            if (message.role === "user") {
+              return message.id === `${chatId}-kickoff` ? (
+                <div
+                  key={message.id}
+                  className="mx-auto w-full max-w-3xl border-y py-4"
+                >
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <span className="size-1.5 bg-blue-500" />
+                    Initial business review
+                  </div>
+                  <p className="text-muted-foreground mt-1 pl-3.5 text-xs">
+                    Chief is learning your business. Research and specialist
+                    work will appear here as it happens.
+                  </p>
+                </div>
+              ) : (
+                <UserMessage
+                  key={message.id}
+                  author={userAuthor}
+                  text={messageBlocks(message)
+                    .flatMap((part) =>
+                      part.type === "text" ? [part.text] : [],
+                    )
+                    .join("\n")}
+                />
+              );
+            }
+            if (message.role !== "assistant") return null;
+            if (
+              channel &&
+              currentTurn.messageIds.has(message.id) &&
+              (controls.status === "running" ||
+                message.id !== currentTurn.finalTextMessageId)
+            ) {
+              return null;
+            }
+            const toolGroup = ordinaryToolGroups.get(message.id);
+            if (toolGroup) {
+              if (channel) return null;
+              return toolGroup.ownerId === message.id ? (
+                <ChiefMessage key={message.id}>
+                  <ToolActivityGroup
+                    blocks={toolGroup.blocks}
+                    progress={controls.toolProgress}
+                    active={controls.status === "running"}
+                  />
+                </ChiefMessage>
+              ) : null;
+            }
+            const blocks = withoutMarkerLines(messageBlocks(message));
+            const timelineBlocks = channel
+              ? blocks.filter(
+                  (block) =>
+                    block.type !== "tool_use" &&
+                    block.type !== "tool_result" &&
+                    block.type !== "thinking",
+                )
+              : blocks;
+            if (timelineBlocks.length === 0) return null;
+            return (
+              <ChiefMessage key={message.id}>
+                <Blocks
+                  blocks={timelineBlocks}
+                  progress={controls.toolProgress}
+                  capabilities={activeCapabilities}
+                  active={controls.status === "running"}
+                  tasks={childSessions}
+                  taskOwners={childSessionOwners}
+                  ownerId={message.id}
+                  onOpenTask={onOpenChild}
+                />
+              </ChiefMessage>
+            );
+          })}
+          {controls.approvals.map((approval) => (
+            <div key={approval.requestId} className="mx-auto max-w-3xl">
+              <ApprovalCard approval={approval} onRespond={respondPermission} />
+            </div>
+          ))}
+          {controls.questions.map((pending) => (
+            <div key={pending.requestId} className="mx-auto max-w-3xl">
+              <QuestionCard
+                pending={pending}
+                onSubmit={(answers) =>
+                  respondQuestion(pending.requestId, answers)
+                }
+                onDismiss={() => respondQuestion(pending.requestId, null)}
+              />
+            </div>
+          ))}
+          {pendingInput ? (
+            <div className="mx-auto max-w-3xl">
+              <InputRequestSection
+                request={pendingInput}
+                onSubmit={(request, values) => {
+                  provideInput(request, values);
+                  setAnsweredInputs((s) => new Set(s).add(request.id));
+                }}
+              />
+            </div>
+          ) : null}
+          {controls.error && (
+            <p className="border-destructive/40 text-destructive mx-auto max-w-3xl border px-3 py-2 text-xs">
+              {controls.error}
+            </p>
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        <div className="mx-auto w-full max-w-3xl space-y-2">
+          {composerOpen && messages.length > 0 ? (
             <RecurringWorkComposer
               mode={composer === "oneoff" ? "one-off" : "recurring"}
               date={composerDate}
@@ -300,162 +449,36 @@ export function ChiefChat({
               onSubmit={submit}
               onDismiss={() => setComposerOpen(false)}
             />
-          </div>
-        ) : null}
-        {!chatReady && !isNew && !composerOpen && messages.length === 0 ? (
-          <div className="text-muted-foreground flex h-full items-center justify-center font-mono text-xs">
-            Loading conversation…
-          </div>
-        ) : null}
-        {(chatReady || isNew) &&
-        !composerOpen &&
-        messages.length === 0 &&
-        !showOptimisticInitialPrompt ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-            <p className="text-2xl font-medium tracking-[-0.03em]">
-              {channel ? `#${channel.label}` : "Chief"}
-            </p>
-            <p className="text-muted-foreground max-w-md text-sm">
-              {channel
-                ? channel.description
-                : "Your CMO. Ask anything, and Chief will bring in the right specialist."}
-            </p>
-            {channel ? (
-              <p className="text-muted-foreground/75 text-xs">
-                {channel.agentIds.length} agents share this channel’s context.
-              </p>
-            ) : null}
-            {runtimeStatus !== "connected" && (
-              <p className="text-muted-foreground mt-4 border border-dashed px-3 py-2 text-xs">
-                Agent runtime not connected. Run <code>pnpm dev</code> in the
-                repo root.
-              </p>
-            )}
-          </div>
-        ) : null}
-        {showOptimisticInitialPrompt && optimisticInitialPrompt ? (
-          <UserMessage text={optimisticInitialPrompt} author={userAuthor} />
-        ) : null}
-        {messages.map((message) => {
-          if (message.role === "user") {
-            return message.id === `${chatId}-kickoff` ? (
-              <div
-                key={message.id}
-                className="mx-auto w-full max-w-3xl border-y py-4"
-              >
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <span className="size-1.5 bg-blue-500" />
-                  Initial business review
-                </div>
-                <p className="text-muted-foreground mt-1 pl-3.5 text-xs">
-                  Chief is learning your business. Research and specialist work
-                  will appear here as it happens.
-                </p>
-              </div>
-            ) : (
-              <UserMessage
-                key={message.id}
-                author={userAuthor}
-                text={messageBlocks(message)
-                  .flatMap((part) => (part.type === "text" ? [part.text] : []))
-                  .join("\n")}
-              />
-            );
-          }
-          if (message.role !== "assistant") return null;
-          const toolGroup = ordinaryToolGroups.get(message.id);
-          if (toolGroup) {
-            return toolGroup.ownerId === message.id ? (
-              <ChiefMessage key={message.id}>
-                <ToolActivityGroup
-                  blocks={toolGroup.blocks}
-                  progress={controls.toolProgress}
-                  active={controls.status === "running"}
-                />
-              </ChiefMessage>
-            ) : null;
-          }
-          const blocks = withoutMarkerLines(messageBlocks(message));
-          if (blocks.length === 0) return null;
-          return (
-            <ChiefMessage key={message.id}>
-              <Blocks
-                blocks={blocks}
-                progress={controls.toolProgress}
-                capabilities={activeCapabilities}
-                active={controls.status === "running"}
-                tasks={childSessions}
-                taskOwners={childSessionOwners}
-                ownerId={message.id}
-                onOpenTask={onOpenChild}
-              />
-            </ChiefMessage>
-          );
-        })}
-        {controls.approvals.map((approval) => (
-          <div key={approval.requestId} className="mx-auto max-w-3xl">
-            <ApprovalCard approval={approval} onRespond={respondPermission} />
-          </div>
-        ))}
-        {controls.questions.map((pending) => (
-          <div key={pending.requestId} className="mx-auto max-w-3xl">
-            <QuestionCard
-              pending={pending}
-              onSubmit={(answers) =>
-                respondQuestion(pending.requestId, answers)
-              }
-              onDismiss={() => respondQuestion(pending.requestId, null)}
-            />
-          </div>
-        ))}
-        {pendingInput ? (
-          <div className="mx-auto max-w-3xl">
-            <InputRequestSection
-              request={pendingInput}
-              onSubmit={(request, values) => {
-                provideInput(request, values);
-                setAnsweredInputs((s) => new Set(s).add(request.id));
-              }}
-            />
-          </div>
-        ) : null}
-        {controls.status === "running" &&
-          !hasActiveTool &&
-          controls.approvals.length === 0 && (
-            <ChiefMessage>
-              <AgentWorkingIndicator />
-            </ChiefMessage>
-          )}
-        {controls.error && (
-          <p className="border-destructive/40 text-destructive mx-auto max-w-3xl border px-3 py-2 text-xs">
-            {controls.error}
-          </p>
-        )}
-        <div ref={bottomRef} />
-      </div>
-
-      <div className="mx-auto w-full max-w-3xl space-y-2">
-        {composerOpen && messages.length > 0 ? (
-          <RecurringWorkComposer
-            mode={composer === "oneoff" ? "one-off" : "recurring"}
-            date={composerDate}
-            playbookId={composerPlaybookId}
-            onCompose={composeSchedule}
+          ) : null}
+          <ChatComposer
+            value={draft}
+            onValueChange={setDraft}
             onSubmit={submit}
-            onDismiss={() => setComposerOpen(false)}
+            execution={activeExecution}
+            onExecutionChange={setSelectedExecution}
+            running={controls.status === "running"}
+            onInterrupt={interrupt}
+            showSuggestions={!composerOpen && controls.status !== "running"}
           />
-        ) : null}
-        <ChatComposer
-          value={draft}
-          onValueChange={setDraft}
-          onSubmit={submit}
-          execution={activeExecution}
-          onExecutionChange={setSelectedExecution}
-          running={controls.status === "running"}
-          onInterrupt={interrupt}
-          showSuggestions={!composerOpen && controls.status !== "running"}
-        />
+          <AgentActivityComposerRow
+            running={Boolean(channel && controls.status === "running")}
+            statusLabel={statusLabel}
+            onOpen={() => setActivityOpen(true)}
+          />
+        </div>
       </div>
+      {channel && activityOpen ? (
+        <AgentActivityPanel
+          blocks={currentTurnBlocks}
+          channelLabel={channel.label}
+          progress={controls.toolProgress}
+          running={controls.status === "running"}
+          statusLabel={statusLabel}
+          tasks={childSessions}
+          onClose={() => setActivityOpen(false)}
+          onOpenTask={onOpenChild}
+        />
+      ) : null}
     </div>
   );
 }

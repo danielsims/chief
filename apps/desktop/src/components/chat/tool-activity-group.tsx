@@ -32,7 +32,7 @@ export function ToolActivityGroup({
 
   return (
     <details
-      className="group border border-white/[0.07] bg-white/[0.012]"
+      className="group overflow-hidden rounded-xl bg-black/[0.018] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_5%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--foreground)_4%,transparent)] dark:bg-white/[0.018]"
       open={active || undefined}
     >
       <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3.5 py-2.5 text-xs [&::-webkit-details-marker]:hidden">
@@ -60,7 +60,7 @@ export function ToolActivityGroup({
           className="text-muted-foreground transition-transform group-open:rotate-180"
         />
       </summary>
-      <div className="space-y-2 border-t border-white/[0.06] px-3.5 py-3">
+      <div className="border-border/45 space-y-2 border-t px-3.5 py-3">
         {tools.map((tool) => {
           const result = results.get(tool.id);
           const label = toolPresentation(tool.name, tool.input);
