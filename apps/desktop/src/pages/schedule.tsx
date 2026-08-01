@@ -185,89 +185,46 @@ function CalendarEventContent({
   title,
   time,
   source,
-  status,
-  agentInitial,
+  accent,
   muted = false,
 }: {
   title: string;
   time?: string;
   source: string;
-  status: string;
-  agentInitial?: string;
+  accent: string;
   muted?: boolean;
 }) {
   return (
     <span className="block min-w-0">
-      <span className="flex min-w-0 items-baseline gap-2">
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            accent,
+            muted && "opacity-35",
+          )}
+        />
         <span
           className={cn(
-            "min-w-0 flex-1 truncate text-[11px] leading-[15px] font-semibold tracking-[-0.012em]",
+            "min-w-0 flex-1 truncate text-[11px] leading-[15px] font-medium tracking-[-0.01em]",
             muted ? "text-muted-foreground/75" : "text-foreground",
           )}
         >
           {title}
         </span>
-        {time ? (
-          <span
-            className={cn(
-              "shrink-0 text-[9px] leading-[13px] font-medium tabular-nums",
-              muted ? "text-muted-foreground/60" : "text-muted-foreground",
-            )}
-          >
-            {time}
-          </span>
-        ) : null}
       </span>
-      <span className="mt-0.5 flex min-w-0 items-center gap-2 text-[9px] leading-[13px] font-medium tracking-[-0.005em]">
-        <span
-          className={cn(
-            "flex min-w-0 flex-1 items-center gap-1 truncate capitalize",
-            muted ? "text-muted-foreground/60" : "text-muted-foreground",
-          )}
-        >
-          {agentInitial ? (
-            <span
-              className={cn(
-                "flex size-3.5 shrink-0 items-center justify-center rounded-full text-[7px] leading-none font-semibold",
-                muted
-                  ? "bg-foreground/[0.035] text-muted-foreground/65"
-                  : "bg-background/75 text-foreground/70 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]",
-              )}
-            >
-              {agentInitial}
-            </span>
-          ) : null}
-          <span className="truncate">{source}</span>
-        </span>
-        <span
-          className={cn(
-            "shrink-0",
-            muted ? "text-muted-foreground/60" : "text-foreground/70",
-          )}
-        >
-          {status}
-        </span>
+      <span
+        className={cn(
+          "mt-0.5 block truncate pl-3 text-[9px] leading-[13px] font-normal tracking-[-0.005em]",
+          muted ? "text-muted-foreground/55" : "text-muted-foreground",
+        )}
+      >
+        {time ? <span className="tabular-nums">{time}</span> : null}
+        {time && source ? <span aria-hidden="true"> · </span> : null}
+        <span className="capitalize">{source}</span>
       </span>
     </span>
-  );
-}
-
-function CalendarEventAccent({
-  color,
-  muted,
-}: {
-  color: string;
-  muted?: boolean;
-}) {
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "absolute inset-y-2 left-1.5 w-[3px] rounded-full",
-        color,
-        muted && "opacity-30",
-      )}
-    />
   );
 }
 
@@ -285,8 +242,7 @@ function WorkEventContent({
       title={work.title}
       time={time}
       source={agentName(work.agentId)}
-      status={workStatusLabel(work.status)}
-      agentInitial={agentName(work.agentId).slice(0, 1)}
+      accent={agentWorkAccent(work.agentId)}
       muted={muted}
     />
   );
@@ -301,21 +257,12 @@ function DraftEventContent({
   time?: string;
   muted?: boolean;
 }) {
-  const status =
-    draft.status === "published"
-      ? "Published"
-      : draft.status === "scheduled"
-        ? "Scheduled"
-        : draft.status === "approved"
-          ? "Approved"
-          : "Draft";
   return (
     <CalendarEventContent
       title={draft.title}
       time={time}
       source={draft.platform}
-      status={status}
-      agentInitial={agentName(draft.agentId).slice(0, 1)}
+      accent={draftAccent(draft.status)}
       muted={muted}
     />
   );
@@ -344,11 +291,10 @@ function DraftChip({
         onOpen(draft);
       }}
       className={cn(
-        "relative block min-h-11 w-full min-w-0 overflow-hidden rounded-[10px] py-2 pr-2.5 pl-4 text-left transition-colors select-none",
+        "block min-h-11 w-full min-w-0 overflow-hidden rounded-[10px] px-2.5 py-2 text-left transition-colors select-none",
         eventSurface(past),
       )}
     >
-      <CalendarEventAccent color={draftAccent(draft.status)} muted={past} />
       <DraftEventContent draft={draft} time={time || undefined} muted={past} />
     </button>
   );
@@ -386,11 +332,10 @@ function RecurringWorkChip({
         onContextMenu(work, event.clientX, event.clientY);
       }}
       className={cn(
-        "relative min-h-11 min-w-0 overflow-hidden rounded-[10px] py-2 pr-2.5 pl-4 transition-colors select-none",
+        "min-h-11 min-w-0 overflow-hidden rounded-[10px] px-2.5 py-2 transition-colors select-none",
         eventSurface(past),
       )}
     >
-      <CalendarEventAccent color={agentWorkAccent(work.agentId)} muted={past} />
       <WorkEventContent work={work} muted={past} />
     </div>
   );
@@ -961,15 +906,11 @@ function FocusedCalendarView({
                       onWorkContext(work, date, event.clientX, event.clientY);
                     }}
                     className={cn(
-                      "absolute right-1.5 left-1.5 overflow-hidden rounded-[10px] py-2 pr-2.5 pl-4 text-left transition-colors",
+                      "absolute right-1.5 left-1.5 overflow-hidden rounded-[10px] px-2.5 py-2 text-left transition-colors",
                       eventSurface(timestamp < now),
                     )}
                     style={{ top: eventTop(timestamp), minHeight: 42 }}
                   >
-                    <CalendarEventAccent
-                      color={agentWorkAccent(work.agentId)}
-                      muted={timestamp < now}
-                    />
                     <WorkEventContent
                       work={work}
                       time={new Date(timestamp).toLocaleTimeString([], {
@@ -989,7 +930,7 @@ function FocusedCalendarView({
                       onDraftOpen(draft);
                     }}
                     className={cn(
-                      "absolute right-1.5 left-1.5 overflow-hidden rounded-[10px] py-2 pr-2.5 pl-4 text-left transition-colors",
+                      "absolute right-1.5 left-1.5 overflow-hidden rounded-[10px] px-2.5 py-2 text-left transition-colors",
                       eventSurface(draft.scheduledFor < now),
                     )}
                     style={{
@@ -997,10 +938,6 @@ function FocusedCalendarView({
                       minHeight: 42,
                     }}
                   >
-                    <CalendarEventAccent
-                      color={draftAccent(draft.status)}
-                      muted={draft.scheduledFor < now}
-                    />
                     <DraftEventContent
                       draft={draft}
                       time={new Date(draft.scheduledFor).toLocaleTimeString(
