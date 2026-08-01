@@ -1,5 +1,5 @@
-import { useRef } from "react";
-import { ArrowUp, Square } from "lucide-react";
+import { useRef, useState } from "react";
+import { ArrowUp, AtSign, Square } from "lucide-react";
 
 import type {
   ChatExecutionSelection,
@@ -25,6 +25,13 @@ const CHAT_SUGGESTIONS = [
   "Where are we losing momentum?",
 ];
 
+export interface MentionCandidate {
+  id: string;
+  name: string;
+  role: string;
+  member: boolean;
+}
+
 export function ChatComposer({
   value,
   onValueChange,
@@ -35,6 +42,8 @@ export function ChatComposer({
   onInterrupt,
   showSuggestions = true,
   showExecutionControls = true,
+  mentionCandidates = [],
+  placeholder = "Message Chief…",
   className,
 }: {
   value: string;
@@ -46,9 +55,12 @@ export function ChatComposer({
   onInterrupt?: () => void;
   showSuggestions?: boolean;
   showExecutionControls?: boolean;
+  mentionCandidates?: MentionCandidate[];
+  placeholder?: string;
   className?: string;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
   const driver = execution?.driver;
   const model = execution?.model;
   const providerModels = useProviderModels(driver ?? null);
@@ -57,6 +69,27 @@ export function ChatComposer({
     providerModels.models.find((option) => option.value === model)?.label ??
     model ??
     "Auto";
+  const mentionMatch = /(?:^|\s)@([^\s@]*)$/.exec(value);
+  const mentionQuery = mentionMatch?.[1]?.toLocaleLowerCase();
+  const visibleMentions =
+    mentionQuery === undefined
+      ? []
+      : mentionCandidates
+          .filter((candidate) =>
+            `${candidate.name} ${candidate.role}`
+              .toLocaleLowerCase()
+              .includes(mentionQuery),
+          )
+          .sort((a, b) => Number(b.member) - Number(a.member))
+          .slice(0, 6);
+  const insertMention = (candidate: MentionCandidate) => {
+    const start = mentionMatch ? value.length - mentionMatch[0].length : -1;
+    if (start < 0) return;
+    const leadingSpace = mentionMatch?.[0].startsWith(" ") ? " " : "";
+    onValueChange(`${value.slice(0, start)}${leadingSpace}@${candidate.name} `);
+    setMentionIndex(0);
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
+  };
 
   return (
     <div className={cn("space-y-2", className)}>
@@ -79,18 +112,76 @@ export function ChatComposer({
           ))}
         </div>
       ) : null}
-      <div className="bg-card/80 rounded-xl border backdrop-blur-lg">
+      <div className="bg-card/80 relative rounded-xl border backdrop-blur-lg">
+        {visibleMentions.length > 0 ? (
+          <div className="bg-popover ring-foreground/10 absolute right-0 bottom-[calc(100%+8px)] left-0 z-30 overflow-hidden rounded-xl p-1.5 shadow-xl ring-1">
+            <div className="text-muted-foreground flex items-center gap-1.5 px-2 py-1.5 text-[10px] font-medium">
+              <AtSign size={11} /> Mention an agent
+            </div>
+            {visibleMentions.map((candidate, index) => (
+              <button
+                key={candidate.id}
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => insertMention(candidate)}
+                className={cn(
+                  "flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left",
+                  index === mentionIndex && "bg-accent",
+                )}
+              >
+                <span className="bg-foreground text-background flex size-7 shrink-0 items-center justify-center rounded-lg text-[9px] font-semibold dark:bg-white dark:text-black">
+                  {candidate.name.charAt(0)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-medium">
+                    {candidate.name}
+                  </span>
+                  <span className="text-muted-foreground block truncate text-[10px]">
+                    {candidate.role}
+                  </span>
+                </span>
+                <span className="text-muted-foreground text-[10px]">
+                  {candidate.member ? "In channel" : "Add to channel"}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
         <textarea
           ref={textareaRef}
           value={value}
           onChange={(event) => onValueChange(event.target.value)}
           onKeyDown={(event) => {
+            if (visibleMentions.length > 0) {
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                setMentionIndex(
+                  (current) =>
+                    (current +
+                      (event.key === "ArrowDown" ? 1 : -1) +
+                      visibleMentions.length) %
+                    visibleMentions.length,
+                );
+                return;
+              }
+              if (event.key === "Enter" || event.key === "Tab") {
+                event.preventDefault();
+                const candidate = visibleMentions[mentionIndex];
+                if (candidate) insertMention(candidate);
+                return;
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                onValueChange(value.replace(/@([^\s@]*)$/, "$1"));
+                return;
+              }
+            }
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
               onSubmit();
             }
           }}
-          placeholder="Message Chief…"
+          placeholder={placeholder}
           rows={2}
           className="placeholder:text-muted-foreground w-full resize-none bg-transparent px-3 pt-3 text-sm leading-6 outline-none"
         />

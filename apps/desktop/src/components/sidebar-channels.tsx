@@ -1,5 +1,6 @@
 /* eslint-disable react-hooks/refs -- Dnd Kit exposes stable ref callbacks and reactive drag state through hook return objects. */
 import type { CollisionDetection, DragEndEvent } from "@dnd-kit/core";
+import type { ReactNode } from "react";
 import { useState } from "react";
 import {
   closestCenter,
@@ -20,7 +21,15 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronDown, Hash, MoreHorizontal, Pin, PinOff } from "lucide-react";
+import {
+  ArrowDownAZ,
+  ChevronDown,
+  Hash,
+  MoreHorizontal,
+  Pin,
+  PinOff,
+  Plus,
+} from "lucide-react";
 
 import {
   ContextMenu,
@@ -35,11 +44,14 @@ import {
 } from "@chief/ui/components/popover";
 import { cn } from "@chief/ui/lib/utils";
 
-import type { WorkspaceChannelId } from "../lib/workspace-channels";
-import {
-  placePinnedChannel,
-  WORKSPACE_CHANNELS,
+import type {
+  WorkspaceAgentId,
+  WorkspaceChannelId,
 } from "../lib/workspace-channels";
+import type { SidebarChannel } from "./channel-browser-dialog";
+import { placePinnedChannel } from "../lib/workspace-channels";
+import { ChannelBrowserDialog } from "./channel-browser-dialog";
+import { SidebarDirectMessages } from "./sidebar-direct-messages";
 
 const pinnedCollisionDetection: CollisionDetection = (args) => {
   if (!args.pointerCoordinates) return closestCenter(args);
@@ -55,7 +67,7 @@ const pinnedCollisionDetection: CollisionDetection = (args) => {
 };
 
 interface ChannelRowProps {
-  channelId: WorkspaceChannelId;
+  channel: SidebarChannel;
   active: boolean;
   pinned: boolean;
   dragKind: "source" | "sortable";
@@ -109,15 +121,15 @@ function ChannelPopoverActions({
 }
 
 function ChannelRow({
-  channelId,
+  channel,
   active,
   pinned,
   dragKind,
   onOpen,
   onPinChange,
 }: ChannelRowProps) {
+  const channelId = channel.id;
   const [menuOpen, setMenuOpen] = useState(false);
-  const channel = WORKSPACE_CHANNELS.find((item) => item.id === channelId);
   const source = useDraggable({
     id: `channel:${channelId}`,
     data: { channelId, dragKind: "source" },
@@ -128,8 +140,6 @@ function ChannelRow({
     data: { channelId, dragKind: "sortable" },
     disabled: dragKind !== "sortable",
   });
-  if (!channel) return null;
-
   const drag = dragKind === "sortable" ? sortable : source;
   const style =
     dragKind === "sortable"
@@ -233,44 +243,65 @@ function GroupLabel({
   children,
   collapsed,
   onToggle,
+  actions,
 }: {
   children: string;
   collapsed: boolean;
   onToggle: () => void;
+  actions?: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-expanded={!collapsed}
-      className="text-sidebar-muted hover:text-sidebar-foreground group flex h-8 w-full items-center gap-1.5 rounded-lg px-2 text-left text-xs font-semibold transition-colors"
-    >
-      <span>{children}</span>
-      <ChevronDown
-        size={13}
-        strokeWidth={1.8}
-        className={cn(
-          "opacity-0 transition-[opacity,transform] group-hover:opacity-100 group-focus-visible:opacity-100",
-          collapsed && "-rotate-90",
-        )}
-      />
-    </button>
+    <div className="group/heading flex h-8 items-center px-2">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        className="text-sidebar-muted hover:text-sidebar-foreground flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-semibold transition-colors"
+      >
+        <span className="truncate">{children}</span>
+        <ChevronDown
+          size={13}
+          strokeWidth={1.8}
+          className={cn(
+            "opacity-0 transition-[opacity,transform] group-hover/heading:opacity-100 group-focus-visible/heading:opacity-100",
+            collapsed && "-rotate-90",
+          )}
+        />
+      </button>
+      {actions ? (
+        <div className="flex items-center opacity-0 transition-opacity group-hover/heading:opacity-100 focus-within:opacity-100">
+          {actions}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
 export function SidebarChannels({
+  channels,
   activeChannelId,
+  activeAgentId,
+  directMessageIds,
   pinnedIds,
   onOpen,
+  onOpenDirectMessage,
+  onCreateChannel,
   onPinnedChange,
 }: {
+  channels: SidebarChannel[];
   activeChannelId: WorkspaceChannelId | null;
+  activeAgentId: WorkspaceAgentId | null;
+  directMessageIds: WorkspaceAgentId[];
   pinnedIds: WorkspaceChannelId[];
   onOpen: (channelId: WorkspaceChannelId) => void;
+  onOpenDirectMessage: (agentId: WorkspaceAgentId) => void;
+  onCreateChannel: (name: string, description?: string) => void;
   onPinnedChange: (pinnedIds: WorkspaceChannelId[]) => void;
 }) {
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
+  const [channelBrowserOpen, setChannelBrowserOpen] = useState(false);
+  const [channelSort, setChannelSort] = useState<"default" | "az">("default");
   const [draggingId, setDraggingId] = useState<WorkspaceChannelId | null>(null);
   const pinned = new Set(pinnedIds);
   const sensors = useSensors(
@@ -342,17 +373,22 @@ export function SidebarChannels({
                 strategy={verticalListSortingStrategy}
               >
                 <div className="space-y-0.5">
-                  {pinnedIds.map((channelId) => (
-                    <ChannelRow
-                      key={channelId}
-                      channelId={channelId}
-                      active={activeChannelId === channelId}
-                      pinned
-                      dragKind="sortable"
-                      onOpen={() => onOpen(channelId)}
-                      onPinChange={(next) => setPinned(channelId, next)}
-                    />
-                  ))}
+                  {pinnedIds.map((channelId) => {
+                    const channel = channels.find(
+                      (candidate) => candidate.id === channelId,
+                    );
+                    return channel ? (
+                      <ChannelRow
+                        key={channelId}
+                        channel={channel}
+                        active={activeChannelId === channelId}
+                        pinned
+                        dragKind="sortable"
+                        onOpen={() => onOpen(channelId)}
+                        onPinChange={(next) => setPinned(channelId, next)}
+                      />
+                    ) : null;
+                  })}
                 </div>
               </SortableContext>
             </div>
@@ -364,38 +400,98 @@ export function SidebarChannels({
         <GroupLabel
           collapsed={channelsCollapsed}
           onToggle={() => setChannelsCollapsed((current) => !current)}
+          actions={
+            <>
+              <button
+                type="button"
+                aria-label="Browse or create channels"
+                title="Browse channels"
+                onClick={() => setChannelBrowserOpen(true)}
+                className="text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex size-6 items-center justify-center rounded-md"
+              >
+                <Plus size={13} />
+              </button>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Channel list options"
+                    title="Channel list options"
+                    className="text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex size-6 items-center justify-center rounded-md"
+                  >
+                    <MoreHorizontal size={13} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="right"
+                  align="start"
+                  className="w-48 p-1.5"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setChannelSort("az")}
+                    className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs"
+                  >
+                    <ArrowDownAZ size={14} /> Sort alphabetically
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChannelSort("default")}
+                    className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs"
+                  >
+                    <Hash size={14} /> Workspace order
+                  </button>
+                </PopoverContent>
+              </Popover>
+            </>
+          }
         >
           Channels
         </GroupLabel>
         {!channelsCollapsed ? (
           <div className="space-y-0.5">
-            {WORKSPACE_CHANNELS.filter(
-              (channel) => !pinned.has(channel.id),
-            ).map((channel) => (
-              <ChannelRow
-                key={channel.id}
-                channelId={channel.id}
-                active={activeChannelId === channel.id}
-                pinned={false}
-                dragKind="source"
-                onOpen={() => onOpen(channel.id)}
-                onPinChange={(next) => setPinned(channel.id, next)}
-              />
-            ))}
+            {[...channels]
+              .sort((a, b) =>
+                channelSort === "az" ? a.label.localeCompare(b.label) : 0,
+              )
+              .filter((channel) => !pinned.has(channel.id))
+              .map((channel) => (
+                <ChannelRow
+                  key={channel.id}
+                  channel={channel}
+                  active={activeChannelId === channel.id}
+                  pinned={false}
+                  dragKind="source"
+                  onOpen={() => onOpen(channel.id)}
+                  onPinChange={(next) => setPinned(channel.id, next)}
+                />
+              ))}
           </div>
         ) : null}
       </section>
+      <SidebarDirectMessages
+        activeAgentId={activeAgentId}
+        directMessageIds={directMessageIds}
+        onOpen={onOpenDirectMessage}
+      />
       <DragOverlay dropAnimation={{ duration: 160, easing: "ease-out" }}>
         {draggingId ? (
           <div className="bg-sidebar-accent text-sidebar-foreground flex h-8 w-52 items-center gap-2 rounded-lg px-2 text-[13px] shadow-xl ring-1 ring-black/10 dark:ring-white/10">
             <Hash size={14} strokeWidth={1.8} className="opacity-70" />
             <span className="truncate">
-              {WORKSPACE_CHANNELS.find((channel) => channel.id === draggingId)
-                ?.label ?? draggingId}
+              {channels.find((channel) => channel.id === draggingId)?.label ??
+                draggingId}
             </span>
           </div>
         ) : null}
       </DragOverlay>
+      <ChannelBrowserDialog
+        channels={channels}
+        open={channelBrowserOpen}
+        onOpenChange={setChannelBrowserOpen}
+        onOpenChannel={onOpen}
+        onCreateChannel={onCreateChannel}
+      />
     </DndContext>
   );
 }

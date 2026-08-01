@@ -525,11 +525,11 @@ function InstalledAgentCard({
         </div>
         <div className="flex items-center gap-2">
           <Link
-            to="/conversations"
+            to={`/conversations?dm=${encodeURIComponent(agent.id)}`}
             className="text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent)] transition-colors"
           >
             <MessageCircle size={12} />
-            Ask Chief
+            Message {agent.name}
           </Link>
           {onDeploy ? (
             <Button size="sm" onClick={onDeploy}>

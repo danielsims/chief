@@ -62,6 +62,7 @@ import {
   useObservedChat,
   useWorkspaceData,
 } from "../lib/runtime";
+import { actionConversation } from "../lib/workspace-channels";
 
 const AGENT_NAMES: Record<string, string> = {
   ads: "Ads Manager",
@@ -723,7 +724,7 @@ export function DashboardPage() {
             cloudOrganizationId,
             nextEngineeringIntegration.domain,
           ),
-        )}`,
+        )}&dm=setup`,
       );
       return;
     }
@@ -732,7 +733,7 @@ export function DashboardPage() {
       isOnboardingGoogleAnalyticsAction(action.id)
     ) {
       void navigate(
-        `/conversations?chat=${encodeURIComponent(googleAnalyticsActionChatId(action.id))}`,
+        `/conversations?chat=${encodeURIComponent(googleAnalyticsActionChatId(action.id))}&dm=setup`,
       );
       return;
     }
@@ -749,7 +750,11 @@ export function DashboardPage() {
       return;
     }
     if (isConnectionAction(action)) {
-      void navigate("/settings/integrations");
+      const prompt =
+        `Help me complete “${action.title}”. ${action.reason.trim()}`.trim();
+      void navigate(
+        `/conversations?dm=setup&prompt=${encodeURIComponent(prompt)}`,
+      );
       return;
     }
     if (
@@ -759,7 +764,12 @@ export function DashboardPage() {
       void navigate("/schedule");
       return;
     }
-    void navigate("/conversations");
+    const destination = actionConversation(action);
+    const prompt =
+      `Please action “${action.title}”. ${action.reason.trim()}`.trim();
+    const params = new URLSearchParams({ prompt });
+    params.set(destination.kind, destination.id);
+    void navigate(`/conversations?${params.toString()}`);
   };
 
   const resolveAction = () => {
@@ -825,7 +835,7 @@ export function DashboardPage() {
       <div className="flex min-h-0 flex-1 flex-col justify-center pt-6">
         <header className="mb-6 flex shrink-0 items-start justify-between gap-6 max-[760px]:flex-col">
           <div>
-            <PageTitle>
+            <PageTitle size="overview">
               {greeting(workspaceData.now)}, {firstName}
             </PageTitle>
             <p className="text-muted-foreground mt-2 text-xs">

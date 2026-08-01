@@ -1,5 +1,6 @@
 import { lazy, startTransition, Suspense, useEffect, useState } from "react";
 import {
+  AtSign,
   Check,
   Copy,
   Hash,
@@ -26,11 +27,19 @@ import {
   googleAnalyticsActionIdFromChat,
   integrationSetupDomainFromChat,
 } from "../lib/integration-setup";
-import { useLocalChats, useRuntime, useWorkspaceData } from "../lib/runtime";
+import {
+  useLocalChats,
+  useRuntime,
+  useWorkspaceChannels,
+  useWorkspaceData,
+} from "../lib/runtime";
 import {
   channelChatId,
+  directMessageChatId,
+  WORKSPACE_AGENT_IDENTITIES,
   WORKSPACE_CHANNELS,
   workspaceChannel,
+  workspaceDirectMessage,
 } from "../lib/workspace-channels";
 
 const CHAT_DRIVERS = new Set<DriverType>([
@@ -39,16 +48,6 @@ const CHAT_DRIVERS = new Set<DriverType>([
   "opencode",
   "remote",
 ]);
-
-const CHANNEL_AGENT_IDENTITIES: Record<string, { name: string; role: string }> =
-  {
-    cmo: { name: "Chief", role: "Chief marketing officer" },
-    analyst: { name: "Analyst", role: "Measurement and reporting" },
-    ads: { name: "Advertising", role: "Paid acquisition" },
-    content: { name: "Content", role: "Content and creative" },
-    prospector: { name: "Prospector", role: "Research and outreach" },
-    brand: { name: "Brand", role: "Brand research" },
-  };
 
 const BrowserPanel = lazy(() =>
   import("../components/chat/browser-panel").then((module) => ({
@@ -106,17 +105,54 @@ function useRunningChats(): Record<string, boolean> {
 export function ConversationsPage() {
   const { cloudOrganizationId, user } = useAuth();
   const localChats = useLocalChats(cloudOrganizationId);
+  const workspaceChannels = useWorkspaceChannels();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const [params, setParams] = useSearchParams();
   const [channelLinkCopied, setChannelLinkCopied] = useState(false);
   const running = useRunningChats();
   const { browserUrl, browserConversationId, browserWorkspaceId } =
     useRuntime();
-  const requestedChannel = workspaceChannel(params.get("channel"));
-  const activeChannel = requestedChannel ?? WORKSPACE_CHANNELS[3];
-  const activeChatId = requestedChannel
-    ? channelChatId(requestedChannel.id)
-    : params.get("chat");
+  const staticRequestedChannel = workspaceChannel(params.get("channel"));
+  const runtimeRequestedChannel = workspaceChannels.channels.find(
+    (channel) =>
+      channel.visibility !== "direct" &&
+      (channel.id === params.get("channel") ||
+        channel.slug === params.get("channel")),
+  );
+  const requestedChannel = runtimeRequestedChannel
+    ? {
+        id: runtimeRequestedChannel.id,
+        relayId: runtimeRequestedChannel.id,
+        label: runtimeRequestedChannel.name,
+        description: runtimeRequestedChannel.description,
+        agentIds: runtimeRequestedChannel.agentIds,
+      }
+    : staticRequestedChannel;
+  const requestedDirectMessage = workspaceDirectMessage(params.get("dm"));
+  const directIdentity = requestedDirectMessage
+    ? WORKSPACE_AGENT_IDENTITIES[requestedDirectMessage.id]
+    : null;
+  const defaultRuntimeChannel = workspaceChannels.channels.find(
+    (channel) => channel.slug === "general",
+  );
+  const activeChannel =
+    requestedChannel ??
+    (defaultRuntimeChannel
+      ? {
+          id: defaultRuntimeChannel.id,
+          relayId: defaultRuntimeChannel.id,
+          label: defaultRuntimeChannel.name,
+          description: defaultRuntimeChannel.description,
+          agentIds: defaultRuntimeChannel.agentIds,
+        }
+      : WORKSPACE_CHANNELS[3]);
+  const activeChatId =
+    params.get("chat") ??
+    (requestedChannel
+      ? channelChatId(requestedChannel.id)
+      : requestedDirectMessage
+        ? directMessageChatId(requestedDirectMessage.id)
+        : null);
   const activeChildId = params.get("child");
   const activeSetupActionId = googleAnalyticsActionIdFromChat(activeChatId);
   const activeSetupDomain = integrationSetupDomainFromChat(activeChatId);
@@ -146,109 +182,126 @@ export function ConversationsPage() {
     <div className="bg-background flex h-full min-w-0 flex-col overflow-hidden">
       <header className="border-border/60 relative flex h-14 shrink-0 items-center border-b px-5">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Hash size={17} className="text-muted-foreground shrink-0" />
+          {directIdentity ? (
+            <AtSign size={17} className="text-muted-foreground shrink-0" />
+          ) : (
+            <Hash size={17} className="text-muted-foreground shrink-0" />
+          )}
           <div className="min-w-0">
             <h1 className="truncate text-[13px] leading-4 font-semibold">
-              {activeChannel.label}
+              {directIdentity?.name ?? activeChannel.label}
             </h1>
             <p className="text-muted-foreground mt-0.5 truncate text-[12px] leading-4 font-normal">
-              {activeChannel.description}
+              {directIdentity?.role ?? activeChannel.description}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
-          <ChannelArtifactsMenu
-            channelId={activeChannel.id}
-            onContinue={continueArtifact}
-          />
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                aria-label={`${activeChannel.agentIds.length + 1} channel members`}
-                title="Channel members"
-                className="bg-card hover:bg-accent flex h-8 items-center rounded-lg px-2 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)] transition-colors"
-              >
-                <span className="flex -space-x-1">
-                  {user?.image ? (
-                    <img
-                      src={user.image}
-                      alt=""
-                      className="ring-card size-4 rounded-full object-cover ring-1"
-                    />
-                  ) : null}
-                  {activeChannel.agentIds.slice(0, 3).map((agentId) => (
-                    <span
-                      key={agentId}
-                      className="bg-muted text-muted-foreground ring-card flex size-4 items-center justify-center rounded-full text-[7px] font-medium ring-1"
-                    >
-                      {CHANNEL_AGENT_IDENTITIES[agentId]?.name
-                        .charAt(0)
-                        .toLocaleUpperCase() ?? "A"}
-                    </span>
-                  ))}
-                </span>
-                <span className="text-muted-foreground ml-1.5 text-[10px]">
-                  {activeChannel.agentIds.length + 1}
-                </span>
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-64 p-1.5">
-              <div className="px-2 pt-1.5 pb-2">
-                <p className="text-xs font-medium">#{activeChannel.label}</p>
-                <p className="text-muted-foreground mt-0.5 text-[11px]">
-                  People and agents sharing this context.
-                </p>
-              </div>
-              <div className="space-y-0.5">
-                <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
-                  <span className="bg-muted flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full text-[9px] font-medium">
+          {!directIdentity ? (
+            <ChannelArtifactsMenu
+              channelId={activeChannel.id}
+              onContinue={continueArtifact}
+            />
+          ) : null}
+          {!directIdentity ? (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`${activeChannel.agentIds.length + 1} channel members`}
+                  title="Channel members"
+                  className="bg-card hover:bg-accent flex h-8 items-center rounded-lg px-2 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)] transition-colors"
+                >
+                  <span className="flex -space-x-1">
                     {user?.image ? (
                       <img
                         src={user.image}
                         alt=""
-                        className="size-full object-cover"
+                        className="ring-card size-4 rounded-full object-cover ring-1"
                       />
-                    ) : (
-                      (user?.name.charAt(0) ?? "Y").toLocaleUpperCase()
-                    )}
+                    ) : null}
+                    {activeChannel.agentIds.slice(0, 3).map((agentId) => (
+                      <span
+                        key={agentId}
+                        className="bg-muted text-muted-foreground ring-card flex size-4 items-center justify-center rounded-full text-[7px] font-medium ring-1"
+                      >
+                        {WORKSPACE_AGENT_IDENTITIES[
+                          agentId as keyof typeof WORKSPACE_AGENT_IDENTITIES
+                        ].name
+                          .charAt(0)
+                          .toLocaleUpperCase()}
+                      </span>
+                    ))}
                   </span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-xs font-medium">
-                      {user?.name ?? "You"}
-                    </span>
-                    <span className="text-muted-foreground block text-[10px]">
-                      You
-                    </span>
+                  <span className="text-muted-foreground ml-1.5 text-[10px]">
+                    {activeChannel.agentIds.length + 1}
                   </span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-64 p-1.5">
+                <div className="px-2 pt-1.5 pb-2">
+                  <p className="text-xs font-medium">#{activeChannel.label}</p>
+                  <p className="text-muted-foreground mt-0.5 text-[11px]">
+                    People and agents sharing this context.
+                  </p>
                 </div>
-                {activeChannel.agentIds.map((agentId) => {
-                  const identity = CHANNEL_AGENT_IDENTITIES[agentId] ?? {
-                    name: agentId,
-                    role: "Agent",
-                  };
-                  return (
-                    <div
-                      key={agentId}
-                      className="flex items-center gap-2.5 rounded-lg px-2 py-2"
-                    >
-                      <span className="bg-foreground text-background flex size-7 shrink-0 items-center justify-center rounded-lg text-[9px] font-semibold">
-                        {identity.name.charAt(0).toLocaleUpperCase()}
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
+                    <span className="bg-muted flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full text-[9px] font-medium">
+                      {user?.image ? (
+                        <img
+                          src={user.image}
+                          alt=""
+                          className="size-full object-cover"
+                        />
+                      ) : (
+                        (user?.name.charAt(0) ?? "Y").toLocaleUpperCase()
+                      )}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs font-medium">
+                        {user?.name ?? "You"}
                       </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-xs font-medium">
-                          {identity.name}
-                        </span>
-                        <span className="text-muted-foreground block truncate text-[10px]">
-                          {identity.role}
-                        </span>
+                      <span className="text-muted-foreground block text-[10px]">
+                        You
                       </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </PopoverContent>
-          </Popover>
+                    </span>
+                  </div>
+                  {activeChannel.agentIds.map((agentId) => {
+                    const identity =
+                      WORKSPACE_AGENT_IDENTITIES[
+                        agentId as keyof typeof WORKSPACE_AGENT_IDENTITIES
+                      ];
+                    return (
+                      <div
+                        key={agentId}
+                        className="flex items-center gap-2.5 rounded-lg px-2 py-2"
+                      >
+                        <span className="bg-foreground text-background flex size-7 shrink-0 items-center justify-center rounded-lg text-[9px] font-semibold">
+                          {identity.name.charAt(0).toLocaleUpperCase()}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-xs font-medium">
+                            {identity.name}
+                          </span>
+                          <span className="text-muted-foreground block truncate text-[10px]">
+                            {identity.role}
+                          </span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </PopoverContent>
+            </Popover>
+          ) : (
+            <div className="bg-card flex h-8 items-center gap-2 rounded-lg px-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)]">
+              <span className="bg-foreground text-background flex size-4 items-center justify-center rounded-md text-[8px] font-semibold dark:bg-white dark:text-black">
+                {directIdentity.name.charAt(0)}
+              </span>
+              <span className="text-muted-foreground text-[10px]">Private</span>
+            </div>
+          )}
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -292,6 +345,7 @@ export function ConversationsPage() {
               chatId={activeChatId}
               domain={activeSetupDomain}
               actionId={activeSetupActionId ?? undefined}
+              channelId={requestedDirectMessage?.relayId}
             />
           ) : activeChatId ? (
             <ChiefChat
@@ -299,6 +353,18 @@ export function ConversationsPage() {
               chatId={activeChatId}
               isNew={isNew}
               channel={requestedChannel ?? undefined}
+              directAgent={
+                directIdentity && requestedDirectMessage
+                  ? {
+                      id: requestedDirectMessage.id,
+                      name: directIdentity.name,
+                      role: directIdentity.role,
+                    }
+                  : undefined
+              }
+              destinationChannelId={
+                requestedDirectMessage?.relayId ?? requestedChannel?.relayId
+              }
               initialDriver={
                 activeEntry?.driver ??
                 (isNew ? requestedDriver(params.get("driver")) : undefined)

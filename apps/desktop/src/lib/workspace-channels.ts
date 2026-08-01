@@ -29,7 +29,29 @@ export const WORKSPACE_CHANNELS = [
   },
 ] as const;
 
-export type WorkspaceChannelId = (typeof WORKSPACE_CHANNELS)[number]["id"];
+export const WORKSPACE_AGENT_IDENTITIES = {
+  cmo: { name: "Chief", role: "Chief Marketing Officer" },
+  setup: { name: "Setup", role: "Private Workspace Setup" },
+  analyst: { name: "Analyst", role: "Measurement and Reporting" },
+  ads: { name: "Advertising", role: "Paid Acquisition" },
+  content: { name: "Content", role: "Content and Creative" },
+  prospector: { name: "Prospector", role: "Research and Outreach" },
+  brand: { name: "Brand", role: "Brand Research" },
+} as const;
+
+export type WorkspaceAgentId = keyof typeof WORKSPACE_AGENT_IDENTITIES;
+
+export const WORKSPACE_DIRECT_MESSAGES = [
+  { id: "cmo", relayId: "cc7d57ef-d6ea-4ebf-a987-2dc33d18c8c7" },
+  { id: "setup", relayId: "147c5d7b-8e35-43f1-94dd-230484502e81" },
+  { id: "analyst", relayId: "a644f850-6825-4a21-84cf-c1d4780875cc" },
+  { id: "ads", relayId: "af454f32-d70c-4ef0-ab73-5b78d73710ba" },
+  { id: "content", relayId: "3a9618e0-ef52-46af-988e-e19cd7111dfa" },
+  { id: "prospector", relayId: "0094ccf0-fd7e-4c8a-b0a9-648758ae31d5" },
+  { id: "brand", relayId: "16ca9ad9-7497-4cff-84f0-ff03550a88ac" },
+] as const satisfies readonly { id: WorkspaceAgentId; relayId: string }[];
+
+export type WorkspaceChannelId = string;
 
 const CHANNEL_KEYWORDS: {
   id: Exclude<WorkspaceChannelId, "general">;
@@ -65,8 +87,46 @@ export function workspaceChannel(channelId: string | null) {
 
 export function channelChatId(channelId: WorkspaceChannelId) {
   const channel = workspaceChannel(channelId);
-  if (!channel) throw new Error("Channel was not found.");
-  return `channel:${channel.relayId}`;
+  return `channel:${channel?.relayId ?? channelId}`;
+}
+
+export function workspaceDirectMessage(agentId: string | null) {
+  return (
+    WORKSPACE_DIRECT_MESSAGES.find((message) => message.id === agentId) ?? null
+  );
+}
+
+export function directMessageChatId(agentId: WorkspaceAgentId) {
+  const message = workspaceDirectMessage(agentId);
+  if (!message) throw new Error("Direct message was not found.");
+  return `channel:${message.relayId}`;
+}
+
+export function directMessageIdsForChats(
+  chats: readonly { id: string; lastText: string }[],
+) {
+  return WORKSPACE_DIRECT_MESSAGES.filter((message) =>
+    chats.some(
+      (chat) =>
+        chat.id === directMessageChatId(message.id) &&
+        chat.lastText.trim().length > 0,
+    ),
+  ).map((message) => message.id);
+}
+
+export function actionConversation(value: {
+  title: string;
+  reason?: string;
+  agentId?: string;
+}) {
+  const text = `${value.title} ${value.reason ?? ""}`.toLocaleLowerCase();
+  if (
+    value.agentId === "setup" ||
+    /connect|integration|credential|github|vercel|engineering tool/.test(text)
+  ) {
+    return { kind: "dm" as const, id: "setup" as const };
+  }
+  return { kind: "channel" as const, id: channelForText(text) };
 }
 
 /** Place a channel at a pinned drop target, without duplicates. */

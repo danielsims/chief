@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { MessageSquare, X } from "lucide-react";
 
 import type {
   ChatExecutionSelection,
   DriverType,
 } from "@chief/agent-runtime/types";
 
+import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { SchedulingDraft } from "./recurring-work-composer";
 import { useAgentConfig } from "../../lib/agent-config";
 import { useAuth } from "../../lib/auth/auth-context";
@@ -19,6 +21,7 @@ import {
   useRuntime,
   useWorkspaceData,
 } from "../../lib/runtime";
+import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
 import { ChiefMark } from "../chief-mark";
 import { InputRequestSection } from "../integrations/input-request-section";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
@@ -36,7 +39,17 @@ import {
 import { ToolActivityGroup } from "./tool-activity-group";
 import { UserMessage } from "./user-message";
 
-function ChiefMessage({ children }: { children: ReactNode }) {
+function ChiefMessage({
+  children,
+  agent,
+}: {
+  children: ReactNode;
+  agent?: { name: string; role: string };
+}) {
+  const identity = agent ?? {
+    name: "Chief",
+    role: "Chief Marketing Officer",
+  };
   return (
     <div className="group/message mx-auto flex w-full max-w-3xl min-w-0 gap-3 py-2">
       <span className="bg-foreground text-background flex size-8 shrink-0 items-center justify-center rounded-lg shadow-[inset_0_1px_rgba(255,255,255,0.1)]">
@@ -44,9 +57,9 @@ function ChiefMessage({ children }: { children: ReactNode }) {
       </span>
       <div className="min-w-0 flex-1 pt-0.5">
         <div className="mb-1 flex items-baseline gap-2">
-          <strong className="text-[13px] font-semibold">Chief</strong>
+          <strong className="text-[13px] font-semibold">{identity.name}</strong>
           <span className="text-muted-foreground text-[10px]">
-            Chief Marketing Officer
+            {identity.role}
           </span>
         </div>
         {children}
@@ -66,6 +79,8 @@ export function ChiefChat({
   initialDriver,
   initialModel,
   channel,
+  directAgent,
+  destinationChannelId,
   onInitialPromptSent,
   onOpenChild,
 }: {
@@ -87,6 +102,8 @@ export function ChiefChat({
     description: string;
     agentIds: readonly string[];
   };
+  directAgent?: { id: WorkspaceAgentId; name: string; role: string };
+  destinationChannelId?: string;
   onInitialPromptSent?: () => void;
   onOpenChild?: (childId: string) => void;
 }) {
@@ -107,7 +124,7 @@ export function ChiefChat({
     )
     .sort((a, b) => a.createdAt - b.createdAt);
   const agentConfig = useAgentConfig();
-  const resolved = agentConfig.forAgent("cmo");
+  const resolved = agentConfig.forAgent(directAgent?.id ?? "cmo");
   const initialExecution = initialDriver
     ? { driver: initialDriver, model: initialModel }
     : resolved.driver
@@ -119,18 +136,19 @@ export function ChiefChat({
   const {
     messages,
     controls,
-    sendMessage,
     interrupt,
     respondPermission,
     respondQuestion,
     provideInput,
     chatReady,
     execution,
+    sendMessageWithContext,
   } = useChiefChat(
     chatId,
     initialExecution,
     selectedExecution ?? undefined,
     agentConfig.access,
+    { channelId: destinationChannelId, agentId: directAgent?.id },
   );
   const [activityOpen, setActivityOpen] = useState(false);
   const currentTurn = useMemo(
@@ -148,8 +166,40 @@ export function ChiefChat({
     () => findPendingInputRequest(messages, answeredInputs),
     [messages, answeredInputs],
   );
-  const send = (text: string) => void sendMessage({ text });
+  const [addedAgentIds, setAddedAgentIds] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
+  const mentionCandidates = useMemo(
+    () =>
+      Object.entries(WORKSPACE_AGENT_IDENTITIES)
+        .filter(([id]) => id !== "setup")
+        .map(([id, identity]) => ({
+          id,
+          ...identity,
+          member:
+            directAgent?.id === id ||
+            addedAgentIds.has(id) ||
+            Boolean(channel?.agentIds.includes(id)),
+        })),
+    [addedAgentIds, channel?.agentIds, directAgent?.id],
+  );
+  const mentionsIn = (text: string) =>
+    mentionCandidates
+      .filter((candidate) => text.includes(`@${candidate.name}`))
+      .map((candidate) => candidate.id);
+  const send = (text: string, threadRootId?: string) => {
+    const mentions = mentionsIn(text);
+    if (channel && mentions.length > 0) {
+      setAddedAgentIds((current) => new Set([...current, ...mentions]));
+    }
+    sendMessageWithContext(text, {
+      threadRootId,
+      mentions,
+    });
+  };
   const [draft, setDraft] = useState(initialDraft ?? "");
+  const [threadDraft, setThreadDraft] = useState("");
+  const [threadRootId, setThreadRootId] = useState<string | null>(null);
   const [optimisticInitialPrompt] = useState(() => initialPrompt ?? null);
   const [composerOpen, setComposerOpen] = useState(composer !== undefined);
   const [approveAfterCreation, setApproveAfterCreation] = useState(false);
@@ -275,6 +325,23 @@ export function ChiefChat({
     })),
     childSessions,
   );
+  const threadReplies = useMemo(() => {
+    const replies = new Map<string, typeof messages>();
+    for (const message of messages) {
+      const rootId = message.metadata?.threadRootId;
+      if (!rootId) continue;
+      const current = replies.get(rootId) ?? [];
+      current.push(message);
+      replies.set(rootId, current);
+    }
+    return replies;
+  }, [messages]);
+  const activeThreadRoot = threadRootId
+    ? messages.find((message) => message.id === threadRootId)
+    : undefined;
+  const activeThreadReplies = threadRootId
+    ? (threadReplies.get(threadRootId) ?? [])
+    : [];
 
   return (
     <div className="relative flex h-full min-w-0 overflow-hidden">
@@ -306,12 +373,14 @@ export function ChiefChat({
           !showOptimisticInitialPrompt ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
               <p className="text-2xl font-medium tracking-[-0.03em]">
-                {channel ? `#${channel.label}` : "Chief"}
+                {channel ? `#${channel.label}` : (directAgent?.name ?? "Chief")}
               </p>
               <p className="text-muted-foreground max-w-md text-sm">
                 {channel
                   ? channel.description
-                  : "Your CMO. Ask anything, and Chief will bring in the right specialist."}
+                  : directAgent
+                    ? `A private conversation with ${directAgent.name}.`
+                    : "Your CMO. Ask anything, and Chief will bring in the right specialist."}
               </p>
               {channel ? (
                 <p className="text-muted-foreground/75 text-xs">
@@ -330,6 +399,7 @@ export function ChiefChat({
             <UserMessage text={optimisticInitialPrompt} author={userAuthor} />
           ) : null}
           {messages.map((message) => {
+            if (channel && message.metadata?.threadRootId) return null;
             if (message.role === "user") {
               return message.id === `${chatId}-kickoff` ? (
                 <div
@@ -346,15 +416,33 @@ export function ChiefChat({
                   </p>
                 </div>
               ) : (
-                <UserMessage
-                  key={message.id}
-                  author={userAuthor}
-                  text={messageBlocks(message)
-                    .flatMap((part) =>
-                      part.type === "text" ? [part.text] : [],
-                    )
-                    .join("\n")}
-                />
+                <div key={message.id}>
+                  <UserMessage
+                    author={userAuthor}
+                    text={messageBlocks(message)
+                      .flatMap((part) =>
+                        part.type === "text" ? [part.text] : [],
+                      )
+                      .join("\n")}
+                  />
+                  {channel ? (
+                    <div className="mx-auto -mt-1 flex w-full max-w-3xl pl-11">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActivityOpen(false);
+                          setThreadRootId(message.id);
+                        }}
+                        className="text-muted-foreground hover:bg-accent hover:text-foreground flex h-7 items-center gap-1.5 rounded-lg px-2 text-[11px] transition-colors"
+                      >
+                        <MessageSquare size={12} />
+                        {(threadReplies.get(message.id)?.length ?? 0) > 0
+                          ? `${threadReplies.get(message.id)?.length} replies`
+                          : "Reply in thread"}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               );
             }
             if (message.role !== "assistant") return null;
@@ -370,7 +458,7 @@ export function ChiefChat({
             if (toolGroup) {
               if (channel) return null;
               return toolGroup.ownerId === message.id ? (
-                <ChiefMessage key={message.id}>
+                <ChiefMessage key={message.id} agent={directAgent}>
                   <ToolActivityGroup
                     blocks={toolGroup.blocks}
                     progress={controls.toolProgress}
@@ -390,7 +478,7 @@ export function ChiefChat({
               : blocks;
             if (timelineBlocks.length === 0) return null;
             return (
-              <ChiefMessage key={message.id}>
+              <ChiefMessage key={message.id} agent={directAgent}>
                 <Blocks
                   blocks={timelineBlocks}
                   progress={controls.toolProgress}
@@ -459,6 +547,14 @@ export function ChiefChat({
             running={controls.status === "running"}
             onInterrupt={interrupt}
             showSuggestions={!composerOpen && controls.status !== "running"}
+            mentionCandidates={channel ? mentionCandidates : []}
+            placeholder={
+              directAgent
+                ? `Message ${directAgent.name}…`
+                : channel
+                  ? `Message #${channel.label}…`
+                  : undefined
+            }
           />
           <AgentActivityComposerRow
             running={Boolean(channel && controls.status === "running")}
@@ -467,6 +563,92 @@ export function ChiefChat({
           />
         </div>
       </div>
+      {channel && threadRootId ? (
+        <aside className="bg-background flex min-h-0 w-[380px] shrink-0 flex-col border-l max-[900px]:absolute max-[900px]:inset-y-0 max-[900px]:right-0 max-[900px]:z-40 max-[900px]:w-[min(92%,380px)]">
+          <header className="flex h-12 shrink-0 items-center justify-between border-b px-4">
+            <div>
+              <p className="text-xs font-semibold">Thread</p>
+              <p className="text-muted-foreground text-[10px]">
+                #{channel.label} · {activeThreadReplies.length} replies
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="Close thread"
+              onClick={() => setThreadRootId(null)}
+              className="text-muted-foreground hover:bg-accent hover:text-foreground flex size-8 items-center justify-center rounded-lg"
+            >
+              <X size={15} />
+            </button>
+          </header>
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-4">
+            {activeThreadRoot?.role === "user" ? (
+              <UserMessage
+                author={userAuthor}
+                text={messageBlocks(activeThreadRoot)
+                  .flatMap((part) => (part.type === "text" ? [part.text] : []))
+                  .join("\n")}
+              />
+            ) : null}
+            <div className="my-3 flex items-center gap-2">
+              <span className="bg-border h-px flex-1" />
+              <span className="text-muted-foreground text-[10px]">
+                {activeThreadReplies.length} replies
+              </span>
+              <span className="bg-border h-px flex-1" />
+            </div>
+            {activeThreadReplies.map((message) =>
+              message.role === "user" ? (
+                <UserMessage
+                  key={message.id}
+                  author={userAuthor}
+                  text={messageBlocks(message)
+                    .flatMap((part) =>
+                      part.type === "text" ? [part.text] : [],
+                    )
+                    .join("\n")}
+                />
+              ) : (
+                <ChiefMessage key={message.id} agent={directAgent}>
+                  <Blocks
+                    blocks={withoutMarkerLines(messageBlocks(message)).filter(
+                      (block) =>
+                        block.type !== "tool_use" &&
+                        block.type !== "tool_result" &&
+                        block.type !== "thinking",
+                    )}
+                    progress={controls.toolProgress}
+                    capabilities={activeCapabilities}
+                    active={controls.status === "running"}
+                    tasks={childSessions}
+                    taskOwners={childSessionOwners}
+                    ownerId={message.id}
+                    onOpenTask={onOpenChild}
+                  />
+                </ChiefMessage>
+              ),
+            )}
+          </div>
+          <div className="shrink-0 px-3 pb-3">
+            <ChatComposer
+              value={threadDraft}
+              onValueChange={setThreadDraft}
+              onSubmit={() => {
+                const text = threadDraft.trim();
+                if (!text || controls.status === "running") return;
+                setThreadDraft("");
+                send(text, threadRootId);
+              }}
+              running={controls.status === "running"}
+              onInterrupt={interrupt}
+              showSuggestions={false}
+              showExecutionControls={false}
+              mentionCandidates={mentionCandidates}
+              placeholder={`Reply in #${channel.label}…`}
+            />
+          </div>
+        </aside>
+      ) : null}
       {channel && activityOpen ? (
         <AgentActivityPanel
           blocks={currentTurnBlocks}

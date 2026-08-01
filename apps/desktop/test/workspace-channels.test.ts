@@ -5,9 +5,13 @@ import type { ExecutorArtifactSummary } from "@chief/agent-runtime/artifact-type
 
 import { classifyArtifact } from "../src/lib/chief-artifacts";
 import {
+  actionConversation,
   channelChatId,
+  directMessageChatId,
+  directMessageIdsForChats,
   placePinnedChannel,
   WORKSPACE_CHANNELS,
+  WORKSPACE_DIRECT_MESSAGES,
 } from "../src/lib/workspace-channels";
 
 function artifact(title: string, description = ""): ExecutorArtifactSummary {
@@ -27,6 +31,40 @@ void test("gives every product channel its own stable runtime session", () => {
   );
   assert.equal(new Set(chatIds).size, WORKSPACE_CHANNELS.length);
   assert.ok(chatIds.every((chatId) => chatId.startsWith("channel:")));
+});
+
+void test("shows direct messages only after a real user conversation exists", () => {
+  assert.deepEqual(
+    directMessageIdsForChats([
+      { id: directMessageChatId("cmo"), lastText: "" },
+      { id: directMessageChatId("analyst"), lastText: "Review this report" },
+      { id: "unrelated", lastText: "Hello" },
+    ]),
+    ["analyst"],
+  );
+});
+
+void test("gives every agent direct message a private stable destination", () => {
+  const chatIds = WORKSPACE_DIRECT_MESSAGES.map((message) =>
+    directMessageChatId(message.id),
+  );
+  assert.equal(new Set(chatIds).size, WORKSPACE_DIRECT_MESSAGES.length);
+  assert.ok(chatIds.every((chatId) => chatId.startsWith("channel:")));
+});
+
+void test("routes overview actions to the channel that owns the work", () => {
+  assert.deepEqual(
+    actionConversation({ title: "Connect GitHub", agentId: "setup" }),
+    { kind: "dm", id: "setup" },
+  );
+  assert.deepEqual(
+    actionConversation({ title: "Review acquisition performance report" }),
+    { kind: "channel", id: "analytics" },
+  );
+  assert.deepEqual(actionConversation({ title: "Review launch creative" }), {
+    kind: "channel",
+    id: "advertising",
+  });
 });
 
 void test("types durable artifacts with the same product vocabulary", () => {
