@@ -1,6 +1,5 @@
 /* eslint-disable max-lines */
 
-import type { MouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarPlus,
@@ -8,10 +7,10 @@ import {
   ChevronLeft,
   ChevronRight,
   FilePlus2,
+  Inbox,
   MessageSquare,
   Pause,
   Pencil,
-  Play,
   Plus,
   Repeat2,
   ShieldCheck,
@@ -25,6 +24,7 @@ import type {
   ContentDraftRecord,
   RecurringWorkRecord,
 } from "@chief/agent-runtime/types";
+import { defaultAgents } from "@chief/agent-runtime/agent-roster";
 import { Button } from "@chief/ui/components/button";
 import {
   Dialog,
@@ -63,6 +63,9 @@ const MONTHS_BEFORE = 12;
 const MONTHS_AFTER = 24;
 const WEEKDAY_HEADER_HEIGHT = 36;
 const CALENDAR_HEADER_HEIGHT = WEEKDAY_HEADER_HEIGHT;
+const TIMELINE_START_HOUR = 7;
+const TIMELINE_END_HOUR = 20;
+const TIMELINE_ROW_HEIGHT = 52;
 
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -104,6 +107,16 @@ function monthLabel(date: Date) {
   return date.toLocaleDateString([], { month: "long", year: "numeric" });
 }
 
+function agentName(agentId: string) {
+  const agent = defaultAgents.find((candidate) => candidate.id === agentId);
+  if (agent) return agent.name;
+  return agentId
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((word) => word[0]?.toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 function buildMonthCells(month: Date): (Date | null)[] {
   const first = new Date(month.getFullYear(), month.getMonth(), 1);
   const leading = (first.getDay() + 6) % 7;
@@ -141,15 +154,15 @@ function DraftChip({ draft }: { draft: ScheduledDraft }) {
         event.stopPropagation();
         void navigate(`/files/${encodeURIComponent(draft.fileId)}`);
       }}
-      className="bg-background hover:bg-accent disabled:hover:bg-background block w-full min-w-0 border px-2 py-1.5 text-left transition-colors select-none"
+      className="bg-background/75 hover:bg-accent/65 disabled:hover:bg-background/75 block w-full min-w-0 rounded-lg px-2.5 py-2 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),inset_0_1px_rgba(255,255,255,0.06)] transition-colors select-none"
     >
       <div className="flex min-w-0 items-center gap-1.5">
         <span className={cn("size-1.5 shrink-0", statusClass(draft.status))} />
-        <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
+        <span className="min-w-0 flex-1 truncate text-[11px] font-semibold">
           {draft.title}
         </span>
       </div>
-      <p className="text-muted-foreground mt-1 truncate text-[10px]">
+      <p className="text-muted-foreground mt-0.5 truncate text-[10px]">
         {time || "Draft"} · {draft.platform}
       </p>
     </button>
@@ -158,22 +171,36 @@ function DraftChip({ draft }: { draft: ScheduledDraft }) {
 
 function RecurringWorkChip({
   work,
+  onOpen,
   onContextMenu,
 }: {
   work: RecurringWorkRecord;
+  onOpen?: (work: RecurringWorkRecord) => void;
   onContextMenu?: (work: RecurringWorkRecord, x: number, y: number) => void;
 }) {
   const approvalNeeded =
     work.status === "draft" || work.status === "needs_approval";
   return (
     <div
+      role={onOpen ? "button" : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      onClick={(event) => {
+        if (!onOpen) return;
+        event.stopPropagation();
+        onOpen(work);
+      }}
+      onKeyDown={(event) => {
+        if (!onOpen || (event.key !== "Enter" && event.key !== " ")) return;
+        event.preventDefault();
+        onOpen(work);
+      }}
       onContextMenu={(event) => {
         if (!onContextMenu) return;
         event.preventDefault();
         event.stopPropagation();
         onContextMenu(work, event.clientX, event.clientY);
       }}
-      className="bg-card min-w-0 border px-2 py-1.5 select-none"
+      className="bg-foreground/[0.035] min-w-0 rounded-lg px-2.5 py-2 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),inset_0_1px_rgba(255,255,255,0.045)] select-none"
     >
       <div className="flex min-w-0 items-center gap-1.5">
         <span
@@ -182,12 +209,12 @@ function RecurringWorkChip({
             approvalNeeded ? "bg-amber-400" : "bg-foreground",
           )}
         />
-        <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
+        <span className="min-w-0 flex-1 truncate text-[11px] font-semibold">
           {work.title}
         </span>
       </div>
-      <p className="text-muted-foreground mt-1 truncate text-[10px]">
-        {work.agentId} · {work.status.replace("_", " ")}
+      <p className="text-muted-foreground mt-0.5 truncate text-[10px] capitalize">
+        {agentName(work.agentId)} · {work.status.replace("_", " ")}
       </p>
     </div>
   );
@@ -201,6 +228,7 @@ function DayCell({
   selected,
   onSelect,
   onContextMenu,
+  onWorkOpen,
   onWorkContext,
   boundaryRow = false,
   tall = false,
@@ -212,6 +240,7 @@ function DayCell({
   selected: Date;
   onSelect: (date: Date) => void;
   onContextMenu?: (date: Date, x: number, y: number) => void;
+  onWorkOpen?: (work: RecurringWorkRecord) => void;
   onWorkContext?: (
     work: RecurringWorkRecord,
     date: Date,
@@ -228,25 +257,31 @@ function DayCell({
   const draftLimit = Math.max(0, visibleLimit - recurringWork.length);
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(date)}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onSelect(date);
+      }}
       onContextMenu={(event) => {
         if (!onContextMenu) return;
         event.preventDefault();
         onContextMenu(date, event.clientX, event.clientY);
       }}
       className={cn(
-        "hover:bg-accent/30 min-h-28 min-w-0 border-r border-b p-2 text-left align-top transition-colors",
+        "hover:bg-accent/25 focus-visible:bg-accent/35 min-h-28 min-w-0 border-r border-b border-black/[0.055] p-2 text-left align-top transition-colors outline-none dark:border-white/[0.055]",
         tall && "min-h-[420px]",
-        isSelected && "bg-accent/40",
+        isSelected && "bg-accent/30",
       )}
     >
       <span
         className={cn(
-          "relative block text-right text-xs leading-none",
-          isToday &&
-            "after:bg-foreground font-medium after:absolute after:right-0 after:-bottom-1 after:h-px after:w-3",
+          "ml-auto flex size-6 items-center justify-center rounded-full text-[11px] leading-none",
+          isToday && "bg-foreground text-background font-semibold",
+          isSelected && !isToday && "bg-accent font-semibold",
         )}
       >
         {date.getDate()}
@@ -256,6 +291,7 @@ function DayCell({
           <RecurringWorkChip
             key={work.id}
             work={work}
+            onOpen={onWorkOpen}
             onContextMenu={
               onWorkContext
                 ? (item, x, y) => onWorkContext(item, date, x, y)
@@ -272,7 +308,7 @@ function DayCell({
           </p>
         ) : null}
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -322,7 +358,7 @@ function ScheduleFilters({
               key={option.kind}
               type="button"
               onClick={() => onToggle(option.kind)}
-              className="hover:bg-accent flex w-full items-center gap-3 px-2 py-2 text-left transition-colors"
+              className="hover:bg-accent flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors"
             >
               <span className={cn("size-2 shrink-0", option.color)} />
               <span className="min-w-0 flex-1">
@@ -333,7 +369,7 @@ function ScheduleFilters({
                   {option.detail}
                 </span>
               </span>
-              <span className="flex size-4 shrink-0 items-center justify-center border">
+              <span className="flex size-4 shrink-0 items-center justify-center rounded-md shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_12%,transparent)]">
                 {checked ? <Check size={11} /> : null}
               </span>
             </button>
@@ -352,6 +388,7 @@ function ContinuousMonthView({
   selected,
   onSelect,
   onDateContext,
+  onWorkOpen,
   onWorkContext,
   byDay,
   recurringByDay,
@@ -366,6 +403,7 @@ function ContinuousMonthView({
   selected: Date;
   onSelect: (date: Date) => void;
   onDateContext: (date: Date, x: number, y: number) => void;
+  onWorkOpen: (work: RecurringWorkRecord) => void;
   onWorkContext: (
     work: RecurringWorkRecord,
     date: Date,
@@ -438,11 +476,11 @@ function ContinuousMonthView({
       onScroll={handleScroll}
       className="relative h-full min-w-0 overflow-y-auto overscroll-contain"
     >
-      <div className="bg-background/95 sticky top-0 z-30 grid h-9 grid-cols-7 border-b backdrop-blur-lg">
+      <div className="bg-card/90 sticky top-0 z-30 grid h-10 grid-cols-7 border-b border-black/[0.055] backdrop-blur-xl dark:border-white/[0.055]">
         {WEEKDAYS.map((weekday) => (
           <div
             key={weekday}
-            className="text-muted-foreground border-r px-3 py-2 text-[11px] last:border-r-0"
+            className="text-muted-foreground border-r border-black/[0.055] px-3 py-2.5 text-[11px] font-medium last:border-r-0 dark:border-white/[0.055]"
           >
             {weekday}
           </div>
@@ -459,11 +497,11 @@ function ContinuousMonthView({
               if (node) monthSections.current.set(key, node);
               else monthSections.current.delete(key);
             }}
-            className="relative grid grid-cols-7 border-l"
+            className="relative grid grid-cols-7 border-l border-black/[0.055] dark:border-white/[0.055]"
           >
             <p
               className={cn(
-                "pointer-events-none absolute top-2 left-3 z-10 font-serif text-xl transition-opacity duration-300",
+                "pointer-events-none absolute top-2.5 left-3 z-10 text-lg font-semibold tracking-[-0.025em] transition-opacity duration-300",
                 // The page header already names the active month; the in-grid
                 // label fades away instead of duplicating it.
                 sameMonth(month, activeMonth) && "opacity-0",
@@ -486,6 +524,7 @@ function ContinuousMonthView({
                   selected={selected}
                   onSelect={onSelect}
                   onContextMenu={onDateContext}
+                  onWorkOpen={onWorkOpen}
                   onWorkContext={onWorkContext}
                   boundaryRow={index < 7}
                 />
@@ -493,7 +532,7 @@ function ContinuousMonthView({
                 <div
                   key={`empty-${index}`}
                   aria-hidden="true"
-                  className="bg-muted/[0.025] min-h-28 border-r border-b"
+                  className="bg-muted/[0.025] min-h-28 border-r border-b border-black/[0.055] dark:border-white/[0.055]"
                 />
               ),
             )}
@@ -510,6 +549,7 @@ function FocusedCalendarView({
   today,
   onSelect,
   onDateContext,
+  onWorkOpen,
   onWorkContext,
   byDay,
   recurringByDay,
@@ -521,6 +561,7 @@ function FocusedCalendarView({
   today: Date;
   onSelect: (date: Date) => void;
   onDateContext: (date: Date, x: number, y: number) => void;
+  onWorkOpen: (work: RecurringWorkRecord) => void;
   onWorkContext: (
     work: RecurringWorkRecord,
     date: Date,
@@ -532,52 +573,228 @@ function FocusedCalendarView({
   showPosts: boolean;
   showAgentWork: boolean;
 }) {
+  const navigate = useNavigate();
   const dates =
     view === "week"
       ? Array.from({ length: 7 }, (_, index) =>
           addDays(startOfWeek(selected), index),
         )
       : [selected];
+  const timelineHeight =
+    (TIMELINE_END_HOUR - TIMELINE_START_HOUR) * TIMELINE_ROW_HEIGHT;
+  const hours = Array.from(
+    { length: TIMELINE_END_HOUR - TIMELINE_START_HOUR + 1 },
+    (_, index) => TIMELINE_START_HOUR + index,
+  );
+
+  const eventTop = (timestamp: number) => {
+    const date = new Date(timestamp);
+    const elapsedMinutes =
+      date.getHours() * 60 + date.getMinutes() - TIMELINE_START_HOUR * 60;
+    return Math.max(
+      5,
+      Math.min(
+        timelineHeight - 47,
+        (elapsedMinutes / 60) * TIMELINE_ROW_HEIGHT,
+      ),
+    );
+  };
 
   return (
-    <div className="h-full min-w-0 overflow-y-auto">
-      <div
-        className={cn(
-          "bg-background/95 sticky top-0 z-20 grid h-9 border-b backdrop-blur-lg",
-          view === "week" ? "grid-cols-7" : "grid-cols-1",
-        )}
-      >
-        {dates.map((date) => (
+    <div className="h-full min-w-0 overflow-y-auto overscroll-contain">
+      <div className="bg-card/90 sticky top-0 z-30 backdrop-blur-xl">
+        <div
+          className="grid border-b border-black/[0.055] dark:border-white/[0.055]"
+          style={{
+            gridTemplateColumns: `64px repeat(${dates.length}, minmax(0, 1fr))`,
+          }}
+        >
+          <div />
+          {dates.map((date) => {
+            const isToday = dayKey(date) === dayKey(today);
+            const isSelected = dayKey(date) === dayKey(selected);
+            return (
+              <button
+                key={dayKey(date)}
+                type="button"
+                onClick={() => onSelect(date)}
+                className="hover:bg-accent/25 flex min-w-0 items-center justify-center gap-2 border-l border-black/[0.055] px-2 py-2.5 transition-colors dark:border-white/[0.055]"
+              >
+                <span className="text-muted-foreground truncate text-[11px] font-medium">
+                  {date.toLocaleDateString([], { weekday: "short" })}
+                </span>
+                <span
+                  className={cn(
+                    "flex size-7 items-center justify-center rounded-full text-xs font-semibold",
+                    isToday && "bg-foreground text-background",
+                    isSelected && !isToday && "bg-accent",
+                  )}
+                >
+                  {date.getDate()}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div
+          className="grid min-h-14 border-b border-black/[0.055] dark:border-white/[0.055]"
+          style={{
+            gridTemplateColumns: `64px repeat(${dates.length}, minmax(0, 1fr))`,
+          }}
+        >
+          <div className="text-muted-foreground px-2 pt-2.5 text-right text-[9px]">
+            Unscheduled
+          </div>
+          {dates.map((date) => {
+            const unscheduled = showPosts
+              ? (byDay.get(dayKey(date)) ?? []).filter(
+                  (draft) => draft.scheduledFor === undefined,
+                )
+              : [];
+            return (
+              <div
+                key={dayKey(date)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  onDateContext(date, event.clientX, event.clientY);
+                }}
+                className="min-w-0 border-l border-black/[0.055] p-1.5 dark:border-white/[0.055]"
+              >
+                {unscheduled.slice(0, 1).map((draft) => (
+                  <DraftChip key={draft.id} draft={draft} />
+                ))}
+                {unscheduled.length > 1 ? (
+                  <p className="text-muted-foreground px-2 py-1 text-[9px]">
+                    +{unscheduled.length - 1} awaiting a time
+                  </p>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="relative" style={{ height: timelineHeight }}>
+        {hours.map((hour, index) => (
           <div
-            key={dayKey(date)}
-            className="text-muted-foreground border-r px-3 py-2 text-[11px] last:border-r-0"
+            key={hour}
+            className="absolute right-0 left-0 flex items-start"
+            style={{ top: index * TIMELINE_ROW_HEIGHT }}
           >
-            {date.toLocaleDateString([], { weekday: "short" })}
+            <span
+              className={cn(
+                "text-muted-foreground pr-2 text-right text-[9px] tabular-nums",
+                index > 0 && "-translate-y-1.5",
+              )}
+              style={{ width: 64 }}
+            >
+              {new Date(2000, 0, 1, hour).toLocaleTimeString([], {
+                hour: "numeric",
+              })}
+            </span>
+            <span className="h-px flex-1 bg-black/[0.055] dark:bg-white/[0.055]" />
           </div>
         ))}
-      </div>
-      <div
-        className={cn(
-          "grid min-h-[calc(100%-36px)] border-l",
-          view === "week" ? "grid-cols-7" : "grid-cols-1",
-        )}
-      >
-        {dates.map((date) => (
-          <DayCell
-            key={dayKey(date)}
-            date={date}
-            drafts={showPosts ? (byDay.get(dayKey(date)) ?? []) : []}
-            recurringWork={
-              showAgentWork ? (recurringByDay.get(dayKey(date)) ?? []) : []
-            }
-            today={today}
-            selected={selected}
-            onSelect={onSelect}
-            onContextMenu={onDateContext}
-            onWorkContext={onWorkContext}
-            tall
-          />
-        ))}
+
+        <div
+          className="absolute inset-0 grid"
+          style={{
+            gridTemplateColumns: `64px repeat(${dates.length}, minmax(0, 1fr))`,
+          }}
+        >
+          <div />
+          {dates.map((date) => {
+            const key = dayKey(date);
+            const drafts = showPosts
+              ? (byDay.get(key) ?? []).filter(
+                  (draft): draft is ScheduledDraft & { scheduledFor: number } =>
+                    draft.scheduledFor !== undefined,
+                )
+              : [];
+            const recurring = showAgentWork
+              ? (recurringByDay.get(key) ?? []).flatMap((work) => {
+                  const timestamp = work.upcomingRuns?.find(
+                    (run) => dayKey(new Date(run)) === key,
+                  );
+                  return timestamp === undefined ? [] : [{ work, timestamp }];
+                })
+              : [];
+            return (
+              <div
+                key={key}
+                onClick={() => onSelect(date)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  onDateContext(date, event.clientX, event.clientY);
+                }}
+                className={cn(
+                  "relative min-w-0 border-l border-black/[0.055] dark:border-white/[0.055]",
+                  key === dayKey(selected) && "bg-foreground/[0.012]",
+                )}
+              >
+                {recurring.map(({ work, timestamp }) => (
+                  <button
+                    key={`${work.id}-${timestamp}`}
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onWorkOpen(work);
+                    }}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onWorkContext(work, date, event.clientX, event.clientY);
+                    }}
+                    className="bg-foreground/[0.065] hover:bg-foreground/[0.095] absolute right-1.5 left-1.5 overflow-hidden rounded-lg px-2 py-1.5 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)] transition-colors"
+                    style={{ top: eventTop(timestamp), minHeight: 42 }}
+                  >
+                    <span className="block truncate text-[10px] font-semibold">
+                      {work.title}
+                    </span>
+                    <span className="text-muted-foreground mt-0.5 block truncate text-[9px]">
+                      {new Date(timestamp).toLocaleTimeString([], {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}{" "}
+                      · {agentName(work.agentId)}
+                    </span>
+                  </button>
+                ))}
+                {drafts.map((draft) => (
+                  <button
+                    key={draft.id}
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (draft.fileId) {
+                        void navigate(
+                          `/files/${encodeURIComponent(draft.fileId)}`,
+                        );
+                      }
+                    }}
+                    className="absolute right-1.5 left-1.5 overflow-hidden rounded-lg bg-sky-500/[0.09] px-2 py-1.5 text-left shadow-[inset_0_0_0_1px_rgba(14,165,233,0.18)] transition-colors hover:bg-sky-500/[0.13]"
+                    style={{
+                      top: eventTop(draft.scheduledFor),
+                      minHeight: 42,
+                    }}
+                  >
+                    <span className="block truncate text-[10px] font-semibold">
+                      {draft.title}
+                    </span>
+                    <span className="text-muted-foreground mt-0.5 block truncate text-[9px]">
+                      {new Date(draft.scheduledFor).toLocaleTimeString([], {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}{" "}
+                      · {draft.platform}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -645,7 +862,7 @@ function CalendarContextMenu({
     <div
       role="menu"
       onPointerDown={(event) => event.stopPropagation()}
-      className="bg-popover text-popover-foreground fixed z-50 w-64 border p-1.5 shadow-md"
+      className="bg-popover/95 text-popover-foreground fixed z-50 w-64 rounded-xl p-1.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent),0_16px_48px_rgba(0,0,0,0.14)] backdrop-blur-xl"
       style={{
         left: Math.min(context.x, window.innerWidth - 272),
         top: Math.min(context.y, window.innerHeight - 238),
@@ -667,7 +884,7 @@ function CalendarContextMenu({
             onAction(id, context.date);
             onClose();
           }}
-          className="hover:bg-accent flex w-full items-start gap-3 px-2 py-2 text-left transition-colors"
+          className="hover:bg-accent flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors"
         >
           <Icon size={14} className="mt-0.5 shrink-0" />
           <span>
@@ -721,7 +938,7 @@ function RecurringWorkContextMenu({
     <div
       role="menu"
       onPointerDown={(event) => event.stopPropagation()}
-      className="bg-popover text-popover-foreground fixed z-50 w-64 border p-1.5 shadow-md"
+      className="bg-popover/95 text-popover-foreground fixed z-50 w-64 rounded-xl p-1.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent),0_16px_48px_rgba(0,0,0,0.14)] backdrop-blur-xl"
       style={{
         left: Math.min(context.x, window.innerWidth - 272),
         top: Math.min(context.y, window.innerHeight - 190),
@@ -738,7 +955,7 @@ function RecurringWorkContextMenu({
             onSkip(work, date);
             onClose();
           }}
-          className="hover:bg-accent flex w-full items-start gap-3 px-2 py-2 text-left transition-colors"
+          className="hover:bg-accent flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors"
         >
           <Pause size={14} className="mt-0.5 shrink-0" />
           <span>
@@ -763,7 +980,7 @@ function RecurringWorkContextMenu({
           onEdit(work);
           onClose();
         }}
-        className="hover:bg-accent flex w-full items-start gap-3 px-2 py-2 text-left transition-colors"
+        className="hover:bg-accent flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors"
       >
         <Pencil size={14} className="mt-0.5 shrink-0" />
         <span>
@@ -780,7 +997,7 @@ function RecurringWorkContextMenu({
           onCancelSeries(work);
           onClose();
         }}
-        className="hover:bg-accent flex w-full items-start gap-3 px-2 py-2 text-left transition-colors"
+        className="hover:bg-accent flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors"
       >
         <Trash2 size={14} className="text-destructive mt-0.5 shrink-0" />
         <span>
@@ -864,6 +1081,33 @@ function cronFromFields(fields: ScheduleFields): string {
   if (fields.frequency === "weekdays") return `${m} ${h} * * 1-5`;
   if (fields.frequency === "weekly") return `${m} ${h} * * ${fields.weekday}`;
   return `${m} ${h} ${Number(fields.dayOfMonth)} * *`;
+}
+
+function friendlySchedule(work: RecurringWorkRecord) {
+  if (work.onceAt !== undefined) {
+    return new Date(work.onceAt).toLocaleString([], {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+  const fields = fieldsFromCron(work.cron);
+  if (fields.frequency === "custom") return work.cron;
+  const time = new Date(`2000-01-01T${fields.time}:00`).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  if (fields.frequency === "daily") return `Every day at ${time}`;
+  if (fields.frequency === "weekdays") return `Weekdays at ${time}`;
+  if (fields.frequency === "weekly") {
+    const weekday = WEEKDAY_OPTIONS.find(
+      (option) => option.value === fields.weekday,
+    )?.label;
+    return `Every ${weekday ?? "week"} at ${time}`;
+  }
+  return `Monthly on day ${fields.dayOfMonth} at ${time}`;
 }
 
 function RecurringWorkEditDialog({
@@ -1224,100 +1468,65 @@ function RecurringWorkApprovalDialog({
   );
 }
 
-function RecurringWorkDetail({
+function ScheduleInbox({
   work,
-  onReview,
-  onToggle,
-  onRun,
-  onPlacement,
-  onContextMenu,
+  onOpen,
 }: {
-  work: RecurringWorkRecord;
-  onReview: () => void;
-  onToggle: () => void;
-  onRun: () => void;
-  onPlacement?: (placement: RecurringWorkRecord["placement"]) => void;
-  onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void;
+  work: RecurringWorkRecord[];
+  onOpen: (work: RecurringWorkRecord) => void;
 }) {
-  const approvalNeeded =
-    work.status === "draft" || work.status === "needs_approval";
   return (
-    <div className="border p-3" onContextMenu={onContextMenu}>
-      <div className="flex items-start gap-2">
-        <span
-          className={cn(
-            "mt-1 size-1.5 shrink-0",
-            approvalNeeded ? "bg-amber-400" : "bg-foreground",
-          )}
-        />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium">{work.title}</p>
-          <p className="text-muted-foreground mt-1 text-[10px] capitalize">
-            {work.agentId} · {work.status.replace("_", " ")}
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm">
+          <Inbox size={13} />
+          Review
+          {work.length > 0 ? (
+            <span className="ml-0.5 rounded-full bg-amber-500/12 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 tabular-nums dark:text-amber-300">
+              {work.length}
+            </span>
+          ) : null}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 rounded-2xl p-2">
+        <div className="px-2 pt-1 pb-2">
+          <p className="text-xs font-semibold">Schedule inbox</p>
+          <p className="text-muted-foreground mt-0.5 text-[10px]">
+            Agent work waiting for your judgment.
           </p>
         </div>
-      </div>
-      <p className="text-muted-foreground mt-3 font-mono text-[10px]">
-        {work.onceAt === undefined
-          ? work.cron
-          : new Date(work.onceAt).toLocaleString()}{" "}
-        · {work.timezone}
-      </p>
-      {work.nextAt ? (
-        <p className="text-muted-foreground mt-2 text-[10px]">
-          Next {new Date(work.nextAt).toLocaleString()}
-        </p>
-      ) : null}
-      {work.lastCompletedAt ? (
-        <p className="text-muted-foreground mt-1 text-[10px]">
-          Last completed {new Date(work.lastCompletedAt).toLocaleString()}
-        </p>
-      ) : null}
-      {work.lastSummary ? (
-        <p className="text-muted-foreground mt-3 line-clamp-3 text-xs leading-5">
-          {work.lastSummary}
-        </p>
-      ) : null}
-      <div className="mt-3 flex gap-1.5">
-        {approvalNeeded ? (
-          <Button size="sm" className="flex-1" onClick={onReview}>
-            {work.status === "needs_approval"
-              ? "Open conversation"
-              : "Review approval"}
-          </Button>
+        {work.length > 0 ? (
+          <div className="space-y-1">
+            {work.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onOpen(item)}
+                className="hover:bg-accent flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors"
+              >
+                <span className="size-1.5 shrink-0 rounded-full bg-amber-400" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-semibold">
+                    {item.title}
+                  </span>
+                  <span className="text-muted-foreground mt-0.5 block truncate text-[10px]">
+                    {agentName(item.agentId)} · {friendlySchedule(item)}
+                  </span>
+                </span>
+                <ChevronRight
+                  size={12}
+                  className="text-muted-foreground shrink-0"
+                />
+              </button>
+            ))}
+          </div>
         ) : (
-          <>
-            <Button variant="outline" size="sm" onClick={onRun}>
-              <Play size={12} />
-              Start now
-            </Button>
-            <Button variant="outline" size="sm" onClick={onToggle}>
-              {work.status === "active" ? (
-                <Pause size={12} />
-              ) : (
-                <Play size={12} />
-              )}
-              {work.status === "active" ? "Pause" : "Resume"}
-            </Button>
-          </>
+          <p className="text-muted-foreground rounded-xl bg-emerald-500/[0.05] px-3 py-3 text-[10px] shadow-[inset_0_0_0_1px_rgba(16,185,129,0.1)]">
+            Nothing is waiting for review.
+          </p>
         )}
-      </div>
-      {!approvalNeeded && onPlacement && work.placement === "cloud" ? (
-        <div className="mt-3 flex items-center justify-between gap-2 border-t pt-2.5">
-          <span className="text-muted-foreground text-[10px]">
-            Cloud schedules are unavailable until Executor can enforce
-            schedule-scoped grants.
-          </span>
-          <button
-            type="button"
-            onClick={() => onPlacement("local")}
-            className="text-foreground shrink-0 border px-2 py-0.5 text-[10px]"
-          >
-            Move to this Mac
-          </button>
-        </div>
-      ) : null}
-    </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1475,13 +1684,12 @@ export function SchedulePage() {
 
   const showPosts = visibleKinds.has("post");
   const showAgentWork = visibleKinds.has("agent-work");
-  const selectedDrafts = showPosts ? (byDay.get(dayKey(selected)) ?? []) : [];
-  const selectedRecurringWork = showAgentWork
-    ? (recurringByDay.get(dayKey(selected)) ?? [])
-    : [];
   const pendingApprovals = workspaceData.recurringWork.filter(
     (work) => work.status === "draft" || work.status === "needs_approval",
   );
+  const activeScheduleCount = workspaceData.recurringWork.filter(
+    (work) => work.status === "active",
+  ).length;
 
   const requestMonth = (month: Date) => {
     setMonthDirection(month > activeMonth ? 1 : -1);
@@ -1557,14 +1765,20 @@ export function SchedulePage() {
 
   return (
     <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
-      <header className="flex shrink-0 flex-wrap items-end justify-between gap-5 border-b px-8 pt-4 pb-5">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-4 px-6 pt-5 pb-4">
         <div>
-          <h1 className="font-serif text-3xl">Schedule</h1>
-          <p className="text-muted-foreground mt-2 text-sm">
-            Planned content and recurring agent work.
+          <h1 className="text-[26px] font-semibold tracking-[-0.035em]">
+            Schedule
+          </h1>
+          <p className="text-muted-foreground mt-1 text-[13px]">
+            Direct when agents work and review what they have planned.
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <span className="text-muted-foreground mr-1 hidden items-center gap-2 text-[11px] lg:flex">
+            <span className="size-1.5 rounded-full bg-emerald-500" />
+            {activeScheduleCount} active
+          </span>
           <Button
             variant="outline"
             size="sm"
@@ -1574,8 +1788,43 @@ export function SchedulePage() {
             }}
           >
             <Plus size={13} />
-            New recurring work
+            New agent work
           </Button>
+        </div>
+      </header>
+
+      <div className="flex min-h-0 shrink-0 items-center justify-between gap-4 px-6 pb-3">
+        <div className="relative h-8 min-w-0 flex-1 overflow-hidden">
+          <AnimatePresence
+            initial={false}
+            mode="popLayout"
+            custom={monthDirection}
+          >
+            <motion.p
+              key={view === "month" ? monthKey(activeMonth) : focusedHeading}
+              initial={
+                reduceMotion ? false : { y: monthDirection * 18, opacity: 0 }
+              }
+              animate={{ y: 0, opacity: 1 }}
+              exit={
+                reduceMotion
+                  ? { opacity: 0 }
+                  : { y: monthDirection * -18, opacity: 0 }
+              }
+              transition={{
+                type: "spring",
+                stiffness: 440,
+                damping: 38,
+                mass: 0.7,
+              }}
+              className="absolute inset-x-0 min-w-0 truncate text-xl font-semibold tracking-[-0.025em]"
+            >
+              {view === "month" ? monthLabel(activeMonth) : focusedHeading}
+            </motion.p>
+          </AnimatePresence>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <ScheduleInbox work={pendingApprovals} onOpen={openWorkReview} />
           <ScheduleFilters
             visibleKinds={visibleKinds}
             onToggle={(kind) => {
@@ -1597,15 +1846,22 @@ export function SchedulePage() {
           >
             Today
           </Button>
-          <div className="flex border p-0.5">
+          <Button variant="outline" size="icon-sm" onClick={() => move(-1)}>
+            <ChevronLeft size={14} />
+          </Button>
+          <Button variant="outline" size="icon-sm" onClick={() => move(1)}>
+            <ChevronRight size={14} />
+          </Button>
+          <div className="bg-muted/45 flex rounded-lg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
             {(["month", "week", "day"] as const).map((option) => (
               <button
                 key={option}
                 type="button"
                 onClick={() => setView(option)}
                 className={cn(
-                  "text-muted-foreground hover:text-foreground px-3 py-1.5 text-xs capitalize transition-colors",
-                  view === option && "bg-accent text-foreground",
+                  "text-muted-foreground hover:text-foreground rounded-md px-3 py-1.5 text-[11px] font-medium capitalize transition-[background-color,box-shadow,color]",
+                  view === option &&
+                    "bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.07),inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]",
                 )}
               >
                 {option}
@@ -1613,165 +1869,55 @@ export function SchedulePage() {
             ))}
           </div>
         </div>
-      </header>
-
-      <div className="flex min-h-0 shrink-0 items-center justify-between border-b px-4 py-2">
-        <div className="relative h-7 min-w-0 flex-1 overflow-hidden">
-          <AnimatePresence
-            initial={false}
-            mode="popLayout"
-            custom={monthDirection}
-          >
-            <motion.p
-              key={view === "month" ? monthKey(activeMonth) : focusedHeading}
-              initial={
-                reduceMotion ? false : { y: monthDirection * 20, opacity: 0 }
-              }
-              animate={{ y: 0, opacity: 1 }}
-              exit={
-                reduceMotion
-                  ? { opacity: 0 }
-                  : { y: monthDirection * -20, opacity: 0 }
-              }
-              transition={{
-                type: "spring",
-                stiffness: 440,
-                damping: 38,
-                mass: 0.7,
-              }}
-              className="absolute inset-x-0 min-w-0 truncate font-serif text-xl"
-            >
-              {view === "month" ? monthLabel(activeMonth) : focusedHeading}
-            </motion.p>
-          </AnimatePresence>
-        </div>
-        <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon" onClick={() => move(-1)}>
-            <ChevronLeft size={15} />
-          </Button>
-          <Button variant="outline" size="icon" onClick={() => move(1)}>
-            <ChevronRight size={15} />
-          </Button>
-        </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_280px]">
-        <section className="min-w-0 overflow-hidden">
-          {view === "month" ? (
-            <ContinuousMonthView
-              currentMonth={currentMonth}
-              activeMonth={activeMonth}
-              onActiveMonthChange={(month) => {
-                setMonthDirection(month > activeMonth ? 1 : -1);
-                setActiveMonth(month);
-              }}
-              today={today}
-              selected={selected}
-              onSelect={setSelected}
-              onWorkContext={(work, date, x, y) =>
-                setWorkMenu({ work, date, x, y })
-              }
-              onDateContext={(date, x, y) => {
-                setSelected(date);
-                setDateMenu({ date, x, y });
-              }}
-              byDay={byDay}
-              recurringByDay={recurringByDay}
-              showPosts={showPosts}
-              showAgentWork={showAgentWork}
-              scrollRequest={scrollRequest}
-            />
-          ) : (
-            <FocusedCalendarView
-              view={view}
-              selected={selected}
-              today={today}
-              onSelect={setSelected}
-              onWorkContext={(work, date, x, y) =>
-                setWorkMenu({ work, date, x, y })
-              }
-              onDateContext={(date, x, y) => {
-                setSelected(date);
-                setDateMenu({ date, x, y });
-              }}
-              byDay={byDay}
-              recurringByDay={recurringByDay}
-              showPosts={showPosts}
-              showAgentWork={showAgentWork}
-            />
-          )}
-        </section>
-
-        <aside className="min-h-0 overflow-y-auto border-l p-5">
-          {pendingApprovals.length > 0 ? (
-            <div className="mb-6 space-y-2 border-b pb-5">
-              <p className="text-muted-foreground text-xs">
-                Needs your approval
-              </p>
-              {pendingApprovals.map((work) => (
-                <RecurringWorkDetail
-                  key={work.id}
-                  work={work}
-                  onReview={() => openWorkReview(work)}
-                  onRun={() => {}}
-                  onToggle={() => {}}
-                />
-              ))}
-            </div>
-          ) : null}
-          <p className="text-muted-foreground text-xs">
-            {selected.toLocaleDateString([], { weekday: "long" })}
-          </p>
-          <h2 className="mt-1 font-serif text-2xl">
-            {selected.toLocaleDateString([], { month: "long", day: "numeric" })}
-          </h2>
-          <div className="mt-6 space-y-2">
-            {selectedDrafts.map((draft) => (
-              <DraftChip key={draft.id} draft={draft} />
-            ))}
-            {selectedRecurringWork.map((work) => (
-              <RecurringWorkDetail
-                key={work.id}
-                work={work}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setWorkMenu({
-                    work,
-                    date: selected,
-                    x: event.clientX,
-                    y: event.clientY,
-                  });
-                }}
-                onReview={() => openWorkReview(work)}
-                onRun={() => workspaceData.runRecurringWorkNow(work.id)}
-                onToggle={() =>
-                  workspaceData.saveRecurringWork({
-                    ...work,
-                    status: work.status === "active" ? "paused" : "active",
-                    updatedAt: Date.now(),
-                  })
-                }
-                onPlacement={(placement) =>
-                  workspaceData.saveRecurringWork({
-                    ...work,
-                    placement,
-                    updatedAt: Date.now(),
-                  })
-                }
-              />
-            ))}
-            {selectedDrafts.length === 0 &&
-            selectedRecurringWork.length === 0 ? (
-              <div className="flex min-h-[420px] items-center justify-center text-center">
-                <p className="text-muted-foreground text-sm">
-                  Nothing scheduled
-                </p>
-              </div>
-            ) : null}
-          </div>
-        </aside>
-      </div>
+      <section className="min-w-0 flex-1 overflow-hidden border-t border-black/[0.06] dark:border-white/[0.06]">
+        {view === "month" ? (
+          <ContinuousMonthView
+            currentMonth={currentMonth}
+            activeMonth={activeMonth}
+            onActiveMonthChange={(month) => {
+              setMonthDirection(month > activeMonth ? 1 : -1);
+              setActiveMonth(month);
+            }}
+            today={today}
+            selected={selected}
+            onSelect={setSelected}
+            onWorkOpen={openWorkReview}
+            onWorkContext={(work, date, x, y) =>
+              setWorkMenu({ work, date, x, y })
+            }
+            onDateContext={(date, x, y) => {
+              setSelected(date);
+              setDateMenu({ date, x, y });
+            }}
+            byDay={byDay}
+            recurringByDay={recurringByDay}
+            showPosts={showPosts}
+            showAgentWork={showAgentWork}
+            scrollRequest={scrollRequest}
+          />
+        ) : (
+          <FocusedCalendarView
+            view={view}
+            selected={selected}
+            today={today}
+            onSelect={setSelected}
+            onWorkOpen={openWorkReview}
+            onWorkContext={(work, date, x, y) =>
+              setWorkMenu({ work, date, x, y })
+            }
+            onDateContext={(date, x, y) => {
+              setSelected(date);
+              setDateMenu({ date, x, y });
+            }}
+            byDay={byDay}
+            recurringByDay={recurringByDay}
+            showPosts={showPosts}
+            showAgentWork={showAgentWork}
+          />
+        )}
+      </section>
       <RecurringWorkApprovalDialog
         work={approvalWork}
         onClose={() => setApprovalWorkId(null)}

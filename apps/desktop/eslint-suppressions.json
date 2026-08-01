@@ -224,9 +224,6 @@
     }
   },
   "src/pages/schedule.tsx": {
-    "@typescript-eslint/no-empty-function": {
-      "count": 2
-    },
     "@typescript-eslint/no-non-null-assertion": {
       "count": 2
     },
