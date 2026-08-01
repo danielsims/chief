@@ -136,15 +136,15 @@ function draftTone(status: ScheduledDraft["status"], past = false) {
     return "bg-zinc-200 text-zinc-600 shadow-[inset_0_1px_rgba(255,255,255,0.7),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-zinc-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600";
   }
   if (status === "published") {
-    return "bg-emerald-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.16),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-emerald-700";
+    return "bg-[#3c8365] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#347257]";
   }
   if (status === "scheduled") {
-    return "bg-cyan-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.16),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-cyan-700";
+    return "bg-[#357d92] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#2e6d7f]";
   }
   if (status === "approved") {
-    return "bg-violet-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.16),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-violet-700";
+    return "bg-[#7257a8] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#634b92]";
   }
-  return "bg-zinc-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-zinc-700";
+  return "bg-[#60616a] text-white shadow-[inset_0_1px_rgba(255,255,255,0.12),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#53545c]";
 }
 
 function agentWorkTone(agentId: string, past = false) {
@@ -152,24 +152,24 @@ function agentWorkTone(agentId: string, past = false) {
     return "bg-zinc-200 text-zinc-600 shadow-[inset_0_1px_rgba(255,255,255,0.7),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-zinc-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600";
   }
   if (agentId === "prospector") {
-    return "bg-violet-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-violet-700";
+    return "bg-[#7257a8] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#634b92]";
   }
   if (agentId === "content") {
-    return "bg-rose-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-rose-700";
+    return "bg-[#b64f66] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#9f4559]";
   }
   if (agentId === "brand") {
-    return "bg-fuchsia-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-fuchsia-700";
+    return "bg-[#995181] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#85466f]";
   }
   if (agentId === "analyst") {
-    return "bg-sky-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-sky-700";
+    return "bg-[#357da2] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#2e6d8d]";
   }
   if (agentId === "ads") {
-    return "bg-teal-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-teal-700";
+    return "bg-[#38877f] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#30756e]";
   }
   if (agentId === "setup") {
-    return "bg-emerald-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-emerald-700";
+    return "bg-[#3c8365] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#347257]";
   }
-  return "bg-indigo-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-indigo-700";
+  return "bg-[#5b6595] text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#4f5882]";
 }
 
 function workStatusLabel(status: RecurringWorkRecord["status"]) {
@@ -2315,15 +2315,15 @@ export function SchedulePage() {
         <footer className="text-muted-foreground flex h-11 shrink-0 items-center justify-between px-6 text-[10px]">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-2">
-              <span className="size-1.5 rounded-full bg-amber-400" />
+              <span className="size-1.5 rounded-full bg-[#7257a8]" />
               Prospecting
             </span>
             <span className="flex items-center gap-2">
-              <span className="size-1.5 rounded-full bg-sky-500" />
+              <span className="size-1.5 rounded-full bg-[#357da2]" />
               Analytics
             </span>
             <span className="flex items-center gap-2">
-              <span className="size-1.5 rounded-full bg-rose-400" />
+              <span className="size-1.5 rounded-full bg-[#b64f66]" />
               Content
             </span>
           </div>
