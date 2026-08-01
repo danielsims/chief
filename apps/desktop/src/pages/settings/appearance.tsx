@@ -34,106 +34,68 @@ const THEMES: {
   },
 ];
 
-function MiniApplication({
-  mode,
-  className,
-}: {
-  mode: "light" | "dark";
-  className?: string;
-}) {
-  const dark = mode === "dark";
+function MiniApplication({ mode }: { mode: ThemePreference }) {
+  const surface =
+    mode === "system"
+      ? "bg-[linear-gradient(to_right,#f6f5f1_0_50%,#171717_50%)] shadow-[inset_0_0_0_1px_rgba(127,127,127,0.18)]"
+      : mode === "dark"
+        ? "bg-[#171717] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.09)]"
+        : "bg-[#f6f5f1] shadow-[inset_0_0_0_1px_rgba(24,24,24,0.09)]";
+  const strong =
+    mode === "system"
+      ? "bg-white/70 mix-blend-difference"
+      : mode === "dark"
+        ? "bg-white/64"
+        : "bg-black/58";
+  const muted =
+    mode === "system"
+      ? "bg-white/82 mix-blend-difference"
+      : mode === "dark"
+        ? "bg-white/18"
+        : "bg-black/14";
+  const hairline =
+    mode === "system"
+      ? "bg-white/85 mix-blend-difference"
+      : mode === "dark"
+        ? "bg-white/9"
+        : "bg-black/8";
 
   return (
     <span
+      aria-hidden="true"
       className={cn(
-        "relative block overflow-hidden rounded-xl",
-        dark
-          ? "bg-[#101010] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1)]"
-          : "bg-[#fffefc] shadow-[inset_0_0_0_1px_rgba(24,24,24,0.1)]",
-        className,
+        "relative block h-[82px] overflow-hidden rounded-xl",
+        surface,
       )}
     >
-      <span
-        className={cn(
-          "flex h-[17%] items-center gap-1 border-b px-2",
-          dark ? "border-white/8 bg-[#151515]" : "border-black/6 bg-[#f8f6f1]",
-        )}
-      >
+      <span className="absolute inset-y-0 left-0 w-[24%]">
         <span
-          className={cn(
-            "size-1 rounded-full",
-            dark ? "bg-white/22" : "bg-black/18",
-          )}
+          className={cn("absolute inset-y-0 right-0 w-px opacity-80", hairline)}
         />
         <span
-          className={cn(
-            "size-1 rounded-full",
-            dark ? "bg-white/22" : "bg-black/18",
-          )}
+          className={cn("absolute top-3 left-2.5 size-2 rounded-[3px]", strong)}
         />
         <span
-          className={cn(
-            "size-1 rounded-full",
-            dark ? "bg-white/22" : "bg-black/18",
-          )}
+          className={cn("absolute top-8 left-2.5 h-1 w-7 rounded-full", muted)}
+        />
+        <span
+          className={cn("absolute top-12 left-2.5 h-1 w-5 rounded-full", muted)}
         />
       </span>
-      <span className="flex h-[83%] min-h-0">
-        <span
-          className={cn(
-            "flex w-[26%] shrink-0 flex-col gap-1.5 px-1.5 py-2",
-            dark ? "bg-[#181818]" : "bg-[#efede7]",
-          )}
-        >
-          <span
-            className={cn(
-              "mb-0.5 h-1.5 w-3/4 rounded-full",
-              dark ? "bg-white/28" : "bg-black/25",
-            )}
-          />
-          <span
-            className={cn(
-              "h-2.5 w-full rounded-[3px]",
-              dark ? "bg-white/13" : "bg-black/10",
-            )}
-          />
-          <span
-            className={cn(
-              "h-1 w-4/5 rounded-full",
-              dark ? "bg-white/16" : "bg-black/14",
-            )}
-          />
-        </span>
-        <span className="flex min-w-0 flex-1 flex-col p-2">
-          <span
-            className={cn(
-              "h-1.5 w-1/3 rounded-full",
-              dark ? "bg-white/65" : "bg-black/62",
-            )}
-          />
-          <span
-            className={cn(
-              "mt-2 flex-1 rounded-[6px]",
-              dark
-                ? "bg-[#1c1c1c] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)]"
-                : "bg-[#f1efe9] shadow-[inset_0_0_0_1px_rgba(24,24,24,0.07)]",
-            )}
-          />
-          <span
-            className={cn(
-              "mt-1.5 h-2.5 rounded-[4px]",
-              dark
-                ? "bg-[#242424] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)]"
-                : "bg-white shadow-[inset_0_0_0_1px_rgba(24,24,24,0.06)]",
-            )}
-          >
+      <span className="absolute inset-y-0 right-0 left-[24%] px-3 pt-3">
+        <span className={cn("block h-1.5 w-14 rounded-full", strong)} />
+        <span className="mt-3 flex items-center gap-2">
+          <span className={cn("size-3 shrink-0 rounded-full", muted)} />
+          <span className="min-w-0 flex-1 space-y-1.5">
+            <span className={cn("block h-1 w-1/2 rounded-full", muted)} />
             <span
-              className={cn(
-                "ml-auto block size-2.5 rounded-[4px]",
-                dark ? "bg-white/78" : "bg-black/78",
-              )}
+              className={cn("block h-1 w-3/4 rounded-full opacity-60", muted)}
             />
           </span>
+        </span>
+        <span className="mt-2 flex items-center gap-2">
+          <span className={cn("size-3 shrink-0 rounded-full", muted)} />
+          <span className={cn("h-1 w-1/3 rounded-full opacity-70", muted)} />
         </span>
       </span>
     </span>
@@ -141,19 +103,11 @@ function MiniApplication({
 }
 
 function ThemePreview({ theme }: { theme: ThemePreference }) {
-  if (theme === "system") {
-    return (
-      <span
-        aria-hidden="true"
-        className="grid h-[92px] grid-cols-2 gap-px overflow-hidden rounded-xl bg-black/12 shadow-[inset_0_0_0_1px_rgba(24,24,24,0.08)] dark:bg-white/12 dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]"
-      >
-        <MiniApplication mode="light" className="h-full rounded-r-none" />
-        <MiniApplication mode="dark" className="h-full rounded-l-none" />
-      </span>
-    );
-  }
-
-  return <MiniApplication mode={theme} className="h-[92px] w-full" />;
+  return (
+    <span className="block p-1">
+      <MiniApplication mode={theme} />
+    </span>
+  );
 }
 
 export function AppearanceSettings() {
