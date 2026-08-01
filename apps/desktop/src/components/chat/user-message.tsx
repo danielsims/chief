@@ -26,7 +26,7 @@ export function UserMessage({
       <div className="min-w-0 flex-1 pt-0.5">
         <div className="mb-1 flex items-baseline gap-2">
           <strong className="text-[13px] font-semibold">{author.name}</strong>
-          <span className="text-muted-foreground text-[10px]">you</span>
+          <span className="text-muted-foreground text-[10px]">You</span>
         </div>
         <div className="chat-markdown overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]">
           <StreamingMarkdown>{text}</StreamingMarkdown>
