@@ -31,6 +31,7 @@ import {
   WorkspaceIndicator,
   WorkspaceLearningCard,
 } from "../components/overview-presentation";
+import { PageTitle } from "../components/page-title";
 import { useAgentConfig } from "../lib/agent-config";
 import { setAgentOverride, setWorkspaceProvider } from "../lib/agent-overrides";
 import { useAuth } from "../lib/auth/auth-context";
@@ -824,9 +825,9 @@ export function DashboardPage() {
       <div className="flex min-h-0 flex-1 flex-col justify-center pt-6">
         <header className="mb-6 flex shrink-0 items-start justify-between gap-6 max-[760px]:flex-col">
           <div>
-            <h1 className="m-0 text-[clamp(25px,3vw,36px)] leading-[1.06] font-normal tracking-[-0.04em]">
+            <PageTitle>
               {greeting(workspaceData.now)}, {firstName}
-            </h1>
+            </PageTitle>
             <p className="text-muted-foreground mt-2 text-xs">
               An overview of your channels and agents.
             </p>

@@ -39,6 +39,7 @@ import type { Provider } from "../lib/providers";
 import { AgentChannelsPanel } from "../components/agents/agent-channels-panel";
 import { AgentDeploymentPanel } from "../components/agents/agent-deployment-panel";
 import { IntegrationAvatarStack } from "../components/integrations/integration-avatar-stack";
+import { PageTitle } from "../components/page-title";
 import { PlaybookDocument } from "../components/playbooks/playbook-document";
 import { useAgentConfig } from "../lib/agent-config";
 import {
@@ -154,7 +155,7 @@ function AgentAvatar({
   return (
     <span
       className={cn(
-        "bg-foreground/[0.055] relative flex shrink-0 items-center justify-center rounded-xl font-semibold shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),inset_0_1px_rgba(255,255,255,0.05)]",
+        "bg-foreground text-background relative flex shrink-0 items-center justify-center rounded-xl font-semibold shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--background)_12%,transparent),inset_0_1px_color-mix(in_srgb,var(--background)_10%,transparent)]",
         size === "sm" && "size-8 text-[10px]",
         size === "md" && "size-10 text-xs",
         size === "lg" && "size-12 text-sm",
@@ -565,7 +566,7 @@ function TeamAgentCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        "bg-background dark:bg-card hover:bg-accent/35 group flex min-h-48 flex-col rounded-[18px] px-4 py-4 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),0_1px_2px_rgba(0,0,0,0.025)] transition-[background-color,box-shadow]",
+        "bg-muted hover:bg-accent/70 group flex min-h-48 flex-col rounded-[18px] px-4 py-4 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),0_1px_2px_rgba(0,0,0,0.025)] transition-[background-color,box-shadow]",
         selected &&
           "bg-accent/40 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_12%,transparent),0_2px_8px_rgba(0,0,0,0.035)]",
       )}
@@ -883,9 +884,7 @@ export function AgentsPage() {
       <header className="shrink-0 px-6 pt-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-[26px] font-semibold tracking-[-0.035em]">
-              Agents
-            </h1>
+            <PageTitle>Agents</PageTitle>
             <p className="text-muted-foreground mt-1 text-[13px]">
               See who is available, what they can access, and where they are
               working.
@@ -1127,7 +1126,7 @@ export function AgentsPage() {
                             return params;
                           });
                         }}
-                        className="bg-background dark:bg-card hover:bg-accent/35 group flex min-h-48 flex-col rounded-[18px] p-4 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)] transition-[background-color,box-shadow]"
+                        className="bg-muted hover:bg-accent/70 group flex min-h-48 flex-col rounded-[18px] p-4 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)] transition-[background-color,box-shadow]"
                       >
                         <span className="flex w-full items-start gap-3 pb-3">
                           <AgentAvatar
