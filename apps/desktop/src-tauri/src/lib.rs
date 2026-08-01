@@ -484,21 +484,21 @@ fn spawn_agent_runtime(_app: &tauri::AppHandle) -> Option<Child> {
     let mut candidates: Vec<(PathBuf, Vec<&str>)> = vec![
         (
             PathBuf::from("/opt/homebrew/bin/corepack"),
-            vec!["pnpm", "--filter", "@chief/agent-runtime", "start"],
+            vec!["pnpm", "--filter", "@chief/agent-runtime", "dev"],
         ),
         (
             PathBuf::from("corepack"),
-            vec!["pnpm", "--filter", "@chief/agent-runtime", "start"],
+            vec!["pnpm", "--filter", "@chief/agent-runtime", "dev"],
         ),
         (
             PathBuf::from("/opt/homebrew/bin/pnpm"),
-            vec!["--filter", "@chief/agent-runtime", "start"],
+            vec!["--filter", "@chief/agent-runtime", "dev"],
         ),
     ];
     if let Some(home) = env::var_os("HOME") {
         candidates.push((
             PathBuf::from(home).join("Library/pnpm/pnpm"),
-            vec!["--filter", "@chief/agent-runtime", "start"],
+            vec!["--filter", "@chief/agent-runtime", "dev"],
         ));
     }
 
