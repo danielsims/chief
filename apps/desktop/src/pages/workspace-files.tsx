@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { FileText, Mail, MoveUpRight } from "lucide-react";
 import { useNavigate } from "react-router";
 
+import { PageTitle } from "../components/page-title";
 import { useAuth } from "../lib/auth/auth-context";
 import { useWorkspaceFiles } from "../lib/runtime";
 
@@ -22,68 +23,76 @@ export function WorkspaceFilesPage() {
   );
 
   return (
-    <section className="mx-auto max-w-6xl pt-8 pb-20">
-      <header className="border-b pb-8">
-        <h1 className="font-serif text-4xl">Files</h1>
-        <p className="text-muted-foreground mt-2 max-w-xl text-sm leading-6">
+    <section className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
+      <header className="shrink-0 border-b border-black/[0.055] px-6 pt-5 pb-4 dark:border-white/[0.055]">
+        <PageTitle>Files</PageTitle>
+        <p className="text-muted-foreground mt-1 max-w-xl text-[13px] leading-5">
           Documents your agents have created for this workspace. Open one to
           edit it, preview it, or continue the work with an agent.
         </p>
       </header>
 
-      {loading && sortedFiles.length === 0 ? (
-        <div className="mt-8 space-y-2">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <div
-              key={index}
-              className="bg-card h-[76px] animate-pulse border"
-            />
-          ))}
-        </div>
-      ) : sortedFiles.length === 0 ? (
-        <div className="mt-8 border px-8 py-16 text-center">
-          <p className="font-serif text-2xl">No files yet</p>
-          <p className="text-muted-foreground mx-auto mt-2 max-w-md text-sm leading-6">
-            When an agent drafts a document or email, it will appear here as an
-            editable file.
-          </p>
-        </div>
-      ) : (
-        <div className="mt-8 border">
-          {sortedFiles.map((file, index) => {
-            const Icon = file.kind === "email" ? Mail : FileText;
-            return (
-              <button
-                key={file.id}
-                type="button"
-                onClick={() =>
-                  navigate(`/files/${encodeURIComponent(file.id)}`)
-                }
-                className={`hover:bg-accent/60 group flex w-full items-center gap-4 px-5 py-4 text-left transition-colors ${index > 0 ? "border-t" : ""}`}
-              >
-                <span className="bg-card flex size-9 shrink-0 items-center justify-center border">
-                  <Icon size={15} strokeWidth={1.6} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">
-                    {file.name}
-                  </span>
-                  <span className="text-muted-foreground mt-1 block truncate font-mono text-[10px]">
-                    {file.path}
-                  </span>
-                </span>
-                <span className="text-muted-foreground shrink-0 text-[11px]">
-                  {updatedFormatter.format(file.updatedAt)}
-                </span>
-                <MoveUpRight
-                  size={14}
-                  className="text-muted-foreground group-hover:text-foreground shrink-0 transition-colors"
+      <div className="min-h-0 flex-1 [scrollbar-width:thin] overflow-y-auto px-6 py-6">
+        <div className="mx-auto w-full max-w-6xl">
+          {loading && sortedFiles.length === 0 ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div
+                  key={index}
+                  className="bg-muted h-[72px] animate-pulse rounded-2xl shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]"
                 />
-              </button>
-            );
-          })}
+              ))}
+            </div>
+          ) : sortedFiles.length === 0 ? (
+            <div className="bg-muted flex min-h-64 flex-col items-center justify-center rounded-2xl px-8 py-16 text-center shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),0_1px_2px_rgba(0,0,0,0.025)]">
+              <p className="text-[22px] leading-tight font-normal tracking-[-0.035em]">
+                No files yet
+              </p>
+              <p className="text-muted-foreground mt-2 max-w-md text-[12px] leading-5">
+                When an agent drafts a document or email, it will appear here as
+                an editable file.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {sortedFiles.map((file) => {
+                const Icon = file.kind === "email" ? Mail : FileText;
+                return (
+                  <button
+                    key={file.id}
+                    type="button"
+                    onClick={() =>
+                      navigate(`/files/${encodeURIComponent(file.id)}`)
+                    }
+                    className="bg-muted hover:bg-accent/70 group flex min-h-[68px] w-full items-center gap-3.5 rounded-2xl px-4 py-3 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),0_1px_2px_rgba(0,0,0,0.025)] transition-[background-color,box-shadow]"
+                  >
+                    <Icon
+                      size={16}
+                      strokeWidth={1.7}
+                      className="text-muted-foreground shrink-0"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium">
+                        {file.name}
+                      </span>
+                      <span className="text-muted-foreground mt-0.5 block truncate font-mono text-[10px]">
+                        {file.path}
+                      </span>
+                    </span>
+                    <span className="text-muted-foreground shrink-0 text-[10px] tabular-nums">
+                      {updatedFormatter.format(file.updatedAt)}
+                    </span>
+                    <MoveUpRight
+                      size={13}
+                      className="text-muted-foreground/60 group-hover:text-foreground shrink-0 transition-[color,transform] group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </section>
   );
 }
