@@ -8,8 +8,8 @@ import { messageBlocks, useObservedChat } from "../../lib/runtime";
 import { AgentWorkingIndicator } from "./agent-working-indicator";
 import { Blocks } from "./message-blocks";
 import { ordinaryToolMessageGroups } from "./specialist-task-display";
-import { StreamingMarkdown } from "./streaming-markdown";
 import { ToolActivityGroup } from "./tool-activity-group";
+import { UserMessage } from "./user-message";
 
 export function ObservedChat({
   chatId,
@@ -70,16 +70,7 @@ export function ObservedChat({
               .flatMap((block) => (block.type === "text" ? [block.text] : []))
               .join("\n");
             if (!text.trim()) return null;
-            return (
-              <div
-                key={message.id}
-                className="mx-auto flex w-full max-w-3xl justify-end"
-              >
-                <div className="chat-markdown bg-accent max-w-[80%] overflow-hidden border px-3 py-2 text-sm leading-6 [overflow-wrap:anywhere]">
-                  <StreamingMarkdown>{text}</StreamingMarkdown>
-                </div>
-              </div>
-            );
+            return <UserMessage key={message.id} text={text} />;
           }
           if (message.role !== "assistant" || blocks.length === 0) return null;
           const toolGroup = ordinaryToolGroups.get(message.id);

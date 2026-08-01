@@ -1,5 +1,12 @@
 import { lazy, startTransition, Suspense, useEffect, useState } from "react";
-import { Hash, MoreHorizontal, Plus, Sparkles, Users } from "lucide-react";
+import {
+  Hash,
+  MoreHorizontal,
+  PanelRightClose,
+  Plus,
+  Sparkles,
+  Users,
+} from "lucide-react";
 import { useSearchParams } from "react-router";
 
 import type { DriverType } from "@chief/agent-runtime/types";
@@ -96,12 +103,11 @@ export function ConversationsPage() {
     (session) =>
       session.id === activeChildId && session.parentId === activeChatId,
   );
-
-  useEffect(() => {
-    const first = localChats.chats[0];
-    if (activeChatId || !first) return;
-    setParams({ chat: first.id }, { replace: true });
-  }, [activeChatId, localChats.chats, setParams]);
+  const hasBrowserPanel =
+    Boolean(browserUrl) &&
+    browserWorkspaceId === cloudOrganizationId &&
+    browserConversationId === activeChatId;
+  const hasAuxiliaryPanel = activeChild !== undefined || hasBrowserPanel;
 
   const openNew = () => {
     const chat = createChat();
@@ -111,10 +117,9 @@ export function ConversationsPage() {
     activeEntry?.title ?? (activeChatId ? "New channel" : "Channels");
 
   return (
-    <div className="bg-background flex h-screen min-w-0 flex-col overflow-hidden">
-      <header className="relative flex h-[66px] shrink-0 items-end border-b px-5 pb-2.5">
-        <div data-tauri-drag-region className="absolute inset-0" />
-        <div className="relative z-10 flex min-w-0 flex-1 items-center gap-2">
+    <div className="bg-background flex h-full min-w-0 flex-col overflow-hidden">
+      <header className="border-border/70 relative flex h-14 shrink-0 items-center border-b px-5">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <Hash size={17} className="text-muted-foreground shrink-0" />
           <div className="min-w-0">
             <h1 className="truncate text-[14px] leading-4 font-semibold">
@@ -125,12 +130,12 @@ export function ConversationsPage() {
             </p>
           </div>
         </div>
-        <div className="relative z-10 flex items-center gap-1.5">
-          <div className="border-border bg-card flex h-8 items-center gap-1 border px-2">
-            <span className="bg-foreground text-background flex size-4 items-center justify-center text-[8px] font-semibold">
+        <div className="flex items-center gap-1.5">
+          <div className="border-border/70 bg-card flex h-8 items-center gap-1 rounded-lg border px-2">
+            <span className="bg-foreground text-background flex size-4 items-center justify-center rounded-md text-[8px] font-semibold">
               C
             </span>
-            <span className="bg-muted text-muted-foreground flex size-4 items-center justify-center">
+            <span className="bg-muted text-muted-foreground flex size-4 items-center justify-center rounded-md">
               <Sparkles size={9} />
             </span>
             <span className="text-muted-foreground ml-0.5 text-[10px]">2</span>
@@ -138,50 +143,27 @@ export function ConversationsPage() {
           <button
             type="button"
             aria-label="Channel members"
-            className="text-muted-foreground hover:bg-accent hover:text-foreground flex size-8 items-center justify-center border"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground border-border/70 flex size-8 items-center justify-center rounded-lg border"
           >
             <Users size={14} />
           </button>
           <button
             type="button"
             aria-label="Channel actions"
-            className="text-muted-foreground hover:bg-accent hover:text-foreground flex size-8 items-center justify-center border"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground border-border/70 flex size-8 items-center justify-center rounded-lg border"
           >
             <MoreHorizontal size={15} />
           </button>
         </div>
       </header>
       <main className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
-        <div
+        <section
           className={cn(
             "min-h-0 min-w-0 flex-1 px-5 pb-5",
-            browserUrl &&
-              browserWorkspaceId === cloudOrganizationId &&
-              browserConversationId === activeChatId &&
-              "lg:basis-1/2 lg:pr-4",
+            hasAuxiliaryPanel && "lg:basis-1/2 lg:pr-4",
           )}
         >
-          {activeChatId && activeChild ? (
-            <ObservedChat
-              key={activeChild.id}
-              chatId={activeChild.id}
-              label={
-                <div className="flex min-w-0 items-center justify-start gap-2 px-4">
-                  <button
-                    type="button"
-                    className="hover:text-foreground max-w-[40%] truncate transition-colors"
-                    onClick={() => setParams({ chat: activeChatId })}
-                  >
-                    {activeEntry?.title ?? "Chief"}
-                  </button>
-                  <span aria-hidden>/</span>
-                  <strong className="text-foreground truncate font-medium">
-                    {activeChild.title}
-                  </strong>
-                </div>
-              }
-            />
-          ) : activeChatId && activeSetupDomain ? (
+          {activeChatId && activeSetupDomain ? (
             <IntegrationSetupConversation
               key={activeChatId}
               chatId={activeChatId}
@@ -244,20 +226,50 @@ export function ConversationsPage() {
               </button>
             </div>
           )}
-        </div>
-        {activeChatId &&
-        browserUrl &&
-        browserWorkspaceId === cloudOrganizationId &&
-        browserConversationId === activeChatId ? (
-          <div className="h-[45%] min-h-64 min-w-0 lg:h-full lg:basis-1/2">
-            <Suspense fallback={<div className="bg-card size-full border-l" />}>
+        </section>
+        {activeChatId && activeChild ? (
+          <aside className="border-border/70 bg-background min-h-0 min-w-[360px] basis-[42%] border-l">
+            <ObservedChat
+              key={activeChild.id}
+              chatId={activeChild.id}
+              label={
+                <div className="flex min-w-0 items-center gap-2 px-4">
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className="text-muted-foreground">
+                      {activeEntry?.title ?? "Chief"}
+                    </span>
+                    <span className="px-1.5" aria-hidden>
+                      /
+                    </span>
+                    <strong className="text-foreground font-medium">
+                      {activeChild.title}
+                    </strong>
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="Close thread"
+                    onClick={() => setParams({ chat: activeChatId })}
+                    className="hover:bg-accent hover:text-foreground flex size-7 shrink-0 items-center justify-center rounded-md"
+                  >
+                    <PanelRightClose size={14} />
+                  </button>
+                </div>
+              }
+            />
+          </aside>
+        ) : activeChatId &&
+          browserUrl &&
+          browserWorkspaceId === cloudOrganizationId &&
+          browserConversationId === activeChatId ? (
+          <aside className="border-border/70 h-[45%] min-h-64 min-w-0 border-l lg:h-full lg:basis-1/2">
+            <Suspense fallback={<div className="bg-card size-full" />}>
               <BrowserPanel
                 operating={
                   running[activeChatId] ?? activeEntry?.running ?? false
                 }
               />
             </Suspense>
-          </div>
+          </aside>
         ) : null}
       </main>
     </div>
