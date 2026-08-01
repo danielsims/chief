@@ -226,12 +226,6 @@
   "src/pages/schedule.tsx": {
     "@typescript-eslint/no-non-null-assertion": {
       "count": 2
-    },
-    "react-hooks/purity": {
-      "count": 1
-    },
-    "react-hooks/set-state-in-effect": {
-      "count": 1
     }
   },
   "src/pages/settings/workspace.tsx": {
