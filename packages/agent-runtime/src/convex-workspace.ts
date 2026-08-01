@@ -14,20 +14,26 @@ export const CONVEX_SPECIALISTS = [
   "content",
 ] as const;
 
-const DEPLOYED_RULES = `# Convex deployment
+function deployedRules(name: string, delegates: readonly string[]) {
+  return `# Convex deployment
 
-You run in an isolated Convex project. Use Chief control-plane tools for durable
-workspace reads and writes. Delegate only bounded research, analysis, setup, ad,
-or content tasks to a named specialist; Chief owns verification and the final
-user-facing answer. Never expose credentials or claim a tool succeeded unless
-its response confirms success.`;
+You run as ${name} in an isolated Convex project. Use Chief control-plane tools
+for durable workspace reads and writes.${
+    delegates.length > 0
+      ? ` Delegate only bounded work to the subagents configured in this agent pack: ${delegates.join(
+          ", ",
+        )}. You own verification and the final user-facing answer.`
+      : " This agent pack has no subagents, so complete work directly."
+  } Never expose credentials or claim a tool succeeded unless its response confirms success.`;
+}
 
 export function materializeConvexWorkspace(
   root: string,
   input: EveWorkspaceInput,
 ) {
-  const chief = getAgent("cmo");
-  if (!chief) throw new Error("Chief persona missing from roster.");
+  const rootAgent = getAgent(input.agentId ?? "cmo");
+  if (!rootAgent) throw new Error("Deployment agent missing from roster.");
+  const specialistIds = rootAgent.delegates ?? [];
   const activeCloudAutomations = (input.automations ?? []).filter(
     (automation) =>
       automation.status === "active" && automation.placement === "cloud",
@@ -43,8 +49,8 @@ export function materializeConvexWorkspace(
     .join("\n");
   const system = composeWorkspaceInstructions(
     [
-      chief.instructions,
-      DEPLOYED_RULES,
+      rootAgent.instructions,
+      deployedRules(rootAgent.name, specialistIds),
       playbooks ? `# Available playbooks\n\n${playbooks}` : undefined,
     ]
       .filter(Boolean)
@@ -52,14 +58,14 @@ export function materializeConvexWorkspace(
     input.context,
   );
   const specialists = Object.fromEntries(
-    CONVEX_SPECIALISTS.map((id) => {
+    specialistIds.map((id) => {
       const agent = getAgent(id);
       if (!agent) throw new Error(`Persona missing from roster: ${id}`);
       return [
         id,
         [
           cloudSpecialistInstructions(agent),
-          "Complete only the bounded task supplied by Chief. Do not delegate, publish, spend, message people, or request credentials. Return concise evidence, uncertainty, and a draft or recommendation for Chief to verify.",
+          `Complete only the bounded task supplied by ${rootAgent.name}. Do not delegate, publish, spend, message people, or request credentials. Return concise evidence, uncertainty, and a draft or recommendation for ${rootAgent.name} to verify.`,
           input.context?.trim()
             ? `Workspace context:\n${input.context.trim()}`
             : undefined,
@@ -81,6 +87,6 @@ export function materializeConvexWorkspace(
   );
   return {
     playbookCount: input.playbooks?.length ?? 0,
-    specialistIds: [...CONVEX_SPECIALISTS],
+    specialistIds: [...specialistIds],
   };
 }

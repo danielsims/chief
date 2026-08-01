@@ -25,17 +25,19 @@ import type {
   AgentDeploymentRecord,
   AgentDeploymentTarget,
 } from "./types.js";
+import {
+  persistAgentDeploymentRecord,
+  readAgentDeploymentRecord,
+} from "./agent-deployment-records.js";
+import { defaultAgents, getAgent } from "./agents.js";
 import { materializeConvexWorkspace } from "./convex-workspace.js";
 import { ConvexDeploymentProvider } from "./deployments/convex.js";
 import { DeploymentNeedsConfigurationError } from "./deployments/types.js";
 import { VercelDeploymentProvider } from "./deployments/vercel.js";
 import { materializeEveWorkspace } from "./eve-workspace.js";
+import { agentEnvironmentKey } from "./remote-agent-environment.js";
 import { readWorkspaceContext } from "./workspace-context.js";
-import {
-  workspaceKey,
-  workspaceRoot,
-  workspaceSecrets,
-} from "./workspace-secrets.js";
+import { workspaceKey, workspaceSecrets } from "./workspace-secrets.js";
 
 const MAX_LOG_LINES = 300;
 const DEFAULT_DEPLOYMENT_MODEL = "xai/grok-4.3";
@@ -59,6 +61,7 @@ export function deploymentModel(
 
 interface StartDeploymentInput {
   workspaceId: string;
+  agentId: string;
   target: AgentDeploymentTarget;
   projectName: string;
   teamId?: string;
@@ -102,18 +105,19 @@ export function hostedExecutorEnvironment(environment: Record<string, string>) {
   return { executorMcpToken: token, executorMcpUrl: url.toString() };
 }
 
-function deploymentRoot(workspaceId: string, target: AgentDeploymentTarget) {
+function deploymentRoot(
+  workspaceId: string,
+  agentId: string,
+  target: AgentDeploymentTarget,
+) {
   return join(
     homedir(),
     ".chief",
     "deployments",
     workspaceKey(workspaceId),
+    workspaceKey(agentId),
     target,
   );
-}
-
-function deploymentRecordPath(workspaceId: string) {
-  return join(workspaceRoot(workspaceId), "deployment.json");
 }
 
 function templateRoot(target: AgentDeploymentTarget) {
@@ -191,26 +195,6 @@ function copyTemplate(
   }
 }
 
-function readRecord(workspaceId: string): AgentDeploymentRecord | undefined {
-  try {
-    const value = JSON.parse(
-      readFileSync(deploymentRecordPath(workspaceId), "utf8"),
-    ) as AgentDeploymentRecord;
-    return value.workspaceId === workspaceId && value.status === "ready"
-      ? value
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function persistRecord(record: AgentDeploymentRecord) {
-  if (record.status !== "ready") return;
-  const path = deploymentRecordPath(record.workspaceId);
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
-}
-
 export class AgentDeploymentManager {
   private records = new Map<string, AgentDeploymentRecord>();
   private processes = new Map<string, ChildProcess>();
@@ -226,9 +210,11 @@ export class AgentDeploymentManager {
   ) {}
 
   list(workspaceId: string) {
-    const persisted = readRecord(workspaceId);
-    if (persisted && !this.records.has(persisted.id)) {
-      this.records.set(persisted.id, persisted);
+    for (const agent of defaultAgents) {
+      const persisted = readAgentDeploymentRecord(workspaceId, agent.id);
+      if (persisted && !this.records.has(persisted.id)) {
+        this.records.set(persisted.id, persisted);
+      }
     }
     return [...this.records.values()]
       .filter((record) => record.workspaceId === workspaceId)
@@ -236,8 +222,11 @@ export class AgentDeploymentManager {
   }
 
   start(input: StartDeploymentInput) {
+    const agent = getAgent(input.agentId);
+    if (!agent) throw new Error("Agent is not installed in this workspace.");
     const existing = this.list(input.workspaceId).find(
-      (record) => record.status === "running",
+      (record) =>
+        record.agentId === input.agentId && record.status === "running",
     );
     if (existing) return existing;
     if (!/^[a-z0-9][a-z0-9._-]{0,99}$/.test(input.projectName)) {
@@ -251,6 +240,7 @@ export class AgentDeploymentManager {
     const record: AgentDeploymentRecord = {
       id: randomUUID(),
       workspaceId: input.workspaceId,
+      agentId: input.agentId,
       target: input.target,
       projectName: input.projectName,
       teamId: input.teamId,
@@ -291,7 +281,7 @@ export class AgentDeploymentManager {
     if (!current) return;
     const next = { ...current, ...patch, updatedAt: Date.now() };
     this.records.set(id, next);
-    persistRecord(next);
+    persistAgentDeploymentRecord(next);
     this.emit(next);
   }
 
@@ -321,6 +311,8 @@ export class AgentDeploymentManager {
     provider: AgentDeploymentProvider,
   ) {
     try {
+      const agent = getAgent(input.agentId);
+      if (!agent) throw new Error("Agent is not installed in this workspace.");
       const source = templateRoot(input.target);
       if (!existsSync(source)) {
         throw new Error(
@@ -336,7 +328,11 @@ export class AgentDeploymentManager {
       const model = deploymentModel(input.model, environment);
       this.update(id, { model });
       const data = await this.manager.workspaceData(input.workspaceId);
-      const target = deploymentRoot(input.workspaceId, input.target);
+      const target = deploymentRoot(
+        input.workspaceId,
+        input.agentId,
+        input.target,
+      );
       copyTemplate(
         source,
         target,
@@ -353,6 +349,7 @@ export class AgentDeploymentManager {
           ? hostedExecutorEnvironment(environment)
           : undefined;
       const workspaceInput = {
+        agentId: input.agentId,
         context: readWorkspaceContext(input.workspaceId),
         playbooks: input.playbooks,
         hostedExecutor: Boolean(hostedExecutor),
@@ -376,13 +373,20 @@ export class AgentDeploymentManager {
         materializeEveWorkspace(target, workspaceInput);
       }
 
+      const routePasswordKey = agentEnvironmentKey(
+        "CHIEF_EVE_ROUTE_PASSWORD",
+        input.agentId,
+      );
       const routePassword =
-        nonEmpty(environment.CHIEF_EVE_ROUTE_PASSWORD) ??
+        nonEmpty(environment[routePasswordKey]) ??
+        (input.agentId === "cmo"
+          ? nonEmpty(environment.CHIEF_EVE_ROUTE_PASSWORD)
+          : undefined) ??
         randomBytes(32).toString("base64url");
-      if (!environment.CHIEF_EVE_ROUTE_PASSWORD) {
+      if (!environment[routePasswordKey]) {
         await workspaceSecrets.storeEnv(
           input.workspaceId,
-          "CHIEF_EVE_ROUTE_PASSWORD",
+          routePasswordKey,
           routePassword,
         );
       }
@@ -412,23 +416,23 @@ export class AgentDeploymentManager {
       await Promise.all([
         workspaceSecrets.storeEnv(
           input.workspaceId,
-          "CHIEF_REMOTE_AGENT_URL",
+          agentEnvironmentKey("CHIEF_REMOTE_AGENT_URL", input.agentId),
           result.url,
         ),
         workspaceSecrets.storeEnv(
           input.workspaceId,
-          "CHIEF_REMOTE_AGENT_TARGET",
+          agentEnvironmentKey("CHIEF_REMOTE_AGENT_TARGET", input.agentId),
           result.target,
         ),
       ]);
       if (input.activate) {
-        const cmo = await this.manager.agentPreference(
+        const preference = await this.manager.agentPreference(
           input.workspaceId,
-          "cmo",
+          input.agentId,
         );
         await this.manager.saveAgentPreference(input.workspaceId, {
-          ...cmo,
-          agentId: "cmo",
+          ...preference,
+          agentId: input.agentId,
           enabled: true,
           driver: "remote",
           model: undefined,
@@ -438,8 +442,8 @@ export class AgentDeploymentManager {
         status: "ready",
         phase: undefined,
         detail: input.activate
-          ? "Agent is live and is now Chief's default app."
-          : "Agent is live. Local Chief and schedules remain unchanged.",
+          ? `${agent.name} is live and connected to this workspace.`
+          : `${agent.name} is live. Its local agent app remains unchanged.`,
         url: result.url,
         projectId: result.projectId,
         teamId: result.scope ?? input.teamId,

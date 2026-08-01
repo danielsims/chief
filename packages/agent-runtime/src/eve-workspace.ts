@@ -28,13 +28,19 @@ synthesize.
   read-only web tools. Do not run shell commands or write files.
 - State evidence and uncertainty plainly. Return the result to the caller, not the user.`;
 
-const DEPLOYED_CHIEF_RULES = `# Deployed orchestration
+function deployedAgentRules(agent: AgentDefinition) {
+  const delegates = agent.delegates ?? [];
+  return `# Deployed agent
 
-You are running in Eve with the private subagents declared in this deployment.
-Use Eve's subagent tool for bounded Brand Researcher, Content Writer, Analyst,
-Prospector, Ads Manager, and Setup work. Do not call localTools.specialistsDelegate;
-that tool exists only in the desktop-local runtime. Chief still owns the final
-user-facing synthesis.`;
+You are running as ${agent.name} in an isolated Eve deployment. Continue to act
+as the same user-visible agent that was configured in Chief.${
+    delegates.length > 0
+      ? ` Use Eve's subagent tool for bounded work delegated to: ${delegates.join(
+          ", ",
+        )}. Do not call localTools.specialistsDelegate; that tool exists only in the desktop-local runtime. You own the final user-facing synthesis.`
+      : " You have no configured subagents in this agent pack, so complete the work directly and do not claim to have delegated it."
+  }`;
+}
 
 interface EveAutomationGrant {
   version: 1;
@@ -62,6 +68,7 @@ export interface EvePlaybookExport {
 }
 
 export interface EveWorkspaceInput {
+  agentId?: string;
   automations?: EveAutomationExport[];
   context?: string;
   playbooks?: EvePlaybookExport[];
@@ -276,8 +283,8 @@ export function materializeEveWorkspace(
   input: EveWorkspaceInput,
 ) {
   const agentRoot = join(root, "agent");
-  const chief = getAgent("cmo");
-  if (!chief) throw new Error("Chief persona missing from roster.");
+  const rootAgent = getAgent(input.agentId ?? "cmo");
+  if (!rootAgent) throw new Error("Deployment agent missing from roster.");
   const playbooks = input.playbooks ?? [];
   const automations = input.automations ?? [];
   const activeCloudAutomations = automations.filter(
@@ -293,9 +300,9 @@ export function materializeEveWorkspace(
   mkdirSync(agentRoot, { recursive: true });
   writeFileSync(
     join(agentRoot, "instructions.md"),
-    `${GENERATED}\n\n${composeWorkspaceInstructions(`${chief.instructions}\n\n${DEPLOYED_CHIEF_RULES}`, input.context)}\n`,
+    `${GENERATED}\n\n${composeWorkspaceInstructions(`${rootAgent.instructions}\n\n${deployedAgentRules(rootAgent)}`, input.context)}\n`,
   );
-  writeAgentModule(join(agentRoot, "agent.ts"), chief.description, {
+  writeAgentModule(join(agentRoot, "agent.ts"), rootAgent.description, {
     input: 500_000,
     output: 32_000,
   });
@@ -323,7 +330,7 @@ export function materializeEveWorkspace(
   mkdirSync(join(agentRoot, "tools"), { recursive: true });
 
   rmSync(join(agentRoot, "subagents"), { recursive: true, force: true });
-  for (const id of chief.delegates ?? []) {
+  for (const id of rootAgent.delegates ?? []) {
     const agent = getAgent(id);
     if (!agent) throw new Error(`Persona missing from roster: ${id}`);
     const target = join(agentRoot, "subagents", id);
@@ -393,10 +400,10 @@ export function materializeEveWorkspace(
   mkdirSync(join(agentRoot, "schedules"), { recursive: true });
 
   return {
-    agent: chief,
+    agent: rootAgent,
     automationCount: 0,
     playbookCount: playbooks.length,
-    specialistIds: [...(chief.delegates ?? [])],
+    specialistIds: [...(rootAgent.delegates ?? [])],
   };
 }
 

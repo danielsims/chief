@@ -320,6 +320,7 @@ export function startServer(port = PORT) {
   });
   const browserKey = (workspaceId: string, conversationId: string) =>
     browsers.key(workspaceId, conversationId);
+  const browserThreadRoots = new Map<string, string | undefined>();
   const browserSession = (workspaceId: string, conversationId: string) =>
     browsers.session(workspaceId, conversationId);
   const activeIntegrationSetup =
@@ -463,14 +464,19 @@ export function startServer(port = PORT) {
     googleAccountSessions.delete(key);
     await browsers.close(workspaceId, conversationId);
     broadcastBrowserClosed(workspaceId, conversationId);
+    browserThreadRoots.delete(key);
   };
   const openBrowserSession = async (
     workspaceId: string,
     conversationId: string,
     url: string,
     viewport?: { width: number; height: number },
+    threadRootId?: string,
   ) => {
     const key = browserKey(workspaceId, conversationId);
+    if (threadRootId !== undefined) {
+      browserThreadRoots.set(key, threadRootId);
+    }
     if (isGoogleAccountChooserUrl(url)) {
       googleAccountSessions.set(key, {
         ...googleAccountSessions.get(key),
@@ -1040,8 +1046,18 @@ export function startServer(port = PORT) {
         onActivity: () => broadcastWorkspaceData(workspaceId),
         onFilesChanged: () => broadcastWorkspaceFiles(workspaceId),
         openBrowser: async (conversationId, url) => {
-          await manager.rootChat(workspaceId, conversationId);
-          await openBrowserSession(workspaceId, conversationId, url);
+          const root = await manager.rootChat(workspaceId, conversationId);
+          browserThreadRoots.set(
+            browserKey(workspaceId, conversationId),
+            root.session?.activeThreadRootId,
+          );
+          await openBrowserSession(
+            workspaceId,
+            conversationId,
+            url,
+            undefined,
+            root.session?.activeThreadRootId,
+          );
         },
         browserCommand: async (conversationId, command) => {
           await manager.rootChat(workspaceId, conversationId);
@@ -1420,10 +1436,14 @@ export function startServer(port = PORT) {
     }
   };
   broadcastBrowserNavigate = (workspaceId, conversationId, url, streamUrl) => {
+    const threadRootId = browserThreadRoots.get(
+      browserKey(workspaceId, conversationId),
+    );
     const message = JSON.stringify({
       type: "browserNavigate",
       workspaceId,
       conversationId,
+      threadRootId,
       url,
       streamUrl,
     } satisfies ServerMessage);
@@ -1437,10 +1457,14 @@ export function startServer(port = PORT) {
     }
   };
   broadcastBrowserPrepare = (workspaceId, conversationId, url) => {
+    const threadRootId = browserThreadRoots.get(
+      browserKey(workspaceId, conversationId),
+    );
     const message = JSON.stringify({
       type: "browserPrepare",
       workspaceId,
       conversationId,
+      threadRootId,
       url,
     } satisfies ServerMessage);
     for (const client of new Set([...wss.clients, ...wss6.clients])) {
@@ -1718,6 +1742,7 @@ export function startServer(port = PORT) {
               msg.conversationId,
               url.toString(),
               { width: msg.width, height: msg.height },
+              msg.threadRootId,
             );
           } else {
             const browser = browserSession(msg.workspaceId, msg.conversationId);
@@ -2703,6 +2728,7 @@ export function startServer(port = PORT) {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             deployments.start({
               workspaceId: msg.workspaceId,
+              agentId: msg.agentId,
               target: msg.target,
               projectName: msg.projectName,
               teamId: msg.teamId,
@@ -3243,10 +3269,25 @@ export function startServer(port = PORT) {
             const destinationId = chatDestinations.get(
               `${msg.workspaceId}\0${msg.chatId}`,
             );
-            if (destinationId && msg.mentions?.length) {
+            const destinationChannel = destinationId
+              ? await manager.store
+                  .channelStore()
+                  .get(msg.workspaceId, destinationId)
+              : undefined;
+            const newAgentIds = (msg.mentions ?? []).filter(
+              (agentId) => !destinationChannel?.agentIds.includes(agentId),
+            );
+            if (destinationChannel && newAgentIds.length > 0) {
               await manager.store
                 .channelStore()
-                .addAgents(msg.workspaceId, destinationId, msg.mentions);
+                .addAgents(msg.workspaceId, destinationChannel.id, newAgentIds);
+              send({
+                type: "channels",
+                workspaceId: msg.workspaceId,
+                channels: await manager.store
+                  .channelStore()
+                  .list(msg.workspaceId),
+              });
             }
             const { session: openedSession } = await manager.rootChat(
               msg.workspaceId,
@@ -3259,6 +3300,34 @@ export function startServer(port = PORT) {
                   "No session for this chat yet. Reopen it to reconnect.",
                 chatId: msg.chatId,
               });
+            }
+            if (newAgentIds.length > 0) {
+              const senderName = msg.senderName?.trim();
+              const actorName = senderName?.length ? senderName : "You";
+              const names = newAgentIds.map(
+                (agentId) => getAgent(agentId)?.name ?? agentId,
+              );
+              openedSession.recordUserMessage(
+                `${actorName} added ${names.join(", ")} to the channel.`,
+                `${msg.messageId}:member-added`,
+                {
+                  mentions: newAgentIds,
+                  channelAction: {
+                    type: "member-added",
+                    actorName,
+                    agentIds: newAgentIds,
+                  },
+                },
+              );
+            }
+            if (
+              destinationChannel?.visibility !== "direct" &&
+              !msg.mentions?.length
+            ) {
+              openedSession.recordUserMessage(msg.text, msg.messageId, {
+                threadRootId: msg.threadRootId,
+              });
+              break;
             }
             const releaseExecution = manager.acquireExecution(
               msg.workspaceId,
@@ -3296,6 +3365,41 @@ export function startServer(port = PORT) {
                 }
               }
               const execution = normalizedExecution(msg.execution);
+              const respondingAgentId =
+                destinationChannel?.visibility !== "direct"
+                  ? msg.mentions?.[0]
+                  : undefined;
+              if (respondingAgentId && destinationChannel) {
+                const respondingAgent = getAgent(respondingAgentId);
+                if (!respondingAgent) {
+                  throw new Error(
+                    `${respondingAgentId} persona is missing from this workspace.`,
+                  );
+                }
+                const preference =
+                  (await manager.agentPreference(
+                    msg.workspaceId,
+                    respondingAgentId,
+                  )) ?? (await manager.agentPreference(msg.workspaceId, "cmo"));
+                const effectiveAgent = channelBridge.agentForChannel(
+                  respondingAgent,
+                  undefined,
+                  await manager.store
+                    .channelStore()
+                    .get(msg.workspaceId, destinationChannel.id),
+                  readWorkspaceContext(msg.workspaceId),
+                );
+                session = await manager.switchRootChatAgent(
+                  effectiveAgent,
+                  msg.chatId,
+                  {
+                    ...session.config,
+                    driver: preference?.driver ?? session.config.driver,
+                    model: preference?.model ?? session.config.model,
+                  },
+                );
+                bindRootSession(msg.workspaceId, msg.chatId, session);
+              }
               if (
                 execution &&
                 (execution.driver !== session.config.driver ||

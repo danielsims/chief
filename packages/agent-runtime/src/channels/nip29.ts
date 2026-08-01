@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import type { ChannelActor, ChannelEvent, WorkspaceChannel } from "../types.js";
+import type {
+  ChannelActor,
+  ChannelEvent,
+  ChannelReactionEvent,
+  WorkspaceChannel,
+} from "../channel-types.js";
 
 export const CHANNEL_CHAT_PREFIX = "channel:";
 
@@ -111,10 +116,50 @@ export function channelIdFromChatId(chatId: string) {
     : null;
 }
 
-function actorPubkey(workspaceId: string, actor: ChannelActor) {
+export function actorPubkey(workspaceId: string, actor: ChannelActor) {
   return createHash("sha256")
     .update(`${workspaceId}\0${actor.type}\0${actor.id}`)
     .digest("hex");
+}
+
+export function createChannelReaction(input: {
+  workspaceId: string;
+  channelId: string;
+  targetEventId: string;
+  actor: ChannelActor;
+  reaction: string;
+  createdAt?: number;
+}): ChannelReactionEvent {
+  const createdAt = input.createdAt ?? Date.now();
+  const pubkey = actorPubkey(input.workspaceId, input.actor);
+  const tags = [
+    ["h", input.channelId],
+    ["e", input.targetEventId, "", "reply"],
+  ];
+  const id = createHash("sha256")
+    .update(
+      JSON.stringify([
+        0,
+        pubkey,
+        Math.floor(createdAt / 1000),
+        7,
+        tags,
+        input.reaction,
+        randomUUID(),
+      ]),
+    )
+    .digest("hex");
+  return {
+    protocol: "nip29",
+    id,
+    channelId: input.channelId,
+    kind: 7,
+    pubkey,
+    tags,
+    content: input.reaction,
+    actor: input.actor,
+    createdAt,
+  };
 }
 
 /**
@@ -129,6 +174,10 @@ export function createChannelEvent(input: {
   content: string;
   parts?: unknown[];
   mentions?: string[];
+  channelAction?: {
+    type: "member-added";
+    agentIds: string[];
+  };
   threadRootId?: string;
   sourceId?: string;
   createdAt?: number;
@@ -145,6 +194,12 @@ export function createChannelEvent(input: {
         name: mention,
       }),
     ]),
+    ...(input.channelAction
+      ? [
+          ["action", input.channelAction.type],
+          ...input.channelAction.agentIds.map((agentId) => ["agent", agentId]),
+        ]
+      : []),
     ...(input.threadRootId
       ? [
           ["e", input.threadRootId, "", "root"],

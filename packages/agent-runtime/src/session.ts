@@ -6,6 +6,7 @@ import type {
   AgentDefinition,
   AgentEvent,
   AutomationGrant,
+  ChiefMessageMetadata,
   DriverType,
   McpServerSpec,
 } from "./types.js";
@@ -43,7 +44,12 @@ export class AgentSession extends EventEmitter {
   private stallTimer: NodeJS.Timeout | null = null;
   private readonly stallTimeoutMs = 6 * 60_000;
   private activeReplyContext:
-    { threadRootId?: string; mentions?: string[] } | undefined;
+    | {
+        threadRootId?: string;
+        explicitThreadRootId?: string;
+        mentions?: string[];
+      }
+    | undefined;
 
   constructor(
     agent: AgentDefinition,
@@ -76,7 +82,11 @@ export class AgentSession extends EventEmitter {
         event.type === "exit"
       ) {
         this.status = event.type === "error" ? "error" : "idle";
-        this.activeReplyContext = undefined;
+        // Some providers report completion before emitting their final
+        // assistant message. Keep the turn owner after a successful result so
+        // that late content remains attached to the channel thread that
+        // started it; the next user prompt replaces this context atomically.
+        if (event.type !== "result") this.activeReplyContext = undefined;
       }
       this.record(event);
       if (this.status === "running") this.armStallWatchdog();
@@ -97,6 +107,11 @@ export class AgentSession extends EventEmitter {
     return (
       this.status === "running" || this.status === "waiting" || driverInFlight
     );
+  }
+
+  /** The explicit channel thread that owns host UI opened by this turn. */
+  get activeThreadRootId() {
+    return this.activeReplyContext?.explicitThreadRootId;
   }
 
   private record(event: AgentEvent) {
@@ -169,6 +184,7 @@ export class AgentSession extends EventEmitter {
     this.status = "running";
     this.activeReplyContext = {
       threadRootId: context?.threadRootId ?? messageId,
+      explicitThreadRootId: context?.threadRootId,
       mentions: context?.mentions,
     };
     this.armStallWatchdog();
@@ -176,7 +192,7 @@ export class AgentSession extends EventEmitter {
     this.promptBootstrap = undefined;
     try {
       const routedText = context?.mentions?.length
-        ? `[Chief recipient routing: address these agent identities in this response: ${context.mentions.join(", ")}\n\n${text}`
+        ? `[Channel recipient routing: you are replying because these agent identities were explicitly mentioned: ${context.mentions.join(", ")}. Reply directly as your configured persona.\n\n${text}`
         : text;
       await this.driver.sendPrompt(
         bootstrap
@@ -190,11 +206,23 @@ export class AgentSession extends EventEmitter {
     }
   }
 
-  recordUserMessage(text: string) {
+  recordUserMessage(
+    text: string,
+    id?: string,
+    context?: {
+      threadRootId?: string;
+      mentions?: string[];
+      channelAction?: ChiefMessageMetadata["channelAction"];
+    },
+  ) {
     this.record({
       type: "message",
+      id,
       role: "user",
       content: [{ type: "text", text }],
+      threadRootId: context?.threadRootId,
+      mentions: context?.mentions,
+      channelAction: context?.channelAction,
     });
   }
 

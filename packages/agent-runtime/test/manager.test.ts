@@ -316,6 +316,7 @@ void test("schedule execution always resolves the CMO provider", async () => {
       enabled: true,
       driver: "codex",
       model: "root-model",
+      approvals: "ask",
     });
     await manager.saveAgentPreference("workspace", {
       agentId: "analyst",
@@ -332,6 +333,7 @@ void test("schedule execution always resolves the CMO provider", async () => {
     assert.equal(config.agent.id, "cmo");
     assert.equal(config.preference.driver, "codex");
     assert.equal(config.preference.model, "root-model");
+    assert.equal(config.preference.approvals, "ask");
   } finally {
     await manager.stopAll();
     rmSync(directory, { recursive: true, force: true });
@@ -606,6 +608,87 @@ void test("switching root execution replaces the idle session and clears continu
     assert.equal(stored.model, "anthropic/claude-sonnet-4.6");
     assert.equal(stored.providerState, undefined);
     assert.equal(stored.eveState, undefined);
+  } finally {
+    await manager.stopAll();
+    if (originalStart) {
+      Object.defineProperty(AgentSession.prototype, "start", originalStart);
+    }
+    if (originalStop) {
+      Object.defineProperty(AgentSession.prototype, "stop", originalStop);
+    }
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+void test("switching a channel responder keeps its transcript and adopts the tagged persona", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "chief-manager-responder-"));
+  const store = new LocalStore(join(directory, "chief.sqlite"));
+  const manager = new SessionManager(store);
+  const originalStart = Object.getOwnPropertyDescriptor(
+    AgentSession.prototype,
+    "start",
+  );
+  const originalStop = Object.getOwnPropertyDescriptor(
+    AgentSession.prototype,
+    "stop",
+  );
+  Object.defineProperty(AgentSession.prototype, "start", {
+    configurable: true,
+    async value() {
+      await Promise.resolve();
+    },
+  });
+  Object.defineProperty(AgentSession.prototype, "stop", {
+    configurable: true,
+    async value(this: AgentSession) {
+      this.removeAllListeners();
+      await Promise.resolve();
+    },
+  });
+  try {
+    await manager.createRootChat(
+      "workspace",
+      "channel-chat",
+      "General",
+      "codex",
+    );
+    const first = await manager.ensureRootChat(cmo, "channel-chat", {
+      driver: "codex",
+      access: "guarded",
+      workspaceId: "workspace",
+      executionOwner: "interactive",
+    });
+    first.recordUserMessage("Shared channel context", "message-1");
+    await manager.waitForChatPersistence("workspace", "channel-chat");
+
+    const analyst: AgentDefinition = {
+      id: "analyst",
+      name: "Analyst",
+      role: "Marketing analyst",
+      description: "Explains performance.",
+      instructions: "Answer as the analyst.",
+    };
+    const second = await manager.switchRootChatAgent(analyst, "channel-chat", {
+      driver: "codex",
+      access: "guarded",
+      workspaceId: "workspace",
+      executionOwner: "interactive",
+    });
+
+    assert.notEqual(first, second);
+    assert.equal(second.agent.id, "analyst");
+    assert.ok(
+      second.events.some(
+        (event) =>
+          event.type === "message" &&
+          event.id === "message-1" &&
+          event.role === "user",
+      ),
+    );
+    assert.equal(
+      (await store.chatRecord("workspace", "channel-chat"))?.agent,
+      "analyst",
+    );
   } finally {
     await manager.stopAll();
     if (originalStart) {

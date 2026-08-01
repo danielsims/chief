@@ -1,0 +1,1 @@
+ALTER TABLE `preference` ADD `approvals` text;

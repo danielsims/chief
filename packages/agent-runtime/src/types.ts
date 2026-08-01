@@ -185,6 +185,12 @@ export interface ChiefMessageMetadata {
   threadRootId?: string;
   /** Stable user or agent identities explicitly addressed by this message. */
   mentions?: string[];
+  /** Durable channel lifecycle event rendered separately from authored chat. */
+  channelAction?: {
+    type: "member-added";
+    actorName: string;
+    agentIds: string[];
+  };
 }
 
 export type ChiefUIMessage = UIMessage<
@@ -245,6 +251,7 @@ export type AgentEvent =
       content: ContentBlock[];
       threadRootId?: string;
       mentions?: string[];
+      channelAction?: ChiefMessageMetadata["channelAction"];
     }
   | {
       type: "result";
@@ -494,9 +501,12 @@ export interface AgentPreference {
   enabled: boolean;
   driver?: DriverType;
   model?: string;
+  approvals?: AgentApprovalMode;
   capabilities?: AgentCapabilityId[];
   integrations?: string[];
 }
+
+export type AgentApprovalMode = "auto" | "ask";
 
 export type AgentCapabilityId =
   | "analytics-chart"
@@ -640,6 +650,7 @@ export type AgentDeploymentStatus =
 export interface AgentDeploymentRecord {
   id: string;
   workspaceId: string;
+  agentId: string;
   target: AgentDeploymentTarget;
   projectName: string;
   teamId?: string;
@@ -846,6 +857,7 @@ export type ClientMessage =
       text: string;
       threadRootId?: string;
       mentions?: string[];
+      senderName?: string;
       execution?: ChatExecutionSelection;
       executorCapability: ExecutorCapability;
     }
@@ -950,6 +962,7 @@ export type ClientMessage =
   | {
       type: "startAgentDeployment";
       workspaceId: string;
+      agentId: string;
       target: AgentDeploymentTarget;
       projectName: string;
       teamId?: string;
@@ -981,6 +994,7 @@ export type ClientMessage =
       type: "browserNavigateRequest";
       workspaceId: string;
       conversationId: string;
+      threadRootId?: string;
       url: string;
       width: number;
       height: number;
@@ -1036,6 +1050,7 @@ export type ServerMessage =
       type: "browserNavigate";
       workspaceId: string;
       conversationId: string;
+      threadRootId?: string;
       url: string;
       streamUrl: string;
     }
@@ -1043,6 +1058,7 @@ export type ServerMessage =
       type: "browserPrepare";
       workspaceId: string;
       conversationId: string;
+      threadRootId?: string;
       url: string;
     }
   | BrowserConversationMessage<"browserClosed">

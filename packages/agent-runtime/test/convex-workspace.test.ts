@@ -29,11 +29,11 @@ void test("compiles Chief and all bounded specialists into the Convex template",
     });
     assert.deepEqual(result.specialistIds, [
       "brand",
-      "prospector",
-      "setup",
-      "analyst",
-      "ads",
       "content",
+      "analyst",
+      "prospector",
+      "ads",
+      "setup",
     ]);
     const generated = readFileSync(
       join(root, "convex", "generated.ts"),
@@ -47,6 +47,24 @@ void test("compiles Chief and all bounded specialists into the Convex template",
       generated,
       /AI_GATEWAY_API_KEY|CHIEF_CONTROL_PLANE_TOKEN/,
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+void test("compiles a standalone specialist without Chief subagents", () => {
+  const root = mkdtempSync(join(tmpdir(), "chief-convex-analyst-"));
+  try {
+    mkdirSync(join(root, "convex"));
+    const result = materializeConvexWorkspace(root, { agentId: "analyst" });
+    assert.deepEqual(result.specialistIds, []);
+    const generated = readFileSync(
+      join(root, "convex", "generated.ts"),
+      "utf8",
+    );
+    assert.match(generated, /workspace's marketing analyst/);
+    assert.match(generated, /no subagents/);
+    assert.match(generated, /SPECIALIST_INSTRUCTIONS = \{\}/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

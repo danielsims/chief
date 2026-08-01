@@ -387,6 +387,7 @@ export const agentPreferences = sqliteTable(
     enabled: integer({ mode: "boolean" }).notNull(),
     driver: text({ enum: ["claude", "codex", "opencode", "remote"] }),
     model: text(),
+    approvals: text({ enum: ["auto", "ask"] }),
     capabilities: text({ mode: "json" }).$type<string[]>(),
     integrations: text({ mode: "json" }).$type<string[]>(),
     updatedAt: integer("updated_at").notNull(),

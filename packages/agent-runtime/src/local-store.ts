@@ -38,6 +38,7 @@ import type {
   AnalyticsDataset,
   CampaignRecord,
   ChiefMessageEventMetadata,
+  ChiefMessageMetadata,
   ChiefUIMessage,
   ContentBlock,
   ContentDraftRecord,
@@ -128,6 +129,7 @@ export type AgentMessageMetadata =
       type: "channel";
       threadRootId?: string;
       mentions?: string[];
+      channelAction?: ChiefMessageMetadata["channelAction"];
     };
 
 export interface LocalMessage<Metadata = AgentMessageMetadata> {
@@ -192,12 +194,17 @@ function eventMessage(event: AgentEvent) {
     return {
       role: event.role,
       parts: event.content,
-      ...(event.threadRootId || event.mentions?.length
+      ...(event.threadRootId || event.mentions?.length || event.channelAction
         ? {
             metadata: {
               type: "channel" as const,
-              threadRootId: event.threadRootId,
-              mentions: event.mentions,
+              ...(event.threadRootId
+                ? { threadRootId: event.threadRootId }
+                : {}),
+              ...(event.mentions?.length ? { mentions: event.mentions } : {}),
+              ...(event.channelAction
+                ? { channelAction: event.channelAction }
+                : {}),
             } satisfies AgentMessageMetadata,
           }
         : {}),
@@ -456,8 +463,15 @@ function agentEvent(message: LocalMessage): AgentEvent | undefined {
       id: message.id,
       role: message.role === "system" ? "user" : message.role,
       content: contentBlocks(message.parts as ChiefUIMessage["parts"]),
-      threadRootId: message.metadata.threadRootId,
-      mentions: message.metadata.mentions,
+      ...(message.metadata.threadRootId
+        ? { threadRootId: message.metadata.threadRootId }
+        : {}),
+      ...(message.metadata.mentions?.length
+        ? { mentions: message.metadata.mentions }
+        : {}),
+      ...(message.metadata.channelAction
+        ? { channelAction: message.metadata.channelAction }
+        : {}),
     };
   }
   if (message.metadata) return message.metadata;
@@ -892,6 +906,7 @@ export class LocalStore {
     workspaceId: string,
     chatId: string,
     state: {
+      agent?: string;
       provider?: string;
       model?: string | null;
       providerState?: unknown;
@@ -965,8 +980,15 @@ export class LocalStore {
         createdAt: message.createdAt,
         ...(message.metadata?.type === "channel"
           ? {
-              threadRootId: message.metadata.threadRootId,
-              mentions: message.metadata.mentions,
+              ...(message.metadata.threadRootId
+                ? { threadRootId: message.metadata.threadRootId }
+                : {}),
+              ...(message.metadata.mentions?.length
+                ? { mentions: message.metadata.mentions }
+                : {}),
+              ...(message.metadata.channelAction
+                ? { channelAction: message.metadata.channelAction }
+                : {}),
             }
           : message.metadata
             ? { event: message.metadata }
@@ -2865,6 +2887,7 @@ export class LocalStore {
       enabled: preference.enabled,
       driver: preference.driver ?? undefined,
       model: preference.model ?? undefined,
+      approvals: preference.approvals ?? undefined,
       capabilities: preference.capabilities as
         AgentPreference["capabilities"] | undefined,
       integrations: preference.integrations ?? undefined,
@@ -2886,6 +2909,7 @@ export class LocalStore {
         enabled: preference.enabled,
         driver: preference.driver,
         model: preference.model,
+        approvals: preference.approvals,
         capabilities: preference.capabilities,
         integrations: preference.integrations,
         updatedAt: Date.now(),
@@ -2899,6 +2923,7 @@ export class LocalStore {
           enabled: preference.enabled,
           driver: preference.driver,
           model: preference.model,
+          approvals: preference.approvals,
           capabilities: preference.capabilities,
           integrations: preference.integrations,
           updatedAt: Date.now(),

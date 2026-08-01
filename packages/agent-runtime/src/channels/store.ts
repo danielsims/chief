@@ -107,6 +107,19 @@ export class ChannelStore {
     return event;
   }
 
+  async removeEvent(workspaceId: string, eventId: string) {
+    await this.ready;
+    await this.database()
+      .delete(schema.channelEvents)
+      .where(
+        and(
+          eq(schema.channelEvents.organizationId, workspaceId),
+          eq(schema.channelEvents.id, eventId),
+        ),
+      )
+      .run();
+  }
+
   async addAgents(
     workspaceId: string,
     channelId: string,
@@ -118,6 +131,28 @@ export class ChannelStore {
     }
     const nextAgentIds = [...new Set([...channel.agentIds, ...agentIds])];
     if (nextAgentIds.length === channel.agentIds.length) return channel;
+    const updatedAt = Date.now();
+    await this.database()
+      .update(schema.channels)
+      .set({ agentIds: nextAgentIds, updatedAt })
+      .where(
+        and(
+          eq(schema.channels.organizationId, workspaceId),
+          eq(schema.channels.id, channel.id),
+        ),
+      )
+      .run();
+    return { ...channel, agentIds: nextAgentIds, updatedAt };
+  }
+
+  async setAgents(
+    workspaceId: string,
+    channelId: string,
+    agentIds: readonly string[],
+  ) {
+    const channel = await this.get(workspaceId, channelId);
+    if (!channel || channel.visibility === "direct") return channel;
+    const nextAgentIds = [...new Set(agentIds)];
     const updatedAt = Date.now();
     await this.database()
       .update(schema.channels)
@@ -160,11 +195,21 @@ export class ChannelStore {
       .orderBy(asc(schema.channelEvents.createdAt))
       .all()
       .then((events) =>
-        events.map((event) => ({
-          ...event,
-          kind: 9 as const,
-          parts: event.parts ?? undefined,
-        })),
+        events.flatMap((event): ChannelEvent[] => {
+          if (event.kind === 7) {
+            return [{ ...event, kind: 7 }];
+          }
+          if (event.kind === 9) {
+            return [
+              {
+                ...event,
+                kind: 9,
+                parts: event.parts ?? undefined,
+              },
+            ];
+          }
+          return [];
+        }),
       );
   }
 }
