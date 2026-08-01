@@ -26,12 +26,12 @@ export function AppTopChrome({
   return (
     <header
       className={cn(
-        "bg-sidebar relative z-40 flex h-10 shrink-0 translate-y-[3px] items-center pr-3",
+        "bg-sidebar relative z-40 flex h-10 shrink-0 items-center pr-3",
         hasWorkspaceRail ? "pl-8" : "pl-20",
       )}
       data-tauri-drag-region
     >
-      <div className="relative z-10 flex items-center gap-0.5">
+      <div className="relative z-10 flex translate-y-[3px] items-center gap-0.5">
         <button
           type="button"
           aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
