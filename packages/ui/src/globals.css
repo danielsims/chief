@@ -5,8 +5,8 @@
 /*
  * Chief design tokens.
  * Structure follows the Midday convention — warm neutrals in light mode,
- * cool near-black in dark mode, flat square surfaces, 1px token borders,
- * no shadows. Values are our own.
+ * cool near-black in dark mode, quiet rounded surfaces, and restrained depth.
+ * Values are our own.
  */
 :root {
   --background: hsl(0 0% 100%);
@@ -24,7 +24,7 @@
   --accent: hsl(40 9% 94%);
   --accent-foreground: hsl(240 6% 10%);
   --destructive: hsl(0 84% 60%);
-  --destructive-foreground: hsl(0 0% 98%);
+  --destructive-foreground: var(--color-red-700);
   --border: hsl(42 6% 85%);
   --input: hsl(42 6% 85%);
   --ring: hsl(240 6% 10%);
@@ -59,7 +59,7 @@
   --accent: hsl(0 0% 11%);
   --accent-foreground: hsl(0 0% 98%);
   --destructive: hsl(359 100% 61%);
-  --destructive-foreground: hsl(0 0% 100%);
+  --destructive-foreground: var(--color-red-400);
   --border: hsl(0 0% 11%);
   --input: hsl(0 0% 11%);
   --ring: hsl(240 5% 84%);
@@ -108,8 +108,7 @@
   --font-serif: "Newsreader Variable", Georgia, serif;
   --font-mono: "Geist Variable", monospace;
 
-  /* Sharp by default. */
-  --radius: 0rem;
+  --radius: 0.625rem;
 }
 
 @layer base {

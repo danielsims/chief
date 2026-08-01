@@ -72,14 +72,14 @@ export function ChatComposer({
                   textareaRef.current?.focus(),
                 );
               }}
-              className="text-muted-foreground hover:bg-accent hover:text-foreground border px-2.5 py-1.5 text-xs transition-colors"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg border px-2.5 py-1.5 text-xs transition-colors"
             >
               {suggestion}
             </button>
           ))}
         </div>
       ) : null}
-      <div className="bg-card/80 border backdrop-blur-lg">
+      <div className="bg-card/80 rounded-xl border backdrop-blur-lg">
         <textarea
           ref={textareaRef}
           value={value}

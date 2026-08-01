@@ -10,11 +10,7 @@ export const Select = SelectPrimitive.Root;
 export const SelectGroup = SelectPrimitive.Group;
 export const SelectValue = SelectPrimitive.Value;
 
-/**
- * Square, flat select matching the popover/tooltip surfaces: 1px border,
- * no radius, no ring. Trigger content can be custom children (icon + label)
- * instead of SelectValue when the caller owns the selected state.
- */
+/** Trigger content can be custom children when the caller owns selection. */
 export const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
@@ -22,7 +18,7 @@ export const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-9 w-full items-center justify-between gap-2 border bg-transparent px-3 text-sm transition-colors focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
+      "focus-visible:ring-ring/15 flex h-9 w-full items-center justify-between gap-2 rounded-lg border bg-transparent px-3 text-sm transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
       className,
     )}
     {...props}
@@ -53,7 +49,7 @@ export const SelectContent = React.forwardRef<
         position={position}
         sideOffset={sideOffset}
         className={cn(
-          "bg-popover text-popover-foreground z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden border p-1 shadow-md backdrop-blur-lg",
+          "bg-popover/95 text-popover-foreground z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-xl border p-1.5 shadow-xl backdrop-blur-xl",
           className,
         )}
         {...props}
@@ -84,7 +80,7 @@ export const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground relative flex w-full cursor-default items-center gap-2 py-1.5 pr-8 pl-2 text-sm transition-colors outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground relative flex w-full cursor-default items-center gap-2 rounded-md py-1.5 pr-8 pl-2 text-sm transition-colors outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className,
     )}
     {...props}

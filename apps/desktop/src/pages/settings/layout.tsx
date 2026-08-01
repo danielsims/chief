@@ -5,6 +5,7 @@ import { cn } from "@chief/ui/lib/utils";
 const sections = [
   { to: "/settings/profile", label: "Profile" },
   { to: "/settings/workspace", label: "Workspace" },
+  { to: "/settings/appearance", label: "Appearance" },
   { to: "/settings/integrations", label: "Integrations" },
   { to: "/settings/environment", label: "Environment" },
   // Agent configuration lives on the Agents page.
@@ -28,8 +29,8 @@ export function SettingsLayout() {
               to={section.to}
               className={({ isActive }) =>
                 cn(
-                  "text-muted-foreground hover:text-foreground block shrink-0 border border-transparent px-3 py-1.5 text-sm whitespace-nowrap transition-colors",
-                  isActive && "border-border bg-accent text-foreground",
+                  "text-muted-foreground hover:bg-accent/60 hover:text-foreground block shrink-0 rounded-lg border border-transparent px-3 py-1.5 text-sm whitespace-nowrap transition-colors",
+                  isActive && "border-border/70 bg-accent text-foreground",
                 )
               }
             >

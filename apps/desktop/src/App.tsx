@@ -35,6 +35,7 @@ import { DashboardPage } from "./pages/dashboard";
 import { OnboardingPage } from "./pages/onboarding";
 import { ProspectsPage } from "./pages/prospects";
 import { SchedulePage } from "./pages/schedule";
+import { AppearanceSettings } from "./pages/settings/appearance";
 import { DiagnosticsSettings } from "./pages/settings/diagnostics";
 import { EnvironmentSettings } from "./pages/settings/environment";
 import {
@@ -335,7 +336,7 @@ function AuthenticatedApp() {
             toast: "chief-toast",
             title: "chief-toast-title",
           },
-          style: { borderRadius: 0 },
+          style: { borderRadius: 10 },
         }}
       />
       <AgentConfigProvider>
@@ -363,6 +364,7 @@ function AuthenticatedApp() {
                   />
                   <Route path="profile" element={<ProfileSettings />} />
                   <Route path="workspace" element={<WorkspaceSettings />} />
+                  <Route path="appearance" element={<AppearanceSettings />} />
                   <Route path="diagnostics" element={<DiagnosticsSettings />} />
                   <Route path="environment" element={<EnvironmentSettings />} />
                   <Route

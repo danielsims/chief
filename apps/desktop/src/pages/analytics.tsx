@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { BarChart3, RefreshCw, Sparkles } from "lucide-react";
+import { BarChart3, MessageSquareText, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import type { AnalyticsDataset } from "@chief/agent-runtime/types";
@@ -512,7 +512,7 @@ export function AnalyticsPage() {
               onClick={askAnalyst}
               disabled={!selectedChannel}
             >
-              <Sparkles size={14} />
+              <MessageSquareText size={14} />
               Ask Analyst
             </Button>
             <div className="flex items-center gap-3">

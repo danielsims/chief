@@ -1146,7 +1146,7 @@ export function DashboardPage() {
                 ) : null}
               </div>
               <footer>
-                <div className="chief-overview-action-buttons">
+                <div className="chief-overview-action-buttons *:rounded-lg">
                   {deploymentRecovery ? (
                     <>
                       <button type="button" onClick={useCodexLocally}>
@@ -1233,7 +1233,7 @@ export function DashboardPage() {
                     : "Nothing needs your judgment. Choose recurring work when you’re ready to put the team in motion."}
               </p>
               <button
-                className={continuingChatId ? "is-primary" : undefined}
+                className={cn("rounded-lg", continuingChatId && "is-primary")}
                 type="button"
                 onClick={() =>
                   continuingChatId

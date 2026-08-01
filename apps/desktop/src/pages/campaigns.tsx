@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowUpDown, Plus, Search, Sparkles } from "lucide-react";
+import { ArrowUpDown, MessageSquareText, Plus, Search } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import type {
@@ -130,7 +130,7 @@ export function CampaignsPage() {
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={planCampaign}>
-          <Sparkles size={14} />
+          <MessageSquareText size={14} />
           Ask Chief
         </Button>
       </header>

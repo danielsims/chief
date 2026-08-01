@@ -139,12 +139,16 @@ function IntegrationCatalog({ connected }: { connected: Set<string> }) {
                         </p>
                       </div>
                       {isConnected ? (
-                        <Button variant="outline" size="sm" asChild>
-                          <Link
-                            to={`/settings/integrations/${encodeURIComponent(integration.provider)}`}
-                          >
-                            Manage
-                          </Link>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          render={
+                            <Link
+                              to={`/settings/integrations/${encodeURIComponent(integration.provider)}`}
+                            />
+                          }
+                        >
+                          Manage
                         </Button>
                       ) : (
                         <Button
