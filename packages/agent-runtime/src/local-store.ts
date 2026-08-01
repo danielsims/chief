@@ -51,6 +51,7 @@ import type {
   WorkspaceFileRecord,
   WorkspaceFileSnapshot,
 } from "./types.js";
+import { ChannelStore } from "./channels/store.js";
 import * as schema from "./db/schema.js";
 import { TRANSIENT_RETRY_DELAY_MS } from "./retry-policy.js";
 import { hasPotentialSideEffects } from "./run-safety.js";
@@ -705,7 +706,7 @@ export class LocalStore {
     await this.ready;
     await this.client.execute("SELECT 1");
   }
-
+  channelStore = () => new ChannelStore(() => this.db, this.ready);
   async hasChat(chatId: string) {
     await this.ready;
     return Boolean(
@@ -716,7 +717,6 @@ export class LocalStore {
         .get(),
     );
   }
-
   async createChat(
     chat: Omit<
       LocalChatRecord,

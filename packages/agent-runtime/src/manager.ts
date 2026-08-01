@@ -91,7 +91,7 @@ export class SessionManager {
   private startingWorkspaces = new Map<string, number>();
   private readonly repairedFileWorkspaces = new Set<string>();
 
-  constructor(private readonly store = new LocalStore()) {}
+  constructor(readonly store = new LocalStore()) {}
 
   get(workspaceId: string, chatId: string) {
     return this.sessions.get(workspaceChatKey(workspaceId, chatId));
@@ -666,8 +666,7 @@ export class SessionManager {
   }
 
   async listChats(workspaceId: string) {
-    const chats = await this.store.listChats(workspaceId);
-    return chats.map((chat) => ({
+    return (await this.store.listChats(workspaceId)).map((chat) => ({
       ...chat,
       running:
         this.sessions.get(workspaceChatKey(workspaceId, chat.id))?.isBusy ??

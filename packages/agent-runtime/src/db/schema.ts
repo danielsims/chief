@@ -12,9 +12,56 @@ import {
 
 import type {
   AnalyticsDataset,
+  ChannelActor,
   InputRequest,
   SessionArtifact,
 } from "../types.js";
+
+export const channels = sqliteTable(
+  "channel",
+  {
+    organizationId: text("organization_id").notNull(),
+    id: text().notNull(),
+    protocol: text({ enum: ["nip29"] }).notNull(),
+    slug: text().notNull(),
+    name: text().notNull(),
+    description: text().notNull(),
+    agentIds: text("agent_ids", { mode: "json" }).$type<string[]>().notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.organizationId, table.id] }),
+    uniqueIndex("channel_organization_slug").on(
+      table.organizationId,
+      table.slug,
+    ),
+  ],
+);
+
+export const channelEvents = sqliteTable(
+  "post",
+  {
+    id: text().primaryKey(),
+    organizationId: text("organization_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    protocol: text({ enum: ["nip29"] }).notNull(),
+    kind: integer().notNull(),
+    pubkey: text().notNull(),
+    tags: text({ mode: "json" }).$type<string[][]>().notNull(),
+    content: text().notNull(),
+    parts: text({ mode: "json" }).$type<unknown[]>(),
+    actor: text({ mode: "json" }).$type<ChannelActor>().notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("post_timeline").on(
+      table.organizationId,
+      table.channelId,
+      table.createdAt,
+    ),
+  ],
+);
 
 export const schedules = sqliteTable(
   "schedule",

@@ -530,11 +530,13 @@ void test("baseline contains only the required singular one-word tables", async 
       [
         "action",
         "campaign",
+        "channel",
         "content",
         "dataset",
         "event",
         "file",
         "message",
+        "post",
         "preference",
         "prospect",
         "schedule",
@@ -728,14 +730,12 @@ void test("schedule occurrences are private task sessions under an optional conv
     assert.equal(stored.visibility, "private");
     assert.equal(stored.kind, "task");
     assert.equal(stored.agent, "cmo");
-
     await assert.rejects(
       store.deleteChat("workspace", "root"),
       /Workspace conversation is used by a Schedule/,
     );
     assert.ok(await store.chatRecord("workspace", "root"));
     assert.ok(await store.chatRecord("workspace", "session-1"));
-
     await assert.rejects(
       store.saveRecurringWork("workspace", {
         ...work,
