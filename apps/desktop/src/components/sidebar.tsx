@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Archive,
   BarChart3,
@@ -16,7 +16,6 @@ import {
   Moon,
   Network,
   Plus,
-  Search,
   Settings,
   Sun,
   Trash2,
@@ -47,32 +46,62 @@ import {
 } from "@chief/ui/components/popover";
 import { cn } from "@chief/ui/lib/utils";
 
+import type { ChannelSectionId } from "../lib/channel-sections";
 import type { LocalChatSummary } from "../lib/runtime";
 import type { ThemePreference } from "../lib/theme";
 import { useAuth } from "../lib/auth/auth-context";
+import { classifyChannel } from "../lib/channel-sections";
 import { createChat } from "../lib/chat-log";
 import { useLocalChats, useRuntime } from "../lib/runtime";
 import { useTheme } from "../lib/theme";
-import { ChiefMark } from "./chief-mark";
 import { UpdateAvailable } from "./update-available";
-import { WorkspaceSwitcher } from "./workspace-switcher";
+import { WorkspaceSearch } from "./workspace-search";
 
-const HOME_ITEMS = [
+const PRIMARY_ITEMS = [
   { to: "/", label: "Overview", icon: LayoutGrid },
-  { to: "/files", label: "Files", icon: FolderOpen },
-];
-
-const WORK_ITEMS = [
   { to: "/artifacts", label: "Artifacts", icon: Archive },
   { to: "/schedule", label: "Schedule", icon: CalendarClock },
   { to: "/agents", label: "Agents", icon: Network },
-];
+  { to: "/files", label: "Files", icon: FolderOpen },
+] as const;
 
-const LIBRARY_ITEMS = [
-  { to: "/analytics", label: "Analytics", icon: BarChart3 },
-  { to: "/campaigns", label: "Campaigns", icon: Megaphone },
-  { to: "/prospects", label: "Prospects", icon: Users },
-];
+const SECTIONS = [
+  {
+    id: "analytics",
+    label: "Analytics",
+    to: "/analytics",
+    icon: BarChart3,
+  },
+  {
+    id: "campaigns",
+    label: "Campaigns",
+    to: "/campaigns",
+    icon: Megaphone,
+  },
+  {
+    id: "prospects",
+    label: "Prospects",
+    to: "/prospects",
+    icon: Users,
+  },
+] as const;
+
+function sectionStorageKey(workspaceId: string | null) {
+  return `chief:sidebar-sections:${workspaceId ?? "local"}`;
+}
+
+function readCollapsedSections(
+  workspaceId: string | null,
+): Set<ChannelSectionId> {
+  try {
+    const stored = JSON.parse(
+      window.localStorage.getItem(sectionStorageKey(workspaceId)) ?? "[]",
+    ) as unknown;
+    return new Set(Array.isArray(stored) ? (stored as ChannelSectionId[]) : []);
+  } catch {
+    return new Set();
+  }
+}
 
 function NavItem({
   to,
@@ -89,7 +118,7 @@ function NavItem({
     <NavLink
       to={to}
       className={cn(
-        "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 items-center gap-2.5 px-2 text-[13px] transition-colors",
+        "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 items-center gap-2.5 rounded-lg px-2 text-[13px] transition-colors",
         active && "bg-sidebar-accent text-sidebar-foreground font-medium",
       )}
     >
@@ -99,38 +128,51 @@ function NavItem({
   );
 }
 
-function GroupHeading({
+function SectionHeading({
   label,
   open,
   onToggle,
-  action,
+  onCreate,
 }: {
   label: string;
   open: boolean;
   onToggle: () => void;
-  action?: React.ReactNode;
+  onCreate: () => void;
 }) {
   return (
-    <div className="group/heading flex h-7 items-center px-1">
+    <div className="group/heading flex h-8 items-center pr-1 pl-1.5">
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className="text-sidebar-muted hover:text-sidebar-foreground flex min-w-0 flex-1 items-center gap-1 text-[10px] font-semibold tracking-[0.075em] uppercase"
+        className="text-sidebar-muted hover:text-sidebar-foreground flex min-w-0 flex-1 items-center gap-1.5 text-left text-[12px] font-semibold transition-colors"
       >
-        <ChevronDown
-          size={11}
-          className={cn("transition-transform", !open && "-rotate-90")}
-        />
+        <span className="relative size-3 shrink-0">
+          <ChevronDown
+            size={12}
+            className={cn(
+              "absolute inset-0 transition-transform",
+              !open && "-rotate-90",
+            )}
+          />
+        </span>
         <span className="truncate">{label}</span>
       </button>
-      {action}
+      <button
+        type="button"
+        onClick={onCreate}
+        aria-label={`New ${label.toLocaleLowerCase()} channel`}
+        className="text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex size-6 items-center justify-center rounded-md opacity-0 transition-opacity group-hover/heading:opacity-100 focus:opacity-100"
+      >
+        <Plus size={13} />
+      </button>
     </div>
   );
 }
 
 function ThemeMenu() {
   const { preference, setPreference } = useTheme();
+  const [open, setOpen] = useState(false);
   const choices: {
     value: ThemePreference;
     label: string;
@@ -140,27 +182,26 @@ function ThemeMenu() {
     { value: "light", label: "Light", icon: Sun },
     { value: "dark", label: "Dark", icon: Moon },
   ];
+  const ActiveIcon =
+    preference === "dark" ? Moon : preference === "light" ? Sun : Monitor;
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         aria-label="Change appearance"
-        className="text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex size-8 items-center justify-center transition-colors"
+        className="text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex size-8 items-center justify-center rounded-lg transition-colors"
       >
-        {preference === "dark" ? (
-          <Moon size={14} />
-        ) : preference === "light" ? (
-          <Sun size={14} />
-        ) : (
-          <Monitor size={14} />
-        )}
+        <ActiveIcon size={14} />
       </PopoverTrigger>
-      <PopoverContent side="right" align="end" className="w-40">
+      <PopoverContent side="right" align="end" className="w-44">
         {choices.map(({ value, label, icon: Icon }) => (
           <button
             key={value}
             type="button"
-            onClick={() => setPreference(value)}
-            className="hover:bg-accent flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs"
+            onClick={() => {
+              setPreference(value);
+              setOpen(false);
+            }}
+            className="hover:bg-accent flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs"
           >
             <Icon size={14} className="text-muted-foreground" />
             <span className="flex-1">{label}</span>
@@ -189,27 +230,30 @@ function ChannelRow({
         <button
           type="button"
           onClick={onOpen}
+          aria-current={active ? "page" : undefined}
           className={cn(
-            "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground group/channel flex h-8 w-full min-w-0 items-center gap-2 px-2 text-left text-[13px] transition-colors",
+            "group/channel text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors",
             active && "bg-sidebar-accent text-sidebar-foreground font-medium",
           )}
         >
           {channel.running ? (
             <LoaderCircle size={14} className="shrink-0 animate-spin" />
           ) : (
-            <Hash size={14} strokeWidth={1.8} className="shrink-0" />
+            <Hash size={14} strokeWidth={1.8} className="shrink-0 opacity-70" />
           )}
           <span className="min-w-0 flex-1 truncate">{channel.title}</span>
           <CircleEllipsis
-            size={13}
-            className="shrink-0 opacity-0 group-hover/channel:opacity-70"
+            size={14}
+            className="shrink-0 opacity-0 transition-opacity group-hover/channel:opacity-60 group-focus/channel:opacity-60"
           />
         </button>
       </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuLabel>{channel.title}</ContextMenuLabel>
+      <ContextMenuContent className="w-56">
+        <ContextMenuLabel className="truncate">
+          {channel.title}
+        </ContextMenuLabel>
         <ContextMenuItem onSelect={onOpen}>
-          <Hash size={13} /> Open channel
+          <Hash size={14} /> Open channel
         </ContextMenuItem>
         <ContextMenuItem
           onSelect={() =>
@@ -218,14 +262,14 @@ function ChannelRow({
             )
           }
         >
-          <FileText size={13} /> Copy channel link
+          <FileText size={14} /> Copy channel link
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem
           onSelect={onDelete}
           className="text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive"
         >
-          <Trash2 size={13} /> Delete channel
+          <Trash2 size={14} /> Delete channel
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -239,94 +283,113 @@ export function Sidebar({
   width: number;
   onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
 }) {
-  const { cloudOrganizationId } = useAuth();
+  const { cloudOrganizationId, user } = useAuth();
   const { status } = useRuntime();
   const chats = useLocalChats(cloudOrganizationId);
   const location = useLocation();
   const navigate = useNavigate();
-  const [channelsOpen, setChannelsOpen] = useState(true);
-  const [workOpen, setWorkOpen] = useState(true);
-  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() =>
+    readCollapsedSections(cloudOrganizationId),
+  );
   const [deleteTarget, setDeleteTarget] = useState<LocalChatSummary | null>(
     null,
   );
   const activeChatId = new URLSearchParams(location.search).get("chat");
+  const groupedChats = useMemo(() => {
+    const groups = new Map<ChannelSectionId, LocalChatSummary[]>([
+      ["analytics", []],
+      ["campaigns", []],
+      ["prospects", []],
+      ["general", []],
+    ]);
+    chats.chats.forEach((chat) =>
+      groups.get(classifyChannel(chat))?.push(chat),
+    );
+    return groups;
+  }, [chats.chats]);
 
   const openNewChannel = () => {
     const chat = createChat();
     void navigate(`/conversations?chat=${chat.id}`);
   };
+  const toggleSection = (section: ChannelSectionId) => {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(section)) next.delete(section);
+      else next.add(section);
+      window.localStorage.setItem(
+        sectionStorageKey(cloudOrganizationId),
+        JSON.stringify([...next]),
+      );
+      return next;
+    });
+  };
+  const renderChannels = (section: ChannelSectionId) =>
+    groupedChats
+      .get(section)
+      ?.map((channel) => (
+        <ChannelRow
+          key={channel.id}
+          channel={channel}
+          active={
+            location.pathname.startsWith("/conversations") &&
+            activeChatId === channel.id
+          }
+          onOpen={() => navigate(`/conversations?chat=${channel.id}`)}
+          onDelete={() => setDeleteTarget(channel)}
+        />
+      ));
 
   return (
     <>
       <aside
         style={{ width }}
-        className="bg-sidebar text-sidebar-foreground border-sidebar-border fixed inset-y-0 left-0 z-40 flex flex-col border-r"
+        className="bg-sidebar text-sidebar-foreground relative z-30 flex h-full shrink-0 flex-col"
       >
-        <div className="relative h-[66px] shrink-0">
-          <div data-tauri-drag-region className="absolute inset-0" />
-          <div className="pointer-events-none absolute right-3 bottom-2.5 left-3 flex items-center gap-2">
-            <ChiefMark className="h-[18px] w-[18px]" />
-            <span className="font-serif text-[15px] leading-none font-semibold tracking-[-0.025em]">
-              Chief
-            </span>
-          </div>
+        <div className="shrink-0 px-3 pt-3 pb-2">
+          <WorkspaceSearch chats={chats.chats} />
         </div>
-
-        <div className="px-2 pb-2">
-          <button
-            type="button"
-            onClick={() => navigate("/conversations")}
-            className="text-sidebar-muted border-sidebar-border hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full items-center gap-2 border px-2 text-left text-xs transition-colors"
-          >
-            <Search size={13} />
-            <span className="flex-1">Search Chief</span>
-            <span className="font-mono text-[9px] opacity-60">⌘ K</span>
-          </button>
-        </div>
-
-        <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
-          <div className="space-y-0.5">
-            {HOME_ITEMS.map((item) => (
+        <nav className="min-h-0 flex-1 [scrollbar-width:thin] [scrollbar-color:color-mix(in_srgb,var(--sidebar-muted)_22%,transparent)_transparent] overflow-y-auto px-2 pb-5">
+          <div className="space-y-0.5 px-0.5 pb-3">
+            {PRIMARY_ITEMS.map((item) => (
               <NavItem key={item.to} {...item} />
             ))}
           </div>
-
-          <div className="mt-5">
-            <GroupHeading
-              label="Channels"
-              open={channelsOpen}
-              onToggle={() => setChannelsOpen((value) => !value)}
-              action={
-                <button
-                  type="button"
-                  onClick={openNewChannel}
-                  aria-label="New channel"
-                  className="text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex size-6 items-center justify-center opacity-70 hover:opacity-100"
-                >
-                  <Plus size={13} />
-                </button>
-              }
-            />
-            {channelsOpen ? (
-              <div className="space-y-0.5">
-                {chats.chats.map((channel) => (
-                  <ChannelRow
-                    key={channel.id}
-                    channel={channel}
-                    active={
-                      location.pathname.startsWith("/conversations") &&
-                      activeChatId === channel.id
-                    }
-                    onOpen={() => navigate(`/conversations?chat=${channel.id}`)}
-                    onDelete={() => setDeleteTarget(channel)}
+          {SECTIONS.map((section) => (
+            <div key={section.id} className="mt-3">
+              <SectionHeading
+                label={section.label}
+                open={!collapsed.has(section.id)}
+                onToggle={() => toggleSection(section.id)}
+                onCreate={openNewChannel}
+              />
+              {!collapsed.has(section.id) ? (
+                <div className="space-y-0.5">
+                  <NavItem
+                    to={section.to}
+                    label={`${section.label} overview`}
+                    icon={section.icon}
                   />
-                ))}
+                  {renderChannels(section.id)}
+                </div>
+              ) : null}
+            </div>
+          ))}
+          <div className="mt-3">
+            <SectionHeading
+              label="General"
+              open={!collapsed.has("general")}
+              onToggle={() => toggleSection("general")}
+              onCreate={openNewChannel}
+            />
+            {!collapsed.has("general") ? (
+              <div className="space-y-0.5">
+                {renderChannels("general")}
                 {!chats.loading && chats.chats.length === 0 ? (
                   <button
                     type="button"
                     onClick={openNewChannel}
-                    className="text-sidebar-muted hover:text-sidebar-foreground flex h-8 w-full items-center gap-2 px-2 text-left text-xs"
+                    className="text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-xs"
                   >
                     <Plus size={13} /> Start a channel
                   </button>
@@ -334,64 +397,47 @@ export function Sidebar({
               </div>
             ) : null}
           </div>
-
-          <div className="mt-4">
-            <GroupHeading
-              label="Work"
-              open={workOpen}
-              onToggle={() => setWorkOpen((value) => !value)}
-            />
-            {workOpen ? (
-              <div className="space-y-0.5">
-                {WORK_ITEMS.map((item) => (
-                  <NavItem key={item.to} {...item} />
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="mt-4">
-            <GroupHeading
-              label="Library"
-              open={libraryOpen}
-              onToggle={() => setLibraryOpen((value) => !value)}
-            />
-            {libraryOpen ? (
-              <div className="space-y-0.5">
-                {LIBRARY_ITEMS.map((item) => (
-                  <NavItem key={item.to} {...item} />
-                ))}
-              </div>
-            ) : null}
-          </div>
         </nav>
-
-        <div className="border-sidebar-border border-t p-2">
-          <div className="flex items-center gap-1">
-            <WorkspaceSwitcher />
-            <span className="text-sidebar-muted min-w-0 flex-1 truncate text-[11px]">
-              Runtime {status}
-            </span>
-            <span
-              className={cn(
-                "size-1.5 shrink-0",
-                status === "connected" && "bg-emerald-500",
-                status === "connecting" && "animate-pulse bg-blue-500",
-                status === "disconnected" && "bg-destructive",
+        <div className="border-sidebar-border/70 shrink-0 border-t p-2.5">
+          <div className="group/profile hover:bg-sidebar-accent/70 flex min-w-0 items-center gap-2.5 rounded-xl px-2 py-2">
+            <span className="bg-sidebar-accent flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-xl text-xs font-semibold">
+              {user?.image ? (
+                <img
+                  src={user.image}
+                  alt=""
+                  className="size-full object-cover"
+                />
+              ) : (
+                (user?.name.trim().charAt(0) ?? "C").toLocaleUpperCase()
               )}
-            />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] leading-4 font-semibold">
+                {user?.name ?? "Chief workspace"}
+              </span>
+              <span className="text-sidebar-muted flex items-center gap-1.5 truncate text-[10px]">
+                <span
+                  className={cn(
+                    "size-1.5 shrink-0 rounded-full",
+                    status === "connected" && "bg-emerald-500",
+                    status === "connecting" && "animate-pulse bg-amber-400",
+                    status === "disconnected" && "bg-destructive",
+                  )}
+                />
+                Runtime {status}
+              </span>
+            </span>
             <UpdateAvailable />
             <ThemeMenu />
             <NavLink
               to="/settings"
               aria-label="Settings"
-              className="text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex size-8 items-center justify-center"
+              className="text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex size-8 shrink-0 items-center justify-center rounded-lg"
             >
               <Settings size={14} />
             </NavLink>
           </div>
         </div>
-
         <div
           role="separator"
           aria-orientation="vertical"
@@ -402,12 +448,11 @@ export function Sidebar({
           <span className="bg-foreground/30 absolute inset-y-0 left-[3px] w-px opacity-0 transition-opacity group-hover:opacity-100" />
         </div>
       </aside>
-
       <Dialog
         open={deleteTarget !== null}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
       >
-        <DialogContent>
+        <DialogContent className="rounded-2xl sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Delete this channel?</DialogTitle>
             <DialogDescription>
@@ -419,7 +464,7 @@ export function Sidebar({
             <button
               type="button"
               onClick={() => setDeleteTarget(null)}
-              className="hover:bg-accent border px-3 py-2 text-xs"
+              className="hover:bg-accent rounded-lg border px-3 py-2 text-xs"
             >
               Cancel
             </button>
@@ -431,7 +476,7 @@ export function Sidebar({
                   void navigate("/conversations");
                 setDeleteTarget(null);
               }}
-              className="bg-destructive text-destructive-foreground px-3 py-2 text-xs"
+              className="bg-destructive text-destructive-foreground rounded-lg px-3 py-2 text-xs"
             >
               Delete channel
             </button>
