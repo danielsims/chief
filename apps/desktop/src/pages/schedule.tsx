@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarPlus,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   FilePlus2,
@@ -130,15 +131,185 @@ function buildMonthCells(month: Date): (Date | null)[] {
   });
 }
 
-function statusClass(status: ScheduledDraft["status"]) {
-  if (status === "published") return "bg-emerald-500";
-  if (status === "scheduled") return "bg-sky-500";
-  if (status === "approved") return "bg-amber-400";
-  return "bg-muted-foreground";
+function draftTone(status: ScheduledDraft["status"], past = false) {
+  if (past) {
+    return "bg-zinc-200 text-zinc-600 shadow-[inset_0_1px_rgba(255,255,255,0.7),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-zinc-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600";
+  }
+  if (status === "published") {
+    return "bg-emerald-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.16),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-emerald-700";
+  }
+  if (status === "scheduled") {
+    return "bg-cyan-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.16),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-cyan-700";
+  }
+  if (status === "approved") {
+    return "bg-violet-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.16),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-violet-700";
+  }
+  return "bg-zinc-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-zinc-700";
 }
 
-function DraftChip({ draft }: { draft: ScheduledDraft }) {
-  const navigate = useNavigate();
+function agentWorkTone(agentId: string, past = false) {
+  if (past) {
+    return "bg-zinc-200 text-zinc-600 shadow-[inset_0_1px_rgba(255,255,255,0.7),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-zinc-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600";
+  }
+  if (agentId === "prospector") {
+    return "bg-violet-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-violet-700";
+  }
+  if (agentId === "content") {
+    return "bg-rose-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-rose-700";
+  }
+  if (agentId === "brand") {
+    return "bg-fuchsia-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-fuchsia-700";
+  }
+  if (agentId === "analyst") {
+    return "bg-sky-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-sky-700";
+  }
+  if (agentId === "ads") {
+    return "bg-teal-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-teal-700";
+  }
+  if (agentId === "setup") {
+    return "bg-emerald-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-emerald-700";
+  }
+  return "bg-indigo-600 text-white shadow-[inset_0_1px_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.06)] hover:bg-indigo-700";
+}
+
+function workStatusLabel(status: RecurringWorkRecord["status"]) {
+  if (status === "needs_approval") return "Review";
+  if (status === "draft") return "Draft";
+  if (status === "active") return "Active";
+  if (status === "paused") return "Paused";
+  return "Issue";
+}
+
+function CalendarEventContent({
+  title,
+  time,
+  source,
+  status,
+  agentInitial,
+  muted = false,
+}: {
+  title: string;
+  time?: string;
+  source: string;
+  status: string;
+  agentInitial?: string;
+  muted?: boolean;
+}) {
+  return (
+    <span className="block min-w-0">
+      <span className="flex min-w-0 items-baseline gap-2">
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-[11px] leading-[15px] font-semibold tracking-[-0.012em]",
+            muted ? "text-zinc-700 dark:text-zinc-200" : "text-white",
+          )}
+        >
+          {title}
+        </span>
+        {time ? (
+          <span
+            className={cn(
+              "shrink-0 text-[9px] leading-[13px] font-medium tabular-nums",
+              muted ? "text-zinc-500 dark:text-zinc-400" : "text-white/75",
+            )}
+          >
+            {time}
+          </span>
+        ) : null}
+      </span>
+      <span className="mt-0.5 flex min-w-0 items-center gap-2 text-[9px] leading-[13px] font-medium tracking-[-0.005em]">
+        <span
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-1 truncate capitalize",
+            muted ? "text-zinc-500 dark:text-zinc-400" : "text-white/75",
+          )}
+        >
+          {agentInitial ? (
+            <span
+              className={cn(
+                "flex size-3.5 shrink-0 items-center justify-center rounded-full text-[7px] leading-none font-semibold",
+                muted
+                  ? "bg-zinc-500/12 text-zinc-600 dark:bg-white/10 dark:text-zinc-300"
+                  : "bg-white/16 text-white",
+              )}
+            >
+              {agentInitial}
+            </span>
+          ) : null}
+          <span className="truncate">{source}</span>
+        </span>
+        <span
+          className={cn(
+            "shrink-0",
+            muted ? "text-zinc-500 dark:text-zinc-400" : "text-white/90",
+          )}
+        >
+          {status}
+        </span>
+      </span>
+    </span>
+  );
+}
+
+function WorkEventContent({
+  work,
+  time,
+  muted,
+}: {
+  work: RecurringWorkRecord;
+  time?: string;
+  muted?: boolean;
+}) {
+  return (
+    <CalendarEventContent
+      title={work.title}
+      time={time}
+      source={agentName(work.agentId)}
+      status={workStatusLabel(work.status)}
+      agentInitial={agentName(work.agentId).slice(0, 1)}
+      muted={muted}
+    />
+  );
+}
+
+function DraftEventContent({
+  draft,
+  time,
+  muted,
+}: {
+  draft: ScheduledDraft;
+  time?: string;
+  muted?: boolean;
+}) {
+  const status =
+    draft.status === "published"
+      ? "Published"
+      : draft.status === "scheduled"
+        ? "Scheduled"
+        : draft.status === "approved"
+          ? "Approved"
+          : "Draft";
+  return (
+    <CalendarEventContent
+      title={draft.title}
+      time={time}
+      source={draft.platform}
+      status={status}
+      agentInitial={agentName(draft.agentId).slice(0, 1)}
+      muted={muted}
+    />
+  );
+}
+
+function DraftChip({
+  draft,
+  onOpen,
+  past = false,
+}: {
+  draft: ScheduledDraft;
+  onOpen: (draft: ScheduledDraft) => void;
+  past?: boolean;
+}) {
   const time = draft.scheduledFor
     ? new Date(draft.scheduledFor).toLocaleTimeString([], {
         hour: "numeric",
@@ -148,23 +319,16 @@ function DraftChip({ draft }: { draft: ScheduledDraft }) {
   return (
     <button
       type="button"
-      disabled={!draft.fileId}
       onClick={(event) => {
-        if (!draft.fileId) return;
         event.stopPropagation();
-        void navigate(`/files/${encodeURIComponent(draft.fileId)}`);
+        onOpen(draft);
       }}
-      className="bg-background/75 hover:bg-accent/65 disabled:hover:bg-background/75 block w-full min-w-0 rounded-lg px-2.5 py-2 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),inset_0_1px_rgba(255,255,255,0.06)] transition-colors select-none"
+      className={cn(
+        "block min-h-11 w-full min-w-0 rounded-[10px] px-2.5 py-2 text-left transition-colors select-none",
+        draftTone(draft.status, past),
+      )}
     >
-      <div className="flex min-w-0 items-center gap-1.5">
-        <span className={cn("size-1.5 shrink-0", statusClass(draft.status))} />
-        <span className="min-w-0 flex-1 truncate text-[11px] font-semibold">
-          {draft.title}
-        </span>
-      </div>
-      <p className="text-muted-foreground mt-0.5 truncate text-[10px]">
-        {time || "Draft"} · {draft.platform}
-      </p>
+      <DraftEventContent draft={draft} time={time || undefined} muted={past} />
     </button>
   );
 }
@@ -173,13 +337,13 @@ function RecurringWorkChip({
   work,
   onOpen,
   onContextMenu,
+  past = false,
 }: {
   work: RecurringWorkRecord;
   onOpen?: (work: RecurringWorkRecord) => void;
   onContextMenu?: (work: RecurringWorkRecord, x: number, y: number) => void;
+  past?: boolean;
 }) {
-  const approvalNeeded =
-    work.status === "draft" || work.status === "needs_approval";
   return (
     <div
       role={onOpen ? "button" : undefined}
@@ -200,22 +364,12 @@ function RecurringWorkChip({
         event.stopPropagation();
         onContextMenu(work, event.clientX, event.clientY);
       }}
-      className="bg-foreground/[0.035] min-w-0 rounded-lg px-2.5 py-2 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),inset_0_1px_rgba(255,255,255,0.045)] select-none"
+      className={cn(
+        "min-h-11 min-w-0 rounded-[10px] px-2.5 py-2 transition-colors select-none",
+        agentWorkTone(work.agentId, past),
+      )}
     >
-      <div className="flex min-w-0 items-center gap-1.5">
-        <span
-          className={cn(
-            "size-1.5 shrink-0",
-            approvalNeeded ? "bg-amber-400" : "bg-foreground",
-          )}
-        />
-        <span className="min-w-0 flex-1 truncate text-[11px] font-semibold">
-          {work.title}
-        </span>
-      </div>
-      <p className="text-muted-foreground mt-0.5 truncate text-[10px] capitalize">
-        {agentName(work.agentId)} · {work.status.replace("_", " ")}
-      </p>
+      <WorkEventContent work={work} muted={past} />
     </div>
   );
 }
@@ -225,10 +379,12 @@ function DayCell({
   drafts,
   recurringWork,
   today,
+  now,
   selected,
   onSelect,
   onContextMenu,
   onWorkOpen,
+  onDraftOpen,
   onWorkContext,
   boundaryRow = false,
   tall = false,
@@ -237,10 +393,12 @@ function DayCell({
   drafts: ScheduledDraft[];
   recurringWork: RecurringWorkRecord[];
   today: Date;
+  now: number;
   selected: Date;
   onSelect: (date: Date) => void;
   onContextMenu?: (date: Date, x: number, y: number) => void;
   onWorkOpen?: (work: RecurringWorkRecord) => void;
+  onDraftOpen: (draft: ScheduledDraft) => void;
   onWorkContext?: (
     work: RecurringWorkRecord,
     date: Date,
@@ -292,6 +450,7 @@ function DayCell({
             key={work.id}
             work={work}
             onOpen={onWorkOpen}
+            past={date < today}
             onContextMenu={
               onWorkContext
                 ? (item, x, y) => onWorkContext(item, date, x, y)
@@ -300,7 +459,12 @@ function DayCell({
           />
         ))}
         {drafts.slice(0, draftLimit).map((draft) => (
-          <DraftChip key={draft.id} draft={draft} />
+          <DraftChip
+            key={draft.id}
+            draft={draft}
+            onOpen={onDraftOpen}
+            past={draft.scheduledFor !== undefined && draft.scheduledFor < now}
+          />
         ))}
         {drafts.length + recurringWork.length > visibleLimit ? (
           <p className="text-muted-foreground px-1 text-[10px]">
@@ -385,10 +549,12 @@ function ContinuousMonthView({
   activeMonth,
   onActiveMonthChange,
   today,
+  now,
   selected,
   onSelect,
   onDateContext,
   onWorkOpen,
+  onDraftOpen,
   onWorkContext,
   byDay,
   recurringByDay,
@@ -400,10 +566,12 @@ function ContinuousMonthView({
   activeMonth: Date;
   onActiveMonthChange: (month: Date) => void;
   today: Date;
+  now: number;
   selected: Date;
   onSelect: (date: Date) => void;
   onDateContext: (date: Date, x: number, y: number) => void;
   onWorkOpen: (work: RecurringWorkRecord) => void;
+  onDraftOpen: (draft: ScheduledDraft) => void;
   onWorkContext: (
     work: RecurringWorkRecord,
     date: Date,
@@ -431,14 +599,22 @@ function ContinuousMonthView({
     const container = calendarRef.current;
     const section = monthSections.current.get(monthKey(month));
     if (!container || !section) return;
+    const top =
+      container.scrollTop +
+      section.getBoundingClientRect().top -
+      container.getBoundingClientRect().top -
+      CALENDAR_HEADER_HEIGHT;
     container.scrollTo({
-      top: section.offsetTop - CALENDAR_HEADER_HEIGHT,
+      top,
       behavior,
     });
   };
 
   useLayoutEffect(() => {
-    scrollToMonth(scrollRequest.month, "auto");
+    scrollToMonth(
+      scrollRequest.month,
+      scrollRequest.token === 0 ? "auto" : "smooth",
+    );
     onActiveMonthChange(scrollRequest.month);
   }, [scrollRequest.token]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -457,11 +633,12 @@ function ContinuousMonthView({
       scrollFrame.current = null;
       const container = calendarRef.current;
       if (!container) return;
-      const threshold = container.scrollTop + CALENDAR_HEADER_HEIGHT + 2;
+      const threshold =
+        container.getBoundingClientRect().top + CALENDAR_HEADER_HEIGHT + 4;
       let nextMonth = months[0]!;
       for (const month of months) {
         const section = monthSections.current.get(monthKey(month));
-        if (!section || section.offsetTop > threshold) break;
+        if (!section || section.getBoundingClientRect().top > threshold) break;
         nextMonth = month;
       }
       if (!sameMonth(nextMonth, activeMonth)) {
@@ -474,7 +651,7 @@ function ContinuousMonthView({
     <div
       ref={calendarRef}
       onScroll={handleScroll}
-      className="relative h-full min-w-0 overflow-y-auto overscroll-contain"
+      className="relative h-full min-w-0 touch-pan-y [scrollbar-width:thin] [scrollbar-gutter:stable] overflow-y-scroll overscroll-contain scroll-smooth"
     >
       <div className="bg-card/90 sticky top-0 z-30 grid h-10 grid-cols-7 border-b border-black/[0.055] backdrop-blur-xl dark:border-white/[0.055]">
         {WEEKDAYS.map((weekday) => (
@@ -499,16 +676,22 @@ function ContinuousMonthView({
             }}
             className="relative grid grid-cols-7 border-l border-black/[0.055] dark:border-white/[0.055]"
           >
-            <p
+            <button
+              type="button"
+              onClick={() => {
+                scrollToMonth(month, "smooth");
+                onActiveMonthChange(month);
+              }}
               className={cn(
-                "pointer-events-none absolute top-2.5 left-3 z-10 text-lg font-semibold tracking-[-0.025em] transition-opacity duration-300",
+                "hover:text-muted-foreground absolute top-2.5 left-3 z-10 text-left text-lg font-semibold tracking-[-0.025em] transition-[color,opacity] duration-200",
                 // The page header already names the active month; the in-grid
                 // label fades away instead of duplicating it.
-                sameMonth(month, activeMonth) && "opacity-0",
+                sameMonth(month, activeMonth) &&
+                  "pointer-events-none opacity-0",
               )}
             >
               {monthLabel(month)}
-            </p>
+            </button>
             {cells.map((date, index) =>
               date ? (
                 <DayCell
@@ -521,10 +704,12 @@ function ContinuousMonthView({
                       : []
                   }
                   today={today}
+                  now={now}
                   selected={selected}
                   onSelect={onSelect}
                   onContextMenu={onDateContext}
                   onWorkOpen={onWorkOpen}
+                  onDraftOpen={onDraftOpen}
                   onWorkContext={onWorkContext}
                   boundaryRow={index < 7}
                 />
@@ -547,9 +732,11 @@ function FocusedCalendarView({
   view,
   selected,
   today,
+  now,
   onSelect,
   onDateContext,
   onWorkOpen,
+  onDraftOpen,
   onWorkContext,
   byDay,
   recurringByDay,
@@ -559,9 +746,11 @@ function FocusedCalendarView({
   view: Exclude<CalendarView, "month">;
   selected: Date;
   today: Date;
+  now: number;
   onSelect: (date: Date) => void;
   onDateContext: (date: Date, x: number, y: number) => void;
   onWorkOpen: (work: RecurringWorkRecord) => void;
+  onDraftOpen: (draft: ScheduledDraft) => void;
   onWorkContext: (
     work: RecurringWorkRecord,
     date: Date,
@@ -573,7 +762,6 @@ function FocusedCalendarView({
   showPosts: boolean;
   showAgentWork: boolean;
 }) {
-  const navigate = useNavigate();
   const dates =
     view === "week"
       ? Array.from({ length: 7 }, (_, index) =>
@@ -601,7 +789,7 @@ function FocusedCalendarView({
   };
 
   return (
-    <div className="h-full min-w-0 overflow-y-auto overscroll-contain">
+    <div className="h-full min-w-0 touch-pan-y [scrollbar-width:thin] [scrollbar-gutter:stable] overflow-y-scroll overscroll-contain">
       <div className="bg-card/90 sticky top-0 z-30 backdrop-blur-xl">
         <div
           className="grid border-b border-black/[0.055] dark:border-white/[0.055]"
@@ -662,7 +850,11 @@ function FocusedCalendarView({
                 className="min-w-0 border-l border-black/[0.055] p-1.5 dark:border-white/[0.055]"
               >
                 {unscheduled.slice(0, 1).map((draft) => (
-                  <DraftChip key={draft.id} draft={draft} />
+                  <DraftChip
+                    key={draft.id}
+                    draft={draft}
+                    onOpen={onDraftOpen}
+                  />
                 ))}
                 {unscheduled.length > 1 ? (
                   <p className="text-muted-foreground px-2 py-1 text-[9px]">
@@ -746,19 +938,20 @@ function FocusedCalendarView({
                       event.stopPropagation();
                       onWorkContext(work, date, event.clientX, event.clientY);
                     }}
-                    className="bg-foreground/[0.065] hover:bg-foreground/[0.095] absolute right-1.5 left-1.5 overflow-hidden rounded-lg px-2 py-1.5 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)] transition-colors"
+                    className={cn(
+                      "absolute right-1.5 left-1.5 overflow-hidden rounded-[10px] px-2.5 py-2 text-left transition-colors",
+                      agentWorkTone(work.agentId, timestamp < now),
+                    )}
                     style={{ top: eventTop(timestamp), minHeight: 42 }}
                   >
-                    <span className="block truncate text-[10px] font-semibold">
-                      {work.title}
-                    </span>
-                    <span className="text-muted-foreground mt-0.5 block truncate text-[9px]">
-                      {new Date(timestamp).toLocaleTimeString([], {
+                    <WorkEventContent
+                      work={work}
+                      time={new Date(timestamp).toLocaleTimeString([], {
                         hour: "numeric",
                         minute: "2-digit",
-                      })}{" "}
-                      · {agentName(work.agentId)}
-                    </span>
+                      })}
+                      muted={timestamp < now}
+                    />
                   </button>
                 ))}
                 {drafts.map((draft) => (
@@ -767,28 +960,28 @@ function FocusedCalendarView({
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
-                      if (draft.fileId) {
-                        void navigate(
-                          `/files/${encodeURIComponent(draft.fileId)}`,
-                        );
-                      }
+                      onDraftOpen(draft);
                     }}
-                    className="absolute right-1.5 left-1.5 overflow-hidden rounded-lg bg-sky-500/[0.09] px-2 py-1.5 text-left shadow-[inset_0_0_0_1px_rgba(14,165,233,0.18)] transition-colors hover:bg-sky-500/[0.13]"
+                    className={cn(
+                      "absolute right-1.5 left-1.5 overflow-hidden rounded-[10px] px-2.5 py-2 text-left transition-colors",
+                      draftTone(draft.status, draft.scheduledFor < now),
+                    )}
                     style={{
                       top: eventTop(draft.scheduledFor),
                       minHeight: 42,
                     }}
                   >
-                    <span className="block truncate text-[10px] font-semibold">
-                      {draft.title}
-                    </span>
-                    <span className="text-muted-foreground mt-0.5 block truncate text-[9px]">
-                      {new Date(draft.scheduledFor).toLocaleTimeString([], {
-                        hour: "numeric",
-                        minute: "2-digit",
-                      })}{" "}
-                      · {draft.platform}
-                    </span>
+                    <DraftEventContent
+                      draft={draft}
+                      time={new Date(draft.scheduledFor).toLocaleTimeString(
+                        [],
+                        {
+                          hour: "numeric",
+                          minute: "2-digit",
+                        },
+                      )}
+                      muted={draft.scheduledFor < now}
+                    />
                   </button>
                 ))}
               </div>
@@ -1130,6 +1323,8 @@ function RecurringWorkEditDialog({
 
   useEffect(() => {
     if (!work) return;
+    // This form remains mounted behind the dialog and resets when its record changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTitle(work.title);
     setTimezone(work.timezone);
     setFields(fieldsFromCron(work.cron));
@@ -1308,12 +1503,14 @@ function RecurringWorkEditDialog({
 
 function RecurringWorkApprovalDialog({
   work,
+  now,
   onClose,
   onApprove,
   onReject,
   revision,
 }: {
   work: RecurringWorkRecord | null;
+  now: number;
   onClose: () => void;
   onApprove: (work: RecurringWorkRecord) => void;
   onReject: (work: RecurringWorkRecord) => void;
@@ -1326,7 +1523,7 @@ function RecurringWorkApprovalDialog({
 }) {
   const [feedback, setFeedback] = useState("");
   const missedOneOff = Boolean(
-    work?.onceAt !== undefined && work.onceAt <= Date.now(),
+    work?.onceAt !== undefined && work.onceAt <= now,
   );
   const submitFeedback = () => {
     const text = feedback.trim();
@@ -1468,6 +1665,185 @@ function RecurringWorkApprovalDialog({
   );
 }
 
+function ScheduleEventDetailDialog({
+  work,
+  draft,
+  onClose,
+  onEditWork,
+  onOpenDraft,
+}: {
+  work: RecurringWorkRecord | null;
+  draft: ScheduledDraft | null;
+  onClose: () => void;
+  onEditWork: (work: RecurringWorkRecord) => void;
+  onOpenDraft: (draft: ScheduledDraft) => void;
+}) {
+  const open = Boolean(work ?? draft);
+  const source = work ? agentName(work.agentId) : draft?.platform;
+  const status = work
+    ? workStatusLabel(work.status)
+    : draft
+      ? draft.status[0]?.toUpperCase() + draft.status.slice(1)
+      : "";
+  const timing = work
+    ? friendlySchedule(work)
+    : draft?.scheduledFor
+      ? new Date(draft.scheduledFor).toLocaleString([], {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })
+      : "Awaiting a time";
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-w-lg overflow-hidden p-0">
+        {work || draft ? (
+          <>
+            <DialogHeader className="px-6 pt-6 pb-4 text-left">
+              <div className="flex items-start gap-3.5 pr-8">
+                <span className="bg-foreground/[0.06] flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
+                  {source?.slice(0, 1).toUpperCase()}
+                </span>
+                <div className="min-w-0 pt-0.5">
+                  <DialogTitle className="text-lg leading-6 font-semibold tracking-[-0.02em]">
+                    {work?.title ?? draft?.title}
+                  </DialogTitle>
+                  <DialogDescription className="mt-1 text-xs">
+                    {source} · {timing}
+                  </DialogDescription>
+                </div>
+              </div>
+            </DialogHeader>
+
+            <div className="space-y-4 px-6 pb-6">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-foreground/[0.035] rounded-xl px-3 py-2.5">
+                  <p className="text-muted-foreground text-[10px]">Status</p>
+                  <p className="mt-0.5 text-xs font-medium">{status}</p>
+                </div>
+                <div className="bg-foreground/[0.035] rounded-xl px-3 py-2.5">
+                  <p className="text-muted-foreground text-[10px]">
+                    {work ? "Runs" : "Destination"}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs font-medium">
+                    {work ? friendlySchedule(work) : draft?.platform}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-muted-foreground mb-1.5 text-[10px]">
+                  {work ? "Brief" : "Content"}
+                </p>
+                <div className="bg-foreground/[0.025] max-h-56 overflow-y-auto rounded-xl px-3.5 py-3 text-xs leading-5 whitespace-pre-wrap shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_5%,transparent)]">
+                  {work
+                    ? work.instructions.length > 0
+                      ? work.instructions
+                      : "No additional instructions."
+                    : draft && draft.body.length > 0
+                      ? draft.body
+                      : "No draft content yet."}
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="bg-foreground/[0.018] border-t border-black/[0.055] px-6 py-4 dark:border-white/[0.055]">
+              <Button variant="outline" onClick={onClose}>
+                Close
+              </Button>
+              {work ? (
+                <Button onClick={() => onEditWork(work)}>Edit schedule</Button>
+              ) : draft?.fileId ? (
+                <Button onClick={() => onOpenDraft(draft)}>Open draft</Button>
+              ) : null}
+            </DialogFooter>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MonthJump({
+  month,
+  onSelect,
+}: {
+  month: Date;
+  onSelect: (month: Date) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [year, setYear] = useState(month.getFullYear());
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) setYear(month.getFullYear());
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="hover:bg-accent/45 group flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-1.5 text-xl font-semibold tracking-[-0.025em] transition-colors"
+        >
+          <span className="truncate">{monthLabel(month)}</span>
+          <ChevronDown
+            size={14}
+            className="text-muted-foreground shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+          />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72 rounded-2xl p-2.5">
+        <div className="mb-2 flex items-center justify-between px-1">
+          <button
+            type="button"
+            onClick={() => setYear((value) => value - 1)}
+            className="hover:bg-accent flex size-7 items-center justify-center rounded-lg transition-colors"
+            aria-label="Previous year"
+          >
+            <ChevronLeft size={14} />
+          </button>
+          <span className="text-xs font-semibold tabular-nums">{year}</span>
+          <button
+            type="button"
+            onClick={() => setYear((value) => value + 1)}
+            className="hover:bg-accent flex size-7 items-center justify-center rounded-lg transition-colors"
+            aria-label="Next year"
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-1">
+          {Array.from({ length: 12 }, (_, index) => {
+            const candidate = new Date(year, index, 1);
+            const active = sameMonth(candidate, month);
+            return (
+              <button
+                key={index}
+                type="button"
+                onClick={() => {
+                  onSelect(candidate);
+                  setOpen(false);
+                }}
+                className={cn(
+                  "hover:bg-accent rounded-lg px-2 py-2 text-xs transition-colors",
+                  active && "bg-foreground text-background hover:bg-foreground",
+                )}
+              >
+                {candidate.toLocaleDateString([], { month: "short" })}
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function ScheduleInbox({
   work,
   onOpen,
@@ -1534,6 +1910,7 @@ export function SchedulePage() {
   const navigate = useNavigate();
   const reduceMotion = useReducedMotion();
   const today = useMemo(() => startOfDay(new Date()), []);
+  const [now, setNow] = useState(Date.now);
   const currentMonth = useMemo(() => startOfMonth(today), [today]);
   const [selected, setSelected] = useState(today);
   const [view, setView] = useState<CalendarView>("week");
@@ -1547,6 +1924,8 @@ export function SchedulePage() {
     () => new Set<ScheduleKind>(["post", "agent-work"]),
   );
   const [approvalWorkId, setApprovalWorkId] = useState<string | null>(null);
+  const [detailWorkId, setDetailWorkId] = useState<string | null>(null);
+  const [detailDraftId, setDetailDraftId] = useState<string | null>(null);
   const [dateMenu, setDateMenu] = useState<{
     date: Date;
     x: number;
@@ -1562,11 +1941,23 @@ export function SchedulePage() {
   const { cloudOrganizationId } = useAuth();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const agentConfig = useAgentConfig();
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   // Derived from live workspace data so an agent revision streams straight
   // into the open approval card.
   const approvalWork = approvalWorkId
     ? (workspaceData.recurringWork.find((work) => work.id === approvalWorkId) ??
       null)
+    : null;
+  const detailWork = detailWorkId
+    ? (workspaceData.recurringWork.find((work) => work.id === detailWorkId) ??
+      null)
+    : null;
+  const detailDraft = detailDraftId
+    ? (workspaceData.drafts.find((draft) => draft.id === detailDraftId) ?? null)
     : null;
   const revisionDriver = agentConfig.forAgent("cmo").driver;
   const revisionChat = useChiefChat(approvalWork?.conversationId ?? null);
@@ -1583,15 +1974,11 @@ export function SchedulePage() {
     return null;
   }, [revisionChat.messages]);
   const openWorkReview = (work: RecurringWorkRecord) => {
-    if (work.status === "draft") {
+    if (work.status === "draft" || work.status === "needs_approval") {
       setApprovalWorkId(work.id);
       return;
     }
-    if (work.conversationId) {
-      void navigate(
-        `/conversations?chat=${encodeURIComponent(work.conversationId)}`,
-      );
-    }
+    setDetailWorkId(work.id);
   };
 
   const requestRevision = (feedback: string) => {
@@ -1775,10 +2162,6 @@ export function SchedulePage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-muted-foreground mr-1 hidden items-center gap-2 text-[11px] lg:flex">
-            <span className="size-1.5 rounded-full bg-emerald-500" />
-            {activeScheduleCount} active
-          </span>
           <Button
             variant="outline"
             size="sm"
@@ -1793,133 +2176,166 @@ export function SchedulePage() {
         </div>
       </header>
 
-      <div className="flex min-h-0 shrink-0 items-center justify-between gap-4 px-6 pb-3">
-        <div className="relative h-8 min-w-0 flex-1 overflow-hidden">
-          <AnimatePresence
-            initial={false}
-            mode="popLayout"
-            custom={monthDirection}
-          >
-            <motion.p
-              key={view === "month" ? monthKey(activeMonth) : focusedHeading}
-              initial={
-                reduceMotion ? false : { y: monthDirection * 18, opacity: 0 }
-              }
-              animate={{ y: 0, opacity: 1 }}
-              exit={
-                reduceMotion
-                  ? { opacity: 0 }
-                  : { y: monthDirection * -18, opacity: 0 }
-              }
-              transition={{
-                type: "spring",
-                stiffness: 440,
-                damping: 38,
-                mass: 0.7,
-              }}
-              className="absolute inset-x-0 min-w-0 truncate text-xl font-semibold tracking-[-0.025em]"
-            >
-              {view === "month" ? monthLabel(activeMonth) : focusedHeading}
-            </motion.p>
-          </AnimatePresence>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <ScheduleInbox work={pendingApprovals} onOpen={openWorkReview} />
-          <ScheduleFilters
-            visibleKinds={visibleKinds}
-            onToggle={(kind) => {
-              setVisibleKinds((current) => {
-                const next = new Set(current);
-                if (next.has(kind)) next.delete(kind);
-                else next.add(kind);
-                return next;
-              });
-            }}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setSelected(today);
-              if (view === "month") requestMonth(currentMonth);
-            }}
-          >
-            Today
-          </Button>
-          <Button variant="outline" size="icon-sm" onClick={() => move(-1)}>
-            <ChevronLeft size={14} />
-          </Button>
-          <Button variant="outline" size="icon-sm" onClick={() => move(1)}>
-            <ChevronRight size={14} />
-          </Button>
-          <div className="bg-muted/45 flex rounded-lg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
-            {(["month", "week", "day"] as const).map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => setView(option)}
-                className={cn(
-                  "text-muted-foreground hover:text-foreground rounded-md px-3 py-1.5 text-[11px] font-medium capitalize transition-[background-color,box-shadow,color]",
-                  view === option &&
-                    "bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.07),inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]",
-                )}
+      <section className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 shrink-0 items-center justify-between gap-4 border-b border-black/[0.055] px-6 pb-3 dark:border-white/[0.055]">
+          <div className="relative h-8 min-w-0 flex-1 overflow-hidden">
+            {view === "month" ? (
+              <MonthJump month={activeMonth} onSelect={requestMonth} />
+            ) : (
+              <AnimatePresence
+                initial={false}
+                mode="popLayout"
+                custom={monthDirection}
               >
-                {option}
-              </button>
-            ))}
+                <motion.p
+                  key={focusedHeading}
+                  initial={
+                    reduceMotion
+                      ? false
+                      : { y: monthDirection * 18, opacity: 0 }
+                  }
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={
+                    reduceMotion
+                      ? { opacity: 0 }
+                      : { y: monthDirection * -18, opacity: 0 }
+                  }
+                  transition={{
+                    type: "spring",
+                    stiffness: 440,
+                    damping: 38,
+                    mass: 0.7,
+                  }}
+                  className="absolute inset-x-0 min-w-0 truncate text-xl font-semibold tracking-[-0.025em]"
+                >
+                  {focusedHeading}
+                </motion.p>
+              </AnimatePresence>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <ScheduleInbox work={pendingApprovals} onOpen={openWorkReview} />
+            <ScheduleFilters
+              visibleKinds={visibleKinds}
+              onToggle={(kind) => {
+                setVisibleKinds((current) => {
+                  const next = new Set(current);
+                  if (next.has(kind)) next.delete(kind);
+                  else next.add(kind);
+                  return next;
+                });
+              }}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSelected(today);
+                if (view === "month") requestMonth(currentMonth);
+              }}
+            >
+              Today
+            </Button>
+            <Button variant="outline" size="icon-sm" onClick={() => move(-1)}>
+              <ChevronLeft size={14} />
+            </Button>
+            <Button variant="outline" size="icon-sm" onClick={() => move(1)}>
+              <ChevronRight size={14} />
+            </Button>
+            <div className="bg-muted/45 flex rounded-lg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
+              {(["month", "week", "day"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setView(option)}
+                  className={cn(
+                    "text-muted-foreground hover:text-foreground rounded-md px-3 py-1.5 text-[11px] font-medium capitalize transition-[background-color,box-shadow,color]",
+                    view === option &&
+                      "bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.07),inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]",
+                  )}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
 
-      <section className="min-w-0 flex-1 overflow-hidden border-t border-black/[0.06] dark:border-white/[0.06]">
-        {view === "month" ? (
-          <ContinuousMonthView
-            currentMonth={currentMonth}
-            activeMonth={activeMonth}
-            onActiveMonthChange={(month) => {
-              setMonthDirection(month > activeMonth ? 1 : -1);
-              setActiveMonth(month);
-            }}
-            today={today}
-            selected={selected}
-            onSelect={setSelected}
-            onWorkOpen={openWorkReview}
-            onWorkContext={(work, date, x, y) =>
-              setWorkMenu({ work, date, x, y })
-            }
-            onDateContext={(date, x, y) => {
-              setSelected(date);
-              setDateMenu({ date, x, y });
-            }}
-            byDay={byDay}
-            recurringByDay={recurringByDay}
-            showPosts={showPosts}
-            showAgentWork={showAgentWork}
-            scrollRequest={scrollRequest}
-          />
-        ) : (
-          <FocusedCalendarView
-            view={view}
-            selected={selected}
-            today={today}
-            onSelect={setSelected}
-            onWorkOpen={openWorkReview}
-            onWorkContext={(work, date, x, y) =>
-              setWorkMenu({ work, date, x, y })
-            }
-            onDateContext={(date, x, y) => {
-              setSelected(date);
-              setDateMenu({ date, x, y });
-            }}
-            byDay={byDay}
-            recurringByDay={recurringByDay}
-            showPosts={showPosts}
-            showAgentWork={showAgentWork}
-          />
-        )}
+        <div className="bg-background min-h-0 min-w-0 flex-1 overflow-hidden border-b border-black/[0.055] dark:border-white/[0.055]">
+          {view === "month" ? (
+            <ContinuousMonthView
+              currentMonth={currentMonth}
+              activeMonth={activeMonth}
+              onActiveMonthChange={(month) => {
+                setMonthDirection(month > activeMonth ? 1 : -1);
+                setActiveMonth(month);
+              }}
+              today={today}
+              now={now}
+              selected={selected}
+              onSelect={setSelected}
+              onWorkOpen={openWorkReview}
+              onDraftOpen={(draft) => setDetailDraftId(draft.id)}
+              onWorkContext={(work, date, x, y) =>
+                setWorkMenu({ work, date, x, y })
+              }
+              onDateContext={(date, x, y) => {
+                setSelected(date);
+                setDateMenu({ date, x, y });
+              }}
+              byDay={byDay}
+              recurringByDay={recurringByDay}
+              showPosts={showPosts}
+              showAgentWork={showAgentWork}
+              scrollRequest={scrollRequest}
+            />
+          ) : (
+            <FocusedCalendarView
+              view={view}
+              selected={selected}
+              today={today}
+              now={now}
+              onSelect={setSelected}
+              onWorkOpen={openWorkReview}
+              onDraftOpen={(draft) => setDetailDraftId(draft.id)}
+              onWorkContext={(work, date, x, y) =>
+                setWorkMenu({ work, date, x, y })
+              }
+              onDateContext={(date, x, y) => {
+                setSelected(date);
+                setDateMenu({ date, x, y });
+              }}
+              byDay={byDay}
+              recurringByDay={recurringByDay}
+              showPosts={showPosts}
+              showAgentWork={showAgentWork}
+            />
+          )}
+        </div>
+        <footer className="text-muted-foreground flex h-11 shrink-0 items-center justify-between px-6 text-[10px]">
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-2">
+              <span className="size-1.5 rounded-full bg-amber-400" />
+              Prospecting
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="size-1.5 rounded-full bg-sky-500" />
+              Analytics
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="size-1.5 rounded-full bg-rose-400" />
+              Content
+            </span>
+          </div>
+          <span className="flex items-center gap-2 tabular-nums">
+            <span className="size-1.5 rounded-full bg-emerald-500" />
+            {activeScheduleCount} active schedules
+          </span>
+        </footer>
       </section>
       <RecurringWorkApprovalDialog
         work={approvalWork}
+        now={now}
         onClose={() => setApprovalWorkId(null)}
         onApprove={(work) => {
           workspaceData.saveRecurringWork({
@@ -1951,6 +2367,24 @@ export function SchedulePage() {
             revisionChat.controls.status === "running",
           note: revisionNote,
           onRequest: requestRevision,
+        }}
+      />
+      <ScheduleEventDetailDialog
+        work={detailWork}
+        draft={detailDraft}
+        onClose={() => {
+          setDetailWorkId(null);
+          setDetailDraftId(null);
+        }}
+        onEditWork={(work) => {
+          setDetailWorkId(null);
+          setEditWorkId(work.id);
+        }}
+        onOpenDraft={(draft) => {
+          setDetailDraftId(null);
+          if (draft.fileId) {
+            void navigate(`/files/${encodeURIComponent(draft.fileId)}`);
+          }
         }}
       />
       <CalendarContextMenu
