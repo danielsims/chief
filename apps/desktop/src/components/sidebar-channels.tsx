@@ -295,7 +295,10 @@ export function SidebarChannels({
   pinnedIds: WorkspaceChannelId[];
   onOpen: (channelId: WorkspaceChannelId) => void;
   onOpenDirectMessage: (agentId: WorkspaceAgentId) => void;
-  onCreateChannel: (name: string, description?: string) => void;
+  onCreateChannel: (
+    name: string,
+    description?: string,
+  ) => Promise<WorkspaceChannelId | null>;
   onPinnedChange: (pinnedIds: WorkspaceChannelId[]) => void;
 }) {
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false);

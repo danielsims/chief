@@ -23,6 +23,7 @@ import type {
   AgentQuestion,
   AnalyticsDataset,
   CampaignRecord,
+  ChannelEvent,
   ChatExecutionSelection,
   ChiefUIMessage,
   ClientMessage,
@@ -48,7 +49,12 @@ import type {
 } from "@chief/agent-runtime/types";
 import { api } from "@chief/backend/convex/_generated/api";
 
+import type { ChannelReactionSummary } from "./channel-reactions";
 import { useAuth } from "./auth/auth-context";
+import {
+  applyOptimisticChannelReaction,
+  foldChannelReactions,
+} from "./channel-reactions";
 import { navigateApp, notifySystem } from "./notifications";
 import {
   deduplicateDocumentParts,
@@ -185,6 +191,7 @@ export class RuntimeClient {
     };
     socket.onmessage = (e) => {
       try {
+        if (typeof e.data !== "string") return;
         const msg = JSON.parse(e.data) as ServerMessage;
         for (const l of this.listeners) l(msg);
       } catch {
@@ -252,6 +259,8 @@ interface RuntimeContextValue {
   browserStreamUrl: string | null;
   browserConversationId: string | null;
   browserWorkspaceId: string | null;
+  browserThreadRootId: string | null;
+  browserStatus: "active" | "complete" | null;
   integrationSetupProgress: Readonly<Record<string, IntegrationSetupProgress>>;
   openBrowser: (url: string, conversationId?: string) => void;
   reportBrowserUrl: (url: string) => void;
@@ -267,7 +276,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   const { cloudOrganizationId } = useAuth();
   const markIntegrationConnected = useMutation(api.integrations.markConnected);
   const clientRef = useRef<RuntimeClient | null>(null);
-  if (!clientRef.current) clientRef.current = new RuntimeClient();
+  clientRef.current ??= new RuntimeClient();
   const client = clientRef.current;
 
   const [status, setStatus] = useState<RuntimeStatus>("connecting");
@@ -280,16 +289,24 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   const [browserWorkspaceId, setBrowserWorkspaceId] = useState<string | null>(
     null,
   );
+  const [browserThreadRootId, setBrowserThreadRootId] = useState<string | null>(
+    null,
+  );
+  const [browserStatus, setBrowserStatus] = useState<
+    "active" | "complete" | null
+  >(null);
   const browserViewportRef = useRef<{ width: number; height: number } | null>(
     null,
   );
   const browserOwnerRef = useRef<{
     workspaceId: string;
     conversationId: string;
+    threadRootId?: string;
   } | null>(null);
   const pendingBrowserNavigationRef = useRef<{
     workspaceId: string;
     conversationId: string;
+    threadRootId?: string;
     url: string;
   } | null>(null);
   const browserResizeTimerRef = useRef<number | null>(null);
@@ -312,6 +329,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     (url: string, conversationId?: string) => {
       setBrowserUrl(url);
       setBrowserStreamUrl(null);
+      setBrowserStatus("active");
       setBrowserWorkspaceId(cloudOrganizationId);
       const owningConversation = conversationId ?? browserConversationId;
       if (owningConversation) {
@@ -320,6 +338,9 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
           const pending = {
             workspaceId: cloudOrganizationId,
             conversationId: owningConversation,
+            ...(browserThreadRootId
+              ? { threadRootId: browserThreadRootId }
+              : {}),
             url,
           };
           browserOwnerRef.current = pending;
@@ -336,7 +357,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [browserConversationId, client, cloudOrganizationId],
+    [browserConversationId, browserThreadRootId, client, cloudOrganizationId],
   );
   const reloadBrowser = useCallback(() => {
     if (!browserWorkspaceId || !browserConversationId) return;
@@ -403,7 +424,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     },
     [browserConversationId, browserWorkspaceId, client, flushBrowserResize],
   );
-  const resetBrowser = useCallback(() => {
+  const completeBrowser = useCallback(() => {
     if (browserResizeTimerRef.current !== null) {
       window.clearTimeout(browserResizeTimerRef.current);
       browserResizeTimerRef.current = null;
@@ -413,10 +434,8 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     pendingBrowserResizeRef.current = null;
     browserResizeSentAtRef.current = 0;
     browserOwnerRef.current = null;
-    setBrowserUrl(null);
     setBrowserStreamUrl(null);
-    setBrowserConversationId(null);
-    setBrowserWorkspaceId(null);
+    setBrowserStatus("complete");
   }, []);
   const closeBrowser = useCallback(() => {
     const owner = browserOwnerRef.current;
@@ -426,8 +445,8 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         ...owner,
       });
     }
-    resetBrowser();
-  }, [client, resetBrowser]);
+    completeBrowser();
+  }, [client, completeBrowser]);
   const takeBrowserControl = useCallback(() => {
     if (!browserWorkspaceId || !browserConversationId) return;
     const executorCapability = workspaceCapabilityCache.get(browserWorkspaceId);
@@ -455,9 +474,12 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         setBrowserStreamUrl(
           msg.type === "browserNavigate" ? msg.streamUrl : null,
         );
+        setBrowserThreadRootId(msg.threadRootId ?? null);
+        setBrowserStatus("active");
         browserOwnerRef.current = {
           workspaceId: msg.workspaceId,
           conversationId: msg.conversationId,
+          ...(msg.threadRootId ? { threadRootId: msg.threadRootId } : {}),
         };
         setBrowserWorkspaceId(msg.workspaceId);
         setBrowserConversationId(msg.conversationId);
@@ -473,7 +495,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         msg.workspaceId === browserOwner.workspaceId &&
         msg.conversationId === browserOwner.conversationId
       ) {
-        resetBrowser();
+        completeBrowser();
       }
       if (
         msg.type === "integrationSetupProgress" &&
@@ -535,8 +557,8 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     client,
     closeBrowser,
     cloudOrganizationId,
+    completeBrowser,
     markIntegrationConnected,
-    resetBrowser,
   ]);
 
   const value = useMemo(
@@ -548,6 +570,8 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       browserStreamUrl,
       browserConversationId,
       browserWorkspaceId,
+      browserThreadRootId,
+      browserStatus,
       integrationSetupProgress,
       openBrowser,
       reportBrowserUrl,
@@ -562,6 +586,8 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       browserStreamUrl,
       browserUrl,
       browserWorkspaceId,
+      browserThreadRootId,
+      browserStatus,
       client,
       closeBrowser,
       integrationSetupProgress,
@@ -606,8 +632,8 @@ const chatsCache = new Map<string, LocalChatSummary[]>();
 export function useLocalChats(workspaceId: string | null) {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
-  const [chats, setChats] = useState<LocalChatSummary[]>(
-    () => (workspaceId && chatsCache.get(workspaceId)) || [],
+  const [chats, setChats] = useState<LocalChatSummary[]>(() =>
+    workspaceId ? (chatsCache.get(workspaceId) ?? []) : [],
   );
   const [resolved, setResolved] = useState(() =>
     Boolean(workspaceId && chatsCache.has(workspaceId)),
@@ -619,7 +645,7 @@ export function useLocalChats(workspaceId: string | null) {
     // capability refresh keeps the last list mounted while it revalidates.
     if (chatsWorkspaceRef.current !== workspaceId) {
       chatsWorkspaceRef.current = workspaceId;
-      setChats((workspaceId && chatsCache.get(workspaceId)) || []);
+      setChats(workspaceId ? (chatsCache.get(workspaceId) ?? []) : []);
       setResolved(Boolean(workspaceId && chatsCache.has(workspaceId)));
     }
     if (
@@ -668,11 +694,21 @@ export function useLocalChats(workspaceId: string | null) {
 }
 
 const channelCache = new Map<string, WorkspaceChannel[]>();
+const channelEventCache = new Map<string, ChannelEvent[]>();
 
 /** Durable NIP-29 destinations, including user-created workspace channels. */
 export function useWorkspaceChannels() {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const pendingCreates = useRef(
+    new Map<
+      string,
+      {
+        resolve: (channelId: string | null) => void;
+        timeout: number;
+      }
+    >(),
+  );
   const [channels, setChannels] = useState<WorkspaceChannel[]>(() =>
     cloudOrganizationId ? (channelCache.get(cloudOrganizationId) ?? []) : [],
   );
@@ -687,6 +723,26 @@ export function useWorkspaceChannels() {
         channelCache.set(cloudOrganizationId, message.channels);
         setChannels(message.channels);
       }
+      if (
+        message.type === "channelCreated" &&
+        message.workspaceId === cloudOrganizationId
+      ) {
+        setChannels((current) => {
+          const next = current.some(
+            (channel) => channel.id === message.channel.id,
+          )
+            ? current
+            : [...current, message.channel];
+          channelCache.set(cloudOrganizationId, next);
+          return next;
+        });
+        const pending = pendingCreates.current.get(message.requestId);
+        if (pending) {
+          window.clearTimeout(pending.timeout);
+          pendingCreates.current.delete(message.requestId);
+          pending.resolve(message.channel.id);
+        }
+      }
     });
     client.send({
       type: "listChannels",
@@ -699,20 +755,185 @@ export function useWorkspaceChannels() {
   }, [capability, client, cloudOrganizationId, status]);
 
   const createChannel = useCallback(
-    (name: string, description?: string) => {
+    (name: string, description?: string): Promise<string | null> => {
+      if (!cloudOrganizationId || !capability) return Promise.resolve(null);
+      const requestId = crypto.randomUUID();
+      return new Promise((resolve) => {
+        const timeout = window.setTimeout(() => {
+          pendingCreates.current.delete(requestId);
+          resolve(null);
+          toast.error("Chief couldn't create that channel. Please try again.");
+        }, 8_000);
+        pendingCreates.current.set(requestId, { resolve, timeout });
+        client.send({
+          type: "createChannel",
+          requestId,
+          workspaceId: cloudOrganizationId,
+          name,
+          description,
+          executorCapability: capability,
+        });
+      });
+    },
+    [capability, client, cloudOrganizationId],
+  );
+
+  const updateChannelAgents = useCallback(
+    (channelId: string, agentIds: string[]) => {
       if (!cloudOrganizationId || !capability) return;
+      setChannels((current) => {
+        const next = current.map((channel) =>
+          channel.id === channelId
+            ? { ...channel, agentIds, updatedAt: Date.now() }
+            : channel,
+        );
+        channelCache.set(cloudOrganizationId, next);
+        return next;
+      });
       client.send({
-        type: "createChannel",
+        type: "updateChannelAgents",
         workspaceId: cloudOrganizationId,
-        name,
-        description,
+        channelId,
+        agentIds,
         executorCapability: capability,
       });
     },
     [capability, client, cloudOrganizationId],
   );
 
-  return { channels, createChannel };
+  return { channels, createChannel, updateChannelAgents };
+}
+
+function reactionIntentKey(messageId: string, emoji: string) {
+  return `${messageId}\0${emoji}`;
+}
+
+/** Durable NIP-25 reactions folded onto the local IDs used by chat messages. */
+export function useChannelReactions(channelId: string | null) {
+  const { client, status } = useRuntime();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const cacheKey =
+    cloudOrganizationId && channelId
+      ? `${cloudOrganizationId}\0${channelId}`
+      : null;
+  const [events, setEvents] = useState<ChannelEvent[]>(() =>
+    cacheKey ? (channelEventCache.get(cacheKey) ?? []) : [],
+  );
+  const [optimistic, setOptimistic] = useState<
+    ReadonlyMap<
+      string,
+      { messageId: string; emoji: string; reacted: boolean; token: string }
+    >
+  >(new Map());
+
+  useEffect(() => {
+    if (
+      !cloudOrganizationId ||
+      !channelId ||
+      !capability ||
+      status !== "connected"
+    ) {
+      return;
+    }
+    const activeCacheKey = `${cloudOrganizationId}\0${channelId}`;
+    const unsubscribe = client.subscribe((message) => {
+      if (
+        message.type === "channelEvents" &&
+        message.workspaceId === cloudOrganizationId &&
+        message.channelId === channelId
+      ) {
+        channelEventCache.set(activeCacheKey, message.events);
+        setEvents(message.events);
+        return;
+      }
+      if (
+        message.type === "channelEvent" &&
+        message.workspaceId === cloudOrganizationId &&
+        message.event.channelId === channelId
+      ) {
+        setEvents((current) => {
+          if (current.some((event) => event.id === message.event.id)) {
+            return current;
+          }
+          const next = [...current, message.event];
+          channelEventCache.set(activeCacheKey, next);
+          return next;
+        });
+      }
+    });
+    client.send({
+      type: "listChannelEvents",
+      workspaceId: cloudOrganizationId,
+      channelId,
+      executorCapability: capability,
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [capability, channelId, client, cloudOrganizationId, status]);
+
+  const durableReactions = useMemo(
+    () => foldChannelReactions(events),
+    [events],
+  );
+
+  const reactions = useMemo(() => {
+    let next: ReadonlyMap<string, readonly ChannelReactionSummary[]> =
+      durableReactions;
+    for (const intent of optimistic.values()) {
+      const durable = durableReactions
+        .get(intent.messageId)
+        ?.find((reaction) => reaction.emoji === intent.emoji);
+      if (Boolean(durable?.reacted) === intent.reacted) continue;
+      next = applyOptimisticChannelReaction(
+        next,
+        intent.messageId,
+        intent.emoji,
+        intent.reacted,
+      );
+    }
+    return next;
+  }, [durableReactions, optimistic]);
+
+  const toggleReaction = useCallback(
+    (messageId: string, reaction: string) => {
+      if (!cloudOrganizationId || !channelId || !capability) return;
+      const current = reactions
+        .get(messageId)
+        ?.find((item) => item.emoji === reaction);
+      const reacted = !current?.reacted;
+      const key = reactionIntentKey(messageId, reaction);
+      const token = crypto.randomUUID();
+      setOptimistic((previous) =>
+        new Map(previous).set(key, {
+          messageId,
+          emoji: reaction,
+          reacted,
+          token,
+        }),
+      );
+      client.send({
+        type: "reactToChannelMessage",
+        workspaceId: cloudOrganizationId,
+        channelId,
+        messageId,
+        reaction,
+        executorCapability: capability,
+      });
+
+      window.setTimeout(() => {
+        setOptimistic((previous) => {
+          if (previous.get(key)?.token !== token) return previous;
+          const next = new Map(previous);
+          next.delete(key);
+          return next;
+        });
+      }, 5_000);
+    },
+    [capability, channelId, client, cloudOrganizationId, reactions],
+  );
+
+  return { reactions, toggleReaction };
 }
 
 const providerModelsCache = new Map<DriverType, ProviderModelOption[]>();
@@ -721,8 +942,8 @@ export function useProviderModels(driver: DriverType | null) {
   const { client, status } = useRuntime();
   // Cached across mounts and runtime reconnects: the picker renders the last
   // known list immediately and refreshes in place.
-  const [models, setModels] = useState<ProviderModelOption[]>(
-    () => (driver && providerModelsCache.get(driver)) || [],
+  const [models, setModels] = useState<ProviderModelOption[]>(() =>
+    driver ? (providerModelsCache.get(driver) ?? []) : [],
   );
   const [loading, setLoading] = useState(false);
 
@@ -808,10 +1029,10 @@ function useWorkspaceDataSource(workspaceId: string | null) {
   // Loading means "no data has ever resolved for this workspace". The cache
   // spans mounts, so navigating back to a page shows the last data at once
   // and revalidates in place instead of flashing empty or placeholder frames.
-  const [data, setData] = useState<WorkspaceDataState>(
-    () =>
-      (workspaceId && workspaceDataCache.get(workspaceId)) ||
-      emptyWorkspaceData,
+  const [data, setData] = useState<WorkspaceDataState>(() =>
+    workspaceId
+      ? (workspaceDataCache.get(workspaceId) ?? emptyWorkspaceData)
+      : emptyWorkspaceData,
   );
   const [loading, setLoading] = useState(
     () => !(workspaceId && workspaceDataCache.has(workspaceId)),
@@ -1713,8 +1934,8 @@ const preferencesCache = new Map<string, AgentPreference[]>();
 export function useAgentPreferences(workspaceId: string | null) {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
-  const [preferences, setPreferences] = useState<AgentPreference[]>(
-    () => (workspaceId && preferencesCache.get(workspaceId)) || [],
+  const [preferences, setPreferences] = useState<AgentPreference[]>(() =>
+    workspaceId ? (preferencesCache.get(workspaceId) ?? []) : [],
   );
   const [loading, setLoading] = useState(
     () => !(workspaceId && preferencesCache.has(workspaceId)),
@@ -2185,8 +2406,11 @@ function useRuntimeChat(
   integrationDomain?: string,
   channelId?: string,
   agentId?: string,
+  wakeOnMentionOnly = false,
 ) {
   const { client, status: runtimeStatus } = useRuntime();
+  const { user } = useAuth();
+  const senderName = user?.name.trim();
   const {
     cloudOrganizationId,
     capability: executorCapability,
@@ -2227,9 +2451,12 @@ function useRuntimeChat(
           cloudOrganizationId &&
           executorCapability
         ) {
+          const context = pendingMessageContextRef.current;
+          const expectsReply =
+            !wakeOnMentionOnly || Boolean(context?.mentions?.length);
           setControls((current) => ({
             ...current,
-            status: "running",
+            status: expectsReply ? "running" : "idle",
             hasAgentOutput: false,
             toolProgress: {},
             error: undefined,
@@ -2240,8 +2467,9 @@ function useRuntimeChat(
             chatId,
             messageId: message.id,
             text,
-            threadRootId: pendingMessageContextRef.current?.threadRootId,
-            mentions: pendingMessageContextRef.current?.mentions,
+            threadRootId: context?.threadRootId,
+            mentions: context?.mentions,
+            senderName: senderName?.length ? senderName : "You",
             execution: executionRef.current,
             executorCapability,
           });
@@ -2257,7 +2485,15 @@ function useRuntimeChat(
       },
       reconnectToStream: () => Promise.resolve(null),
     }),
-    [chatId, client, cloudOrganizationId, executorCapability, mode],
+    [
+      chatId,
+      client,
+      cloudOrganizationId,
+      executorCapability,
+      mode,
+      senderName,
+      wakeOnMentionOnly,
+    ],
   );
   const { messages, sendMessage, setMessages } = useChat<ChiefUIMessage>({
     id: chatId ?? "inactive-chief-chat",
@@ -2521,7 +2757,11 @@ export function useChiefChat(
   initialExecution?: ChatExecutionSelection,
   selectedExecution?: ChatExecutionSelection,
   access?: "full" | "guarded",
-  destination?: { channelId?: string; agentId?: string },
+  destination?: {
+    channelId?: string;
+    agentId?: string;
+    wakeOnMentionOnly?: boolean;
+  },
 ) {
   return useRuntimeChat(
     chatId,
@@ -2533,6 +2773,7 @@ export function useChiefChat(
     undefined,
     destination?.channelId,
     destination?.agentId,
+    destination?.wakeOnMentionOnly,
   );
 }
 

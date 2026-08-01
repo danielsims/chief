@@ -8,6 +8,7 @@ import {
   WORKSPACE_AGENT_IDENTITIES,
   WORKSPACE_DIRECT_MESSAGES,
 } from "../lib/workspace-channels";
+import { AgentAvatar } from "./agent-avatar";
 
 export function SidebarDirectMessages({
   activeAgentId,
@@ -56,9 +57,10 @@ export function SidebarDirectMessages({
                     "bg-sidebar-accent text-sidebar-foreground font-medium",
                 )}
               >
-                <span className="bg-sidebar-foreground text-sidebar flex size-4 shrink-0 items-center justify-center rounded-md text-[8px] font-semibold dark:bg-white dark:text-black">
-                  {identity.name.charAt(0)}
-                </span>
+                <AgentAvatar
+                  label={identity.name}
+                  className="bg-sidebar-foreground text-sidebar size-4 dark:bg-white dark:text-black"
+                />
                 <span className="min-w-0 flex-1 truncate">{identity.name}</span>
               </button>
             );

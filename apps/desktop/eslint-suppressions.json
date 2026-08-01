@@ -150,14 +150,8 @@
     "@typescript-eslint/no-empty-function": {
       "count": 1
     },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    },
-    "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 6
-    },
     "react-hooks/refs": {
-      "count": 5
+      "count": 4
     },
     "react-hooks/set-state-in-effect": {
       "count": 5

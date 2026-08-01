@@ -1,11 +1,13 @@
-import type { ComponentPropsWithoutRef } from "react";
-import { lazy, Suspense } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import { Children, lazy, Suspense, useMemo } from "react";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 
+import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import {
   markdownLinkTarget,
   normalizeLocalFileLinks,
 } from "../../lib/markdown-link-target";
+import { AgentMentionText } from "./agent-mention";
 
 // Start loading as soon as the chat bundle is evaluated, but keep Streamdown's
 // parser and highlighting code out of the desktop entry chunk.
@@ -42,15 +44,46 @@ function MarkdownLink({
   );
 }
 
-const components = { a: MarkdownLink };
+function highlightMentions(
+  children: ReactNode,
+  onOpenMention?: (agentId: WorkspaceAgentId) => void,
+) {
+  return Children.map(children, (child) =>
+    typeof child === "string" ? (
+      <AgentMentionText text={child} onOpenMention={onOpenMention} />
+    ) : (
+      child
+    ),
+  );
+}
 
 export function StreamingMarkdown({
   children,
   streaming = false,
+  onOpenMention,
 }: {
   children: string;
   streaming?: boolean;
+  onOpenMention?: (agentId: WorkspaceAgentId) => void;
 }) {
+  const components = useMemo(
+    () => ({
+      a: MarkdownLink,
+      p: ({
+        children: paragraphChildren,
+        ...props
+      }: ComponentPropsWithoutRef<"p">) => (
+        <p {...props}>{highlightMentions(paragraphChildren, onOpenMention)}</p>
+      ),
+      li: ({
+        children: itemChildren,
+        ...props
+      }: ComponentPropsWithoutRef<"li">) => (
+        <li {...props}>{highlightMentions(itemChildren, onOpenMention)}</li>
+      ),
+    }),
+    [onOpenMention],
+  );
   return (
     <div className="max-w-full min-w-0 overflow-hidden [overflow-wrap:anywhere] [&_a]:break-all [&_code]:break-all [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
       <Suspense
