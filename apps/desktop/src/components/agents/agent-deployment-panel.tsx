@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Vercel } from "@lobehub/icons";
 
 import type {
+  AgentDefinition,
   AgentDeploymentPhase,
   AgentDeploymentTarget,
   InputRequest,
@@ -73,6 +74,7 @@ const DEPLOYED_SLACK_REQUEST: InputRequest = {
 
 function persistedDeployment(
   org: AuthOrganization | null,
+  agentId: string,
 ): PersistedDeployment | null {
   if (!org) return null;
   const metadata = parseOrganizationMetadata(org);
@@ -80,7 +82,14 @@ function persistedDeployment(
     metadata.onboarding && typeof metadata.onboarding === "object"
       ? (metadata.onboarding as Record<string, unknown>)
       : {};
-  const raw = onboarding.chiefDeployment;
+  const agentDeployments =
+    onboarding.agentDeployments &&
+    typeof onboarding.agentDeployments === "object"
+      ? (onboarding.agentDeployments as Record<string, unknown>)
+      : {};
+  const raw =
+    agentDeployments[agentId] ??
+    (agentId === "cmo" ? onboarding.chiefDeployment : undefined);
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Record<string, unknown>;
   if (typeof value.url !== "string" || !value.url) return null;
@@ -93,16 +102,23 @@ function persistedDeployment(
   };
 }
 
-function projectSlug(workspaceId: string | null) {
+function projectSlug(workspaceId: string | null, agentId: string) {
   const suffix = workspaceId?.replace(/[^a-z0-9]/gi, "").slice(-8) ?? "local";
-  return `chief-${suffix}`.toLowerCase();
+  const agent = agentId.replace(/[^a-z0-9]/gi, "-").toLowerCase();
+  return `chief-${agent === "cmo" ? "" : `${agent}-`}${suffix}`.toLowerCase();
 }
 
 function phaseIndex(phase: AgentDeploymentPhase | undefined) {
   return PHASES.findIndex((item) => item.phase === phase);
 }
 
-export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
+export function AgentDeploymentPanel({
+  agent,
+  onBack,
+}: {
+  agent: AgentDefinition;
+  onBack: () => void;
+}) {
   const { cloudOrganizationId } = useAuth();
   const deploymentState = useAgentDeployments(cloudOrganizationId);
   const [org, setOrg] = useState<AuthOrganization | null>(null);
@@ -115,12 +131,13 @@ export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
   const [slackBotToken, setSlackBotToken] = useState("");
   const [slackSigningSecret, setSlackSigningSecret] = useState("");
   const [projectName, setProjectName] = useState(() =>
-    projectSlug(cloudOrganizationId),
+    projectSlug(cloudOrganizationId, agent.id),
   );
   const persistedUrl = useRef<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const current = deploymentState.deployments.find(
-    (deployment) => deployment.target === target,
+    (deployment) =>
+      deployment.agentId === agent.id && deployment.target === target,
   );
   const deploySlack =
     target === "vercel" &&
@@ -146,30 +163,34 @@ export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
         organizations[0] ??
         null;
       setOrg(next);
-      const saved = persistedDeployment(next);
+      const saved = persistedDeployment(next, agent.id);
       if (saved) setTarget(saved.target);
     });
     return () => {
       cancelled = true;
     };
-  }, [cloudOrganizationId]);
+  }, [agent.id, cloudOrganizationId]);
 
   const playbooks = useMemo(
     () =>
-      PLAYBOOKS.map((playbook) => ({
+      PLAYBOOKS.filter(
+        (playbook) =>
+          playbook.agentId === agent.id ||
+          agent.delegates?.includes(playbook.agentId),
+      ).map((playbook) => ({
         id: playbook.id,
         title: playbook.title,
         summary: playbook.summary,
         instructions: playbookInstructions(playbook),
       })),
-    [],
+    [agent.delegates, agent.id],
   );
   const slackPresent = slackInputs.present;
   const slackConfigured =
     !deploySlack ||
     (slackPresent?.has("SLACK_BOT_TOKEN") === true &&
       slackPresent.has("SLACK_SIGNING_SECRET"));
-  const saved = persistedDeployment(org);
+  const saved = persistedDeployment(org, agent.id);
   const running = current?.status === "running";
   const currentPhase = phaseIndex(current?.phase);
   const projectNameValid =
@@ -198,11 +219,22 @@ export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
       metadata.onboarding && typeof metadata.onboarding === "object"
         ? (metadata.onboarding as Record<string, unknown>)
         : {};
+    const agentDeployments =
+      onboarding.agentDeployments &&
+      typeof onboarding.agentDeployments === "object"
+        ? (onboarding.agentDeployments as Record<string, unknown>)
+        : {};
+    const deploymentMetadata = {
+      url: current.url,
+      target: current.target,
+      deployedAt: current.updatedAt,
+      model: current.model,
+    };
     const nextMetadata = {
       ...metadata,
       onboarding: {
         ...onboarding,
-        ...(current.activated
+        ...(current.activated && agent.id === "cmo"
           ? {
               provider: "remote",
               providerMode: "deployed",
@@ -211,21 +243,20 @@ export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
               cloudDeploymentUrl: current.url,
             }
           : {}),
-        chiefDeployment: {
-          url: current.url,
-          target: current.target,
-          deployedAt: current.updatedAt,
-          model: current.model,
+        agentDeployments: {
+          ...agentDeployments,
+          [agent.id]: deploymentMetadata,
         },
+        ...(agent.id === "cmo" ? { chiefDeployment: deploymentMetadata } : {}),
       },
     };
     void updateAuthOrganization(org.id, { metadata: nextMetadata }).then(() =>
       setOrg({ ...org, metadata: nextMetadata }),
     );
-  }, [current, org]);
+  }, [agent.id, current, org]);
 
   return (
-    <div className="bg-card flex min-h-[680px] flex-col">
+    <div className="flex min-h-[680px] flex-col">
       <header className="flex items-start justify-between gap-5 border-b p-6">
         <div>
           <button
@@ -233,12 +264,14 @@ export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
             onClick={onBack}
             className="text-muted-foreground hover:text-foreground mb-4 text-xs"
           >
-            Back to Chief
+            Back to {agent.name}
           </button>
-          <h3 className="font-pixel text-3xl">Deploy Chief</h3>
+          <h3 className="text-2xl font-medium tracking-[-0.035em]">
+            Deploy {agent.name}
+          </h3>
           <p className="text-muted-foreground mt-2 max-w-xl text-sm leading-6">
-            One isolated cloud project containing Chief, its private
-            specialists, durable workspace tools, and authenticated remote chat.
+            An isolated deployment of this agent pack, including its configured
+            subagents, durable workspace tools, and authenticated remote chat.
           </p>
         </div>
         {current?.url || saved?.url ? (
@@ -466,11 +499,11 @@ export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
               className="flex w-full items-center justify-between border-t pt-4 text-left text-xs"
             >
               <span>
-                <span className="block">Use as Chief default</span>
+                <span className="block">Connect to this workspace</span>
                 <span className="text-muted-foreground mt-1 block text-[10px] leading-4">
                   {activateDeployment
-                    ? "Chats and schedules switch to this deployment"
-                    : "Keep local Codex/Claude preferences unchanged"}
+                    ? `${agent.name} chats use this deployment`
+                    : `Keep ${agent.name}'s local agent app unchanged`}
                 </span>
               </span>
               <span
@@ -633,9 +666,9 @@ export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
             <p className="text-muted-foreground text-xs">
               {current?.status === "ready"
                 ? current.activated
-                  ? `Live on ${current.target}. Chief chats and schedules use this deployment.`
-                  : `Live on ${current.target}. Local Chief chats and schedules are unchanged.`
-                : "Existing provider login is reused. Chief never reads its credential."}
+                  ? `Live on ${current.target}. ${agent.name} chats use this deployment.`
+                  : `Live on ${current.target}. ${agent.name}'s local agent app is unchanged.`
+                : `Existing provider login is reused. ${agent.name} never reads its credential.`}
             </p>
             {running ? (
               <Button
@@ -655,6 +688,7 @@ export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
                 }
                 onClick={() =>
                   deploymentState.start({
+                    agentId: agent.id,
                     target,
                     projectName: projectName.trim(),
                     teamId: scope.trim() || undefined,
@@ -665,7 +699,9 @@ export function AgentDeploymentPanel({ onBack }: { onBack: () => void }) {
                   })
                 }
               >
-                {current?.status === "ready" ? "Redeploy" : "Deploy"}
+                {current?.status === "ready"
+                  ? `Redeploy ${agent.name}`
+                  : `Deploy ${agent.name}`}
               </Button>
             )}
           </footer>

@@ -3172,6 +3172,7 @@ export function OnboardingPage() {
       return false;
     }
     return deploymentState.start({
+      agentId: "cmo",
       target: draft.deploymentProvider,
       projectName:
         `chief-${org.id.replace(/[^a-z0-9]/gi, "").slice(-8)}`.toLowerCase(),
