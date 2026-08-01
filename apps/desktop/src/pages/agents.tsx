@@ -565,12 +565,12 @@ function TeamAgentCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        "bg-foreground/[0.035] hover:bg-foreground/[0.05] group flex min-h-48 flex-col rounded-[22px] p-3 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent),0_1px_2px_rgba(0,0,0,0.025)] transition-[background-color,box-shadow]",
+        "bg-foreground/[0.035] hover:bg-foreground/[0.05] group flex min-h-48 flex-col rounded-[22px] p-1 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent),0_1px_2px_rgba(0,0,0,0.025)] transition-[background-color,box-shadow]",
         selected &&
           "bg-foreground/[0.055] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent),0_2px_8px_rgba(0,0,0,0.035)]",
       )}
     >
-      <span className="bg-background/85 flex w-full flex-1 flex-col rounded-[16px] px-4 py-4 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent),0_1px_1px_rgba(0,0,0,0.02)]">
+      <span className="bg-background/85 flex w-full flex-1 flex-col rounded-[18px] px-4 py-4 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent),0_1px_1px_rgba(0,0,0,0.02)]">
         <span className="flex min-h-24 items-center justify-center py-1">
           <AgentAvatar name={agent.name} enabled={enabled} size="xl" />
         </span>
@@ -1128,7 +1128,7 @@ export function AgentsPage() {
                           });
                         }}
                         className={cn(
-                          "bg-foreground/[0.035] hover:bg-foreground/[0.05] group flex min-h-48 flex-col rounded-[22px] p-3 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)] transition-[background-color,box-shadow]",
+                          "bg-foreground/[0.035] hover:bg-foreground/[0.05] group flex min-h-48 flex-col rounded-[22px] p-1 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)] transition-[background-color,box-shadow]",
                         )}
                       >
                         <span className="flex w-full items-start gap-3 px-1 pt-1 pb-3">
@@ -1150,7 +1150,7 @@ export function AgentsPage() {
                             className="text-muted-foreground/60 mt-1 transition-transform group-hover:translate-x-0.5"
                           />
                         </span>
-                        <span className="bg-background/80 flex min-h-24 w-full flex-1 flex-col rounded-[15px] px-3.5 py-3 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
+                        <span className="bg-background/80 flex min-h-24 w-full flex-1 flex-col rounded-[18px] px-3.5 py-3 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
                           <span className="text-muted-foreground line-clamp-3 text-[11px] leading-5">
                             {agent.description}
                           </span>
