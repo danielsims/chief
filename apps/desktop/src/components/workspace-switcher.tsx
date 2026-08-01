@@ -23,7 +23,11 @@ import {
 } from "../lib/auth/better-auth-client";
 import { OrgLogo } from "./org-logo";
 
-export function WorkspaceSwitcher() {
+export function WorkspaceSwitcher({
+  variant = "default",
+}: {
+  variant?: "default" | "rail";
+}) {
   const { isAuthenticated, cloudOrganizationId } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -75,7 +79,14 @@ export function WorkspaceSwitcher() {
         <TooltipTrigger asChild>
           {/* PopoverTrigger renders a plain button; keep className a plain
               string (Radix Slot/asChild stringifies function classNames). */}
-          <PopoverTrigger className="text-muted-foreground hover:text-foreground data-[state=open]:border-border data-[state=open]:text-foreground block h-10 w-10 border border-transparent transition-colors">
+          <PopoverTrigger
+            className={cn(
+              "text-muted-foreground hover:text-foreground data-[state=open]:text-foreground block border border-transparent transition-all",
+              variant === "rail"
+                ? "bg-sidebar-accent/70 hover:bg-sidebar-accent size-9 overflow-hidden rounded-2xl hover:rounded-xl data-[state=open]:rounded-xl"
+                : "data-[state=open]:border-border h-10 w-10",
+            )}
+          >
             {activeOrg ? (
               <OrgLogo
                 name={activeOrg.name}
@@ -86,7 +97,12 @@ export function WorkspaceSwitcher() {
                 className="h-full w-full text-base"
               />
             ) : (
-              <span className="bg-accent flex h-full w-full items-center justify-center border">
+              <span
+                className={cn(
+                  "bg-accent flex h-full w-full items-center justify-center",
+                  variant === "default" && "border",
+                )}
+              >
                 <Plus size={16} strokeWidth={1.75} />
               </span>
             )}

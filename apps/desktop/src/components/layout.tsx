@@ -1,25 +1,41 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Outlet, useLocation } from "react-router";
 
 import { TooltipProvider } from "@chief/ui/components/tooltip";
 import { cn } from "@chief/ui/lib/utils";
 
+import { AppTopChrome } from "./app-top-chrome";
 import { Sidebar } from "./sidebar";
+import { WorkspaceRail } from "./workspace-rail";
 
-const DEFAULT_SIDEBAR_WIDTH = 272;
+const DEFAULT_SIDEBAR_WIDTH = 300;
 const MIN_SIDEBAR_WIDTH = 232;
-const MAX_SIDEBAR_WIDTH = 360;
+const MAX_SIDEBAR_WIDTH = 380;
+
+function readSidebarWidth() {
+  const stored = Number(window.localStorage.getItem("chief:sidebar-width"));
+  return Number.isFinite(stored)
+    ? Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, stored))
+    : DEFAULT_SIDEBAR_WIDTH;
+}
+
+function readSidebarOpen() {
+  return window.localStorage.getItem("chief:sidebar-open") !== "false";
+}
 
 export function Layout() {
   const location = useLocation();
   const overview = location.pathname === "/";
   const channel = location.pathname.startsWith("/conversations");
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const stored = Number(window.localStorage.getItem("chief:sidebar-width"));
-    return Number.isFinite(stored)
-      ? Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, stored))
-      : DEFAULT_SIDEBAR_WIDTH;
-  });
+  const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
+  const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((open) => {
+      window.localStorage.setItem("chief:sidebar-open", String(!open));
+      return !open;
+    });
+  }, []);
 
   const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -50,40 +66,34 @@ export function Layout() {
   };
 
   return (
-    <TooltipProvider>
-      <div
-        className={cn(
-          "bg-background text-foreground",
-          overview ? "h-screen overflow-hidden" : "min-h-screen",
-        )}
-      >
-        <Sidebar width={sidebarWidth} onResizeStart={startSidebarResize} />
-        <div
-          style={{ marginLeft: sidebarWidth }}
-          className={cn(
-            "flex flex-col",
-            overview ? "h-screen overflow-hidden" : "min-h-screen",
-          )}
-        >
-          {/* The controls sit above the drag strip so the rest of the header
-              remains available as a native window drag target. */}
-          <header
-            className={cn(
-              "relative h-12 shrink-0 border-b",
-              channel && "hidden",
-            )}
-          >
-            <div data-tauri-drag-region className="absolute inset-0" />
-          </header>
-          <main
-            className={cn(
-              "flex-1 px-8 pb-8",
-              overview && "chief-overview-layout-main min-h-0 overflow-hidden",
-              channel && "min-h-0 overflow-hidden p-0",
-            )}
-          >
-            <Outlet />
-          </main>
+    <TooltipProvider delayDuration={250}>
+      <div className="bg-sidebar text-foreground flex h-dvh overflow-hidden">
+        <WorkspaceRail />
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <AppTopChrome
+            sidebarOpen={sidebarOpen}
+            onToggleSidebar={toggleSidebar}
+          />
+          <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+            {sidebarOpen ? (
+              <Sidebar
+                width={sidebarWidth}
+                onResizeStart={startSidebarResize}
+              />
+            ) : null}
+            <main className="border-border/60 bg-background relative isolate m-px mr-2 mb-2 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-[0_1px_1px_hsl(0_0%_0%/0.04),0_10px_28px_hsl(0_0%_0%/0.08)] dark:border-white/[0.06] dark:shadow-none">
+              <div
+                className={cn(
+                  "min-h-0 min-w-0 flex-1",
+                  channel ? "overflow-hidden" : "overflow-y-auto px-8 pb-8",
+                  overview &&
+                    "chief-overview-layout-main overflow-hidden px-8 pb-8",
+                )}
+              >
+                <Outlet />
+              </div>
+            </main>
+          </div>
         </div>
       </div>
     </TooltipProvider>

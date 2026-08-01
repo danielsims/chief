@@ -16,7 +16,7 @@ export const ContextMenuContent = React.forwardRef<
     <ContextMenuPrimitive.Content
       ref={ref}
       className={cn(
-        "bg-popover text-popover-foreground z-50 min-w-44 border p-1 shadow-md outline-none",
+        "bg-popover/95 text-popover-foreground border-border/70 z-50 min-w-44 overflow-hidden rounded-xl border p-1.5 shadow-xl backdrop-blur-xl outline-none",
         className,
       )}
       {...props}
@@ -34,7 +34,7 @@ export const ContextMenuItem = React.forwardRef<
   <ContextMenuPrimitive.Item
     ref={ref}
     className={cn(
-      "data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground relative flex cursor-default items-center gap-2 px-2 py-1.5 text-xs outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-[13px] outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:shrink-0",
       inset && "pl-8",
       className,
     )}
@@ -52,7 +52,7 @@ export const ContextMenuLabel = React.forwardRef<
   <ContextMenuPrimitive.Label
     ref={ref}
     className={cn(
-      "text-muted-foreground px-2 py-1.5 text-[10px] font-medium tracking-[0.08em] uppercase",
+      "text-muted-foreground px-2 py-1.5 text-[11px] font-medium",
       inset && "pl-8",
       className,
     )}
@@ -67,7 +67,7 @@ export const ContextMenuSeparator = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <ContextMenuPrimitive.Separator
     ref={ref}
-    className={cn("bg-border -mx-1 my-1 h-px", className)}
+    className={cn("bg-border/70 -mx-1.5 my-1 h-px", className)}
     {...props}
   />
 ));
