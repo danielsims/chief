@@ -270,13 +270,14 @@ export function AnalyticsPage() {
 
   const markIntegrationConnected = useMutation(api.integrations.markConnected);
   const preferredIntegration = usePreferredAnalyticsIntegration();
-  const workspaceProvider = agentConfig.forAgent("cmo").driver;
+  const chiefConfig = agentConfig.forAgent("cmo");
+  const workspaceProvider = chiefConfig.driver;
   const visibleDetails =
     selectedDetails ?? providerDetails(preferredIntegration.domain);
   const [reportChatId] = useState(() => crypto.randomUUID());
   const reportChat = useAnalyticsReportChat(
     selectedChannel ? reportChatId : null,
-    agentConfig.access,
+    chiefConfig.access,
   );
 
   const finishRefresh = useCallback(() => {

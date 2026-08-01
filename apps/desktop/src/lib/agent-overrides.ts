@@ -3,12 +3,17 @@
  * settings UI (writes) and the chat runtime (reads). The runtime libSQL store
  * is durable; this tiny localStorage mirror keeps session opening synchronous.
  */
-import type { AgentCapabilityId, DriverType } from "@chief/agent-runtime/types";
+import type {
+  AgentApprovalMode,
+  AgentCapabilityId,
+  DriverType,
+} from "@chief/agent-runtime/types";
 
 export interface AgentOverride {
   driver?: DriverType;
   model?: string;
   enabled?: boolean;
+  approvals?: AgentApprovalMode;
   capabilities?: AgentCapabilityId[];
   integrations?: string[];
 }
@@ -45,7 +50,7 @@ function migratedValue(
  * full access so agents work without permission prompts; "ask" keeps the
  * guarded approval seam for every mutating tool call.
  */
-export type ApprovalMode = "auto" | "ask";
+export type ApprovalMode = AgentApprovalMode;
 
 export function getToolApprovals(
   workspaceId: string | null | undefined,

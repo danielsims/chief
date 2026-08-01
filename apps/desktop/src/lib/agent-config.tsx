@@ -3,19 +3,19 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 import type {
   AccessMode,
+  AgentApprovalMode,
   AgentCapabilityId,
   AgentPreference,
   DriverType,
 } from "@chief/agent-runtime/types";
 
-import type { AgentOverride, ApprovalMode } from "./agent-overrides";
+import type { AgentOverride } from "./agent-overrides";
 import {
   getAgentOverride,
   getToolApprovals,
   getWorkspaceProvider,
   onAgentOverridesChange,
   setAgentOverride,
-  setToolApprovals,
 } from "./agent-overrides";
 import { useAuth } from "./auth/auth-context";
 import { useAgentPreferences } from "./runtime";
@@ -24,6 +24,8 @@ export interface ResolvedAgentConfig {
   driver: DriverType | null;
   model: string;
   enabled: boolean;
+  approvals: AgentApprovalMode;
+  access: AccessMode;
   capabilities?: AgentCapabilityId[];
   integrations?: string[];
 }
@@ -38,10 +40,6 @@ interface AgentConfigValue {
    */
   forAgent(agentId: string): ResolvedAgentConfig;
   savePreference(preference: AgentPreference): void;
-  approvals: ApprovalMode;
-  setApprovals(mode: ApprovalMode): void;
-  /** Session access derived from the approvals mode. */
-  access: AccessMode;
 }
 
 const AgentConfigContext = createContext<AgentConfigValue | null>(null);
@@ -75,6 +73,12 @@ export function AgentConfigProvider({ children }: { children: ReactNode }) {
         patch.enabled = preference.enabled;
       }
       if (
+        preference.approvals !== undefined &&
+        local.approvals !== preference.approvals
+      ) {
+        patch.approvals = preference.approvals;
+      }
+      if (
         JSON.stringify(local.capabilities ?? []) !==
         JSON.stringify(preference.capabilities ?? [])
       ) {
@@ -97,12 +101,15 @@ export function AgentConfigProvider({ children }: { children: ReactNode }) {
     const byId = new Map(
       durablePreferences.map((preference) => [preference.agentId, preference]),
     );
-    const approvals = getToolApprovals(cloudOrganizationId);
     return {
       ready: !loading,
       forAgent: (agentId: string): ResolvedAgentConfig => {
         const durable = byId.get(agentId);
         const mirror = getAgentOverride(cloudOrganizationId, agentId);
+        const approvals =
+          durable?.approvals ??
+          mirror.approvals ??
+          getToolApprovals(cloudOrganizationId);
         return {
           driver:
             durable?.driver ??
@@ -110,16 +117,13 @@ export function AgentConfigProvider({ children }: { children: ReactNode }) {
             getWorkspaceProvider(cloudOrganizationId),
           model: durable?.model ?? mirror.model ?? "",
           enabled: durable?.enabled ?? mirror.enabled ?? true,
+          approvals,
+          access: approvals === "ask" ? "guarded" : "full",
           capabilities: durable?.capabilities ?? mirror.capabilities,
           integrations: durable?.integrations ?? mirror.integrations,
         };
       },
       savePreference: save,
-      approvals,
-      setApprovals: (mode: ApprovalMode) => {
-        if (cloudOrganizationId) setToolApprovals(cloudOrganizationId, mode);
-      },
-      access: approvals === "ask" ? "guarded" : "full",
     };
     // localVersion invalidates the localStorage reads inside forAgent.
     // eslint-disable-next-line react-hooks/exhaustive-deps

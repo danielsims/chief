@@ -70,6 +70,7 @@ export function useAgentDeployments(workspaceId: string | null) {
         status === "connected" &&
         workspaceId === cloudOrganizationId,
       start: (input: {
+        agentId: string;
         target: AgentDeploymentTarget;
         projectName: string;
         teamId?: string;
