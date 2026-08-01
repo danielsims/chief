@@ -10,32 +10,32 @@ import { LoaderCircle } from "lucide-react";
 import { cn } from "../lib/utils";
 
 const buttonVariants = cva(
-  "focus-visible:ring-ring/30 focus-visible:ring-offset-background relative inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg border text-sm font-medium whitespace-nowrap transition-[background-color,border-color,box-shadow,color,transform] duration-150 outline-none before:pointer-events-none before:absolute before:inset-px before:rounded-[7px] before:bg-gradient-to-b before:from-white/[0.07] before:via-white/[0.02] before:to-transparent focus-visible:ring-2 focus-visible:ring-offset-2 active:translate-y-px disabled:pointer-events-none disabled:opacity-50 disabled:shadow-none [&_svg]:pointer-events-none [&_svg]:shrink-0",
+  "focus-visible:ring-ring/30 focus-visible:ring-offset-background relative inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 text-sm font-medium whitespace-nowrap transition-[background-color,box-shadow,color,transform] duration-150 outline-none focus-visible:ring-2 focus-visible:ring-offset-2 active:translate-y-px disabled:pointer-events-none disabled:opacity-50 disabled:shadow-none [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
     variants: {
       variant: {
         default:
-          "border-primary/85 from-primary to-primary/95 text-primary-foreground bg-gradient-to-b shadow-[0_1px_2px_hsl(0_0%_0%/0.16),inset_0_1px_hsl(0_0%_100%/0.12)] hover:brightness-[1.04] active:shadow-[inset_0_1px_1px_hsl(0_0%_0%/0.14)]",
+          "bg-primary text-primary-foreground shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--primary)_88%,black),inset_0_1px_rgba(255,255,255,0.08),0_1px_2px_rgba(0,0,0,0.12)] hover:brightness-[1.025] active:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--primary)_88%,black),inset_0_1px_1px_rgba(0,0,0,0.12)]",
         destructive:
-          "border-destructive/85 from-destructive to-destructive/92 bg-gradient-to-b text-white shadow-[0_1px_2px_hsl(0_0%_0%/0.14),inset_0_1px_hsl(0_0%_100%/0.14)] hover:brightness-[1.03] active:shadow-[inset_0_1px_1px_hsl(0_0%_0%/0.14)]",
+          "bg-destructive text-white shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--destructive)_86%,black),inset_0_1px_rgba(255,255,255,0.08),0_1px_2px_rgba(0,0,0,0.1)] hover:brightness-[1.025]",
         "destructive-outline":
-          "border-input/80 from-popover to-muted/45 text-destructive-foreground hover:border-destructive/30 hover:to-destructive/[0.06] bg-gradient-to-b shadow-[0_1px_2px_hsl(0_0%_0%/0.05),inset_0_1px_hsl(0_0%_100%/0.45)] dark:from-white/[0.055] dark:to-white/[0.025] dark:shadow-[0_1px_2px_hsl(0_0%_0%/0.24),inset_0_1px_hsl(0_0%_100%/0.06)]",
+          "bg-popover text-destructive-foreground hover:bg-destructive/[0.05] shadow-[inset_0_0_0_1px_var(--input),inset_0_1px_rgba(255,255,255,0.08),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_var(--input),inset_0_1px_rgba(255,255,255,0.035),0_1px_2px_rgba(0,0,0,0.18)]",
         outline:
-          "border-input/80 from-popover to-muted/45 text-foreground hover:from-accent/80 hover:to-accent/50 bg-gradient-to-b shadow-[0_1px_2px_hsl(0_0%_0%/0.05),inset_0_1px_hsl(0_0%_100%/0.45)] dark:from-white/[0.055] dark:to-white/[0.025] dark:shadow-[0_1px_2px_hsl(0_0%_0%/0.24),inset_0_1px_hsl(0_0%_100%/0.06)] dark:hover:from-white/[0.075] dark:hover:to-white/[0.04]",
+          "bg-popover text-foreground hover:bg-accent shadow-[inset_0_0_0_1px_var(--input),inset_0_1px_rgba(255,255,255,0.08),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[inset_0_0_0_1px_var(--input),inset_0_1px_rgba(255,255,255,0.035),0_1px_2px_rgba(0,0,0,0.18)]",
         secondary:
-          "from-secondary to-secondary/88 text-secondary-foreground border-transparent bg-gradient-to-b shadow-[inset_0_1px_hsl(0_0%_100%/0.08)] hover:brightness-[1.03]",
+          "bg-secondary text-secondary-foreground shadow-[inset_0_1px_rgba(255,255,255,0.05)] hover:brightness-[1.025]",
         ghost:
-          "text-foreground hover:bg-accent active:bg-accent border-transparent bg-transparent shadow-none before:hidden",
-        link: "text-foreground border-transparent bg-transparent shadow-none before:hidden hover:underline hover:underline-offset-4 active:translate-y-0",
+          "text-foreground hover:bg-accent active:bg-accent bg-transparent shadow-none",
+        link: "text-foreground bg-transparent shadow-none hover:underline hover:underline-offset-4 active:translate-y-0",
       },
       size: {
         default: "h-9 px-3",
         sm: "h-8 gap-1.5 px-2.5 text-xs",
         lg: "h-10 px-3.5",
-        xs: "h-7 gap-1 rounded-md px-2 text-xs before:rounded-[5px]",
+        xs: "h-7 gap-1 rounded-md px-2 text-xs",
         icon: "size-9 px-0",
         "icon-sm": "size-8 px-0",
-        "icon-xs": "size-7 rounded-md px-0 before:rounded-[5px]",
+        "icon-xs": "size-7 rounded-md px-0",
       },
     },
     defaultVariants: {
