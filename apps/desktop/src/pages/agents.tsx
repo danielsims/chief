@@ -2,6 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useConvexAuth, useQuery } from "convex/react";
+import {
+  ChevronRight,
+  Cloud,
+  MessageCircle,
+  Radio,
+  Settings2,
+  X,
+} from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
 import type {
@@ -125,6 +133,44 @@ const availableAgents = [
   },
 ];
 
+function agentInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase())
+    .join("");
+}
+
+function AgentAvatar({
+  name,
+  enabled = true,
+  size = "md",
+}: {
+  name: string;
+  enabled?: boolean;
+  size?: "sm" | "md" | "lg";
+}) {
+  return (
+    <span
+      className={cn(
+        "bg-foreground/[0.055] relative flex shrink-0 items-center justify-center rounded-xl font-semibold shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),inset_0_1px_rgba(255,255,255,0.05)]",
+        size === "sm" && "size-8 text-[10px]",
+        size === "md" && "size-10 text-xs",
+        size === "lg" && "size-12 text-sm",
+      )}
+    >
+      {agentInitials(name)}
+      <span
+        className={cn(
+          "border-background absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2",
+          enabled ? "bg-emerald-500" : "bg-muted-foreground/35",
+        )}
+      />
+    </span>
+  );
+}
+
 function ProviderOption({ provider }: { provider: Provider }) {
   const { label, Icon } = PROVIDER_META[provider];
   return (
@@ -142,6 +188,7 @@ function InstalledAgentCard({
   integrations,
   ready,
   onSave,
+  onClose,
   onDeploy,
 }: {
   agent: AgentDefinition;
@@ -150,6 +197,7 @@ function InstalledAgentCard({
   integrations: IntegrationOption[];
   ready: boolean;
   onSave: (preference: AgentPreference) => void;
+  onClose?: () => void;
   onDeploy?: () => void;
 }) {
   const enabled = override?.enabled ?? true;
@@ -202,50 +250,96 @@ function InstalledAgentCard({
   return (
     <div
       className={cn(
-        "bg-card flex min-h-full flex-col p-6",
+        "bg-card/45 flex min-h-full flex-col rounded-2xl p-6 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),0_1px_2px_rgba(0,0,0,0.025)]",
         !enabled && "opacity-60",
       )}
     >
       <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">
-            {agent.name}
-            {agent.delegates && (
-              <span className="text-muted-foreground ml-2 text-xs font-normal">
-                Orchestrator
-              </span>
-            )}
-          </p>
-          <p className="text-muted-foreground truncate text-xs">{agent.role}</p>
+        <div className="flex min-w-0 items-center gap-3.5">
+          <AgentAvatar name={agent.name} enabled={enabled} size="lg" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h2 className="truncate text-xl font-semibold tracking-[-0.025em]">
+                {agent.name}
+              </h2>
+              {agent.delegates ? (
+                <span className="bg-foreground/[0.045] text-muted-foreground rounded-full px-2 py-1 text-[9px] font-medium">
+                  Orchestrator
+                </span>
+              ) : null}
+            </div>
+            <p className="text-muted-foreground mt-0.5 truncate text-xs">
+              {agent.role}
+            </p>
+          </div>
         </div>
-        <Switch
-          checked={enabled}
-          disabled={!ready}
-          onCheckedChange={(checked) => save({ enabled: checked })}
-        />
+        <div className="flex items-center gap-2">
+          <label className="text-muted-foreground flex items-center gap-2 text-[10px]">
+            {enabled ? "Active" : "Paused"}
+            <Switch
+              checked={enabled}
+              disabled={!ready}
+              onCheckedChange={(checked) => save({ enabled: checked })}
+            />
+          </label>
+          {onClose ? (
+            <button
+              type="button"
+              aria-label="Close agent details"
+              onClick={onClose}
+              className="text-muted-foreground hover:bg-accent hover:text-foreground flex size-7 items-center justify-center rounded-lg transition-colors"
+            >
+              <X size={13} />
+            </button>
+          ) : null}
+        </div>
       </div>
 
-      <p className="text-muted-foreground mt-3 text-sm leading-6">
+      <p className="text-muted-foreground mt-5 max-w-3xl text-sm leading-6">
         {agent.description}
       </p>
 
-      <div className="mt-6 border-t pt-4">
+      <div className="mt-5 grid grid-cols-3 gap-2">
+        <div className="bg-background/55 rounded-xl px-3 py-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
+          <p className="text-muted-foreground text-[9px]">Capabilities</p>
+          <p className="mt-1 text-xs font-semibold">{capabilities.length}</p>
+        </div>
+        <div className="bg-background/55 rounded-xl px-3 py-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
+          <p className="text-muted-foreground text-[9px]">Connections</p>
+          <p className="mt-1 text-xs font-semibold">
+            {assignedIntegrations.length}
+          </p>
+        </div>
+        <div className="bg-background/55 rounded-xl px-3 py-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
+          <p className="text-muted-foreground text-[9px]">Runs with</p>
+          <p className="mt-1 truncate text-xs font-semibold">
+            {meta?.label ?? "Not configured"}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-6 pt-4 shadow-[inset_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
         <div className="mb-3 flex items-center justify-between">
-          <p className="text-xs font-medium">Configuration</p>
+          <div>
+            <p className="text-xs font-semibold">Configuration</p>
+            <p className="text-muted-foreground mt-0.5 text-[10px]">
+              What this agent can use and remember.
+            </p>
+          </div>
           <button
             type="button"
             onClick={() => setEditing((current) => !current)}
-            className="text-muted-foreground hover:text-foreground text-xs transition-colors"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors"
           >
             {editing ? "Done" : "Edit"}
           </button>
         </div>
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-3 xl:grid-cols-2">
           <section>
             <p className="text-muted-foreground mb-2 text-[11px]">
               Capabilities
             </p>
-            <div className="divide-y border">
+            <div className="bg-background/55 divide-y divide-black/[0.055] overflow-hidden rounded-xl shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)] dark:divide-white/[0.055]">
               {(editing
                 ? availableCapabilities
                 : availableCapabilities.filter((capability) =>
@@ -282,7 +376,7 @@ function InstalledAgentCard({
                         }
                       />
                     ) : (
-                      <span className="bg-foreground size-1.5 shrink-0" />
+                      <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
                     )}
                   </label>
                 );
@@ -299,7 +393,7 @@ function InstalledAgentCard({
             <p className="text-muted-foreground mb-2 text-[11px]">
               Connections
             </p>
-            <div className="divide-y border">
+            <div className="bg-background/55 divide-y divide-black/[0.055] overflow-hidden rounded-xl shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)] dark:divide-white/[0.055]">
               {(editing
                 ? integrations
                 : integrations.filter((integration) =>
@@ -338,7 +432,7 @@ function InstalledAgentCard({
                         }
                       />
                     ) : (
-                      <span className="bg-foreground size-1.5 shrink-0" />
+                      <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
                     )}
                   </label>
                 );
@@ -354,7 +448,7 @@ function InstalledAgentCard({
         </div>
       </div>
 
-      <div className="mt-auto flex items-center justify-between gap-3 border-t pt-3">
+      <div className="mt-auto flex items-center justify-between gap-3 pt-4 shadow-[inset_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
         <div className="flex items-center gap-2">
           <Select
             value={driver ?? undefined}
@@ -430,8 +524,9 @@ function InstalledAgentCard({
         <div className="flex items-center gap-2">
           <Link
             to="/conversations"
-            className="text-muted-foreground hover:bg-accent hover:text-foreground border px-2.5 py-1 text-xs transition-colors"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent)] transition-colors"
           >
+            <MessageCircle size={12} />
             Ask Chief
           </Link>
           {onDeploy ? (
@@ -445,36 +540,124 @@ function InstalledAgentCard({
   );
 }
 
+function TeamAgentCard({
+  agent,
+  override,
+  workspaceId,
+  selected,
+  onSelect,
+}: {
+  agent: AgentDefinition;
+  override: AgentOverride | undefined;
+  workspaceId: string | null;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const enabled = override?.enabled ?? true;
+  const driver = override?.driver ?? getWorkspaceProvider(workspaceId);
+  const meta = driver ? PROVIDER_META[driver] : null;
+  const capabilityCount =
+    override?.capabilities?.length ?? agent.capabilities?.length ?? 0;
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "bg-card/35 hover:bg-card/70 group flex min-h-44 flex-col rounded-2xl p-4 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),0_1px_2px_rgba(0,0,0,0.02)] transition-[background-color,box-shadow]",
+        selected &&
+          "bg-accent/55 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_11%,transparent),0_2px_8px_rgba(0,0,0,0.035)]",
+      )}
+    >
+      <div className="flex w-full items-start gap-3">
+        <AgentAvatar name={agent.name} enabled={enabled} size="md" />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2">
+            <span className="block truncate text-sm font-semibold">
+              {agent.name}
+            </span>
+            {agent.delegates ? (
+              <span className="text-muted-foreground bg-foreground/[0.045] rounded-full px-1.5 py-0.5 text-[8px] font-medium">
+                Lead
+              </span>
+            ) : null}
+          </span>
+          <span className="text-muted-foreground mt-0.5 block truncate text-[10px]">
+            {agent.role}
+          </span>
+        </span>
+        <ChevronRight
+          size={13}
+          className="text-muted-foreground/60 mt-1 shrink-0 transition-transform group-hover:translate-x-0.5"
+        />
+      </div>
+      <span className="text-muted-foreground mt-4 line-clamp-2 text-[11px] leading-5">
+        {agent.description}
+      </span>
+      <span className="mt-auto flex w-full items-center gap-2 pt-4 text-[10px]">
+        <span
+          className={cn(
+            "size-1.5 rounded-full",
+            enabled ? "bg-emerald-500" : "bg-muted-foreground/35",
+          )}
+        />
+        <span className="text-muted-foreground">
+          {enabled ? "Active" : "Paused"}
+        </span>
+        <span className="text-muted-foreground/40">·</span>
+        <span className="text-muted-foreground truncate">
+          {meta?.label ?? "Choose agent app"}
+        </span>
+        <span className="text-muted-foreground/40 ml-auto">
+          {capabilityCount} capabilities
+        </span>
+      </span>
+    </button>
+  );
+}
+
 function AvailableAgentDetail({
   agent,
+  onClose,
 }: {
   agent: (typeof availableAgents)[number];
+  onClose: () => void;
 }) {
   return (
-    <div className="flex h-full min-h-[620px] flex-col p-7">
-      <div className="flex flex-wrap items-start justify-between gap-5 border-b pb-6">
-        <div>
-          <p className="text-muted-foreground text-xs">Available agent</p>
-          <h3 className="mt-2 font-serif text-3xl">{agent.name}</h3>
-          <p className="text-muted-foreground mt-2 text-sm">{agent.role}</p>
+    <div className="flex min-h-full flex-col p-5">
+      <div className="flex items-start justify-between gap-4 pb-5 shadow-[inset_0_-1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
+        <div className="flex items-center gap-3.5">
+          <AgentAvatar name={agent.name} enabled={false} size="lg" />
+          <div>
+            <h3 className="text-lg font-semibold tracking-[-0.025em]">
+              {agent.name}
+            </h3>
+            <p className="text-muted-foreground mt-0.5 text-xs">{agent.role}</p>
+          </div>
         </div>
-        <Button size="sm" disabled>
-          Coming soon
-        </Button>
+        <button
+          type="button"
+          aria-label="Close agent details"
+          onClick={onClose}
+          className="text-muted-foreground hover:bg-accent hover:text-foreground flex size-7 items-center justify-center rounded-lg transition-colors"
+        >
+          <X size={13} />
+        </button>
       </div>
-      <div className="max-w-2xl py-7">
-        <p className="text-muted-foreground text-sm leading-7">
+      <div className="py-5">
+        <p className="text-muted-foreground text-sm leading-6">
           {agent.description}
         </p>
-        <div className="mt-7 border p-4">
-          <p className="text-sm font-medium">Not installed</p>
-          <p className="text-muted-foreground mt-1 text-sm leading-6">
-            This specialist will appear in your team when the agent registry is
-            ready. Its playbooks and connected-service access will be visible
-            here before installation.
+        <div className="bg-foreground/[0.025] mt-5 rounded-xl p-4 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
+          <p className="text-xs font-semibold">Available soon</p>
+          <p className="text-muted-foreground mt-1 text-xs leading-5">
+            Review its access and playbooks here before adding it to your team.
           </p>
         </div>
       </div>
+      <Button className="mt-auto" disabled>
+        Add to team
+      </Button>
     </div>
   );
 }
@@ -530,9 +713,9 @@ function PlaybooksCatalogue() {
   };
 
   return (
-    <div className="bg-card grid h-[calc(100vh-190px)] min-h-[620px] grid-cols-[320px_minmax(0,1fr)] border">
-      <div className="flex min-h-0 flex-col border-r">
-        <div className="border-b p-3">
+    <div className="bg-card/45 grid h-full min-h-[620px] grid-cols-[300px_minmax(0,1fr)] overflow-hidden rounded-2xl shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
+      <div className="flex min-h-0 flex-col shadow-[inset_-1px_0_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
+        <div className="p-3 shadow-[inset_0_-1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
           <Select
             value={category}
             onValueChange={(value) =>
@@ -561,8 +744,8 @@ function PlaybooksCatalogue() {
               type="button"
               onClick={() => setSelectedId(playbook.id)}
               className={cn(
-                "hover:bg-accent flex w-full items-center gap-3 px-3 py-3 text-left transition-colors",
-                selected.id === playbook.id && "bg-accent",
+                "hover:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors",
+                selected.id === playbook.id && "bg-accent/80",
               )}
             >
               <span className="min-w-0 flex-1">
@@ -580,13 +763,15 @@ function PlaybooksCatalogue() {
       </div>
 
       <article className="min-h-0 min-w-0 overflow-y-auto">
-        <div className="border-b p-7">
+        <div className="p-7 shadow-[inset_0_-1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
           <div className="flex flex-wrap items-start justify-between gap-5">
             <div className="min-w-0">
               <p className="text-muted-foreground text-xs">
                 Playbook · {owner?.name ?? selected.agentId}
               </p>
-              <h3 className="mt-2 font-serif text-3xl">{selected.title}</h3>
+              <h3 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
+                {selected.title}
+              </h3>
               <p className="text-muted-foreground mt-2 max-w-2xl text-sm leading-6">
                 {selected.summary}
               </p>
@@ -600,7 +785,7 @@ function PlaybooksCatalogue() {
               </Button>
             </div>
           </div>
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t pt-4">
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-4 pt-4 shadow-[inset_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
             <div className="flex min-w-0 flex-wrap items-center gap-3">
               <IntegrationAvatarStack
                 integrations={selected.integrations}
@@ -641,10 +826,7 @@ export function AgentsPage() {
     }));
   }
   const integrations: IntegrationOption[] = integrationsCache ?? [];
-  // The runtime roster when connected; the static roster as a fallback so
-  // the registry still renders while the runtime is down.
   const agents = runtimeAgents.length > 0 ? runtimeAgents : defaultAgents;
-
   const agentPreferences = useAgentPreferences(cloudOrganizationId);
   const overrides = agentPreferences.preferences;
   const ready = Boolean(cloudOrganizationId) && !agentPreferences.loading;
@@ -657,6 +839,7 @@ export function AgentsPage() {
   const [selectedAvailableId, setSelectedAvailableId] = useState(
     () => availableAgents[0]?.id ?? "",
   );
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [deploymentOpen, setDeploymentOpen] = useState(
     () => searchParams.get("view") === "deploy",
   );
@@ -665,270 +848,287 @@ export function AgentsPage() {
   );
   const selectedAgent =
     agents.find((agent) => agent.id === selectedAgentId) ?? agents[0];
+  const selectedAvailableAgent =
+    availableAgents.find((agent) => agent.id === selectedAvailableId) ??
+    availableAgents[0]!;
+  const activeAgentCount = agents.filter(
+    (agent) =>
+      overrides.find((entry) => entry.agentId === agent.id)?.enabled ?? true,
+  ).length;
+
   useEffect(() => {
     if (agents.some((agent) => agent.id === selectedAgentId)) return;
     setSelectedAgentId(agents[0]?.id ?? "");
   }, [agents, selectedAgentId]);
 
-  // The localStorage mirror is hydrated app-wide by AgentConfigProvider.
   const agentConfig = useAgentConfig();
+  const selectView = (next: "installed" | "available" | "playbooks") => {
+    setView(next);
+    setInspectorOpen(false);
+    setDeploymentOpen(false);
+    setChannelsOpen(false);
+  };
 
   return (
-    <div className="-mx-8 -mb-8 flex min-h-[calc(100vh-48px)]">
-      <aside className="w-56 shrink-0 border-r px-5 pt-10">
-        <h1 className="font-serif text-3xl">Agents</h1>
-        <nav className="mt-7 space-y-1">
-          {[
-            {
-              key: "installed" as const,
-              label: "Installed",
-              count: agents.length,
-            },
-            {
-              key: "available" as const,
-              label: "Available",
-              count: availableAgents.length,
-            },
-          ].map((item) => (
-            <div key={item.key}>
-              <button
-                type="button"
-                onClick={() => {
-                  setView(item.key);
-                  setDeploymentOpen(false);
-                  setChannelsOpen(false);
-                }}
-                className={cn(
-                  "text-muted-foreground hover:bg-accent hover:text-foreground flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors",
-                  view === item.key &&
-                    !deploymentOpen &&
-                    !channelsOpen &&
-                    "bg-accent text-foreground",
-                )}
-              >
-                <span>{item.label}</span>
-                <span className="text-muted-foreground text-[11px]">
-                  {item.count}
-                </span>
-              </button>
-              {view === item.key && !deploymentOpen && !channelsOpen ? (
-                <div className="mt-1 ml-3 space-y-0.5 border-l pl-3">
-                  {(item.key === "installed" ? agents : availableAgents).map(
-                    (agent) => {
-                      const installed = item.key === "installed";
-                      const selected = installed
-                        ? agent.id === selectedAgent?.id
-                        : agent.id === selectedAvailableId;
-                      const enabled = installed
-                        ? (overrides.find((entry) => entry.agentId === agent.id)
-                            ?.enabled ?? true)
-                        : false;
-                      return (
-                        <button
-                          key={agent.id}
-                          type="button"
-                          onClick={() =>
-                            installed
-                              ? setSelectedAgentId(agent.id)
-                              : setSelectedAvailableId(agent.id)
-                          }
-                          className={cn(
-                            "text-muted-foreground hover:text-foreground flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors",
-                            selected && "text-foreground",
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "size-1.5 shrink-0",
-                              installed && enabled
-                                ? "bg-emerald-500"
-                                : "border-muted-foreground/50 border",
-                            )}
-                          />
-                          <span className="truncate">{agent.name}</span>
-                        </button>
-                      );
-                    },
-                  )}
-                </div>
-              ) : null}
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={() => {
-              setView("playbooks");
-              setDeploymentOpen(false);
-              setChannelsOpen(false);
-            }}
-            className={cn(
-              "text-muted-foreground hover:bg-accent hover:text-foreground flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors",
-              view === "playbooks" &&
-                !deploymentOpen &&
-                !channelsOpen &&
-                "bg-accent text-foreground",
-            )}
-          >
-            <span>Playbooks</span>
-            <span className="text-muted-foreground text-[11px]">
-              {PLAYBOOKS.length}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setChannelsOpen(false);
-              setDeploymentOpen(true);
-            }}
-            className={cn(
-              "text-muted-foreground hover:bg-accent hover:text-foreground flex w-full items-center px-3 py-2 text-left text-sm transition-colors",
-              deploymentOpen && "bg-accent text-foreground",
-            )}
-          >
-            Deploy Chief
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setDeploymentOpen(false);
-              setChannelsOpen(true);
-            }}
-            className={cn(
-              "text-muted-foreground hover:bg-accent hover:text-foreground flex w-full items-center px-3 py-2 text-left text-sm transition-colors",
-              channelsOpen && "bg-accent text-foreground",
-            )}
-          >
-            Connect channel
-          </button>
-        </nav>
-      </aside>
+    <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
+      <header className="shrink-0 px-6 pt-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-[26px] font-semibold tracking-[-0.035em]">
+              Agents
+            </h1>
+            <p className="text-muted-foreground mt-1 text-[13px]">
+              See who is available, what they can access, and where they are
+              working.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setInspectorOpen(false);
+                setDeploymentOpen(false);
+                setChannelsOpen(true);
+              }}
+            >
+              <Radio size={13} />
+              Channels
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setInspectorOpen(false);
+                setChannelsOpen(false);
+                setDeploymentOpen(true);
+              }}
+            >
+              <Cloud size={13} />
+              Deploy Chief
+            </Button>
+          </div>
+        </div>
 
-      <main className="min-w-0 flex-1 px-6 pt-10 pb-8">
-        {channelsOpen ? (
-          <AgentChannelsPanel
-            workspaceId={cloudOrganizationId}
-            onDeploy={() => {
-              setChannelsOpen(false);
-              setDeploymentOpen(true);
-            }}
-            onBack={() => {
-              setChannelsOpen(false);
-              setView("installed");
-            }}
-          />
-        ) : deploymentOpen ? (
-          <AgentDeploymentPanel
-            onBack={() => {
-              setDeploymentOpen(false);
-              setView("installed");
-            }}
-          />
-        ) : (
-          <>
-            <div className="mb-6 flex flex-wrap items-end justify-between gap-6">
-              <div>
-                <h2 className="font-serif text-2xl">
-                  {view === "installed"
-                    ? "Your team"
-                    : view === "available"
-                      ? "Available agents"
-                      : "Playbooks"}
+        <div className="mt-5 flex items-end justify-between gap-4">
+          <nav className="flex items-center gap-5" aria-label="Agent views">
+            {(
+              [
+                ["installed", "Team", agents.length],
+                ["available", "Library", availableAgents.length],
+                ["playbooks", "Playbooks", PLAYBOOKS.length],
+              ] as const
+            ).map(([key, label, count]) => {
+              const active = view === key && !deploymentOpen && !channelsOpen;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => selectView(key)}
+                  className={cn(
+                    "text-muted-foreground hover:text-foreground relative flex h-9 items-center gap-1.5 text-xs font-medium transition-colors",
+                    active && "text-foreground",
+                  )}
+                >
+                  {label}
+                  <span className="text-[9px] tabular-nums opacity-55">
+                    {count}
+                  </span>
+                  {active ? (
+                    <span className="bg-foreground absolute right-0 bottom-0 left-0 h-px" />
+                  ) : null}
+                </button>
+              );
+            })}
+          </nav>
+
+          {view === "installed" && !deploymentOpen && !channelsOpen ? (
+            <div className="bg-muted/40 mb-1 flex items-center gap-1 rounded-lg p-0.5 pl-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
+              <span className="text-muted-foreground mr-1 flex items-center gap-1.5 text-[10px]">
+                <Settings2 size={11} />
+                Approvals
+              </span>
+              {(
+                [
+                  { mode: "auto", label: "Automatic" },
+                  { mode: "ask", label: "Ask first" },
+                ] as const
+              ).map(({ mode, label }) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => agentConfig.setApprovals(mode)}
+                  className={cn(
+                    "text-muted-foreground hover:text-foreground rounded-md px-2.5 py-1.5 text-[10px] font-medium transition-[background-color,box-shadow,color]",
+                    agentConfig.approvals === mode &&
+                      "bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06),inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_5%,transparent)]",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1 border-t border-black/[0.055] dark:border-white/[0.055]">
+        <main className="min-w-0 flex-1 overflow-y-auto">
+          {channelsOpen ? (
+            <div className="p-6">
+              <AgentChannelsPanel
+                workspaceId={cloudOrganizationId}
+                onDeploy={() => {
+                  setChannelsOpen(false);
+                  setDeploymentOpen(true);
+                }}
+                onBack={() => selectView("installed")}
+              />
+            </div>
+          ) : deploymentOpen ? (
+            <div className="p-6">
+              <AgentDeploymentPanel onBack={() => selectView("installed")} />
+            </div>
+          ) : view === "installed" ? (
+            <section className="p-6">
+              <div className="mb-5 flex items-end justify-between gap-4">
+                <div>
+                  <h2 className="text-base font-semibold tracking-[-0.02em]">
+                    Your team
+                  </h2>
+                  <p className="text-muted-foreground mt-1 text-[11px]">
+                    Select an agent to review its tools, connections, and
+                    runtime.
+                  </p>
+                </div>
+                <div className="text-muted-foreground flex items-center gap-2 text-[10px] tabular-nums">
+                  <span className="size-1.5 rounded-full bg-emerald-500" />
+                  {activeAgentCount} of {agents.length} active
+                </div>
+              </div>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(238px,1fr))] gap-3">
+                {agents.map((agent) => (
+                  <TeamAgentCard
+                    key={agent.id}
+                    agent={agent}
+                    override={overrides.find(
+                      (entry) => entry.agentId === agent.id,
+                    )}
+                    workspaceId={cloudOrganizationId}
+                    selected={inspectorOpen && selectedAgent?.id === agent.id}
+                    onSelect={() => {
+                      setSelectedAgentId(agent.id);
+                      setInspectorOpen(true);
+                    }}
+                  />
+                ))}
+              </div>
+              {!ready ? (
+                <p className="text-muted-foreground mt-4 text-xs">
+                  Connecting to your workspace…
+                </p>
+              ) : null}
+            </section>
+          ) : view === "available" ? (
+            <section className="p-6">
+              <div className="mb-5">
+                <h2 className="text-base font-semibold tracking-[-0.02em]">
+                  Agent library
                 </h2>
-                <p className="text-muted-foreground mt-2 max-w-xl text-sm leading-6">
-                  {view === "installed"
-                    ? "Enable agents, choose the provider each one runs on, and open a conversation."
-                    : view === "available"
-                      ? "Specialists that can be added to the workspace as the registry expands."
-                      : "Reusable operating instructions your agents can run now or own on a schedule."}
+                <p className="text-muted-foreground mt-1 text-[11px]">
+                  Add a specialist when your team needs a narrower operating
+                  role.
                 </p>
               </div>
-              {view === "installed" ? (
-                <div className="flex items-center gap-3">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setDeploymentOpen(false);
-                      setChannelsOpen(true);
-                    }}
-                  >
-                    Connect channel
-                  </Button>
-                  <span
-                    className="text-muted-foreground text-xs"
-                    title="Automatic lets agents run their tools without asking; Ask first pauses every mutating tool call for your approval."
-                  >
-                    Tool approvals
-                  </span>
-                  <div className="flex border p-0.5">
-                    {(
-                      [
-                        { mode: "auto", label: "Automatic" },
-                        { mode: "ask", label: "Ask first" },
-                      ] as const
-                    ).map(({ mode, label }) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        onClick={() => agentConfig.setApprovals(mode)}
-                        className={cn(
-                          "text-muted-foreground hover:text-foreground px-3 py-1.5 text-xs transition-colors",
-                          agentConfig.approvals === mode &&
-                            "bg-accent text-foreground",
-                        )}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            {view === "installed" ? (
-              <>
-                <div className="bg-card min-h-[620px] border">
-                  {selectedAgent ? (
-                    <InstalledAgentCard
-                      key={selectedAgent.id}
-                      agent={selectedAgent}
-                      workspaceId={cloudOrganizationId}
-                      override={overrides.find(
-                        (item) => item.agentId === selectedAgent.id,
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(238px,1fr))] gap-3">
+                {availableAgents.map((agent) => {
+                  const selected =
+                    inspectorOpen && selectedAvailableId === agent.id;
+                  return (
+                    <button
+                      key={agent.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedAvailableId(agent.id);
+                        setInspectorOpen(true);
+                      }}
+                      className={cn(
+                        "bg-card/35 hover:bg-card/70 group flex min-h-44 flex-col rounded-2xl p-4 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)] transition-[background-color,box-shadow]",
+                        selected &&
+                          "bg-accent/55 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_11%,transparent)]",
                       )}
-                      integrations={integrations}
-                      ready={ready}
-                      onSave={agentPreferences.save}
-                      onDeploy={
-                        selectedAgent.id === "cmo"
-                          ? () => setDeploymentOpen(true)
-                          : undefined
-                      }
-                    />
-                  ) : null}
-                </div>
-                {!ready ? (
-                  <p className="text-muted-foreground mt-3 text-xs">
-                    Connecting to your workspace…
-                  </p>
-                ) : null}
-              </>
-            ) : view === "available" ? (
-              <div className="bg-card min-h-[620px] border">
-                <AvailableAgentDetail
-                  agent={
-                    availableAgents.find(
-                      (agent) => agent.id === selectedAvailableId,
-                    ) ?? availableAgents[0]!
-                  }
-                />
+                    >
+                      <span className="flex w-full items-start gap-3">
+                        <AgentAvatar
+                          name={agent.name}
+                          enabled={false}
+                          size="md"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold">
+                            {agent.name}
+                          </span>
+                          <span className="text-muted-foreground mt-0.5 block truncate text-[10px]">
+                            {agent.role}
+                          </span>
+                        </span>
+                        <ChevronRight
+                          size={13}
+                          className="text-muted-foreground/60 mt-1 transition-transform group-hover:translate-x-0.5"
+                        />
+                      </span>
+                      <span className="text-muted-foreground mt-4 line-clamp-3 text-[11px] leading-5">
+                        {agent.description}
+                      </span>
+                      <span className="text-muted-foreground mt-auto pt-4 text-[10px]">
+                        Available soon
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
-            ) : (
+            </section>
+          ) : (
+            <div className="h-full p-6">
               <PlaybooksCatalogue />
+            </div>
+          )}
+        </main>
+
+        {inspectorOpen &&
+        !deploymentOpen &&
+        !channelsOpen &&
+        view !== "playbooks" ? (
+          <aside className="bg-card/25 w-[min(430px,42vw)] shrink-0 overflow-y-auto shadow-[inset_1px_0_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
+            {view === "installed" && selectedAgent ? (
+              <InstalledAgentCard
+                key={selectedAgent.id}
+                agent={selectedAgent}
+                workspaceId={cloudOrganizationId}
+                override={overrides.find(
+                  (item) => item.agentId === selectedAgent.id,
+                )}
+                integrations={integrations}
+                ready={ready}
+                onSave={agentPreferences.save}
+                onClose={() => setInspectorOpen(false)}
+                onDeploy={
+                  selectedAgent.id === "cmo"
+                    ? () => {
+                        setInspectorOpen(false);
+                        setDeploymentOpen(true);
+                      }
+                    : undefined
+                }
+              />
+            ) : (
+              <AvailableAgentDetail
+                agent={selectedAvailableAgent}
+                onClose={() => setInspectorOpen(false)}
+              />
             )}
-          </>
-        )}
-      </main>
+          </aside>
+        ) : null}
+      </div>
     </div>
   );
 }
