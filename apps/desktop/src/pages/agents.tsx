@@ -1,6 +1,6 @@
 /* eslint-disable max-lines */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useConvexAuth, useQuery } from "convex/react";
 import {
   ChevronRight,
@@ -149,7 +149,7 @@ function AgentAvatar({
 }: {
   name: string;
   enabled?: boolean;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xl";
 }) {
   return (
     <span
@@ -158,6 +158,7 @@ function AgentAvatar({
         size === "sm" && "size-8 text-[10px]",
         size === "md" && "size-10 text-xs",
         size === "lg" && "size-12 text-sm",
+        size === "xl" && "size-[72px] rounded-full text-lg",
       )}
     >
       {agentInitials(name)}
@@ -564,52 +565,53 @@ function TeamAgentCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        "bg-card/35 hover:bg-card/70 group flex min-h-44 flex-col rounded-2xl p-4 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),0_1px_2px_rgba(0,0,0,0.02)] transition-[background-color,box-shadow]",
+        "bg-foreground/[0.035] hover:bg-foreground/[0.05] group flex min-h-48 flex-col rounded-[22px] p-3 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent),0_1px_2px_rgba(0,0,0,0.025)] transition-[background-color,box-shadow]",
         selected &&
-          "bg-accent/55 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_11%,transparent),0_2px_8px_rgba(0,0,0,0.035)]",
+          "bg-foreground/[0.055] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent),0_2px_8px_rgba(0,0,0,0.035)]",
       )}
     >
-      <div className="flex w-full items-start gap-3">
-        <AgentAvatar name={agent.name} enabled={enabled} size="md" />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            <span className="block truncate text-sm font-semibold">
-              {agent.name}
-            </span>
-            {agent.delegates ? (
-              <span className="text-muted-foreground bg-foreground/[0.045] rounded-full px-1.5 py-0.5 text-[8px] font-medium">
-                Lead
+      <span className="bg-background/85 flex w-full flex-1 flex-col rounded-[16px] px-4 py-4 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent),0_1px_1px_rgba(0,0,0,0.02)]">
+        <span className="flex min-h-24 items-center justify-center py-1">
+          <AgentAvatar name={agent.name} enabled={enabled} size="xl" />
+        </span>
+        <span className="mt-3 flex items-start gap-3">
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-2">
+              <span className="block truncate text-sm font-semibold">
+                {agent.name}
               </span>
-            ) : null}
+              {agent.delegates ? (
+                <span className="text-muted-foreground bg-foreground/[0.045] rounded-full px-1.5 py-0.5 text-[8px] font-medium">
+                  Lead
+                </span>
+              ) : null}
+            </span>
+            <span className="text-muted-foreground mt-0.5 block truncate text-[10px]">
+              {agent.role}
+            </span>
           </span>
-          <span className="text-muted-foreground mt-0.5 block truncate text-[10px]">
-            {agent.role}
+          <ChevronRight
+            size={13}
+            className="text-muted-foreground/60 mt-1 shrink-0 transition-transform group-hover:translate-x-0.5"
+          />
+        </span>
+        <span className="mt-auto flex w-full items-center gap-2 pt-3 text-[10px]">
+          <span
+            className={cn(
+              "size-1.5 rounded-full",
+              enabled ? "bg-emerald-500" : "bg-muted-foreground/35",
+            )}
+          />
+          <span className="text-muted-foreground">
+            {enabled ? "Active" : "Paused"}
           </span>
-        </span>
-        <ChevronRight
-          size={13}
-          className="text-muted-foreground/60 mt-1 shrink-0 transition-transform group-hover:translate-x-0.5"
-        />
-      </div>
-      <span className="text-muted-foreground mt-4 line-clamp-2 text-[11px] leading-5">
-        {agent.description}
-      </span>
-      <span className="mt-auto flex w-full items-center gap-2 pt-4 text-[10px]">
-        <span
-          className={cn(
-            "size-1.5 rounded-full",
-            enabled ? "bg-emerald-500" : "bg-muted-foreground/35",
-          )}
-        />
-        <span className="text-muted-foreground">
-          {enabled ? "Active" : "Paused"}
-        </span>
-        <span className="text-muted-foreground/40">·</span>
-        <span className="text-muted-foreground truncate">
-          {meta?.label ?? "Choose agent app"}
-        </span>
-        <span className="text-muted-foreground/40 ml-auto">
-          {capabilityCount} capabilities
+          <span className="text-muted-foreground/40">·</span>
+          <span className="text-muted-foreground truncate">
+            {meta?.label ?? "Choose agent app"}
+          </span>
+          <span className="text-muted-foreground/40 ml-auto">
+            {capabilityCount} capabilities
+          </span>
         </span>
       </span>
     </button>
@@ -811,7 +813,7 @@ function PlaybooksCatalogue() {
 }
 
 export function AgentsPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { agents: runtimeAgents } = useRuntime();
   const { cloudOrganizationId } = useAuth();
   const convexAuth = useConvexAuth();
@@ -833,40 +835,47 @@ export function AgentsPage() {
   const [view, setView] = useState<"installed" | "available" | "playbooks">(
     "installed",
   );
-  const [selectedAgentId, setSelectedAgentId] = useState(
-    () => agents[0]?.id ?? "",
+  const agentId = searchParams.get("agent");
+  const libraryAgentId = searchParams.get("libraryAgent");
+  const selectedAgent = agents.find((agent) => agent.id === agentId);
+  const selectedAvailableAgent = availableAgents.find(
+    (agent) => agent.id === libraryAgentId,
   );
-  const [selectedAvailableId, setSelectedAvailableId] = useState(
-    () => availableAgents[0]?.id ?? "",
-  );
-  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const activeView = selectedAgent
+    ? "installed"
+    : selectedAvailableAgent
+      ? "available"
+      : view;
   const [deploymentOpen, setDeploymentOpen] = useState(
     () => searchParams.get("view") === "deploy",
   );
   const [channelsOpen, setChannelsOpen] = useState(
     () => searchParams.get("view") === "channels",
   );
-  const selectedAgent =
-    agents.find((agent) => agent.id === selectedAgentId) ?? agents[0];
-  const selectedAvailableAgent =
-    availableAgents.find((agent) => agent.id === selectedAvailableId) ??
-    availableAgents[0]!;
   const activeAgentCount = agents.filter(
     (agent) =>
       overrides.find((entry) => entry.agentId === agent.id)?.enabled ?? true,
   ).length;
 
-  useEffect(() => {
-    if (agents.some((agent) => agent.id === selectedAgentId)) return;
-    setSelectedAgentId(agents[0]?.id ?? "");
-  }, [agents, selectedAgentId]);
-
   const agentConfig = useAgentConfig();
   const selectView = (next: "installed" | "available" | "playbooks") => {
     setView(next);
-    setInspectorOpen(false);
     setDeploymentOpen(false);
     setChannelsOpen(false);
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      params.delete("agent");
+      params.delete("libraryAgent");
+      return params;
+    });
+  };
+  const closeDetail = () => {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      params.delete("agent");
+      params.delete("libraryAgent");
+      return params;
+    });
   };
 
   return (
@@ -887,7 +896,7 @@ export function AgentsPage() {
               size="sm"
               variant="outline"
               onClick={() => {
-                setInspectorOpen(false);
+                closeDetail();
                 setDeploymentOpen(false);
                 setChannelsOpen(true);
               }}
@@ -898,7 +907,7 @@ export function AgentsPage() {
             <Button
               size="sm"
               onClick={() => {
-                setInspectorOpen(false);
+                closeDetail();
                 setChannelsOpen(false);
                 setDeploymentOpen(true);
               }}
@@ -918,7 +927,8 @@ export function AgentsPage() {
                 ["playbooks", "Playbooks", PLAYBOOKS.length],
               ] as const
             ).map(([key, label, count]) => {
-              const active = view === key && !deploymentOpen && !channelsOpen;
+              const active =
+                activeView === key && !deploymentOpen && !channelsOpen;
               return (
                 <button
                   key={key}
@@ -941,7 +951,7 @@ export function AgentsPage() {
             })}
           </nav>
 
-          {view === "installed" && !deploymentOpen && !channelsOpen ? (
+          {activeView === "installed" && !deploymentOpen && !channelsOpen ? (
             <div className="bg-muted/40 mb-1 flex items-center gap-1 rounded-lg p-0.5 pl-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
               <span className="text-muted-foreground mr-1 flex items-center gap-1.5 text-[10px]">
                 <Settings2 size={11} />
@@ -988,146 +998,178 @@ export function AgentsPage() {
             <div className="p-6">
               <AgentDeploymentPanel onBack={() => selectView("installed")} />
             </div>
-          ) : view === "installed" ? (
-            <section className="p-6">
-              <div className="mb-5 flex items-end justify-between gap-4">
-                <div>
+          ) : activeView === "installed" ? (
+            selectedAgent ? (
+              <section className="mx-auto w-full max-w-6xl p-6">
+                <nav className="text-muted-foreground mb-4 flex items-center gap-1.5 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={closeDetail}
+                    className="hover:text-foreground rounded-md px-1 py-1 transition-colors"
+                  >
+                    Agents
+                  </button>
+                  <ChevronRight size={11} />
+                  <span className="text-foreground font-medium">
+                    {selectedAgent.name}
+                  </span>
+                </nav>
+                <InstalledAgentCard
+                  key={selectedAgent.id}
+                  agent={selectedAgent}
+                  workspaceId={cloudOrganizationId}
+                  override={overrides.find(
+                    (item) => item.agentId === selectedAgent.id,
+                  )}
+                  integrations={integrations}
+                  ready={ready}
+                  onSave={agentPreferences.save}
+                  onDeploy={
+                    selectedAgent.id === "cmo"
+                      ? () => {
+                          closeDetail();
+                          setDeploymentOpen(true);
+                        }
+                      : undefined
+                  }
+                />
+              </section>
+            ) : (
+              <section className="p-6">
+                <div className="mb-5 flex items-end justify-between gap-4">
+                  <div>
+                    <h2 className="text-base font-semibold tracking-[-0.02em]">
+                      Your team
+                    </h2>
+                    <p className="text-muted-foreground mt-1 text-[11px]">
+                      Select an agent to review its tools, connections, and
+                      runtime.
+                    </p>
+                  </div>
+                  <div className="text-muted-foreground flex items-center gap-2 text-[10px] tabular-nums">
+                    <span className="size-1.5 rounded-full bg-emerald-500" />
+                    {activeAgentCount} of {agents.length} active
+                  </div>
+                </div>
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(238px,1fr))] gap-3">
+                  {agents.map((agent) => (
+                    <TeamAgentCard
+                      key={agent.id}
+                      agent={agent}
+                      override={overrides.find(
+                        (entry) => entry.agentId === agent.id,
+                      )}
+                      workspaceId={cloudOrganizationId}
+                      selected={false}
+                      onSelect={() => {
+                        setSearchParams((current) => {
+                          const params = new URLSearchParams(current);
+                          params.set("agent", agent.id);
+                          params.delete("libraryAgent");
+                          return params;
+                        });
+                      }}
+                    />
+                  ))}
+                </div>
+                {!ready ? (
+                  <p className="text-muted-foreground mt-4 text-xs">
+                    Connecting to your workspace…
+                  </p>
+                ) : null}
+              </section>
+            )
+          ) : activeView === "available" ? (
+            selectedAvailableAgent ? (
+              <section className="mx-auto w-full max-w-4xl p-6">
+                <nav className="text-muted-foreground mb-4 flex items-center gap-1.5 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={closeDetail}
+                    className="hover:text-foreground rounded-md px-1 py-1 transition-colors"
+                  >
+                    Agent library
+                  </button>
+                  <ChevronRight size={11} />
+                  <span className="text-foreground font-medium">
+                    {selectedAvailableAgent.name}
+                  </span>
+                </nav>
+                <div className="bg-foreground/[0.035] min-h-[520px] rounded-[24px] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
+                  <AvailableAgentDetail
+                    agent={selectedAvailableAgent}
+                    onClose={closeDetail}
+                  />
+                </div>
+              </section>
+            ) : (
+              <section className="p-6">
+                <div className="mb-5">
                   <h2 className="text-base font-semibold tracking-[-0.02em]">
-                    Your team
+                    Agent library
                   </h2>
                   <p className="text-muted-foreground mt-1 text-[11px]">
-                    Select an agent to review its tools, connections, and
-                    runtime.
+                    Add a specialist when your team needs a narrower operating
+                    role.
                   </p>
                 </div>
-                <div className="text-muted-foreground flex items-center gap-2 text-[10px] tabular-nums">
-                  <span className="size-1.5 rounded-full bg-emerald-500" />
-                  {activeAgentCount} of {agents.length} active
-                </div>
-              </div>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(238px,1fr))] gap-3">
-                {agents.map((agent) => (
-                  <TeamAgentCard
-                    key={agent.id}
-                    agent={agent}
-                    override={overrides.find(
-                      (entry) => entry.agentId === agent.id,
-                    )}
-                    workspaceId={cloudOrganizationId}
-                    selected={inspectorOpen && selectedAgent?.id === agent.id}
-                    onSelect={() => {
-                      setSelectedAgentId(agent.id);
-                      setInspectorOpen(true);
-                    }}
-                  />
-                ))}
-              </div>
-              {!ready ? (
-                <p className="text-muted-foreground mt-4 text-xs">
-                  Connecting to your workspace…
-                </p>
-              ) : null}
-            </section>
-          ) : view === "available" ? (
-            <section className="p-6">
-              <div className="mb-5">
-                <h2 className="text-base font-semibold tracking-[-0.02em]">
-                  Agent library
-                </h2>
-                <p className="text-muted-foreground mt-1 text-[11px]">
-                  Add a specialist when your team needs a narrower operating
-                  role.
-                </p>
-              </div>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(238px,1fr))] gap-3">
-                {availableAgents.map((agent) => {
-                  const selected =
-                    inspectorOpen && selectedAvailableId === agent.id;
-                  return (
-                    <button
-                      key={agent.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedAvailableId(agent.id);
-                        setInspectorOpen(true);
-                      }}
-                      className={cn(
-                        "bg-card/35 hover:bg-card/70 group flex min-h-44 flex-col rounded-2xl p-4 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)] transition-[background-color,box-shadow]",
-                        selected &&
-                          "bg-accent/55 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_11%,transparent)]",
-                      )}
-                    >
-                      <span className="flex w-full items-start gap-3">
-                        <AgentAvatar
-                          name={agent.name}
-                          enabled={false}
-                          size="md"
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-semibold">
-                            {agent.name}
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(238px,1fr))] gap-3">
+                  {availableAgents.map((agent) => {
+                    return (
+                      <button
+                        key={agent.id}
+                        type="button"
+                        onClick={() => {
+                          setSearchParams((current) => {
+                            const params = new URLSearchParams(current);
+                            params.set("libraryAgent", agent.id);
+                            params.delete("agent");
+                            return params;
+                          });
+                        }}
+                        className={cn(
+                          "bg-foreground/[0.035] hover:bg-foreground/[0.05] group flex min-h-48 flex-col rounded-[22px] p-3 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)] transition-[background-color,box-shadow]",
+                        )}
+                      >
+                        <span className="flex w-full items-start gap-3 px-1 pt-1 pb-3">
+                          <AgentAvatar
+                            name={agent.name}
+                            enabled={false}
+                            size="md"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-semibold">
+                              {agent.name}
+                            </span>
+                            <span className="text-muted-foreground mt-0.5 block truncate text-[10px]">
+                              {agent.role}
+                            </span>
                           </span>
-                          <span className="text-muted-foreground mt-0.5 block truncate text-[10px]">
-                            {agent.role}
+                          <ChevronRight
+                            size={13}
+                            className="text-muted-foreground/60 mt-1 transition-transform group-hover:translate-x-0.5"
+                          />
+                        </span>
+                        <span className="bg-background/80 flex min-h-24 w-full flex-1 flex-col rounded-[15px] px-3.5 py-3 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
+                          <span className="text-muted-foreground line-clamp-3 text-[11px] leading-5">
+                            {agent.description}
+                          </span>
+                          <span className="text-muted-foreground mt-auto pt-3 text-[10px]">
+                            Available soon
                           </span>
                         </span>
-                        <ChevronRight
-                          size={13}
-                          className="text-muted-foreground/60 mt-1 transition-transform group-hover:translate-x-0.5"
-                        />
-                      </span>
-                      <span className="text-muted-foreground mt-4 line-clamp-3 text-[11px] leading-5">
-                        {agent.description}
-                      </span>
-                      <span className="text-muted-foreground mt-auto pt-4 text-[10px]">
-                        Available soon
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )
           ) : (
             <div className="h-full p-6">
               <PlaybooksCatalogue />
             </div>
           )}
         </main>
-
-        {inspectorOpen &&
-        !deploymentOpen &&
-        !channelsOpen &&
-        view !== "playbooks" ? (
-          <aside className="bg-card/25 w-[min(430px,42vw)] shrink-0 overflow-y-auto shadow-[inset_1px_0_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
-            {view === "installed" && selectedAgent ? (
-              <InstalledAgentCard
-                key={selectedAgent.id}
-                agent={selectedAgent}
-                workspaceId={cloudOrganizationId}
-                override={overrides.find(
-                  (item) => item.agentId === selectedAgent.id,
-                )}
-                integrations={integrations}
-                ready={ready}
-                onSave={agentPreferences.save}
-                onClose={() => setInspectorOpen(false)}
-                onDeploy={
-                  selectedAgent.id === "cmo"
-                    ? () => {
-                        setInspectorOpen(false);
-                        setDeploymentOpen(true);
-                      }
-                    : undefined
-                }
-              />
-            ) : (
-              <AvailableAgentDetail
-                agent={selectedAvailableAgent}
-                onClose={() => setInspectorOpen(false)}
-              />
-            )}
-          </aside>
-        ) : null}
       </div>
     </div>
   );

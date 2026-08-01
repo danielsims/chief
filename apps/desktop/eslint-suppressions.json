@@ -178,12 +178,9 @@
       "count": 3
     },
     "@typescript-eslint/no-non-null-assertion": {
-      "count": 3
+      "count": 2
     },
     "react-hooks/globals": {
-      "count": 1
-    },
-    "react-hooks/set-state-in-effect": {
       "count": 1
     }
   },
