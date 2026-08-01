@@ -2,6 +2,8 @@ import { NavLink, Outlet } from "react-router";
 
 import { cn } from "@chief/ui/lib/utils";
 
+import { PageTitle } from "../../components/page-title";
+
 const sections = [
   { to: "/settings/profile", label: "Profile" },
   { to: "/settings/workspace", label: "Workspace" },
@@ -16,7 +18,7 @@ export function SettingsLayout() {
   return (
     <div className="mx-auto max-w-5xl pt-10">
       <div>
-        <h1 className="font-serif text-3xl">Settings</h1>
+        <PageTitle>Settings</PageTitle>
         <p className="text-muted-foreground mt-2 text-sm">
           Manage your account and workspace.
         </p>

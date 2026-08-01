@@ -50,6 +50,7 @@ import {
 import { cn } from "@chief/ui/lib/utils";
 
 import { AgentWorkingIndicator } from "../components/chat/agent-working-indicator";
+import { PageTitle } from "../components/page-title";
 import { useAgentConfig } from "../lib/agent-config";
 import { useAuth } from "../lib/auth/auth-context";
 import { createChat } from "../lib/chat-log";
@@ -2141,9 +2142,7 @@ export function SchedulePage() {
     <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-4 px-6 pt-5 pb-4">
         <div>
-          <h1 className="text-[26px] font-semibold tracking-[-0.035em]">
-            Schedule
-          </h1>
+          <PageTitle>Schedule</PageTitle>
           <p className="text-muted-foreground mt-1 text-[13px]">
             Direct when agents work and review what they have planned.
           </p>
