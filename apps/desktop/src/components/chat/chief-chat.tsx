@@ -37,7 +37,7 @@ import { UserMessage } from "./user-message";
 function ChiefMessage({ children }: { children: ReactNode }) {
   return (
     <div className="group/message mx-auto flex w-full max-w-3xl min-w-0 gap-3 py-2">
-      <span className="bg-foreground text-background flex size-8 shrink-0 items-center justify-center">
+      <span className="bg-foreground text-background flex size-8 shrink-0 items-center justify-center rounded-lg shadow-[inset_0_1px_rgba(255,255,255,0.1)]">
         <ChiefMark className="size-4" />
       </span>
       <div className="min-w-0 flex-1 pt-0.5">
@@ -63,6 +63,7 @@ export function ChiefChat({
   initialDraft,
   initialDriver,
   initialModel,
+  channel,
   onInitialPromptSent,
   onOpenChild,
 }: {
@@ -79,11 +80,20 @@ export function ChiefChat({
   initialDraft?: string;
   initialDriver?: DriverType;
   initialModel?: string;
+  channel?: {
+    label: string;
+    description: string;
+    agentIds: readonly string[];
+  };
   onInitialPromptSent?: () => void;
   onOpenChild?: (childId: string) => void;
 }) {
   const { status: runtimeStatus } = useRuntime();
-  const { cloudOrganizationId } = useAuth();
+  const { cloudOrganizationId, user } = useAuth();
+  const userAuthor = {
+    name: user?.name.trim() ?? "You",
+    ...(user?.image ? { image: user.image } : {}),
+  };
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const childSessions = workspaceData.activity
     .filter(
@@ -302,11 +312,19 @@ export function ChiefChat({
         messages.length === 0 &&
         !showOptimisticInitialPrompt ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-            <p className="font-serif text-3xl">Chief</p>
-            <p className="text-muted-foreground max-w-md text-sm">
-              Your CMO. Ask anything, and Chief will bring in the right
-              specialist.
+            <p className="text-2xl font-medium tracking-[-0.03em]">
+              {channel ? `#${channel.label}` : "Chief"}
             </p>
+            <p className="text-muted-foreground max-w-md text-sm">
+              {channel
+                ? channel.description
+                : "Your CMO. Ask anything, and Chief will bring in the right specialist."}
+            </p>
+            {channel ? (
+              <p className="text-muted-foreground/75 text-xs">
+                {channel.agentIds.length} agents share this channel’s context.
+              </p>
+            ) : null}
             {runtimeStatus !== "connected" && (
               <p className="text-muted-foreground mt-4 border border-dashed px-3 py-2 text-xs">
                 Agent runtime not connected. Run <code>pnpm dev</code> in the
@@ -316,11 +334,11 @@ export function ChiefChat({
           </div>
         ) : null}
         {showOptimisticInitialPrompt && optimisticInitialPrompt ? (
-          <UserMessage text={optimisticInitialPrompt} />
+          <UserMessage text={optimisticInitialPrompt} author={userAuthor} />
         ) : null}
-        {messages.map((message) =>
-          message.role === "user" ? (
-            message.id === `${chatId}-kickoff` ? (
+        {messages.map((message) => {
+          if (message.role === "user") {
+            return message.id === `${chatId}-kickoff` ? (
               <div
                 key={message.id}
                 className="mx-auto w-full max-w-3xl border-y py-4"
@@ -337,40 +355,43 @@ export function ChiefChat({
             ) : (
               <UserMessage
                 key={message.id}
+                author={userAuthor}
                 text={messageBlocks(message)
                   .flatMap((part) => (part.type === "text" ? [part.text] : []))
                   .join("\n")}
               />
-            )
-          ) : message.role === "assistant" ? (
-            ordinaryToolGroups.get(message.id) ? (
-              ordinaryToolGroups.get(message.id)?.ownerId === message.id ? (
-                <ChiefMessage key={message.id}>
-                  <ToolActivityGroup
-                    blocks={ordinaryToolGroups.get(message.id)?.blocks ?? []}
-                    progress={controls.toolProgress}
-                    active={controls.status === "running"}
-                  />
-                </ChiefMessage>
-              ) : null
-            ) : (
+            );
+          }
+          if (message.role !== "assistant") return null;
+          const toolGroup = ordinaryToolGroups.get(message.id);
+          if (toolGroup) {
+            return toolGroup.ownerId === message.id ? (
               <ChiefMessage key={message.id}>
-                <Blocks
-                  blocks={withoutMarkerLines(messageBlocks(message))}
+                <ToolActivityGroup
+                  blocks={toolGroup.blocks}
                   progress={controls.toolProgress}
-                  capabilities={activeCapabilities}
                   active={controls.status === "running"}
-                  tasks={childSessions}
-                  taskOwners={childSessionOwners}
-                  ownerId={message.id}
-                  onOpenTask={onOpenChild}
                 />
               </ChiefMessage>
-            )
-          ) : (
-            <div key={message.id} />
-          ),
-        )}
+            ) : null;
+          }
+          const blocks = withoutMarkerLines(messageBlocks(message));
+          if (blocks.length === 0) return null;
+          return (
+            <ChiefMessage key={message.id}>
+              <Blocks
+                blocks={blocks}
+                progress={controls.toolProgress}
+                capabilities={activeCapabilities}
+                active={controls.status === "running"}
+                tasks={childSessions}
+                taskOwners={childSessionOwners}
+                ownerId={message.id}
+                onOpenTask={onOpenChild}
+              />
+            </ChiefMessage>
+          );
+        })}
         {controls.approvals.map((approval) => (
           <div key={approval.requestId} className="mx-auto max-w-3xl">
             <ApprovalCard approval={approval} onRespond={respondPermission} />

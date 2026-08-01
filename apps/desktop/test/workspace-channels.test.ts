@@ -3,20 +3,12 @@ import test from "node:test";
 
 import type { ExecutorArtifactSummary } from "@chief/agent-runtime/artifact-types";
 
-import type { LocalChatSummary } from "../src/lib/runtime";
 import { classifyArtifact } from "../src/lib/chief-artifacts";
-import { channelForChat } from "../src/lib/workspace-channels";
-
-function chat(title: string, lastText = ""): LocalChatSummary {
-  return {
-    id: title,
-    agent: "chief",
-    title,
-    lastText,
-    lastAt: 0,
-    running: false,
-  };
-}
+import {
+  channelChatId,
+  placePinnedChannel,
+  WORKSPACE_CHANNELS,
+} from "../src/lib/workspace-channels";
 
 function artifact(title: string, description = ""): ExecutorArtifactSummary {
   return {
@@ -29,18 +21,12 @@ function artifact(title: string, description = ""): ExecutorArtifactSummary {
   };
 }
 
-void test("places existing conversations into canonical channels", () => {
-  assert.equal(channelForChat(chat("Google Analytics setup")), "analytics");
-  assert.equal(channelForChat(chat("Plan launch campaign")), "advertising");
-  assert.equal(channelForChat(chat("Research new prospects")), "prospecting");
-  assert.equal(channelForChat(chat("Set up a new integration")), "general");
-});
-
-void test("uses recent conversation text when assigning a channel", () => {
-  assert.equal(
-    channelForChat(chat("Weekly review", "Traffic performance is ready")),
-    "analytics",
+void test("gives every product channel its own stable runtime session", () => {
+  const chatIds = WORKSPACE_CHANNELS.map((channel) =>
+    channelChatId(channel.id),
   );
+  assert.equal(new Set(chatIds).size, WORKSPACE_CHANNELS.length);
+  assert.ok(chatIds.every((chatId) => chatId.startsWith("channel:")));
 });
 
 void test("types durable artifacts with the same product vocabulary", () => {
@@ -51,4 +37,23 @@ void test("types durable artifacts with the same product vocabulary", () => {
   );
   assert.equal(classifyArtifact(artifact("Buyer shortlist")), "prospecting");
   assert.equal(classifyArtifact(artifact("Company brief")), "general");
+});
+
+void test("moves channels into and within the pinned section", () => {
+  assert.deepEqual(
+    placePinnedChannel(["analytics"], "advertising", "analytics"),
+    ["advertising", "analytics"],
+  );
+  assert.deepEqual(
+    placePinnedChannel(
+      ["analytics", "advertising", "prospecting"],
+      "analytics",
+      "prospecting",
+    ),
+    ["advertising", "prospecting", "analytics"],
+  );
+  assert.deepEqual(placePinnedChannel(["analytics"], "general", null), [
+    "analytics",
+    "general",
+  ]);
 });

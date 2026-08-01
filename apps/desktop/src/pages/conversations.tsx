@@ -1,16 +1,20 @@
 import { lazy, startTransition, Suspense, useEffect, useState } from "react";
 import {
-  Bot,
+  Check,
+  Copy,
   Hash,
   MoreHorizontal,
   PanelRightClose,
-  Plus,
-  Users,
 } from "lucide-react";
 import { useSearchParams } from "react-router";
 
 import type { DriverType } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@chief/ui/components/popover";
 import { cn } from "@chief/ui/lib/utils";
 
 import { ChannelArtifactsMenu } from "../components/channel-artifacts-menu";
@@ -18,14 +22,13 @@ import { ChiefChat } from "../components/chat/chief-chat";
 import { IntegrationSetupConversation } from "../components/chat/integration-setup-conversation";
 import { ObservedChat } from "../components/chat/observed-chat";
 import { useAuth } from "../lib/auth/auth-context";
-import { createChat } from "../lib/chat-log";
 import {
   googleAnalyticsActionIdFromChat,
   integrationSetupDomainFromChat,
 } from "../lib/integration-setup";
 import { useLocalChats, useRuntime, useWorkspaceData } from "../lib/runtime";
 import {
-  channelForChat,
+  channelChatId,
   WORKSPACE_CHANNELS,
   workspaceChannel,
 } from "../lib/workspace-channels";
@@ -36,6 +39,16 @@ const CHAT_DRIVERS = new Set<DriverType>([
   "opencode",
   "remote",
 ]);
+
+const CHANNEL_AGENT_IDENTITIES: Record<string, { name: string; role: string }> =
+  {
+    cmo: { name: "Chief", role: "Chief marketing officer" },
+    analyst: { name: "Analyst", role: "Measurement and reporting" },
+    ads: { name: "Advertising", role: "Paid acquisition" },
+    content: { name: "Content", role: "Content and creative" },
+    prospector: { name: "Prospector", role: "Research and outreach" },
+    brand: { name: "Brand", role: "Brand research" },
+  };
 
 const BrowserPanel = lazy(() =>
   import("../components/chat/browser-panel").then((module) => ({
@@ -91,14 +104,19 @@ function useRunningChats(): Record<string, boolean> {
 }
 
 export function ConversationsPage() {
-  const { cloudOrganizationId } = useAuth();
+  const { cloudOrganizationId, user } = useAuth();
   const localChats = useLocalChats(cloudOrganizationId);
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const [params, setParams] = useSearchParams();
+  const [channelLinkCopied, setChannelLinkCopied] = useState(false);
   const running = useRunningChats();
   const { browserUrl, browserConversationId, browserWorkspaceId } =
     useRuntime();
-  const activeChatId = params.get("chat");
+  const requestedChannel = workspaceChannel(params.get("channel"));
+  const activeChannel = requestedChannel ?? WORKSPACE_CHANNELS[3];
+  const activeChatId = requestedChannel
+    ? channelChatId(requestedChannel.id)
+    : params.get("chat");
   const activeChildId = params.get("child");
   const activeSetupActionId = googleAnalyticsActionIdFromChat(activeChatId);
   const activeSetupDomain = integrationSetupDomainFromChat(activeChatId);
@@ -115,36 +133,25 @@ export function ConversationsPage() {
     browserWorkspaceId === cloudOrganizationId &&
     browserConversationId === activeChatId;
   const hasAuxiliaryPanel = activeChild !== undefined || hasBrowserPanel;
-  const activeChannel =
-    workspaceChannel(params.get("channel")) ??
-    workspaceChannel(activeEntry ? channelForChat(activeEntry) : "general") ??
-    WORKSPACE_CHANNELS[3];
-
-  const openNew = () => {
-    const chat = createChat(`#${activeChannel.id}`);
-    startTransition(() =>
-      setParams({ channel: activeChannel.id, chat: chat.id }),
-    );
-  };
   const continueArtifact = (artifact: { id: string; title: string }) => {
-    const chat = createChat(`#${activeChannel.id}`);
-    setParams({
-      channel: activeChannel.id,
-      chat: chat.id,
-      prompt: `Open the output “${artifact.title}” (${artifact.id}) and help me improve it.`,
-    });
+    startTransition(() =>
+      setParams({
+        channel: activeChannel.id,
+        prompt: `Open the output “${artifact.title}” (${artifact.id}) and help me improve it.`,
+      }),
+    );
   };
 
   return (
     <div className="bg-background flex h-full min-w-0 flex-col overflow-hidden">
-      <header className="border-border/70 relative flex h-14 shrink-0 items-center border-b px-5">
+      <header className="border-border/60 relative flex h-14 shrink-0 items-center border-b px-5">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <Hash size={17} className="text-muted-foreground shrink-0" />
           <div className="min-w-0">
-            <h1 className="truncate text-[14px] leading-4 font-semibold">
+            <h1 className="truncate text-[13px] leading-4 font-semibold">
               {activeChannel.label}
             </h1>
-            <p className="text-muted-foreground mt-0.5 truncate text-[10px]">
+            <p className="text-muted-foreground mt-0.5 truncate text-[12px] leading-4 font-normal">
               {activeChannel.description}
             </p>
           </div>
@@ -154,21 +161,122 @@ export function ConversationsPage() {
             channelId={activeChannel.id}
             onContinue={continueArtifact}
           />
-          <div className="border-border/70 bg-card flex h-8 items-center gap-1 rounded-lg border px-2">
-            <span className="bg-foreground text-background flex size-4 items-center justify-center rounded-md text-[8px] font-semibold">
-              C
-            </span>
-            <span className="bg-muted text-muted-foreground flex size-4 items-center justify-center rounded-md">
-              <Bot size={9} />
-            </span>
-            <span className="text-muted-foreground ml-0.5 text-[10px]">2</span>
-          </div>
-          <Button aria-label="Channel members" variant="outline" size="icon-sm">
-            <Users size={14} />
-          </Button>
-          <Button aria-label="Channel actions" variant="outline" size="icon-sm">
-            <MoreHorizontal size={15} />
-          </Button>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label={`${activeChannel.agentIds.length + 1} channel members`}
+                title="Channel members"
+                className="bg-card hover:bg-accent flex h-8 items-center rounded-lg px-2 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)] transition-colors"
+              >
+                <span className="flex -space-x-1">
+                  {user?.image ? (
+                    <img
+                      src={user.image}
+                      alt=""
+                      className="ring-card size-4 rounded-full object-cover ring-1"
+                    />
+                  ) : null}
+                  {activeChannel.agentIds.slice(0, 3).map((agentId) => (
+                    <span
+                      key={agentId}
+                      className="bg-muted text-muted-foreground ring-card flex size-4 items-center justify-center rounded-full text-[7px] font-medium ring-1"
+                    >
+                      {CHANNEL_AGENT_IDENTITIES[agentId]?.name
+                        .charAt(0)
+                        .toLocaleUpperCase() ?? "A"}
+                    </span>
+                  ))}
+                </span>
+                <span className="text-muted-foreground ml-1.5 text-[10px]">
+                  {activeChannel.agentIds.length + 1}
+                </span>
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-64 p-1.5">
+              <div className="px-2 pt-1.5 pb-2">
+                <p className="text-xs font-medium">#{activeChannel.label}</p>
+                <p className="text-muted-foreground mt-0.5 text-[11px]">
+                  People and agents sharing this context.
+                </p>
+              </div>
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
+                  <span className="bg-muted flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full text-[9px] font-medium">
+                    {user?.image ? (
+                      <img
+                        src={user.image}
+                        alt=""
+                        className="size-full object-cover"
+                      />
+                    ) : (
+                      (user?.name.charAt(0) ?? "Y").toLocaleUpperCase()
+                    )}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs font-medium">
+                      {user?.name ?? "You"}
+                    </span>
+                    <span className="text-muted-foreground block text-[10px]">
+                      You
+                    </span>
+                  </span>
+                </div>
+                {activeChannel.agentIds.map((agentId) => {
+                  const identity = CHANNEL_AGENT_IDENTITIES[agentId] ?? {
+                    name: agentId,
+                    role: "Agent",
+                  };
+                  return (
+                    <div
+                      key={agentId}
+                      className="flex items-center gap-2.5 rounded-lg px-2 py-2"
+                    >
+                      <span className="bg-foreground text-background flex size-7 shrink-0 items-center justify-center rounded-lg text-[9px] font-semibold">
+                        {identity.name.charAt(0).toLocaleUpperCase()}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-xs font-medium">
+                          {identity.name}
+                        </span>
+                        <span className="text-muted-foreground block truncate text-[10px]">
+                          {identity.role}
+                        </span>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                aria-label="Channel actions"
+                title="Channel actions"
+                variant="outline"
+                size="icon-sm"
+              >
+                <MoreHorizontal size={15} />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-48 p-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(window.location.href);
+                  setChannelLinkCopied(true);
+                  window.setTimeout(() => setChannelLinkCopied(false), 1600);
+                }}
+                className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
+              >
+                {channelLinkCopied ? <Check size={14} /> : <Copy size={14} />}
+                {channelLinkCopied
+                  ? "Channel link copied"
+                  : "Copy channel link"}
+              </button>
+            </PopoverContent>
+          </Popover>
         </div>
       </header>
       <main className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
@@ -190,6 +298,7 @@ export function ConversationsPage() {
               key={activeChatId}
               chatId={activeChatId}
               isNew={isNew}
+              channel={requestedChannel ?? undefined}
               initialDriver={
                 activeEntry?.driver ??
                 (isNew ? requestedDriver(params.get("driver")) : undefined)
@@ -240,9 +349,6 @@ export function ConversationsPage() {
                 #{activeChannel.label}
               </p>
               <p>{activeChannel.description}</p>
-              <Button onClick={openNew} variant="outline" size="sm">
-                <Plus size={13} /> Start a conversation
-              </Button>
             </div>
           )}
         </section>

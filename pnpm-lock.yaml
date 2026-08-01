@@ -78,6 +78,15 @@ importers:
       "@chief/ui":
         specifier: workspace:*
         version: link:../../packages/ui
+      "@dnd-kit/core":
+        specifier: ^6.3.1
+        version: 6.3.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      "@dnd-kit/sortable":
+        specifier: ^10.0.0
+        version: 10.0.0(@dnd-kit/core@6.3.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)
+      "@dnd-kit/utilities":
+        specifier: ^3.2.2
+        version: 3.2.2(react@19.2.7)
       "@lobehub/icons":
         specifier: ^5.10.1
         version: 5.10.1(@lobehub/ui@5.19.2)(@types/react@19.2.17)(antd@6.5.0(luxon@3.7.2)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -456,7 +465,7 @@ importers:
         version: 0.13.11(typescript@5.9.3)(zod@4.4.3)
       better-auth:
         specifier: 1.6.16
-        version: 1.6.16(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        version: 1.6.16(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       convex:
         specifier: ^1.31.6
         version: 1.42.1(react@19.2.7)
@@ -16290,7 +16299,7 @@ snapshots:
       "@better-fetch/fetch": 1.2.2
       "@opentelemetry/semantic-conventions": 1.42.0
       "@standard-schema/spec": 1.1.0
-      better-call: 1.3.6(zod@4.3.6)
+      better-call: 1.3.6(zod@4.4.3)
       jose: 6.2.3
       kysely: 0.29.3
       nanostores: 1.4.0
@@ -20722,7 +20731,7 @@ snapshots:
       "@better-fetch/fetch": 1.2.2
       "@noble/ciphers": 2.2.0
       "@noble/hashes": 2.2.0
-      better-call: 1.3.6(zod@4.3.6)
+      better-call: 1.3.6(zod@4.4.3)
       defu: 6.1.7
       jose: 6.2.3
       kysely: 0.29.3
@@ -20808,6 +20817,15 @@ snapshots:
       set-cookie-parser: 3.1.1
     optionalDependencies:
       zod: 4.3.6
+
+  better-call@1.3.6(zod@4.4.3):
+    dependencies:
+      "@better-auth/utils": 0.4.1
+      "@better-fetch/fetch": 1.2.2
+      rou3: 0.7.12
+      set-cookie-parser: 3.1.1
+    optionalDependencies:
+      zod: 4.4.3
 
   better-sqlite3@12.4.1:
     dependencies:
