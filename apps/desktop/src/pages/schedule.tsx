@@ -561,11 +561,15 @@ function ContinuousMonthView({
   const calendarRef = useRef<HTMLDivElement>(null);
   const monthSections = useRef(new Map<string, HTMLElement>());
   const scrollFrame = useRef<number | null>(null);
+  const programmaticMonth = useRef<string | null>(null);
+  const scrollEndTimer = useRef<number | null>(null);
 
   const scrollToMonth = (month: Date, behavior: ScrollBehavior) => {
     const container = calendarRef.current;
-    const section = monthSections.current.get(monthKey(month));
+    const key = monthKey(month);
+    const section = monthSections.current.get(key);
     if (!container || !section) return;
+    programmaticMonth.current = behavior === "smooth" ? key : null;
     const top =
       container.scrollTop +
       section.getBoundingClientRect().top -
@@ -590,27 +594,43 @@ function ContinuousMonthView({
       if (scrollFrame.current !== null) {
         window.cancelAnimationFrame(scrollFrame.current);
       }
+      if (scrollEndTimer.current !== null) {
+        window.clearTimeout(scrollEndTimer.current);
+      }
     },
     [],
   );
 
+  const syncActiveMonthFromScroll = () => {
+    const container = calendarRef.current;
+    if (!container) return;
+    const threshold =
+      container.getBoundingClientRect().top + CALENDAR_HEADER_HEIGHT + 4;
+    let nextMonth = months[0]!;
+    for (const month of months) {
+      const section = monthSections.current.get(monthKey(month));
+      if (!section || section.getBoundingClientRect().top > threshold) break;
+      nextMonth = month;
+    }
+    if (!sameMonth(nextMonth, activeMonth)) {
+      onActiveMonthChange(nextMonth);
+    }
+  };
+
   const handleScroll = () => {
+    if (scrollEndTimer.current !== null) {
+      window.clearTimeout(scrollEndTimer.current);
+    }
+    scrollEndTimer.current = window.setTimeout(() => {
+      programmaticMonth.current = null;
+      scrollEndTimer.current = null;
+      syncActiveMonthFromScroll();
+    }, 120);
     if (scrollFrame.current !== null) return;
     scrollFrame.current = window.requestAnimationFrame(() => {
       scrollFrame.current = null;
-      const container = calendarRef.current;
-      if (!container) return;
-      const threshold =
-        container.getBoundingClientRect().top + CALENDAR_HEADER_HEIGHT + 4;
-      let nextMonth = months[0]!;
-      for (const month of months) {
-        const section = monthSections.current.get(monthKey(month));
-        if (!section || section.getBoundingClientRect().top > threshold) break;
-        nextMonth = month;
-      }
-      if (!sameMonth(nextMonth, activeMonth)) {
-        onActiveMonthChange(nextMonth);
-      }
+      if (programmaticMonth.current !== null) return;
+      syncActiveMonthFromScroll();
     });
   };
 
