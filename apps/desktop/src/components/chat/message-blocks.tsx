@@ -27,13 +27,12 @@ function SpecialistActivity({ agentId }: { agentId: string }) {
     <span
       aria-hidden
       className={cn(
-        "relative flex size-5 shrink-0 items-center justify-center border",
+        "relative flex size-8 shrink-0 items-center justify-center rounded-lg",
         AGENT_ACTIVITY_STYLES[agentId] ??
           "border-blue-300/15 bg-blue-300/[0.055] text-blue-300",
       )}
     >
-      <i className="absolute size-2.5 animate-[spin_1.6s_linear_infinite] rounded-full border border-current/15 border-t-current/80 border-r-current/35 motion-reduce:animate-none" />
-      <i className="size-0.5 rounded-full bg-current opacity-70" />
+      <i className="absolute size-3 animate-[spin_1.2s_linear_infinite] rounded-full border border-current/15 border-t-current/80 border-r-current/35 motion-reduce:animate-none" />
     </span>
   );
 }
@@ -178,24 +177,24 @@ function ToolCard({
       <button
         type="button"
         onClick={() => onOpenTask?.(task.id)}
-        className="hover:bg-foreground/[0.025] flex w-full items-center gap-3 border border-white/[0.07] bg-white/[0.012] px-3.5 py-3 text-left text-xs transition-colors"
+        className="bg-muted/45 hover:bg-muted/60 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-xs shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_65%,transparent)] transition-colors"
       >
         {running ? (
           <SpecialistActivity agentId={task.agent} />
         ) : (
           <span
             className={cn(
-              "flex size-5 shrink-0 items-center justify-center border border-white/10 bg-white/[0.025]",
-              task.status === "completed" && "text-emerald-300",
-              task.status === "failed" && "text-red-300",
+              "bg-background flex size-8 shrink-0 items-center justify-center rounded-lg shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]",
+              task.status === "completed" && "text-emerald-500",
+              task.status === "failed" && "text-red-500",
             )}
           >
-            <span className="size-1 rounded-full bg-current opacity-80" />
+            <span className="size-1.5 rounded-full bg-current opacity-80" />
           </span>
         )}
         <span className="min-w-0 flex-1">
           <strong className="block truncate font-medium">{task.title}</strong>
-          <small className="text-muted-foreground mt-0.5 block">
+          <small className="text-muted-foreground mt-0.5 block text-[11px]">
             {agent} ·{" "}
             {running
               ? "Working"
@@ -208,8 +207,8 @@ function ToolCard({
         </span>
         <ArrowRight
           aria-hidden
-          className="text-muted-foreground/60 shrink-0"
-          size={13}
+          className="text-muted-foreground/55 shrink-0"
+          size={12}
         />
       </button>
     );

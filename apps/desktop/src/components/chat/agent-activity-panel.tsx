@@ -1,9 +1,12 @@
-import { PanelRightClose } from "lucide-react";
-
 import type { ContentBlock, SessionRecord } from "@chief/agent-runtime/types";
-import { Button } from "@chief/ui/components/button";
 
-import { ChiefMark } from "../chief-mark";
+import type { ConversationAuxiliaryPanelSizing } from "./conversation-auxiliary-panel";
+import { AgentAvatar } from "../agent-avatar";
+import {
+  ConversationAuxiliaryPanel,
+  ConversationAuxiliaryPanelBody,
+  ConversationAuxiliaryPanelHeader,
+} from "./conversation-auxiliary-panel";
 import { ToolActivityGroup } from "./tool-activity-group";
 
 function taskAgentLabel(agent: string) {
@@ -29,6 +32,7 @@ export function AgentActivityPanel({
   tasks,
   onClose,
   onOpenTask,
+  sizing,
 }: {
   blocks: ContentBlock[];
   channelLabel: string;
@@ -38,35 +42,21 @@ export function AgentActivityPanel({
   tasks: SessionRecord[];
   onClose: () => void;
   onOpenTask?: (taskId: string) => void;
+  sizing: ConversationAuxiliaryPanelSizing;
 }) {
   const hasTools = blocks.some((block) => block.type === "tool_use");
 
   return (
-    <aside className="border-border/60 bg-background flex h-full w-[min(360px,42vw)] shrink-0 flex-col border-l max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-20 max-lg:w-[min(360px,calc(100%-24px))] max-lg:shadow-2xl">
-      <header className="border-border/60 flex h-14 shrink-0 items-center justify-between border-b px-4">
-        <div className="min-w-0">
-          <h2 className="text-[13px] leading-4 font-semibold">Activity</h2>
-          <p className="text-muted-foreground mt-0.5 truncate text-[11px] leading-4">
-            Chief in #{channelLabel}
-          </p>
-        </div>
-        <Button
-          type="button"
-          aria-label="Close activity"
-          title="Close activity"
-          variant="ghost"
-          size="icon-sm"
-          onClick={onClose}
-        >
-          <PanelRightClose size={15} />
-        </Button>
-      </header>
+    <ConversationAuxiliaryPanel onClose={onClose} sizing={sizing}>
+      <ConversationAuxiliaryPanelHeader
+        title="Activity"
+        subtitle={`Chief in #${channelLabel}`}
+        onClose={onClose}
+      />
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <ConversationAuxiliaryPanelBody className="p-4">
         <div className="bg-muted/35 flex items-center gap-3 rounded-xl px-3 py-3 shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_5%,transparent)]">
-          <span className="bg-foreground text-background flex size-7 shrink-0 items-center justify-center rounded-lg">
-            <ChiefMark className="size-3.5" />
-          </span>
+          <AgentAvatar label="Chief" className="size-7" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-medium">Chief</p>
             <p
@@ -146,7 +136,7 @@ export function AgentActivityPanel({
             </div>
           </div>
         ) : null}
-      </div>
-    </aside>
+      </ConversationAuxiliaryPanelBody>
+    </ConversationAuxiliaryPanel>
   );
 }

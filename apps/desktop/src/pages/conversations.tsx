@@ -1,25 +1,25 @@
-import { lazy, startTransition, Suspense, useEffect, useState } from "react";
-import {
-  AtSign,
-  Check,
-  Copy,
-  Hash,
-  MoreHorizontal,
-  PanelRightClose,
-} from "lucide-react";
+import { startTransition, useEffect, useState } from "react";
+import { Hash, PanelRightClose } from "lucide-react";
 import { useSearchParams } from "react-router";
 
 import type { DriverType } from "@chief/agent-runtime/types";
+import { defaultAgents } from "@chief/agent-runtime/agent-roster";
 import { Button } from "@chief/ui/components/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@chief/ui/components/popover";
 import { cn } from "@chief/ui/lib/utils";
 
-import { ChannelArtifactsMenu } from "../components/channel-artifacts-menu";
+import type { AgentPresence } from "../components/chat/agent-profile-panel";
+import type { ConversationProfileSelection } from "../components/chat/conversation-profile";
+import type { WorkspaceAgentId } from "../lib/workspace-channels";
+import {
+  AgentProfilePanel,
+  UserProfilePanel,
+} from "../components/chat/agent-profile-panel";
 import { ChiefChat } from "../components/chat/chief-chat";
+import {
+  ConversationAuxiliaryPanel,
+  useConversationAuxiliaryPanelSizing,
+} from "../components/chat/conversation-auxiliary-panel";
+import { ConversationHeader } from "../components/chat/conversation-header";
 import { IntegrationSetupConversation } from "../components/chat/integration-setup-conversation";
 import { ObservedChat } from "../components/chat/observed-chat";
 import { useAuth } from "../lib/auth/auth-context";
@@ -49,16 +49,14 @@ const CHAT_DRIVERS = new Set<DriverType>([
   "remote",
 ]);
 
-const BrowserPanel = lazy(() =>
-  import("../components/chat/browser-panel").then((module) => ({
-    default: module.BrowserPanel,
-  })),
-);
-
 function requestedDriver(value: string | null): DriverType | undefined {
   return value && CHAT_DRIVERS.has(value as DriverType)
     ? (value as DriverType)
     : undefined;
+}
+
+function isWorkspaceAgentId(value: string | null): value is WorkspaceAgentId {
+  return value !== null && Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, value);
 }
 
 function useRunningChats(): Record<string, boolean> {
@@ -108,10 +106,9 @@ export function ConversationsPage() {
   const workspaceChannels = useWorkspaceChannels();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const [params, setParams] = useSearchParams();
-  const [channelLinkCopied, setChannelLinkCopied] = useState(false);
+  const panelSizing = useConversationAuxiliaryPanelSizing();
   const running = useRunningChats();
-  const { browserUrl, browserConversationId, browserWorkspaceId } =
-    useRuntime();
+  const { agents: runtimeAgents, status: runtimeStatus } = useRuntime();
   const staticRequestedChannel = workspaceChannel(params.get("channel"));
   const runtimeRequestedChannel = workspaceChannels.channels.find(
     (channel) =>
@@ -159,16 +156,90 @@ export function ConversationsPage() {
   const activeEntry = localChats.chats.find(
     (entry) => entry.id === activeChatId,
   );
+  const directPresence: AgentPresence =
+    activeChatId && (running[activeChatId] ?? activeEntry?.running ?? false)
+      ? "working"
+      : runtimeStatus === "connected"
+        ? "online"
+        : "offline";
+  const profileParam = params.get("profile");
+  const activeProfileAgentId =
+    profileParam === "agent" && requestedDirectMessage
+      ? requestedDirectMessage.id
+      : isWorkspaceAgentId(profileParam)
+        ? profileParam
+        : null;
+  const activeProfileAgent = activeProfileAgentId
+    ? (runtimeAgents.find((agent) => agent.id === activeProfileAgentId) ??
+      defaultAgents.find((agent) => agent.id === activeProfileAgentId) ??
+      null)
+    : null;
+  const activeProfileIdentity = activeProfileAgentId
+    ? WORKSPACE_AGENT_IDENTITIES[activeProfileAgentId]
+    : null;
+  const activeProfilePresence: AgentPresence = activeProfileAgentId
+    ? running[directMessageChatId(activeProfileAgentId)]
+      ? "working"
+      : runtimeStatus === "connected"
+        ? "online"
+        : "offline"
+    : "offline";
+  const activeProfileChannels = activeProfileAgent
+    ? workspaceChannels.channels
+        .filter(
+          (channel) =>
+            channel.visibility !== "direct" &&
+            channel.agentIds.includes(activeProfileAgent.id),
+        )
+        .map((channel) => ({
+          id: channel.id,
+          name: channel.name,
+          description: channel.description,
+        }))
+    : [];
+  const userProfileOpen = profileParam === "user" && user !== null;
+  const userProfileChannels = userProfileOpen
+    ? workspaceChannels.channels
+        .filter((channel) => channel.visibility !== "direct")
+        .map((channel) => ({
+          id: channel.id,
+          name: channel.name,
+          description: channel.description,
+        }))
+    : [];
   const isNew = Boolean(activeChatId && !localChats.loading && !activeEntry);
   const activeChild = workspaceData.activity.find(
     (session) =>
       session.id === activeChildId && session.parentId === activeChatId,
   );
-  const hasBrowserPanel =
-    Boolean(browserUrl) &&
-    browserWorkspaceId === cloudOrganizationId &&
-    browserConversationId === activeChatId;
-  const hasAuxiliaryPanel = activeChild !== undefined || hasBrowserPanel;
+  const hasAuxiliaryPanel =
+    userProfileOpen || activeProfileAgent !== null || activeChild !== undefined;
+  const openProfile = (selection: ConversationProfileSelection) => {
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("child");
+      next.set(
+        "profile",
+        selection.kind === "user" ? "user" : selection.agentId,
+      );
+      return next;
+    });
+  };
+  const closeProfile = () => {
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("profile");
+      return next;
+    });
+  };
+  const openInternalPanel = () => {
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("child");
+      next.delete("profile");
+      return next;
+    });
+  };
   const continueArtifact = (artifact: { id: string; title: string }) => {
     startTransition(() =>
       setParams({
@@ -177,176 +248,40 @@ export function ConversationsPage() {
       }),
     );
   };
+  const conversationHeader = (
+    <ConversationHeader
+      channel={activeChannel}
+      directAgentId={requestedDirectMessage?.id ?? null}
+      directIdentity={directIdentity}
+      directPresence={directPresence}
+      onContinueArtifact={continueArtifact}
+      onOpenProfile={openProfile}
+      user={user}
+    />
+  );
 
   return (
-    <div className="bg-background flex h-full min-w-0 flex-col overflow-hidden">
-      <header className="border-border/60 relative flex h-14 shrink-0 items-center border-b px-5">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          {directIdentity ? (
-            <AtSign size={17} className="text-muted-foreground shrink-0" />
-          ) : (
-            <Hash size={17} className="text-muted-foreground shrink-0" />
-          )}
-          <div className="min-w-0">
-            <h1 className="truncate text-[13px] leading-4 font-semibold">
-              {directIdentity?.name ?? activeChannel.label}
-            </h1>
-            <p className="text-muted-foreground mt-0.5 truncate text-[12px] leading-4 font-normal">
-              {directIdentity?.role ?? activeChannel.description}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {!directIdentity ? (
-            <ChannelArtifactsMenu
-              channelId={activeChannel.id}
-              onContinue={continueArtifact}
-            />
-          ) : null}
-          {!directIdentity ? (
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={`${activeChannel.agentIds.length + 1} channel members`}
-                  title="Channel members"
-                  className="bg-card hover:bg-accent flex h-8 items-center rounded-lg px-2 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)] transition-colors"
-                >
-                  <span className="flex -space-x-1">
-                    {user?.image ? (
-                      <img
-                        src={user.image}
-                        alt=""
-                        className="ring-card size-4 rounded-full object-cover ring-1"
-                      />
-                    ) : null}
-                    {activeChannel.agentIds.slice(0, 3).map((agentId) => (
-                      <span
-                        key={agentId}
-                        className="bg-muted text-muted-foreground ring-card flex size-4 items-center justify-center rounded-full text-[7px] font-medium ring-1"
-                      >
-                        {WORKSPACE_AGENT_IDENTITIES[
-                          agentId as keyof typeof WORKSPACE_AGENT_IDENTITIES
-                        ].name
-                          .charAt(0)
-                          .toLocaleUpperCase()}
-                      </span>
-                    ))}
-                  </span>
-                  <span className="text-muted-foreground ml-1.5 text-[10px]">
-                    {activeChannel.agentIds.length + 1}
-                  </span>
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-64 p-1.5">
-                <div className="px-2 pt-1.5 pb-2">
-                  <p className="text-xs font-medium">#{activeChannel.label}</p>
-                  <p className="text-muted-foreground mt-0.5 text-[11px]">
-                    People and agents sharing this context.
-                  </p>
-                </div>
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
-                    <span className="bg-muted flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full text-[9px] font-medium">
-                      {user?.image ? (
-                        <img
-                          src={user.image}
-                          alt=""
-                          className="size-full object-cover"
-                        />
-                      ) : (
-                        (user?.name.charAt(0) ?? "Y").toLocaleUpperCase()
-                      )}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-xs font-medium">
-                        {user?.name ?? "You"}
-                      </span>
-                      <span className="text-muted-foreground block text-[10px]">
-                        You
-                      </span>
-                    </span>
-                  </div>
-                  {activeChannel.agentIds.map((agentId) => {
-                    const identity =
-                      WORKSPACE_AGENT_IDENTITIES[
-                        agentId as keyof typeof WORKSPACE_AGENT_IDENTITIES
-                      ];
-                    return (
-                      <div
-                        key={agentId}
-                        className="flex items-center gap-2.5 rounded-lg px-2 py-2"
-                      >
-                        <span className="bg-foreground text-background flex size-7 shrink-0 items-center justify-center rounded-lg text-[9px] font-semibold">
-                          {identity.name.charAt(0).toLocaleUpperCase()}
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block truncate text-xs font-medium">
-                            {identity.name}
-                          </span>
-                          <span className="text-muted-foreground block truncate text-[10px]">
-                            {identity.role}
-                          </span>
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </PopoverContent>
-            </Popover>
-          ) : (
-            <div className="bg-card flex h-8 items-center gap-2 rounded-lg px-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)]">
-              <span className="bg-foreground text-background flex size-4 items-center justify-center rounded-md text-[8px] font-semibold dark:bg-white dark:text-black">
-                {directIdentity.name.charAt(0)}
-              </span>
-              <span className="text-muted-foreground text-[10px]">Private</span>
-            </div>
-          )}
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                aria-label="Channel actions"
-                title="Channel actions"
-                variant="outline"
-                size="icon-sm"
-              >
-                <MoreHorizontal size={15} />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-48 p-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  void navigator.clipboard.writeText(window.location.href);
-                  setChannelLinkCopied(true);
-                  window.setTimeout(() => setChannelLinkCopied(false), 1600);
-                }}
-                className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
-              >
-                {channelLinkCopied ? <Check size={14} /> : <Copy size={14} />}
-                {channelLinkCopied
-                  ? "Channel link copied"
-                  : "Copy channel link"}
-              </button>
-            </PopoverContent>
-          </Popover>
-        </div>
-      </header>
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
-        <section
-          className={cn(
-            "min-h-0 min-w-0 flex-1 px-5 pb-5",
-            hasAuxiliaryPanel && "lg:basis-1/2 lg:pr-4",
-          )}
-        >
+    <main className="bg-background relative flex h-full min-w-0 flex-col overflow-hidden min-[901px]:flex-row">
+      <section
+        className={cn(
+          "flex min-h-0 min-w-0 flex-1 flex-col",
+          hasAuxiliaryPanel && "min-[901px]:min-w-[300px]",
+        )}
+      >
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {activeChatId && activeSetupDomain ? (
-            <IntegrationSetupConversation
-              key={activeChatId}
-              chatId={activeChatId}
-              domain={activeSetupDomain}
-              actionId={activeSetupActionId ?? undefined}
-              channelId={requestedDirectMessage?.relayId}
-            />
+            <>
+              {conversationHeader}
+              <div className="min-h-0 flex-1 px-5 pb-5">
+                <IntegrationSetupConversation
+                  key={activeChatId}
+                  chatId={activeChatId}
+                  domain={activeSetupDomain}
+                  actionId={activeSetupActionId ?? undefined}
+                  channelId={requestedDirectMessage?.relayId}
+                />
+              </div>
+            </>
           ) : activeChatId ? (
             <ChiefChat
               key={activeChatId}
@@ -401,74 +336,96 @@ export function ConversationsPage() {
                   const next = new URLSearchParams(current);
                   next.set("channel", activeChannel.id);
                   next.set("chat", activeChatId);
+                  next.delete("profile");
                   next.set("child", childId);
                   return next;
                 })
               }
+              onOpenInternalPanel={openInternalPanel}
+              onOpenProfile={openProfile}
+              panelSizing={panelSizing}
+              profileOpen={userProfileOpen || activeProfileAgent !== null}
+              header={conversationHeader}
             />
           ) : (
-            <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-3 text-center text-sm">
-              <span className="border-border bg-card flex size-10 items-center justify-center rounded-xl border">
-                <Hash size={18} />
-              </span>
-              <p className="font-serif text-3xl text-current">
-                #{activeChannel.label}
-              </p>
-              <p>{activeChannel.description}</p>
-            </div>
+            <>
+              {conversationHeader}
+              <div className="text-muted-foreground flex min-h-0 flex-1 flex-col items-center justify-center gap-3 text-center text-sm">
+                <span className="border-border bg-card flex size-10 items-center justify-center rounded-xl border">
+                  <Hash size={18} />
+                </span>
+                <p className="font-serif text-3xl text-current">
+                  #{activeChannel.label}
+                </p>
+                <p>{activeChannel.description}</p>
+              </div>
+            </>
           )}
-        </section>
-        {activeChatId && activeChild ? (
-          <aside className="border-border/70 bg-background min-h-0 min-w-[360px] basis-[42%] border-l">
-            <ObservedChat
-              key={activeChild.id}
-              chatId={activeChild.id}
-              label={
-                <div className="flex min-w-0 items-center gap-2 px-4">
-                  <span className="min-w-0 flex-1 truncate">
-                    <span className="text-muted-foreground">
-                      #{activeChannel.label}
-                    </span>
-                    <span className="px-1.5" aria-hidden>
-                      /
-                    </span>
-                    <strong className="text-foreground font-medium">
-                      {activeChild.title}
-                    </strong>
+        </div>
+      </section>
+      {activeChatId && userProfileOpen ? (
+        <UserProfilePanel
+          user={user}
+          channels={userProfileChannels}
+          onClose={closeProfile}
+          sizing={panelSizing}
+        />
+      ) : activeChatId && activeProfileAgent ? (
+        <AgentProfilePanel
+          key={activeProfileAgent.id}
+          agent={activeProfileAgent}
+          channels={activeProfileChannels}
+          displayName={activeProfileIdentity?.name}
+          presence={activeProfilePresence}
+          onClose={closeProfile}
+          sizing={panelSizing}
+        />
+      ) : activeChatId && activeChild ? (
+        <ConversationAuxiliaryPanel
+          sizing={panelSizing}
+          onClose={() =>
+            setParams((current) => {
+              const next = new URLSearchParams(current);
+              next.delete("child");
+              return next;
+            })
+          }
+        >
+          <ObservedChat
+            key={activeChild.id}
+            chatId={activeChild.id}
+            label={
+              <div className="flex min-w-0 items-center gap-2 px-4">
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="text-muted-foreground">
+                    #{activeChannel.label}
                   </span>
-                  <Button
-                    aria-label="Close thread"
-                    onClick={() =>
-                      setParams((current) => {
-                        const next = new URLSearchParams(current);
-                        next.delete("child");
-                        return next;
-                      })
-                    }
-                    variant="ghost"
-                    size="icon-xs"
-                  >
-                    <PanelRightClose size={14} />
-                  </Button>
-                </div>
-              }
-            />
-          </aside>
-        ) : activeChatId &&
-          browserUrl &&
-          browserWorkspaceId === cloudOrganizationId &&
-          browserConversationId === activeChatId ? (
-          <aside className="border-border/70 h-[45%] min-h-64 min-w-0 border-l lg:h-full lg:basis-1/2">
-            <Suspense fallback={<div className="bg-card size-full" />}>
-              <BrowserPanel
-                operating={
-                  running[activeChatId] ?? activeEntry?.running ?? false
-                }
-              />
-            </Suspense>
-          </aside>
-        ) : null}
-      </main>
-    </div>
+                  <span className="px-1.5" aria-hidden>
+                    /
+                  </span>
+                  <strong className="text-foreground font-medium">
+                    {activeChild.title}
+                  </strong>
+                </span>
+                <Button
+                  aria-label="Close thread"
+                  onClick={() =>
+                    setParams((current) => {
+                      const next = new URLSearchParams(current);
+                      next.delete("child");
+                      return next;
+                    })
+                  }
+                  variant="ghost"
+                  size="icon-xs"
+                >
+                  <PanelRightClose size={14} />
+                </Button>
+              </div>
+            }
+          />
+        </ConversationAuxiliaryPanel>
+      ) : null}
+    </main>
   );
 }
