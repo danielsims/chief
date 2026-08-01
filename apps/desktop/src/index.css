@@ -52,14 +52,6 @@
   border-bottom: 1px solid var(--border);
 }
 
-.chief-artifact-preview {
-  width: 720px;
-  min-height: 450px;
-  transform: scale(0.48);
-  transform-origin: top left;
-  contain: layout paint style;
-}
-
 /* Startup entry state: a thin line sweeping under the wordmark. */
 @keyframes entry-sweep {
   from {

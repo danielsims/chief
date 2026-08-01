@@ -1,11 +1,16 @@
-import { ArrowRight, LayoutTemplate, Plus, Sparkles } from "lucide-react";
+import { ArrowRight, LayoutTemplate, Plus } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import type { ExecutorArtifactSummary } from "@chief/agent-runtime/artifact-types";
+import { Button } from "@chief/ui/components/button";
 
+import type { WorkspaceChannelId } from "../lib/workspace-channels";
+import { ArtifactPreview } from "../components/artifact-preview";
 import { useAuth } from "../lib/auth/auth-context";
 import { createChat } from "../lib/chat-log";
+import { chiefArtifacts } from "../lib/chief-artifacts";
 import { useExecutorArtifacts } from "../lib/executor-artifacts";
+import { WORKSPACE_CHANNELS } from "../lib/workspace-channels";
 
 function relativeTime(timestamp: number) {
   const elapsed = Date.now() - timestamp;
@@ -19,34 +24,6 @@ function relativeTime(timestamp: number) {
   }).format(timestamp);
 }
 
-function ArtifactPreview({ artifact }: { artifact: ExecutorArtifactSummary }) {
-  if (artifact.preview) {
-    return (
-      <div
-        aria-hidden
-        className="chief-artifact-preview pointer-events-none absolute top-0 left-0 origin-top-left"
-        // Executor only returns markup that passed its inert-element and
-        // attribute allowlist; the local daemon is the trust boundary here.
-        dangerouslySetInnerHTML={{ __html: artifact.preview.markup }}
-      />
-    );
-  }
-
-  return (
-    <div aria-hidden className="absolute inset-0 grid grid-cols-3 gap-2 p-5">
-      <div className="border-border bg-background col-span-2 border p-3">
-        <span className="bg-foreground/15 block h-1.5 w-14" />
-        <span className="bg-foreground/8 mt-4 block h-12" />
-        <span className="bg-foreground/10 mt-2 block h-1.5 w-3/4" />
-      </div>
-      <div className="space-y-2">
-        <span className="border-border bg-background block h-[58px] border" />
-        <span className="border-border bg-background block h-[58px] border" />
-      </div>
-    </div>
-  );
-}
-
 function ArtifactCard({
   artifact,
   onContinue,
@@ -55,7 +32,7 @@ function ArtifactCard({
   onContinue: () => void;
 }) {
   return (
-    <article className="group bg-card hover:border-foreground/35 overflow-hidden border transition-colors">
+    <article className="group bg-card hover:border-foreground/25 overflow-hidden rounded-xl border transition-colors">
       <div className="bg-muted/40 relative aspect-[16/10] overflow-hidden border-b">
         <ArtifactPreview artifact={artifact} />
         <div className="from-background/0 to-background/35 absolute inset-0 bg-gradient-to-b" />
@@ -72,13 +49,14 @@ function ArtifactCard({
             {relativeTime(artifact.updatedAt)}
           </span>
         </div>
-        <button
-          type="button"
+        <Button
           onClick={onContinue}
-          className="text-muted-foreground hover:text-foreground mt-4 flex items-center gap-1.5 text-[11px] transition-colors"
+          variant="ghost"
+          size="xs"
+          className="text-muted-foreground mt-3 -ml-2"
         >
           Continue with Chief <ArrowRight size={12} />
-        </button>
+        </Button>
       </div>
     </article>
   );
@@ -90,9 +68,10 @@ export function ArtifactsPage() {
     useExecutorArtifacts(cloudOrganizationId);
   const navigate = useNavigate();
 
-  const askChief = (prompt?: string) => {
+  const typedArtifacts = chiefArtifacts(artifacts);
+  const askChief = (channelId: WorkspaceChannelId, prompt?: string) => {
     const chat = createChat();
-    const params = new URLSearchParams({ chat: chat.id });
+    const params = new URLSearchParams({ channel: channelId, chat: chat.id });
     if (prompt) params.set("prompt", prompt);
     void navigate(`/conversations?${params.toString()}`);
   };
@@ -101,73 +80,86 @@ export function ArtifactsPage() {
     <div className="mx-auto w-full max-w-[1180px] pt-5 pb-20">
       <header className="flex items-end justify-between gap-6 border-b pb-6">
         <div>
-          <div className="text-muted-foreground flex items-center gap-2 text-[10px] font-semibold tracking-[0.08em] uppercase">
-            <Sparkles size={12} /> Work library
-          </div>
-          <h1 className="mt-3 font-serif text-[34px] leading-none tracking-[-0.035em]">
-            Artifacts
+          <h1 className="font-serif text-[34px] leading-none tracking-[-0.035em]">
+            Created work
           </h1>
           <p className="text-muted-foreground mt-3 max-w-xl text-sm leading-6">
             Interfaces Chief makes while working with you, saved so they can be
             reopened and improved instead of disappearing into a transcript.
           </p>
         </div>
-        <button
-          type="button"
+        <Button
           onClick={() =>
-            askChief("Create a useful interactive artifact for this workspace.")
+            askChief(
+              "general",
+              "Create a useful interactive output for this workspace.",
+            )
           }
-          className="bg-foreground text-background flex h-9 shrink-0 items-center gap-2 px-3 text-xs transition-opacity hover:opacity-85"
+          size="sm"
         >
           <Plus size={13} /> Ask Chief to make one
-        </button>
+        </Button>
       </header>
 
       {loading ? (
         <div className="text-muted-foreground flex items-center gap-2 py-10 text-xs">
-          <span className="bg-foreground/25 size-1.5 animate-pulse" />
-          Loading saved artifacts…
+          <span className="bg-foreground/25 size-1.5 animate-pulse rounded-full" />
+          Loading created work…
         </div>
       ) : error && artifacts.length === 0 ? (
-        <div className="mt-7 flex items-center justify-between border px-4 py-3">
+        <div className="mt-7 flex items-center justify-between rounded-xl border px-4 py-3">
           <div>
-            <p className="text-xs font-medium">Artifacts are not ready yet</p>
+            <p className="text-xs font-medium">Created work is not ready yet</p>
             <p className="text-muted-foreground mt-1 text-xs">{error}</p>
           </div>
-          <button
-            type="button"
-            onClick={retry}
-            className="hover:bg-accent border px-3 py-2 text-xs"
-          >
+          <Button variant="outline" size="sm" onClick={retry}>
             Try again
-          </button>
+          </Button>
         </div>
       ) : artifacts.length > 0 ? (
-        <section className="mt-7">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-xs font-medium">Saved artifacts</h2>
-            <span className="text-muted-foreground font-mono text-[10px]">
-              {artifacts.length} {artifacts.length === 1 ? "item" : "items"}
-            </span>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {artifacts.map((artifact) => (
-              <ArtifactCard
-                key={artifact.id}
-                artifact={artifact}
-                onContinue={() =>
-                  askChief(
-                    `Open the artifact “${artifact.title}” (${artifact.id}) and help me improve it.`,
-                  )
-                }
-              />
-            ))}
-          </div>
-        </section>
+        <div className="mt-7 space-y-9">
+          {WORKSPACE_CHANNELS.map((channel) => {
+            const channelArtifacts = typedArtifacts.filter(
+              (artifact) => artifact.channelId === channel.id,
+            );
+            if (channelArtifacts.length === 0) return null;
+            return (
+              <section key={channel.id}>
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <h2 className="text-sm font-medium capitalize">
+                      {channel.label}
+                    </h2>
+                    <p className="text-muted-foreground mt-0.5 text-[11px]">
+                      {channel.description}
+                    </p>
+                  </div>
+                  <span className="text-muted-foreground font-mono text-[10px]">
+                    {channelArtifacts.length}
+                  </span>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {channelArtifacts.map((artifact) => (
+                    <ArtifactCard
+                      key={artifact.id}
+                      artifact={artifact}
+                      onContinue={() =>
+                        askChief(
+                          channel.id,
+                          `Open the output “${artifact.title}” (${artifact.id}) and help me improve it.`,
+                        )
+                      }
+                    />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+        </div>
       ) : (
-        <section className="border-border mt-7 flex min-h-72 items-center justify-center border border-dashed px-8 text-center">
+        <section className="border-border mt-7 flex min-h-72 items-center justify-center rounded-2xl border border-dashed px-8 text-center">
           <div className="max-w-md">
-            <span className="bg-card mx-auto flex size-11 items-center justify-center border">
+            <span className="bg-card mx-auto flex size-11 items-center justify-center rounded-xl border">
               <LayoutTemplate size={18} className="text-muted-foreground" />
             </span>
             <h2 className="mt-5 font-serif text-2xl">
@@ -178,13 +170,14 @@ export function ArtifactsPage() {
               interface in any channel. Chief can create it and it will collect
               here automatically.
             </p>
-            <button
-              type="button"
-              onClick={() => askChief()}
-              className="hover:bg-accent mt-5 border px-3 py-2 text-xs transition-colors"
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => askChief("general")}
+              className="mt-5"
             >
               Start in a channel
-            </button>
+            </Button>
           </div>
         </section>
       )}

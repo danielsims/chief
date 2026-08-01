@@ -1,16 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Archive,
-  BarChart3,
   CalendarClock,
   FileText,
   FolderOpen,
   Hash,
   LayoutGrid,
-  Megaphone,
   Network,
   Search,
-  Users,
 } from "lucide-react";
 import { useNavigate } from "react-router";
 
@@ -23,28 +19,10 @@ import {
 import { cn } from "@chief/ui/lib/utils";
 
 import type { LocalChatSummary } from "../lib/runtime";
+import { channelForChat, WORKSPACE_CHANNELS } from "../lib/workspace-channels";
 
 const DESTINATIONS = [
   { label: "Overview", hint: "Workspace home", to: "/", icon: LayoutGrid },
-  {
-    label: "Analytics",
-    hint: "Performance and reporting",
-    to: "/analytics",
-    icon: BarChart3,
-  },
-  {
-    label: "Campaigns",
-    hint: "Planning and acquisition",
-    to: "/campaigns",
-    icon: Megaphone,
-  },
-  {
-    label: "Prospects",
-    hint: "People and opportunities",
-    to: "/prospects",
-    icon: Users,
-  },
-  { label: "Artifacts", hint: "Created work", to: "/artifacts", icon: Archive },
   {
     label: "Schedule",
     hint: "Recurring work",
@@ -61,7 +39,7 @@ interface SearchItem {
   hint: string;
   to: string;
   icon: typeof Search;
-  kind: "Destination" | "Channel";
+  kind: "Destination" | "Channel" | "Conversation";
 }
 
 export function WorkspaceSearch({ chats }: { chats: LocalChatSummary[] }) {
@@ -77,17 +55,29 @@ export function WorkspaceSearch({ chats }: { chats: LocalChatSummary[] }) {
       id: item.to,
       kind: "Destination" as const,
     }));
-    const channels = chats.map((chat) => ({
-      id: chat.id,
-      label: chat.title,
-      hint: chat.lastText || "Chief channel",
-      to: `/conversations?chat=${encodeURIComponent(chat.id)}`,
-      icon: chat.running ? Search : Hash,
+    const channels = WORKSPACE_CHANNELS.map((channel) => ({
+      id: channel.id,
+      label: `#${channel.label}`,
+      hint: channel.description,
+      to: `/conversations?channel=${channel.id}`,
+      icon: Hash,
       kind: "Channel" as const,
     }));
+    const conversations = chats.map((chat) => {
+      const channelId = channelForChat(chat);
+      return {
+        id: chat.id,
+        label: chat.title,
+        hint: chat.lastText || `Conversation in #${channelId}`,
+        to: `/conversations?channel=${channelId}&chat=${encodeURIComponent(chat.id)}`,
+        icon: chat.running ? Search : Hash,
+        kind: "Conversation" as const,
+      };
+    });
     const needle = query.trim().toLocaleLowerCase();
-    if (!needle) return [...destinations, ...channels].slice(0, 12);
-    return [...destinations, ...channels]
+    const searchable = [...destinations, ...channels, ...conversations];
+    if (!needle) return searchable.slice(0, 12);
+    return searchable
       .filter((item) =>
         `${item.label} ${item.hint}`.toLocaleLowerCase().includes(needle),
       )

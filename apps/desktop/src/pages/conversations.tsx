@@ -1,17 +1,19 @@
 import { lazy, startTransition, Suspense, useEffect, useState } from "react";
 import {
+  Bot,
   Hash,
   MoreHorizontal,
   PanelRightClose,
   Plus,
-  Sparkles,
   Users,
 } from "lucide-react";
 import { useSearchParams } from "react-router";
 
 import type { DriverType } from "@chief/agent-runtime/types";
+import { Button } from "@chief/ui/components/button";
 import { cn } from "@chief/ui/lib/utils";
 
+import { ChannelArtifactsMenu } from "../components/channel-artifacts-menu";
 import { ChiefChat } from "../components/chat/chief-chat";
 import { IntegrationSetupConversation } from "../components/chat/integration-setup-conversation";
 import { ObservedChat } from "../components/chat/observed-chat";
@@ -22,6 +24,11 @@ import {
   integrationSetupDomainFromChat,
 } from "../lib/integration-setup";
 import { useLocalChats, useRuntime, useWorkspaceData } from "../lib/runtime";
+import {
+  channelForChat,
+  WORKSPACE_CHANNELS,
+  workspaceChannel,
+} from "../lib/workspace-channels";
 
 const CHAT_DRIVERS = new Set<DriverType>([
   "claude",
@@ -108,13 +115,25 @@ export function ConversationsPage() {
     browserWorkspaceId === cloudOrganizationId &&
     browserConversationId === activeChatId;
   const hasAuxiliaryPanel = activeChild !== undefined || hasBrowserPanel;
+  const activeChannel =
+    workspaceChannel(params.get("channel")) ??
+    workspaceChannel(activeEntry ? channelForChat(activeEntry) : "general") ??
+    WORKSPACE_CHANNELS[3];
 
   const openNew = () => {
-    const chat = createChat();
-    startTransition(() => setParams({ chat: chat.id }));
+    const chat = createChat(`#${activeChannel.id}`);
+    startTransition(() =>
+      setParams({ channel: activeChannel.id, chat: chat.id }),
+    );
   };
-  const channelTitle =
-    activeEntry?.title ?? (activeChatId ? "New channel" : "Channels");
+  const continueArtifact = (artifact: { id: string; title: string }) => {
+    const chat = createChat(`#${activeChannel.id}`);
+    setParams({
+      channel: activeChannel.id,
+      chat: chat.id,
+      prompt: `Open the output “${artifact.title}” (${artifact.id}) and help me improve it.`,
+    });
+  };
 
   return (
     <div className="bg-background flex h-full min-w-0 flex-col overflow-hidden">
@@ -123,37 +142,33 @@ export function ConversationsPage() {
           <Hash size={17} className="text-muted-foreground shrink-0" />
           <div className="min-w-0">
             <h1 className="truncate text-[14px] leading-4 font-semibold">
-              {channelTitle}
+              {activeChannel.label}
             </h1>
             <p className="text-muted-foreground mt-0.5 truncate text-[10px]">
-              Chief and its specialists work here with you
+              {activeChannel.description}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
+          <ChannelArtifactsMenu
+            channelId={activeChannel.id}
+            onContinue={continueArtifact}
+          />
           <div className="border-border/70 bg-card flex h-8 items-center gap-1 rounded-lg border px-2">
             <span className="bg-foreground text-background flex size-4 items-center justify-center rounded-md text-[8px] font-semibold">
               C
             </span>
             <span className="bg-muted text-muted-foreground flex size-4 items-center justify-center rounded-md">
-              <Sparkles size={9} />
+              <Bot size={9} />
             </span>
             <span className="text-muted-foreground ml-0.5 text-[10px]">2</span>
           </div>
-          <button
-            type="button"
-            aria-label="Channel members"
-            className="text-muted-foreground hover:bg-accent hover:text-foreground border-border/70 flex size-8 items-center justify-center rounded-lg border"
-          >
+          <Button aria-label="Channel members" variant="outline" size="icon-sm">
             <Users size={14} />
-          </button>
-          <button
-            type="button"
-            aria-label="Channel actions"
-            className="text-muted-foreground hover:bg-accent hover:text-foreground border-border/70 flex size-8 items-center justify-center rounded-lg border"
-          >
+          </Button>
+          <Button aria-label="Channel actions" variant="outline" size="icon-sm">
             <MoreHorizontal size={15} />
-          </button>
+          </Button>
         </div>
       </header>
       <main className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
@@ -207,23 +222,27 @@ export function ConversationsPage() {
                 );
               }}
               onOpenChild={(childId) =>
-                setParams({ chat: activeChatId, child: childId })
+                setParams((current) => {
+                  const next = new URLSearchParams(current);
+                  next.set("channel", activeChannel.id);
+                  next.set("chat", activeChatId);
+                  next.set("child", childId);
+                  return next;
+                })
               }
             />
           ) : (
             <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-3 text-center text-sm">
-              <span className="border-border bg-card flex size-10 items-center justify-center border">
+              <span className="border-border bg-card flex size-10 items-center justify-center rounded-xl border">
                 <Hash size={18} />
               </span>
-              <p className="font-serif text-3xl text-current">Open a channel</p>
-              <p>Give Chief a goal and the right specialists will join in.</p>
-              <button
-                type="button"
-                onClick={openNew}
-                className="text-foreground hover:bg-accent flex items-center gap-2 border px-3 py-2 text-xs transition-colors"
-              >
-                <Plus size={13} /> New channel
-              </button>
+              <p className="font-serif text-3xl text-current">
+                #{activeChannel.label}
+              </p>
+              <p>{activeChannel.description}</p>
+              <Button onClick={openNew} variant="outline" size="sm">
+                <Plus size={13} /> Start a conversation
+              </Button>
             </div>
           )}
         </section>
@@ -236,7 +255,7 @@ export function ConversationsPage() {
                 <div className="flex min-w-0 items-center gap-2 px-4">
                   <span className="min-w-0 flex-1 truncate">
                     <span className="text-muted-foreground">
-                      {activeEntry?.title ?? "Chief"}
+                      #{activeChannel.label}
                     </span>
                     <span className="px-1.5" aria-hidden>
                       /
@@ -245,14 +264,20 @@ export function ConversationsPage() {
                       {activeChild.title}
                     </strong>
                   </span>
-                  <button
-                    type="button"
+                  <Button
                     aria-label="Close thread"
-                    onClick={() => setParams({ chat: activeChatId })}
-                    className="hover:bg-accent hover:text-foreground flex size-7 shrink-0 items-center justify-center rounded-md"
+                    onClick={() =>
+                      setParams((current) => {
+                        const next = new URLSearchParams(current);
+                        next.delete("child");
+                        return next;
+                      })
+                    }
+                    variant="ghost"
+                    size="icon-xs"
                   >
                     <PanelRightClose size={14} />
-                  </button>
+                  </Button>
                 </div>
               }
             />

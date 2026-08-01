@@ -112,7 +112,11 @@ export function WorkspaceSwitcher({
           {activeOrg ? activeOrg.name : "Create workspace"}
         </TooltipContent>
       </Tooltip>
-      <PopoverContent side="right" align="end" sideOffset={14}>
+      <PopoverContent
+        side="right"
+        align={variant === "rail" ? "start" : "end"}
+        sideOffset={14}
+      >
         <div className="flex flex-col">
           {organizations.length > 0 ? (
             <>
@@ -125,7 +129,7 @@ export function WorkspaceSwitcher({
                     onClick={() => void handleSwitch(org)}
                     disabled={switchingTo !== null}
                     className={cn(
-                      "hover:bg-accent flex w-full items-center gap-2.5 px-2 py-1.5 text-left text-sm transition-colors disabled:opacity-50",
+                      "hover:bg-accent flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors disabled:opacity-50",
                       switchingTo === org.id && "opacity-50",
                     )}
                   >
@@ -157,9 +161,9 @@ export function WorkspaceSwitcher({
               setOpen(false);
               navigate("/workspaces/new");
             }}
-            className="text-muted-foreground hover:bg-accent hover:text-foreground flex w-full items-center gap-2.5 px-2 py-1.5 text-left text-sm transition-colors"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors"
           >
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center border">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border">
               <Plus size={13} strokeWidth={1.75} />
             </span>
             Create workspace
