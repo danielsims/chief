@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronRight, ChevronUp, Plus } from "lucide-react";
+import { ChevronRight, ChevronUp, Plus } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import {
@@ -120,13 +120,6 @@ export function SidebarProfileMenu() {
                     <span className="min-w-0 flex-1 truncate text-xs font-medium">
                       {organization.name}
                     </span>
-                    {active ? (
-                      <Check
-                        aria-label="Current workspace"
-                        className="text-muted-foreground shrink-0"
-                        size={13}
-                      />
-                    ) : null}
                     <ChevronRight
                       className="text-muted-foreground shrink-0"
                       size={13}
