@@ -17,24 +17,40 @@ export async function mirrorEvent(
   workspaceId: string,
   chatId: string,
   agentEvent: AgentEvent,
+  explicitChannelId?: string,
+  assistantActor?: { id: string; name: string },
 ) {
-  const channelId = channelIdFromChatId(chatId);
+  const channelId = explicitChannelId ?? channelIdFromChatId(chatId);
   if (!channelId || agentEvent.type !== "message") return;
   const content = agentEvent.content
     .flatMap((block) => (block.type === "text" ? [block.text] : []))
     .join("\n")
     .trim();
   if (!content) return;
+  const threadRootId = agentEvent.threadRootId
+    ? ((await manager.store.channelStore().events(workspaceId, channelId)).find(
+        (event) =>
+          event.tags.some(
+            (tag) => tag[0] === "client" && tag[1] === agentEvent.threadRootId,
+          ),
+      )?.id ?? agentEvent.threadRootId)
+    : undefined;
   const event = createChannelEvent({
     workspaceId,
     channelId,
     actor:
       agentEvent.role === "assistant"
-        ? { type: "agent", id: "cmo", name: "Chief" }
+        ? {
+            type: "agent",
+            id: assistantActor?.id ?? "cmo",
+            name: assistantActor?.name ?? "Chief",
+          }
         : { type: "user", id: "workspace-owner", name: "You" },
     content,
     parts: agentEvent.content,
     sourceId: agentEvent.id,
+    mentions: agentEvent.mentions,
+    threadRootId,
   });
   await manager.store.channelStore().appendEvent(workspaceId, event);
   send({
@@ -74,8 +90,9 @@ export async function channelForChat(
   manager: SessionManager,
   workspaceId: string,
   chatId: string,
+  explicitChannelId?: string,
 ) {
-  const channelId = channelIdFromChatId(chatId);
+  const channelId = explicitChannelId ?? channelIdFromChatId(chatId);
   if (!channelId) return undefined;
   const channel = await manager.store
     .channelStore()
@@ -102,6 +119,14 @@ export async function handleRequest(
     );
     return true;
   }
+  if (message.type === "createChannel") {
+    await manager.store.channelStore().create(message.workspaceId, {
+      name: message.name,
+      description: message.description,
+    });
+    await sendChannels(manager, message.workspaceId, send);
+    return true;
+  }
   return false;
 }
 
@@ -125,15 +150,17 @@ export async function openRootChat(
     chatId: string;
     purpose?: string;
     integrationDomain?: string;
+    channelId?: string;
   },
   driver: Parameters<SessionManager["createRootChat"]>[3],
   model: string | undefined,
-  agentId: "cmo" | "setup" | "analyst",
+  agentId: string,
 ) {
   const channel = await channelForChat(
     manager,
     message.workspaceId,
     message.chatId,
+    message.channelId,
   );
   const storedChat = await manager.createRootChat(
     message.workspaceId,
@@ -156,6 +183,13 @@ export function channelInstructions(
       ? `${baseInstructions}\n\nThis is a user-started integration setup run. Perform the setup directly. Do not delegate to another agent. Finish all safe local setup and verification yourself, and ask only for information that cannot be discovered.`
       : baseInstructions;
   if (!channel) return base;
+  if (channel.visibility === "direct") {
+    return [
+      base,
+      `You are in a private direct conversation with the user (${channel.id}).`,
+      "Answer as the selected agent, keep this transcript private to its participants, and do not redirect the user into a public channel.",
+    ].join("\n\n");
+  }
   return [
     base,
     `You are working in Chief's shared #${channel.name} channel (${channel.id}).`,

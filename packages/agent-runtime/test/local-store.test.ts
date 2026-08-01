@@ -77,10 +77,22 @@ void test("root chat lists exclude private roots and child executions", async ()
       provider: "claude",
       title: "Google Analytics setup",
     });
+    await store.createChat({
+      id: "analyst-direct-message",
+      organizationId: "workspace-a",
+      visibility: "user",
+      agent: "analyst",
+      provider: "codex",
+      title: "Analyst",
+    });
 
     assert.deepEqual(
       (await store.listChats("workspace-a")).map((chat) => chat.id).sort(),
-      ["integration-setup-action-onboarding-google-analytics-test", "root"],
+      [
+        "analyst-direct-message",
+        "integration-setup-action-onboarding-google-analytics-test",
+        "root",
+      ],
     );
     const children = await store.listChildChats("workspace-a", "root");
     assert.equal(children.length, 1);
@@ -264,6 +276,8 @@ void test("transcript conversion keeps durable message IDs across saves", async 
     type: "message" as const,
     role: "assistant" as const,
     content: [{ type: "text" as const, text: "Working" }],
+    threadRootId: "client-message-id",
+    mentions: ["analyst"],
   };
   const result = { type: "result" as const, ok: true, durationMs: 42 };
   const context = {
@@ -287,11 +301,15 @@ void test("transcript conversion keeps durable message IDs across saves", async 
     assert.deepEqual(stored[2]?.metadata, result);
     const uiMessages = await store.uiMessages("workspace", "root");
     const firstUiMessage = uiMessages[0];
+    const secondUiMessage = uiMessages[1];
     const resultUiMessage = uiMessages[2];
     assert.ok(firstUiMessage);
+    assert.ok(secondUiMessage?.metadata);
     assert.ok(resultUiMessage?.metadata);
     assert.equal(firstUiMessage.id, "client-message-id");
     assert.deepEqual(firstUiMessage.parts, first.content);
+    assert.equal(secondUiMessage.metadata.threadRootId, "client-message-id");
+    assert.deepEqual(secondUiMessage.metadata.mentions, ["analyst"]);
     assert.deepEqual(resultUiMessage.metadata.event, result);
     assert.equal(typeof resultUiMessage.metadata.createdAt, "number");
     const transcript = await store.transcript("workspace", "root");
@@ -302,6 +320,14 @@ void test("transcript conversion keeps durable message IDs across saves", async 
       initialIds,
     );
     assert.deepEqual(transcript.at(-1), result);
+    const assistantReply = transcript.find(
+      (event) => event.type === "message" && event.role === "assistant",
+    );
+    assert.ok(assistantReply?.type === "message");
+    assert.deepEqual(
+      { ...assistantReply, id: undefined },
+      { ...second, id: undefined },
+    );
   } finally {
     await store.close();
     rmSync(directory, { recursive: true, force: true });

@@ -1526,6 +1526,7 @@ export function startServer(port = PORT) {
     };
     socketAuthorization.connect(ws);
     const subscriptions = new Set<string>();
+    const chatDestinations = new Map<string, string>();
     const sessionListeners = new Map<
       string,
       {
@@ -1578,7 +1579,15 @@ export function startServer(port = PORT) {
           }
           if (agentEvent.type === "message") {
             await channelBridge
-              .mirrorEvent(manager, send, workspaceId, chatId, agentEvent)
+              .mirrorEvent(
+                manager,
+                send,
+                workspaceId,
+                chatId,
+                agentEvent,
+                chatDestinations.get(subscriptionKey),
+                { id: session.agent.id, name: session.agent.name },
+              )
               .catch((error: unknown) =>
                 console.error("[runtime] channel event mirror:", error),
               );
@@ -2867,7 +2876,7 @@ export function startServer(port = PORT) {
                 ? "setup"
                 : msg.purpose === "analytics-report"
                   ? "analyst"
-                  : "cmo";
+                  : (msg.agentId ?? "cmo");
             const agent = getAgent(agentId);
             if (!agent) throw new Error(`${agentId} persona is missing.`);
             const preference =
@@ -2916,6 +2925,13 @@ export function startServer(port = PORT) {
               requestedExecution?.model,
               agentId,
             );
+            const destinationId = msg.channelId ?? channel?.id;
+            if (destinationId) {
+              chatDestinations.set(
+                `${msg.workspaceId}\0${msg.chatId}`,
+                destinationId,
+              );
+            }
             let setupAttemptId: string | null = null;
             if (msg.purpose === "integration-setup") {
               integrationSetups.assignDomain(
@@ -3224,6 +3240,14 @@ export function startServer(port = PORT) {
           case "sendMessage": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
+            const destinationId = chatDestinations.get(
+              `${msg.workspaceId}\0${msg.chatId}`,
+            );
+            if (destinationId && msg.mentions?.length) {
+              await manager.store
+                .channelStore()
+                .addAgents(msg.workspaceId, destinationId, msg.mentions);
+            }
             const { session: openedSession } = await manager.rootChat(
               msg.workspaceId,
               msg.chatId,
@@ -3299,7 +3323,10 @@ export function startServer(port = PORT) {
                 }
               };
               session.on("event", releaseOnTerminal);
-              await session.sendPrompt(msg.text, msg.messageId);
+              await session.sendPrompt(msg.text, msg.messageId, true, {
+                threadRootId: msg.threadRootId,
+                mentions: msg.mentions,
+              });
             } catch (error) {
               if (releaseOnTerminal) {
                 session.off("event", releaseOnTerminal);

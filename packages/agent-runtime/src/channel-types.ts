@@ -7,6 +7,7 @@ export interface WorkspaceChannel {
   name: string;
   description: string;
   agentIds: string[];
+  visibility?: "public" | "direct";
   createdAt: number;
   updatedAt: number;
 }
@@ -41,6 +42,13 @@ export type ChannelClientMessage =
       type: "listChannelEvents";
       workspaceId: string;
       channelId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "createChannel";
+      workspaceId: string;
+      name: string;
+      description?: string;
       executorCapability: ExecutorCapability;
     };
 

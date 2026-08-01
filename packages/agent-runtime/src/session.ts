@@ -42,6 +42,8 @@ export class AgentSession extends EventEmitter {
   private promptBootstrap: string | undefined;
   private stallTimer: NodeJS.Timeout | null = null;
   private readonly stallTimeoutMs = 6 * 60_000;
+  private activeReplyContext:
+    { threadRootId?: string; mentions?: string[] } | undefined;
 
   constructor(
     agent: AgentDefinition,
@@ -57,7 +59,15 @@ export class AgentSession extends EventEmitter {
 
     this.events = initialEvents.map(withGenerativeDataParts).slice(-500);
     this.driver.on("event", (rawEvent: AgentEvent) => {
-      const event = withGenerativeDataParts(rawEvent);
+      const contextualEvent =
+        rawEvent.type === "message" && rawEvent.role === "assistant"
+          ? {
+              ...rawEvent,
+              threadRootId: this.activeReplyContext?.threadRootId,
+              mentions: this.activeReplyContext?.mentions,
+            }
+          : rawEvent;
+      const event = withGenerativeDataParts(contextualEvent);
       if (event.type === "init") this.sessionId = event.sessionId;
       if (event.type === "status") this.status = event.status;
       if (
@@ -66,6 +76,7 @@ export class AgentSession extends EventEmitter {
         event.type === "exit"
       ) {
         this.status = event.type === "error" ? "error" : "idle";
+        this.activeReplyContext = undefined;
       }
       this.record(event);
       if (this.status === "running") this.armStallWatchdog();
@@ -135,7 +146,12 @@ export class AgentSession extends EventEmitter {
     });
   }
 
-  async sendPrompt(text: string, messageId?: string, record = true) {
+  async sendPrompt(
+    text: string,
+    messageId?: string,
+    record = true,
+    context?: { threadRootId?: string; mentions?: string[] },
+  ) {
     // Record the user turn as an event so reconnecting clients can rebuild
     // the full transcript from the buffer.
     const event: AgentEvent = {
@@ -143,20 +159,29 @@ export class AgentSession extends EventEmitter {
       id: messageId,
       role: "user",
       content: [{ type: "text", text }],
+      threadRootId: context?.threadRootId,
+      mentions: context?.mentions,
     };
     if (record) {
       this.events.push(event);
       this.emit("event", event);
     }
     this.status = "running";
+    this.activeReplyContext = {
+      threadRootId: context?.threadRootId ?? messageId,
+      mentions: context?.mentions,
+    };
     this.armStallWatchdog();
     const bootstrap = record ? this.promptBootstrap : undefined;
     this.promptBootstrap = undefined;
     try {
+      const routedText = context?.mentions?.length
+        ? `[Chief recipient routing: address these agent identities in this response: ${context.mentions.join(", ")}\n\n${text}`
+        : text;
       await this.driver.sendPrompt(
         bootstrap
-          ? `${bootstrap}\n\nContinue the conversation with this new user message:\n\n${text}`
-          : text,
+          ? `${bootstrap}\n\nContinue the conversation with this new user message:\n\n${routedText}`
+          : routedText,
       );
     } catch (error) {
       this.status = "idle";

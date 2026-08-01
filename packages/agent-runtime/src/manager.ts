@@ -166,9 +166,6 @@ export class SessionManager {
     config: SessionConfig,
     title = "",
   ): Promise<AgentSession> {
-    if (agent.id !== "cmo" && agent.id !== "setup" && agent.id !== "analyst") {
-      throw new Error("User-visible chats require Chief, Setup, or Analyst.");
-    }
     await this.createRootChat(
       config.workspaceId,
       chatId,
@@ -255,7 +252,7 @@ export class SessionManager {
     title: string,
     provider?: DriverType,
     model?: string,
-    agentId: "cmo" | "setup" | "analyst" = "cmo",
+    agentId = "cmo",
   ) {
     const key = workspaceChatKey(workspaceId, chatId);
     const pending = this.creatingRootChats.get(key);
@@ -282,7 +279,7 @@ export class SessionManager {
     title: string,
     provider?: DriverType,
     model?: string,
-    agentId: "cmo" | "setup" | "analyst" = "cmo",
+    agentId = "cmo",
   ) {
     const stored = await this.store.chatRecord(workspaceId, chatId);
     if (!stored) {
@@ -797,8 +794,7 @@ export class SessionManager {
     if (
       chat.parentId ||
       chat.kind !== "conversation" ||
-      chat.visibility !== "user" ||
-      (chat.agent !== "cmo" && chat.agent !== "setup")
+      chat.visibility !== "user"
     ) {
       throw new Error(
         "Only a top-level user-visible Chief chat is composable.",

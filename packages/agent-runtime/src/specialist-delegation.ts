@@ -170,10 +170,12 @@ export async function runSpecialistDelegation(input: {
     input.workspaceId,
     input.conversationId,
   );
-  const chief = getAgent("cmo");
+  const caller = getAgent(parent.chat.agent);
   const specialist = getAgent(input.agentId);
-  if (!chief?.delegates?.includes(input.agentId) || !specialist) {
-    throw new Error("Chief cannot delegate to that specialist.");
+  if (!caller?.delegates?.includes(input.agentId) || !specialist) {
+    throw new Error(
+      `${caller?.name ?? "This agent"} cannot delegate to that specialist.`,
+    );
   }
 
   const initialReview = isInitialReview(

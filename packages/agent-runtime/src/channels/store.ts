@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
-import { and, asc, eq, or } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 
 import type { ChannelEvent, WorkspaceChannel } from "../types.js";
 import * as schema from "../db/schema.js";
@@ -38,24 +39,59 @@ export class ChannelStore {
       .from(schema.channels)
       .where(eq(schema.channels.organizationId, workspaceId))
       .orderBy(asc(schema.channels.createdAt), asc(schema.channels.slug))
-      .all();
+      .all()
+      .then((channels) =>
+        channels.map((channel) => ({
+          ...channel,
+          visibility: channel.slug.startsWith("dm-")
+            ? ("direct" as const)
+            : ("public" as const),
+        })),
+      );
   }
 
   async get(workspaceId: string, channelId: string) {
-    await this.list(workspaceId);
-    return this.database()
-      .select()
-      .from(schema.channels)
-      .where(
-        and(
-          eq(schema.channels.organizationId, workspaceId),
-          or(
-            eq(schema.channels.id, channelId),
-            eq(schema.channels.slug, channelId),
-          ),
-        ),
-      )
-      .get();
+    return (await this.list(workspaceId)).find(
+      (channel) => channel.id === channelId || channel.slug === channelId,
+    );
+  }
+
+  async create(
+    workspaceId: string,
+    input: { name: string; description?: string },
+  ) {
+    const name = input.name.trim().slice(0, 60);
+    if (!name) throw new Error("Channel name is required.");
+    const baseSlug =
+      name
+        .toLocaleLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "") || "channel";
+    const existing = await this.list(workspaceId);
+    let slug = baseSlug;
+    let suffix = 2;
+    while (existing.some((channel) => channel.slug === slug)) {
+      slug = `${baseSlug}-${suffix}`;
+      suffix += 1;
+    }
+    const now = Date.now();
+    const description = input.description?.trim().slice(0, 160);
+    const channel: WorkspaceChannel = {
+      protocol: "nip29",
+      id: randomUUID(),
+      slug,
+      name,
+      description: description ?? `Work and conversation in #${name}`,
+      agentIds: ["cmo"],
+      visibility: "public",
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.database()
+      .insert(schema.channels)
+      .values({ organizationId: workspaceId, ...channel })
+      .run();
+    return channel;
   }
 
   async appendEvent(workspaceId: string, event: ChannelEvent) {
@@ -69,6 +105,31 @@ export class ChannelStore {
       .onConflictDoNothing()
       .run();
     return event;
+  }
+
+  async addAgents(
+    workspaceId: string,
+    channelId: string,
+    agentIds: readonly string[],
+  ) {
+    const channel = await this.get(workspaceId, channelId);
+    if (!channel || channel.visibility === "direct" || agentIds.length === 0) {
+      return channel;
+    }
+    const nextAgentIds = [...new Set([...channel.agentIds, ...agentIds])];
+    if (nextAgentIds.length === channel.agentIds.length) return channel;
+    const updatedAt = Date.now();
+    await this.database()
+      .update(schema.channels)
+      .set({ agentIds: nextAgentIds, updatedAt })
+      .where(
+        and(
+          eq(schema.channels.organizationId, workspaceId),
+          eq(schema.channels.id, channel.id),
+        ),
+      )
+      .run();
+    return { ...channel, agentIds: nextAgentIds, updatedAt };
   }
 
   async events(

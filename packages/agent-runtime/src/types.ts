@@ -181,6 +181,10 @@ export type ChiefMessageEventMetadata =
 export interface ChiefMessageMetadata {
   createdAt: number;
   event?: ChiefMessageEventMetadata;
+  /** The top-level channel message this reply belongs to. */
+  threadRootId?: string;
+  /** Stable user or agent identities explicitly addressed by this message. */
+  mentions?: string[];
 }
 
 export type ChiefUIMessage = UIMessage<
@@ -239,6 +243,8 @@ export type AgentEvent =
       id?: string;
       role: "assistant" | "user";
       content: ContentBlock[];
+      threadRootId?: string;
+      mentions?: string[];
     }
   | {
       type: "result";
@@ -820,6 +826,10 @@ export type ClientMessage =
       access?: AccessMode;
       purpose?: "integration-setup" | "analytics-report";
       integrationDomain?: string;
+      /** Explicit conversation destination for chats whose ID has another purpose. */
+      channelId?: string;
+      /** Agent identity used for a direct conversation. */
+      agentId?: string;
       executorCapability: ExecutorCapability;
     }
   | {
@@ -834,6 +844,8 @@ export type ClientMessage =
       chatId: string;
       messageId: string;
       text: string;
+      threadRootId?: string;
+      mentions?: string[];
       execution?: ChatExecutionSelection;
       executorCapability: ExecutorCapability;
     }
