@@ -88,7 +88,7 @@ export function ProfileSettings() {
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="flex items-center gap-4">
-          <span className="bg-background flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden border">
+          <span className="bg-background flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border">
             {user.image ? (
               <img
                 src={user.image}
@@ -107,20 +107,22 @@ export function ProfileSettings() {
               {user.emailVerified ? "Verified" : "Unverified"}
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <Button asChild variant="outline" size="sm">
-                <label className="cursor-pointer">
-                  {uploading ? "Processing..." : "Upload image"}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    disabled={uploading}
-                    onChange={(event) => {
-                      void uploadImage(event.target.files?.[0]);
-                      event.currentTarget.value = "";
-                    }}
-                  />
-                </label>
+              <Button
+                render={<label className="cursor-pointer" />}
+                variant="outline"
+                size="sm"
+              >
+                {uploading ? "Processing..." : "Upload image"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={uploading}
+                  onChange={(event) => {
+                    void uploadImage(event.target.files?.[0]);
+                    event.currentTarget.value = "";
+                  }}
+                />
               </Button>
               {user.image ? (
                 <Button

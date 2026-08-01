@@ -365,20 +365,22 @@ export function WorkspaceSettings() {
             <LogoPreview logo={logo} website={website} name={name} />
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button asChild variant="outline" size="sm">
-                  <label className="cursor-pointer">
-                    {processingLogo ? "Processing..." : "Upload image"}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      disabled={processingLogo || !org}
-                      onChange={(event) => {
-                        void uploadLogo(event.target.files?.[0]);
-                        event.currentTarget.value = "";
-                      }}
-                    />
-                  </label>
+                <Button
+                  render={<label className="cursor-pointer" />}
+                  variant="outline"
+                  size="sm"
+                >
+                  {processingLogo ? "Processing..." : "Upload image"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={processingLogo || !org}
+                    onChange={(event) => {
+                      void uploadLogo(event.target.files?.[0]);
+                      event.currentTarget.value = "";
+                    }}
+                  />
                 </Button>
                 {logoSource === "upload" ? (
                   <Button
