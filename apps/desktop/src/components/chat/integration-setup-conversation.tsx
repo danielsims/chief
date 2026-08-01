@@ -6,10 +6,12 @@ export function IntegrationSetupConversation({
   chatId,
   domain,
   actionId,
+  channelId,
 }: {
   chatId: string;
   domain: string;
   actionId?: string;
+  channelId?: string;
 }) {
   const name =
     INTEGRATION_CATALOG.flatMap((group) => group.integrations).find(
@@ -27,6 +29,7 @@ export function IntegrationSetupConversation({
         <IntegrationSetupPanel
           chatId={chatId}
           actionId={actionId}
+          channelId={channelId}
           sessionKey={domain}
           prompt={integrationSetupTask({ domain, name })}
           standalone

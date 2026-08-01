@@ -79,6 +79,7 @@ export function SidebarProfileMenu() {
         align="end"
         sideOffset={10}
         className="w-64 p-1.5"
+        onOpenAutoFocus={(event) => event.preventDefault()}
       >
         <div className="px-2 py-1.5">
           <p className="truncate text-xs font-medium">

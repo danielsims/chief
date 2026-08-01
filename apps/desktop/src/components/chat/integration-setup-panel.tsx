@@ -43,6 +43,7 @@ export function IntegrationSetupPanel({
   onResult,
   chatId: providedChatId,
   actionId,
+  channelId,
   standalone = false,
 }: {
   sessionKey: string;
@@ -50,6 +51,7 @@ export function IntegrationSetupPanel({
   onResult?: (result: SetupResult) => void;
   chatId?: string;
   actionId?: string;
+  channelId?: string;
   standalone?: boolean;
 }) {
   const {
@@ -81,7 +83,7 @@ export function IntegrationSetupPanel({
     provideInput,
     chatReady,
     execution,
-  } = useIntegrationSetupChat(chatId, sessionKey, selectedExecution);
+  } = useIntegrationSetupChat(chatId, sessionKey, selectedExecution, channelId);
   const [draft, setDraft] = useState("");
   const [submittedInputId, setSubmittedInputId] = useState<string | null>(null);
   const pendingInput = useMemo(

@@ -18,6 +18,7 @@ import {
 } from "@chief/ui/components/dialog";
 import { cn } from "@chief/ui/lib/utils";
 
+import { useWorkspaceChannels } from "../lib/runtime";
 import { WORKSPACE_CHANNELS } from "../lib/workspace-channels";
 
 const DESTINATIONS = [
@@ -42,6 +43,7 @@ interface SearchItem {
 }
 
 export function WorkspaceSearch() {
+  const workspaceChannels = useWorkspaceChannels();
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
@@ -54,14 +56,26 @@ export function WorkspaceSearch() {
       id: item.to,
       kind: "Destination" as const,
     }));
-    const channels = WORKSPACE_CHANNELS.map((channel) => ({
-      id: channel.id,
-      label: `#${channel.label}`,
-      hint: channel.description,
-      to: `/conversations?channel=${channel.id}`,
-      icon: Hash,
-      kind: "Channel" as const,
-    }));
+    const channels =
+      workspaceChannels.channels.length > 0
+        ? workspaceChannels.channels
+            .filter((channel) => channel.visibility !== "direct")
+            .map((channel) => ({
+              id: channel.id,
+              label: `#${channel.name}`,
+              hint: channel.description,
+              to: `/conversations?channel=${channel.id}`,
+              icon: Hash,
+              kind: "Channel" as const,
+            }))
+        : WORKSPACE_CHANNELS.map((channel) => ({
+            id: channel.id,
+            label: `#${channel.label}`,
+            hint: channel.description,
+            to: `/conversations?channel=${channel.id}`,
+            icon: Hash,
+            kind: "Channel" as const,
+          }));
     const needle = query.trim().toLocaleLowerCase();
     const searchable = [...destinations, ...channels];
     if (!needle) return searchable.slice(0, 12);
@@ -70,7 +84,7 @@ export function WorkspaceSearch() {
         `${item.label} ${item.hint}`.toLocaleLowerCase().includes(needle),
       )
       .slice(0, 12);
-  }, [query]);
+  }, [query, workspaceChannels.channels]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

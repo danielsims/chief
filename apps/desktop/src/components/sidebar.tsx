@@ -4,11 +4,17 @@ import { NavLink, useLocation, useNavigate } from "react-router";
 
 import { cn } from "@chief/ui/lib/utils";
 
-import type { WorkspaceChannelId } from "../lib/workspace-channels";
+import type {
+  WorkspaceAgentId,
+  WorkspaceChannelId,
+} from "../lib/workspace-channels";
 import { useAuth } from "../lib/auth/auth-context";
+import { useLocalChats, useWorkspaceChannels } from "../lib/runtime";
 import {
+  directMessageIdsForChats,
   WORKSPACE_CHANNELS,
   workspaceChannel,
+  workspaceDirectMessage,
 } from "../lib/workspace-channels";
 import { SidebarChannels } from "./sidebar-channels";
 import { SidebarProfileMenu } from "./sidebar-profile-menu";
@@ -31,9 +37,7 @@ function readPinnedChannels(workspaceId: string | null): WorkspaceChannelId[] {
       window.localStorage.getItem(pinnedStorageKey(workspaceId)) ?? "[]",
     ) as unknown;
     if (!Array.isArray(stored)) return [];
-    return WORKSPACE_CHANNELS.map((channel) => channel.id).filter((channelId) =>
-      stored.includes(channelId),
-    );
+    return stored.filter((value): value is string => typeof value === "string");
   } catch {
     return [];
   }
@@ -72,6 +76,8 @@ export function Sidebar({
   onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
 }) {
   const { cloudOrganizationId } = useAuth();
+  const localChats = useLocalChats(cloudOrganizationId);
+  const workspaceChannels = useWorkspaceChannels();
   const location = useLocation();
   const navigate = useNavigate();
   const [pinnedIds, setPinnedIds] = useState(() =>
@@ -79,9 +85,41 @@ export function Sidebar({
   );
   const params = new URLSearchParams(location.search);
   const requestedChannel = workspaceChannel(params.get("channel"));
+  const requestedRuntimeChannel = workspaceChannels.channels.find(
+    (channel) =>
+      channel.visibility !== "direct" &&
+      (channel.id === params.get("channel") ||
+        channel.slug === params.get("channel")),
+  );
+  const requestedDirectMessage = workspaceDirectMessage(params.get("dm"));
   const activeChannelId = location.pathname.startsWith("/conversations")
-    ? (requestedChannel?.id ?? null)
+    ? (requestedRuntimeChannel?.id ?? requestedChannel?.id ?? null)
     : null;
+  const publicChannels =
+    workspaceChannels.channels.length > 0
+      ? workspaceChannels.channels
+          .filter((channel) => channel.visibility !== "direct")
+          .map((channel) => ({
+            id: channel.id,
+            label: channel.name,
+            description: channel.description,
+          }))
+      : WORKSPACE_CHANNELS.map((channel) => ({
+          id: channel.id,
+          label: channel.label,
+          description: channel.description,
+        }));
+  const normalizedPinnedIds = pinnedIds.flatMap((id) => {
+    if (publicChannels.some((channel) => channel.id === id)) return [id];
+    const legacy = WORKSPACE_CHANNELS.find((channel) => channel.id === id);
+    const runtime = legacy
+      ? workspaceChannels.channels.find(
+          (channel) => channel.id === legacy.relayId,
+        )
+      : undefined;
+    return runtime ? [runtime.id] : [];
+  });
+  const directMessageIds = directMessageIdsForChats(localChats.chats);
 
   const openChannel = (channelId: WorkspaceChannelId) => {
     void navigate(`/conversations?channel=${channelId}`);
@@ -90,7 +128,7 @@ export function Sidebar({
   const updatePinned = (nextIds: WorkspaceChannelId[]) => {
     const next = nextIds.filter(
       (id, index) =>
-        WORKSPACE_CHANNELS.some((channel) => channel.id === id) &&
+        publicChannels.some((channel) => channel.id === id) &&
         nextIds.indexOf(id) === index,
     );
     window.localStorage.setItem(
@@ -115,9 +153,20 @@ export function Sidebar({
           ))}
         </div>
         <SidebarChannels
+          channels={publicChannels}
           activeChannelId={activeChannelId}
-          pinnedIds={pinnedIds}
+          activeAgentId={
+            location.pathname.startsWith("/conversations")
+              ? (requestedDirectMessage?.id ?? null)
+              : null
+          }
+          directMessageIds={directMessageIds}
+          pinnedIds={normalizedPinnedIds}
           onOpen={openChannel}
+          onOpenDirectMessage={(agentId: WorkspaceAgentId) =>
+            void navigate(`/conversations?dm=${agentId}`)
+          }
+          onCreateChannel={workspaceChannels.createChannel}
           onPinnedChange={updatePinned}
         />
       </nav>

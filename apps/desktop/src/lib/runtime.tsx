@@ -41,6 +41,7 @@ import type {
   ServerMessage,
   SessionRecord,
   TrendRecord,
+  WorkspaceChannel,
   WorkspaceEnvironmentVariable,
   WorkspaceFileRecord,
   WorkspaceFileSnapshot,
@@ -664,6 +665,54 @@ export function useLocalChats(workspaceId: string | null) {
   };
 
   return { chats, loading: !resolved, remove };
+}
+
+const channelCache = new Map<string, WorkspaceChannel[]>();
+
+/** Durable NIP-29 destinations, including user-created workspace channels. */
+export function useWorkspaceChannels() {
+  const { client, status } = useRuntime();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const [channels, setChannels] = useState<WorkspaceChannel[]>(() =>
+    cloudOrganizationId ? (channelCache.get(cloudOrganizationId) ?? []) : [],
+  );
+
+  useEffect(() => {
+    if (!cloudOrganizationId || !capability || status !== "connected") return;
+    const unsubscribe = client.subscribe((message) => {
+      if (
+        message.type === "channels" &&
+        message.workspaceId === cloudOrganizationId
+      ) {
+        channelCache.set(cloudOrganizationId, message.channels);
+        setChannels(message.channels);
+      }
+    });
+    client.send({
+      type: "listChannels",
+      workspaceId: cloudOrganizationId,
+      executorCapability: capability,
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [capability, client, cloudOrganizationId, status]);
+
+  const createChannel = useCallback(
+    (name: string, description?: string) => {
+      if (!cloudOrganizationId || !capability) return;
+      client.send({
+        type: "createChannel",
+        workspaceId: cloudOrganizationId,
+        name,
+        description,
+        executorCapability: capability,
+      });
+    },
+    [capability, client, cloudOrganizationId],
+  );
+
+  return { channels, createChannel };
 }
 
 const providerModelsCache = new Map<DriverType, ProviderModelOption[]>();
@@ -2134,6 +2183,8 @@ function useRuntimeChat(
   access?: "full" | "guarded",
   purpose?: "integration-setup" | "analytics-report",
   integrationDomain?: string,
+  channelId?: string,
+  agentId?: string,
 ) {
   const { client, status: runtimeStatus } = useRuntime();
   const {
@@ -2143,6 +2194,13 @@ function useRuntimeChat(
   } = useWorkspaceCapability();
   const [controls, setControls] = useState<ChatControlState>(emptyChatControls);
   const pendingStreamRef = useRef("");
+  const pendingMessageContextRef = useRef<
+    | {
+        threadRootId?: string;
+        mentions?: string[];
+      }
+    | undefined
+  >(undefined);
   const [chatReady, setChatReady] = useState(false);
   const [execution, setExecution] = useState<
     ChatExecutionSelection | undefined
@@ -2182,9 +2240,12 @@ function useRuntimeChat(
             chatId,
             messageId: message.id,
             text,
+            threadRootId: pendingMessageContextRef.current?.threadRootId,
+            mentions: pendingMessageContextRef.current?.mentions,
             execution: executionRef.current,
             executorCapability,
           });
+          pendingMessageContextRef.current = undefined;
         }
         return Promise.resolve(
           new ReadableStream({
@@ -2251,6 +2312,8 @@ function useRuntimeChat(
             access,
             purpose,
             integrationDomain,
+            channelId,
+            agentId,
             executorCapability,
           });
         });
@@ -2367,6 +2430,8 @@ function useRuntimeChat(
     access,
     purpose,
     integrationDomain,
+    channelId,
+    agentId,
   ]);
 
   const interrupt = () => {
@@ -2425,10 +2490,22 @@ function useRuntimeChat(
     }
   };
 
+  const sendMessageWithContext = useCallback(
+    (
+      text: string,
+      context?: { threadRootId?: string; mentions?: string[] },
+    ) => {
+      pendingMessageContextRef.current = context;
+      void sendMessage({ text });
+    },
+    [sendMessage],
+  );
+
   return {
     messages,
     controls,
     sendMessage,
+    sendMessageWithContext,
     interrupt,
     respondPermission,
     respondQuestion,
@@ -2444,6 +2521,7 @@ export function useChiefChat(
   initialExecution?: ChatExecutionSelection,
   selectedExecution?: ChatExecutionSelection,
   access?: "full" | "guarded",
+  destination?: { channelId?: string; agentId?: string },
 ) {
   return useRuntimeChat(
     chatId,
@@ -2451,6 +2529,10 @@ export function useChiefChat(
     initialExecution,
     selectedExecution,
     access,
+    undefined,
+    undefined,
+    destination?.channelId,
+    destination?.agentId,
   );
 }
 
@@ -2458,6 +2540,7 @@ export function useIntegrationSetupChat(
   chatId: string | null,
   integrationDomain: string,
   selectedExecution?: ChatExecutionSelection,
+  channelId?: string,
 ) {
   return useRuntimeChat(
     chatId,
@@ -2467,6 +2550,8 @@ export function useIntegrationSetupChat(
     "full",
     "integration-setup",
     integrationDomain,
+    channelId,
+    "setup",
   );
 }
 
