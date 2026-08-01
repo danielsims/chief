@@ -33,6 +33,62 @@ const DEFAULT_CHANNELS = [
     description: "Planning and work across the company",
     agentIds: ["cmo", "brand", "content"],
   },
+  {
+    id: "cc7d57ef-d6ea-4ebf-a987-2dc33d18c8c7",
+    slug: "dm-cmo",
+    name: "Chief",
+    description: "A direct conversation with Chief",
+    agentIds: ["cmo"],
+    visibility: "direct",
+  },
+  {
+    id: "147c5d7b-8e35-43f1-94dd-230484502e81",
+    slug: "dm-setup",
+    name: "Setup",
+    description: "A private workspace setup conversation",
+    agentIds: ["setup"],
+    visibility: "direct",
+  },
+  {
+    id: "a644f850-6825-4a21-84cf-c1d4780875cc",
+    slug: "dm-analyst",
+    name: "Analyst",
+    description: "A direct conversation with Analyst",
+    agentIds: ["analyst"],
+    visibility: "direct",
+  },
+  {
+    id: "af454f32-d70c-4ef0-ab73-5b78d73710ba",
+    slug: "dm-ads",
+    name: "Advertising",
+    description: "A direct conversation with Advertising",
+    agentIds: ["ads"],
+    visibility: "direct",
+  },
+  {
+    id: "3a9618e0-ef52-46af-988e-e19cd7111dfa",
+    slug: "dm-content",
+    name: "Content",
+    description: "A direct conversation with Content",
+    agentIds: ["content"],
+    visibility: "direct",
+  },
+  {
+    id: "0094ccf0-fd7e-4c8a-b0a9-648758ae31d5",
+    slug: "dm-prospector",
+    name: "Prospector",
+    description: "A direct conversation with Prospector",
+    agentIds: ["prospector"],
+    visibility: "direct",
+  },
+  {
+    id: "16ca9ad9-7497-4cff-84f0-ff03550a88ac",
+    slug: "dm-brand",
+    name: "Brand",
+    description: "A direct conversation with Brand",
+    agentIds: ["brand"],
+    visibility: "direct",
+  },
 ] as const;
 
 export function defaultWorkspaceChannels(now = Date.now()): WorkspaceChannel[] {
@@ -73,6 +129,7 @@ export function createChannelEvent(input: {
   content: string;
   parts?: unknown[];
   mentions?: string[];
+  threadRootId?: string;
   sourceId?: string;
   createdAt?: number;
 }): ChannelEvent {
@@ -80,7 +137,21 @@ export function createChannelEvent(input: {
   const pubkey = actorPubkey(input.workspaceId, input.actor);
   const tags = [
     ["h", input.channelId],
-    ...(input.mentions ?? []).map((mention) => ["p", mention]),
+    ...(input.mentions ?? []).map((mention) => [
+      "p",
+      actorPubkey(input.workspaceId, {
+        type: "agent",
+        id: mention,
+        name: mention,
+      }),
+    ]),
+    ...(input.threadRootId
+      ? [
+          ["e", input.threadRootId, "", "root"],
+          ["e", input.threadRootId, "", "reply"],
+        ]
+      : []),
+    ...(input.sourceId ? [["client", input.sourceId]] : []),
   ];
   const nonce = input.sourceId ?? randomUUID();
   const id = createHash("sha256")

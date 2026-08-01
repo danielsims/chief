@@ -12,6 +12,38 @@ import { runSpecialistDelegation } from "../src/specialist-delegation.js";
 process.env.CHIEF_DATABASE_ENCRYPTION_KEY =
   "chief-runtime-integration-test-encryption-key";
 
+void test("delegation follows the calling agent pack instead of a hardcoded persona", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "chief-agent-pack-"));
+  const store = new LocalStore(join(directory, "chief.sqlite"));
+  const manager = new SessionManager(store);
+  try {
+    await manager.createRootChat(
+      "workspace",
+      "analyst-dm",
+      "Analyst",
+      "codex",
+      undefined,
+      "analyst",
+    );
+    await assert.rejects(
+      runSpecialistDelegation({
+        manager,
+        workspaceId: "workspace",
+        conversationId: "analyst-dm",
+        delegationId: "try-brand",
+        agentId: "brand",
+        title: "Research brand",
+        task: "Research the brand.",
+      }),
+      /Analyst cannot delegate/,
+    );
+  } finally {
+    await manager.stopAll();
+    await store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 void test("an initial review creates one Brand Researcher despite rewritten concurrent calls", async () => {
   const directory = mkdtempSync(join(tmpdir(), "chief-specialist-"));
   const store = new LocalStore(join(directory, "chief.sqlite"));

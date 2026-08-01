@@ -122,7 +122,13 @@ export interface LocalChatRecord {
   updatedAt: number;
 }
 
-export type AgentMessageMetadata = ChiefMessageEventMetadata;
+export type AgentMessageMetadata =
+  | ChiefMessageEventMetadata
+  | {
+      type: "channel";
+      threadRootId?: string;
+      mentions?: string[];
+    };
 
 export interface LocalMessage<Metadata = AgentMessageMetadata> {
   id: string;
@@ -183,7 +189,19 @@ function durableEvents(events: AgentEvent[]) {
 
 function eventMessage(event: AgentEvent) {
   if (event.type === "message") {
-    return { role: event.role, parts: event.content } as const;
+    return {
+      role: event.role,
+      parts: event.content,
+      ...(event.threadRootId || event.mentions?.length
+        ? {
+            metadata: {
+              type: "channel" as const,
+              threadRootId: event.threadRootId,
+              mentions: event.mentions,
+            } satisfies AgentMessageMetadata,
+          }
+        : {}),
+    } as const;
   }
   if (
     event.type === "result" ||
@@ -425,12 +443,23 @@ function uiEventMessages(events: AgentEvent[]) {
       sourceId: event.id,
       role: event.role,
       parts: nextParts,
+      metadata: converted.metadata,
     });
   }
   return messages;
 }
 
 function agentEvent(message: LocalMessage): AgentEvent | undefined {
+  if (message.metadata?.type === "channel") {
+    return {
+      type: "message",
+      id: message.id,
+      role: message.role === "system" ? "user" : message.role,
+      content: contentBlocks(message.parts as ChiefUIMessage["parts"]),
+      threadRootId: message.metadata.threadRootId,
+      mentions: message.metadata.mentions,
+    };
+  }
   if (message.metadata) return message.metadata;
   if (message.role === "system") return undefined;
   return {
@@ -934,7 +963,14 @@ export class LocalStore {
       parts: message.parts as ChiefUIMessage["parts"],
       metadata: {
         createdAt: message.createdAt,
-        ...(message.metadata ? { event: message.metadata } : {}),
+        ...(message.metadata?.type === "channel"
+          ? {
+              threadRootId: message.metadata.threadRootId,
+              mentions: message.metadata.mentions,
+            }
+          : message.metadata
+            ? { event: message.metadata }
+            : {}),
       },
     }));
   }
@@ -1229,17 +1265,15 @@ export class LocalStore {
       )
       .orderBy(desc(schema.sessions.updatedAt))
       .all();
-    return rows
-      .filter((chat) => chat.agent === "cmo" || chat.agent === "setup")
-      .map((chat) => ({
-        id: chat.id,
-        agent: chat.agent,
-        title: chat.title,
-        lastText: chat.lastText,
-        lastAt: chat.updatedAt,
-        driver: driver(chat.provider),
-        model: chat.model ?? undefined,
-      }));
+    return rows.map((chat) => ({
+      id: chat.id,
+      agent: chat.agent,
+      title: chat.title,
+      lastText: chat.lastText,
+      lastAt: chat.updatedAt,
+      driver: driver(chat.provider),
+      model: chat.model ?? undefined,
+    }));
   }
 
   async chat(
