@@ -60,9 +60,9 @@ export function AppearanceSettings() {
               aria-pressed={preference === value}
               onClick={() => setPreference(value)}
               className={cn(
-                "h-auto min-h-24 items-start justify-start p-3 text-left whitespace-normal",
+                "h-auto min-h-24 items-start justify-start rounded-xl p-3 text-left whitespace-normal",
                 preference === value &&
-                  "border-foreground/30 ring-foreground/8 ring-2",
+                  "ring-foreground/15 bg-accent/55 ring-1",
               )}
             >
               <span className="flex w-full items-start gap-2.5">

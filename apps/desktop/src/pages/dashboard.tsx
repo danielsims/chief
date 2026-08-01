@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowDownRight,
   ArrowRight,
-  ArrowUpRight,
-  BarChart3,
-  CalendarClock,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -12,12 +8,6 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useNavigate } from "react-router";
-import {
-  Line,
-  LineChart,
-  Tooltip as RechartsTooltip,
-  ResponsiveContainer,
-} from "recharts";
 
 import type {
   ActionItem,
@@ -28,19 +18,26 @@ import type {
 } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
 
+import type { OverviewAction } from "../components/overview-presentation";
 import type { AuthOrganization } from "../lib/auth/better-auth-client";
 import { ChatComposer } from "../components/chat/chat-composer";
 import { InputRequestSection } from "../components/integrations/input-request-section";
-import { OrgLogo } from "../components/org-logo";
+import {
+  AnalyticsChart,
+  formatNumber,
+  OverviewActionPagination,
+  overviewButton,
+  Trend,
+  WorkspaceIndicator,
+  WorkspaceLearningCard,
+} from "../components/overview-presentation";
 import { useAgentConfig } from "../lib/agent-config";
 import { setAgentOverride, setWorkspaceProvider } from "../lib/agent-overrides";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   cachedAuthOrganization,
   listAuthOrganizations,
-  parseOrganizationMetadata,
 } from "../lib/auth/better-auth-client";
-import { createChat } from "../lib/chat-log";
 import {
   isDeploymentRecoveryAction,
   localChiefPreference,
@@ -77,12 +74,8 @@ const AGENT_NAMES: Record<string, string> = {
 
 const LEARNING_ACTION_ID = "workspace-initial-review";
 
-interface OverviewAction {
-  id: string;
-  title: string;
-  agentId: string;
-  action?: ActionItem;
-}
+const overviewSurface =
+  "bg-card rounded-2xl shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent),inset_0_1px_0_rgba(255,255,255,0.045),0_8px_24px_rgba(0,0,0,0.025)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055),inset_0_1px_0_rgba(255,255,255,0.035)]";
 
 function greeting(now: number) {
   const hour = new Date(now).getHours();
@@ -129,7 +122,7 @@ function OverviewTaskInput({ task }: { task: SessionRecord }) {
 
   if (!chatReady) {
     return (
-      <p className="chief-overview-setup-loading animate-pulse">
+      <p className="text-muted-foreground mt-4 animate-pulse text-xs">
         Loading the task request…
       </p>
     );
@@ -137,7 +130,7 @@ function OverviewTaskInput({ task }: { task: SessionRecord }) {
   if (!pendingInput) return null;
 
   return (
-    <div className="chief-overview-setup-input">
+    <div className="mt-4 flex min-h-44 flex-1 [scrollbar-gutter:stable] overflow-y-auto overscroll-contain [&>div]:min-h-full [&>div]:w-full [&>div]:p-4">
       <InputRequestSection
         request={pendingInput}
         onSubmit={(request, values) => {
@@ -147,13 +140,6 @@ function OverviewTaskInput({ task }: { task: SessionRecord }) {
       />
     </div>
   );
-}
-
-function formatNumber(value: number) {
-  return new Intl.NumberFormat(undefined, {
-    notation: value > 9999 ? "compact" : "standard",
-    maximumFractionDigits: 1,
-  }).format(value);
 }
 
 function percentageChange(current?: number, previous?: number) {
@@ -195,200 +181,6 @@ function trendTitle(label: string, trend: number | null, hasData: boolean) {
 
 function chartPoints(points: { x: string; value: number }[]) {
   return points.length < 2 ? null : points;
-}
-
-function chartPointLabel(value: string) {
-  const compactDate = /^(\d{4})(\d{2})(\d{2})$/.exec(value);
-  const dashedDate = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  const match = compactDate ?? dashedDate;
-  if (!match) return value;
-
-  const [, year, month, day] = match;
-  return new Intl.DateTimeFormat(undefined, {
-    day: "numeric",
-    month: "short",
-  }).format(new Date(Number(year), Number(month) - 1, Number(day)));
-}
-
-function AnalyticsChart({
-  label,
-  points,
-  reduceMotion,
-}: {
-  label: string;
-  points: { x: string; value: number }[];
-  reduceMotion: boolean;
-}) {
-  return (
-    <div aria-hidden="true" className="chief-overview-chart">
-      <ResponsiveContainer height="100%" width="100%">
-        <LineChart
-          data={points}
-          margin={{ bottom: 2, left: 2, right: 2, top: 2 }}
-        >
-          <RechartsTooltip
-            allowEscapeViewBox={{ x: true, y: true }}
-            content={({ active, payload }) => {
-              const point = payload[0]?.payload as
-                { x?: string; value?: number } | undefined;
-              if (!active || point?.value === undefined) return null;
-
-              return (
-                <div className="border-border bg-popover text-popover-foreground min-w-28 border px-2.5 py-2 shadow-lg">
-                  {point.x ? (
-                    <p className="text-muted-foreground text-[10px]">
-                      {chartPointLabel(point.x)}
-                    </p>
-                  ) : null}
-                  <p className="mt-0.5 flex items-baseline justify-between gap-4 text-xs">
-                    <span>{label}</span>
-                    <strong className="font-medium">
-                      {formatNumber(point.value)}
-                    </strong>
-                  </p>
-                </div>
-              );
-            }}
-            cursor={false}
-            isAnimationActive={false}
-            wrapperStyle={{ pointerEvents: "none", zIndex: 5 }}
-          />
-          <Line
-            activeDot={{ fill: "var(--foreground)", r: 3, strokeWidth: 0 }}
-            animationDuration={420}
-            dataKey="value"
-            dot={false}
-            isAnimationActive={!reduceMotion}
-            stroke="var(--foreground)"
-            strokeOpacity={0.68}
-            strokeWidth={1.25}
-            type="linear"
-          />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-function Trend({ value }: { value: number | null }) {
-  if (value === null)
-    return <span className="chief-overview-baseline">New</span>;
-  const positive = value >= 0;
-  return (
-    <span
-      className={
-        positive
-          ? "chief-overview-trend is-positive"
-          : "chief-overview-trend is-negative"
-      }
-    >
-      {positive ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-      {Math.abs(value).toFixed(1)}%
-    </span>
-  );
-}
-
-function WorkspaceIndicator({
-  organization,
-}: {
-  organization: AuthOrganization | null;
-}) {
-  const metadata = organization ? parseOrganizationMetadata(organization) : {};
-
-  if (!organization)
-    return <span className="chief-overview-workspace-placeholder" />;
-
-  return (
-    <div className="chief-overview-workspace-indicator">
-      <OrgLogo
-        name={organization.name}
-        logo={organization.logo}
-        website={
-          typeof metadata.websiteUrl === "string" ? metadata.websiteUrl : ""
-        }
-        className="size-6 shrink-0 text-xs"
-      />
-      <span>{organization.name}</span>
-    </div>
-  );
-}
-
-function OverviewActionPagination({
-  actions,
-  index,
-  onMove,
-  className,
-}: {
-  actions: OverviewAction[];
-  index: number;
-  onMove: (direction: number) => void;
-  className?: string;
-}) {
-  return (
-    <div className={cn("chief-overview-action-pagination", className)}>
-      <button
-        aria-label="Previous action item"
-        onClick={() => onMove(-1)}
-        type="button"
-      >
-        <ChevronLeft size={14} />
-      </button>
-      <span aria-hidden="true">
-        {actions.map((item, itemIndex) => (
-          <i className={itemIndex === index ? "is-active" : ""} key={item.id} />
-        ))}
-      </span>
-      <button
-        aria-label="Next action item"
-        onClick={() => onMove(1)}
-        type="button"
-      >
-        <ChevronRight size={14} />
-      </button>
-    </div>
-  );
-}
-
-function WorkspaceLearningCard({
-  reviewChatId,
-  onOpen,
-  actions,
-  index,
-  onMove,
-}: {
-  reviewChatId?: string;
-  onOpen: () => void;
-  actions: OverviewAction[];
-  index: number;
-  onMove: (direction: number) => void;
-}) {
-  return (
-    <article className="chief-overview-caught-up">
-      <span>
-        <LoaderCircle className="animate-spin" size={17} />
-      </span>
-      <h2>Chief is learning your business.</h2>
-      <p>
-        Chief is reviewing your website, saved context and connected sources.
-        You can leave this open; the work will continue.
-      </p>
-      <button
-        className="is-primary"
-        type="button"
-        disabled={!reviewChatId}
-        onClick={onOpen}
-      >
-        {reviewChatId ? "View initial review" : "Preparing initial review"}{" "}
-        <ArrowRight size={13} />
-      </button>
-      <OverviewActionPagination
-        actions={actions}
-        className="chief-overview-learning-pagination"
-        index={index}
-        onMove={onMove}
-      />
-    </article>
-  );
 }
 
 function dayKey(date: Date, timezone: string) {
@@ -1008,9 +800,8 @@ export function DashboardPage() {
   const submit = () => {
     const text = ask.trim();
     if (!text || !overviewExecution?.driver) return;
-    const conversation = createChat(text);
     const params = new URLSearchParams({
-      chat: conversation.id,
+      channel: "general",
       prompt: text,
       driver: overviewExecution.driver,
     });
@@ -1029,439 +820,523 @@ export function DashboardPage() {
     analyticsSlides[analyticsIndex] ?? analyticsSlides[0];
 
   return (
-    <div className="chief-overview-page">
-      <header className="chief-overview-heading">
-        <div>
-          <h1>
-            {greeting(workspaceData.now)}, <span>{firstName}</span>
-          </h1>
-          <p>An overview of your channels and agents.</p>
-        </div>
-        <WorkspaceIndicator organization={organization} />
-      </header>
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-[1120px] flex-col overflow-hidden pt-3 pb-[176px] max-[760px]:h-auto max-[760px]:overflow-visible max-[760px]:pb-[250px]">
+      <div className="flex min-h-0 flex-1 flex-col justify-center pt-6">
+        <header className="mb-6 flex shrink-0 items-start justify-between gap-6 max-[760px]:flex-col">
+          <div>
+            <h1 className="m-0 text-[clamp(25px,3vw,36px)] leading-[1.06] font-normal tracking-[-0.04em]">
+              {greeting(workspaceData.now)}, {firstName}
+            </h1>
+            <p className="text-muted-foreground mt-2 text-xs">
+              An overview of your channels and agents.
+            </p>
+          </div>
+          <WorkspaceIndicator organization={organization} />
+        </header>
 
-      <section className="chief-overview-grid">
-        <section
-          className={cn(
-            "chief-overview-actions",
-            learningSelected && "is-learning",
-          )}
-          aria-label="Action items"
-        >
-          {learningSelected ? (
-            <WorkspaceLearningCard
-              actions={overviewActions}
-              index={resolvedOverviewActionIndex}
-              onMove={moveAction}
-              reviewChatId={preparationRoot?.id}
-              onOpen={() => {
-                if (preparationRoot) {
-                  void navigate(
-                    `/conversations?chat=${encodeURIComponent(preparationRoot.id)}`,
-                  );
-                }
-              }}
-            />
-          ) : currentAction ? (
-            <article
-              className={cn(
-                "chief-overview-action-card",
-                !currentAction.request && "is-centered",
-              )}
-            >
-              <header>
-                <div>
-                  <span className="chief-overview-agent-icon">
-                    {currentActionInProgress ? (
-                      <LoaderCircle className="animate-spin" size={14} />
-                    ) : (
-                      <BarChart3 size={14} />
-                    )}
-                  </span>
-                  <span>
-                    <strong>
-                      {AGENT_NAMES[currentAction.agentId] ??
-                        currentAction.agentId}
-                    </strong>
-                    <small>
-                      {currentActionInProgress
-                        ? "Task in progress"
-                        : `Prepared ${new Intl.RelativeTimeFormat(undefined, {
-                            numeric: "auto",
-                          }).format(
-                            Math.max(
-                              -30,
-                              Math.round(
-                                (currentAction.createdAt - workspaceData.now) /
-                                  86_400_000,
-                              ),
-                            ),
-                            "day",
-                          )}`}
-                    </small>
-                  </span>
-                </div>
-              </header>
-              <div className="chief-overview-action-copy">
-                <h2>
-                  {deploymentRecovery ? "Connect Chief" : currentAction.title}
-                </h2>
-                <p>
-                  {deploymentRecovery
-                    ? "Chief's previous cloud deployment no longer exists. Choose where Chief should run, then your scheduled work can continue."
-                    : currentAction.reason.trim() ||
-                      "This action needs your review."}
-                </p>
-                {currentActionTask?.status === "needs_approval" ? (
-                  <OverviewTaskInput
-                    key={currentActionTask.id}
-                    task={currentActionTask}
-                  />
-                ) : null}
-                {currentAction.request &&
-                !isGoogleAnalyticsConnectionAction(currentAction) ? (
-                  <div className="chief-overview-setup-input">
-                    <InputRequestSection
-                      key={currentAction.request.id}
-                      request={currentAction.request}
-                      embedded
-                      onSubmit={(request, values, answers) => {
-                        if (currentAction.sourceId) {
-                          setContinuingChatId(currentAction.sourceId);
-                        }
-                        return workspaceData
-                          .resolveActionRequest(
-                            currentAction.id,
-                            request.id,
-                            answers,
-                            values,
-                          )
-                          .catch((error) => {
-                            setContinuingChatId(null);
-                            throw error;
-                          });
-                      }}
-                    />
-                  </div>
-                ) : null}
-              </div>
-              <footer>
-                <div className="chief-overview-action-buttons *:rounded-lg">
-                  {deploymentRecovery ? (
-                    <>
-                      <button type="button" onClick={useCodexLocally}>
-                        Use Chief on this Mac
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => navigate("/agents?view=deploy")}
-                      >
-                        Deploy Chief
-                      </button>
-                    </>
-                  ) : isGoogleAnalyticsConnectionAction(currentAction) ||
-                    isOnboardingEngineeringAction(currentAction) ? (
-                    <button type="button" onClick={() => openAction()}>
-                      {isOnboardingEngineeringAction(currentAction)
-                        ? `Connect ${nextEngineeringIntegration?.name ?? "tool"}`
-                        : currentAction.request
-                          ? "Continue setup"
-                          : "Connect integration"}
-                    </button>
-                  ) : !currentAction.request ? (
-                    <button type="button" onClick={resolveAction}>
-                      {currentActionBlocked
-                        ? "Allow and retry"
-                        : currentActionFailed
-                          ? "Start again"
-                          : currentActionInProgress
-                            ? "View task"
-                            : "Review"}
-                    </button>
-                  ) : null}
-                  {!currentActionInProgress &&
-                  !currentAction.id.startsWith(
-                    "onboarding-google-analytics-recovery-",
-                  ) &&
-                  !isOnboardingEngineeringAction(currentAction) ? (
-                    <button
-                      type="button"
-                      aria-keyshortcuts="E"
-                      onClick={() =>
-                        workspaceData.dismissActionItem(currentAction.id)
-                      }
-                      title="Dismiss (E)"
-                    >
-                      Dismiss
-                    </button>
-                  ) : null}
-                </div>
-                <OverviewActionPagination
-                  actions={overviewActions}
-                  index={resolvedOverviewActionIndex}
-                  onMove={moveAction}
-                />
-              </footer>
-            </article>
-          ) : (
-            <article className="chief-overview-caught-up">
-              <span>
-                {preparingWorkspace ? (
-                  <LoaderCircle className="animate-spin" size={17} />
-                ) : (
-                  <Check size={17} />
-                )}
-              </span>
-              <h2>
-                {preparingWorkspace
-                  ? workspaceData.loading
-                    ? "Checking the workspace…"
-                    : continuingChatId
-                      ? "Chief is on it."
-                      : "Chief is learning your business."
-                  : "You’re caught up."}
-              </h2>
-              <p>
-                {preparingWorkspace
-                  ? workspaceData.loading
-                    ? "Chief is gathering the latest work from your agents."
-                    : continuingChatId
-                      ? "Chief is continuing the setup with the details you provided. Follow the work in the conversation."
-                      : "Chief is reviewing your website, saved context and connected sources. You can leave this open; the work will continue."
-                  : agentSchedules.length > 0
-                    ? `Nothing needs your judgment. ${agentSchedules.length} recurring ${agentSchedules.length === 1 ? "task is" : "tasks are"} still active.`
-                    : "Nothing needs your judgment. Choose recurring work when you’re ready to put the team in motion."}
-              </p>
-              <button
-                className={cn("rounded-lg", continuingChatId && "is-primary")}
-                type="button"
-                onClick={() =>
-                  continuingChatId
-                    ? navigate(
-                        `/conversations?chat=${encodeURIComponent(continuingChatId)}`,
-                      )
-                    : navigate("/schedule")
-                }
-              >
-                {continuingChatId ? "View Chief's work" : "View schedule"}{" "}
-                <ArrowRight size={13} />
-              </button>
-            </article>
-          )}
-
-          {overviewActions.length > 1 ? (
-            <nav
-              aria-label="Choose an action item"
-              className="chief-overview-action-queue"
-            >
-              {overviewActions.slice(0, 4).map((item, index) => (
-                <button
-                  className={
-                    index === resolvedOverviewActionIndex ? "is-active" : ""
-                  }
-                  key={item.id}
-                  onClick={() => setSelectedActionId(item.id)}
-                  type="button"
-                >
-                  <span>{String(index + 1).padStart(2, "0")}</span>
-                  <strong>{item.title}</strong>
-                  <small>{AGENT_NAMES[item.agentId] ?? item.agentId}</small>
-                </button>
-              ))}
-            </nav>
-          ) : null}
-        </section>
-
-        <aside className="chief-overview-side">
+        <section className="grid max-h-[min(640px,calc(100vh-250px))] min-h-0 w-full flex-none grid-cols-[minmax(0,1.7fr)_minmax(310px,0.9fr)] gap-3.5 max-[930px]:grid-cols-[minmax(0,1fr)_300px] max-[760px]:max-h-none max-[760px]:grid-cols-1">
           <section
-            aria-label="Workspace analytics"
-            className="chief-overview-analytics"
-            onBlurCapture={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget)) {
-                setAnalyticsPaused(false);
-              }
-            }}
-            onFocusCapture={() => setAnalyticsPaused(true)}
-            onMouseEnter={() => setAnalyticsPaused(true)}
-            onMouseLeave={() => setAnalyticsPaused(false)}
+            className={cn(
+              overviewSurface,
+              "flex min-h-0 min-w-0 flex-col overflow-hidden",
+            )}
+            aria-label="Action items"
           >
-            <AnimatePresence initial={false} mode="wait">
-              {activeAnalyticsSlide ? (
-                <motion.article
-                  animate={{ opacity: 1, x: 0 }}
-                  className="chief-overview-analytics-slide"
-                  exit={{ opacity: 0, x: prefersReducedMotion ? 0 : -8 }}
-                  initial={{ opacity: 0, x: prefersReducedMotion ? 0 : 8 }}
-                  key={activeAnalyticsSlide.id}
-                  onClick={() => navigate("/analytics")}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    void navigate("/analytics");
-                  }}
-                  role="link"
-                  tabIndex={0}
-                  transition={{
-                    duration: prefersReducedMotion ? 0 : 0.28,
-                    ease: [0.22, 1, 0.36, 1],
-                  }}
-                >
-                  <h2>{activeAnalyticsSlide.title}</h2>
-                  <div className="chief-overview-analytics-value">
-                    <strong>{activeAnalyticsSlide.value}</strong>
-                    <span>{activeAnalyticsSlide.label}</span>
-                    <Trend value={activeAnalyticsSlide.trend} />
+            {learningSelected ? (
+              <WorkspaceLearningCard
+                actions={overviewActions}
+                index={resolvedOverviewActionIndex}
+                onMove={moveAction}
+                reviewChatId={preparationRoot?.id}
+                onOpen={() => {
+                  if (preparationRoot) {
+                    void navigate(
+                      `/conversations?chat=${encodeURIComponent(preparationRoot.id)}`,
+                    );
+                  }
+                }}
+              />
+            ) : currentAction ? (
+              <article
+                className={cn(
+                  "relative flex min-h-0 flex-1 flex-col p-7",
+                  !currentAction.request && "justify-center",
+                )}
+              >
+                <header className="flex items-start justify-between gap-3.5">
+                  <div className="flex items-center gap-2.5">
+                    {currentActionInProgress ? (
+                      <LoaderCircle
+                        className="text-muted-foreground animate-spin"
+                        size={13}
+                      />
+                    ) : null}
+                    <span className="grid gap-0.5">
+                      <strong className="text-[12px] font-medium">
+                        {AGENT_NAMES[currentAction.agentId] ??
+                          currentAction.agentId}
+                      </strong>
+                      <small className="text-muted-foreground text-[10px]">
+                        {currentActionInProgress
+                          ? "Task in progress"
+                          : `Prepared ${new Intl.RelativeTimeFormat(undefined, {
+                              numeric: "auto",
+                            }).format(
+                              Math.max(
+                                -30,
+                                Math.round(
+                                  (currentAction.createdAt -
+                                    workspaceData.now) /
+                                    86_400_000,
+                                ),
+                              ),
+                              "day",
+                            )}`}
+                      </small>
+                    </span>
                   </div>
-                  {activeAnalyticsSlide.points ? (
-                    <AnalyticsChart
-                      label={activeAnalyticsSlide.label}
-                      points={activeAnalyticsSlide.points}
-                      reduceMotion={Boolean(prefersReducedMotion)}
+                </header>
+                <div
+                  className={cn(
+                    "my-10 max-w-[610px]",
+                    currentAction.request &&
+                      "mt-7 mb-5 flex min-h-0 w-full max-w-[680px] flex-1 flex-col",
+                  )}
+                >
+                  <h2 className="m-0 text-[clamp(23px,2.7vw,33px)] leading-[1.1] font-normal tracking-[-0.035em]">
+                    {deploymentRecovery ? "Connect Chief" : currentAction.title}
+                  </h2>
+                  <p className="text-muted-foreground mt-3 max-w-[560px] text-[13px] leading-6">
+                    {deploymentRecovery
+                      ? "Chief's previous cloud deployment no longer exists. Choose where Chief should run, then your scheduled work can continue."
+                      : currentAction.reason.trim() ||
+                        "This action needs your review."}
+                  </p>
+                  {currentActionTask?.status === "needs_approval" ? (
+                    <OverviewTaskInput
+                      key={currentActionTask.id}
+                      task={currentActionTask}
                     />
                   ) : null}
-                </motion.article>
-              ) : null}
-            </AnimatePresence>
-            <div className="chief-overview-action-pagination chief-overview-analytics-pagination">
-              <button
-                aria-label="Previous analytics card"
-                onClick={() => moveAnalytics(-1)}
-                type="button"
+                  {currentAction.request &&
+                  !isGoogleAnalyticsConnectionAction(currentAction) ? (
+                    <div className="mt-4 flex min-h-44 flex-1 [scrollbar-gutter:stable] overflow-y-auto overscroll-contain [&>div]:min-h-full [&>div]:w-full [&>div]:p-4">
+                      <InputRequestSection
+                        key={currentAction.request.id}
+                        request={currentAction.request}
+                        embedded
+                        onSubmit={(request, values, answers) => {
+                          if (currentAction.sourceId) {
+                            setContinuingChatId(currentAction.sourceId);
+                          }
+                          return workspaceData
+                            .resolveActionRequest(
+                              currentAction.id,
+                              request.id,
+                              answers,
+                              values,
+                            )
+                            .catch((error) => {
+                              setContinuingChatId(null);
+                              throw error;
+                            });
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+                <footer className="mt-auto flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    {deploymentRecovery ? (
+                      <>
+                        <button
+                          className={cn(
+                            overviewButton,
+                            "bg-foreground text-background hover:bg-foreground/90",
+                          )}
+                          type="button"
+                          onClick={useCodexLocally}
+                        >
+                          Use Chief on this Mac
+                        </button>
+                        <button
+                          className={overviewButton}
+                          type="button"
+                          onClick={() => navigate("/agents?view=deploy")}
+                        >
+                          Deploy Chief
+                        </button>
+                      </>
+                    ) : isGoogleAnalyticsConnectionAction(currentAction) ||
+                      isOnboardingEngineeringAction(currentAction) ? (
+                      <button
+                        className={cn(
+                          overviewButton,
+                          "bg-foreground text-background hover:bg-foreground/90",
+                        )}
+                        type="button"
+                        onClick={() => openAction()}
+                      >
+                        {isOnboardingEngineeringAction(currentAction)
+                          ? `Connect ${nextEngineeringIntegration?.name ?? "tool"}`
+                          : currentAction.request
+                            ? "Continue setup"
+                            : "Connect integration"}
+                      </button>
+                    ) : !currentAction.request ? (
+                      <button
+                        className={cn(
+                          overviewButton,
+                          "bg-foreground text-background hover:bg-foreground/90",
+                        )}
+                        type="button"
+                        onClick={resolveAction}
+                      >
+                        {currentActionBlocked
+                          ? "Allow and retry"
+                          : currentActionFailed
+                            ? "Start again"
+                            : currentActionInProgress
+                              ? "View task"
+                              : "Review"}
+                      </button>
+                    ) : null}
+                    {!currentActionInProgress &&
+                    !currentAction.id.startsWith(
+                      "onboarding-google-analytics-recovery-",
+                    ) &&
+                    !isOnboardingEngineeringAction(currentAction) ? (
+                      <button
+                        className={overviewButton}
+                        type="button"
+                        aria-keyshortcuts="E"
+                        onClick={() =>
+                          workspaceData.dismissActionItem(currentAction.id)
+                        }
+                        title="Dismiss (E)"
+                      >
+                        Dismiss
+                      </button>
+                    ) : null}
+                  </div>
+                  <OverviewActionPagination
+                    actions={overviewActions}
+                    index={resolvedOverviewActionIndex}
+                    onMove={moveAction}
+                  />
+                </footer>
+              </article>
+            ) : (
+              <article className="relative flex min-h-0 flex-1 flex-col items-start justify-center p-7">
+                {preparingWorkspace ? (
+                  <LoaderCircle
+                    className="text-muted-foreground mb-6 animate-spin"
+                    size={18}
+                  />
+                ) : (
+                  <Check className="text-muted-foreground mb-6" size={18} />
+                )}
+                <h2 className="m-0 text-[clamp(24px,3vw,34px)] leading-tight font-normal tracking-[-0.03em]">
+                  {preparingWorkspace
+                    ? workspaceData.loading
+                      ? "Checking the workspace…"
+                      : continuingChatId
+                        ? "Chief is on it."
+                        : "Chief is learning your business."
+                    : "You’re caught up."}
+                </h2>
+                <p className="text-muted-foreground mt-3 mb-6 max-w-[520px] text-[13px] leading-6">
+                  {preparingWorkspace
+                    ? workspaceData.loading
+                      ? "Chief is gathering the latest work from your agents."
+                      : continuingChatId
+                        ? "Chief is continuing the setup with the details you provided. Follow the work in the conversation."
+                        : "Chief is reviewing your website, saved context and connected sources. You can leave this open; the work will continue."
+                    : agentSchedules.length > 0
+                      ? `Nothing needs your judgment. ${agentSchedules.length} recurring ${agentSchedules.length === 1 ? "task is" : "tasks are"} still active.`
+                      : "Nothing needs your judgment. Choose recurring work when you’re ready to put the team in motion."}
+                </p>
+                <button
+                  className={cn(
+                    overviewButton,
+                    continuingChatId &&
+                      "bg-foreground text-background hover:bg-foreground/90",
+                  )}
+                  type="button"
+                  onClick={() =>
+                    continuingChatId
+                      ? navigate(
+                          `/conversations?chat=${encodeURIComponent(continuingChatId)}`,
+                        )
+                      : navigate("/schedule")
+                  }
+                >
+                  {continuingChatId ? "View Chief's work" : "View schedule"}{" "}
+                  <ArrowRight size={13} />
+                </button>
+              </article>
+            )}
+
+            {overviewActions.length > 1 ? (
+              <nav
+                aria-label="Choose an action item"
+                className="shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_7%,transparent)]"
               >
-                <ChevronLeft size={14} />
-              </button>
-              <span aria-label="Analytics cards">
-                {analyticsSlides.map((slide, index) => (
+                {overviewActions.slice(0, 4).map((item, index) => (
                   <button
-                    aria-label={`Show ${slide.label}`}
-                    aria-pressed={index === analyticsIndex}
-                    key={slide.id}
-                    onClick={() => selectAnalytics(index)}
+                    className={cn(
+                      "text-muted-foreground hover:text-foreground grid min-h-10 w-full grid-cols-[minmax(0,1fr)_120px] items-center gap-3 bg-transparent px-5 py-2 text-left shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_6%,transparent)] transition-colors first:shadow-none hover:bg-black/[0.025] max-[930px]:grid-cols-1 dark:hover:bg-white/[0.03]",
+                      index === resolvedOverviewActionIndex &&
+                        "text-foreground bg-black/[0.025] dark:bg-white/[0.03]",
+                    )}
+                    key={item.id}
+                    onClick={() => setSelectedActionId(item.id)}
                     type="button"
                   >
-                    <i
-                      className={index === analyticsIndex ? "is-active" : ""}
-                    />
+                    <strong className="min-w-0 truncate text-[12px] font-medium">
+                      {item.title}
+                    </strong>
+                    <small className="truncate text-right text-[10px] max-[930px]:hidden">
+                      {AGENT_NAMES[item.agentId] ?? item.agentId}
+                    </small>
                   </button>
                 ))}
-              </span>
-              <button
-                aria-label="Next analytics card"
-                onClick={() => moveAnalytics(1)}
-                type="button"
-              >
-                <ChevronRight size={14} />
-              </button>
-            </div>
+              </nav>
+            ) : null}
           </section>
 
-          <section className="chief-overview-schedule" aria-label="Agent work">
-            <header>
-              <span>
-                <CalendarClock size={12} /> Agent work
-              </span>
-              <button onClick={() => navigate("/schedule")} type="button">
-                View schedule <ArrowRight size={11} />
-              </button>
-            </header>
-            <div
-              className="chief-overview-schedule-scroll"
-              ref={scheduleScrollRef}
-            >
-              {agentWorkTimeline.length > 0 ? (
-                <div className="chief-overview-timeline">
-                  {agentWorkTimeline.map((item) => {
-                    const when = scheduleDate(
-                      item.timestamp,
-                      item.timezone,
-                      workspaceData.now,
-                    );
-                    const state =
-                      item.kind === "active"
-                        ? item.status === "completed"
-                          ? "Complete"
-                          : item.status === "failed"
-                            ? "Needs attention"
-                            : item.status === "waiting"
-                              ? "Waiting for input"
-                              : item.childId
-                                ? "Specialist working"
-                                : item.taskCount
-                                  ? `${item.taskCount} ${item.taskCount === 1 ? "task" : "tasks"} in progress`
-                                  : "Working now"
-                        : item.onceAt === undefined
-                          ? "Scheduled"
-                          : "One-time task";
-                    return (
-                      <button
-                        key={item.id}
-                        ref={
-                          item.id === focusedTimelineItemId
-                            ? scheduleFocusRef
-                            : undefined
-                        }
-                        onClick={() =>
-                          navigate(
-                            item.kind === "active"
-                              ? item.parentId
-                                ? `/conversations?chat=${encodeURIComponent(item.parentId)}${item.childId ? `&child=${encodeURIComponent(item.childId)}` : ""}`
-                                : "/conversations"
-                              : "/schedule",
-                          )
-                        }
-                        type="button"
-                      >
-                        <time>
-                          <strong>
-                            {item.kind === "active" ? "Now" : when.day}
-                          </strong>
-                          <span>{when.time}</span>
-                        </time>
-                        <i
-                          className={`is-${
-                            item.kind === "upcoming"
-                              ? "upcoming"
-                              : item.status === "completed"
-                                ? "completed"
-                                : item.status === "failed"
-                                  ? "failed"
-                                  : item.status === "waiting"
-                                    ? "upcoming"
-                                    : "running"
-                          }`}
-                        >
-                          {item.kind === "active" &&
-                          item.status === "running" ? (
-                            <LoaderCircle aria-hidden size={10} />
-                          ) : null}
-                        </i>
-                        <span>
-                          <strong>{item.title}</strong>
-                          <small>
-                            {state} ·{" "}
-                            {AGENT_NAMES[item.agentId] ?? item.agentId}
-                          </small>
-                        </span>
-                        <ArrowRight aria-hidden size={10} />
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="chief-overview-schedule-empty">
-                  <CalendarClock size={16} />
-                  <span>
-                    <strong>No upcoming work</strong>
-                    <small>Your schedule is clear.</small>
-                  </span>
-                </div>
+          <aside className="grid min-h-0 min-w-0 grid-rows-[minmax(230px,1fr)_minmax(190px,1fr)] gap-2.5 max-[760px]:grid-cols-2 max-[760px]:grid-rows-none">
+            <section
+              aria-label="Workspace analytics"
+              className={cn(
+                overviewSurface,
+                "relative min-w-0 overflow-visible",
               )}
-            </div>
-          </section>
-        </aside>
-      </section>
+              onBlurCapture={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) {
+                  setAnalyticsPaused(false);
+                }
+              }}
+              onFocusCapture={() => setAnalyticsPaused(true)}
+              onMouseEnter={() => setAnalyticsPaused(true)}
+              onMouseLeave={() => setAnalyticsPaused(false)}
+            >
+              <AnimatePresence initial={false} mode="wait">
+                {activeAnalyticsSlide ? (
+                  <motion.article
+                    animate={{ opacity: 1, x: 0 }}
+                    className="absolute inset-0 cursor-pointer p-5 outline-none focus-visible:shadow-[inset_0_0_0_1px_var(--ring)]"
+                    exit={{ opacity: 0, x: prefersReducedMotion ? 0 : -8 }}
+                    initial={{ opacity: 0, x: prefersReducedMotion ? 0 : 8 }}
+                    key={activeAnalyticsSlide.id}
+                    onClick={() => navigate("/analytics")}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      void navigate("/analytics");
+                    }}
+                    role="link"
+                    tabIndex={0}
+                    transition={{
+                      duration: prefersReducedMotion ? 0 : 0.28,
+                      ease: [0.22, 1, 0.36, 1],
+                    }}
+                  >
+                    <h2 className="mt-10 max-w-[340px] text-[clamp(17px,1.8vw,23px)] leading-[1.12] font-normal tracking-[-0.025em]">
+                      {activeAnalyticsSlide.title}
+                    </h2>
+                    <div className="mt-4 flex items-baseline gap-2">
+                      <strong className="text-[22px] font-medium">
+                        {activeAnalyticsSlide.value}
+                      </strong>
+                      <span className="text-muted-foreground text-[10px]">
+                        {activeAnalyticsSlide.label}
+                      </span>
+                      <Trend value={activeAnalyticsSlide.trend} />
+                    </div>
+                    {activeAnalyticsSlide.points ? (
+                      <AnalyticsChart
+                        label={activeAnalyticsSlide.label}
+                        points={activeAnalyticsSlide.points}
+                        reduceMotion={Boolean(prefersReducedMotion)}
+                      />
+                    ) : null}
+                  </motion.article>
+                ) : null}
+              </AnimatePresence>
+              <div className="absolute right-3 bottom-2 z-[3] flex items-center gap-2">
+                <button
+                  aria-label="Previous analytics card"
+                  onClick={() => moveAnalytics(-1)}
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground grid size-7 place-items-center rounded-md"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+                <span aria-label="Analytics cards" className="flex gap-1">
+                  {analyticsSlides.map((slide, index) => (
+                    <button
+                      aria-label={`Show ${slide.label}`}
+                      aria-pressed={index === analyticsIndex}
+                      key={slide.id}
+                      onClick={() => selectAnalytics(index)}
+                      type="button"
+                      className="grid h-3 w-3 place-items-center"
+                    >
+                      <i
+                        className={cn(
+                          "bg-border block h-0.5 w-3 rounded-full",
+                          index === analyticsIndex && "bg-foreground",
+                        )}
+                      />
+                    </button>
+                  ))}
+                </span>
+                <button
+                  aria-label="Next analytics card"
+                  onClick={() => moveAnalytics(1)}
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground grid size-7 place-items-center rounded-md"
+                >
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </section>
 
-      <div className="chief-overview-composer-dock">
+            <section
+              className={cn(
+                overviewSurface,
+                "relative flex min-h-0 min-w-0 flex-col overflow-hidden p-4",
+              )}
+              aria-label="Agent work"
+            >
+              <header className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground text-[11px] font-medium">
+                  Agent work
+                </span>
+                <button
+                  className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-[10px] transition-colors"
+                  onClick={() => navigate("/schedule")}
+                  type="button"
+                >
+                  View schedule <ArrowRight size={11} />
+                </button>
+              </header>
+              <div
+                className="min-h-0 flex-1 [scrollbar-gutter:stable_both-edges] overflow-y-auto overscroll-contain pr-1"
+                ref={scheduleScrollRef}
+              >
+                {agentWorkTimeline.length > 0 ? (
+                  <div className="before:bg-foreground/[0.1] relative py-2 before:absolute before:top-8 before:bottom-8 before:left-[62px] before:w-px">
+                    {agentWorkTimeline.map((item) => {
+                      const when = scheduleDate(
+                        item.timestamp,
+                        item.timezone,
+                        workspaceData.now,
+                      );
+                      const state =
+                        item.kind === "active"
+                          ? item.status === "completed"
+                            ? "Complete"
+                            : item.status === "failed"
+                              ? "Needs attention"
+                              : item.status === "waiting"
+                                ? "Waiting for input"
+                                : item.childId
+                                  ? "Specialist working"
+                                  : item.taskCount
+                                    ? `${item.taskCount} ${item.taskCount === 1 ? "task" : "tasks"} in progress`
+                                    : "Working now"
+                          : item.onceAt === undefined
+                            ? "Scheduled"
+                            : "One-time task";
+                      return (
+                        <button
+                          key={item.id}
+                          ref={
+                            item.id === focusedTimelineItemId
+                              ? scheduleFocusRef
+                              : undefined
+                          }
+                          onClick={() =>
+                            navigate(
+                              item.kind === "active"
+                                ? item.parentId
+                                  ? `/conversations?chat=${encodeURIComponent(item.parentId)}${item.childId ? `&child=${encodeURIComponent(item.childId)}` : ""}`
+                                  : "/conversations"
+                                : "/schedule",
+                            )
+                          }
+                          type="button"
+                          className="hover:bg-foreground/[0.025] grid min-h-12 w-full grid-cols-[48px_13px_minmax(0,1fr)_12px] items-center gap-2 rounded-lg px-1 text-left transition-colors"
+                        >
+                          <time className="grid min-w-0 gap-0.5">
+                            <strong className="text-muted-foreground text-[10px] font-medium">
+                              {item.kind === "active" ? "Now" : when.day}
+                            </strong>
+                            <span className="text-muted-foreground/70 text-[9px]">
+                              {when.time}
+                            </span>
+                          </time>
+                          <i
+                            className={cn(
+                              "bg-muted-foreground/60 relative z-[1] grid size-[7px] place-items-center justify-self-center rounded-full shadow-[0_0_0_3px_var(--card)]",
+                              (item.kind === "upcoming" ||
+                                item.status === "completed" ||
+                                item.status === "waiting") &&
+                                "bg-emerald-500",
+                              item.status === "failed" && "bg-red-500",
+                              item.kind === "active" &&
+                                item.status === "running" &&
+                                "bg-card text-foreground size-[15px]",
+                            )}
+                          >
+                            {item.kind === "active" &&
+                            item.status === "running" ? (
+                              <LoaderCircle
+                                aria-hidden
+                                className="animate-spin"
+                                size={10}
+                              />
+                            ) : null}
+                          </i>
+                          <span className="grid min-w-0 gap-0.5">
+                            <strong className="truncate text-[11px] font-medium">
+                              {item.title}
+                            </strong>
+                            <small className="text-muted-foreground/70 truncate text-[9px]">
+                              {state} ·{" "}
+                              {AGENT_NAMES[item.agentId] ?? item.agentId}
+                            </small>
+                          </span>
+                          <ArrowRight
+                            aria-hidden
+                            className="text-muted-foreground/60"
+                            size={10}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-muted-foreground flex min-h-36 items-center justify-center text-center">
+                    <span className="grid gap-1">
+                      <strong className="text-foreground text-[11px] font-medium">
+                        No upcoming work
+                      </strong>
+                      <small className="text-[10px]">
+                        Your schedule is clear.
+                      </small>
+                    </span>
+                  </div>
+                )}
+              </div>
+            </section>
+          </aside>
+        </section>
+      </div>
+
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex flex-col items-center px-7 pb-5 before:absolute before:-inset-x-7 before:-top-16 before:-bottom-5 before:-z-10 before:bg-[linear-gradient(to_bottom,transparent,var(--background)_55%,var(--background))]">
         <ChatComposer
           className="pointer-events-auto w-full max-w-3xl"
           value={ask}
