@@ -6,6 +6,7 @@ import { cn } from "@chief/ui/lib/utils";
 
 import { AppTopChrome } from "./app-top-chrome";
 import { Sidebar } from "./sidebar";
+import { WorkspaceContentSurface } from "./workspace-content-surface";
 import { WorkspaceRail } from "./workspace-rail";
 
 const DEFAULT_SIDEBAR_WIDTH = 300;
@@ -29,6 +30,7 @@ export function Layout() {
   const channel = location.pathname.startsWith("/conversations");
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen);
+  const [hasWorkspaceRail, setHasWorkspaceRail] = useState(false);
 
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => {
@@ -68,9 +70,10 @@ export function Layout() {
   return (
     <TooltipProvider delayDuration={250}>
       <div className="bg-sidebar text-foreground flex h-dvh overflow-hidden">
-        <WorkspaceRail />
+        <WorkspaceRail onVisibilityChange={setHasWorkspaceRail} />
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <AppTopChrome
+            hasWorkspaceRail={hasWorkspaceRail}
             sidebarOpen={sidebarOpen}
             onToggleSidebar={toggleSidebar}
           />
@@ -81,18 +84,17 @@ export function Layout() {
                 onResizeStart={startSidebarResize}
               />
             ) : null}
-            <main className="border-border/60 bg-background relative isolate m-px mr-2 mb-2 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-[0_1px_1px_hsl(0_0%_0%/0.04),0_10px_28px_hsl(0_0%_0%/0.08)] dark:border-white/[0.06] dark:shadow-none">
+            <WorkspaceContentSurface balancedGutter={!sidebarOpen}>
               <div
                 className={cn(
                   "min-h-0 min-w-0 flex-1",
                   channel ? "overflow-hidden" : "overflow-y-auto px-8 pb-8",
-                  overview &&
-                    "chief-overview-layout-main overflow-hidden px-8 pb-8",
+                  overview && "overflow-hidden px-8 pb-8",
                 )}
               >
                 <Outlet />
               </div>
-            </main>
+            </WorkspaceContentSurface>
           </div>
         </div>
       </div>
