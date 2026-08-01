@@ -25,6 +25,7 @@ import type {
 } from "./types.js";
 import { LocalStore } from "./local-store.js";
 import { runDateKey, upcomingRuns } from "./recurring-work.js";
+import { scopeRemoteAgentEnvironment } from "./remote-agent-environment.js";
 import { AgentSession } from "./session.js";
 import {
   assertWorkspaceTextContent,
@@ -203,6 +204,48 @@ export class SessionManager {
       await existing.stop();
     }
     await this.store.updateChatState(config.workspaceId, chatId, {
+      provider: config.driver,
+      model: config.model ?? null,
+      providerState: null,
+      eveState: null,
+      status: "idle",
+    });
+    return this.ensureSession(agent, chatId, config);
+  }
+
+  /** Replace the active channel responder while retaining its shared transcript. */
+  async switchRootChatAgent(
+    agent: AgentDefinition,
+    chatId: string,
+    config: SessionConfig,
+  ): Promise<AgentSession> {
+    const stored = await this.store.chatRecord(config.workspaceId, chatId);
+    if (!stored) throw new Error("Session was not found in this workspace.");
+    this.assertRootChat(stored);
+
+    const key = workspaceChatKey(config.workspaceId, chatId);
+    const existing = this.sessions.get(key);
+    if (
+      existing?.agent.id === agent.id &&
+      existing.agent.instructions === agent.instructions &&
+      existing.config.driver === config.driver &&
+      existing.config.model === config.model
+    ) {
+      return existing;
+    }
+    if (existing?.isBusy) {
+      throw new Error(
+        "Wait for the current agent response before tagging another agent.",
+      );
+    }
+    await (this.persistence.get(key) ?? Promise.resolve());
+    if (existing) {
+      this.archivedEvents.set(key, existing.events.slice(-500));
+      this.sessions.delete(key);
+      await existing.stop();
+    }
+    await this.store.updateChatState(config.workspaceId, chatId, {
+      agent: agent.id,
       provider: config.driver,
       model: config.model ?? null,
       providerState: null,
@@ -467,7 +510,11 @@ export class SessionManager {
         this.startingWorkspaces.delete(config.workspaceId);
       }
     }
-    const scopedConfig = { ...config, env, runtimeContext };
+    const scopedConfig = {
+      ...config,
+      env: scopeRemoteAgentEnvironment(env, agent.id),
+      runtimeContext,
+    };
     const archivedKey = workspaceChatKey(config.workspaceId, chatId);
     const storedEvents =
       this.archivedEvents.get(archivedKey) ??

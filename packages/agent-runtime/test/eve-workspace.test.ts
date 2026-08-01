@@ -110,6 +110,33 @@ void test("materializes one Chief root with private inspect-only specialists", (
   }
 });
 
+void test("materializes a standalone specialist as the user-visible Eve root", () => {
+  const root = mkdtempSync(join(tmpdir(), "chief-eve-analyst-"));
+  try {
+    const result = materializeEveWorkspace(root, {
+      agentId: "analyst",
+      context: "Acme sells anvils.",
+    });
+    assert.equal(result.agent.id, "analyst");
+    assert.deepEqual(result.specialistIds, []);
+    assert.equal(existsSync(join(root, "agent/subagents")), false);
+    assert.match(
+      read(root, "agent/instructions.md"),
+      /workspace's marketing analyst/,
+    );
+    assert.match(
+      read(root, "agent/instructions.md"),
+      /no configured subagents/,
+    );
+    assert.doesNotMatch(
+      read(root, "agent/instructions.md"),
+      /private, inspect-only specialist/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 void test("refuses active cloud schedules instead of emitting prompt-only grants", () => {
   const root = mkdtempSync(join(tmpdir(), "chief-eve-schedule-"));
 

@@ -292,7 +292,7 @@ async function executeSpecialistDelegation(
     sessionId,
     {
       driver,
-      access: "full",
+      access: preference?.approvals === "ask" ? "guarded" : "full",
       workspaceId: input.workspaceId,
       model:
         preference?.model ??

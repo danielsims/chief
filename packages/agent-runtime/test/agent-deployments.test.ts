@@ -5,6 +5,10 @@ import {
   deploymentModel,
   hostedExecutorEnvironment,
 } from "../src/agent-deployments.js";
+import {
+  agentEnvironmentKey,
+  scopeRemoteAgentEnvironment,
+} from "../src/remote-agent-environment.js";
 
 void test("deployment model selection beats legacy environment and defaults", () => {
   assert.equal(
@@ -50,5 +54,39 @@ void test("cloud deployment requires hosted HTTPS Executor credentials", () => {
       executorMcpToken: "token",
       executorMcpUrl: "https://executor.example.com/mcp",
     },
+  );
+});
+
+void test("remote credentials are isolated to the selected agent pack", () => {
+  const environment = {
+    CHIEF_REMOTE_AGENT_URL: "https://chief.example.com",
+    CHIEF_REMOTE_AGENT_TARGET: "vercel",
+    CHIEF_EVE_ROUTE_PASSWORD: "chief-password",
+    [agentEnvironmentKey("CHIEF_REMOTE_AGENT_URL", "analyst")]:
+      "https://analyst.example.com",
+    [agentEnvironmentKey("CHIEF_REMOTE_AGENT_TARGET", "analyst")]: "convex",
+    [agentEnvironmentKey("CHIEF_EVE_ROUTE_PASSWORD", "analyst")]:
+      "analyst-password",
+  };
+
+  assert.deepEqual(
+    {
+      url: scopeRemoteAgentEnvironment(environment, "analyst")
+        .CHIEF_REMOTE_AGENT_URL,
+      target: scopeRemoteAgentEnvironment(environment, "analyst")
+        .CHIEF_REMOTE_AGENT_TARGET,
+      password: scopeRemoteAgentEnvironment(environment, "analyst")
+        .CHIEF_EVE_ROUTE_PASSWORD,
+    },
+    {
+      url: "https://analyst.example.com",
+      target: "convex",
+      password: "analyst-password",
+    },
+  );
+  assert.equal(
+    scopeRemoteAgentEnvironment(environment, "prospector")
+      .CHIEF_REMOTE_AGENT_URL,
+    undefined,
   );
 });

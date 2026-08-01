@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { channelChatId, createChannelEvent } from "../src/channels/nip29.js";
+import {
+  channelChatId,
+  createChannelEvent,
+  createChannelReaction,
+} from "../src/channels/nip29.js";
 import { LocalStore } from "../src/local-store.js";
 
 process.env.CHIEF_DATABASE_ENCRYPTION_KEY =
@@ -36,6 +40,15 @@ void test("workspace channels are durable NIP-29 groups instead of chat labels",
       .addAgents("workspace-a", analytics.id, ["ads", "analyst"]);
     assert.ok(updated);
     assert.deepEqual(updated.agentIds, ["cmo", "analyst", "ads"]);
+    const reassigned = await store
+      .channelStore()
+      .setAgents("workspace-a", analytics.id, ["analyst", "brand"]);
+    assert.ok(reassigned);
+    assert.deepEqual(reassigned.agentIds, ["analyst", "brand"]);
+    assert.deepEqual(
+      (await store.channelStore().get("workspace-a", analytics.id))?.agentIds,
+      ["analyst", "brand"],
+    );
     const created = await store.channelStore().create("workspace-a", {
       name: "Launch planning",
       description: "Coordinate the August release",
@@ -74,6 +87,25 @@ void test("thread replies and explicit recipients use interoperable Nostr tags",
   ]);
 });
 
+void test("channel membership broadcasts use durable action tags", () => {
+  const event = createChannelEvent({
+    workspaceId: "workspace-a",
+    channelId: "channel-a",
+    actor: { type: "user", id: "owner", name: "Daniel Sims" },
+    content: "Daniel Sims added Analyst to the channel.",
+    mentions: ["analyst"],
+    channelAction: { type: "member-added", agentIds: ["analyst"] },
+    sourceId: "membership-event",
+  });
+
+  assert.ok(
+    event.tags.some((tag) => tag[0] === "action" && tag[1] === "member-added"),
+  );
+  assert.ok(
+    event.tags.some((tag) => tag[0] === "agent" && tag[1] === "analyst"),
+  );
+});
+
 void test("channel messages persist as kind-9 events scoped with h tags", async () => {
   const directory = mkdtempSync(join(tmpdir(), "chief-channel-events-"));
   try {
@@ -97,6 +129,51 @@ void test("channel messages persist as kind-9 events scoped with h tags", async 
     assert.equal(firstEvent.kind, 9);
     assert.deepEqual(firstEvent.tags[0], ["h", channel.id]);
     assert.equal(firstEvent.actor.id, "analyst");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+void test("channel reactions persist as kind-7 events targeting a message", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "chief-channel-reactions-"));
+  try {
+    const store = new LocalStore(join(directory, "chief.sqlite"));
+    const [channel] = await store.channelStore().list("workspace-a");
+    assert.ok(channel);
+    const message = createChannelEvent({
+      workspaceId: "workspace-a",
+      channelId: channel.id,
+      actor: { type: "agent", id: "cmo", name: "Chief" },
+      content: "The launch plan is ready.",
+      sourceId: "message-1",
+    });
+    const reaction = createChannelReaction({
+      workspaceId: "workspace-a",
+      channelId: channel.id,
+      targetEventId: message.id,
+      actor: { type: "user", id: "workspace-owner", name: "Daniel" },
+      reaction: "👍",
+    });
+    await store.channelStore().appendEvent("workspace-a", message);
+    await store.channelStore().appendEvent("workspace-a", reaction);
+
+    const events = await store.channelStore().events("workspace-a", channel.id);
+    assert.equal(events.length, 2);
+    const storedReaction = events.find((event) => event.kind === 7);
+    assert.ok(storedReaction);
+    assert.equal(storedReaction.content, "👍");
+    assert.deepEqual(storedReaction.tags, [
+      ["h", channel.id],
+      ["e", message.id, "", "reply"],
+    ]);
+
+    await store.channelStore().removeEvent("workspace-a", reaction.id);
+    assert.deepEqual(
+      (await store.channelStore().events("workspace-a", channel.id)).map(
+        (event) => event.kind,
+      ),
+      [9],
+    );
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

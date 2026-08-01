@@ -7,7 +7,12 @@ import type {
   WorkspaceChannel,
 } from "../types.js";
 import { composeWorkspaceInstructions } from "../agents.js";
-import { channelIdFromChatId, createChannelEvent } from "./nip29.js";
+import {
+  channelChatId,
+  channelIdFromChatId,
+  createChannelEvent,
+  createChannelReaction,
+} from "./nip29.js";
 
 type Send = (message: ServerMessage) => void;
 
@@ -50,6 +55,7 @@ export async function mirrorEvent(
     parts: agentEvent.content,
     sourceId: agentEvent.id,
     mentions: agentEvent.mentions,
+    channelAction: agentEvent.channelAction,
     threadRootId,
   });
   await manager.store.channelStore().appendEvent(workspaceId, event);
@@ -120,11 +126,110 @@ export async function handleRequest(
     return true;
   }
   if (message.type === "createChannel") {
-    await manager.store.channelStore().create(message.workspaceId, {
-      name: message.name,
-      description: message.description,
+    const channel = await manager.store
+      .channelStore()
+      .create(message.workspaceId, {
+        name: message.name,
+        description: message.description,
+      });
+    send({
+      type: "channelCreated",
+      requestId: message.requestId,
+      workspaceId: message.workspaceId,
+      channel,
     });
     await sendChannels(manager, message.workspaceId, send);
+    return true;
+  }
+  if (message.type === "updateChannelAgents") {
+    await manager.store
+      .channelStore()
+      .setAgents(message.workspaceId, message.channelId, message.agentIds);
+    await sendChannels(manager, message.workspaceId, send);
+    return true;
+  }
+  if (message.type === "reactToChannelMessage") {
+    const reaction = message.reaction.trim().slice(0, 32);
+    if (!reaction) return true;
+    const events = await manager.store
+      .channelStore()
+      .events(message.workspaceId, message.channelId);
+    let target = events.find(
+      (event) =>
+        event.kind === 9 &&
+        (event.id === message.messageId ||
+          event.tags.some(
+            (tag) => tag[0] === "client" && tag[1] === message.messageId,
+          )),
+    );
+    if (!target) {
+      const storedMessage = (
+        await manager.messages(
+          message.workspaceId,
+          channelChatId(message.channelId),
+        )
+      ).find((candidate) => candidate.id === message.messageId);
+      const content = storedMessage?.parts
+        .flatMap((part) => (part.type === "text" ? [part.text] : []))
+        .join("\n")
+        .trim();
+      if (storedMessage && content) {
+        target = createChannelEvent({
+          workspaceId: message.workspaceId,
+          channelId: message.channelId,
+          actor:
+            storedMessage.role === "assistant"
+              ? { type: "agent", id: "cmo", name: "Chief" }
+              : { type: "user", id: "workspace-owner", name: "You" },
+          content,
+          parts: storedMessage.parts,
+          sourceId: storedMessage.id,
+          createdAt: storedMessage.metadata?.createdAt,
+        });
+        await manager.store
+          .channelStore()
+          .appendEvent(message.workspaceId, target);
+      }
+    }
+    if (!target) {
+      await sendChannelEvents(
+        manager,
+        message.workspaceId,
+        message.channelId,
+        send,
+      );
+      return true;
+    }
+    const existing = events.find(
+      (event) =>
+        event.kind === 7 &&
+        event.actor.type === "user" &&
+        event.actor.id === "workspace-owner" &&
+        event.content === reaction &&
+        event.tags.some((tag) => tag[0] === "e" && tag[1] === target.id),
+    );
+    if (existing) {
+      await manager.store
+        .channelStore()
+        .removeEvent(message.workspaceId, existing.id);
+    } else {
+      await manager.store.channelStore().appendEvent(
+        message.workspaceId,
+        createChannelReaction({
+          workspaceId: message.workspaceId,
+          channelId: message.channelId,
+          targetEventId: target.id,
+          actor: { type: "user", id: "workspace-owner", name: "You" },
+          reaction,
+        }),
+      );
+    }
+    await sendChannelEvents(
+      manager,
+      message.workspaceId,
+      message.channelId,
+      send,
+    );
     return true;
   }
   return false;
@@ -195,6 +300,8 @@ export function channelInstructions(
     `You are working in Chief's shared #${channel.name} channel (${channel.id}).`,
     `The channel follows NIP-29 semantics and is shared with the user and these member agents: ${channel.agentIds.join(", ")}.`,
     "Treat its durable transcript as shared context. Delegate to the relevant member agent when specialist ownership helps, preserve the user's conversational thread, and bring the useful result back into this same channel.",
+    "Ordinary channel posts are shared context and do not require an agent response. When your identity is explicitly mentioned, answer directly as yourself in that message's thread.",
+    "Use this agent pack's declared delegation tool so Chief can expose the specialist as an inspectable session. When localTools.specialistsDelegate is available, use it instead of provider-native or hidden background-agent features. Never imitate delegation with empty assistant messages.",
   ].join("\n\n");
 }
 

@@ -127,3 +127,79 @@ void test("a rejected provider send does not leave the session busy", async () =
   await assert.rejects(() => session.sendPrompt("Hello"), /deployment missing/);
   assert.equal(session.isBusy, false);
 });
+
+void test("late assistant content stays with the turn that completed", async () => {
+  const session = new AgentSession(cmo, "chat", {
+    driver: "codex",
+    access: "guarded",
+    workspaceId: "workspace",
+  });
+  const driver = (
+    session as unknown as {
+      driver: {
+        emit: (type: "event", event: AgentEvent) => void;
+        sendPrompt: (prompt: string) => Promise<void>;
+      };
+    }
+  ).driver;
+  driver.sendPrompt = async () => Promise.resolve();
+
+  await session.sendPrompt("Research this", "user-message", true, {
+    threadRootId: "thread-root",
+  });
+  driver.emit("event", { type: "result", ok: true });
+  driver.emit("event", {
+    type: "message",
+    role: "assistant",
+    content: [{ type: "text", text: "The final result" }],
+  });
+
+  const finalMessage = session.events.at(-1);
+  if (finalMessage?.type !== "message") {
+    assert.fail("Expected the final assistant message.");
+  }
+  assert.equal(finalMessage.threadRootId, "thread-root");
+
+  await session.sendPrompt("A new turn", "next-message");
+  driver.emit("event", {
+    type: "message",
+    role: "assistant",
+    content: [{ type: "text", text: "A new answer" }],
+  });
+  const nextMessage = session.events.at(-1);
+  if (nextMessage?.type !== "message") {
+    assert.fail("Expected the next assistant message.");
+  }
+  assert.equal(nextMessage.threadRootId, "next-message");
+});
+
+void test("recorded channel membership retains its durable UI action", () => {
+  const session = new AgentSession(cmo, "chat", {
+    driver: "codex",
+    access: "guarded",
+    workspaceId: "workspace",
+  });
+  session.recordUserMessage(
+    "Daniel Sims added Analyst to the channel.",
+    "membership-event",
+    {
+      mentions: ["analyst"],
+      channelAction: {
+        type: "member-added",
+        actorName: "Daniel Sims",
+        agentIds: ["analyst"],
+      },
+    },
+  );
+
+  const event = session.events.at(-1);
+  if (event?.type !== "message") {
+    assert.fail("Expected a membership message.");
+  }
+  assert.equal(event.id, "membership-event");
+  assert.deepEqual(event.channelAction, {
+    type: "member-added",
+    actorName: "Daniel Sims",
+    agentIds: ["analyst"],
+  });
+});
