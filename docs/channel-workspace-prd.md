@@ -242,38 +242,41 @@ outside the desktop app without duplicating the Chief runtime.
 
 ### Sidebar sections
 
-The initial authored sections are:
+The refined sidebar follows the hierarchy validated in the August 1 review:
 
-1. **Home**
+1. **Organization rail**
+   - Chief home
+   - current workspace and future workspace switching
+   - compact connection state
+2. **Pinned actions**
+   - functional global search with `⌘K`
    - Overview
-   - Activity / Inbox when the data model supports it
-2. **Channels**
-   - Chief HQ
-   - Marketing
-   - Prospecting
-   - Engineering when enabled
-   - Setup only while active or when the user asks to show private channels
-3. **Direct messages**
-   - Chief
-   - enabled specialists
-4. **Work**
    - Artifacts
    - Schedule
-5. **Footer**
-   - workspace/profile switcher
-   - runtime status
+   - Agents
+   - Files
+3. **Analytics**
+   - Analytics overview
+   - analytics/reporting channels
+4. **Campaigns**
+   - Campaigns overview
+   - campaign/content channels
+5. **Prospects**
+   - Prospects overview
+   - prospecting/research channels
+6. **General**
+   - uncategorized and setup channels during the compatibility phase
+7. **Footer**
+   - profile identity
+   - runtime state
    - appearance
    - settings
 
-Analytics, campaigns, prospects, trends, drafts, and files are no longer all
-equal global navigation destinations. They become either:
-
-- artifact types;
-- channel tabs/filters;
-- curated cross-work views under Work;
-- deep links from a message or artifact;
-- retained dedicated editors when their interaction genuinely benefits from
-  structure.
+There are deliberately no generic “Work” or “Library” group headings. Product
+domains are the meaningful collapsible sections, and their dedicated views
+remain direct, understandable line items within those sections. The current
+title/text classifier is a compatibility projection until canonical channels
+own an explicit section ID.
 
 ### Sidebar references from Buzz
 
@@ -282,8 +285,9 @@ surfaces:
 
 - `desktop/src/features/sidebar`: continuous workspace navigation rather than
   a detached icon rail.
-- `data-sidebar="group-label"`: quiet uppercase section labels with clear
-  hierarchy and tight optical alignment to row icons.
+- `data-sidebar="group-label"`: quiet title-case section labels with clear
+  hierarchy and tight optical alignment; Chief does not copy Buzz's uppercase
+  treatment.
 - channel rows such as `data-testid="channel-general"`: full-width hit targets,
   hover/selected surfaces, unread state, and row-local actions.
 - Radix context menus used by channel rows: lifecycle and management actions
@@ -295,8 +299,9 @@ surfaces:
   separation and dark-mode containment create depth without dashboard-card
   slop.
 
-Chief should reproduce the quality bar and interaction logic, not Buzz's exact
-palette, icon set, or social/community vocabulary.
+Chief should closely reproduce Buzz's shell geometry, spacing, typography,
+interaction density, and layered content treatment while retaining Chief's
+palette, product language, and mark.
 
 ## Main channel surface
 
@@ -645,8 +650,10 @@ Dark:
 
 ### Styling rules
 
-- Preserve Chief's near-square geometry. Use modest radius only where it helps
-  browser/video containment or native menus.
+- Implement the shell and component styling with Tailwind utilities and the
+  existing token layer; do not add one-off authored component CSS.
+- Use Buzz-like native rounding deliberately: 16px for the continuous content
+  surface, 10–12px for menus/profile controls, and 6–8px for compact rows.
 - Avoid gratuitous gradients, glass cards, colored blobs, and dashboard-card
   mosaics.
 - Use shadows only to explain z-order: context menus, floating browser mode,
@@ -664,7 +671,8 @@ Dark:
 The main workspace panel should feel like a continuous native surface:
 
 - sidebar background extends edge to edge;
-- content surface begins beside it with a quiet border;
+- content surface begins beside it with 1–8px outer gutters, a 16px radius,
+  clipping, and a quiet border;
 - light mode may use a subtle 4px soft separation shadow;
 - dark mode uses border/contrast rather than a bright shadow;
 - the transcript, header, and composer share one background plane;
@@ -805,13 +813,16 @@ Nostr must not carry:
 
 ### Phase 1 — authored shell and themes
 
-- [ ] Add theme provider with System, Light, and Dark.
-- [ ] Replace the icon rail in the authenticated workspace with a continuous
+- [x] Add theme provider with System, Light, and Dark.
+- [x] Replace the icon rail in the authenticated workspace with a continuous
   channel sidebar.
-- [ ] Add grouped/collapsible headings and channel-like root chat projection.
-- [ ] Add honest right-click channel actions.
-- [ ] Preserve Overview as the branded home surface.
-- [ ] Keep settings, integrations, schedule, and agents reachable.
+- [x] Add grouped/collapsible product headings and channel-like root chat
+  projection.
+- [x] Add honest right-click channel actions.
+- [x] Preserve Overview as the branded home surface.
+- [x] Keep settings, integrations, schedule, and agents reachable.
+- [x] Add global collapse, back, and forward controls in the native chrome row.
+- [x] Add functional keyboard-navigable workspace search.
 
 ### Phase 2 — channel conversation treatment
 
