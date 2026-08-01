@@ -218,25 +218,21 @@ outside the desktop app without duplicating the Chief runtime.
 │ [workspace switcher]     │ Campaign planning and weekly growth work          │
 │ [search]                 ├───────────────────────────────────────────────────┤
 │                          │                                                   │
-│ HOME                     │ Chief        9:42                                 │
-│   Overview               │ Here is what changed since yesterday…             │
-│   Activity               │                                                   │
-│                          │ Analyst      9:44                                 │
-│ CHANNELS                 │ [Growth report artifact]                          │
-│   # hq                   │                                                   │
-│   # marketing       •    │ Chief is using a browser                          │
-│   # prospecting          │ [interactive browser surface]                     │
-│   # engineering     2    │                                                   │
-│                          ├───────────────────────────────────────────────────┤
-│ DIRECT MESSAGES          │ Message #marketing…                               │
-│   Chief             ◉    │ [attachments] [agent picker]              [send] │
-│   Analyst                │                                                   │
-│   Content Writer         │                                                   │
+│ Overview                 │ Here is what changed since yesterday…             │
+│ Schedule                 │                                                   │
+│ Agents                   │ Analyst      9:44                                 │
+│ Files                    │ [Growth report output]                            │
 │                          │                                                   │
-│ ARTIFACTS                │                                                   │
-│   Recent work            │                                                   │
+│ Pinned                   │ Chief is using a browser                          │
+│   # analytics            │ [interactive browser surface]                     │
 │                          │                                                   │
-│ [profile] [theme] [⚙]    │                                                   │
+│ Channels                 ├───────────────────────────────────────────────────┤
+│   # analytics       •    │ Message #advertising…                             │
+│   # advertising          │ [attachments] [agent picker]              [send] │
+│   # prospecting          │                                                   │
+│   # general         2    │                                                   │
+│                          │                                                   │
+│ [profile]                │                                                   │
 └──────────────────────────┴───────────────────────────────────────────────────┘
 ```
 
@@ -245,38 +241,32 @@ outside the desktop app without duplicating the Chief runtime.
 The refined sidebar follows the hierarchy validated in the August 1 review:
 
 1. **Organization rail**
-   - Chief home
-   - current workspace and future workspace switching
-   - compact connection state
-2. **Pinned actions**
+   - active workspace at the top, never in the footer
+   - future workspace switching in the same popover
+   - no floating runtime indicator
+2. **Primary actions**
    - functional global search with `⌘K`
-   - Overview
-   - Artifacts
-   - Schedule
-   - Agents
-   - Files
-3. **Analytics**
-   - Analytics overview
-   - analytics/reporting channels
-4. **Campaigns**
-   - Campaigns overview
-   - campaign/content channels
-5. **Prospects**
-   - Prospects overview
-   - prospecting/research channels
-6. **General**
-   - uncategorized and setup channels during the compatibility phase
-7. **Footer**
-   - profile identity
-   - runtime state
-   - appearance
-   - settings
+   - Overview, Schedule, Agents, and Files
+   - no standalone Artifacts destination
+3. **Pinned**
+   - channels dragged here expose a thin insertion indicator
+   - order and membership persist per workspace
+4. **Channels**
+   - `#analytics`
+   - `#advertising`
+   - `#prospecting`
+   - `#general`
+   - existing conversations project into one of these canonical contexts
+5. **Footer**
+   - one profile trigger with identity only
+   - settings, workspace, and appearance live in its popover
+   - no divider, runtime copy, theme button, or settings icon
 
-There are deliberately no generic “Work” or “Library” group headings. Product
-domains are the meaningful collapsible sections, and their dedicated views
-remain direct, understandable line items within those sections. The current
-title/text classifier is a compatibility projection until canonical channels
-own an explicit section ID.
+Analytics, advertising, prospecting, and general are also Chief's initial
+artifact types. They are not separate collapsible chat buckets. Executor's
+durable artifact primitive receives this Chief-owned type and appears from the
+channel and product context that produced it; there is no primary navigation
+section named “Artifacts”, “Work”, or “Library”.
 
 ### Sidebar references from Buzz
 
@@ -654,7 +644,9 @@ Dark:
   existing token layer; do not add one-off authored component CSS.
 - Use Buzz-like native rounding deliberately: 16px for the continuous content
   surface, 10–12px for menus/profile controls, and 6–8px for compact rows.
-- Avoid gratuitous gradients, glass cards, colored blobs, and dashboard-card
+- Buttons may use a barely perceptible light-to-dark tonal shift and one-pixel
+  inset highlight; if the gradient reads as a visible effect, it is too strong.
+- Avoid decorative gradients, glass cards, colored blobs, and dashboard-card
   mosaics.
 - Use shadows only to explain z-order: context menus, floating browser mode,
   and the light-mode content/sidebar separation.
@@ -816,8 +808,9 @@ Nostr must not carry:
 - [x] Add theme provider with System, Light, and Dark.
 - [x] Replace the icon rail in the authenticated workspace with a continuous
   channel sidebar.
-- [x] Add grouped/collapsible product headings and channel-like root chat
-  projection.
+- [x] Add canonical analytics, advertising, prospecting, and general channels
+  that own the legacy conversation projection.
+- [x] Add a persistent Pinned drop target with a drag insertion indicator.
 - [x] Add honest right-click channel actions.
 - [x] Preserve Overview as the branded home surface.
 - [x] Keep settings, integrations, schedule, and agents reachable.
@@ -841,13 +834,14 @@ Nostr must not carry:
 - [ ] Keep Chief host navigation/reload/close actions.
 - [ ] Verify agent-operating, waiting-for-human, and close states.
 
-### Phase 4 — Executor artifacts entry point
+### Phase 4 — Executor artifacts foundation
 
-- [ ] Upgrade Chief's Executor dependency from 1.5.34 to 1.5.37.
-- [ ] Ensure the Chief MCP session receives the default artifact surface.
-- [ ] Add a Work / Artifacts destination that can project Executor artifact
-  summaries without copying the renderer.
-- [ ] Attach created/shown artifact results to the originating conversation.
+- [x] Upgrade Chief's Executor dependency from 1.5.34 to 1.5.37.
+- [x] Ensure the Chief MCP session receives the default artifact surface.
+- [x] Type Executor outputs as analytics, advertising, prospecting, or general
+  without changing Executor's durable service contract.
+- [x] Surface typed outputs from their channel instead of primary navigation.
+- [ ] Attach created/shown output events to the exact originating conversation.
 - [ ] Document which legacy pages are candidates for convergence, with no
   destructive migration in this branch.
 
