@@ -13,14 +13,15 @@ import type {
   ActionItem,
   AnalyticsDataset,
   AnalyticsDatasetPeriod,
-  ChatExecutionSelection,
   SessionRecord,
 } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
 
+import type { ComposerImageAttachment } from "../components/chat/composer-image-attachments";
 import type { OverviewAction } from "../components/overview-presentation";
 import type { AuthOrganization } from "../lib/auth/better-auth-client";
 import { ChatComposer } from "../components/chat/chat-composer";
+import { createComposerHandoff } from "../components/chat/composer-handoff";
 import { InputRequestSection } from "../components/integrations/input-request-section";
 import {
   AnalyticsChart,
@@ -32,7 +33,6 @@ import {
   WorkspaceLearningCard,
 } from "../components/overview-presentation";
 import { PageTitle } from "../components/page-title";
-import { useAgentConfig } from "../lib/agent-config";
 import { setAgentOverride, setWorkspaceProvider } from "../lib/agent-overrides";
 import { useAuth } from "../lib/auth/auth-context";
 import {
@@ -62,7 +62,10 @@ import {
   useObservedChat,
   useWorkspaceData,
 } from "../lib/runtime";
-import { actionConversation } from "../lib/workspace-channels";
+import {
+  actionConversation,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../lib/workspace-channels";
 
 const AGENT_NAMES: Record<string, string> = {
   ads: "Ads Manager",
@@ -75,6 +78,14 @@ const AGENT_NAMES: Record<string, string> = {
 };
 
 const LEARNING_ACTION_ID = "workspace-initial-review";
+
+const OVERVIEW_MENTION_CANDIDATES = Object.entries(WORKSPACE_AGENT_IDENTITIES)
+  .filter(([id]) => id !== "setup")
+  .map(([id, identity]) => ({
+    id,
+    ...identity,
+    member: id === "cmo",
+  }));
 
 const overviewSurface =
   "bg-card rounded-2xl shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent),inset_0_1px_0_rgba(255,255,255,0.045),0_8px_24px_rgba(0,0,0,0.025)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.055),inset_0_1px_0_rgba(255,255,255,0.035)]";
@@ -222,8 +233,9 @@ export function DashboardPage() {
   const scheduleScrollRef = useRef<HTMLDivElement>(null);
   const scheduleFocusRef = useRef<HTMLButtonElement>(null);
   const [ask, setAsk] = useState("");
-  const [selectedExecution, setSelectedExecution] =
-    useState<ChatExecutionSelection | null>(null);
+  const [askAttachments, setAskAttachments] = useState<
+    ComposerImageAttachment[]
+  >([]);
   const { cloudOrganizationId, user } = useAuth();
   const [organization, setOrganization] = useState<AuthOrganization | null>(
     () => cachedAuthOrganization(cloudOrganizationId),
@@ -232,13 +244,6 @@ export function DashboardPage() {
   const [continuingChatId, setContinuingChatId] = useState<string | null>(null);
   const [analyticsIndex, setAnalyticsIndex] = useState(0);
   const [analyticsPaused, setAnalyticsPaused] = useState(false);
-  const agentConfig = useAgentConfig();
-  const chiefConfig = agentConfig.forAgent("cmo");
-  const overviewExecution =
-    selectedExecution ??
-    (chiefConfig.driver
-      ? { driver: chiefConfig.driver, model: chiefConfig.model || undefined }
-      : undefined);
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const { integrations: localIntegrations } = useLocalIntegrationStatus();
   const datasets = workspaceData.loading
@@ -810,13 +815,15 @@ export function DashboardPage() {
 
   const submit = () => {
     const text = ask.trim();
-    if (!text || !overviewExecution?.driver) return;
-    const params = new URLSearchParams({
-      channel: "general",
-      prompt: text,
-      driver: overviewExecution.driver,
+    if (!text && askAttachments.length === 0) return;
+    const handoff = createComposerHandoff({
+      text,
+      attachments: askAttachments,
     });
-    if (overviewExecution.model) params.set("model", overviewExecution.model);
+    const params = new URLSearchParams({
+      dm: "cmo",
+      handoff,
+    });
     void navigate(`/conversations?${params.toString()}`);
   };
 
@@ -1353,8 +1360,10 @@ export function DashboardPage() {
           value={ask}
           onValueChange={setAsk}
           onSubmit={submit}
-          execution={overviewExecution}
-          onExecutionChange={setSelectedExecution}
+          imageAttachments={askAttachments}
+          onImageAttachmentsChange={setAskAttachments}
+          mentionCandidates={OVERVIEW_MENTION_CANDIDATES}
+          showExecutionControls={false}
         />
       </div>
     </div>

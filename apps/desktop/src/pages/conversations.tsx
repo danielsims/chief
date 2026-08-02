@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import { Hash, PanelRightClose } from "lucide-react";
 import { useSearchParams } from "react-router";
 
@@ -15,6 +15,10 @@ import {
   UserProfilePanel,
 } from "../components/chat/agent-profile-panel";
 import { ChiefChat } from "../components/chat/chief-chat";
+import {
+  clearComposerHandoff,
+  composerHandoff,
+} from "../components/chat/composer-handoff";
 import {
   ConversationAuxiliaryPanel,
   useConversationAuxiliaryPanelSizing,
@@ -106,6 +110,8 @@ export function ConversationsPage() {
   const workspaceChannels = useWorkspaceChannels();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const [params, setParams] = useSearchParams();
+  const handoffId = params.get("handoff");
+  const initialHandoff = useMemo(() => composerHandoff(handoffId), [handoffId]);
   const panelSizing = useConversationAuxiliaryPanelSizing();
   const running = useRunningChats();
   const { agents: runtimeAgents, status: runtimeStatus } = useRuntime();
@@ -317,12 +323,17 @@ export function ConversationsPage() {
               }
               composerDate={params.get("date") ?? undefined}
               composerPlaybookId={params.get("playbook") ?? undefined}
-              initialPrompt={params.get("prompt") ?? undefined}
+              initialPrompt={
+                initialHandoff?.text ?? params.get("prompt") ?? undefined
+              }
+              initialAttachments={initialHandoff?.attachments}
               initialDraft={params.get("draft") ?? undefined}
               onInitialPromptSent={() => {
+                clearComposerHandoff(handoffId);
                 setParams(
                   (current) => {
                     const next = new URLSearchParams(current);
+                    next.delete("handoff");
                     next.delete("prompt");
                     next.delete("driver");
                     next.delete("model");
