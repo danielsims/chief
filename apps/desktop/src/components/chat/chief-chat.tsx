@@ -6,9 +6,12 @@ import type {
   ChiefMessageMetadata,
   ChiefUIMessage,
   DriverType,
+  MessageAttachment,
 } from "@chief/agent-runtime/types";
 
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
+import type { ThreadParticipant } from "./channel-message-controls";
+import type { ComposerImageAttachment } from "./composer-image-attachments";
 import type { ConversationAuxiliaryPanelSizing } from "./conversation-auxiliary-panel";
 import type { ConversationProfileSelection } from "./conversation-profile";
 import type { SchedulingDraft } from "./recurring-work-composer";
@@ -36,6 +39,10 @@ import {
   ChannelMessageActions,
   ChannelMessageMeta,
 } from "./channel-message-controls";
+import {
+  channelRecipients,
+  threadAgentAudience,
+} from "./channel-thread-audience";
 import { ChatComposer } from "./chat-composer";
 import {
   ConversationAuxiliaryPanel,
@@ -65,18 +72,21 @@ function ChiefMessage({
   onOpenProfile,
   actions,
   footer,
+  metadata,
 }: {
   children: ReactNode;
   agent?: { id: WorkspaceAgentId; name: string; role: string };
   onOpenProfile?: (selection: ConversationProfileSelection) => void;
   actions?: ReactNode;
   footer?: ReactNode;
+  metadata?: ReactNode;
 }) {
   const identity = agent ?? {
     name: "Chief",
     role: "Chief Marketing Officer",
   };
   const agentId = agent?.id ?? "cmo";
+  const resolvedMetadata = metadata === undefined ? identity.role : metadata;
   return (
     <div className="group/message relative mx-auto flex w-full max-w-3xl min-w-0 gap-3 py-2">
       {actions}
@@ -93,9 +103,11 @@ function ChiefMessage({
       <div className="min-w-0 flex-1 pt-0.5">
         <div className="mb-1 flex items-baseline gap-2">
           <strong className="text-[13px] font-semibold">{identity.name}</strong>
-          <span className="text-muted-foreground text-[10px]">
-            {identity.role}
-          </span>
+          {resolvedMetadata ? (
+            <span className="text-muted-foreground text-[10px]">
+              {resolvedMetadata}
+            </span>
+          ) : null}
         </div>
         {children}
         {footer}
@@ -145,6 +157,7 @@ export function ChiefChat({
   composerDate,
   composerPlaybookId,
   initialPrompt,
+  initialAttachments = [],
   initialDraft,
   initialDriver,
   initialModel,
@@ -169,6 +182,7 @@ export function ChiefChat({
   /** Prefilled playbook for recurring work. */
   composerPlaybookId?: string;
   initialPrompt?: string;
+  initialAttachments?: readonly MessageAttachment[];
   initialDraft?: string;
   initialDriver?: DriverType;
   initialModel?: string;
@@ -279,6 +293,10 @@ export function ChiefChat({
         })),
     [addedAgentIds, channel?.agentIds, directAgent?.id],
   );
+  const knownAgentIds = useMemo(
+    () => new Set(mentionCandidates.map((candidate) => candidate.id)),
+    [mentionCandidates],
+  );
   const mentionsIn = (text: string) => {
     const normalizedText = text.toLocaleLowerCase();
     return mentionCandidates
@@ -292,18 +310,37 @@ export function ChiefChat({
       .sort((left, right) => left.position - right.position)
       .map((mention) => mention.id);
   };
-  const send = (text: string, threadRootId?: string) => {
-    const mentions = mentionsIn(text);
+  const send = (
+    text: string,
+    threadRootId?: string,
+    inheritedThreadAudience: readonly string[] = [],
+    attachments: readonly MessageAttachment[] = [],
+  ) => {
+    const mentions = channelRecipients(
+      mentionsIn(text),
+      inheritedThreadAudience,
+      knownAgentIds,
+    );
     if (channel && mentions.length > 0) {
       setAddedAgentIds((current) => new Set([...current, ...mentions]));
     }
-    sendMessageWithContext(text, {
-      threadRootId,
-      mentions,
-    });
+    sendMessageWithContext(
+      text,
+      {
+        threadRootId,
+        mentions,
+      },
+      [...attachments],
+    );
   };
   const [draft, setDraft] = useState(initialDraft ?? "");
   const [threadDraft, setThreadDraft] = useState("");
+  const [imageAttachments, setImageAttachments] = useState<
+    ComposerImageAttachment[]
+  >([]);
+  const [threadImageAttachments, setThreadImageAttachments] = useState<
+    ComposerImageAttachment[]
+  >([]);
   const [threadRootId, setThreadRootId] = useState<string | null>(null);
 
   const selectProfile = (selection: ConversationProfileSelection) => {
@@ -364,7 +401,7 @@ export function ChiefChat({
 
   useEffect(() => {
     if (
-      initialPrompt &&
+      (initialPrompt !== undefined || initialAttachments.length > 0) &&
       !sentInitial.current &&
       driver &&
       chatReady &&
@@ -375,17 +412,17 @@ export function ChiefChat({
       const t = setTimeout(() => {
         if (sentInitial.current) return;
         sentInitial.current = true;
-        send(initialPrompt);
+        send(initialPrompt ?? "", undefined, [], initialAttachments);
         onInitialPromptSent?.();
       }, 400);
       return () => clearTimeout(t);
     }
-  }, [initialPrompt, runtimeStatus, driver, chatReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialPrompt, initialAttachments, runtimeStatus, driver, chatReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = () => {
     if (controls.status === "running" || !driver || !chatReady) return;
     const text = draft.trim();
-    if (!text) return;
+    if (!text && imageAttachments.length === 0) return;
     if (composerOpen && approveAfterCreation) {
       autoApproveRef.current = {
         submittedAt: Date.now(),
@@ -398,8 +435,9 @@ export function ChiefChat({
       autoApproveRef.current = null;
     }
     setDraft("");
+    setImageAttachments([]);
     setComposerOpen(false);
-    send(text);
+    send(text, undefined, [], imageAttachments);
   };
 
   const composeSchedule = ({
@@ -453,12 +491,27 @@ export function ChiefChat({
     }
     return replies;
   }, [messages]);
-  const activeThreadRoot = threadRootId
-    ? messages.find((message) => message.id === threadRootId)
-    : undefined;
-  const activeThreadReplies = threadRootId
-    ? (threadReplies.get(threadRootId) ?? [])
-    : [];
+  const activeThreadRoot = useMemo(
+    () =>
+      threadRootId
+        ? messages.find((message) => message.id === threadRootId)
+        : undefined,
+    [messages, threadRootId],
+  );
+  const activeThreadReplies = useMemo(
+    () => (threadRootId ? (threadReplies.get(threadRootId) ?? []) : []),
+    [threadReplies, threadRootId],
+  );
+  const activeThreadAudience = useMemo(
+    () =>
+      threadAgentAudience(
+        activeThreadRoot
+          ? [activeThreadRoot, ...activeThreadReplies]
+          : activeThreadReplies,
+        knownAgentIds,
+      ),
+    [activeThreadReplies, activeThreadRoot, knownAgentIds],
+  );
   const browserBelongsToChat = Boolean(
     browserUrl &&
     browserStatus &&
@@ -479,6 +532,18 @@ export function ChiefChat({
         (block.type !== "tool_use" ||
           specialistTasksForInput(block.input, childSessions).length > 0),
     );
+  const imageParts = (message: ChiefUIMessage): MessageAttachment[] =>
+    messageBlocks(message).flatMap((block) =>
+      block.type === "image"
+        ? [
+            {
+              name: block.name,
+              mediaType: block.mediaType,
+              url: block.url,
+            },
+          ]
+        : [],
+    );
   const controlsForMessage = (message: ChiefUIMessage) => {
     if (!channel) return {};
     const replies = threadReplies.get(message.id) ?? [];
@@ -492,6 +557,30 @@ export function ChiefChat({
     };
     const toggleReaction = (emoji: string) =>
       channelReactions.toggleReaction(message.id, emoji);
+    const participants = replies.flatMap((reply): ThreadParticipant[] => {
+      if (reply.role === "user") {
+        return [
+          {
+            id: "current-user",
+            kind: "user",
+            name: userAuthor.name,
+            ...(userAuthor.image ? { image: userAuthor.image } : {}),
+          },
+        ];
+      }
+      if (reply.role !== "assistant") return [];
+      const agent = respondingAgentFor(reply) ?? {
+        id: "cmo" as const,
+        name: "Chief",
+      };
+      return [
+        {
+          id: `agent:${agent.id}`,
+          kind: "agent",
+          name: agent.name,
+        },
+      ];
+    });
     return {
       actions: (
         <ChannelMessageActions
@@ -503,6 +592,7 @@ export function ChiefChat({
       footer: (
         <ChannelMessageMeta
           replies={replies}
+          participants={participants}
           reactions={channelReactions.reactions.get(message.id) ?? []}
           onOpenThread={openThread}
           onToggleReaction={toggleReaction}
@@ -584,6 +674,7 @@ export function ChiefChat({
               <UserMessage
                 text={optimisticInitialPrompt}
                 author={userAuthor}
+                metadata={channel ? null : undefined}
                 onOpenProfile={openUserProfile}
                 onOpenMention={openAgentMention}
               />
@@ -618,6 +709,8 @@ export function ChiefChat({
                   <div key={message.id}>
                     <UserMessage
                       author={userAuthor}
+                      attachments={imageParts(message)}
+                      metadata={channel ? null : undefined}
                       onOpenProfile={openUserProfile}
                       onOpenMention={openAgentMention}
                       {...controlsForMessage(message)}
@@ -694,6 +787,7 @@ export function ChiefChat({
                 <ChiefMessage
                   key={message.id}
                   agent={respondingAgentFor(message)}
+                  metadata={channel ? null : undefined}
                   onOpenProfile={selectProfile}
                   {...controlsForMessage(message)}
                 >
@@ -774,11 +868,14 @@ export function ChiefChat({
               value={draft}
               onValueChange={setDraft}
               onSubmit={submit}
+              imageAttachments={imageAttachments}
+              onImageAttachmentsChange={setImageAttachments}
               execution={activeExecution}
               onExecutionChange={setSelectedExecution}
               running={controls.status === "running"}
               onInterrupt={interrupt}
-              showSuggestions={!composerOpen && controls.status !== "running"}
+              showSuggestions={false}
+              showExecutionControls={!channel && !directAgent}
               mentionCandidates={channel ? mentionCandidates : []}
               placeholder={
                 directAgent
@@ -814,6 +911,8 @@ export function ChiefChat({
             {activeThreadRoot?.role === "user" ? (
               <UserMessage
                 author={userAuthor}
+                attachments={imageParts(activeThreadRoot)}
+                metadata={null}
                 onOpenProfile={openUserProfile}
                 onOpenMention={openAgentMention}
                 text={messageBlocks(activeThreadRoot)
@@ -834,6 +933,8 @@ export function ChiefChat({
                   <UserMessage
                     key={message.id}
                     author={userAuthor}
+                    attachments={imageParts(message)}
+                    metadata={null}
                     onOpenProfile={openUserProfile}
                     onOpenMention={openAgentMention}
                     text={messageBlocks(message)
@@ -869,6 +970,7 @@ export function ChiefChat({
                 <ChiefMessage
                   key={message.id}
                   agent={respondingAgentFor(message)}
+                  metadata={null}
                   onOpenProfile={selectProfile}
                 >
                   <Blocks
@@ -898,11 +1000,23 @@ export function ChiefChat({
             <ChatComposer
               value={threadDraft}
               onValueChange={setThreadDraft}
+              imageAttachments={threadImageAttachments}
+              onImageAttachmentsChange={setThreadImageAttachments}
               onSubmit={() => {
                 const text = threadDraft.trim();
-                if (!text || controls.status === "running") return;
+                if (
+                  (!text && threadImageAttachments.length === 0) ||
+                  controls.status === "running"
+                )
+                  return;
                 setThreadDraft("");
-                send(text, threadRootId);
+                setThreadImageAttachments([]);
+                send(
+                  text,
+                  threadRootId,
+                  activeThreadAudience,
+                  threadImageAttachments,
+                );
               }}
               running={controls.status === "running"}
               onInterrupt={interrupt}
