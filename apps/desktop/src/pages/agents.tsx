@@ -795,16 +795,16 @@ function PlaybooksCatalogue() {
   };
 
   return (
-    <div className="bg-card/45 grid h-full min-h-[620px] grid-cols-[300px_minmax(0,1fr)] overflow-hidden rounded-2xl shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
-      <div className="flex min-h-0 flex-col shadow-[inset_-1px_0_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
-        <div className="p-3 shadow-[inset_0_-1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
+    <div className="grid h-full min-h-[620px] grid-cols-[316px_minmax(0,1fr)] overflow-hidden">
+      <aside className="bg-muted/20 flex min-h-0 flex-col border-r border-black/[0.055] dark:border-white/[0.06]">
+        <div className="border-b border-black/[0.055] p-4 dark:border-white/[0.06]">
           <Select
             value={category}
             onValueChange={(value) =>
               selectCategory(value as PlaybookCategory | "All")
             }
           >
-            <SelectTrigger className="h-9 w-full text-xs">
+            <SelectTrigger className="bg-background h-9 w-full rounded-lg text-xs shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
               {category === "All" ? "All playbooks" : category}
             </SelectTrigger>
             <SelectContent>
@@ -819,22 +819,23 @@ function PlaybooksCatalogue() {
             </SelectContent>
           </Select>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        <div className="min-h-0 flex-1 overflow-y-auto p-2.5">
           {visible.map((playbook) => (
             <button
               key={playbook.id}
               type="button"
               onClick={() => setSelectedId(playbook.id)}
               className={cn(
-                "hover:bg-accent flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors",
-                selected.id === playbook.id && "bg-accent/80",
+                "hover:bg-accent/70 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-[background-color,box-shadow]",
+                selected.id === playbook.id &&
+                  "bg-background shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),0_1px_2px_rgba(0,0,0,0.025)]",
               )}
             >
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">
                   {playbook.title}
                 </span>
-                <span className="text-muted-foreground mt-0.5 block truncate text-xs">
+                <span className="text-muted-foreground mt-1 block truncate text-[11px]">
                   {playbook.summary}
                 </span>
               </span>
@@ -842,19 +843,19 @@ function PlaybooksCatalogue() {
             </button>
           ))}
         </div>
-      </div>
+      </aside>
 
       <article className="min-h-0 min-w-0 overflow-y-auto">
-        <div className="p-7 shadow-[inset_0_-1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
+        <header className="border-b border-black/[0.055] px-8 py-7 dark:border-white/[0.06]">
           <div className="flex flex-wrap items-start justify-between gap-5">
             <div className="min-w-0">
-              <p className="text-muted-foreground text-xs">
+              <p className="text-muted-foreground text-[11px]">
                 Playbook · {owner?.name ?? selected.agentId}
               </p>
-              <h3 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">
+              <h2 className="mt-2 text-[24px] leading-tight font-normal tracking-[-0.035em]">
                 {selected.title}
-              </h3>
-              <p className="text-muted-foreground mt-2 max-w-2xl text-sm leading-6">
+              </h2>
+              <p className="text-muted-foreground mt-2 max-w-2xl text-[13px] leading-5">
                 {selected.summary}
               </p>
             </div>
@@ -867,7 +868,7 @@ function PlaybooksCatalogue() {
               </Button>
             </div>
           </div>
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-4 pt-4 shadow-[inset_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-black/[0.05] pt-4 dark:border-white/[0.055]">
             <div className="flex min-w-0 flex-wrap items-center gap-3">
               <IntegrationAvatarStack
                 integrations={selected.integrations}
@@ -885,7 +886,7 @@ function PlaybooksCatalogue() {
               Check setup
             </button>
           </div>
-        </div>
+        </header>
         <PlaybookDocument playbook={selected} />
       </article>
     </div>
@@ -1198,7 +1199,7 @@ export function AgentsPage() {
               </section>
             )
           ) : (
-            <div className="h-full p-6">
+            <div className="h-full">
               <PlaybooksCatalogue />
             </div>
           )}
