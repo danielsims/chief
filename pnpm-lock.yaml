@@ -90,6 +90,9 @@ importers:
       "@emoji-mart/data":
         specifier: ^1.2.1
         version: 1.2.1
+      "@emoji-mart/react":
+        specifier: ^1.1.1
+        version: 1.1.1(emoji-mart@5.6.0)(react@19.2.7)
       "@lobehub/icons":
         specifier: ^5.10.1
         version: 5.10.1(@lobehub/ui@5.19.2)(@types/react@19.2.17)(antd@6.5.0(luxon@3.7.2)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -126,6 +129,9 @@ importers:
       "@tiptap/core":
         specifier: ^2.27.2
         version: 2.27.2(@tiptap/pm@2.27.2)
+      "@tiptap/extension-link":
+        specifier: ^2.27.2
+        version: 2.27.2(@tiptap/core@2.27.2(@tiptap/pm@2.27.2))(@tiptap/pm@2.27.2)
       "@tiptap/extension-placeholder":
         specifier: ^2.27.2
         version: 2.27.2(@tiptap/core@2.27.2(@tiptap/pm@2.27.2))(@tiptap/pm@2.27.2)
@@ -156,6 +162,9 @@ importers:
       convex:
         specifier: ^1.31.6
         version: 1.42.1(react@19.2.7)
+      emoji-mart:
+        specifier: ^5.6.0
+        version: 5.6.0
       lucide-react:
         specifier: ^0.525.0
         version: 0.525.0(react@19.2.7)
@@ -6843,6 +6852,15 @@ packages:
     peerDependencies:
       "@tiptap/core": ^2.7.0
 
+  "@tiptap/extension-link@2.27.2":
+    resolution:
+      {
+        integrity: sha512-bnP61qkr0Kj9Cgnop1hxn2zbOCBzNtmawxr92bVTOE31fJv6FhtCnQiD6tuPQVGMYhcmAj7eihtvuEMFfqEPcQ==,
+      }
+    peerDependencies:
+      "@tiptap/core": ^2.7.0
+      "@tiptap/pm": ^2.7.0
+
   "@tiptap/extension-list-item@2.27.2":
     resolution:
       {
@@ -11821,6 +11839,12 @@ packages:
     resolution:
       {
         integrity: sha512-ONTm2jCMAVZjgQa/Fy1kScXsuOoF5NPTsoFBdE1KVIZ2vAh/r9+Bqo+0jINCBYnavTPQZz38QzFTme79ENoN3Q==,
+      }
+
+  linkifyjs@4.3.3:
+    resolution:
+      {
+        integrity: sha512-P8aEP5U/D1/IlTY2OeYsErdwh9bGuLE30NcXtKEjgdHcahveQoQwM2yZNsioQHsWFz0P7KKudisbrzCgR0sDHg==,
       }
 
   lint-staged@17.0.8:
@@ -19548,6 +19572,12 @@ snapshots:
     dependencies:
       "@tiptap/core": 2.27.2(@tiptap/pm@2.27.2)
 
+  "@tiptap/extension-link@2.27.2(@tiptap/core@2.27.2(@tiptap/pm@2.27.2))(@tiptap/pm@2.27.2)":
+    dependencies:
+      "@tiptap/core": 2.27.2(@tiptap/pm@2.27.2)
+      "@tiptap/pm": 2.27.2
+      linkifyjs: 4.3.3
+
   "@tiptap/extension-list-item@2.27.2(@tiptap/core@2.27.2(@tiptap/pm@2.27.2))":
     dependencies:
       "@tiptap/core": 2.27.2(@tiptap/pm@2.27.2)
@@ -23126,6 +23156,8 @@ snapshots:
   linkify-it@5.0.2:
     dependencies:
       uc.micro: 2.1.0
+
+  linkifyjs@4.3.3: {}
 
   lint-staged@17.0.8:
     dependencies:

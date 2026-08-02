@@ -12,6 +12,12 @@ interface TextSegment {
   value: string;
 }
 
+export interface AgentMentionRemoval {
+  value: string;
+  selectionStart: number;
+  selectionEnd: number;
+}
+
 const AGENT_IDS_BY_NAME = new Map(
   Object.entries(WORKSPACE_AGENT_IDENTITIES).map(([agentId, identity]) => [
     identity.name.toLocaleLowerCase(),
@@ -52,4 +58,33 @@ export function splitAgentMentions(
     segments.push({ type: "text", value: text.slice(cursor) });
   }
   return segments.length > 0 ? segments : [{ type: "text", value: text }];
+}
+
+export function removeAgentMentionBeforeCaret(
+  text: string,
+  selectionStart: number,
+  selectionEnd: number,
+): AgentMentionRemoval | undefined {
+  if (selectionStart !== selectionEnd || selectionStart <= 0) return undefined;
+
+  const hasInsertedSpacer = text[selectionStart - 1] === " ";
+  const mentionEnd = hasInsertedSpacer ? selectionStart - 1 : selectionStart;
+
+  for (const match of text.matchAll(AGENT_MENTION_PATTERN)) {
+    const matchStart = match.index;
+    const matchEnd = matchStart + match[0].length;
+    if (matchEnd !== mentionEnd) continue;
+
+    const removalEnd = hasInsertedSpacer
+      ? selectionStart
+      : text[selectionStart] === " "
+        ? selectionStart + 1
+        : selectionStart;
+    return {
+      value: `${text.slice(0, matchStart)}${text.slice(removalEnd)}`,
+      selectionStart: matchStart,
+      selectionEnd: matchStart,
+    };
+  }
+  return undefined;
 }
