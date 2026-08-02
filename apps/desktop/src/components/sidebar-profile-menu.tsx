@@ -25,6 +25,11 @@ export function SidebarProfileMenu() {
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
   const [workspaceMenuId, setWorkspaceMenuId] = useState<string | null>(null);
 
+  const setProfileMenuOpen = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) setWorkspaceMenuId(null);
+  };
+
   useEffect(() => {
     if (!isAuthenticated) return;
     let cancelled = false;
@@ -49,7 +54,7 @@ export function SidebarProfileMenu() {
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setProfileMenuOpen}>
       <PopoverTrigger
         aria-label="Account and workspaces"
         className="group/profile hover:bg-sidebar-accent/70 data-[state=open]:bg-sidebar-accent/70 flex w-full min-w-0 items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors"
@@ -137,7 +142,7 @@ export function SidebarProfileMenu() {
                     <button
                       type="button"
                       onClick={() => {
-                        setOpen(false);
+                        setProfileMenuOpen(false);
                         void navigate("/settings/workspace");
                       }}
                       className="hover:bg-accent flex h-9 w-full items-center rounded-lg px-2 text-left text-xs transition-colors"
@@ -158,7 +163,7 @@ export function SidebarProfileMenu() {
                   <button
                     type="button"
                     onClick={() => {
-                      setOpen(false);
+                      setProfileMenuOpen(false);
                       void navigate("/workspaces/new");
                     }}
                     className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
@@ -175,7 +180,7 @@ export function SidebarProfileMenu() {
         <button
           type="button"
           onClick={() => {
-            setOpen(false);
+            setProfileMenuOpen(false);
             void navigate("/settings");
           }}
           className="hover:bg-accent focus:bg-accent flex h-9 w-full items-center rounded-lg px-2 text-left text-xs font-medium transition-colors outline-none"
