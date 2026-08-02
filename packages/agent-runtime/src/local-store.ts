@@ -227,6 +227,13 @@ function eventMessage(event: AgentEvent) {
 function uiParts(blocks: ContentBlock[]): ChiefUIMessage["parts"] {
   return blocks.map((block): ChiefUIMessage["parts"][number] => {
     switch (block.type) {
+      case "image":
+        return {
+          type: "file",
+          mediaType: block.mediaType,
+          filename: block.name,
+          url: block.url,
+        };
       case "thinking":
         return { type: "reasoning", text: block.thinking };
       case "tool_use":
@@ -257,6 +264,16 @@ function uiParts(blocks: ContentBlock[]): ChiefUIMessage["parts"] {
 function contentBlocks(parts: ChiefUIMessage["parts"]): ContentBlock[] {
   return parts.flatMap((part): ContentBlock[] => {
     if (part.type === "text") return [{ type: "text", text: part.text }];
+    if (part.type === "file" && part.mediaType.startsWith("image/")) {
+      return [
+        {
+          type: "image",
+          name: part.filename ?? "Image",
+          mediaType: part.mediaType,
+          url: part.url,
+        },
+      ];
+    }
     if (part.type === "reasoning") {
       return [{ type: "thinking", thinking: part.text }];
     }

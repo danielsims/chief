@@ -12,6 +12,8 @@ const cmo: AgentDefinition = {
   description: "Runs marketing work.",
   instructions: "Run the requested work.",
 };
+const tinyPng =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
 void test("a fresh local provider receives normalized history without persisting the wrapper", async () => {
   const history: AgentEvent[] = [
@@ -202,4 +204,71 @@ void test("recorded channel membership retains its durable UI action", () => {
     actorName: "Daniel Sims",
     agentIds: ["analyst"],
   });
+});
+
+void test("an attached image is materialized for the agent to inspect", async () => {
+  const session = new AgentSession(cmo, "image-chat", {
+    driver: "codex",
+    access: "guarded",
+    workspaceId: "workspace",
+  });
+  const prompts: string[] = [];
+  const driver = {
+    start: async () => Promise.resolve(),
+    sendPrompt: async (prompt: string) => {
+      prompts.push(prompt);
+      await Promise.resolve();
+    },
+  };
+  (session as unknown as { driver: typeof driver }).driver = driver;
+  await session.start("/tmp");
+
+  await session.sendPrompt("What is this?", "image-message", true, {
+    mentions: ["cmo"],
+    attachments: [
+      { name: "reference.png", mediaType: "image/png", url: tinyPng },
+    ],
+  });
+
+  assert.match(prompts[0] ?? "", /inspect these files/u);
+  assert.match(
+    prompts[0] ?? "",
+    /reference\.png: \/tmp\/\.message-attachments\/.*\.png/u,
+  );
+  const event = session.events.at(-1);
+  if (event?.type !== "message") assert.fail("Expected an image message.");
+  assert.equal(event.content.at(-1)?.type, "image");
+});
+
+void test("a later agent reply receives images from the current thread", async () => {
+  const session = new AgentSession(cmo, "thread-image-chat", {
+    driver: "codex",
+    access: "guarded",
+    workspaceId: "workspace",
+  });
+  session.recordUserMessage("What is this?", "thread-root", {
+    attachments: [{ name: "thread.png", mediaType: "image/png", url: tinyPng }],
+  });
+  const prompts: string[] = [];
+  const driver = {
+    start: async () => Promise.resolve(),
+    sendPrompt: async (prompt: string) => {
+      prompts.push(prompt);
+      await Promise.resolve();
+    },
+  };
+  (session as unknown as { driver: typeof driver }).driver = driver;
+  await session.start("/tmp");
+
+  await session.sendPrompt("@Chief please take a look", "thread-reply", true, {
+    threadRootId: "thread-root",
+    mentions: ["cmo"],
+  });
+
+  assert.match(prompts[0] ?? "", /Current channel thread context/u);
+  assert.match(
+    prompts[0] ?? "",
+    /thread\.png: \/tmp\/\.message-attachments\/.*\.png/u,
+  );
+  assert.match(prompts[0] ?? "", /What is this\?/u);
 });

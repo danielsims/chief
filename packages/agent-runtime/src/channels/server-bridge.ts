@@ -300,7 +300,7 @@ export function channelInstructions(
     `You are working in Chief's shared #${channel.name} channel (${channel.id}).`,
     `The channel follows NIP-29 semantics and is shared with the user and these member agents: ${channel.agentIds.join(", ")}.`,
     "Treat its durable transcript as shared context. Delegate to the relevant member agent when specialist ownership helps, preserve the user's conversational thread, and bring the useful result back into this same channel.",
-    "Ordinary channel posts are shared context and do not require an agent response. When your identity is explicitly mentioned, answer directly as yourself in that message's thread.",
+    "Ordinary channel posts are shared context and do not require an agent response. When your identity is addressed, answer directly as yourself in that message's thread. After the user explicitly addresses you in a thread, their subsequent replies in that thread may remain routed to you without repeating the textual @mention; treat recipient metadata as the wake signal and keep the response in that thread.",
     "Use this agent pack's declared delegation tool so Chief can expose the specialist as an inspectable session. When localTools.specialistsDelegate is available, use it instead of provider-native or hidden background-agent features. Never imitate delegation with empty assistant messages.",
   ].join("\n\n");
 }
