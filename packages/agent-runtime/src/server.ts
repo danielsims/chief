@@ -32,6 +32,7 @@ import type {
   ExecutorCapability,
   InputRequest,
   IntegrationSetupProgress,
+  MessageAttachment,
   RuntimeNotice,
   ServerMessage,
 } from "./types.js";
@@ -138,6 +139,41 @@ function chatControlEvents(events: AgentEvent[]) {
 }
 
 const SETUP_ATTEMPT_PREFIX = "[chief-integration-setup:";
+const MESSAGE_IMAGE_TYPES = new Set([
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+function safeMessageAttachments(
+  attachments: readonly MessageAttachment[] | undefined,
+) {
+  if (!attachments?.length) return undefined;
+  if (attachments.length > 4) throw new Error("Too many attached images.");
+  let encodedBytes = 0;
+  const safe = attachments.map((attachment) => {
+    if (!MESSAGE_IMAGE_TYPES.has(attachment.mediaType)) {
+      throw new Error("Unsupported image attachment type.");
+    }
+    if (
+      !attachment.url.startsWith(`data:${attachment.mediaType};base64,`) ||
+      attachment.name.length > 240
+    ) {
+      throw new Error("Invalid image attachment.");
+    }
+    encodedBytes += attachment.url.length;
+    return {
+      name: attachment.name || "Image",
+      mediaType: attachment.mediaType,
+      url: attachment.url,
+    };
+  });
+  if (encodedBytes > 44 * 1024 * 1024) {
+    throw new Error("Attached images are too large.");
+  }
+  return safe;
+}
 
 function activeSetupAttempt(events: readonly AgentEvent[]) {
   let attemptId: string | null = null;
@@ -3266,6 +3302,7 @@ export function startServer(port = PORT) {
           case "sendMessage": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
+            const attachments = safeMessageAttachments(msg.attachments);
             const destinationId = chatDestinations.get(
               `${msg.workspaceId}\0${msg.chatId}`,
             );
@@ -3326,6 +3363,7 @@ export function startServer(port = PORT) {
             ) {
               openedSession.recordUserMessage(msg.text, msg.messageId, {
                 threadRootId: msg.threadRootId,
+                attachments,
               });
               break;
             }
@@ -3430,6 +3468,7 @@ export function startServer(port = PORT) {
               await session.sendPrompt(msg.text, msg.messageId, true, {
                 threadRootId: msg.threadRootId,
                 mentions: msg.mentions,
+                attachments,
               });
             } catch (error) {
               if (releaseOnTerminal) {

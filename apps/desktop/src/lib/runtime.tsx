@@ -34,6 +34,7 @@ import type {
   ExecutorCapability,
   InputRequest,
   IntegrationSetupProgress,
+  MessageAttachment,
   OnboardingSchedule,
   OnboardingWorkJob,
   ProspectRecord,
@@ -2336,6 +2337,16 @@ function reduceChatControls(
 export function messageBlocks(message: ChiefUIMessage): ContentBlock[] {
   return message.parts.flatMap((part): ContentBlock[] => {
     if (part.type === "text") return [{ type: "text", text: part.text }];
+    if (part.type === "file" && part.mediaType.startsWith("image/")) {
+      return [
+        {
+          type: "image",
+          name: part.filename ?? "Image",
+          mediaType: part.mediaType,
+          url: part.url,
+        },
+      ];
+    }
     if (part.type === "reasoning") {
       return [{ type: "thinking", thinking: part.text }];
     }
@@ -2439,15 +2450,27 @@ function useRuntimeChat(
     () => ({
       sendMessages: ({ messages }) => {
         const message = messages.at(-1);
-        const text = message?.parts
-          .flatMap((part) => (part.type === "text" ? [part.text] : []))
-          .join("\n")
-          .trim();
+        const text =
+          message?.parts
+            .flatMap((part) => (part.type === "text" ? [part.text] : []))
+            .join("\n")
+            .trim() ?? "";
+        const attachments = message?.parts.flatMap((part) =>
+          part.type === "file" && part.mediaType.startsWith("image/")
+            ? [
+                {
+                  name: part.filename ?? "Image",
+                  mediaType: part.mediaType,
+                  url: part.url,
+                },
+              ]
+            : [],
+        );
         if (
           mode === "open" &&
           chatId &&
           message?.role === "user" &&
-          text &&
+          (text || attachments?.length) &&
           cloudOrganizationId &&
           executorCapability
         ) {
@@ -2467,6 +2490,7 @@ function useRuntimeChat(
             chatId,
             messageId: message.id,
             text,
+            attachments,
             threadRootId: context?.threadRootId,
             mentions: context?.mentions,
             senderName: senderName?.length ? senderName : "You",
@@ -2730,9 +2754,18 @@ function useRuntimeChat(
     (
       text: string,
       context?: { threadRootId?: string; mentions?: string[] },
+      attachments?: MessageAttachment[],
     ) => {
       pendingMessageContextRef.current = context;
-      void sendMessage({ text });
+      void sendMessage({
+        text,
+        files: attachments?.map((attachment) => ({
+          type: "file" as const,
+          filename: attachment.name,
+          mediaType: attachment.mediaType,
+          url: attachment.url,
+        })),
+      });
     },
     [sendMessage],
   );

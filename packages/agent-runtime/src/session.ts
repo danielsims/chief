@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import type { BaseDriver } from "./drivers/base.js";
 import type {
@@ -9,6 +12,7 @@ import type {
   ChiefMessageMetadata,
   DriverType,
   McpServerSpec,
+  MessageAttachment,
 } from "./types.js";
 import { createDriver } from "./drivers/index.js";
 import { remoteHistoryContext } from "./drivers/remote-history.js";
@@ -41,6 +45,7 @@ export class AgentSession extends EventEmitter {
   private driver: BaseDriver;
   private status: "idle" | "running" | "waiting" | "error" = "idle";
   private promptBootstrap: string | undefined;
+  private workingDirectory: string | undefined;
   private stallTimer: NodeJS.Timeout | null = null;
   private readonly stallTimeoutMs = 6 * 60_000;
   private activeReplyContext:
@@ -142,6 +147,7 @@ export class AgentSession extends EventEmitter {
   }
 
   async start(cwd: string, resumeSessionId?: string, resumeState?: unknown) {
+    this.workingDirectory = cwd;
     if (!resumeSessionId && this.config.driver !== "remote") {
       this.promptBootstrap = remoteHistoryContext(this.events);
     }
@@ -165,15 +171,31 @@ export class AgentSession extends EventEmitter {
     text: string,
     messageId?: string,
     record = true,
-    context?: { threadRootId?: string; mentions?: string[] },
+    context?: {
+      threadRootId?: string;
+      mentions?: string[];
+      attachments?: MessageAttachment[];
+    },
   ) {
+    const threadContext = context?.threadRootId
+      ? await this.threadPromptContext(context.threadRootId)
+      : undefined;
+    const attachmentContext = await this.attachmentPromptContext(
+      context?.attachments,
+    );
     // Record the user turn as an event so reconnecting clients can rebuild
     // the full transcript from the buffer.
     const event: AgentEvent = {
       type: "message",
       id: messageId,
       role: "user",
-      content: [{ type: "text", text }],
+      content: [
+        ...(text ? [{ type: "text" as const, text }] : []),
+        ...(context?.attachments ?? []).map((attachment) => ({
+          type: "image" as const,
+          ...attachment,
+        })),
+      ],
       threadRootId: context?.threadRootId,
       mentions: context?.mentions,
     };
@@ -191,9 +213,12 @@ export class AgentSession extends EventEmitter {
     const bootstrap = record ? this.promptBootstrap : undefined;
     this.promptBootstrap = undefined;
     try {
-      const routedText = context?.mentions?.length
-        ? `[Channel recipient routing: you are replying because these agent identities were explicitly mentioned: ${context.mentions.join(", ")}. Reply directly as your configured persona.\n\n${text}`
+      const addressedText = context?.mentions?.length
+        ? `[Channel recipient routing: this message is addressed to these agent identities: ${context.mentions.join(", ")}. The user may have mentioned them in this message or continued an already-addressed thread. Reply directly as your configured persona.]\n\n${text}`
         : text;
+      const routedText = [threadContext, addressedText, attachmentContext]
+        .filter(Boolean)
+        .join("\n\n");
       await this.driver.sendPrompt(
         bootstrap
           ? `${bootstrap}\n\nContinue the conversation with this new user message:\n\n${routedText}`
@@ -206,12 +231,79 @@ export class AgentSession extends EventEmitter {
     }
   }
 
+  private async attachmentPromptContext(
+    attachments: readonly MessageAttachment[] | undefined,
+  ) {
+    if (!attachments?.length || !this.workingDirectory) return undefined;
+    const directory = join(this.workingDirectory, ".message-attachments");
+    await mkdir(directory, { recursive: true });
+    const paths = await Promise.all(
+      attachments.map(async (attachment) => {
+        const extension =
+          attachment.mediaType === "image/png"
+            ? "png"
+            : attachment.mediaType === "image/webp"
+              ? "webp"
+              : attachment.mediaType === "image/gif"
+                ? "gif"
+                : "jpg";
+        const content = attachment.url.slice(attachment.url.indexOf(",") + 1);
+        const digest = createHash("sha256")
+          .update(content)
+          .digest("hex")
+          .slice(0, 20);
+        const path = join(directory, `${digest}.${extension}`);
+        await writeFile(path, Buffer.from(content, "base64"));
+        return `${attachment.name}: ${path}`;
+      }),
+    );
+    return `[Attached images — inspect these files with your image-reading tools before answering:\n${paths.map((path) => `- ${path}`).join("\n")}]`;
+  }
+
+  private async threadPromptContext(threadRootId: string) {
+    const messages = this.events
+      .filter(
+        (event): event is Extract<AgentEvent, { type: "message" }> =>
+          event.type === "message" &&
+          (event.id === threadRootId || event.threadRootId === threadRootId),
+      )
+      .slice(-20);
+    if (messages.length === 0) return undefined;
+    const lines: string[] = [];
+    for (const message of messages) {
+      const text = message.content
+        .flatMap((block) => (block.type === "text" ? [block.text] : []))
+        .join("\n")
+        .trim();
+      const attachments = message.content.flatMap((block) =>
+        block.type === "image"
+          ? [
+              {
+                name: block.name,
+                mediaType: block.mediaType,
+                url: block.url,
+              },
+            ]
+          : [],
+      );
+      const imageContext = await this.attachmentPromptContext(attachments);
+      const content = [text, imageContext].filter(Boolean).join("\n");
+      if (content) {
+        lines.push(`${message.role === "user" ? "User" : "Agent"}: ${content}`);
+      }
+    }
+    return lines.length
+      ? `[Current channel thread context:\n${lines.join("\n\n")}]`
+      : undefined;
+  }
+
   recordUserMessage(
     text: string,
     id?: string,
     context?: {
       threadRootId?: string;
       mentions?: string[];
+      attachments?: MessageAttachment[];
       channelAction?: ChiefMessageMetadata["channelAction"];
     },
   ) {
@@ -219,7 +311,13 @@ export class AgentSession extends EventEmitter {
       type: "message",
       id,
       role: "user",
-      content: [{ type: "text", text }],
+      content: [
+        ...(text ? [{ type: "text" as const, text }] : []),
+        ...(context?.attachments ?? []).map((attachment) => ({
+          type: "image" as const,
+          ...attachment,
+        })),
+      ],
       threadRootId: context?.threadRootId,
       mentions: context?.mentions,
       channelAction: context?.channelAction,

@@ -217,8 +217,15 @@ export type GenerativeDocumentBlock = Extract<
   { type: "data-document" }
 >;
 
+export interface MessageAttachment {
+  name: string;
+  mediaType: string;
+  url: string;
+}
+
 export type ContentBlock =
   | { type: "text"; text: string }
+  | ({ type: "image" } & MessageAttachment)
   | { type: "thinking"; thinking: string }
   | GenerativeChartBlock
   | GenerativeTableBlock
@@ -855,6 +862,7 @@ export type ClientMessage =
       chatId: string;
       messageId: string;
       text: string;
+      attachments?: MessageAttachment[];
       threadRootId?: string;
       mentions?: string[];
       senderName?: string;
