@@ -70,6 +70,10 @@ import {
   applyOptimisticChannelReaction,
   foldChannelReactions,
 } from "./channel-reactions";
+import {
+  channelEventSourceId,
+  channelEventThreadRootId,
+} from "./channel-read-state";
 import { navigateApp, notifySystem } from "./notifications";
 import {
   deduplicateDocumentParts,
@@ -2719,6 +2723,7 @@ function useRuntimeChat(
   wakeOnMentionOnly = false,
 ) {
   const { client, status: runtimeStatus } = useRuntime();
+  const channelEvents = useChannelEvents(channelId ?? null);
   const { user } = useAuth();
   const senderName = user?.name.trim();
   const {
@@ -3096,8 +3101,51 @@ function useRuntimeChat(
     [sendMessage],
   );
 
+  const visibleMessages = useMemo(() => {
+    if (!channelId || channelEvents.length === 0) return messages;
+    const sourceIdsByEventId = new Map(
+      channelEvents.flatMap((event) => {
+        const sourceId = channelEventSourceId(event);
+        return sourceId ? [[event.id, sourceId] as const] : [];
+      }),
+    );
+    const persistedIds = new Set(messages.map((message) => message.id));
+    const durableMessages = channelEvents.flatMap((event): ChiefUIMessage[] => {
+      if (event.kind !== 9) return [];
+      const id = channelEventSourceId(event) ?? event.id;
+      if (
+        id.endsWith("-welcome") ||
+        persistedIds.has(id) ||
+        !event.content.trim()
+      ) {
+        return [];
+      }
+      const protocolRootId = channelEventThreadRootId(event);
+      return [
+        {
+          id,
+          role: event.actor.type === "user" ? "user" : "assistant",
+          parts: [{ type: "text", text: event.content }],
+          metadata: {
+            createdAt: event.createdAt,
+            ...(protocolRootId
+              ? {
+                  threadRootId:
+                    sourceIdsByEventId.get(protocolRootId) ?? protocolRootId,
+                }
+              : {}),
+          },
+        },
+      ];
+    });
+    return [...messages, ...durableMessages].sort(
+      (left, right) =>
+        (left.metadata?.createdAt ?? 0) - (right.metadata?.createdAt ?? 0),
+    );
+  }, [channelEvents, channelId, messages]);
+
   return {
-    messages,
+    messages: visibleMessages,
     controls,
     sendMessage,
     sendMessageWithContext,
