@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus } from "lucide-react";
-import { useNavigate } from "react-router";
 
 import {
   Tooltip,
@@ -20,7 +18,6 @@ import { activeFirstOrganizations } from "../lib/workspace-organizations";
 import { OrgLogo } from "./org-logo";
 
 export function WorkspaceRail() {
-  const navigate = useNavigate();
   const { cloudOrganizationId, isAuthenticated } = useAuth();
   const [organizations, setOrganizations] = useState<AuthOrganization[] | null>(
     null,
@@ -66,7 +63,7 @@ export function WorkspaceRail() {
   return (
     <nav
       aria-label="Workspaces"
-      className="bg-sidebar relative z-50 flex w-12 shrink-0 flex-col items-center pb-3"
+      className="bg-sidebar relative z-50 flex w-12 shrink-0 flex-col items-center"
     >
       <div className="h-10 shrink-0" data-tauri-drag-region />
       <div className="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto px-1.5">
@@ -109,6 +106,8 @@ export function WorkspaceRail() {
                         : ""
                     }
                     className="size-full rounded-[inherit] text-sm"
+                    imgClassName="object-contain"
+                    transparentWhenLoaded
                   />
                 </button>
               </TooltipTrigger>
@@ -120,20 +119,6 @@ export function WorkspaceRail() {
           );
         })}
       </div>
-      <div className="bg-sidebar-border my-2 h-px w-5 shrink-0" />
-      <Tooltip delayDuration={0}>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label="Create workspace"
-            onClick={() => navigate("/workspaces/new")}
-            className="text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex size-9 shrink-0 items-center justify-center rounded-[13px] border border-dashed border-current/20 transition-all hover:rounded-[10px]"
-          >
-            <Plus size={14} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="right">Create workspace</TooltipContent>
-      </Tooltip>
     </nav>
   );
 }

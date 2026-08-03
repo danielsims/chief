@@ -18,12 +18,14 @@ export function OrgLogo({
   website,
   className,
   imgClassName,
+  transparentWhenLoaded = false,
 }: {
   name: string;
   logo?: string | null;
   website?: string | null;
   className?: string;
   imgClassName?: string;
+  transparentWhenLoaded?: boolean;
 }) {
   const candidates = useMemo(() => {
     const siteCandidates = faviconCandidates(website ?? "");
@@ -75,8 +77,12 @@ export function OrgLogo({
   return (
     <span
       className={cn(
-        "relative flex items-center justify-center overflow-hidden border",
-        loaded ? "bg-transparent" : "bg-accent",
+        "relative flex items-center justify-center overflow-hidden",
+        loaded && transparentWhenLoaded
+          ? "border border-transparent bg-transparent"
+          : loaded
+            ? "border bg-transparent"
+            : "bg-accent border",
         className,
       )}
     >
