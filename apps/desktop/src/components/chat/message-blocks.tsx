@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { ArrowRight, ChevronDown } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, LoaderCircle, X } from "lucide-react";
 
 import type {
   AgentCapabilityId,
@@ -10,49 +10,21 @@ import { cn } from "@chief/ui/lib/utils";
 
 import { renderGenerativePart } from "../generative-ui/registry";
 import { executorToolLabel } from "./executor-tool-label";
+import {
+  INLINE_RESULT_CARD_CLASS,
+  INLINE_RESULT_ICON_CLASS,
+} from "./inline-result-card";
 import { specialistTasksForInput } from "./specialist-task-display";
 import { StreamingMarkdown } from "./streaming-markdown";
 
 const MAX_RESULT_CHARS = 3000;
-const AGENT_ACTIVITY_STYLES: Record<string, string> = {
-  brand: "text-sky-500 dark:text-sky-300",
-  content: "text-amber-500 dark:text-amber-300",
-  analyst: "text-emerald-500 dark:text-emerald-300",
-  prospector: "text-violet-500 dark:text-violet-300",
-  ads: "text-rose-500 dark:text-rose-300",
-};
-const SPECIALIST_SIGNAL_PIXELS = [
-  "top-0 left-1/2 -translate-x-1/2 opacity-100",
-  "top-px right-px opacity-80",
-  "top-1/2 right-0 -translate-y-1/2 opacity-65",
-  "right-px bottom-px opacity-50",
-  "bottom-0 left-1/2 -translate-x-1/2 opacity-35",
-  "bottom-px left-px opacity-25",
-  "top-1/2 left-0 -translate-y-1/2 opacity-15",
-  "top-px left-px opacity-10",
-] as const;
-
-function SpecialistActivity({ agentId }: { agentId: string }) {
+function SpecialistActivity() {
   return (
-    <span
-      aria-hidden
-      className={cn(
-        "bg-background/80 relative flex size-8 shrink-0 items-center justify-center rounded-lg shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_70%,transparent)]",
-        AGENT_ACTIVITY_STYLES[agentId] ?? "text-blue-500 dark:text-blue-300",
-      )}
-    >
-      <span className="relative size-4 animate-[spin_1.15s_steps(8,end)_infinite] motion-reduce:animate-none">
-        {SPECIALIST_SIGNAL_PIXELS.map((className) => (
-          <i
-            key={className}
-            className={cn(
-              "absolute size-[3px] rounded-[1px] bg-current",
-              className,
-            )}
-          />
-        ))}
-      </span>
-      <i className="absolute size-0.5 rounded-[1px] bg-current opacity-20" />
+    <span aria-hidden className={INLINE_RESULT_ICON_CLASS}>
+      <LoaderCircle
+        className="animate-spin motion-reduce:animate-none"
+        size={15}
+      />
     </span>
   );
 }
@@ -197,19 +169,17 @@ function ToolCard({
       <button
         type="button"
         onClick={() => onOpenTask?.(task.id)}
-        className="bg-muted/45 hover:bg-muted/60 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-xs shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_65%,transparent)] transition-colors"
+        className={cn(INLINE_RESULT_CARD_CLASS, "text-xs")}
       >
         {running ? (
-          <SpecialistActivity agentId={task.agent} />
+          <SpecialistActivity />
         ) : (
-          <span
-            className={cn(
-              "bg-background flex size-8 shrink-0 items-center justify-center rounded-lg shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]",
-              task.status === "completed" && "text-emerald-500",
-              task.status === "failed" && "text-red-500",
+          <span className={INLINE_RESULT_ICON_CLASS}>
+            {task.status === "completed" ? (
+              <Check aria-hidden size={15} />
+            ) : (
+              <X aria-hidden className="text-destructive" size={15} />
             )}
-          >
-            <span className="size-1.5 rounded-full bg-current opacity-80" />
           </span>
         )}
         <span className="min-w-0 flex-1">

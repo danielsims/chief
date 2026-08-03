@@ -2,8 +2,13 @@ import { FileText, Mail, MoveUpRight } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import type { GenerativeDocumentBlock } from "@chief/agent-runtime/types";
+import { cn } from "@chief/ui/lib/utils";
 
 import type { GenerativePartRenderer } from "../types";
+import {
+  INLINE_RESULT_CARD_CLASS,
+  INLINE_RESULT_ICON_CLASS,
+} from "../../chat/inline-result-card";
 
 function DocumentPart({ part }: { part: GenerativeDocumentBlock }) {
   const navigate = useNavigate();
@@ -12,15 +17,13 @@ function DocumentPart({ part }: { part: GenerativeDocumentBlock }) {
     <button
       type="button"
       onClick={() => navigate(`/files/${encodeURIComponent(part.data.fileId)}`)}
-      className="bg-card/50 hover:bg-card flex w-full items-center gap-3 border px-4 py-3 text-left transition-colors"
+      className={cn(INLINE_RESULT_CARD_CLASS, "text-xs")}
     >
-      <span className="bg-background flex size-9 shrink-0 items-center justify-center border">
+      <span className={INLINE_RESULT_ICON_CLASS}>
         <Icon size={15} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">
-          {part.data.title}
-        </span>
+        <span className="block truncate font-medium">{part.data.title}</span>
         <span className="text-muted-foreground mt-0.5 block truncate font-mono text-[10px]">
           {part.data.path}
         </span>
