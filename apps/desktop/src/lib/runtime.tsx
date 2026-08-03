@@ -85,6 +85,10 @@ import { emptyWorkspaceData, normalizeWorkspaceData } from "./workspace-data";
 const RUNTIME_URL = "ws://localhost:4318";
 const EXECUTOR_CAPABILITY_PREFIX = "chief:executor-capability:";
 const workspaceCapabilityCache = new Map<string, ExecutorCapability>();
+const workspaceCapabilityRegistrations = new Map<
+  string,
+  Promise<ExecutorCapability>
+>();
 const EMPTY_SETUP_PROGRESS: Readonly<Record<string, IntegrationSetupProgress>> =
   {};
 
@@ -124,18 +128,36 @@ export function useWorkspaceCapability() {
     if (cached) {
       setCapability(cached);
       setError(null);
-      return;
+    } else {
+      setCapability(null);
+      setError(null);
     }
 
     let cancelled = false;
     let retryTimer: number | undefined;
-    setCapability(null);
-    setError(null);
     const token = workspaceCapabilityToken(cloudOrganizationId);
-    void registerCapability({ token })
-      .then(({ apiBaseUrl }) => {
+    let registration =
+      workspaceCapabilityRegistrations.get(cloudOrganizationId);
+    if (!registration) {
+      registration = registerCapability({ token }).then(({ apiBaseUrl }) => ({
+        apiBaseUrl,
+        token,
+      }));
+      workspaceCapabilityRegistrations.set(cloudOrganizationId, registration);
+      void registration
+        .finally(() => {
+          if (
+            workspaceCapabilityRegistrations.get(cloudOrganizationId) ===
+            registration
+          ) {
+            workspaceCapabilityRegistrations.delete(cloudOrganizationId);
+          }
+        })
+        .catch(() => undefined);
+    }
+    void registration
+      .then((next) => {
         if (cancelled) return;
-        const next = { apiBaseUrl, token };
         workspaceCapabilityCache.set(cloudOrganizationId, next);
         setCapability(next);
         setRetryAttempt(0);

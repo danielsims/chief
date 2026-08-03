@@ -1348,6 +1348,7 @@ export function startServer(port = PORT) {
           "content-type": "text/plain",
           "cache-control": "no-store",
           "x-chief-runtime": "ready",
+          "x-chief-runtime-protocol": "2",
         });
         res.end("chief-runtime-ready");
       } catch {
