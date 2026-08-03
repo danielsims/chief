@@ -436,7 +436,7 @@ export function AnalyticsPage() {
   return (
     <div className="-mx-8 -mb-8 min-h-[calc(100vh-48px)]">
       <div className="border-b px-8 pt-4 pb-0">
-        <h1 className="font-serif text-3xl">Analytics</h1>
+        <h1 className="text-3xl font-normal">Analytics</h1>
         <div className="mt-5 flex items-center gap-5">
           {tabs.map((item) => (
             <button

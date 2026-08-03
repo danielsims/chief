@@ -119,7 +119,7 @@
 .chief-document-editor h2,
 .chief-document-editor h3 {
   margin: 1.7em 0 0.55em;
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-weight: 400;
   letter-spacing: -0.02em;
   line-height: 1.2;

@@ -80,7 +80,7 @@ export function ArtifactsPage() {
     <div className="mx-auto w-full max-w-[1180px] pt-5 pb-20">
       <header className="flex items-end justify-between gap-6 border-b pb-6">
         <div>
-          <h1 className="font-serif text-[34px] leading-none tracking-[-0.035em]">
+          <h1 className="text-[34px] leading-none font-normal tracking-[-0.035em]">
             Created work
           </h1>
           <p className="text-muted-foreground mt-3 max-w-xl text-sm leading-6">
@@ -162,7 +162,7 @@ export function ArtifactsPage() {
             <span className="bg-card mx-auto flex size-11 items-center justify-center rounded-xl border">
               <LayoutTemplate size={18} className="text-muted-foreground" />
             </span>
-            <h2 className="mt-5 font-serif text-2xl">
+            <h2 className="mt-5 text-2xl font-normal">
               Made in the work, not in a builder
             </h2>
             <p className="text-muted-foreground mt-2 text-sm leading-6">

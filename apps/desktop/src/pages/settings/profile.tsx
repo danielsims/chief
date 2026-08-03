@@ -96,7 +96,7 @@ export function ProfileSettings() {
                 className="h-full w-full object-cover"
               />
             ) : (
-              <span className="translate-y-[0.055em] font-serif text-lg leading-none">
+              <span className="translate-y-[0.055em] text-lg leading-none font-normal">
                 {(user.name || user.email).charAt(0).toUpperCase()}
               </span>
             )}

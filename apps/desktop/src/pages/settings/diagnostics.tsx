@@ -230,7 +230,7 @@ function SessionDetails({
           <p className="text-muted-foreground font-mono text-[10px] break-all">
             {session.id}
           </p>
-          <h3 className="mt-1 font-serif text-2xl">{session.title}</h3>
+          <h3 className="mt-1 text-2xl font-normal">{session.title}</h3>
         </div>
         <span className="flex items-center gap-2 border px-2 py-1 text-[10px] uppercase">
           <span className={cn("size-1.5", statusTone(session.status))} />

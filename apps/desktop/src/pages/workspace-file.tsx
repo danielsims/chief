@@ -38,7 +38,7 @@ export function WorkspaceFilePage() {
   if (!file) {
     return (
       <div className="mx-auto max-w-xl py-24 text-center">
-        <p className="font-serif text-2xl">This file is unavailable</p>
+        <p className="text-2xl font-normal">This file is unavailable</p>
         <p className="text-muted-foreground mt-2 text-sm">
           It may have been removed or belongs to another workspace.
         </p>

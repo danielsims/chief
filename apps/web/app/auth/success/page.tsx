@@ -85,7 +85,7 @@ function SuccessContent() {
 
       <div className="flex flex-1 items-center justify-center px-8 pb-24">
         <div className="mx-auto flex w-full max-w-xs flex-col items-center text-center">
-          <h1 className="font-serif text-3xl leading-tight">
+          <h1 className="text-3xl leading-tight font-normal">
             {status === "polling"
               ? "Signing you in…"
               : status === "timeout"

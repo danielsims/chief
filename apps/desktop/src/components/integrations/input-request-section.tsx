@@ -98,7 +98,7 @@ export function InputRequestSection({
       </p>
       {!embedded ? (
         <>
-          <p className="mt-3 font-serif text-xl">{request.title}</p>
+          <p className="mt-3 text-xl font-normal">{request.title}</p>
           {request.reason ? (
             <p className="text-muted-foreground mt-1.5 max-w-xl text-sm leading-6">
               {request.reason}

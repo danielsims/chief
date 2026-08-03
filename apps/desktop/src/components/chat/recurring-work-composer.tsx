@@ -230,7 +230,7 @@ export function RecurringWorkComposer({
               <ArrowLeft size={13} />
               Back to playbooks
             </button>
-            <p className="font-serif text-2xl">{viewingPlaybook.title}</p>
+            <p className="text-2xl font-normal">{viewingPlaybook.title}</p>
             <p className="text-muted-foreground mt-1 text-sm">
               {viewingPlaybook.summary}
             </p>
@@ -280,7 +280,7 @@ export function RecurringWorkComposer({
     <div className="bg-card w-full border p-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="font-serif text-2xl">
+          <p className="text-2xl font-normal">
             {oneOff ? "Schedule a task" : "Schedule recurring work"}
           </p>
           <p className="text-muted-foreground mt-1 text-sm">

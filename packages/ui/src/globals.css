@@ -1,6 +1,5 @@
 @import "tailwindcss";
 @import "@fontsource-variable/geist";
-@import "@fontsource-variable/newsreader";
 
 /*
  * Chief design tokens.
@@ -105,7 +104,6 @@
   --color-sidebar-border: var(--sidebar-border);
 
   --font-sans: "Geist Variable", system-ui, sans-serif;
-  --font-serif: "Newsreader Variable", Georgia, serif;
   --font-mono: "Geist Variable", monospace;
 
   --radius: 0.625rem;
