@@ -12,6 +12,7 @@ import {
   AgentProfilePanel,
   UserProfilePanel,
 } from "../components/chat/agent-profile-panel";
+import { ChannelCanvas } from "../components/chat/channel-canvas";
 import { ChiefChat } from "../components/chat/chief-chat";
 import {
   clearComposerHandoff,
@@ -47,6 +48,9 @@ const CHAT_DRIVERS = new Set<DriverType>([
   "opencode",
   "remote",
 ]);
+const DEFAULT_WORKSPACE_CHANNEL =
+  WORKSPACE_CHANNELS.find((channel) => channel.id === "general") ??
+  WORKSPACE_CHANNELS[0];
 
 function requestedDriver(value: string | null): DriverType | undefined {
   return value && CHAT_DRIVERS.has(value as DriverType)
@@ -156,7 +160,7 @@ export function ConversationsPage() {
           description: defaultRuntimeChannel.description,
           agentIds: defaultRuntimeChannel.agentIds,
         }
-      : WORKSPACE_CHANNELS[3]);
+      : DEFAULT_WORKSPACE_CHANNEL);
   const isDefaultChannelRoute =
     requestedChatId === null &&
     requestedDirectMessage === null &&
@@ -234,6 +238,8 @@ export function ConversationsPage() {
         }))
     : [];
   const isNew = Boolean(activeChatId && !localChats.loading && !activeEntry);
+  const activeView =
+    !directIdentity && params.get("view") === "canvas" ? "canvas" : "messages";
 
   useEffect(() => {
     if (!focusComposer) return;
@@ -290,6 +296,16 @@ export function ConversationsPage() {
       }),
     );
   };
+  const setConversationView = (view: "messages" | "canvas") => {
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("child");
+      next.delete("profile");
+      if (view === "canvas") next.set("view", "canvas");
+      else next.delete("view");
+      return next;
+    });
+  };
   const conversationHeader = (
     <ConversationHeader
       channel={activeChannel}
@@ -298,6 +314,8 @@ export function ConversationsPage() {
       directPresence={directPresence}
       onContinueArtifact={continueArtifact}
       onOpenProfile={openProfile}
+      activeView={activeView}
+      onViewChange={setConversationView}
       user={user}
     />
   );
@@ -311,7 +329,20 @@ export function ConversationsPage() {
         )}
       >
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {activeChatId && activeSetupDomain ? (
+          {activeChatId && activeView === "canvas" && !directIdentity ? (
+            <>
+              {conversationHeader}
+              <ChannelCanvas
+                channelId={
+                  activeConversationChannel?.relayId ?? activeChannel.id
+                }
+                channelName={activeChannel.label}
+                description={activeChannel.description}
+                onContinueArtifact={continueArtifact}
+                onOpenMessages={() => setConversationView("messages")}
+              />
+            </>
+          ) : activeChatId && activeSetupDomain ? (
             <>
               {conversationHeader}
               <div className="min-h-0 flex-1 px-5 pb-5">
