@@ -150,11 +150,8 @@
     "@typescript-eslint/no-empty-function": {
       "count": 1
     },
-    "react-hooks/refs": {
-      "count": 4
-    },
     "react-hooks/set-state-in-effect": {
-      "count": 5
+      "count": 4
     }
   },
   "src/lib/updater.ts": {

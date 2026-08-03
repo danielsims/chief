@@ -9,7 +9,7 @@ import {
 } from "./conversation-auxiliary-panel";
 import { ToolActivityGroup } from "./tool-activity-group";
 
-function taskAgentLabel(agent: string) {
+export function taskAgentLabel(agent: string) {
   return agent === "brand"
     ? "Brand Researcher"
     : agent === "content"

@@ -1,6 +1,5 @@
 import type { MouseEvent, ReactNode } from "react";
 import {
-  ALargeSmall,
   AtSign,
   Bold,
   Code,
@@ -12,7 +11,6 @@ import {
   Quote,
   SmilePlus,
   Strikethrough,
-  X,
 } from "lucide-react";
 
 import { Button, buttonVariants } from "@chief/ui/components/button";
@@ -122,7 +120,12 @@ export function ComposerFormattingToggle({
       onClick={() => onOpenChange(!open)}
       onPreserveSelection={onPreserveSelection}
     >
-      {open ? <X size={17} /> : <ALargeSmall size={18} />}
+      <span
+        aria-hidden="true"
+        className="translate-y-px text-[13px] leading-none font-medium tracking-[-0.09em]"
+      >
+        Aa
+      </span>
     </ComposerActionButton>
   );
 }

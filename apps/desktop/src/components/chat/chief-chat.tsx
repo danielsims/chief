@@ -1,12 +1,16 @@
+/* eslint-disable max-lines */
+
 import type { ReactNode } from "react";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
+  BrowserRunRecord,
   ChatExecutionSelection,
   ChiefMessageMetadata,
   ChiefUIMessage,
   DriverType,
   MessageAttachment,
+  SessionRecord,
 } from "@chief/agent-runtime/types";
 
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
@@ -17,6 +21,7 @@ import type { ConversationProfileSelection } from "./conversation-profile";
 import type { SchedulingDraft } from "./recurring-work-composer";
 import { useAgentConfig } from "../../lib/agent-config";
 import { useAuth } from "../../lib/auth/auth-context";
+import { useChannelReadState } from "../../lib/channel-read-state-context";
 import {
   findPendingInputRequest,
   withoutMarkerLines,
@@ -32,8 +37,12 @@ import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
 import { InputRequestSection } from "../integrations/input-request-section";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
-import { AgentActivityPanel } from "./agent-activity-panel";
+import { AgentActivityPanel, taskAgentLabel } from "./agent-activity-panel";
 import { ApprovalCard } from "./approval-card";
+import {
+  BrowserSessionAttachment,
+  BrowserSessionPortal,
+} from "./browser-panel";
 import { channelActivityState } from "./channel-activity-state";
 import {
   ChannelMessageActions,
@@ -45,11 +54,13 @@ import {
 } from "./channel-thread-audience";
 import { ChatComposer } from "./chat-composer";
 import {
+  ConversationAuxiliaryBreadcrumb,
   ConversationAuxiliaryPanel,
   ConversationAuxiliaryPanelBody,
   ConversationAuxiliaryPanelHeader,
 } from "./conversation-auxiliary-panel";
 import { Blocks } from "./message-blocks";
+import { ObservedChat } from "./observed-chat";
 import { QuestionCard } from "./question-card";
 import { RecurringWorkComposer } from "./recurring-work-composer";
 import {
@@ -57,18 +68,21 @@ import {
   specialistTaskOwners,
   specialistTasksForInput,
 } from "./specialist-task-display";
-import { ToolActivityGroup } from "./tool-activity-group";
+import { summarizeThreadReplyCandidates } from "./thread-reply-summary";
 import { UserMessage } from "./user-message";
 
-const BrowserSessionAttachment = lazy(() =>
-  import("./browser-panel").then((module) => ({
-    default: module.BrowserSessionAttachment,
-  })),
-);
+function browserHostname(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
 
 function ChiefMessage({
   children,
   agent,
+  messageId,
   onOpenProfile,
   actions,
   footer,
@@ -76,6 +90,7 @@ function ChiefMessage({
 }: {
   children: ReactNode;
   agent?: { id: WorkspaceAgentId; name: string; role: string };
+  messageId?: string;
   onOpenProfile?: (selection: ConversationProfileSelection) => void;
   actions?: ReactNode;
   footer?: ReactNode;
@@ -88,7 +103,10 @@ function ChiefMessage({
   const agentId = agent?.id ?? "cmo";
   const resolvedMetadata = metadata === undefined ? identity.role : metadata;
   return (
-    <div className="group/message relative mx-auto flex w-full max-w-3xl min-w-0 gap-3 py-2">
+    <div
+      id={messageId ? `chief-message-${messageId}` : undefined}
+      className="group/message relative mx-auto flex w-full max-w-3xl min-w-0 items-start gap-3 py-2"
+    >
       {actions}
       <button
         type="button"
@@ -159,12 +177,17 @@ export function ChiefChat({
   initialPrompt,
   initialAttachments = [],
   initialDraft,
+  initialMessageId,
+  initialThreadRootId,
+  focusComposer = false,
   initialDriver,
   initialModel,
   channel,
   directAgent,
   destinationChannelId,
+  activeChild,
   onInitialPromptSent,
+  onCloseChild,
   onOpenChild,
   onOpenProfile,
   onOpenInternalPanel,
@@ -184,6 +207,9 @@ export function ChiefChat({
   initialPrompt?: string;
   initialAttachments?: readonly MessageAttachment[];
   initialDraft?: string;
+  initialMessageId?: string;
+  initialThreadRootId?: string;
+  focusComposer?: boolean;
   initialDriver?: DriverType;
   initialModel?: string;
   channel?: {
@@ -193,7 +219,9 @@ export function ChiefChat({
   };
   directAgent?: { id: WorkspaceAgentId; name: string; role: string };
   destinationChannelId?: string;
+  activeChild?: SessionRecord;
   onInitialPromptSent?: () => void;
+  onCloseChild?: () => void;
   onOpenChild?: (childId: string) => void;
   onOpenProfile?: (selection: ConversationProfileSelection) => void;
   onOpenInternalPanel?: () => void;
@@ -205,13 +233,12 @@ export function ChiefChat({
 }) {
   const {
     status: runtimeStatus,
-    browserConversationId,
-    browserStatus,
-    browserThreadRootId,
-    browserUrl,
-    browserWorkspaceId,
+    anchorBrowserSession,
+    browserRuns,
+    browserSessions,
   } = useRuntime();
   const { cloudOrganizationId, user } = useAuth();
+  const { markThreadRead, setVisibleThread } = useChannelReadState();
   const userAuthor = {
     name: user?.name.trim() ?? "You",
     ...(user?.image ? { image: user.image } : {}),
@@ -261,6 +288,11 @@ export function ChiefChat({
     },
   );
   const [activityOpen, setActivityOpen] = useState(false);
+  const [browserOpen, setBrowserOpen] = useState(false);
+  const [browserInlineTarget, setBrowserInlineTarget] =
+    useState<HTMLDivElement | null>(null);
+  const [browserPanelTarget, setBrowserPanelTarget] =
+    useState<HTMLDivElement | null>(null);
   const currentTurn = useMemo(
     () => channelActivityState(messages, controls.hasAgentOutput),
     [controls.hasAgentOutput, messages],
@@ -341,10 +373,50 @@ export function ChiefChat({
   const [threadImageAttachments, setThreadImageAttachments] = useState<
     ComposerImageAttachment[]
   >([]);
-  const [threadRootId, setThreadRootId] = useState<string | null>(null);
+  const [threadRootId, setThreadRootId] = useState<string | null>(
+    initialThreadRootId ?? null,
+  );
+  const centeredMessageRef = useRef<string | null>(null);
+  const suppressMainAutoScrollRef = useRef(
+    Boolean(initialMessageId && !initialThreadRootId),
+  );
+  const suppressThreadAutoScrollRef = useRef(
+    Boolean(initialMessageId && initialThreadRootId),
+  );
+  useEffect(() => {
+    centeredMessageRef.current = null;
+    suppressMainAutoScrollRef.current = Boolean(
+      initialMessageId && !initialThreadRootId,
+    );
+    suppressThreadAutoScrollRef.current = Boolean(
+      initialMessageId && initialThreadRootId,
+    );
+  }, [initialMessageId, initialThreadRootId]);
+  useEffect(() => {
+    if (!initialMessageId || centeredMessageRef.current === initialMessageId)
+      return;
+    let highlightTimer = 0;
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById(
+        `chief-message-${initialMessageId}`,
+      );
+      if (!target) return;
+      centeredMessageRef.current = initialMessageId;
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.classList.add("chief-message-notification-target");
+      highlightTimer = window.setTimeout(() => {
+        target.classList.remove("chief-message-notification-target");
+      }, 2400);
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(highlightTimer);
+    };
+  }, [initialMessageId, messages.length, threadRootId]);
 
   const selectProfile = (selection: ConversationProfileSelection) => {
     setActivityOpen(false);
+    setBrowserOpen(false);
     setThreadRootId(null);
     onOpenProfile?.(selection);
   };
@@ -363,6 +435,7 @@ export function ChiefChat({
     existingIds: ReadonlySet<string>;
   } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const threadBottomRef = useRef<HTMLDivElement>(null);
   const sentInitial = useRef(false);
 
   useEffect(() => {
@@ -396,8 +469,17 @@ export function ChiefChat({
   }, [workspaceData.recurringWork]);
 
   useEffect(() => {
+    if (suppressMainAutoScrollRef.current) {
+      if (
+        initialMessageId &&
+        !document.getElementById(`chief-message-${initialMessageId}`)
+      )
+        return;
+      suppressMainAutoScrollRef.current = false;
+      return;
+    }
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
+  }, [initialMessageId, messages.length]);
 
   useEffect(() => {
     if (
@@ -472,6 +554,14 @@ export function ChiefChat({
     ),
     childSessions,
   );
+  const activeChildOwnerId = activeChild
+    ? childSessionOwners.get(activeChild.id)
+    : undefined;
+  const activeChildOwner = activeChildOwnerId
+    ? messages.find((message) => message.id === activeChildOwnerId)
+    : undefined;
+  const activeChildThreadRootId =
+    activeChildOwner?.metadata?.threadRootId ?? threadRootId;
   const ordinaryToolGroups = ordinaryToolMessageGroups(
     messages.map((message) => ({
       id: message.id,
@@ -502,6 +592,41 @@ export function ChiefChat({
     () => (threadRootId ? (threadReplies.get(threadRootId) ?? []) : []),
     [threadReplies, threadRootId],
   );
+  useEffect(() => {
+    if (!channel || !destinationChannelId || !threadRootId) {
+      if (destinationChannelId) setVisibleThread(destinationChannelId, null);
+      return;
+    }
+    setVisibleThread(destinationChannelId, threadRootId);
+    markThreadRead(destinationChannelId, threadRootId);
+    return () => setVisibleThread(destinationChannelId, null);
+  }, [
+    activeThreadReplies.length,
+    channel,
+    destinationChannelId,
+    markThreadRead,
+    setVisibleThread,
+    threadRootId,
+  ]);
+  useEffect(() => {
+    if (!threadRootId) return;
+    if (suppressThreadAutoScrollRef.current) {
+      if (
+        initialMessageId &&
+        !document.getElementById(`chief-message-${initialMessageId}`)
+      )
+        return;
+      suppressThreadAutoScrollRef.current = false;
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      threadBottomRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "end",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeThreadReplies.length, initialMessageId, threadRootId]);
   const activeThreadAudience = useMemo(
     () =>
       threadAgentAudience(
@@ -512,18 +637,231 @@ export function ChiefChat({
       ),
     [activeThreadReplies, activeThreadRoot, knownAgentIds],
   );
+  const chatBrowserSession = browserSessions[chatId];
+  const childBrowserSession = activeChild
+    ? browserSessions[activeChild.id]
+    : undefined;
   const browserBelongsToChat = Boolean(
-    browserUrl &&
-    browserStatus &&
-    browserWorkspaceId === cloudOrganizationId &&
-    browserConversationId === chatId,
+    chatBrowserSession?.workspaceId === cloudOrganizationId,
   );
   const browserInThread = Boolean(
     browserBelongsToChat &&
-    browserThreadRootId &&
-    browserThreadRootId === threadRootId,
+    chatBrowserSession?.threadRootId &&
+    chatBrowserSession.threadRootId === threadRootId,
   );
-  const browserInTimeline = browserBelongsToChat && !browserThreadRootId;
+  const browserInTimeline =
+    browserBelongsToChat && !chatBrowserSession?.threadRootId;
+  const browserInActiveChild = Boolean(
+    childBrowserSession?.workspaceId === cloudOrganizationId,
+  );
+  const browserPanelConversationId =
+    browserInActiveChild && activeChild ? activeChild.id : chatId;
+  const browserPanelSession = browserSessions[browserPanelConversationId];
+  const browserOperating = browserInActiveChild
+    ? activeChild?.status === "running" || activeChild?.status === "waiting"
+    : controls.status === "running";
+  const derivedBrowserAnchorId = browserInThread
+    ? (activeThreadReplies.at(-1)?.id ?? activeThreadRoot?.id ?? null)
+    : browserInTimeline
+      ? ([...messages]
+          .reverse()
+          .find((message) => !message.metadata?.threadRootId)?.id ?? null)
+      : null;
+  const browserAnchorId =
+    chatBrowserSession?.anchorMessageId ?? derivedBrowserAnchorId;
+  useEffect(() => {
+    if (
+      !chatBrowserSession ||
+      chatBrowserSession.anchorMessageId ||
+      !derivedBrowserAnchorId
+    ) {
+      return;
+    }
+    anchorBrowserSession(chatId, derivedBrowserAnchorId);
+  }, [
+    anchorBrowserSession,
+    chatBrowserSession,
+    chatId,
+    derivedBrowserAnchorId,
+  ]);
+  const conversationBrowserRuns = useMemo(
+    () =>
+      browserRuns.filter(
+        (run) =>
+          run.workspaceId === cloudOrganizationId &&
+          run.conversationId === chatId,
+      ),
+    [browserRuns, chatId, cloudOrganizationId],
+  );
+  const timelineBrowserRuns = useMemo(
+    () => conversationBrowserRuns.filter((run) => !run.threadRootId),
+    [conversationBrowserRuns],
+  );
+  const activeThreadBrowserRuns = useMemo(
+    () =>
+      threadRootId
+        ? conversationBrowserRuns.filter(
+            (run) => run.threadRootId === threadRootId,
+          )
+        : [],
+    [conversationBrowserRuns, threadRootId],
+  );
+  const timelineEntries = useMemo(() => {
+    const entries: (
+      | { type: "message"; message: ChiefUIMessage }
+      | { type: "browser"; key: string; run?: BrowserRunRecord }
+    )[] = [];
+    const inserted = new Set<string>();
+    const visibleRuns = [...timelineBrowserRuns];
+    if (
+      browserInTimeline &&
+      (!chatBrowserSession?.runId ||
+        !visibleRuns.some((run) => run.id === chatBrowserSession.runId))
+    ) {
+      visibleRuns.push({
+        id: `pending:${chatId}`,
+        workspaceId: cloudOrganizationId ?? "",
+        conversationId: chatId,
+        ...(browserAnchorId ? { anchorMessageId: browserAnchorId } : {}),
+        url: chatBrowserSession?.url ?? "about:blank",
+        status: chatBrowserSession?.status ?? "active",
+        createdAt: 0,
+        updatedAt: 0,
+      });
+    }
+    for (const message of messages) {
+      entries.push({ type: "message", message });
+      for (const run of visibleRuns) {
+        if (run.anchorMessageId !== message.id) continue;
+        entries.push({ type: "browser", key: run.id, run });
+        inserted.add(run.id);
+      }
+    }
+    for (const run of visibleRuns) {
+      if (!inserted.has(run.id)) {
+        entries.push({ type: "browser", key: run.id, run });
+      }
+    }
+    return entries;
+  }, [
+    browserAnchorId,
+    browserInTimeline,
+    chatBrowserSession,
+    chatId,
+    cloudOrganizationId,
+    messages,
+    timelineBrowserRuns,
+  ]);
+  const threadReplyEntries = useMemo(() => {
+    const entries: (
+      | { type: "message"; message: ChiefUIMessage }
+      | { type: "browser"; key: string; run?: BrowserRunRecord }
+    )[] = [];
+    const inserted = new Set<string>();
+    const visibleRuns = [...activeThreadBrowserRuns];
+    if (
+      browserInThread &&
+      (!chatBrowserSession?.runId ||
+        !visibleRuns.some((run) => run.id === chatBrowserSession.runId))
+    ) {
+      visibleRuns.push({
+        id: `pending:${chatId}`,
+        workspaceId: cloudOrganizationId ?? "",
+        conversationId: chatId,
+        ...(threadRootId ? { threadRootId } : {}),
+        ...(browserAnchorId ? { anchorMessageId: browserAnchorId } : {}),
+        url: chatBrowserSession?.url ?? "about:blank",
+        status: chatBrowserSession?.status ?? "active",
+        createdAt: 0,
+        updatedAt: 0,
+      });
+    }
+    for (const run of visibleRuns) {
+      if (run.anchorMessageId === activeThreadRoot?.id) inserted.add(run.id);
+    }
+    for (const message of activeThreadReplies) {
+      entries.push({ type: "message", message });
+      for (const run of visibleRuns) {
+        if (run.anchorMessageId !== message.id) continue;
+        entries.push({ type: "browser", key: run.id, run });
+        inserted.add(run.id);
+      }
+    }
+    for (const run of visibleRuns) {
+      if (!inserted.has(run.id)) {
+        entries.push({ type: "browser", key: run.id, run });
+      }
+    }
+    return entries;
+  }, [
+    activeThreadBrowserRuns,
+    activeThreadReplies,
+    activeThreadRoot?.id,
+    browserAnchorId,
+    browserInThread,
+    chatBrowserSession,
+    chatId,
+    cloudOrganizationId,
+    threadRootId,
+  ]);
+  const threadRootBrowserRuns = activeThreadBrowserRuns.filter(
+    (run) => run.anchorMessageId === activeThreadRoot?.id,
+  );
+  const threadRootBrowserEntries: BrowserRunRecord[] = [
+    ...threadRootBrowserRuns,
+  ];
+  if (
+    browserInThread &&
+    browserAnchorId === activeThreadRoot?.id &&
+    (!chatBrowserSession?.runId ||
+      !threadRootBrowserEntries.some(
+        (run) => run.id === chatBrowserSession.runId,
+      ))
+  ) {
+    threadRootBrowserEntries.push({
+      id: `pending:${chatId}`,
+      workspaceId: cloudOrganizationId ?? "",
+      conversationId: chatId,
+      ...(threadRootId ? { threadRootId } : {}),
+      ...(browserAnchorId ? { anchorMessageId: browserAnchorId } : {}),
+      url: chatBrowserSession?.url ?? "about:blank",
+      status: chatBrowserSession?.status ?? "active",
+      createdAt: 0,
+      updatedAt: 0,
+    });
+  }
+  const openBrowserPanel = () => {
+    setActivityOpen(false);
+    setBrowserOpen(true);
+    if (!activeChild) onOpenInternalPanel?.();
+  };
+  const closeAuxiliaryWorkspace = () => {
+    setBrowserOpen(false);
+    setActivityOpen(false);
+    setThreadRootId(null);
+    onCloseChild?.();
+  };
+  const returnToThread = () => {
+    if (!activeChildThreadRootId) return;
+    setBrowserOpen(false);
+    setActivityOpen(false);
+    onCloseChild?.();
+    setThreadRootId(activeChildThreadRootId);
+  };
+  const returnFromChild = () => {
+    onCloseChild?.();
+    if (activeChildThreadRootId) {
+      setActivityOpen(false);
+      setThreadRootId(activeChildThreadRootId);
+    }
+  };
+  const returnFromBrowserPanel = () => {
+    if (activeChild && activeChildThreadRootId) {
+      returnToThread();
+      return;
+    }
+    setBrowserOpen(false);
+  };
   const channelVisibleBlocks = (message: ChiefUIMessage) =>
     withoutMarkerLines(messageBlocks(message)).filter(
       (block) =>
@@ -532,6 +870,23 @@ export function ChiefChat({
         (block.type !== "tool_use" ||
           specialistTasksForInput(block.input, childSessions).length > 0),
     );
+  const summarizeThreadReplies = (replies: readonly ChiefUIMessage[]) => {
+    const summary = summarizeThreadReplyCandidates(
+      replies.map((reply) => ({
+        role: reply.role,
+        createdAt: reply.metadata?.createdAt,
+        blocks: withoutMarkerLines(messageBlocks(reply)),
+        visibleBlocks: channelVisibleBlocks(reply),
+      })),
+    );
+    return {
+      ...summary,
+      visibleReplies: summary.visibleIndexes.flatMap((index) =>
+        replies[index] ? [replies[index]] : [],
+      ),
+    };
+  };
+  const activeThreadSummary = summarizeThreadReplies(activeThreadReplies);
   const imageParts = (message: ChiefUIMessage): MessageAttachment[] =>
     messageBlocks(message).flatMap((block) =>
       block.type === "image"
@@ -547,40 +902,44 @@ export function ChiefChat({
   const controlsForMessage = (message: ChiefUIMessage) => {
     if (!channel) return {};
     const replies = threadReplies.get(message.id) ?? [];
+    const replySummary = summarizeThreadReplies(replies);
     const text = messageBlocks(message)
       .flatMap((part) => (part.type === "text" ? [part.text] : []))
       .join("\n");
     const openThread = () => {
       setActivityOpen(false);
+      setBrowserOpen(false);
       setThreadRootId(message.id);
       onOpenInternalPanel?.();
     };
     const toggleReaction = (emoji: string) =>
       channelReactions.toggleReaction(message.id, emoji);
-    const participants = replies.flatMap((reply): ThreadParticipant[] => {
-      if (reply.role === "user") {
+    const participants = replySummary.visibleReplies.flatMap(
+      (reply): ThreadParticipant[] => {
+        if (reply.role === "user") {
+          return [
+            {
+              id: "current-user",
+              kind: "user",
+              name: userAuthor.name,
+              ...(userAuthor.image ? { image: userAuthor.image } : {}),
+            },
+          ];
+        }
+        if (reply.role !== "assistant") return [];
+        const agent = respondingAgentFor(reply) ?? {
+          id: "cmo" as const,
+          name: "Chief",
+        };
         return [
           {
-            id: "current-user",
-            kind: "user",
-            name: userAuthor.name,
-            ...(userAuthor.image ? { image: userAuthor.image } : {}),
+            id: `agent:${agent.id}`,
+            kind: "agent",
+            name: agent.name,
           },
         ];
-      }
-      if (reply.role !== "assistant") return [];
-      const agent = respondingAgentFor(reply) ?? {
-        id: "cmo" as const,
-        name: "Chief",
-      };
-      return [
-        {
-          id: `agent:${agent.id}`,
-          kind: "agent",
-          name: agent.name,
-        },
-      ];
-    });
+      },
+    );
     return {
       actions: (
         <ChannelMessageActions
@@ -591,7 +950,9 @@ export function ChiefChat({
       ),
       footer: (
         <ChannelMessageMeta
-          replies={replies}
+          replies={replySummary.visibleReplies}
+          replyCount={replySummary.count}
+          lastReplyAt={replySummary.lastReplyAt}
           participants={participants}
           reactions={channelReactions.reactions.get(message.id) ?? []}
           onOpenThread={openThread}
@@ -679,7 +1040,34 @@ export function ChiefChat({
                 onOpenMention={openAgentMention}
               />
             ) : null}
-            {messages.map((message) => {
+            {timelineEntries.map((entry) => {
+              if (entry.type === "browser") {
+                return (
+                  <div
+                    key={entry.key}
+                    className="mx-auto w-full max-w-3xl py-1"
+                  >
+                    <BrowserSessionAttachment
+                      conversationId={chatId}
+                      detached={
+                        browserOpen &&
+                        (entry.run?.id.startsWith("pending:") === true ||
+                          entry.run?.id === chatBrowserSession?.runId)
+                      }
+                      operating={controls.status === "running"}
+                      onOpenPanel={openBrowserPanel}
+                      run={entry.run}
+                      targetRef={
+                        entry.run?.id.startsWith("pending:") ||
+                        entry.run?.id === chatBrowserSession?.runId
+                          ? setBrowserInlineTarget
+                          : undefined
+                      }
+                    />
+                  </div>
+                );
+              }
+              const { message } = entry;
               if (channel && message.metadata?.threadRootId) return null;
               if (message.metadata?.channelAction) {
                 return (
@@ -706,7 +1094,7 @@ export function ChiefChat({
                     </p>
                   </div>
                 ) : (
-                  <div key={message.id}>
+                  <div id={`chief-message-${message.id}`} key={message.id}>
                     <UserMessage
                       author={userAuthor}
                       attachments={imageParts(message)}
@@ -741,22 +1129,7 @@ export function ChiefChat({
                 return null;
               }
               const toolGroup = ordinaryToolGroups.get(message.id);
-              if (toolGroup) {
-                if (channel) return null;
-                return toolGroup.ownerId === message.id ? (
-                  <ChiefMessage
-                    key={message.id}
-                    agent={respondingAgentFor(message)}
-                    onOpenProfile={selectProfile}
-                  >
-                    <ToolActivityGroup
-                      blocks={toolGroup.blocks}
-                      progress={controls.toolProgress}
-                      active={controls.status === "running"}
-                    />
-                  </ChiefMessage>
-                ) : null;
-              }
+              if (toolGroup) return null;
               const timelineBlocks = channel
                 ? channelVisibleBlocks(message)
                 : blocks;
@@ -786,6 +1159,7 @@ export function ChiefChat({
               return (
                 <ChiefMessage
                   key={message.id}
+                  messageId={message.id}
                   agent={respondingAgentFor(message)}
                   metadata={channel ? null : undefined}
                   onOpenProfile={selectProfile}
@@ -804,17 +1178,6 @@ export function ChiefChat({
                 </ChiefMessage>
               );
             })}
-            {browserInTimeline ? (
-              <div className="mx-auto w-full max-w-3xl py-1">
-                <Suspense
-                  fallback={<div className="bg-muted/40 h-72 rounded-2xl" />}
-                >
-                  <BrowserSessionAttachment
-                    operating={controls.status === "running"}
-                  />
-                </Suspense>
-              </div>
-            ) : null}
             {controls.approvals.map((approval) => (
               <div key={approval.requestId} className="mx-auto max-w-3xl">
                 <ApprovalCard
@@ -865,6 +1228,7 @@ export function ChiefChat({
               />
             ) : null}
             <ChatComposer
+              autoFocus={focusComposer}
               value={draft}
               onValueChange={setDraft}
               onSubmit={submit}
@@ -889,6 +1253,7 @@ export function ChiefChat({
               running={Boolean(channel && controls.status === "running")}
               statusLabel={statusLabel}
               onOpen={() => {
+                setBrowserOpen(false);
                 setThreadRootId(null);
                 setActivityOpen(true);
                 onOpenInternalPanel?.();
@@ -897,52 +1262,218 @@ export function ChiefChat({
           </div>
         </div>
       </div>
-      {channel && threadRootId && !profileOpen ? (
+      {browserOpen &&
+      (browserBelongsToChat || browserInActiveChild) &&
+      !profileOpen ? (
+        <ConversationAuxiliaryPanel
+          onClose={closeAuxiliaryWorkspace}
+          sizing={panelSizing}
+        >
+          <ConversationAuxiliaryPanelHeader
+            backLabel={
+              activeChild
+                ? `Back to ${activeChild.title}`
+                : activeChildThreadRootId
+                  ? "Back to thread"
+                  : "Back"
+            }
+            onBack={returnFromBrowserPanel}
+            title={
+              <ConversationAuxiliaryBreadcrumb
+                current="Browser"
+                items={[
+                  ...(activeChildThreadRootId
+                    ? [
+                        {
+                          key: "thread",
+                          label: "Thread",
+                          onClick: returnToThread,
+                        },
+                      ]
+                    : []),
+                  ...(activeChild
+                    ? [
+                        {
+                          key: "child",
+                          label: activeChild.title,
+                          onClick: () => setBrowserOpen(false),
+                        },
+                      ]
+                    : []),
+                ]}
+              />
+            }
+            subtitle={
+              browserPanelSession
+                ? browserHostname(browserPanelSession.url)
+                : undefined
+            }
+            onClose={returnFromBrowserPanel}
+          />
+          <ConversationAuxiliaryPanelBody className="overflow-hidden">
+            <div
+              ref={setBrowserPanelTarget}
+              className="chief-browser-viewport-target h-full min-h-0 w-full overflow-hidden"
+            />
+          </ConversationAuxiliaryPanelBody>
+        </ConversationAuxiliaryPanel>
+      ) : activeChild && !profileOpen ? (
+        <ConversationAuxiliaryPanel
+          onClose={closeAuxiliaryWorkspace}
+          sizing={panelSizing}
+        >
+          <ConversationAuxiliaryPanelHeader
+            backLabel={
+              activeChildThreadRootId
+                ? "Back to thread"
+                : activityOpen
+                  ? "Back to activity"
+                  : "Back to conversation"
+            }
+            onBack={returnFromChild}
+            title={
+              <ConversationAuxiliaryBreadcrumb
+                current={activeChild.title}
+                items={[
+                  ...(activeChildThreadRootId
+                    ? [
+                        {
+                          key: "thread",
+                          label: "Thread",
+                          onClick: returnToThread,
+                        },
+                      ]
+                    : []),
+                ]}
+              />
+            }
+            subtitle={`${taskAgentLabel(activeChild.agent)} · ${activeChild.status === "completed" ? "Complete" : activeChild.status === "running" || activeChild.status === "waiting" ? "Working" : activeChild.status}`}
+            onClose={closeAuxiliaryWorkspace}
+          />
+          <ConversationAuxiliaryPanelBody className="overflow-hidden">
+            <ObservedChat
+              key={activeChild.id}
+              chatId={activeChild.id}
+              showHeader={false}
+              inlineAttachment={
+                browserInActiveChild ? (
+                  <BrowserSessionAttachment
+                    conversationId={activeChild.id}
+                    detached={browserOpen}
+                    operating={browserOperating}
+                    onOpenPanel={openBrowserPanel}
+                    targetRef={setBrowserInlineTarget}
+                  />
+                ) : undefined
+              }
+            />
+          </ConversationAuxiliaryPanelBody>
+        </ConversationAuxiliaryPanel>
+      ) : channel && threadRootId && !activityOpen && !profileOpen ? (
         <ConversationAuxiliaryPanel
           onClose={() => setThreadRootId(null)}
           sizing={panelSizing}
         >
           <ConversationAuxiliaryPanelHeader
-            title="Thread"
-            subtitle={`#${channel.label} · ${activeThreadReplies.length} replies`}
+            title={
+              <ConversationAuxiliaryBreadcrumb current="Thread" items={[]} />
+            }
+            subtitle={`${activeThreadSummary.count} ${activeThreadSummary.count === 1 ? "reply" : "replies"}`}
             onClose={() => setThreadRootId(null)}
           />
           <ConversationAuxiliaryPanelBody className="space-y-2 px-4 py-4">
             {activeThreadRoot?.role === "user" ? (
-              <UserMessage
-                author={userAuthor}
-                attachments={imageParts(activeThreadRoot)}
-                metadata={null}
-                onOpenProfile={openUserProfile}
-                onOpenMention={openAgentMention}
-                text={messageBlocks(activeThreadRoot)
-                  .flatMap((part) => (part.type === "text" ? [part.text] : []))
-                  .join("\n")}
-              />
+              <div id={`chief-message-${activeThreadRoot.id}`}>
+                <UserMessage
+                  author={userAuthor}
+                  attachments={imageParts(activeThreadRoot)}
+                  metadata={null}
+                  onOpenProfile={openUserProfile}
+                  onOpenMention={openAgentMention}
+                  text={messageBlocks(activeThreadRoot)
+                    .flatMap((part) =>
+                      part.type === "text" ? [part.text] : [],
+                    )
+                    .join("\n")}
+                />
+              </div>
             ) : null}
+            {threadRootBrowserEntries.map((run) => (
+              <div
+                key={run.id}
+                className="mx-auto w-full max-w-3xl min-w-0 pl-11"
+              >
+                <BrowserSessionAttachment
+                  conversationId={chatId}
+                  detached={
+                    browserOpen &&
+                    (run.id.startsWith("pending:") ||
+                      run.id === chatBrowserSession?.runId)
+                  }
+                  operating={controls.status === "running"}
+                  onOpenPanel={openBrowserPanel}
+                  run={run}
+                  targetRef={
+                    run.id.startsWith("pending:") ||
+                    run.id === chatBrowserSession?.runId
+                      ? setBrowserInlineTarget
+                      : undefined
+                  }
+                />
+              </div>
+            ))}
             <div className="my-3 flex items-center gap-2">
               <span className="bg-border h-px flex-1" />
               <span className="text-muted-foreground text-[10px]">
-                {activeThreadReplies.length} replies
+                {activeThreadSummary.count}{" "}
+                {activeThreadSummary.count === 1 ? "reply" : "replies"}
               </span>
               <span className="bg-border h-px flex-1" />
             </div>
-            {activeThreadReplies.map((message) => {
+            {threadReplyEntries.map((entry) => {
+              if (entry.type === "browser") {
+                return (
+                  <div
+                    key={entry.key}
+                    className="mx-auto w-full max-w-3xl min-w-0 pl-11"
+                  >
+                    <BrowserSessionAttachment
+                      conversationId={chatId}
+                      detached={
+                        browserOpen &&
+                        (entry.run?.id.startsWith("pending:") === true ||
+                          entry.run?.id === chatBrowserSession?.runId)
+                      }
+                      operating={controls.status === "running"}
+                      onOpenPanel={openBrowserPanel}
+                      run={entry.run}
+                      targetRef={
+                        entry.run?.id.startsWith("pending:") ||
+                        entry.run?.id === chatBrowserSession?.runId
+                          ? setBrowserInlineTarget
+                          : undefined
+                      }
+                    />
+                  </div>
+                );
+              }
+              const { message } = entry;
               if (message.role === "user") {
                 return (
-                  <UserMessage
-                    key={message.id}
-                    author={userAuthor}
-                    attachments={imageParts(message)}
-                    metadata={null}
-                    onOpenProfile={openUserProfile}
-                    onOpenMention={openAgentMention}
-                    text={messageBlocks(message)
-                      .flatMap((part) =>
-                        part.type === "text" ? [part.text] : [],
-                      )
-                      .join("\n")}
-                  />
+                  <div id={`chief-message-${message.id}`} key={message.id}>
+                    <UserMessage
+                      author={userAuthor}
+                      attachments={imageParts(message)}
+                      metadata={null}
+                      onOpenProfile={openUserProfile}
+                      onOpenMention={openAgentMention}
+                      text={messageBlocks(message)
+                        .flatMap((part) =>
+                          part.type === "text" ? [part.text] : [],
+                        )
+                        .join("\n")}
+                    />
+                  </div>
                 );
               }
               const blocks = channelVisibleBlocks(message);
@@ -952,7 +1483,10 @@ export function ChiefChat({
               );
               if (specialistOnly) {
                 return (
-                  <div key={message.id} className="pl-11">
+                  <div
+                    key={message.id}
+                    className="mx-auto w-full max-w-3xl pl-11"
+                  >
                     <Blocks
                       blocks={blocks}
                       progress={controls.toolProgress}
@@ -969,6 +1503,7 @@ export function ChiefChat({
               return (
                 <ChiefMessage
                   key={message.id}
+                  messageId={message.id}
                   agent={respondingAgentFor(message)}
                   metadata={null}
                   onOpenProfile={selectProfile}
@@ -986,15 +1521,7 @@ export function ChiefChat({
                 </ChiefMessage>
               );
             })}
-            {browserInThread ? (
-              <Suspense
-                fallback={<div className="bg-muted/40 h-72 rounded-2xl" />}
-              >
-                <BrowserSessionAttachment
-                  operating={controls.status === "running"}
-                />
-              </Suspense>
-            ) : null}
+            <div ref={threadBottomRef} />
           </ConversationAuxiliaryPanelBody>
           <div className="shrink-0 space-y-2 px-3 pb-3">
             <ChatComposer
@@ -1037,7 +1564,7 @@ export function ChiefChat({
           </div>
         </ConversationAuxiliaryPanel>
       ) : null}
-      {channel && activityOpen && !profileOpen ? (
+      {channel && activityOpen && !profileOpen && !activeChild ? (
         <AgentActivityPanel
           blocks={currentTurnBlocks}
           channelLabel={channel.label}
@@ -1048,6 +1575,18 @@ export function ChiefChat({
           onClose={() => setActivityOpen(false)}
           onOpenTask={onOpenChild}
           sizing={panelSizing}
+        />
+      ) : null}
+      {browserPanelSession?.status === "active" ? (
+        <BrowserSessionPortal
+          conversationId={browserPanelConversationId}
+          fullscreenTarget={
+            browserOpen ? browserPanelTarget : browserInlineTarget
+          }
+          operating={browserOperating}
+          onCloseViewer={browserOpen ? returnFromBrowserPanel : undefined}
+          onOpenPanel={openBrowserPanel}
+          panelOpen={browserOpen}
         />
       ) : null}
     </div>

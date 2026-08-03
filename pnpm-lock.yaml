@@ -162,6 +162,9 @@ importers:
       convex:
         specifier: ^1.31.6
         version: 1.42.1(react@19.2.7)
+      cuelume:
+        specifier: ^0.2.1
+        version: 0.2.1
       emoji-mart:
         specifier: ^5.6.0
         version: 5.6.0
@@ -8818,6 +8821,12 @@ packages:
     resolution:
       {
         integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==,
+      }
+
+  cuelume@0.2.1:
+    resolution:
+      {
+        integrity: sha512-UFN5GtPRhnkL55r5rz7oalgy72XTtV50QqOec3+wHer0O1hlwOteej99dlRxeFX2ViLUD/CpCu47v5XCTa2tEQ==,
       }
 
   cytoscape-cose-bilkent@4.1.0:
@@ -21129,6 +21138,8 @@ snapshots:
       source-map-js: 1.2.1
 
   csstype@3.2.3: {}
+
+  cuelume@0.2.1: {}
 
   cytoscape-cose-bilkent@4.1.0(cytoscape@3.34.0):
     dependencies:

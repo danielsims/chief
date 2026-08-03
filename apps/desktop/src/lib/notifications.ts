@@ -1,23 +1,147 @@
-import { isTauri } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
 import {
   isPermissionGranted,
   requestPermission,
 } from "@tauri-apps/plugin-notification";
 
-// One permission round-trip per app session, resolved lazily on first use.
-let permission: Promise<boolean> | null = null;
+import type { MessageDeepLinkTarget } from "./message-deep-links";
+import {
+  dispatchMessageDeepLink,
+  messageDeepLinkUrl,
+} from "./message-deep-links";
+import {
+  desktopNotificationsEnabled,
+  playConfiguredNotificationSound,
+} from "./notification-sounds";
+
+export type DesktopNotificationTarget =
+  | {
+      kind: "message";
+      deepLinkUrl: string;
+      message: MessageDeepLinkTarget;
+    }
+  | { kind: "route"; route: string };
+
+// Only deduplicate an in-flight permission prompt. Do not cache a denied
+// result forever: macOS users can grant the permission in System Settings
+// while Chief remains open.
+let permissionRequest: Promise<boolean> | null = null;
+let actionListener: Promise<void> | null = null;
+let pendingActivationDrain: Promise<void> | null = null;
+const NATIVE_NOTIFICATION_ACTION = "chief-notification-activated";
+
+function activateTarget(target: unknown) {
+  if (typeof target === "string") {
+    navigateApp(target);
+  } else if (target && typeof target === "object") {
+    const candidate = target as Partial<DesktopNotificationTarget>;
+    if (candidate.kind === "route" && typeof candidate.route === "string") {
+      navigateApp(candidate.route);
+    } else if (
+      candidate.kind === "message" &&
+      candidate.message &&
+      typeof candidate.message.channelId === "string" &&
+      typeof candidate.message.messageId === "string"
+    ) {
+      dispatchMessageDeepLink(candidate.message);
+    } else {
+      return;
+    }
+  } else {
+    return;
+  }
+  // The route is the durable outcome of a notification click. Window state
+  // operations are best-effort and must never prevent React Router from seeing
+  // the destination (for example, `unminimize` can reject for a visible window).
+  void (async () => {
+    const appWindow = getCurrentWindow();
+    await Promise.allSettled([
+      appWindow.unminimize(),
+      appWindow.show(),
+      appWindow.setFocus(),
+    ]);
+  })();
+}
+
+function drainPendingActivation() {
+  if (!isTauri()) return Promise.resolve();
+  pendingActivationDrain ??= invoke<unknown>(
+    "take_pending_notification_activation",
+  )
+    .then((target) => activateTarget(target))
+    .catch(() => undefined)
+    .finally(() => {
+      pendingActivationDrain = null;
+    });
+  return pendingActivationDrain;
+}
+
+function ensureActionListener() {
+  actionListener ??= listen(NATIVE_NOTIFICATION_ACTION, () => {
+    void drainPendingActivation();
+  }).then(async () => {
+    window.addEventListener("focus", () => {
+      void drainPendingActivation();
+    });
+    await drainPendingActivation();
+  });
+  return actionListener;
+}
+
+function showWebNotification(
+  title: string,
+  body: string,
+  target?: DesktopNotificationTarget,
+) {
+  const notification = new window.Notification(title, { body, silent: true });
+  if (target) {
+    notification.onclick = () => {
+      notification.close();
+      activateTarget(target);
+    };
+  }
+}
+
+function hasNotificationApi() {
+  return typeof window !== "undefined" && "Notification" in window;
+}
 
 function ensurePermission(): Promise<boolean> {
-  permission ??= (async () => {
+  // In a Tauri build the plugin owns the native permission state. WebKit's
+  // Notification.permission can be `default` (or stale `denied`) even when
+  // macOS has granted the signed app permission, so do not gate the native
+  // check on the WebView value.
+  if (isTauri()) {
+    permissionRequest ??= (async () => {
+      try {
+        if (await isPermissionGranted()) return true;
+        return (await requestPermission()) === "granted";
+      } catch {
+        return false;
+      }
+    })().finally(() => {
+      permissionRequest = null;
+    });
+    return permissionRequest;
+  }
+
+  if (!hasNotificationApi()) return Promise.resolve(false);
+  if (window.Notification.permission === "granted")
+    return Promise.resolve(true);
+  if (window.Notification.permission === "denied")
+    return Promise.resolve(false);
+  permissionRequest ??= (async () => {
     try {
-      if (await isPermissionGranted()) return true;
       return (await requestPermission()) === "granted";
     } catch {
       return false;
     }
-  })();
-  return permission;
+  })().finally(() => {
+    permissionRequest = null;
+  });
+  return permissionRequest;
 }
 
 export function navigateApp(route: string) {
@@ -25,32 +149,70 @@ export function navigateApp(route: string) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
-/** macOS-level notification; silently a no-op outside Tauri or if denied. */
+export async function requestDesktopNotificationAccess() {
+  return ensurePermission();
+}
+
+export async function syncDesktopUnreadBadge(count: number) {
+  if (!isTauri()) return;
+  try {
+    const appWindow = getCurrentWindow();
+    await appWindow.setBadgeCount(count > 0 ? count : undefined);
+    if (count === 0) await appWindow.setBadgeLabel("");
+  } catch {
+    // Dock badges are best-effort on unsupported desktop environments.
+  }
+}
+
+/**
+ * Delivers one silent OS banner and Chief's configured sound as one event.
+ *
+ * Signed macOS builds use the native UNUserNotificationCenter path. The
+ * Tauri notification plugin remains a fallback for other desktop platforms
+ * and carries the same click-through route in its action payload.
+ */
 export async function notifySystem(
   title: string,
   body?: string,
-  route?: string,
+  target?: DesktopNotificationTarget,
 ) {
-  if (!isTauri()) return;
+  let delivered = false;
   try {
-    if (await ensurePermission()) {
-      // Tauri's desktop notification plugin uses the Web Notification API.
-      // Keeping the instance lets us handle the system notification click.
-      const notification = new Notification(title, { body: body ?? "" });
-      if (route) {
-        notification.onclick = () => {
-          notification.close();
-          void (async () => {
-            const appWindow = getCurrentWindow();
-            await appWindow.unminimize();
-            await appWindow.show();
-            await appWindow.setFocus();
-            navigateApp(route);
-          })();
-        };
+    if (desktopNotificationsEnabled() && (await ensurePermission())) {
+      if (isTauri()) await ensureActionListener();
+      if (isTauri()) {
+        try {
+          await invoke("show_native_notification", {
+            title,
+            body: body ?? "",
+            target: target ?? null,
+          });
+        } catch {
+          showWebNotification(title, body ?? "", target);
+        }
+      } else {
+        showWebNotification(title, body ?? "", target);
+      }
+      delivered = true;
+      if (isTauri() && !document.hasFocus()) {
+        await getCurrentWindow().requestUserAttention(
+          UserAttentionType.Informational,
+        );
       }
     }
   } catch {
     // A notification must never break the app.
   }
+  playConfiguredNotificationSound();
+  return delivered;
+}
+
+export function messageNotificationTarget(
+  message: MessageDeepLinkTarget,
+): DesktopNotificationTarget {
+  return {
+    kind: "message",
+    deepLinkUrl: messageDeepLinkUrl(message),
+    message,
+  };
 }

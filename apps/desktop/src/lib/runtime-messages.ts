@@ -1,5 +1,15 @@
 import type { ChiefUIMessage } from "@chief/agent-runtime/types";
 
+const HIDDEN_RUNTIME_ERRORS = new Set(["turn interrupted", "turn cancelled"]);
+
+/** Intentional cancellation is interaction state, not chat content. */
+export function visibleRuntimeError(error?: string) {
+  if (!error) return undefined;
+  return HIDDEN_RUNTIME_ERRORS.has(error.trim().toLocaleLowerCase())
+    ? undefined
+    : error;
+}
+
 function textContent(message: ChiefUIMessage) {
   return message.parts
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
@@ -86,6 +96,17 @@ export function mergeRuntimeMessage(
     );
   }
   return deduplicateDocumentParts([...current, persisted]);
+}
+
+/** Reconcile a reconnect snapshot without dropping newer optimistic/live turns. */
+export function mergeRuntimeHistory(
+  current: ChiefUIMessage[],
+  incoming: ChiefUIMessage[],
+) {
+  return incoming.reduce(
+    (next, message) => mergeRuntimeMessage(next, message),
+    current,
+  );
 }
 
 export function deduplicateDocumentParts(messages: ChiefUIMessage[]) {

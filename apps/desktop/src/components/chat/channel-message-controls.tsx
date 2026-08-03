@@ -199,6 +199,8 @@ export function ChannelMessageActions({
 
 export function ChannelMessageMeta({
   replies,
+  replyCount = replies.length,
+  lastReplyAt,
   participants,
   reactions,
   onOpenThread,
@@ -208,13 +210,16 @@ export function ChannelMessageMeta({
     role: "system" | "user" | "assistant";
     metadata?: { createdAt?: number };
   }[];
+  replyCount?: number;
+  lastReplyAt?: number;
   participants: readonly ThreadParticipant[];
   reactions: readonly ChannelReactionSummary[];
   onOpenThread: () => void;
   onToggleReaction: (emoji: string) => void;
 }) {
-  if (replies.length === 0 && reactions.length === 0) return null;
+  if (replyCount === 0 && reactions.length === 0) return null;
   const lastReply = replies.at(-1);
+  const latestReplyAt = lastReplyAt ?? lastReply?.metadata?.createdAt;
   const uniqueParticipants = participants.filter(
     (participant, index) =>
       participants.findIndex((candidate) => candidate.id === participant.id) ===
@@ -249,7 +254,7 @@ export function ChannelMessageMeta({
           ))}
         </div>
       ) : null}
-      {replies.length > 0 ? (
+      {replyCount > 0 ? (
         <button
           type="button"
           onClick={onOpenThread}
@@ -293,10 +298,10 @@ export function ChannelMessageMeta({
             ) : null}
           </span>
           <span className="text-xs font-medium">
-            {replies.length} {replies.length === 1 ? "reply" : "replies"}
+            {replyCount} {replyCount === 1 ? "reply" : "replies"}
           </span>
           <span className="text-muted-foreground text-xs">
-            Last reply {relativeReplyTime(lastReply?.metadata?.createdAt)}
+            Last reply {relativeReplyTime(latestReplyAt)}
           </span>
         </button>
       ) : null}

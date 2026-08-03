@@ -48,6 +48,7 @@ export function ChatComposer({
   imageAttachments = [],
   onImageAttachmentsChange,
   placeholder = "Message Chief…",
+  autoFocus = false,
   className,
 }: {
   value: string;
@@ -63,12 +64,15 @@ export function ChatComposer({
   imageAttachments?: ComposerImageAttachment[];
   onImageAttachmentsChange?: (attachments: ComposerImageAttachment[]) => void;
   placeholder?: string;
+  autoFocus?: boolean;
   className?: string;
 }) {
   const editorRef = useRef<ComposerRichTextHandle>(null);
   const imageInputId = useId();
   const [mentionIndex, setMentionIndex] = useState(0);
-  const [mentionDismissed, setMentionDismissed] = useState(false);
+  const [dismissedMentionText, setDismissedMentionText] = useState<
+    string | null
+  >(null);
   const [emojiIndex, setEmojiIndex] = useState(0);
   const [formattingOpen, setFormattingOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -76,6 +80,7 @@ export function ChatComposer({
   const [activeFormats, setActiveFormats] = useState<ComposerFormat[]>([]);
   const mentionMatch = /(?:^|\s)@([^\s@]*)$/.exec(textBeforeCursor);
   const mentionQuery = mentionMatch?.[1]?.toLocaleLowerCase();
+  const mentionDismissed = dismissedMentionText === textBeforeCursor;
   const visibleMentions =
     mentionQuery === undefined || mentionDismissed
       ? []
@@ -99,7 +104,7 @@ export function ChatComposer({
   const insertToolbarContent = (content: string) =>
     editorRef.current?.insertText(content);
   const openMentionPicker = () => {
-    setMentionDismissed(false);
+    setDismissedMentionText(null);
     setEmojiOpen(false);
     setFormattingOpen(false);
     editorRef.current?.openMention();
@@ -107,7 +112,7 @@ export function ChatComposer({
   const insertMention = (candidate: MentionCandidate) => {
     editorRef.current?.insertQueryResult("mention", `@${candidate.name}`);
     setMentionIndex(0);
-    setMentionDismissed(false);
+    setDismissedMentionText(null);
   };
   const insertAutocompleteEmoji = (option: EmojiOption) => {
     editorRef.current?.insertQueryResult("emoji", option.emoji);
@@ -136,7 +141,7 @@ export function ChatComposer({
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        setMentionDismissed(true);
+        setDismissedMentionText(textBeforeCursor);
         return true;
       }
     }
@@ -193,6 +198,7 @@ export function ChatComposer({
         <ComposerMentionPopover
           suggestions={visibleMentions}
           selectedIndex={mentionIndex}
+          onDismiss={() => setDismissedMentionText(textBeforeCursor)}
           onSelect={insertMention}
         />
         <EmojiAutocomplete
@@ -210,6 +216,7 @@ export function ChatComposer({
         />
         <ComposerRichText
           ref={editorRef}
+          autoFocus={autoFocus}
           value={value}
           placeholder={placeholder}
           onKeyDown={handleComposerKeyDown}
@@ -222,7 +229,6 @@ export function ChatComposer({
                 : state.activeFormats,
             );
             setMentionIndex(0);
-            setMentionDismissed(false);
             setEmojiIndex(0);
             const completedEmoji = /(?:^|\s):([a-z0-9_+-]+):$/iu.exec(
               state.textBeforeCursor,
@@ -312,7 +318,7 @@ export function ChatComposer({
                         onOpenChange={(open) => {
                           setEmojiOpen(open);
                           if (open) {
-                            setMentionDismissed(true);
+                            setDismissedMentionText(textBeforeCursor);
                             setFormattingOpen(false);
                           }
                         }}
@@ -327,7 +333,7 @@ export function ChatComposer({
                         onOpenChange={(open) => {
                           setFormattingOpen(open);
                           if (open) {
-                            setMentionDismissed(true);
+                            setDismissedMentionText(textBeforeCursor);
                             setEmojiOpen(false);
                           }
                         }}

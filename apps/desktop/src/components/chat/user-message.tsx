@@ -35,7 +35,7 @@ export function UserMessage({
   const resolvedMetadata = metadata === undefined ? "You" : metadata;
 
   return (
-    <div className="group/message relative mx-auto flex w-full max-w-3xl min-w-0 gap-3 py-2">
+    <div className="group/message relative mx-auto flex w-full max-w-3xl min-w-0 items-start gap-3 py-2">
       {actions}
       <button
         type="button"

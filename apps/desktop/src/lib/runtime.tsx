@@ -22,6 +22,7 @@ import type {
   AgentPreference,
   AgentQuestion,
   AnalyticsDataset,
+  BrowserRunRecord,
   CampaignRecord,
   ChannelEvent,
   ChatExecutionSelection,
@@ -50,8 +51,25 @@ import type {
 } from "@chief/agent-runtime/types";
 import { api } from "@chief/backend/convex/_generated/api";
 
+import type {
+  RuntimeBrowserRuns,
+  RuntimeBrowserSession,
+  RuntimeBrowserSessions,
+} from "./browser-sessions";
 import type { ChannelReactionSummary } from "./channel-reactions";
 import { useAuth } from "./auth/auth-context";
+import {
+  anchorBrowserRun as anchorRuntimeBrowserRun,
+  anchorBrowserSession as anchorRuntimeBrowserSession,
+  beginBrowserActivity,
+  completeBrowserActivity,
+  completeBrowserSession,
+  completeBrowserRun as completeRuntimeBrowserRun,
+  hideBrowserCursor,
+  updateBrowserSession,
+  upsertBrowserSession,
+  upsertBrowserRun as upsertRuntimeBrowserRun,
+} from "./browser-sessions";
 import {
   applyOptimisticChannelReaction,
   foldChannelReactions,
@@ -59,7 +77,9 @@ import {
 import { navigateApp, notifySystem } from "./notifications";
 import {
   deduplicateDocumentParts,
+  mergeRuntimeHistory,
   mergeRuntimeMessage,
+  visibleRuntimeError,
 } from "./runtime-messages";
 import { buildWorkspaceContext } from "./workspace-context";
 
@@ -155,7 +175,11 @@ export class RuntimeClient {
   private reconnectTimer: number | null = null;
   private connectTimer: number | null = null;
   private reconnectDelayMs = 1000;
-  onStatus: (status: RuntimeStatus) => void = () => {};
+  private statusListener: (status: RuntimeStatus) => void = () => {};
+
+  setStatusListener(listener: (status: RuntimeStatus) => void) {
+    this.statusListener = listener;
+  }
 
   connect() {
     if (
@@ -169,7 +193,7 @@ export class RuntimeClient {
       this.reconnectTimer = null;
     }
     this.closed = false;
-    this.onStatus("connecting");
+    this.statusListener("connecting");
     try {
       const socket = new WebSocket(RUNTIME_URL);
       this.ws = socket;
@@ -187,7 +211,7 @@ export class RuntimeClient {
     socket.onopen = () => {
       this.clearConnectTimer();
       this.reconnectDelayMs = 1000;
-      this.onStatus("connected");
+      this.statusListener("connected");
       for (const msg of this.queue.splice(0)) this.send(msg);
     };
     socket.onmessage = (e) => {
@@ -216,7 +240,7 @@ export class RuntimeClient {
 
   private scheduleReconnect() {
     if (this.closed || this.reconnectTimer !== null) return;
-    this.onStatus("connecting");
+    this.statusListener("connecting");
     const delay = this.reconnectDelayMs;
     this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 5000);
     this.reconnectTimer = window.setTimeout(() => {
@@ -252,72 +276,59 @@ export class RuntimeClient {
 
 export type RuntimeStatus = "connecting" | "connected" | "disconnected";
 
+const BROWSER_VIEWPORT = { width: 1280, height: 800 } as const;
+
 interface RuntimeContextValue {
   client: RuntimeClient;
   status: RuntimeStatus;
   agents: AgentDefinition[];
-  browserUrl: string | null;
-  browserStreamUrl: string | null;
-  browserConversationId: string | null;
-  browserWorkspaceId: string | null;
-  browserThreadRootId: string | null;
-  browserStatus: "active" | "complete" | null;
+  browserSessions: RuntimeBrowserSessions;
+  browserRuns: RuntimeBrowserRuns;
+  anchorBrowserSession: (conversationId: string, messageId: string) => void;
   integrationSetupProgress: Readonly<Record<string, IntegrationSetupProgress>>;
-  openBrowser: (url: string, conversationId?: string) => void;
-  reportBrowserUrl: (url: string) => void;
-  reloadBrowser: () => void;
-  resizeBrowser: (width: number, height: number) => void;
-  takeBrowserControl: () => void;
-  closeBrowser: () => void;
+  openBrowser: (
+    url: string,
+    conversationId?: string,
+    options?: {
+      browserRunId?: string;
+      threadRootId?: string;
+      anchorMessageId?: string;
+    },
+  ) => void;
+  reportBrowserUrl: (conversationId: string, url: string) => void;
+  reloadBrowser: (conversationId: string) => void;
+  takeBrowserControl: (conversationId: string) => void;
+  closeBrowser: (conversationId: string) => void;
 }
 
 const RuntimeContext = createContext<RuntimeContextValue | null>(null);
 
 export function RuntimeProvider({ children }: { children: ReactNode }) {
-  const { cloudOrganizationId } = useAuth();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
   const markIntegrationConnected = useMutation(api.integrations.markConnected);
-  const clientRef = useRef<RuntimeClient | null>(null);
-  clientRef.current ??= new RuntimeClient();
-  const client = clientRef.current;
+  const [client] = useState(() => new RuntimeClient());
 
   const [status, setStatus] = useState<RuntimeStatus>("connecting");
   const [agents, setAgents] = useState<AgentDefinition[]>([]);
-  const [browserUrl, setBrowserUrl] = useState<string | null>(null);
-  const [browserStreamUrl, setBrowserStreamUrl] = useState<string | null>(null);
-  const [browserConversationId, setBrowserConversationId] = useState<
-    string | null
-  >(null);
-  const [browserWorkspaceId, setBrowserWorkspaceId] = useState<string | null>(
-    null,
+  const [browserSessions, setBrowserSessions] = useState<
+    Record<string, RuntimeBrowserSession>
+  >({});
+  const browserSessionsRef = useRef(browserSessions);
+  useEffect(() => {
+    browserSessionsRef.current = browserSessions;
+  }, [browserSessions]);
+  const [browserRuns, setBrowserRuns] = useState<BrowserRunRecord[]>([]);
+  const browserCursorTimersRef = useRef(new Map<string, number>());
+  const browserOwnersRef = useRef(
+    new Map<
+      string,
+      {
+        workspaceId: string;
+        conversationId: string;
+        threadRootId?: string;
+      }
+    >(),
   );
-  const [browserThreadRootId, setBrowserThreadRootId] = useState<string | null>(
-    null,
-  );
-  const [browserStatus, setBrowserStatus] = useState<
-    "active" | "complete" | null
-  >(null);
-  const browserViewportRef = useRef<{ width: number; height: number } | null>(
-    null,
-  );
-  const browserOwnerRef = useRef<{
-    workspaceId: string;
-    conversationId: string;
-    threadRootId?: string;
-  } | null>(null);
-  const pendingBrowserNavigationRef = useRef<{
-    workspaceId: string;
-    conversationId: string;
-    threadRootId?: string;
-    url: string;
-  } | null>(null);
-  const browserResizeTimerRef = useRef<number | null>(null);
-  const pendingBrowserResizeRef = useRef<{
-    workspaceId: string;
-    conversationId: string;
-    width: number;
-    height: number;
-  } | null>(null);
-  const browserResizeSentAtRef = useRef(0);
   const [setupProgressState, setSetupProgressState] = useState<{
     workspaceId: string;
     byConversation: Record<string, IntegrationSetupProgress>;
@@ -326,177 +337,287 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     setupProgressState?.workspaceId === cloudOrganizationId
       ? setupProgressState.byConversation
       : EMPTY_SETUP_PROGRESS;
-  const openBrowser = useCallback(
-    (url: string, conversationId?: string) => {
-      setBrowserUrl(url);
-      setBrowserStreamUrl(null);
-      setBrowserStatus("active");
-      setBrowserWorkspaceId(cloudOrganizationId);
-      const owningConversation = conversationId ?? browserConversationId;
-      if (owningConversation) {
-        setBrowserConversationId(owningConversation);
-        if (cloudOrganizationId) {
-          const pending = {
-            workspaceId: cloudOrganizationId,
-            conversationId: owningConversation,
-            ...(browserThreadRootId
-              ? { threadRootId: browserThreadRootId }
-              : {}),
-            url,
-          };
-          browserOwnerRef.current = pending;
-          pendingBrowserNavigationRef.current = pending;
-          const viewport = browserViewportRef.current;
-          if (viewport) {
-            client.send({
-              type: "browserNavigateRequest",
-              ...pending,
-              ...viewport,
-            });
-            pendingBrowserNavigationRef.current = null;
-          }
-        }
+  const completeBrowser = useCallback(
+    (conversationId: string, runId?: string) => {
+      const timer = browserCursorTimersRef.current.get(conversationId);
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        browserCursorTimersRef.current.delete(conversationId);
+      }
+      browserOwnersRef.current.delete(conversationId);
+      setBrowserSessions((current) => {
+        return completeBrowserSession(current, conversationId);
+      });
+      if (runId) {
+        setBrowserRuns((current) => [
+          ...completeRuntimeBrowserRun(current, runId),
+        ]);
       }
     },
-    [browserConversationId, browserThreadRootId, client, cloudOrganizationId],
+    [],
   );
-  const reloadBrowser = useCallback(() => {
-    if (!browserWorkspaceId || !browserConversationId) return;
-    client.send({
-      type: "browserReload",
-      workspaceId: browserWorkspaceId,
-      conversationId: browserConversationId,
-    });
-  }, [browserConversationId, browserWorkspaceId, client]);
+  const openBrowser = useCallback(
+    (
+      url: string,
+      conversationId?: string,
+      options?: {
+        browserRunId?: string;
+        threadRootId?: string;
+        anchorMessageId?: string;
+      },
+    ) => {
+      if (!conversationId || !cloudOrganizationId) return;
+      const existing = browserSessions[conversationId];
+      const runId =
+        options?.browserRunId ??
+        (existing?.status === "active" ? existing.runId : null);
+      const threadRootId =
+        options?.threadRootId ?? existing?.threadRootId ?? null;
+      const pending = {
+        workspaceId: cloudOrganizationId,
+        conversationId,
+        ...(threadRootId ? { threadRootId } : {}),
+        url,
+      };
+      browserOwnersRef.current.set(conversationId, pending);
+      setBrowserSessions((current) =>
+        upsertBrowserSession(current, {
+          runId,
+          url,
+          streamUrl: null,
+          conversationId,
+          parentConversationId: existing?.parentConversationId ?? null,
+          workspaceId: cloudOrganizationId,
+          threadRootId,
+          anchorMessageId:
+            options?.anchorMessageId ??
+            (existing?.runId === runId ? existing.anchorMessageId : null),
+          status: "active",
+          operatingLabel: null,
+          operating: false,
+          agentCursor: null,
+        }),
+      );
+      client.send({
+        type: "browserNavigateRequest",
+        ...pending,
+        ...(options?.browserRunId
+          ? { browserRunId: options.browserRunId }
+          : {}),
+        ...BROWSER_VIEWPORT,
+      });
+    },
+    [browserSessions, client, cloudOrganizationId],
+  );
+  const reloadBrowser = useCallback(
+    (conversationId: string) => {
+      const session = browserSessions[conversationId];
+      if (!session) return;
+      client.send({
+        type: "browserReload",
+        workspaceId: session.workspaceId,
+        conversationId,
+      });
+    },
+    [browserSessions, client],
+  );
   const reportBrowserUrl = useCallback(
-    (url: string) => {
-      if (!browserWorkspaceId || !browserConversationId) return;
-      setBrowserUrl(url);
+    (conversationId: string, url: string) => {
+      const session = browserSessions[conversationId];
+      if (!session) return;
+      setBrowserSessions((current) =>
+        updateBrowserSession(current, conversationId, (value) => ({
+          ...value,
+          url,
+        })),
+      );
       client.send({
         type: "browserUrlChanged",
-        workspaceId: browserWorkspaceId,
-        conversationId: browserConversationId,
+        workspaceId: session.workspaceId,
+        conversationId,
         url,
       });
     },
-    [browserConversationId, browserWorkspaceId, client],
+    [browserSessions, client],
   );
-  const flushBrowserResize = useCallback(() => {
-    browserResizeTimerRef.current = null;
-    const pending = pendingBrowserResizeRef.current;
-    if (!pending) return;
-    pendingBrowserResizeRef.current = null;
-    browserResizeSentAtRef.current = Date.now();
-    client.send({ type: "browserViewportResize", ...pending });
-  }, [client]);
-  const resizeBrowser = useCallback(
-    (width: number, height: number) => {
-      const viewport = { width, height };
-      browserViewportRef.current = viewport;
-      const pending = pendingBrowserNavigationRef.current;
-      if (pending) {
-        pendingBrowserNavigationRef.current = null;
+  const closeBrowser = useCallback(
+    (conversationId: string) => {
+      const owner = browserOwnersRef.current.get(conversationId);
+      const runId =
+        browserSessionsRef.current[conversationId]?.runId ?? undefined;
+      if (owner) {
         client.send({
-          type: "browserNavigateRequest",
-          ...pending,
-          ...viewport,
+          type: "browserClose",
+          ...owner,
         });
-        return;
       }
-      if (!browserWorkspaceId || !browserConversationId) return;
-      pendingBrowserResizeRef.current = {
-        workspaceId: browserWorkspaceId,
-        conversationId: browserConversationId,
-        width,
-        height,
-      };
-      if (browserResizeTimerRef.current !== null) return;
-      const wait = Math.max(
-        0,
-        50 - (Date.now() - browserResizeSentAtRef.current),
-      );
-      if (wait === 0) flushBrowserResize();
-      else {
-        browserResizeTimerRef.current = window.setTimeout(
-          flushBrowserResize,
-          wait,
-        );
-      }
+      completeBrowser(conversationId, runId);
     },
-    [browserConversationId, browserWorkspaceId, client, flushBrowserResize],
+    [client, completeBrowser],
   );
-  const completeBrowser = useCallback(() => {
-    if (browserResizeTimerRef.current !== null) {
-      window.clearTimeout(browserResizeTimerRef.current);
-      browserResizeTimerRef.current = null;
-    }
-    browserViewportRef.current = null;
-    pendingBrowserNavigationRef.current = null;
-    pendingBrowserResizeRef.current = null;
-    browserResizeSentAtRef.current = 0;
-    browserOwnerRef.current = null;
-    setBrowserStreamUrl(null);
-    setBrowserStatus("complete");
-  }, []);
-  const closeBrowser = useCallback(() => {
-    const owner = browserOwnerRef.current;
-    if (owner) {
+  const takeBrowserControl = useCallback(
+    (conversationId: string) => {
+      const session = browserSessions[conversationId];
+      if (!session) return;
+      const executorCapability = workspaceCapabilityCache.get(
+        session.workspaceId,
+      );
+      if (!executorCapability) return;
       client.send({
-        type: "browserClose",
-        ...owner,
+        type: "interruptChat",
+        workspaceId: session.workspaceId,
+        chatId: conversationId,
+        executorCapability,
       });
-    }
-    completeBrowser();
-  }, [client, completeBrowser]);
-  const takeBrowserControl = useCallback(() => {
-    if (!browserWorkspaceId || !browserConversationId) return;
-    const executorCapability = workspaceCapabilityCache.get(browserWorkspaceId);
-    if (!executorCapability) return;
-    client.send({
-      type: "interruptChat",
-      workspaceId: browserWorkspaceId,
-      chatId: browserConversationId,
-      executorCapability,
-    });
-  }, [browserConversationId, browserWorkspaceId, client]);
+    },
+    [browserSessions, client],
+  );
+  const anchorBrowserSession = useCallback(
+    (conversationId: string, messageId: string) => {
+      const runId = browserSessions[conversationId]?.runId;
+      setBrowserSessions((current) =>
+        anchorRuntimeBrowserSession(current, conversationId, messageId),
+      );
+      if (!runId || !cloudOrganizationId || !capability) return;
+      setBrowserRuns((current) => [
+        ...anchorRuntimeBrowserRun(current, runId, messageId),
+      ]);
+      client.send({
+        type: "anchorBrowserRun",
+        workspaceId: cloudOrganizationId,
+        browserRunId: runId,
+        messageId,
+        executorCapability: capability,
+      });
+    },
+    [browserSessions, capability, client, cloudOrganizationId],
+  );
 
   useEffect(() => {
-    client.onStatus = (s) => {
+    const browserCursorTimers = browserCursorTimersRef.current;
+    const browserOwners = browserOwnersRef.current;
+    client.setStatusListener((s) => {
       setStatus(s);
       if (s === "connected") client.send({ type: "listAgents" });
-    };
+    });
     const unsub = client.subscribe((msg) => {
       if (msg.type === "agents") setAgents(msg.agents);
+      if (
+        msg.type === "browserRuns" &&
+        msg.workspaceId === cloudOrganizationId
+      ) {
+        setBrowserRuns(msg.runs);
+      }
       if (
         (msg.type === "browserPrepare" || msg.type === "browserNavigate") &&
         msg.workspaceId === cloudOrganizationId
       ) {
-        setBrowserUrl(msg.url);
-        setBrowserStreamUrl(
-          msg.type === "browserNavigate" ? msg.streamUrl : null,
-        );
-        setBrowserThreadRootId(msg.threadRootId ?? null);
-        setBrowserStatus("active");
-        browserOwnerRef.current = {
+        const currentOwner = browserOwners.get(msg.conversationId);
+        const owner = currentOwner ?? {
           workspaceId: msg.workspaceId,
           conversationId: msg.conversationId,
           ...(msg.threadRootId ? { threadRootId: msg.threadRootId } : {}),
         };
-        setBrowserWorkspaceId(msg.workspaceId);
-        setBrowserConversationId(msg.conversationId);
-        navigateApp(
-          `/conversations?chat=${encodeURIComponent(msg.conversationId)}`,
-        );
+        browserOwners.set(msg.conversationId, owner);
+        setBrowserSessions((current) => {
+          const existing = current[msg.conversationId];
+          return {
+            ...current,
+            [msg.conversationId]: {
+              runId: msg.browserRunId,
+              url: msg.url,
+              streamUrl: msg.type === "browserNavigate" ? msg.streamUrl : null,
+              conversationId: msg.conversationId,
+              parentConversationId:
+                existing?.parentConversationId ??
+                msg.parentConversationId ??
+                null,
+              workspaceId: msg.workspaceId,
+              threadRootId: existing?.threadRootId ?? msg.threadRootId ?? null,
+              anchorMessageId:
+                existing?.status === "active" &&
+                existing.runId === msg.browserRunId
+                  ? existing.anchorMessageId
+                  : (msg.anchorMessageId ?? null),
+              status: "active",
+              operatingLabel: existing?.operatingLabel ?? null,
+              operating: existing?.operating ?? false,
+              agentCursor: existing?.agentCursor ?? null,
+            },
+          };
+        });
+        setBrowserRuns((current) => [
+          ...upsertRuntimeBrowserRun(current, {
+            id: msg.browserRunId,
+            workspaceId: msg.workspaceId,
+            conversationId: msg.conversationId,
+            ...(msg.parentConversationId
+              ? { parentConversationId: msg.parentConversationId }
+              : {}),
+            ...(msg.threadRootId ? { threadRootId: msg.threadRootId } : {}),
+            ...(msg.anchorMessageId
+              ? { anchorMessageId: msg.anchorMessageId }
+              : {}),
+            url: msg.url,
+            status: "active",
+            createdAt:
+              current.find((run) => run.id === msg.browserRunId)?.createdAt ??
+              Date.now(),
+            updatedAt: Date.now(),
+          }),
+        ]);
+        // Browser activity is projected into its owning chat or thread. Do not
+        // navigate here: changing the route remounts the conversation exactly
+        // as the first stream frame arrives and can make the session appear to
+        // disappear. Background browser work should not steal navigation.
       }
-      const browserOwner = browserOwnerRef.current;
+      if (
+        msg.type === "browserActivity" &&
+        msg.workspaceId === cloudOrganizationId &&
+        browserOwners.get(msg.conversationId)?.workspaceId === msg.workspaceId
+      ) {
+        const currentTimer = browserCursorTimers.get(msg.conversationId);
+        if (msg.cursor && currentTimer !== undefined) {
+          window.clearTimeout(currentTimer);
+          browserCursorTimers.delete(msg.conversationId);
+        }
+        setBrowserSessions((current) => {
+          const session = current[msg.conversationId];
+          if (!session) return current;
+          return {
+            ...current,
+            [msg.conversationId]:
+              msg.phase === "started"
+                ? beginBrowserActivity(session, msg)
+                : completeBrowserActivity(session, msg),
+          };
+        });
+        if (msg.phase === "completed" && msg.cursor) {
+          const hide = window.setTimeout(() => {
+            setBrowserSessions((current) => {
+              const session = current[msg.conversationId];
+              if (!session) return current;
+              return {
+                ...current,
+                [msg.conversationId]: hideBrowserCursor(session),
+              };
+            });
+            browserCursorTimers.delete(msg.conversationId);
+          }, 4_000);
+          browserCursorTimers.set(msg.conversationId, hide);
+        }
+      }
+      const browserOwner =
+        msg.type === "browserClosed"
+          ? browserOwners.get(msg.conversationId)
+          : undefined;
       if (
         msg.type === "browserClosed" &&
         msg.workspaceId === cloudOrganizationId &&
-        browserOwner !== null &&
-        msg.workspaceId === browserOwner.workspaceId &&
+        msg.workspaceId === browserOwner?.workspaceId &&
         msg.conversationId === browserOwner.conversationId
       ) {
-        completeBrowser();
+        completeBrowser(msg.conversationId, msg.browserRunId);
       }
       if (
         msg.type === "integrationSetupProgress" &&
@@ -516,7 +637,11 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         msg.type === "integrationVerified" &&
         msg.workspaceId === cloudOrganizationId
       ) {
-        closeBrowser();
+        for (const [conversationId, owner] of browserOwners) {
+          if (owner.workspaceId === msg.workspaceId) {
+            closeBrowser(conversationId);
+          }
+        }
         void markIntegrationConnected({
           provider: msg.provider,
           category: msg.category,
@@ -534,9 +659,10 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         msg.type === "runtimeNotice" &&
         msg.workspaceId === cloudOrganizationId
       ) {
-        const isWorkNotice =
-          msg.notice.kind === "work-started" ||
-          msg.notice.kind === "work-completed";
+        // Starting scheduled work is visible in Schedule and does not need a
+        // banner. Terminal outcomes still notify because they may need review.
+        if (msg.notice.kind === "work-started") return;
+        const isWorkNotice = msg.notice.kind === "work-completed";
         const route = isWorkNotice ? "/schedule" : "/";
         toast(msg.notice.title, {
           description: msg.notice.detail,
@@ -546,13 +672,21 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
             onClick: () => navigateApp(route),
           },
         });
-        void notifySystem(msg.notice.title, msg.notice.detail, route);
+        void notifySystem(msg.notice.title, msg.notice.detail, {
+          kind: "route",
+          route,
+        });
       }
     });
     client.connect();
     return () => {
       unsub();
       client.destroy();
+      for (const timer of browserCursorTimers.values()) {
+        window.clearTimeout(timer);
+      }
+      browserCursorTimers.clear();
+      browserOwners.clear();
     };
   }, [
     client,
@@ -562,40 +696,41 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     markIntegrationConnected,
   ]);
 
+  useEffect(() => {
+    if (status !== "connected" || !cloudOrganizationId || !capability) return;
+    client.send({
+      type: "listBrowserRuns",
+      workspaceId: cloudOrganizationId,
+      executorCapability: capability,
+    });
+  }, [capability, client, cloudOrganizationId, status]);
+
   const value = useMemo(
     () => ({
       client,
       status,
       agents,
-      browserUrl,
-      browserStreamUrl,
-      browserConversationId,
-      browserWorkspaceId,
-      browserThreadRootId,
-      browserStatus,
+      anchorBrowserSession,
+      browserRuns,
+      browserSessions,
       integrationSetupProgress,
       openBrowser,
       reportBrowserUrl,
       reloadBrowser,
-      resizeBrowser,
       takeBrowserControl,
       closeBrowser,
     }),
     [
       agents,
-      browserConversationId,
-      browserStreamUrl,
-      browserUrl,
-      browserWorkspaceId,
-      browserThreadRootId,
-      browserStatus,
+      anchorBrowserSession,
+      browserRuns,
+      browserSessions,
       client,
       closeBrowser,
       integrationSetupProgress,
       openBrowser,
       reportBrowserUrl,
       reloadBrowser,
-      resizeBrowser,
       status,
       takeBrowserControl,
     ],
@@ -701,11 +836,32 @@ const channelEventCache = new Map<string, ChannelEvent[]>();
 export function useWorkspaceChannels() {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const { sessionToken } = useAuth();
   const pendingCreates = useRef(
     new Map<
       string,
       {
         resolve: (channelId: string | null) => void;
+        timeout: number;
+      }
+    >(),
+  );
+  const pendingDeletes = useRef(
+    new Map<
+      string,
+      {
+        reject: (error: Error) => void;
+        resolve: () => void;
+        timeout: number;
+      }
+    >(),
+  );
+  const pendingUpdates = useRef(
+    new Map<
+      string,
+      {
+        reject: (error: Error) => void;
+        resolve: () => void;
         timeout: number;
       }
     >(),
@@ -742,6 +898,64 @@ export function useWorkspaceChannels() {
           window.clearTimeout(pending.timeout);
           pendingCreates.current.delete(message.requestId);
           pending.resolve(message.channel.id);
+        }
+      }
+      if (
+        message.type === "channelUpdated" &&
+        message.workspaceId === cloudOrganizationId
+      ) {
+        setChannels((current) => {
+          const next = current.map((channel) =>
+            channel.id === message.channel.id ? message.channel : channel,
+          );
+          channelCache.set(cloudOrganizationId, next);
+          return next;
+        });
+        const pending = pendingUpdates.current.get(message.requestId);
+        if (pending) {
+          window.clearTimeout(pending.timeout);
+          pendingUpdates.current.delete(message.requestId);
+          pending.resolve();
+        }
+      }
+      if (
+        message.type === "channelUpdateFailed" &&
+        message.workspaceId === cloudOrganizationId
+      ) {
+        const pending = pendingUpdates.current.get(message.requestId);
+        if (pending) {
+          window.clearTimeout(pending.timeout);
+          pendingUpdates.current.delete(message.requestId);
+          pending.reject(new Error(message.message));
+        }
+      }
+      if (
+        message.type === "channelDeleted" &&
+        message.workspaceId === cloudOrganizationId
+      ) {
+        setChannels((current) => {
+          const next = current.filter(
+            (channel) => channel.id !== message.channelId,
+          );
+          channelCache.set(cloudOrganizationId, next);
+          return next;
+        });
+        const pending = pendingDeletes.current.get(message.requestId);
+        if (pending) {
+          window.clearTimeout(pending.timeout);
+          pendingDeletes.current.delete(message.requestId);
+          pending.resolve();
+        }
+      }
+      if (
+        message.type === "channelDeleteFailed" &&
+        message.workspaceId === cloudOrganizationId
+      ) {
+        const pending = pendingDeletes.current.get(message.requestId);
+        if (pending) {
+          window.clearTimeout(pending.timeout);
+          pendingDeletes.current.delete(message.requestId);
+          pending.reject(new Error(message.message));
         }
       }
     });
@@ -802,7 +1016,77 @@ export function useWorkspaceChannels() {
     [capability, client, cloudOrganizationId],
   );
 
-  return { channels, createChannel, updateChannelAgents };
+  const updateChannel = useCallback(
+    (
+      channelId: string,
+      input: { name: string; topic: string; description: string },
+    ): Promise<void> => {
+      if (!cloudOrganizationId || !capability || !sessionToken) {
+        return Promise.reject(
+          new Error("Chief is still authorizing this workspace."),
+        );
+      }
+      const requestId = crypto.randomUUID();
+      return new Promise((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          pendingUpdates.current.delete(requestId);
+          reject(
+            new Error("Chief couldn't update that channel. Please try again."),
+          );
+        }, 8_000);
+        pendingUpdates.current.set(requestId, { reject, resolve, timeout });
+        client.send({
+          type: "updateChannel",
+          requestId,
+          workspaceId: cloudOrganizationId,
+          channelId,
+          name: input.name,
+          topic: input.topic,
+          description: input.description,
+          sessionToken,
+          executorCapability: capability,
+        });
+      });
+    },
+    [capability, client, cloudOrganizationId, sessionToken],
+  );
+
+  const deleteChannel = useCallback(
+    (channelId: string): Promise<void> => {
+      if (!cloudOrganizationId || !capability || !sessionToken) {
+        return Promise.reject(
+          new Error("Chief is still connecting to this workspace."),
+        );
+      }
+      const requestId = crypto.randomUUID();
+      return new Promise((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          pendingDeletes.current.delete(requestId);
+          reject(
+            new Error("Chief couldn't delete that channel. Please try again."),
+          );
+        }, 8_000);
+        pendingDeletes.current.set(requestId, { reject, resolve, timeout });
+        client.send({
+          type: "deleteChannel",
+          requestId,
+          workspaceId: cloudOrganizationId,
+          channelId,
+          sessionToken,
+          executorCapability: capability,
+        });
+      });
+    },
+    [capability, client, cloudOrganizationId, sessionToken],
+  );
+
+  return {
+    channels,
+    createChannel,
+    deleteChannel,
+    updateChannel,
+    updateChannelAgents,
+  };
 }
 
 function reactionIntentKey(messageId: string, emoji: string) {
@@ -2310,7 +2594,7 @@ function reduceChatControls(
         approvals: [],
         questions: [],
         lastCostUsd: event.costUsd ?? controls.lastCostUsd,
-        error: event.ok ? undefined : event.error,
+        error: event.ok ? undefined : visibleRuntimeError(event.error),
       };
     case "status":
       return {
@@ -2319,7 +2603,11 @@ function reduceChatControls(
         error: event.status === "running" ? undefined : controls.error,
       };
     case "error":
-      return { ...controls, error: event.message, status: "idle" };
+      return {
+        ...controls,
+        error: visibleRuntimeError(event.message),
+        status: "idle",
+      };
     case "exit":
       return {
         ...controls,
@@ -2474,12 +2762,19 @@ function useRuntimeChat(
           cloudOrganizationId &&
           executorCapability
         ) {
-          const context = pendingMessageContextRef.current;
+          const context = {
+            threadRootId:
+              message.metadata?.threadRootId ??
+              pendingMessageContextRef.current?.threadRootId,
+            mentions:
+              message.metadata?.mentions ??
+              pendingMessageContextRef.current?.mentions,
+          };
           const expectsReply =
-            !wakeOnMentionOnly || Boolean(context?.mentions?.length);
+            !wakeOnMentionOnly || Boolean(context.mentions?.length);
           setControls((current) => ({
             ...current,
-            status: expectsReply ? "running" : "idle",
+            status: expectsReply && !wakeOnMentionOnly ? "running" : "idle",
             hasAgentOutput: false,
             toolProgress: {},
             error: undefined,
@@ -2491,8 +2786,8 @@ function useRuntimeChat(
             messageId: message.id,
             text,
             attachments,
-            threadRootId: context?.threadRootId,
-            mentions: context?.mentions,
+            threadRootId: context.threadRootId,
+            mentions: context.mentions,
             senderName: senderName?.length ? senderName : "You",
             execution: executionRef.current,
             executorCapability,
@@ -2524,6 +2819,8 @@ function useRuntimeChat(
     generateId: () => crypto.randomUUID(),
     transport,
   });
+  const initializedChatKeyRef = useRef<string | null>(null);
+  const loadedHistoryKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!capabilityError) return;
@@ -2543,11 +2840,17 @@ function useRuntimeChat(
     ) {
       return;
     }
-    setControls(emptyChatControls);
-    pendingStreamRef.current = "";
-    setMessages([]);
-    setChatReady(false);
-    setExecution(undefined);
+    const chatKey = `${cloudOrganizationId}:${chatId}`;
+    const changedChat = initializedChatKeyRef.current !== chatKey;
+    if (changedChat) {
+      initializedChatKeyRef.current = chatKey;
+      loadedHistoryKeyRef.current = null;
+      setControls(emptyChatControls);
+      pendingStreamRef.current = "";
+      setMessages([]);
+      setChatReady(false);
+      setExecution(undefined);
+    }
     let cancelled = false;
     if (mode === "observe") {
       client.send({
@@ -2602,7 +2905,13 @@ function useRuntimeChat(
         msg.chatId === chatId
       ) {
         pendingStreamRef.current = replayStreamingText(msg.events);
-        setMessages(deduplicateDocumentParts(msg.messages));
+        const incoming = deduplicateDocumentParts(msg.messages);
+        if (loadedHistoryKeyRef.current === chatKey) {
+          setMessages((current) => mergeRuntimeHistory(current, incoming));
+        } else {
+          loadedHistoryKeyRef.current = chatKey;
+          setMessages(incoming);
+        }
         const replayedControls = msg.events.reduce(
           reduceChatControls,
           emptyChatControls,
@@ -2677,7 +2986,6 @@ function useRuntimeChat(
         executorCapability,
       });
       unsub();
-      setChatReady(false);
     };
   }, [
     chatId,
@@ -2759,6 +3067,13 @@ function useRuntimeChat(
       pendingMessageContextRef.current = context;
       void sendMessage({
         text,
+        metadata: {
+          createdAt: Date.now(),
+          ...(context?.threadRootId
+            ? { threadRootId: context.threadRootId }
+            : {}),
+          ...(context?.mentions?.length ? { mentions: context.mentions } : {}),
+        },
         files: attachments?.map((attachment) => ({
           type: "file" as const,
           filename: attachment.name,

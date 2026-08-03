@@ -191,13 +191,21 @@ export const ComposerRichText = forwardRef<
   ComposerRichTextHandle,
   {
     value: string;
+    autoFocus?: boolean;
     placeholder: string;
     onKeyDown: (event: KeyboardEvent) => boolean;
     onStateChange: (state: ComposerRichTextState) => void;
     onValueChange: (value: string) => void;
   }
 >(function ComposerRichText(
-  { value, placeholder, onKeyDown, onStateChange, onValueChange },
+  {
+    autoFocus = false,
+    value,
+    placeholder,
+    onKeyDown,
+    onStateChange,
+    onValueChange,
+  },
   ref,
 ) {
   const applyingRef = useRef(false);
@@ -246,6 +254,14 @@ export const ComposerRichText = forwardRef<
       onValueChangeRef.current(markdown);
     },
   });
+
+  useEffect(() => {
+    if (!autoFocus || !editor) return;
+    const frame = window.requestAnimationFrame(() => {
+      editor.commands.focus("end");
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [autoFocus, editor]);
 
   useEffect(() => {
     if (!editor || value === lastValueRef.current) return;

@@ -10,6 +10,7 @@ import {
   directMessageChatId,
   directMessageIdsForChats,
   placePinnedChannel,
+  placeSidebarPinnedItem,
   WORKSPACE_CHANNELS,
   WORKSPACE_DIRECT_MESSAGES,
 } from "../src/lib/workspace-channels";
@@ -94,4 +95,23 @@ void test("moves channels into and within the pinned section", () => {
     "analytics",
     "general",
   ]);
+});
+
+void test("orders channels and agent conversations in one pinned section", () => {
+  const analytics = { kind: "channel" as const, id: "analytics" };
+  const chief = { kind: "agent" as const, id: "cmo" as const };
+  const advertising = { kind: "channel" as const, id: "advertising" };
+
+  assert.deepEqual(placeSidebarPinnedItem([analytics], chief, analytics), [
+    chief,
+    analytics,
+  ]);
+  assert.deepEqual(
+    placeSidebarPinnedItem([chief, analytics], advertising, null),
+    [chief, analytics, advertising],
+  );
+  assert.deepEqual(
+    placeSidebarPinnedItem([chief, analytics], chief, analytics),
+    [analytics, chief],
+  );
 });

@@ -15,6 +15,8 @@ import { Button } from "@chief/ui/components/button";
 
 import { EntryState } from "./components/entry-state";
 import { Layout } from "./components/layout";
+import { MessageDeepLinkHandler } from "./components/message-deep-link-handler";
+import { PageTitle } from "./components/page-title";
 import { AgentConfigProvider } from "./lib/agent-config";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
 import {
@@ -22,6 +24,7 @@ import {
   parseOrganizationMetadata,
 } from "./lib/auth/better-auth-client";
 import { hasWorkspaceAccess, openWorkspaceCheckout } from "./lib/billing";
+import { ChannelReadStateProvider } from "./lib/channel-read-state-context";
 import { missingDesktopConfiguration } from "./lib/config";
 import { ConvexClientProvider } from "./lib/convex";
 import { RuntimeProvider } from "./lib/runtime";
@@ -43,6 +46,7 @@ import {
   IntegrationsSettings,
 } from "./pages/settings/integrations";
 import { SettingsLayout } from "./pages/settings/layout";
+import { NotificationsSettings } from "./pages/settings/notifications";
 import { ProfileSettings } from "./pages/settings/profile";
 import { WorkspaceSettings } from "./pages/settings/workspace";
 import { SignInScreen } from "./pages/sign-in";
@@ -54,8 +58,8 @@ import { CreateWorkspacePage } from "./pages/workspace-new";
 function ConfigurationRequired() {
   return (
     <main className="bg-background text-foreground flex min-h-screen items-center justify-center px-6">
-      <section className="bg-card w-full max-w-lg border p-8">
-        <h1 className="font-serif text-3xl">Configure this build</h1>
+      <section className="bg-card w-full max-w-lg rounded-xl border p-8">
+        <PageTitle>Configure this build</PageTitle>
         <p className="text-muted-foreground mt-3 text-sm leading-6">
           This copy of Chief is not connected to a backend. Add the missing
           development values, then restart the app.
@@ -88,8 +92,8 @@ function WorkspaceAccessRequired() {
 
   return (
     <div className="bg-background text-foreground flex min-h-screen items-center justify-center px-6">
-      <div className="bg-card w-full max-w-md border p-8 text-center">
-        <h1 className="font-serif text-3xl">Continue with Chief</h1>
+      <div className="bg-card w-full max-w-md rounded-xl border p-8 text-center">
+        <PageTitle>Continue with Chief</PageTitle>
         <p className="text-muted-foreground mt-3 text-sm leading-6">
           Your workspace is already set up. Renew access to return to it.
         </p>
@@ -278,8 +282,8 @@ class AppErrorBoundary extends Component<
     if (!this.state.error) return this.props.children;
     return (
       <main className="bg-background text-foreground flex min-h-screen items-center justify-center px-6">
-        <section className="bg-card w-full max-w-md border p-8">
-          <h1 className="font-serif text-3xl">Chief hit a problem</h1>
+        <section className="bg-card w-full max-w-md rounded-xl border p-8">
+          <PageTitle>Chief hit a problem</PageTitle>
           <p className="text-muted-foreground mt-3 text-sm leading-6">
             Your work is safe. Reload the app to reconnect to this workspace.
           </p>
@@ -341,44 +345,60 @@ function AuthenticatedApp() {
       />
       <AgentConfigProvider>
         <BrowserRouter>
-          <OnboardingGate>
-            <Routes>
-              <Route path="workspaces/new" element={<CreateWorkspacePage />} />
-              <Route path="onboarding" element={<OnboardingPage />} />
-              <Route element={<Layout />}>
-                <Route index element={<DashboardPage />} />
-                <Route path="analytics" element={<AnalyticsPage />} />
-                <Route path="artifacts" element={<ArtifactsPage />} />
-                <Route path="campaigns" element={<CampaignsPage />} />
-                <Route path="schedule" element={<SchedulePage />} />
-                <Route path="prospects" element={<ProspectsPage />} />
-                <Route path="trending" element={<TrendingPage />} />
-                <Route path="conversations" element={<ConversationsPage />} />
-                <Route path="agents" element={<AgentsPage />} />
-                <Route path="files" element={<WorkspaceFilesPage />} />
-                <Route path="files/:fileId" element={<WorkspaceFilePage />} />
-                <Route path="settings" element={<SettingsLayout />}>
-                  <Route
-                    index
-                    element={<Navigate to="/settings/profile" replace />}
-                  />
-                  <Route path="profile" element={<ProfileSettings />} />
-                  <Route path="workspace" element={<WorkspaceSettings />} />
-                  <Route path="appearance" element={<AppearanceSettings />} />
-                  <Route path="diagnostics" element={<DiagnosticsSettings />} />
-                  <Route path="environment" element={<EnvironmentSettings />} />
-                  <Route
-                    path="integrations"
-                    element={<IntegrationsSettings />}
-                  />
-                  <Route
-                    path="integrations/:provider"
-                    element={<IntegrationSettingsDetail />}
-                  />
+          <MessageDeepLinkHandler />
+          <ChannelReadStateProvider>
+            <OnboardingGate>
+              <Routes>
+                <Route
+                  path="workspaces/new"
+                  element={<CreateWorkspacePage />}
+                />
+                <Route path="onboarding" element={<OnboardingPage />} />
+                <Route element={<Layout />}>
+                  <Route index element={<DashboardPage />} />
+                  <Route path="analytics" element={<AnalyticsPage />} />
+                  <Route path="artifacts" element={<ArtifactsPage />} />
+                  <Route path="campaigns" element={<CampaignsPage />} />
+                  <Route path="schedule" element={<SchedulePage />} />
+                  <Route path="prospects" element={<ProspectsPage />} />
+                  <Route path="trending" element={<TrendingPage />} />
+                  <Route path="conversations" element={<ConversationsPage />} />
+                  <Route path="agents" element={<AgentsPage />} />
+                  <Route path="files" element={<WorkspaceFilesPage />} />
+                  <Route path="files/:fileId" element={<WorkspaceFilePage />} />
+                  <Route path="settings" element={<SettingsLayout />}>
+                    <Route
+                      index
+                      element={<Navigate to="/settings/profile" replace />}
+                    />
+                    <Route path="profile" element={<ProfileSettings />} />
+                    <Route path="workspace" element={<WorkspaceSettings />} />
+                    <Route path="appearance" element={<AppearanceSettings />} />
+                    <Route
+                      path="notifications"
+                      element={<NotificationsSettings />}
+                    />
+                    <Route
+                      path="diagnostics"
+                      element={<DiagnosticsSettings />}
+                    />
+                    <Route
+                      path="environment"
+                      element={<EnvironmentSettings />}
+                    />
+                    <Route
+                      path="integrations"
+                      element={<IntegrationsSettings />}
+                    />
+                    <Route
+                      path="integrations/:provider"
+                      element={<IntegrationSettingsDetail />}
+                    />
+                  </Route>
                 </Route>
-              </Route>
-            </Routes>
-          </OnboardingGate>
+              </Routes>
+            </OnboardingGate>
+          </ChannelReadStateProvider>
         </BrowserRouter>
       </AgentConfigProvider>
     </RuntimeProvider>

@@ -1,4 +1,5 @@
 /* eslint-disable react-hooks/refs -- Dnd Kit exposes stable ref callbacks and reactive drag state through hook return objects. */
+/* eslint-disable max-lines */
 import type { CollisionDetection, DragEndEvent } from "@dnd-kit/core";
 import type { ReactNode } from "react";
 import { useState } from "react";
@@ -26,7 +27,6 @@ import {
   ChevronDown,
   Hash,
   MoreHorizontal,
-  Pin,
   PinOff,
   Plus,
 } from "lucide-react";
@@ -34,7 +34,6 @@ import {
 import {
   ContextMenu,
   ContextMenuContent,
-  ContextMenuItem,
   ContextMenuTrigger,
 } from "@chief/ui/components/context-menu";
 import {
@@ -45,13 +44,29 @@ import {
 import { cn } from "@chief/ui/lib/utils";
 
 import type {
+  SidebarPinnedItem,
   WorkspaceAgentId,
   WorkspaceChannelId,
 } from "../lib/workspace-channels";
 import type { SidebarChannel } from "./channel-browser-dialog";
-import { placePinnedChannel } from "../lib/workspace-channels";
+import {
+  placeSidebarPinnedItem,
+  sidebarPinnedItemKey,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../lib/workspace-channels";
+import { AgentAvatar } from "./agent-avatar";
 import { ChannelBrowserDialog } from "./channel-browser-dialog";
-import { SidebarDirectMessages } from "./sidebar-direct-messages";
+import { ChannelDetailsDialog } from "./channel-details-dialog";
+import {
+  ChannelContextActions,
+  ChannelDeleteDialog,
+  ChannelPopoverActions,
+} from "./sidebar-channel-actions";
+import {
+  DirectMessageRow,
+  SidebarDirectMessages,
+} from "./sidebar-direct-messages";
+import { openWorkspaceSearch } from "./workspace-search";
 
 const pinnedCollisionDetection: CollisionDetection = (args) => {
   if (!args.pointerCoordinates) return closestCenter(args);
@@ -67,77 +82,45 @@ const pinnedCollisionDetection: CollisionDetection = (args) => {
 };
 
 interface ChannelRowProps {
+  canDelete: boolean;
   channel: SidebarChannel;
   active: boolean;
   pinned: boolean;
+  unreadCount: number;
   dragKind: "source" | "sortable";
   onOpen: () => void;
+  onDelete: () => void;
+  onLeave: () => void;
   onPinChange: (pinned: boolean) => void;
-}
-
-function ChannelContextActions({
-  pinned,
-  onOpen,
-  onPinChange,
-}: Pick<ChannelRowProps, "pinned" | "onOpen" | "onPinChange">) {
-  return (
-    <>
-      <ContextMenuItem className="rounded-lg" onSelect={onOpen}>
-        <Hash size={14} /> Open channel
-      </ContextMenuItem>
-      <ContextMenuItem
-        className="rounded-lg"
-        onSelect={() => onPinChange(!pinned)}
-      >
-        {pinned ? <PinOff size={14} /> : <Pin size={14} />}
-        {pinned ? "Remove from pinned" : "Pin channel"}
-      </ContextMenuItem>
-    </>
-  );
-}
-
-function ChannelPopoverActions({
-  onOpen,
-  onPinChange,
-}: Pick<ChannelRowProps, "onOpen" | "onPinChange">) {
-  return (
-    <>
-      <button
-        type="button"
-        className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
-        onClick={onOpen}
-      >
-        <Hash size={14} /> Open channel
-      </button>
-      <button
-        type="button"
-        className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
-        onClick={() => onPinChange(true)}
-      >
-        <Pin size={14} /> Pin channel
-      </button>
-    </>
-  );
+  onSearch: () => void;
+  onViewDetails: () => void;
 }
 
 function ChannelRow({
+  canDelete,
   channel,
   active,
   pinned,
+  unreadCount,
   dragKind,
+  onDelete,
+  onLeave,
   onOpen,
   onPinChange,
+  onSearch,
+  onViewDetails,
 }: ChannelRowProps) {
   const channelId = channel.id;
+  const item = { kind: "channel", id: channelId } satisfies SidebarPinnedItem;
   const [menuOpen, setMenuOpen] = useState(false);
   const source = useDraggable({
-    id: `channel:${channelId}`,
-    data: { channelId, dragKind: "source" },
+    id: `source:${sidebarPinnedItemKey(item)}`,
+    data: { pin: item },
     disabled: dragKind !== "source",
   });
   const sortable = useSortable({
-    id: `pinned:${channelId}`,
-    data: { channelId, dragKind: "sortable" },
+    id: `pinned:${sidebarPinnedItemKey(item)}`,
+    data: { pin: item },
     disabled: dragKind !== "sortable",
   });
   const drag = dragKind === "sortable" ? sortable : source;
@@ -172,18 +155,34 @@ function ChannelRow({
             className={cn(
               "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full min-w-0 cursor-grab touch-none items-center gap-2 rounded-lg px-2 pr-9 text-left text-[13px] transition-colors select-none active:cursor-grabbing",
               active && "bg-sidebar-accent text-sidebar-foreground font-medium",
+              !active &&
+                unreadCount > 0 &&
+                "text-sidebar-foreground font-semibold",
               drag.isDragging && "cursor-grabbing",
             )}
           >
             <Hash size={14} strokeWidth={1.8} className="shrink-0 opacity-70" />
             <span className="min-w-0 flex-1 truncate">{channel.label}</span>
+            {unreadCount > 0 ? (
+              <span
+                aria-label={`${unreadCount} unread ${unreadCount === 1 ? "message" : "messages"}`}
+                className="bg-sidebar-foreground/10 text-sidebar-foreground ml-auto min-w-5 rounded-full px-1.5 text-center text-[10px] leading-5 font-semibold tabular-nums"
+              >
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            ) : null}
           </button>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-48 rounded-xl p-1.5 shadow-xl">
+        <ContextMenuContent className="border-border/60 min-w-60 rounded-xl bg-[color-mix(in_srgb,var(--background)_80%,var(--muted)_20%)] p-1 shadow-[0_6px_18px_rgb(0_0_0/0.02),0_3px_9px_rgb(0_0_0/0.04),0_1px_1px_rgb(0_0_0/0.04)] backdrop-blur-none">
           <ChannelContextActions
+            canDelete={canDelete}
             pinned={pinned}
-            onOpen={onOpen}
+            channel={channel}
+            onDelete={onDelete}
+            onLeave={onLeave}
             onPinChange={onPinChange}
+            onSearch={onSearch}
+            onViewDetails={onViewDetails}
           />
         </ContextMenuContent>
       </ContextMenu>
@@ -219,17 +218,31 @@ function ChannelRow({
             side="right"
             align="start"
             sideOffset={8}
-            className="w-44 p-1.5"
+            className="border-border/60 w-60 rounded-xl bg-[color-mix(in_srgb,var(--background)_80%,var(--muted)_20%)] p-1 shadow-[0_6px_18px_rgb(0_0_0/0.02),0_3px_9px_rgb(0_0_0/0.04),0_1px_1px_rgb(0_0_0/0.04)] backdrop-blur-none"
             onOpenAutoFocus={(event) => event.preventDefault()}
           >
             <ChannelPopoverActions
-              onOpen={() => {
+              canDelete={canDelete}
+              channel={channel}
+              onDelete={() => {
                 setMenuOpen(false);
-                onOpen();
+                window.setTimeout(onDelete, 0);
+              }}
+              onLeave={() => {
+                setMenuOpen(false);
+                window.setTimeout(onLeave, 0);
               }}
               onPinChange={(next) => {
                 setMenuOpen(false);
                 onPinChange(next);
+              }}
+              onSearch={() => {
+                setMenuOpen(false);
+                window.setTimeout(onSearch, 0);
+              }}
+              onViewDetails={() => {
+                setMenuOpen(false);
+                window.setTimeout(onViewDetails, 0);
               }}
             />
           </PopoverContent>
@@ -278,35 +291,70 @@ function GroupLabel({
 }
 
 export function SidebarChannels({
+  canDeleteChannels,
+  canManageChannels,
   channels,
+  allChannels = channels,
   activeChannelId,
   activeAgentId,
   directMessageIds,
-  pinnedIds,
+  pinnedItems,
+  unreadChannelCounts,
+  unreadDirectMessageCounts,
   onOpen,
   onOpenDirectMessage,
   onCreateChannel,
+  onDeleteChannel,
+  onUpdateChannel,
+  onLeaveChannel,
   onPinnedChange,
 }: {
+  canDeleteChannels: boolean;
+  canManageChannels: boolean;
   channels: SidebarChannel[];
+  allChannels?: SidebarChannel[];
   activeChannelId: WorkspaceChannelId | null;
   activeAgentId: WorkspaceAgentId | null;
   directMessageIds: WorkspaceAgentId[];
-  pinnedIds: WorkspaceChannelId[];
-  onOpen: (channelId: WorkspaceChannelId) => void;
+  pinnedItems: SidebarPinnedItem[];
+  unreadChannelCounts: ReadonlyMap<string, number>;
+  unreadDirectMessageCounts: ReadonlyMap<WorkspaceAgentId, number>;
+  onOpen: (
+    channelId: WorkspaceChannelId,
+    options?: { focusComposer?: boolean },
+  ) => void;
   onOpenDirectMessage: (agentId: WorkspaceAgentId) => void;
   onCreateChannel: (
     name: string,
     description?: string,
   ) => Promise<WorkspaceChannelId | null>;
-  onPinnedChange: (pinnedIds: WorkspaceChannelId[]) => void;
+  onDeleteChannel: (channelId: WorkspaceChannelId) => Promise<void>;
+  onUpdateChannel: (
+    channelId: WorkspaceChannelId,
+    input: { name: string; topic: string; description: string },
+  ) => Promise<void>;
+  onLeaveChannel: (channelId: WorkspaceChannelId) => Promise<void>;
+  onPinnedChange: (pinnedItems: SidebarPinnedItem[]) => void;
 }) {
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
   const [channelBrowserOpen, setChannelBrowserOpen] = useState(false);
   const [channelSort, setChannelSort] = useState<"default" | "az">("default");
-  const [draggingId, setDraggingId] = useState<WorkspaceChannelId | null>(null);
-  const pinned = new Set(pinnedIds);
+  const [draggingItem, setDraggingItem] = useState<SidebarPinnedItem | null>(
+    null,
+  );
+  const [deleteTarget, setDeleteTarget] = useState<SidebarChannel | null>(null);
+  const [detailsTarget, setDetailsTarget] = useState<SidebarChannel | null>(
+    null,
+  );
+  const pinnedChannels = new Set(
+    pinnedItems
+      .filter((item) => item.kind === "channel")
+      .map((item) => item.id),
+  );
+  const pinnedAgentIds = pinnedItems.flatMap((item) =>
+    item.kind === "agent" ? [item.id] : [],
+  );
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, {
@@ -316,24 +364,36 @@ export function SidebarChannels({
   const pinnedDrop = useDroppable({ id: "pinned-drop" });
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {
-    setDraggingId(null);
+    setDraggingItem(null);
     if (!over) return;
-    const channelId = active.data.current?.channelId as
-      WorkspaceChannelId | undefined;
-    if (!channelId) return;
-    const overChannelId = over.data.current?.channelId as
-      WorkspaceChannelId | undefined;
-    onPinnedChange(
-      placePinnedChannel(pinnedIds, channelId, overChannelId ?? null),
-    );
+    const item = active.data.current?.pin as SidebarPinnedItem | undefined;
+    if (!item) return;
+    const overItem = over.data.current?.pin as SidebarPinnedItem | undefined;
+    onPinnedChange(placeSidebarPinnedItem(pinnedItems, item, overItem ?? null));
     setPinnedCollapsed(false);
   };
 
   const setPinned = (channelId: WorkspaceChannelId, next: boolean) => {
+    const item = { kind: "channel", id: channelId } satisfies SidebarPinnedItem;
     onPinnedChange(
       next
-        ? [...pinnedIds, channelId]
-        : pinnedIds.filter((id) => id !== channelId),
+        ? placeSidebarPinnedItem(pinnedItems, item, null)
+        : pinnedItems.filter(
+            (candidate) =>
+              sidebarPinnedItemKey(candidate) !== sidebarPinnedItemKey(item),
+          ),
+    );
+  };
+
+  const setAgentPinned = (agentId: WorkspaceAgentId, next: boolean) => {
+    const item = { kind: "agent", id: agentId } satisfies SidebarPinnedItem;
+    onPinnedChange(
+      next
+        ? placeSidebarPinnedItem(pinnedItems, item, null)
+        : pinnedItems.filter(
+            (candidate) =>
+              sidebarPinnedItemKey(candidate) !== sidebarPinnedItemKey(item),
+          ),
     );
   };
 
@@ -342,14 +402,13 @@ export function SidebarChannels({
       sensors={sensors}
       collisionDetection={pinnedCollisionDetection}
       onDragStart={({ active }) => {
-        const channelId = active.data.current?.channelId as
-          WorkspaceChannelId | undefined;
-        setDraggingId(channelId ?? null);
+        const item = active.data.current?.pin as SidebarPinnedItem | undefined;
+        setDraggingItem(item ?? null);
       }}
-      onDragCancel={() => setDraggingId(null)}
+      onDragCancel={() => setDraggingItem(null)}
       onDragEnd={onDragEnd}
     >
-      {pinnedIds.length > 0 ? (
+      {pinnedItems.length > 0 ? (
         <section
           ref={pinnedDrop.setNodeRef}
           className={cn(
@@ -372,23 +431,52 @@ export function SidebarChannels({
               )}
             >
               <SortableContext
-                items={pinnedIds.map((id) => `pinned:${id}`)}
+                items={pinnedItems.map(
+                  (item) => `pinned:${sidebarPinnedItemKey(item)}`,
+                )}
                 strategy={verticalListSortingStrategy}
               >
                 <div className="space-y-0.5">
-                  {pinnedIds.map((channelId) => {
+                  {pinnedItems.map((item) => {
+                    if (item.kind === "agent") {
+                      return (
+                        <DirectMessageRow
+                          key={sidebarPinnedItemKey(item)}
+                          active={activeAgentId === item.id}
+                          agentId={item.id}
+                          dragKind="sortable"
+                          onOpen={() => onOpenDirectMessage(item.id)}
+                          onPinChange={(next) => setAgentPinned(item.id, next)}
+                          pinned
+                          unreadCount={
+                            unreadDirectMessageCounts.get(item.id) ?? 0
+                          }
+                        />
+                      );
+                    }
                     const channel = channels.find(
-                      (candidate) => candidate.id === channelId,
+                      (candidate) => candidate.id === item.id,
                     );
                     return channel ? (
                       <ChannelRow
-                        key={channelId}
+                        key={sidebarPinnedItemKey(item)}
+                        canDelete={canDeleteChannels}
                         channel={channel}
-                        active={activeChannelId === channelId}
+                        active={activeChannelId === item.id}
                         pinned
+                        unreadCount={unreadChannelCounts.get(item.id) ?? 0}
                         dragKind="sortable"
-                        onOpen={() => onOpen(channelId)}
-                        onPinChange={(next) => setPinned(channelId, next)}
+                        onDelete={() => setDeleteTarget(channel)}
+                        onLeave={() => void onLeaveChannel(item.id)}
+                        onOpen={() => onOpen(item.id)}
+                        onPinChange={(next) => setPinned(item.id, next)}
+                        onSearch={() =>
+                          openWorkspaceSearch({
+                            channelId: channel.id,
+                            channelLabel: channel.label,
+                          })
+                        }
+                        onViewDetails={() => setDetailsTarget(channel)}
                       />
                     ) : null;
                   })}
@@ -457,16 +545,27 @@ export function SidebarChannels({
               .sort((a, b) =>
                 channelSort === "az" ? a.label.localeCompare(b.label) : 0,
               )
-              .filter((channel) => !pinned.has(channel.id))
+              .filter((channel) => !pinnedChannels.has(channel.id))
               .map((channel) => (
                 <ChannelRow
                   key={channel.id}
+                  canDelete={canDeleteChannels}
                   channel={channel}
                   active={activeChannelId === channel.id}
                   pinned={false}
+                  unreadCount={unreadChannelCounts.get(channel.id) ?? 0}
                   dragKind="source"
+                  onDelete={() => setDeleteTarget(channel)}
+                  onLeave={() => void onLeaveChannel(channel.id)}
                   onOpen={() => onOpen(channel.id)}
                   onPinChange={(next) => setPinned(channel.id, next)}
+                  onSearch={() =>
+                    openWorkspaceSearch({
+                      channelId: channel.id,
+                      channelLabel: channel.label,
+                    })
+                  }
+                  onViewDetails={() => setDetailsTarget(channel)}
                 />
               ))}
           </div>
@@ -476,24 +575,50 @@ export function SidebarChannels({
         activeAgentId={activeAgentId}
         directMessageIds={directMessageIds}
         onOpen={onOpenDirectMessage}
+        onPinChange={setAgentPinned}
+        pinnedAgentIds={pinnedAgentIds}
+        unreadCounts={unreadDirectMessageCounts}
       />
       <DragOverlay dropAnimation={{ duration: 160, easing: "ease-out" }}>
-        {draggingId ? (
+        {draggingItem ? (
           <div className="bg-sidebar-accent text-sidebar-foreground flex h-8 w-52 items-center gap-2 rounded-lg px-2 text-[13px] shadow-xl ring-1 ring-black/10 dark:ring-white/10">
-            <Hash size={14} strokeWidth={1.8} className="opacity-70" />
+            {draggingItem.kind === "channel" ? (
+              <Hash size={14} strokeWidth={1.8} className="opacity-70" />
+            ) : (
+              <AgentAvatar
+                label={WORKSPACE_AGENT_IDENTITIES[draggingItem.id].name}
+                className="size-4"
+              />
+            )}
             <span className="truncate">
-              {channels.find((channel) => channel.id === draggingId)?.label ??
-                draggingId}
+              {draggingItem.kind === "channel"
+                ? (channels.find((channel) => channel.id === draggingItem.id)
+                    ?.label ?? draggingItem.id)
+                : WORKSPACE_AGENT_IDENTITIES[draggingItem.id].name}
             </span>
           </div>
         ) : null}
       </DragOverlay>
       <ChannelBrowserDialog
-        channels={channels}
+        channels={allChannels}
         open={channelBrowserOpen}
         onOpenChange={setChannelBrowserOpen}
         onOpenChannel={onOpen}
         onCreateChannel={onCreateChannel}
+      />
+      <ChannelDeleteDialog
+        key={deleteTarget?.id ?? "closed"}
+        channel={deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onDelete={onDeleteChannel}
+      />
+      <ChannelDetailsDialog
+        key={detailsTarget?.id ?? "closed"}
+        canManage={canManageChannels}
+        channel={detailsTarget}
+        onClose={() => setDetailsTarget(null)}
+        onLeave={onLeaveChannel}
+        onUpdate={onUpdateChannel}
       />
     </DndContext>
   );

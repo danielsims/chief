@@ -8,6 +8,7 @@ const sections = [
   { to: "/settings/profile", label: "Profile" },
   { to: "/settings/workspace", label: "Workspace" },
   { to: "/settings/appearance", label: "Appearance" },
+  { to: "/settings/notifications", label: "Notifications" },
   { to: "/settings/integrations", label: "Integrations" },
   { to: "/settings/environment", label: "Environment" },
   // Agent configuration lives on the Agents page.

@@ -1,5 +1,10 @@
 import { useEffect, useRef } from "react";
 
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@chief/ui/components/popover";
 import { cn } from "@chief/ui/lib/utils";
 
 import { AgentAvatar } from "../agent-avatar";
@@ -14,10 +19,12 @@ export interface MentionCandidate {
 export function ComposerMentionPopover({
   selectedIndex,
   suggestions,
+  onDismiss,
   onSelect,
 }: {
   selectedIndex: number;
   suggestions: readonly MentionCandidate[];
+  onDismiss: () => void;
   onSelect: (candidate: MentionCandidate) => void;
 }) {
   const selectedRef = useRef<HTMLButtonElement>(null);
@@ -28,40 +35,56 @@ export function ComposerMentionPopover({
   if (suggestions.length === 0) return null;
 
   return (
-    <div className="bg-popover ring-foreground/10 absolute right-2 bottom-[calc(100%+8px)] left-2 z-30 max-h-56 overflow-y-auto rounded-xl p-1 shadow-[0_14px_38px_-12px_color-mix(in_srgb,var(--foreground)_25%,transparent)] ring-1">
-      {suggestions.map((candidate, index) => {
-        const selected = index === selectedIndex;
-        return (
-          <button
-            key={candidate.id}
-            ref={selected ? selectedRef : undefined}
-            type="button"
-            role="option"
-            aria-selected={selected}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => onSelect(candidate)}
-            className={cn(
-              "hover:bg-accent/60 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors outline-none",
-              selected && "bg-accent",
-            )}
-          >
-            <AgentAvatar label={candidate.name} className="size-7" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm leading-5 font-medium tracking-[-0.01em]">
-                {candidate.name}
+    <Popover open onOpenChange={(open) => !open && onDismiss()}>
+      <PopoverAnchor asChild>
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-2 top-0 h-px"
+        />
+      </PopoverAnchor>
+      <PopoverContent
+        role="listbox"
+        side="top"
+        align="start"
+        sideOffset={8}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="max-h-56 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-1 shadow-[0_14px_38px_-12px_color-mix(in_srgb,var(--foreground)_25%,transparent)]"
+      >
+        {suggestions.map((candidate, index) => {
+          const selected = index === selectedIndex;
+          return (
+            <button
+              key={candidate.id}
+              ref={selected ? selectedRef : undefined}
+              type="button"
+              role="option"
+              aria-selected={selected}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => onSelect(candidate)}
+              className={cn(
+                "hover:bg-accent/60 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors outline-none",
+                selected && "bg-accent",
+              )}
+            >
+              <AgentAvatar label={candidate.name} className="size-7" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm leading-5 font-medium tracking-[-0.01em]">
+                  {candidate.name}
+                </span>
+                <span className="text-muted-foreground flex min-w-0 items-center text-xs leading-4 font-normal">
+                  <span className="truncate">{candidate.role}</span>
+                </span>
               </span>
-              <span className="text-muted-foreground flex min-w-0 items-center text-xs leading-4 font-normal">
-                <span className="truncate">{candidate.role}</span>
-              </span>
-            </span>
-            {!candidate.member ? (
-              <span className="text-muted-foreground/80 shrink-0 text-xs leading-4 font-normal">
-                Add to channel
-              </span>
-            ) : null}
-          </button>
-        );
-      })}
-    </div>
+              {!candidate.member ? (
+                <span className="text-muted-foreground/80 shrink-0 text-xs leading-4 font-normal">
+                  Add to channel
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </PopoverContent>
+    </Popover>
   );
 }
