@@ -1295,7 +1295,7 @@ export async function handleLocalTool(
         typeof body.waitSeconds === "number" &&
         Number.isFinite(body.waitSeconds)
           ? Math.max(1, Math.min(90, body.waitSeconds))
-          : 10;
+          : 0;
       let timer: NodeJS.Timeout | undefined;
       const result = await Promise.race([
         delegation,
