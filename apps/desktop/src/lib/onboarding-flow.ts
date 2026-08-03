@@ -17,7 +17,6 @@ export type OnboardingStep =
   | "engineering"
   | "engineeringTools"
   | "automation"
-  | "pricing"
   | "finish";
 
 export const ONBOARDING_STEPS: OnboardingStep[] = [
@@ -39,7 +38,6 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   "engineeringTools",
   "aeo",
   "automation",
-  "pricing",
   "finish",
 ];
 
