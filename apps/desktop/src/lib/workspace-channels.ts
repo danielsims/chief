@@ -1,4 +1,15 @@
+export const GETTING_STARTED_CHANNEL_ID = "getting-started";
+export const GETTING_STARTED_CHANNEL_RELAY_ID =
+  "04e8b4b0-3b65-4a83-a2e0-7fd5aa9f70c4";
+
 export const WORKSPACE_CHANNELS = [
+  {
+    id: GETTING_STARTED_CHANNEL_ID,
+    relayId: GETTING_STARTED_CHANNEL_RELAY_ID,
+    label: "getting-started",
+    description: "Private setup with Chief and Setup",
+    agentIds: ["cmo", "setup"],
+  },
   {
     id: "analytics",
     relayId: "84d669ac-a8b3-4c09-8dd1-a620c2a76141",

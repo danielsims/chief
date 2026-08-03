@@ -52,8 +52,11 @@ import {
   availableCapabilities,
   composeAgentCapabilities,
 } from "./capabilities/index.js";
-import { channelReplyThreadRoot } from "./channel-reply-routing.js";
-import { channelChatId } from "./channels/nip29.js";
+import {
+  channelReplyThreadRoot,
+  channelRespondingAgentId,
+} from "./channel-reply-routing.js";
+import { channelChatId, GETTING_STARTED_CHANNEL_ID } from "./channels/nip29.js";
 import * as channelBridge from "./channels/server-bridge.js";
 import {
   loadSlackGatewayConfig,
@@ -90,7 +93,6 @@ import { handleLocalTool, localToolsOpenApi } from "./local-tools.js";
 import { SessionManager } from "./manager.js";
 import { createChiefMcpHandler } from "./mcp-server.js";
 import { listModels } from "./models.js";
-import { planOnboardingWork } from "./onboarding-preflight.js";
 import { authorizeOrganizationRole } from "./organization-authorization.js";
 import { ProviderAuthentication } from "./provider-authentication.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
@@ -2442,10 +2444,7 @@ export function startServer(port = PORT) {
 
           case "bootstrapOnboardingWork": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const chatId = `workspace-kickoff-${createHash("sha256")
-              .update(msg.workspaceId)
-              .digest("hex")
-              .slice(0, 32)}`;
+            const chatId = channelChatId(GETTING_STARTED_CHANNEL_ID);
             const signature = JSON.stringify({
               jobs: msg.jobs,
               schedules: msg.schedules,
@@ -2463,7 +2462,7 @@ export function startServer(port = PORT) {
             if (!bootstrap) {
               bootstrap = (async () => {
                 console.log(
-                  `[chief] preparing initial business review for ${msg.workspaceId}`,
+                  `[chief] preparing getting-started channel for ${msg.workspaceId}`,
                 );
                 if (msg.workspaceContext !== undefined) {
                   writeWorkspaceContext(
@@ -2479,7 +2478,7 @@ export function startServer(port = PORT) {
                 const driver = msg.driver ?? existingPreference?.driver;
                 if (!driver) {
                   throw new Error(
-                    "Choose a CMO agent app before starting the initial business review.",
+                    "Choose a Chief agent app before opening the workspace.",
                   );
                 }
                 const requestedModel = msg.model?.trim();
@@ -2509,29 +2508,6 @@ export function startServer(port = PORT) {
                   recursive: true,
                   mode: 0o700,
                 });
-                const hasGoogleAnalyticsSetup = msg.jobs.some(
-                  (job) =>
-                    job.agentId === "setup" &&
-                    job.setupDomain === GOOGLE_ANALYTICS_DOMAIN,
-                );
-                const googleAnalyticsConfiguration = hasGoogleAnalyticsSetup
-                  ? await inspectGoogleAnalyticsConfiguration(
-                      msg.workspaceId,
-                      msg.executorCapability,
-                    ).catch((error: unknown) => {
-                      console.error(
-                        "[onboarding] Google Analytics preflight failed:",
-                        error,
-                      );
-                      return undefined;
-                    })
-                  : undefined;
-                const onboardingPlan = planOnboardingWork(
-                  msg.jobs,
-                  googleAnalyticsConfiguration
-                    ? Boolean(googleAnalyticsConfiguration.connection)
-                    : undefined,
-                );
                 const attachmentPaths: string[][] = [];
                 let totalBytes = 0;
                 for (const [jobIndex, job] of msg.jobs.entries()) {
@@ -2568,7 +2544,7 @@ export function startServer(port = PORT) {
                   attachmentPaths[jobIndex] = saved;
                 }
 
-                const jobs = onboardingPlan.launchableJobs.map((job) => {
+                const jobs = msg.jobs.map((job) => {
                   const originalIndex = msg.jobs.indexOf(job);
                   const paths = attachmentPaths[originalIndex] ?? [];
                   return [
@@ -2580,104 +2556,46 @@ export function startServer(port = PORT) {
                   (schedule) =>
                     `- ${schedule.title.trim() || schedule.id}: ${schedule.status}; cron ${schedule.cron} (${schedule.timezone}). ${schedule.instructions.trim().slice(0, 4_000)}`,
                 );
-                const kickoffPrompt = [
-                  "Own one coherent initial business review. Keep this conversation as its single user-visible home and own the final synthesis.",
-                  "In the first execution pass, launch every independent job concurrently: Brand Researcher, every selected Setup job, and Prospector. Issue all of those delegation tool calls before waiting for or polling any child. Only the Analyst is dependency-gated on a verified analytics connection.",
-                  onboardingPlan.launchableJobs.some(
-                    (job) => job.agentId === "brand",
-                  )
-                    ? driver === "remote"
-                      ? "Launch business and brand research exactly once through the declared Brand Researcher in the initial parallel batch. Never start an equivalent second Brand Researcher. Verify its result when available, then save the complete Markdown through chief files.save at brand/working-brand-profile.md so it is durable and visible. If Brand fails, continue every other job and synthesize with a clearly labeled provisional brand gap."
-                      : "Launch business and brand research exactly once through localTools.specialistsDelegate in the initial parallel batch. Omit waitSeconds so the child continues in the background. A working response is healthy; reuse one stable delegation ID, never start an equivalent second Brand Researcher, and use its automatically saved versioned brand-profile file when available. If Brand fails, do not retry or stop the review: continue every other job and synthesize with a clearly labeled provisional brand gap."
-                    : "The user skipped brand research. Use the supplied workspace context without creating a Brand Researcher delegation.",
-                  onboardingPlan.launchableJobs.some(
-                    (job) => job.agentId === "setup",
-                  )
-                    ? driver === "remote"
-                      ? "Launch every listed Setup job independently through the declared Setup subagent in the initial parallel batch. Do not wait for Brand or serialize unrelated providers."
-                      : "Launch every listed Setup job independently through localTools.specialistsDelegate in the initial parallel batch and omit waitSeconds. Copy each job's setupDomain and setupAttemptId into its matching tool fields. Do not wait for Brand or serialize unrelated providers. Setup may open a provider consent screen; if it returns a genuine user-only credential, consent, or account choice, raise one precise provider-scoped action while all unrelated work continues."
-                    : "No integration setup was selected during onboarding.",
-                  onboardingPlan.launchableJobs.some(
-                    (job) => job.agentId === "analyst",
-                  )
-                    ? "As soon as an analytics Setup job is verified connected, launch the listed Analyst job. This is the only dependent kickoff job. Require its saved local dataset and chart before including analytics in the synthesis; if setup is genuinely blocked, do not fabricate a report or hold up unrelated results."
-                    : "No initial analytics report was requested.",
-                  onboardingPlan.deferredGoogleAnalytics
-                    ? "Google Analytics Setup and the initial Analyst report are deferred before any child attempt because the required Google OAuth client is predictably absent. Chief has already created one deterministic Overview action with exact Google Cloud instructions and secure fields. Setup will run in its own user-visible conversation. Do not delegate Google Analytics Setup, create another credential action, or poll for credentials; continue all launchable work until Chief sends a verified-connection continuation."
-                    : "No onboarding work was deferred by credential preflight.",
-                  driver === "remote"
-                    ? "Launch initial prospecting exactly once through the declared Prospector in the initial parallel batch. Require five to eight recent, high-confidence results with direct source URLs and require every qualified result to be saved through chief prospects.save before returning. Never start an equivalent second Prospector."
-                    : "Launch initial prospecting exactly once through localTools.specialistsDelegate in the initial parallel batch and omit waitSeconds. Require five to eight recent, high-confidence results with direct source URLs and require the Prospector to save every qualified result with prospectsSave before returning. A working response means it continues in the background; never start an equivalent second Prospector.",
-                  "After every independent child is underway, inspect workspace context and prepare the recurring work and review structure while children run. Then reconcile each stable delegation ID. Do not repeatedly poll one child while another initial job has not been launched. A failed independent child is a labeled gap, never a reason to abandon or withhold all other results. Final synthesis may wait for healthy research results, but must not wait for failed work or a Setup job blocked on user action.",
-                  "Inspect workspace context and already-connected Chief sources before asking the user for anything. Treat the underlying connection service as an internal implementation detail.",
-                  "Initial jobs:",
-                  jobs.length > 0 ? jobs.join("\n") : "- None selected.",
-                  "Recurring schedule plan:",
-                  schedules.length > 0
-                    ? schedules.join("\n")
-                    : "- No recurring schedules selected.",
-                  "Launch the concurrent kickoff now. Save the complete initial business review as a versioned Markdown workspace file under reviews/ and include it in the final synthesis. A blocked integration must not erase or delay completed brand or prospecting work.",
-                ].join("\n\n");
-
+                const planPath = join(
+                  onboardingDirectory,
+                  "getting-started.md",
+                );
+                writeFileSync(
+                  planPath,
+                  [
+                    "# Getting started",
+                    "",
+                    "This is the durable setup plan for the private #getting-started channel.",
+                    "Chief should work through it conversationally with the workspace owner and bring Setup into the channel when a provider requires browser authorization or credentials.",
+                    "",
+                    "## Setup and initial work",
+                    jobs.length > 0
+                      ? jobs.join("\n")
+                      : "- No setup work selected.",
+                    "",
+                    "## Recurring work",
+                    schedules.length > 0
+                      ? schedules.join("\n")
+                      : "- No recurring work selected.",
+                    "",
+                  ].join("\n"),
+                  { mode: 0o600 },
+                );
+                const channel = await manager.store
+                  .channelStore()
+                  .get(msg.workspaceId, GETTING_STARTED_CHANNEL_ID);
+                if (!channel) {
+                  throw new Error(
+                    "Chief could not create the getting-started channel.",
+                  );
+                }
                 await manager.createRootChat(
                   msg.workspaceId,
                   chatId,
-                  "Initial business review",
+                  "Getting started",
                   driver,
                   model,
                 );
-                if (onboardingPlan.deferredGoogleAnalytics) {
-                  await manager.raiseActionItem(msg.workspaceId, {
-                    id: `onboarding-google-analytics-${createHash("sha256")
-                      .update(msg.workspaceId)
-                      .digest("hex")
-                      .slice(0, 24)}`,
-                    agentId: "setup",
-                    title: "Connect Google Analytics",
-                    reason:
-                      "Google Analytics was selected during onboarding. Open Setup and sign in with the Google account that administers the Analytics property you want Chief to use.",
-                    sourceId: chatId,
-                    status: "open",
-                    createdAt: now,
-                  });
-                }
-                let persistedMessages = await manager.transcript(
-                  msg.workspaceId,
-                  chatId,
-                );
-                const kickoffId = `${chatId}-kickoff`;
-                if (
-                  !persistedMessages.some(
-                    (event) =>
-                      event.type === "message" &&
-                      event.role === "user" &&
-                      event.id === kickoffId,
-                  )
-                ) {
-                  await manager.saveTranscript(
-                    {
-                      id: chatId,
-                      organizationId: msg.workspaceId,
-                      agentId: "cmo",
-                      driver,
-                      model,
-                    },
-                    [
-                      {
-                        type: "message",
-                        id: kickoffId,
-                        role: "user",
-                        content: [{ type: "text", text: kickoffPrompt }],
-                      },
-                    ],
-                    "Initial business review",
-                  );
-                  persistedMessages = await manager.transcript(
-                    msg.workspaceId,
-                    chatId,
-                  );
-                  await broadcastWorkspaceData(msg.workspaceId);
-                }
 
                 for (const schedule of msg.schedules) {
                   if (!/^[a-z0-9][a-z0-9_-]{2,96}$/i.test(schedule.id)) {
@@ -2731,101 +2649,58 @@ export function startServer(port = PORT) {
                   });
                 }
 
-                const agent = getAgent("cmo");
-                if (!agent) throw new Error("CMO persona is missing.");
-                const preference = await manager.agentPreference(
+                const persistedMessages = await manager.transcript(
                   msg.workspaceId,
-                  "cmo",
-                );
-                const capabilities = preference?.capabilities;
-                const capableAgent = capabilities
-                  ? composeAgentCapabilities(
-                      agent,
-                      availableCapabilities.filter((capability) =>
-                        capabilities.includes(capability.id),
-                      ),
-                    )
-                  : agent;
-                const integratedAgent =
-                  preference?.integrations !== undefined
-                    ? {
-                        ...capableAgent,
-                        instructions: `${capableAgent.instructions}\n\nAssigned integrations: ${preference.integrations.length > 0 ? preference.integrations.join(", ") : "none"}. Only search for and call integration tools from this assigned set.`,
-                      }
-                    : capableAgent;
-                const effectiveAgent = {
-                  ...integratedAgent,
-                  instructions: composeWorkspaceInstructions(
-                    integratedAgent.instructions,
-                    readWorkspaceContext(msg.workspaceId),
-                  ),
-                };
-                const executorWorkspace = await ensureExecutorWorkspace(
-                  msg.workspaceId,
-                  msg.executorCapability,
-                );
-                const session = await manager.ensureRootChat(
-                  effectiveAgent,
                   chatId,
-                  {
-                    driver,
-                    access: "full",
-                    workspaceId: msg.workspaceId,
-                    model: preference?.model,
-                    mcpServers: [executorToolServer(executorWorkspace)],
-                    executionOwner: "interactive",
-                  },
-                  "Initial business review",
                 );
-                await manager.waitForChatPersistence(msg.workspaceId, chatId);
+                const welcomeId = `${chatId}-welcome`;
+                const firstItem = msg.jobs.find(
+                  (job) => job.agentId === "setup",
+                )?.title;
                 if (
                   !persistedMessages.some(
                     (event) =>
-                      (event.type === "message" &&
-                        event.role === "assistant") ||
-                      (event.type === "result" && event.ok),
+                      event.type === "message" && event.id === welcomeId,
                   )
                 ) {
-                  const releaseExecution = manager.acquireExecution(
+                  const welcome: AgentEvent = {
+                    type: "message",
+                    id: welcomeId,
+                    role: "assistant",
+                    content: [
+                      {
+                        type: "text",
+                        text: [
+                          "Welcome to Chief — I’ve set up this private channel for you, me, and Setup.",
+                          "Your setup checklist is in the Setup canvas above, and we’ll work through it here one outcome at a time.",
+                          firstItem
+                            ? `I recommend we start with **${firstItem}**. Reply **start** when you’re ready.`
+                            : "Reply **start** and I’ll guide you through the first useful workspace review.",
+                        ].join("\n\n"),
+                      },
+                    ],
+                  };
+                  await manager.saveTranscript(
+                    {
+                      id: chatId,
+                      organizationId: msg.workspaceId,
+                      agentId: "cmo",
+                      driver,
+                      model,
+                    },
+                    [welcome],
+                    "Getting started",
+                  );
+                  await channelBridge.mirrorEvent(
+                    manager,
+                    () => undefined,
                     msg.workspaceId,
                     chatId,
-                    "interactive",
+                    welcome,
+                    channel.id,
+                    { id: "cmo", name: "Chief" },
+                    broadcastChannelEvent,
                   );
-                  const releaseOnTerminal = (event: AgentEvent) => {
-                    if (
-                      event.type === "result" ||
-                      event.type === "error" ||
-                      event.type === "exit"
-                    ) {
-                      session.off("event", releaseOnTerminal);
-                      session.off("event", broadcastOnActivity);
-                      releaseExecution();
-                    }
-                  };
-                  session.on("event", releaseOnTerminal);
-                  const broadcastOnActivity = (event: AgentEvent) => {
-                    if (
-                      event.type === "status" ||
-                      event.type === "result" ||
-                      event.type === "error" ||
-                      event.type === "exit"
-                    ) {
-                      void broadcastWorkspaceData(msg.workspaceId);
-                    }
-                  };
-                  session.on("event", broadcastOnActivity);
-                  try {
-                    await session.sendPrompt(kickoffPrompt, undefined, false);
-                    await manager.waitForChatPersistence(
-                      msg.workspaceId,
-                      chatId,
-                    );
-                  } catch (error) {
-                    session.off("event", releaseOnTerminal);
-                    session.off("event", broadcastOnActivity);
-                    releaseExecution();
-                    throw error;
-                  }
                 }
                 await broadcastWorkspaceData(msg.workspaceId);
                 return chatId;
@@ -2849,7 +2724,7 @@ export function startServer(port = PORT) {
                 chats: await manager.listChats(msg.workspaceId),
               });
               console.log(
-                `[chief] initial business review started for ${msg.workspaceId}`,
+                `[chief] getting-started channel prepared for ${msg.workspaceId}`,
               );
             } finally {
               if (
@@ -3882,6 +3757,11 @@ export function startServer(port = PORT) {
               }
             }
             const isSharedChannel = destinationChannel?.visibility !== "direct";
+            const respondingAgentId = channelRespondingAgentId({
+              channelId: destinationChannel?.id,
+              isSharedChannel,
+              mentions: msg.mentions,
+            });
             if (isSharedChannel) {
               openedSession.recordUserMessage(msg.text, msg.messageId, {
                 threadRootId: msg.threadRootId,
@@ -3901,7 +3781,7 @@ export function startServer(port = PORT) {
                 });
               }
             }
-            if (isSharedChannel && !msg.mentions?.length) {
+            if (isSharedChannel && !respondingAgentId) {
               break;
             }
             const releaseExecution = manager.acquireExecution(
@@ -3977,10 +3857,6 @@ export function startServer(port = PORT) {
                 }
               }
               const execution = normalizedExecution(msg.execution);
-              const respondingAgentId =
-                destinationChannel?.visibility !== "direct"
-                  ? msg.mentions?.[0]
-                  : undefined;
               if (respondingAgentId && destinationChannel) {
                 const respondingAgent = getAgent(respondingAgentId);
                 if (!respondingAgent) {

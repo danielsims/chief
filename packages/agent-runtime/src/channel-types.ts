@@ -8,7 +8,7 @@ export interface WorkspaceChannel {
   topic: string;
   description: string;
   agentIds: string[];
-  visibility?: "public" | "direct";
+  visibility?: "public" | "private" | "direct";
   createdAt: number;
   updatedAt: number;
 }

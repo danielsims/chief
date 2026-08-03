@@ -4,7 +4,7 @@ import {
   ArrowUpRight,
   ChevronLeft,
   ChevronRight,
-  LoaderCircle,
+  MessagesSquare,
 } from "lucide-react";
 import {
   Line,
@@ -210,16 +210,13 @@ export function WorkspaceLearningCard({
 }) {
   return (
     <article className="relative flex min-h-0 flex-1 flex-col items-start justify-center p-7">
-      <LoaderCircle
-        className="text-muted-foreground mb-6 animate-spin"
-        size={18}
-      />
+      <MessagesSquare className="text-muted-foreground mb-6" size={18} />
       <h2 className="text-[clamp(24px,3vw,34px)] leading-tight font-normal tracking-[-0.03em]">
-        Chief is learning your business.
+        Finish setting up with Chief.
       </h2>
       <p className="text-muted-foreground mt-3 mb-6 max-w-[520px] text-[13px] leading-6">
-        Chief is reviewing your website, saved context and connected sources.
-        You can leave this open; the work will continue.
+        Open the private getting-started channel to work through connections,
+        initial research, and recurring work with Chief and Setup.
       </p>
       <button
         className={cn(overviewButton, "bg-foreground text-background")}
@@ -227,7 +224,7 @@ export function WorkspaceLearningCard({
         disabled={!reviewChatId}
         onClick={onOpen}
       >
-        {reviewChatId ? "View initial review" : "Preparing initial review"}{" "}
+        {reviewChatId ? "Open getting started" : "Preparing channel"}{" "}
         <ArrowRight size={13} />
       </button>
       <OverviewActionPagination

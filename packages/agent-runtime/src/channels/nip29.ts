@@ -8,8 +8,18 @@ import type {
 } from "../channel-types.js";
 
 export const CHANNEL_CHAT_PREFIX = "channel:";
+export const GETTING_STARTED_CHANNEL_ID =
+  "04e8b4b0-3b65-4a83-a2e0-7fd5aa9f70c4";
 
 const DEFAULT_CHANNELS = [
+  {
+    id: GETTING_STARTED_CHANNEL_ID,
+    slug: "getting-started",
+    name: "getting-started",
+    description: "Private setup with Chief and Setup",
+    agentIds: ["cmo", "setup"],
+    visibility: "private",
+  },
   {
     id: "84d669ac-a8b3-4c09-8dd1-a620c2a76141",
     slug: "analytics",

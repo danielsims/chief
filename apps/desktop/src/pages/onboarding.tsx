@@ -1,3 +1,5 @@
+/* eslint-disable max-lines */
+
 import type { ReactNode } from "react";
 import type { SimpleIcon } from "simple-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -2762,12 +2764,12 @@ function CompletionControl({
       <div className="flex max-w-sm flex-col items-center text-center">
         <SuccessCheck className="mb-8" />
         <div className="success-copy flex flex-col items-center">
-          <h2 className="text-4xl leading-none font-semibold tracking-[-0.04em]">
+          <h2 className="text-4xl leading-none font-normal tracking-[-0.04em]">
             You're in.
           </h2>
           <p className="text-muted-foreground mt-4 text-sm leading-6">
             {ready
-              ? "Your workspace is ready. Chief will begin learning your business and show the work on Overview."
+              ? "Your workspace is ready. Chief and Setup will meet you in a private getting-started channel."
               : "Checkout is complete. Chief is preparing your local workspace now."}
           </p>
           <Button
@@ -2777,9 +2779,9 @@ function CompletionControl({
             disabled={saving || !ready}
           >
             {saving
-              ? "Starting..."
+              ? "Entering..."
               : ready
-                ? "Start initial review"
+                ? "Enter workspace"
                 : "Preparing workspace..."}
           </Button>
         </div>
@@ -3202,7 +3204,7 @@ export function OnboardingPage() {
       setDraft((current) =>
         current ? { ...current, step: "pricing" } : current,
       );
-      setError("Complete checkout before starting the initial review.");
+      setError("Complete checkout before entering your workspace.");
       return;
     }
     if (!workspaceData.onboardingBootstrapReady) {
@@ -3224,7 +3226,7 @@ export function OnboardingPage() {
     setSaving(true);
     setError(null);
     sessionStorage.setItem(
-      `chief:initial-review:${org.id}`,
+      `chief:getting-started:${org.id}`,
       String(Date.now()),
     );
     try {
@@ -3291,12 +3293,12 @@ export function OnboardingPage() {
         name: draft.companyName.trim() || org.name,
         metadata: completedMetadata,
       });
-      // Workspace access and the initial agent run have different durability
+      // Workspace access and channel preparation have different durability
       // guarantees. Commit onboarding first, then let the runtime's persisted
-      // queue launch or retry the review without trapping the user here.
-      let initialReview: Promise<string> | null = null;
+      // queue prepare or retry #getting-started without trapping the user here.
+      let gettingStarted: Promise<string> | null = null;
       try {
-        initialReview = workspaceData.bootstrapOnboardingWork(
+        gettingStarted = workspaceData.bootstrapOnboardingWork(
           jobs,
           schedules,
           workspaceContextFromOrganization({
@@ -3307,23 +3309,23 @@ export function OnboardingPage() {
           draft.provider ?? undefined,
           draft.model || null,
         );
-      } catch (initialReviewError) {
+      } catch (gettingStartedError) {
         console.warn(
-          "[Onboarding] Initial review could not be queued yet",
-          initialReviewError,
+          "[Onboarding] Getting started could not be queued yet",
+          gettingStartedError,
         );
       }
       localStorage.removeItem(storageKey(org.id));
       window.dispatchEvent(new Event("chief:onboarding-complete"));
       navigate("/", { replace: true });
-      void initialReview?.catch((initialReviewError: unknown) => {
+      void gettingStarted?.catch((gettingStartedError: unknown) => {
         console.warn(
-          "[Onboarding] Initial review will retry in the background",
-          initialReviewError,
+          "[Onboarding] Getting started will retry in the background",
+          gettingStartedError,
         );
       });
     } catch (err) {
-      sessionStorage.removeItem(`chief:initial-review:${org.id}`);
+      sessionStorage.removeItem(`chief:getting-started:${org.id}`);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       completionStartedRef.current = false;

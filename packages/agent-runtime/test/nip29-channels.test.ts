@@ -87,9 +87,15 @@ void test("workspace channels are durable NIP-29 groups instead of chat labels",
     assert.ok(channelLists.every((list) => list.length === channels.length));
     assert.deepEqual(
       channels
-        .filter((channel) => channel.visibility !== "direct")
+        .filter((channel) => channel.visibility === "public")
         .map((channel) => channel.slug),
       ["analytics", "advertising", "prospecting", "general"],
+    );
+    assert.deepEqual(
+      channels
+        .filter((channel) => channel.visibility === "private")
+        .map((channel) => channel.slug),
+      ["getting-started"],
     );
     assert.equal(
       channels.filter((channel) => channel.visibility === "direct").length,
@@ -219,7 +225,7 @@ void test("a workspace keeps at least one public channel", async () => {
   try {
     const publicChannels = (
       await store.channelStore().list("workspace-a")
-    ).filter((channel) => channel.visibility !== "direct");
+    ).filter((channel) => channel.visibility === "public");
     for (const channel of publicChannels.slice(1)) {
       await store.channelStore().remove("workspace-a", channel.id);
     }

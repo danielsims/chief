@@ -4,7 +4,10 @@ import { and, asc, eq } from "drizzle-orm";
 
 import type { ChannelEvent, WorkspaceChannel } from "../types.js";
 import * as schema from "../db/schema.js";
-import { defaultWorkspaceChannels } from "./nip29.js";
+import {
+  defaultWorkspaceChannels,
+  GETTING_STARTED_CHANNEL_ID,
+} from "./nip29.js";
 
 export class ChannelStore {
   private readonly seededWorkspaces = new Map<string, Promise<void>>();
@@ -23,13 +26,27 @@ export class ChannelStore {
           .select({ id: schema.channels.id })
           .from(schema.channels)
           .where(eq(schema.channels.organizationId, workspaceId))
-          .limit(1)
-          .get();
-        if (existing) return;
+          .all();
+        const defaults = defaultWorkspaceChannels();
+        const channelsToSeed =
+          existing.length === 0
+            ? defaults
+            : defaults
+                .filter((channel) => channel.id === GETTING_STARTED_CHANNEL_ID)
+                .filter(
+                  (channel) =>
+                    !existing.some((candidate) => candidate.id === channel.id),
+                )
+                .map((channel) => ({
+                  ...channel,
+                  createdAt: 0,
+                  updatedAt: Date.now(),
+                }));
+        if (channelsToSeed.length === 0) return;
         await this.database()
           .insert(schema.channels)
           .values(
-            defaultWorkspaceChannels().map((channel) => ({
+            channelsToSeed.map((channel) => ({
               organizationId: workspaceId,
               ...channel,
             })),
@@ -70,7 +87,9 @@ export class ChannelStore {
           ...channel,
           visibility: channel.slug.startsWith("dm-")
             ? ("direct" as const)
-            : ("public" as const),
+            : channel.slug === "getting-started"
+              ? ("private" as const)
+              : ("public" as const),
         })),
       );
   }
@@ -164,8 +183,11 @@ export class ChannelStore {
     if (channel.visibility === "direct") {
       throw new Error("Direct messages cannot be deleted as channels.");
     }
+    if (channel.id === GETTING_STARTED_CHANNEL_ID) {
+      throw new Error("The getting-started channel belongs to the workspace.");
+    }
     const publicChannels = (await this.list(workspaceId)).filter(
-      (candidate) => candidate.visibility !== "direct",
+      (candidate) => candidate.visibility === "public",
     );
     if (publicChannels.length <= 1) {
       throw new Error("A workspace must keep at least one channel.");
