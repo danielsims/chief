@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { Check, Copy, Hash, MoreHorizontal, UserRound } from "lucide-react";
+import {
+  Check,
+  Copy,
+  Hash,
+  MessageSquareText,
+  MoreHorizontal,
+  NotebookTabs,
+  UserRound,
+} from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
 import {
@@ -12,7 +20,10 @@ import { cn } from "@chief/ui/lib/utils";
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { AgentPresence } from "./agent-profile-panel";
 import type { ConversationProfileSelection } from "./conversation-profile";
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import {
+  GETTING_STARTED_CHANNEL_RELAY_ID,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
 import { ChannelArtifactsMenu } from "../channel-artifacts-menu";
 import { AgentPresenceAvatar } from "./agent-profile-panel";
@@ -31,6 +42,8 @@ interface ConversationHeaderProps {
   directPresence: AgentPresence;
   onContinueArtifact: (artifact: { id: string; title: string }) => void;
   onOpenProfile: (selection: ConversationProfileSelection) => void;
+  activeView: "messages" | "canvas";
+  onViewChange: (view: "messages" | "canvas") => void;
   user: { image?: string | null; name: string } | null;
 }
 
@@ -41,119 +54,157 @@ export function ConversationHeader({
   directPresence,
   onContinueArtifact,
   onOpenProfile,
+  activeView,
+  onViewChange,
   user,
 }: ConversationHeaderProps) {
   const [linkCopied, setLinkCopied] = useState(false);
 
   return (
-    <header className="border-border/60 relative flex h-14 shrink-0 items-center border-b px-5">
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        {directIdentity ? (
-          <button
-            type="button"
-            aria-label={`Open ${directIdentity.name} profile`}
-            title={`Open ${directIdentity.name} profile`}
-            onClick={() => {
-              if (directAgentId) {
-                onOpenProfile({
-                  kind: "agent",
-                  agentId: directAgentId,
-                });
-              }
-            }}
-            className="focus-visible:ring-ring/30 rounded-full transition-opacity outline-none hover:opacity-85 focus-visible:ring-2"
-          >
-            <AgentPresenceAvatar
-              name={directIdentity.name}
-              presence={directPresence}
-            />
-          </button>
-        ) : (
-          <Hash size={17} className="text-muted-foreground shrink-0" />
-        )}
-        <div className="min-w-0">
-          <h1
-            className={cn(
-              "truncate font-semibold",
-              directIdentity
-                ? "text-sm leading-5 tracking-[-0.015em]"
-                : "text-[13px] leading-4",
-            )}
-          >
-            {directIdentity?.name ?? channel.label}
-          </h1>
-          {!directIdentity ? (
-            <p className="text-muted-foreground mt-0.5 truncate text-[12px] leading-4 font-normal">
-              {channel.description}
-            </p>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="flex items-center gap-1.5">
-        {!directIdentity ? (
-          <>
-            <ChannelArtifactsMenu
-              channelId={channel.id}
-              onContinue={onContinueArtifact}
-            />
-            <ChannelMembersMenu
-              channel={channel}
-              user={user}
-              onOpenProfile={onOpenProfile}
-            />
-          </>
-        ) : null}
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              aria-label="Conversation actions"
-              title="Conversation actions"
-              variant="outline"
-              size="icon-sm"
+    <header className="border-border/60 relative shrink-0 border-b">
+      <div className="flex h-14 items-center px-5">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {directIdentity ? (
+            <button
+              type="button"
+              aria-label={`Open ${directIdentity.name} profile`}
+              title={`Open ${directIdentity.name} profile`}
+              onClick={() => {
+                if (directAgentId) {
+                  onOpenProfile({
+                    kind: "agent",
+                    agentId: directAgentId,
+                  });
+                }
+              }}
+              className="focus-visible:ring-ring/30 rounded-full transition-opacity outline-none hover:opacity-85 focus-visible:ring-2"
             >
-              <MoreHorizontal size={15} />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-48 p-1.5">
-            {directIdentity ? (
+              <AgentPresenceAvatar
+                name={directIdentity.name}
+                presence={directPresence}
+              />
+            </button>
+          ) : (
+            <Hash size={17} className="text-muted-foreground shrink-0" />
+          )}
+          <div className="min-w-0">
+            <h1
+              className={cn(
+                "truncate font-semibold",
+                directIdentity
+                  ? "text-sm leading-5 tracking-[-0.015em]"
+                  : "text-[13px] leading-4",
+              )}
+            >
+              {directIdentity?.name ?? channel.label}
+            </h1>
+            {!directIdentity ? (
+              <p className="text-muted-foreground mt-0.5 truncate text-[12px] leading-4 font-normal">
+                {channel.description}
+              </p>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          {!directIdentity ? (
+            <>
+              <ChannelArtifactsMenu
+                channelId={channel.id}
+                onContinue={onContinueArtifact}
+              />
+              <ChannelMembersMenu
+                channel={channel}
+                user={user}
+                onOpenProfile={onOpenProfile}
+              />
+            </>
+          ) : null}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                aria-label="Conversation actions"
+                title="Conversation actions"
+                variant="outline"
+                size="icon-sm"
+              >
+                <MoreHorizontal size={15} />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-48 p-1.5">
+              {directIdentity ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (directAgentId) {
+                      onOpenProfile({
+                        kind: "agent",
+                        agentId: directAgentId,
+                      });
+                    }
+                  }}
+                  className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
+                >
+                  <UserRound size={14} />
+                  View profile
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {
-                  if (directAgentId) {
-                    onOpenProfile({
-                      kind: "agent",
-                      agentId: directAgentId,
-                    });
-                  }
+                  void navigator.clipboard.writeText(window.location.href);
+                  setLinkCopied(true);
+                  window.setTimeout(() => setLinkCopied(false), 1600);
                 }}
                 className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
               >
-                <UserRound size={14} />
-                View profile
+                {linkCopied ? <Check size={14} /> : <Copy size={14} />}
+                {linkCopied
+                  ? directIdentity
+                    ? "Conversation link copied"
+                    : "Channel link copied"
+                  : directIdentity
+                    ? "Copy conversation link"
+                    : "Copy channel link"}
               </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => {
-                void navigator.clipboard.writeText(window.location.href);
-                setLinkCopied(true);
-                window.setTimeout(() => setLinkCopied(false), 1600);
-              }}
-              className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
-            >
-              {linkCopied ? <Check size={14} /> : <Copy size={14} />}
-              {linkCopied
-                ? directIdentity
-                  ? "Conversation link copied"
-                  : "Channel link copied"
-                : directIdentity
-                  ? "Copy conversation link"
-                  : "Copy channel link"}
-            </button>
-          </PopoverContent>
-        </Popover>
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
+      {!directIdentity ? (
+        <nav aria-label="Channel views" className="flex h-10 gap-1 px-5">
+          {(
+            [
+              { id: "messages", label: "Messages", icon: MessageSquareText },
+              {
+                id: "canvas",
+                label:
+                  channel.id === GETTING_STARTED_CHANNEL_RELAY_ID ||
+                  channel.label === "getting-started"
+                    ? "Setup"
+                    : "Canvas",
+                icon: NotebookTabs,
+              },
+            ] as const
+          ).map((view) => (
+            <button
+              key={view.id}
+              type="button"
+              onClick={() => onViewChange(view.id)}
+              className={cn(
+                "text-muted-foreground hover:text-foreground relative flex h-full items-center gap-1.5 px-2.5 text-xs font-medium transition-colors",
+                activeView === view.id && "text-foreground",
+              )}
+            >
+              <view.icon size={13} />
+              {view.label}
+              {activeView === view.id ? (
+                <span className="bg-foreground absolute right-2 bottom-0 left-2 h-0.5 rounded-full" />
+              ) : null}
+            </button>
+          ))}
+        </nav>
+      ) : null}
     </header>
   );
 }
