@@ -98,6 +98,7 @@ import { ProviderAuthentication } from "./provider-authentication.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
 import { resumeDriverBlockedWork } from "./scheduled-agent-config.js";
 import { RecurringWorkScheduler } from "./scheduler.js";
+import { setupSkillFromPrompt } from "./setup-skills.js";
 import { executorArtifactsMessage } from "./tools/artifacts.js";
 import {
   awaitGoogleAnalyticsAuthorization,
@@ -259,7 +260,7 @@ async function storeInputValues(
         "Google Analytics client ID and client secret are required.",
       );
     }
-    await storeGoogleAnalyticsOAuthClient(workspaceId, capability, {
+    await storeGoogleAnalyticsOAuthClientForWorkspace(workspaceId, capability, {
       clientId,
       clientSecret,
     });
@@ -283,6 +284,25 @@ async function storeInputValues(
   }
   await workspaceSecrets.refresh(workspaceId);
   return saved;
+}
+
+async function storeGoogleAnalyticsOAuthClientForWorkspace(
+  workspaceId: string,
+  capability: ExecutorCapability,
+  credentials: { clientId: string; clientSecret: string },
+) {
+  await storeGoogleAnalyticsOAuthClient(workspaceId, capability, credentials);
+  await workspaceSecrets.storeEnv(
+    workspaceId,
+    "GOOGLE_ANALYTICS_CLIENT_ID",
+    credentials.clientId,
+  );
+  await workspaceSecrets.storeEnv(
+    workspaceId,
+    "GOOGLE_ANALYTICS_CLIENT_SECRET",
+    credentials.clientSecret,
+  );
+  await workspaceSecrets.refresh(workspaceId);
 }
 
 const equivalentInputKeys: Record<string, string[]> = {
@@ -1154,24 +1174,28 @@ export function startServer(port = PORT) {
     chatId: string,
     capability: ExecutorCapability,
   ) => {
+    const setupDomain = integrationSetups.domain(workspaceId, chatId);
     const current = manager.get(workspaceId, chatId);
-    if (current) return current;
-    const agent = getAgent("cmo");
-    if (!agent) throw new Error("CMO persona is missing.");
+    if (current && (!setupDomain || current.agent.id === "setup")) {
+      return current;
+    }
+    const agent = getAgent(setupDomain ? "setup" : "cmo");
+    if (!agent) throw new Error("Chief's agent persona is missing.");
     const preference = await manager.agentPreference(workspaceId, "cmo");
     if (!preference?.driver || preference.enabled === false) {
       throw new Error("Configure the CMO agent app before continuing work.");
     }
-    const capableAgent = preference.capabilities
-      ? composeAgentCapabilities(
-          agent,
-          availableCapabilities.filter((item) =>
-            preference.capabilities?.includes(item.id),
-          ),
-        )
-      : agent;
+    const capableAgent =
+      !setupDomain && preference.capabilities
+        ? composeAgentCapabilities(
+            agent,
+            availableCapabilities.filter((item) =>
+              preference.capabilities?.includes(item.id),
+            ),
+          )
+        : agent;
     const integratedAgent =
-      preference.integrations !== undefined
+      !setupDomain && preference.integrations !== undefined
         ? {
             ...capableAgent,
             instructions: `${capableAgent.instructions}\n\nAssigned integrations: ${preference.integrations.length > 0 ? preference.integrations.join(", ") : "none"}. Only search for and call integration tools from this assigned set.`,
@@ -1200,7 +1224,12 @@ export function startServer(port = PORT) {
       workspaceId,
       model: preference.model,
       mcpServers: executorWorkspace
-        ? [executorToolServer(executorWorkspace)]
+        ? [
+            executorToolServer(
+              executorWorkspace,
+              setupDomain ? "browser" : "model",
+            ),
+          ]
         : [],
       executionOwner: "interactive",
     });
@@ -1485,12 +1514,28 @@ export function startServer(port = PORT) {
                 instruction,
                 status: "active",
               }),
-            store: (credential, integrationSlug) =>
-              storeGeneratedCredentialConnection(
+            store: async (credential, integrationSlug) => {
+              const stored = await storeGeneratedCredentialConnection(
                 workspaceId,
                 { apiBaseUrl: cachedCapability.apiBaseUrl, token },
                 { domain: setup.domain, integrationSlug, credential },
-              ),
+              );
+              const environmentKey =
+                setup.domain === "github.com"
+                  ? "GITHUB_TOKEN"
+                  : setup.domain === "vercel.com"
+                    ? "VERCEL_TOKEN"
+                    : undefined;
+              if (environmentKey) {
+                await workspaceSecrets.storeEnv(
+                  workspaceId,
+                  environmentKey,
+                  credential,
+                );
+                await workspaceSecrets.refresh(workspaceId);
+              }
+              return stored;
+            },
           });
         },
         googleOAuth: {
@@ -1562,7 +1607,7 @@ export function startServer(port = PORT) {
             const client = await captureGoogleDesktopOAuthClient(
               browserSession(workspaceId, sessionId),
             );
-            await storeGoogleAnalyticsOAuthClient(
+            await storeGoogleAnalyticsOAuthClientForWorkspace(
               workspaceId,
               { apiBaseUrl: cachedCapability.apiBaseUrl, token },
               { clientId: client.clientId, clientSecret: client.clientSecret },
@@ -1606,16 +1651,6 @@ export function startServer(port = PORT) {
                 "One final Google step: sign in again if asked, then approve read-only access to the Analytics account you want Chief to use. Chief will verify the connection automatically.",
               status: "active",
             });
-            if (clientId && clientSecret) {
-              await workspaceSecrets.deleteEnv(
-                workspaceId,
-                "GOOGLE_ANALYTICS_CLIENT_ID",
-              );
-              await workspaceSecrets.deleteEnv(
-                workspaceId,
-                "GOOGLE_ANALYTICS_CLIENT_SECRET",
-              );
-            }
             return authorization;
           },
           completeAuthorization: async (sessionId, attemptId, state) => {
@@ -3946,15 +3981,22 @@ export function startServer(port = PORT) {
                 },
               );
               bindRootSession(msg.workspaceId, msg.chatId, session);
+              const setupSkill = setupSkillFromPrompt(msg.text);
+              if (setupSkill?.domain) {
+                integrationSetups.assignDomain(
+                  msg.workspaceId,
+                  msg.chatId,
+                  setupSkill.domain,
+                );
+              }
               const firstLine = msg.text.split("\n", 1)[0] ?? "";
               if (
                 firstLine.startsWith(SETUP_ATTEMPT_PREFIX) &&
                 firstLine.endsWith("]")
               ) {
-                const domain = integrationSetups.domain(
-                  msg.workspaceId,
-                  msg.chatId,
-                );
+                const domain =
+                  setupSkill?.domain ??
+                  integrationSetups.domain(msg.workspaceId, msg.chatId);
                 const attemptId = firstLine.slice(
                   SETUP_ATTEMPT_PREFIX.length,
                   -1,
@@ -4091,8 +4133,11 @@ export function startServer(port = PORT) {
                 text: msg.text,
                 threadRootId: msg.threadRootId,
               });
+              const agentPrompt = setupSkill
+                ? `${msg.text}\n\n<chief_setup_skill id="${setupSkill.id}">\n${setupSkill.instructions}\n</chief_setup_skill>`
+                : msg.text;
               await session.sendPrompt(
-                msg.text,
+                agentPrompt,
                 msg.messageId,
                 !isSharedChannel,
                 {

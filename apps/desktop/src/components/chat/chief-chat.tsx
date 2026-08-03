@@ -188,6 +188,7 @@ export function ChiefChat({
   channel,
   directAgent,
   destinationChannelId,
+  integrationDomain,
   activeChild,
   onInitialPromptSent,
   onCloseChild,
@@ -222,6 +223,7 @@ export function ChiefChat({
   };
   directAgent?: { id: WorkspaceAgentId; name: string; role: string };
   destinationChannelId?: string;
+  integrationDomain?: string;
   activeChild?: SessionRecord;
   onInitialPromptSent?: () => void;
   onCloseChild?: () => void;
@@ -290,6 +292,7 @@ export function ChiefChat({
       channelId: destinationChannelId,
       agentId: directAgent?.id,
       wakeOnMentionOnly: Boolean(channel),
+      integrationDomain,
     },
   );
   const [activityOpen, setActivityOpen] = useState(false);

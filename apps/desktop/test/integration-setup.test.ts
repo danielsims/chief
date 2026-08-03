@@ -26,10 +26,11 @@ void test("integration setup starts visibly in the getting-started channel", () 
   );
   const url = new URL(path, "https://chief.local");
   assert.equal(url.searchParams.get("channel"), "getting-started");
+  assert.equal(url.searchParams.get("setup"), "github.com");
   assert.equal(url.searchParams.get("chat"), null);
   assert.match(
     url.searchParams.get("prompt") ?? "",
-    /^\[chief-integration-setup:attempt-one\]\n\n@Setup,/u,
+    /^\[chief-integration-setup:attempt-one\]\n\n\[chief-skill:setup-github\]\n\n@Setup,/u,
   );
 });
 
@@ -50,7 +51,7 @@ void test("recognizes Google OAuth actions by secure field destinations", () => 
   );
 });
 
-void test("Google Analytics uses inline customer OAuth and broad Executor tools", () => {
+void test("Google Analytics uses the secure setup skill", () => {
   assert.deepEqual(
     GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST.fields.map((field) => [
       field.key,
@@ -80,21 +81,10 @@ void test("Google Analytics uses inline customer OAuth and broad Executor tools"
     domain: "analytics.googleapis.com",
     name: "Google Analytics",
   });
-  assert.match(task, /googleAnalytics\.authorize/);
-  assert.match(task, /googleAnalytics\.complete/);
-  assert.match(task, /localTools\.browserOpen/);
-  assert.match(task, /googleOAuth\.provisionClient/);
-  assert.match(task, /without exposing its ID or secret in chat/);
-  assert.match(task, /googleOAuth\.captureClient/);
-  assert.match(task, /client-created dialog or exact client's edit page/);
-  assert.match(task, /Do not click Download JSON, OK/);
-  assert.match(task, /Chief - Google Analytics/);
-  assert.match(task, /never create another while an exact match exists/);
-  assert.match(task, /Never ask them to tell you when they are ready/);
-  assert.match(task, /Do not send the user into Google Cloud/);
-  assert.match(task, /authoritative live report/);
-  assert.doesNotMatch(task, /make one fresh read-only report/);
-  assert.doesNotMatch(task, /gcloud auth|Application Default Credentials/);
+  assert.match(task, /^@Setup, connect Google Analytics/u);
+  assert.match(task, /attached setup skill/);
+  assert.match(task, /operate the secure browser after I authenticate/);
+  assert.ok(task.length < 300);
 });
 
 void test("onboarding Google Analytics actions own distinct Setup chats", () => {
@@ -177,16 +167,10 @@ void test("setup markers never persist connection state", async () => {
   assert.equal(writes, 0);
 });
 
-void test("generic setup uses Executor handoffs without executing registry code", () => {
+void test("generic setup remains concise and validates its domain", () => {
   const task = integrationSetupTask({ domain: "pendo.io", name: "Pendo" });
-  assert.match(task, /integrations\.sh\/api\.json/);
-  assert.match(task, /connection creation handoff/);
-  assert.match(task, /OAuth-client creation handoff/);
-  assert.match(task, /Connect action authorizes/);
-  assert.match(task, /Do not ask for a second approval/);
-  assert.match(task, /invalid setup response/);
-  assert.match(task, /do not stop to wait for chat replies/);
-  assert.doesNotMatch(task, /\bnpx\b|CHIEF_INPUT_REQUEST \{/);
+  assert.match(task, /^@Setup, connect Pendo/u);
+  assert.doesNotMatch(task, /integrations\.sh|CHIEF_INPUT_REQUEST/u);
   assert.throws(
     () =>
       integrationSetupTask({
@@ -197,19 +181,11 @@ void test("generic setup uses Executor handoffs without executing registry code"
   );
 });
 
-void test("GitHub setup makes Chief create a repository-scoped token", () => {
+void test("GitHub setup details stay out of the visible message", () => {
   const task = integrationSetupTask({ domain: "github.com", name: "GitHub" });
-  assert.match(task, /After sign-in, you own the entire token form/);
-  assert.match(task, /Chief - <repository name>/);
-  assert.match(task, /today in YYYY-MM-DD/);
-  assert.match(task, /90-day expiration/);
-  assert.match(task, /Only select repositories/);
-  assert.match(task, /Never choose All repositories/);
-  assert.match(task, /Contents read and write/);
-  assert.match(task, /Pull requests read and write/);
-  assert.match(task, /open Add permissions/);
-  assert.match(task, /shows Repositories \(3\)/);
-  assert.match(task, /Never tell the human to create/);
+  assert.match(task, /^@Setup, connect GitHub/u);
+  assert.doesNotMatch(task, /token form|repositories|permissions/u);
+  assert.ok(task.length < 300);
 });
 
 void test("setup results belong only to the latest connection attempt", () => {
