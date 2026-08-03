@@ -1,7 +1,7 @@
 /* eslint-disable max-lines */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { BarChart3, MessageSquareText, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router";
 
@@ -10,7 +10,7 @@ import { api } from "@chief/backend/convex/_generated/api";
 import { Button } from "@chief/ui/components/button";
 import { cn } from "@chief/ui/lib/utils";
 
-import type { SetupIntegration, SetupResult } from "../lib/integration-setup";
+import type { SetupIntegration } from "../lib/integration-setup";
 import { LineChartCard } from "../components/charts/line-chart-card";
 import { Blocks } from "../components/chat/message-blocks";
 import { shortAnalyticsDate } from "../components/integrations/connection-preview";
@@ -23,10 +23,7 @@ import {
   parseOrganizationMetadata,
 } from "../lib/auth/better-auth-client";
 import { createChat } from "../lib/chat-log";
-import {
-  persistSetupResult,
-  withoutMarkerLines,
-} from "../lib/integration-setup";
+import { withoutMarkerLines } from "../lib/integration-setup";
 import { providerDetails } from "../lib/provider-details";
 import {
   messageBlocks,
@@ -268,7 +265,6 @@ export function AnalyticsPage() {
   const reportPending =
     Boolean(selectedProvider) && storedDataset === undefined;
 
-  const markIntegrationConnected = useMutation(api.integrations.markConnected);
   const preferredIntegration = usePreferredAnalyticsIntegration();
   const chiefConfig = agentConfig.forAgent("cmo");
   const workspaceProvider = chiefConfig.driver;
@@ -369,21 +365,6 @@ export function AnalyticsPage() {
     autoRefreshedRef.current.add(selectedChannel._id);
     void refresh();
   }, [refresh, reportChat.chatReady, selectedChannel, storedDataset]);
-
-  const handleSetupResult = useCallback(
-    (result: SetupResult) => {
-      void persistSetupResult(
-        result,
-        {
-          markConnected: markIntegrationConnected,
-        },
-        "analytics",
-      ).catch((error) => {
-        setNotice(error instanceof Error ? error.message : String(error));
-      });
-    },
-    [markIntegrationConnected],
-  );
 
   const sourceName = selectedChannel?.displayName ?? preferredIntegration.name;
   const askAnalyst = () => {
@@ -588,7 +569,6 @@ export function AnalyticsPage() {
                     <IntegrationConnect
                       integration={preferredIntegration}
                       connected={false}
-                      onResult={handleSetupResult}
                     />
                   ) : (
                     <p className="text-muted-foreground text-xs">

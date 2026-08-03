@@ -33,7 +33,10 @@ import {
   useRuntime,
   useWorkspaceData,
 } from "../../lib/runtime";
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import {
+  GETTING_STARTED_CHANNEL_RELAY_ID,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
 import { InputRequestSection } from "../integrations/input-request-section";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
@@ -258,6 +261,8 @@ export function ChiefChat({
     .sort((a, b) => a.createdAt - b.createdAt);
   const agentConfig = useAgentConfig();
   const resolved = agentConfig.forAgent(directAgent?.id ?? "cmo");
+  const isGettingStarted =
+    destinationChannelId === GETTING_STARTED_CHANNEL_RELAY_ID;
   const initialExecution = initialDriver
     ? { driver: initialDriver, model: initialModel }
     : resolved.driver
@@ -280,7 +285,7 @@ export function ChiefChat({
     chatId,
     initialExecution,
     selectedExecution ?? undefined,
-    resolved.access,
+    isGettingStarted ? "full" : resolved.access,
     {
       channelId: destinationChannelId,
       agentId: directAgent?.id,
@@ -314,7 +319,12 @@ export function ChiefChat({
   const mentionCandidates = useMemo(
     () =>
       Object.entries(WORKSPACE_AGENT_IDENTITIES)
-        .filter(([id]) => id !== "setup")
+        .filter(
+          ([id]) =>
+            id !== "setup" ||
+            directAgent?.id === "setup" ||
+            Boolean(channel?.agentIds.includes("setup")),
+        )
         .map(([id, identity]) => ({
           id,
           ...identity,

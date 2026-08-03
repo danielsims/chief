@@ -16,6 +16,12 @@ import {
 } from "@chief/agent-runtime/integration-requests";
 import { browserCredentialSetupRecipe } from "@chief/agent-runtime/integration-setup-recipes";
 
+import {
+  channelChatId,
+  GETTING_STARTED_CHANNEL_ID,
+  GETTING_STARTED_CHANNEL_RELAY_ID,
+} from "./workspace-channels";
+
 export { GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST } from "@chief/agent-runtime/integration-requests";
 export {
   googleAnalyticsActionChatId,
@@ -74,6 +80,22 @@ export interface SetupResult {
 export interface SetupIntegration {
   domain: string;
   name: string;
+}
+
+export function integrationSetupChannelPath(
+  integration: SetupIntegration,
+  attemptId: string = crypto.randomUUID(),
+) {
+  const params = new URLSearchParams({
+    channel: GETTING_STARTED_CHANNEL_ID,
+    chat: channelChatId(GETTING_STARTED_CHANNEL_RELAY_ID),
+    prompt: [
+      `${SETUP_ATTEMPT_PREFIX}${attemptId}]`,
+      `@Setup, help me connect ${integration.name} here in #getting-started. Open the secure browser when sign-in or account selection is needed, and keep Chief and me updated in this channel.`,
+      integrationSetupTask(integration),
+    ].join("\n\n"),
+  });
+  return `/conversations?${params.toString()}`;
 }
 
 export function isConnectionAction(action: ActionItem) {

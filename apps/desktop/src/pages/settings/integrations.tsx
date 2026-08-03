@@ -19,7 +19,7 @@ import type { CatalogIntegration } from "../../lib/integration-catalog";
 import { ProviderLogo } from "../../components/provider-logo";
 import { useAuth } from "../../lib/auth/auth-context";
 import { INTEGRATION_CATALOG } from "../../lib/integration-catalog";
-import { integrationSetupChatId } from "../../lib/integration-setup";
+import { integrationSetupChannelPath } from "../../lib/integration-setup";
 import { useLocalIntegrationStatus } from "../../lib/local-integration-status";
 import { providerDetails } from "../../lib/provider-details";
 import { useDisconnectGoogleAnalytics } from "../../lib/runtime";
@@ -88,11 +88,7 @@ function IntegrationCatalog({ connected }: { connected: Set<string> }) {
       `chief:integration-setup:${integration.domain}`,
       "active",
     );
-    void navigate(
-      `/conversations?chat=${encodeURIComponent(
-        integrationSetupChatId(cloudOrganizationId, integration.domain),
-      )}`,
-    );
+    void navigate(integrationSetupChannelPath(integration));
   };
 
   return (

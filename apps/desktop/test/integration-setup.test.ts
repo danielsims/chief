@@ -8,6 +8,7 @@ import {
   googleAnalyticsActionChatId,
   googleAnalyticsActionIdFromChat,
   integrationProviderMatchesDomain,
+  integrationSetupChannelPath,
   integrationSetupChatId,
   integrationSetupDomainFromChat,
   integrationSetupTask,
@@ -17,6 +18,20 @@ import {
   SETUP_ATTEMPT_PREFIX,
   setupResultMatchesIntegration,
 } from "../src/lib/integration-setup.ts";
+
+void test("integration setup starts visibly in the getting-started channel", () => {
+  const path = integrationSetupChannelPath(
+    { domain: "github.com", name: "GitHub" },
+    "attempt-one",
+  );
+  const url = new URL(path, "https://chief.local");
+  assert.equal(url.searchParams.get("channel"), "getting-started");
+  assert.match(url.searchParams.get("chat") ?? "", /^channel:/u);
+  assert.match(
+    url.searchParams.get("prompt") ?? "",
+    /^\[chief-integration-setup:attempt-one\]\n\n@Setup,/u,
+  );
+});
 
 void test("recognizes Google OAuth actions by secure field destinations", () => {
   assert.equal(

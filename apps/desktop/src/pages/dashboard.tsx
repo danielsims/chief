@@ -47,8 +47,7 @@ import {
 } from "../lib/deployment-recovery";
 import {
   findPendingInputRequest,
-  googleAnalyticsActionChatId,
-  integrationSetupChatId,
+  integrationSetupChannelPath,
   isConnectionAction,
   isGoogleAnalyticsConnectionAction,
   isOnboardingGoogleAnalyticsAction,
@@ -67,6 +66,7 @@ import {
 import {
   actionConversation,
   channelChatId,
+  GETTING_STARTED_CHANNEL_ID,
   GETTING_STARTED_CHANNEL_RELAY_ID,
   WORKSPACE_AGENT_IDENTITIES,
 } from "../lib/workspace-channels";
@@ -728,12 +728,7 @@ export function DashboardPage() {
         "active",
       );
       void navigate(
-        `/conversations?chat=${encodeURIComponent(
-          integrationSetupChatId(
-            cloudOrganizationId,
-            nextEngineeringIntegration.domain,
-          ),
-        )}&dm=setup`,
+        integrationSetupChannelPath(nextEngineeringIntegration, action.id),
       );
       return;
     }
@@ -742,7 +737,10 @@ export function DashboardPage() {
       isOnboardingGoogleAnalyticsAction(action.id)
     ) {
       void navigate(
-        `/conversations?chat=${encodeURIComponent(googleAnalyticsActionChatId(action.id))}&dm=setup`,
+        integrationSetupChannelPath(
+          { domain: "analytics.googleapis.com", name: "Google Analytics" },
+          action.id,
+        ),
       );
       return;
     }
@@ -760,10 +758,13 @@ export function DashboardPage() {
     }
     if (isConnectionAction(action)) {
       const prompt =
-        `Help me complete “${action.title}”. ${action.reason.trim()}`.trim();
-      void navigate(
-        `/conversations?dm=setup&prompt=${encodeURIComponent(prompt)}`,
-      );
+        `@Setup, help me complete “${action.title}” here with Chief. ${action.reason.trim()}`.trim();
+      const params = new URLSearchParams({
+        channel: GETTING_STARTED_CHANNEL_ID,
+        chat: channelChatId(GETTING_STARTED_CHANNEL_RELAY_ID),
+        prompt,
+      });
+      void navigate(`/conversations?${params.toString()}`);
       return;
     }
     if (
@@ -773,9 +774,9 @@ export function DashboardPage() {
       void navigate("/schedule");
       return;
     }
-    const destination = actionConversation(action);
     const prompt =
       `Please action “${action.title}”. ${action.reason.trim()}`.trim();
+    const destination = actionConversation(action);
     const params = new URLSearchParams({ prompt });
     params.set(destination.kind, destination.id);
     void navigate(`/conversations?${params.toString()}`);

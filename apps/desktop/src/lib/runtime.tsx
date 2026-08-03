@@ -3113,25 +3113,6 @@ export function useChiefChat(
   );
 }
 
-export function useIntegrationSetupChat(
-  chatId: string | null,
-  integrationDomain: string,
-  selectedExecution?: ChatExecutionSelection,
-  channelId?: string,
-) {
-  return useRuntimeChat(
-    chatId,
-    "open",
-    undefined,
-    selectedExecution,
-    "full",
-    "integration-setup",
-    integrationDomain,
-    channelId,
-    "setup",
-  );
-}
-
 export function useAnalyticsReportChat(
   chatId: string | null,
   access: "full" | "guarded",
