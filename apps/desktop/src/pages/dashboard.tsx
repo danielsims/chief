@@ -60,14 +60,15 @@ import {
 } from "../lib/onboarding-engineering";
 import {
   useAgentPreferences,
+  useLocalChats,
   useObservedChat,
   useWorkspaceData,
 } from "../lib/runtime";
 import {
   actionConversation,
-  channelChatId,
   GETTING_STARTED_CHANNEL_ID,
   GETTING_STARTED_CHANNEL_RELAY_ID,
+  resolvedChannelChatId,
   WORKSPACE_AGENT_IDENTITIES,
 } from "../lib/workspace-channels";
 
@@ -241,6 +242,7 @@ export function DashboardPage() {
     ComposerImageAttachment[]
   >([]);
   const { cloudOrganizationId, user } = useAuth();
+  const localChats = useLocalChats(cloudOrganizationId);
   const [organization, setOrganization] = useState<AuthOrganization | null>(
     () => cachedAuthOrganization(cloudOrganizationId),
   );
@@ -761,7 +763,6 @@ export function DashboardPage() {
         `@Setup, help me complete “${action.title}” here with Chief. ${action.reason.trim()}`.trim();
       const params = new URLSearchParams({
         channel: GETTING_STARTED_CHANNEL_ID,
-        chat: channelChatId(GETTING_STARTED_CHANNEL_RELAY_ID),
         prompt,
       });
       void navigate(`/conversations?${params.toString()}`);
@@ -870,11 +871,13 @@ export function DashboardPage() {
                 actions={overviewActions}
                 index={resolvedOverviewActionIndex}
                 onMove={moveAction}
-                reviewChatId={channelChatId(GETTING_STARTED_CHANNEL_RELAY_ID)}
+                reviewChatId={resolvedChannelChatId(
+                  GETTING_STARTED_CHANNEL_RELAY_ID,
+                  cloudOrganizationId,
+                  localChats.chats,
+                )}
                 onOpen={() => {
-                  void navigate(
-                    `/conversations?channel=getting-started&chat=${encodeURIComponent(channelChatId(GETTING_STARTED_CHANNEL_RELAY_ID))}`,
-                  );
+                  void navigate("/conversations?channel=getting-started");
                 }}
               />
             ) : currentAction ? (

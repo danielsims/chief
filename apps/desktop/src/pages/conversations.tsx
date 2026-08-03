@@ -35,8 +35,8 @@ import {
   useWorkspaceData,
 } from "../lib/runtime";
 import {
-  channelChatId,
-  directMessageChatId,
+  channelIdFromChatId,
+  resolvedChannelChatId,
   WORKSPACE_AGENT_IDENTITIES,
   WORKSPACE_CHANNELS,
   workspaceChannel,
@@ -118,6 +118,7 @@ export function ConversationsPage() {
   const running = useRunningChats();
   const { agents: runtimeAgents, status: runtimeStatus } = useRuntime();
   const requestedChatId = params.get("chat");
+  const requestedChannelId = channelIdFromChatId(requestedChatId);
   const staticRequestedChannel = workspaceChannel(params.get("channel"));
   const runtimeRequestedChannel = workspaceChannels.channels.find(
     (channel) =>
@@ -127,13 +128,12 @@ export function ConversationsPage() {
   );
   const channelRequestedByChat = workspaceChannels.channels.find(
     (channel) =>
-      channel.visibility !== "direct" &&
-      channelChatId(channel.id) === requestedChatId,
+      channel.visibility !== "direct" && channel.id === requestedChannelId,
   );
   const resolvedRuntimeChannel =
     runtimeRequestedChannel ?? channelRequestedByChat;
   const staticChannelRequestedByChat = WORKSPACE_CHANNELS.find(
-    (channel) => channelChatId(channel.id) === requestedChatId,
+    (channel) => channel.relayId === requestedChannelId,
   );
   const requestedChannel = resolvedRuntimeChannel
     ? {
@@ -174,13 +174,19 @@ export function ConversationsPage() {
       : null;
   const focusComposer =
     navigationState?.focusComposerFor === activeConversationChannel?.id;
-  const activeChatId =
-    requestedChatId ??
-    (activeConversationChannel
-      ? channelChatId(activeConversationChannel.id)
-      : requestedDirectMessage
-        ? directMessageChatId(requestedDirectMessage.id)
-        : null);
+  const activeChatId = activeConversationChannel
+    ? resolvedChannelChatId(
+        activeConversationChannel.id,
+        cloudOrganizationId,
+        localChats.chats,
+      )
+    : requestedDirectMessage
+      ? resolvedChannelChatId(
+          requestedDirectMessage.relayId,
+          cloudOrganizationId,
+          localChats.chats,
+        )
+      : requestedChatId;
   const activeChildId = params.get("child");
   const activeSetupActionId = googleAnalyticsActionIdFromChat(activeChatId);
   const activeSetupDomain = integrationSetupDomainFromChat(activeChatId);
@@ -221,8 +227,17 @@ export function ConversationsPage() {
   const activeProfileIdentity = activeProfileAgentId
     ? WORKSPACE_AGENT_IDENTITIES[activeProfileAgentId]
     : null;
+  const activeProfileDirectMessage =
+    workspaceDirectMessage(activeProfileAgentId);
+  const activeProfileChatId = activeProfileDirectMessage
+    ? resolvedChannelChatId(
+        activeProfileDirectMessage.relayId,
+        cloudOrganizationId,
+        localChats.chats,
+      )
+    : null;
   const activeProfilePresence: AgentPresence = activeProfileAgentId
-    ? running[directMessageChatId(activeProfileAgentId)]
+    ? activeProfileChatId && running[activeProfileChatId]
       ? "working"
       : runtimeStatus === "connected"
         ? "online"

@@ -117,14 +117,14 @@ export function defaultWorkspaceChannels(now = Date.now()): WorkspaceChannel[] {
   }));
 }
 
-export function channelChatId(channelId: string) {
-  return `${CHANNEL_CHAT_PREFIX}${channelId}`;
+export function channelChatId(workspaceId: string, channelId: string) {
+  return `${CHANNEL_CHAT_PREFIX}${workspaceId}:${channelId}`;
 }
 
 export function channelIdFromChatId(chatId: string) {
-  return chatId.startsWith(CHANNEL_CHAT_PREFIX)
-    ? chatId.slice(CHANNEL_CHAT_PREFIX.length)
-    : null;
+  if (!chatId.startsWith(CHANNEL_CHAT_PREFIX)) return null;
+  const scopedId = chatId.slice(CHANNEL_CHAT_PREFIX.length);
+  return scopedId.slice(scopedId.lastIndexOf(":") + 1);
 }
 
 export function actorPubkey(workspaceId: string, actor: ChannelActor) {

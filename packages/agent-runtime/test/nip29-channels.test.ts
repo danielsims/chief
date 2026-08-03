@@ -8,6 +8,7 @@ import type { ChannelEvent } from "../src/channel-types.js";
 import type { AgentEvent, ServerMessage } from "../src/types.js";
 import {
   channelChatId,
+  channelIdFromChatId,
   createChannelEvent,
   createChannelReaction,
 } from "../src/channels/nip29.js";
@@ -23,6 +24,15 @@ import { SessionManager } from "../src/manager.js";
 
 process.env.CHIEF_DATABASE_ENCRYPTION_KEY =
   "chief-nip29-channel-integration-test-key";
+
+void test("channel conversations are stable and isolated by workspace", () => {
+  const channelId = "channel-a";
+  const first = channelChatId("workspace-a", channelId);
+  const second = channelChatId("workspace-b", channelId);
+  assert.notEqual(first, second);
+  assert.equal(channelIdFromChatId(first), channelId);
+  assert.equal(channelIdFromChatId(`channel:${channelId}`), channelId);
+});
 
 void test("only a completed user-facing agent reply is mirrored", () => {
   const progress = {
@@ -102,7 +112,9 @@ void test("workspace channels are durable NIP-29 groups instead of chat labels",
       7,
     );
     assert.equal(
-      new Set(channels.map((channel) => channelChatId(channel.id))).size,
+      new Set(
+        channels.map((channel) => channelChatId("workspace-a", channel.id)),
+      ).size,
       channels.length,
     );
     const analytics = channels.find((channel) => channel.slug === "analytics");
@@ -268,7 +280,7 @@ void test("agent activity reactions wrap one idempotent channel message", async 
       manager,
       send,
       "workspace-a",
-      channelChatId(channel.id),
+      channelChatId("workspace-a", channel.id),
       input,
       channel.id,
       undefined,
@@ -278,7 +290,7 @@ void test("agent activity reactions wrap one idempotent channel message", async 
       manager,
       send,
       "workspace-a",
-      channelChatId(channel.id),
+      channelChatId("workspace-a", channel.id),
       input,
       channel.id,
     );

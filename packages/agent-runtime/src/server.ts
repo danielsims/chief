@@ -2266,7 +2266,7 @@ export function startServer(port = PORT) {
               msg.workspaceId,
               msg.channelId,
             );
-            const chatId = channelChatId(channel.id);
+            const chatId = channelChatId(msg.workspaceId, channel.id);
             const chat = await manager.store.chatRecord(
               msg.workspaceId,
               chatId,
@@ -2445,7 +2445,10 @@ export function startServer(port = PORT) {
 
           case "bootstrapOnboardingWork": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const chatId = channelChatId(GETTING_STARTED_CHANNEL_ID);
+            const chatId = channelChatId(
+              msg.workspaceId,
+              GETTING_STARTED_CHANNEL_ID,
+            );
             const signature = JSON.stringify({
               jobs: msg.jobs,
               schedules: msg.schedules,
@@ -2673,10 +2676,10 @@ export function startServer(port = PORT) {
                         type: "text",
                         text: [
                           "Welcome to Chief — I’ve set up this private channel for you, me, and Setup.",
-                          "Your setup checklist is in the Setup canvas above, and we’ll work through it here one outcome at a time.",
+                          "We’ll work through setup here one outcome at a time, and I’ll bring Setup into the conversation whenever a provider needs secure sign-in.",
                           firstItem
-                            ? `I recommend we start with **${firstItem}**. Reply **start** when you’re ready.`
-                            : "Reply **start** and I’ll guide you through the first useful workspace review.",
+                            ? `I’m starting with **${firstItem}** while the rest of your initial review gets underway.`
+                            : "I’m starting your first useful workspace review now.",
                         ].join("\n\n"),
                       },
                     ],
@@ -2702,6 +2705,119 @@ export function startServer(port = PORT) {
                     { id: "cmo", name: "Chief" },
                     broadcastChannelEvent,
                   );
+                }
+                const kickoffId = `${chatId}-kickoff`;
+                const kickoffIndex = persistedMessages.findIndex(
+                  (event) => event.type === "message" && event.id === kickoffId,
+                );
+                const kickoffCompleted = persistedMessages
+                  .slice(kickoffIndex + 1)
+                  .some(
+                    (event) =>
+                      (event.type === "message" &&
+                        event.role === "assistant" &&
+                        event.content.some(
+                          (block) =>
+                            block.type === "text" &&
+                            block.text.trim().length > 0,
+                        )) ||
+                      (event.type === "result" && event.ok),
+                  );
+                if (kickoffIndex < 0 || !kickoffCompleted) {
+                  const chief = getAgent("cmo");
+                  if (!chief) throw new Error("Chief persona is missing.");
+                  const capabilities = existingPreference?.capabilities;
+                  const capableChief = capabilities
+                    ? composeAgentCapabilities(
+                        chief,
+                        availableCapabilities.filter((capability) =>
+                          capabilities.includes(capability.id),
+                        ),
+                      )
+                    : chief;
+                  const integratedChief = existingPreference?.integrations
+                    ? {
+                        ...capableChief,
+                        instructions: `${capableChief.instructions}\n\nAssigned integrations: ${existingPreference.integrations.length > 0 ? existingPreference.integrations.join(", ") : "none"}. Only search for and call integration tools from this assigned set.`,
+                      }
+                    : capableChief;
+                  const effectiveChief = channelBridge.agentForChannel(
+                    integratedChief,
+                    undefined,
+                    channel,
+                    msg.workspaceContext ??
+                      readWorkspaceContext(msg.workspaceId),
+                  );
+                  const executorWorkspace = await ensureExecutorWorkspace(
+                    msg.workspaceId,
+                    msg.executorCapability,
+                  ).catch((error: unknown) => {
+                    console.error(
+                      `[runtime] Executor workspace unavailable for ${chatId}:`,
+                      error,
+                    );
+                    return null;
+                  });
+                  const session = await manager.ensureRootChat(
+                    effectiveChief,
+                    chatId,
+                    {
+                      driver,
+                      access: "full",
+                      workspaceId: msg.workspaceId,
+                      model,
+                      mcpServers: executorWorkspace
+                        ? [executorToolServer(executorWorkspace, "model")]
+                        : [],
+                      executionOwner: "interactive",
+                    },
+                  );
+                  chatDestinations.set(
+                    `${msg.workspaceId}\0${chatId}`,
+                    channel.id,
+                  );
+                  bindRootSession(msg.workspaceId, chatId, session);
+                  if (session.isBusy) {
+                    await broadcastWorkspaceData(msg.workspaceId);
+                    return chatId;
+                  }
+                  const releaseExecution = manager.acquireExecution(
+                    msg.workspaceId,
+                    chatId,
+                    "interactive",
+                  );
+                  const releaseOnTerminal = (event: AgentEvent) => {
+                    if (
+                      event.type === "result" ||
+                      event.type === "error" ||
+                      event.type === "exit" ||
+                      (event.type === "status" && event.status === "idle")
+                    ) {
+                      session.off("event", releaseOnTerminal);
+                      releaseExecution();
+                    }
+                  };
+                  session.on("event", releaseOnTerminal);
+                  try {
+                    await session.sendPrompt(
+                      [
+                        "Start this workspace's setup and initial review now.",
+                        "Read onboarding/getting-started.md and coordinate the independent jobs recorded there without waiting for one job before starting another.",
+                        "Do useful public-source and workspace work immediately. When credentials, consent, or account selection are genuinely required, explain the exact next step in #getting-started and use Setup for the secure browser flow.",
+                        "Keep all user-facing progress and the final synthesis in this channel. Do not treat agent activity as a user-facing message.",
+                      ].join("\n\n"),
+                      kickoffIndex < 0 ? kickoffId : undefined,
+                      kickoffIndex < 0,
+                    );
+                    await manager.waitForChatPersistence(
+                      msg.workspaceId,
+                      chatId,
+                    );
+                  } catch (error) {
+                    session.off("event", releaseOnTerminal);
+                    releaseExecution();
+                    throw error;
+                  }
                 }
                 await broadcastWorkspaceData(msg.workspaceId);
                 return chatId;

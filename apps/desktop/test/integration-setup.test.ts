@@ -26,7 +26,7 @@ void test("integration setup starts visibly in the getting-started channel", () 
   );
   const url = new URL(path, "https://chief.local");
   assert.equal(url.searchParams.get("channel"), "getting-started");
-  assert.match(url.searchParams.get("chat") ?? "", /^channel:/u);
+  assert.equal(url.searchParams.get("chat"), null);
   assert.match(
     url.searchParams.get("prompt") ?? "",
     /^\[chief-integration-setup:attempt-one\]\n\n@Setup,/u,

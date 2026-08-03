@@ -7,10 +7,12 @@ import { classifyArtifact } from "../src/lib/chief-artifacts";
 import {
   actionConversation,
   channelChatId,
+  channelIdFromChatId,
   directMessageChatId,
   directMessageIdsForChats,
   placePinnedChannel,
   placeSidebarPinnedItem,
+  resolvedChannelChatId,
   WORKSPACE_CHANNELS,
   WORKSPACE_DIRECT_MESSAGES,
 } from "../src/lib/workspace-channels";
@@ -28,7 +30,7 @@ function artifact(title: string, description = ""): ExecutorArtifactSummary {
 
 void test("gives every product channel its own stable runtime session", () => {
   const chatIds = WORKSPACE_CHANNELS.map((channel) =>
-    channelChatId(channel.id),
+    channelChatId(channel.id, "workspace-a"),
   );
   assert.equal(new Set(chatIds).size, WORKSPACE_CHANNELS.length);
   assert.ok(chatIds.every((chatId) => chatId.startsWith("channel:")));
@@ -41,25 +43,45 @@ void test("keeps getting started as a stable multi-agent channel", () => {
   assert.ok(channel);
   assert.deepEqual(channel.agentIds, ["cmo", "setup"]);
   assert.equal(
+    channelChatId(channel.id, "workspace-a"),
+    "channel:workspace-a:04e8b4b0-3b65-4a83-a2e0-7fd5aa9f70c4",
+  );
+  assert.equal(
+    channelIdFromChatId(channelChatId(channel.id, "workspace-a")),
+    channel.relayId,
+  );
+  assert.notEqual(
+    channelChatId(channel.id, "workspace-a"),
+    channelChatId(channel.id, "workspace-b"),
+  );
+  assert.equal(
+    resolvedChannelChatId(channel.id, "workspace-b", [
+      { id: channelChatId(channel.id) },
+    ]),
     channelChatId(channel.id),
-    "channel:04e8b4b0-3b65-4a83-a2e0-7fd5aa9f70c4",
   );
 });
 
 void test("shows direct messages only after a real user conversation exists", () => {
   assert.deepEqual(
-    directMessageIdsForChats([
-      { id: directMessageChatId("cmo"), lastText: "" },
-      { id: directMessageChatId("analyst"), lastText: "Review this report" },
-      { id: "unrelated", lastText: "Hello" },
-    ]),
+    directMessageIdsForChats(
+      [
+        { id: directMessageChatId("cmo", "workspace-a"), lastText: "" },
+        {
+          id: directMessageChatId("analyst", "workspace-a"),
+          lastText: "Review this report",
+        },
+        { id: "unrelated", lastText: "Hello" },
+      ],
+      "workspace-a",
+    ),
     ["analyst"],
   );
 });
 
 void test("gives every agent direct message a private stable destination", () => {
   const chatIds = WORKSPACE_DIRECT_MESSAGES.map((message) =>
-    directMessageChatId(message.id),
+    directMessageChatId(message.id, "workspace-a"),
   );
   assert.equal(new Set(chatIds).size, WORKSPACE_DIRECT_MESSAGES.length);
   assert.ok(chatIds.every((chatId) => chatId.startsWith("channel:")));

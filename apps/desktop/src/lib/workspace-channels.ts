@@ -117,9 +117,32 @@ export function workspaceChannel(channelId: string | null) {
   return WORKSPACE_CHANNELS.find((channel) => channel.id === channelId) ?? null;
 }
 
-export function channelChatId(channelId: WorkspaceChannelId) {
+export function channelChatId(
+  channelId: WorkspaceChannelId,
+  workspaceId?: string | null,
+) {
   const channel = workspaceChannel(channelId);
-  return `channel:${channel?.relayId ?? channelId}`;
+  const relayId = channel?.relayId ?? channelId;
+  return workspaceId
+    ? `channel:${workspaceId}:${relayId}`
+    : `channel:${relayId}`;
+}
+
+export function channelIdFromChatId(chatId: string | null) {
+  if (!chatId?.startsWith("channel:")) return null;
+  const scopedId = chatId.slice("channel:".length);
+  return scopedId.slice(scopedId.lastIndexOf(":") + 1);
+}
+
+export function resolvedChannelChatId(
+  channelId: WorkspaceChannelId,
+  workspaceId: string | null | undefined,
+  chats: readonly { id: string }[],
+) {
+  const scoped = channelChatId(channelId, workspaceId);
+  if (chats.some((chat) => chat.id === scoped)) return scoped;
+  const legacy = channelChatId(channelId);
+  return chats.some((chat) => chat.id === legacy) ? legacy : scoped;
 }
 
 export function workspaceDirectMessage(agentId: string | null) {
@@ -128,19 +151,24 @@ export function workspaceDirectMessage(agentId: string | null) {
   );
 }
 
-export function directMessageChatId(agentId: WorkspaceAgentId) {
+export function directMessageChatId(
+  agentId: WorkspaceAgentId,
+  workspaceId?: string | null,
+) {
   const message = workspaceDirectMessage(agentId);
   if (!message) throw new Error("Direct message was not found.");
-  return `channel:${message.relayId}`;
+  return channelChatId(message.relayId, workspaceId);
 }
 
 export function directMessageIdsForChats(
   chats: readonly { id: string; lastText: string }[],
+  workspaceId?: string | null,
 ) {
   return WORKSPACE_DIRECT_MESSAGES.filter((message) =>
     chats.some(
       (chat) =>
-        chat.id === directMessageChatId(message.id) &&
+        (chat.id === directMessageChatId(message.id, workspaceId) ||
+          chat.id === directMessageChatId(message.id)) &&
         chat.lastText.trim().length > 0,
     ),
   ).map((message) => message.id);

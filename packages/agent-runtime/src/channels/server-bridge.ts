@@ -262,7 +262,7 @@ export async function handleRequest(
       const storedMessage = (
         await manager.messages(
           message.workspaceId,
-          channelChatId(message.channelId),
+          channelChatId(message.workspaceId, message.channelId),
         )
       ).find((candidate) => candidate.id === message.messageId);
       const content = storedMessage?.parts
