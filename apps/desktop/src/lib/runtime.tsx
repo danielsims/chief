@@ -851,6 +851,81 @@ export function useLocalChats(workspaceId: string | null) {
 const channelCache = new Map<string, WorkspaceChannel[]>();
 const channelEventCache = new Map<string, ChannelEvent[]>();
 
+/** Durable NIP-29 events for channel timelines and message search. */
+export function useChannelEvents(channelId: string | null) {
+  const { client, status } = useRuntime();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const cacheKey =
+    cloudOrganizationId && channelId
+      ? `${cloudOrganizationId}\0${channelId}`
+      : null;
+  const [eventState, setEventState] = useState<{
+    cacheKey: string | null;
+    events: ChannelEvent[];
+  }>(() => ({
+    cacheKey,
+    events: cacheKey ? (channelEventCache.get(cacheKey) ?? []) : [],
+  }));
+  const events =
+    eventState.cacheKey === cacheKey
+      ? eventState.events
+      : cacheKey
+        ? (channelEventCache.get(cacheKey) ?? [])
+        : [];
+
+  useEffect(() => {
+    if (
+      !cloudOrganizationId ||
+      !channelId ||
+      !capability ||
+      status !== "connected"
+    ) {
+      return;
+    }
+    const activeCacheKey = `${cloudOrganizationId}\0${channelId}`;
+    const unsubscribe = client.subscribe((message) => {
+      if (
+        message.type === "channelEvents" &&
+        message.workspaceId === cloudOrganizationId &&
+        message.channelId === channelId
+      ) {
+        channelEventCache.set(activeCacheKey, message.events);
+        setEventState({ cacheKey: activeCacheKey, events: message.events });
+        return;
+      }
+      if (
+        message.type === "channelEvent" &&
+        message.workspaceId === cloudOrganizationId &&
+        message.event.channelId === channelId
+      ) {
+        setEventState((currentState) => {
+          const current =
+            currentState.cacheKey === activeCacheKey
+              ? currentState.events
+              : (channelEventCache.get(activeCacheKey) ?? []);
+          if (current.some((event) => event.id === message.event.id)) {
+            return { cacheKey: activeCacheKey, events: current };
+          }
+          const next = [...current, message.event];
+          channelEventCache.set(activeCacheKey, next);
+          return { cacheKey: activeCacheKey, events: next };
+        });
+      }
+    });
+    client.send({
+      type: "listChannelEvents",
+      workspaceId: cloudOrganizationId,
+      channelId,
+      executorCapability: capability,
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [cacheKey, capability, channelId, client, cloudOrganizationId, status]);
+
+  return events;
+}
+
 /** Durable NIP-29 destinations, including user-created workspace channels. */
 export function useWorkspaceChannels() {
   const { client, status } = useRuntime();
@@ -1114,67 +1189,15 @@ function reactionIntentKey(messageId: string, emoji: string) {
 
 /** Durable NIP-25 reactions folded onto the local IDs used by chat messages. */
 export function useChannelReactions(channelId: string | null) {
-  const { client, status } = useRuntime();
+  const events = useChannelEvents(channelId);
+  const { client } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
-  const cacheKey =
-    cloudOrganizationId && channelId
-      ? `${cloudOrganizationId}\0${channelId}`
-      : null;
-  const [events, setEvents] = useState<ChannelEvent[]>(() =>
-    cacheKey ? (channelEventCache.get(cacheKey) ?? []) : [],
-  );
   const [optimistic, setOptimistic] = useState<
     ReadonlyMap<
       string,
       { messageId: string; emoji: string; reacted: boolean; token: string }
     >
   >(new Map());
-
-  useEffect(() => {
-    if (
-      !cloudOrganizationId ||
-      !channelId ||
-      !capability ||
-      status !== "connected"
-    ) {
-      return;
-    }
-    const activeCacheKey = `${cloudOrganizationId}\0${channelId}`;
-    const unsubscribe = client.subscribe((message) => {
-      if (
-        message.type === "channelEvents" &&
-        message.workspaceId === cloudOrganizationId &&
-        message.channelId === channelId
-      ) {
-        channelEventCache.set(activeCacheKey, message.events);
-        setEvents(message.events);
-        return;
-      }
-      if (
-        message.type === "channelEvent" &&
-        message.workspaceId === cloudOrganizationId &&
-        message.event.channelId === channelId
-      ) {
-        setEvents((current) => {
-          if (current.some((event) => event.id === message.event.id)) {
-            return current;
-          }
-          const next = [...current, message.event];
-          channelEventCache.set(activeCacheKey, next);
-          return next;
-        });
-      }
-    });
-    client.send({
-      type: "listChannelEvents",
-      workspaceId: cloudOrganizationId,
-      channelId,
-      executorCapability: capability,
-    });
-    return () => {
-      unsubscribe();
-    };
-  }, [capability, channelId, client, cloudOrganizationId, status]);
 
   const durableReactions = useMemo(
     () => foldChannelReactions(events),
