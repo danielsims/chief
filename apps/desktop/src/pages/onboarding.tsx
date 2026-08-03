@@ -414,7 +414,7 @@ function BrandIcon({
     return (
       <span
         className={cn(
-          "bg-background text-muted-foreground flex h-6 w-6 items-center justify-center border text-[10px]",
+          "bg-background text-muted-foreground flex h-6 w-6 items-center justify-center rounded-md border text-[10px]",
           className,
         )}
       >
@@ -426,7 +426,7 @@ function BrandIcon({
   return (
     <span
       className={cn(
-        "bg-background text-foreground flex h-6 w-6 items-center justify-center border",
+        "bg-background text-foreground flex h-6 w-6 items-center justify-center rounded-md border",
         className,
       )}
       aria-label={icon.title}
@@ -923,7 +923,7 @@ function AgentBubble({ text, current }: { text: string; current?: boolean }) {
 function UserBubble({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex justify-end">
-      <div className="bg-muted/40 text-foreground max-w-[620px] border px-3 py-2 text-sm leading-6">
+      <div className="bg-muted/40 text-foreground max-w-[620px] rounded-xl border px-3 py-2 text-sm leading-6">
         {children}
       </div>
     </div>
@@ -969,7 +969,7 @@ function UserIndicator({
 
   return (
     <div className="fixed top-10 left-4 z-50 flex items-center gap-2">
-      <span className="bg-muted text-muted-foreground flex size-7 shrink-0 items-center justify-center overflow-hidden border text-[11px] font-medium">
+      <span className="bg-muted text-muted-foreground flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full border text-[11px] font-medium">
         {user.image ? (
           <img src={user.image} alt="" className="h-full w-full object-cover" />
         ) : (
@@ -1089,7 +1089,7 @@ function AnswerPreview({
             {selected.map((def) => (
               <span
                 key={def.platform}
-                className="bg-background inline-flex items-center gap-2 border px-2 py-1"
+                className="bg-background inline-flex items-center gap-2 rounded-lg border px-2 py-1"
               >
                 <SocialIcon label={def.label} platform={def.platform} />
                 {def.prefix}
@@ -1140,7 +1140,10 @@ function AnswerPreview({
       <UserBubble>
         <div className="flex flex-wrap gap-2">
           {draft.monitoring.channels.map((channel) => (
-            <span key={channel} className="bg-background border px-2 py-1">
+            <span
+              key={channel}
+              className="bg-background rounded-lg border px-2 py-1"
+            >
               {channel}
             </span>
           ))}
@@ -1266,7 +1269,7 @@ function ModeControl({
 
   const cardClass = (selected: boolean) =>
     cn(
-      "bg-background hover:border-foreground border p-4 text-left transition-colors",
+      "bg-background hover:border-foreground rounded-xl border p-4 text-left transition-colors",
       selected && "border-foreground bg-muted",
     );
 
@@ -1279,7 +1282,7 @@ function ModeControl({
           onClick={() => selectMode("local")}
         >
           <div className="flex items-start gap-3">
-            <span className="bg-background flex size-8 shrink-0 items-center justify-center border">
+            <span className="bg-background flex size-8 shrink-0 items-center justify-center rounded-lg border">
               <Laptop size={16} />
             </span>
             <span>
@@ -1298,7 +1301,7 @@ function ModeControl({
           onClick={() => selectMode("cloud")}
         >
           <div className="flex items-start gap-3">
-            <span className="bg-background flex size-8 shrink-0 items-center justify-center border">
+            <span className="bg-background flex size-8 shrink-0 items-center justify-center rounded-lg border">
               <Cloud size={16} />
             </span>
             <span>
@@ -1427,7 +1430,7 @@ function BrandControl({
             type="button"
             onClick={() => setBrand({ mode: choice.mode })}
             className={cn(
-              "bg-background hover:border-foreground border p-3 text-left transition-colors",
+              "bg-background hover:border-foreground rounded-xl border p-3 text-left transition-colors",
               draft.brand.mode === choice.mode && "border-foreground bg-accent",
             )}
           >
@@ -1439,7 +1442,7 @@ function BrandControl({
         ))}
       </div>
       {draft.brand.mode !== "skip" ? (
-        <div className="bg-background mt-4 border p-4">
+        <div className="bg-background mt-4 rounded-xl border p-4">
           <label className="text-xs font-medium" htmlFor="brand-notes">
             Anything the agent should preserve
           </label>
@@ -1448,11 +1451,11 @@ function BrandControl({
             value={draft.brand.notes}
             onChange={(event) => setBrand({ notes: event.target.value })}
             placeholder="Claims, phrases, visual rules, examples or links"
-            className="bg-background placeholder:text-muted-foreground focus:border-foreground mt-2 min-h-20 w-full resize-y border px-3 py-2 text-xs leading-5 outline-none"
+            className="bg-background placeholder:text-muted-foreground focus:border-foreground mt-2 min-h-20 w-full resize-y rounded-lg border px-3 py-2 text-xs leading-5 outline-none"
           />
           {draft.brand.mode === "upload" ? (
             <div className="mt-3 flex flex-wrap items-center gap-3">
-              <label className="bg-foreground text-background hover:bg-foreground/90 inline-flex h-8 cursor-pointer items-center border px-3 text-xs">
+              <label className="bg-foreground text-background hover:bg-foreground/90 inline-flex h-8 cursor-pointer items-center rounded-lg border px-3 text-xs">
                 Add files
                 <input
                   type="file"
@@ -1472,7 +1475,7 @@ function BrandControl({
               {draft.brand.files.map((file) => (
                 <span
                   key={file.name}
-                  className="text-muted-foreground border px-2 py-1 text-[10px]"
+                  className="text-muted-foreground rounded-md border px-2 py-1 text-[10px]"
                 >
                   {file.name}
                 </span>
@@ -1517,6 +1520,7 @@ function SocialsControl({
               {def.label}
             </span>
             <PrefixedInput
+              className="overflow-hidden rounded-lg"
               prefix={def.prefix}
               value={draft.socials[def.platform] ?? ""}
               onValueChange={(handle) => setSocial(def.platform, handle)}
@@ -1552,7 +1556,7 @@ function ProviderControl({
   const [gatewayKey, setGatewayKey] = useState("");
   const optionClass = (selected: boolean) =>
     cn(
-      "bg-background hover:border-foreground flex min-h-[112px] items-start gap-3 border p-4 text-left transition-colors",
+      "bg-background hover:border-foreground flex min-h-[112px] items-start gap-3 rounded-xl border p-4 text-left transition-colors",
       selected && "border-foreground bg-muted",
     );
 
@@ -1621,7 +1625,7 @@ function ProviderControl({
           </p>
         ) : null}
         {draft.deploymentProvider === "convex" ? (
-          <div className="bg-background mt-3 border p-4">
+          <div className="bg-background mt-3 rounded-xl border p-4">
             {gatewayConfigured === null ? (
               <p className="text-muted-foreground text-xs">
                 Checking this workspace's Keychain vault...
@@ -1853,7 +1857,7 @@ function HealthControl({
           </>
         }
       >
-        <div className="bg-background border">
+        <div className="bg-background overflow-hidden rounded-xl border">
           <div className="flex items-start gap-3 border-b px-4 py-3">
             {deploymentProvider === "convex" ? (
               <ConvexLogo size={18} className="mt-0.5 shrink-0" />
@@ -1917,7 +1921,7 @@ function HealthControl({
       saving={saving}
       continueLabel="Continue onboarding"
     >
-      <div className="bg-background divide-y border px-4">
+      <div className="bg-background divide-y overflow-hidden rounded-xl border px-4">
         <ReadinessRow
           icon={Server}
           label="Account"
@@ -2239,7 +2243,7 @@ function AutomationControl({
             type="button"
             onClick={() => setAutomation({ mode: option.mode })}
             className={cn(
-              "bg-background hover:border-foreground border p-3 text-left transition-colors",
+              "bg-background hover:border-foreground rounded-xl border p-3 text-left transition-colors",
               draft.automation.mode === option.mode &&
                 "border-foreground bg-accent",
             )}
@@ -2266,7 +2270,7 @@ function AutomationControl({
               time
             </span>
           </div>
-          <div className="bg-background max-h-[360px] divide-y overflow-y-auto border">
+          <div className="bg-background max-h-[360px] divide-y overflow-y-auto rounded-xl border">
             {draft.automation.plan.map((item) => {
               const playbook = getPlaybook(item.playbookId);
               return (
@@ -2285,7 +2289,7 @@ function AutomationControl({
                         updateItem(item.playbookId, { enabled: !item.enabled })
                       }
                       className={cn(
-                        "mt-0.5 flex size-5 shrink-0 items-center justify-center border transition-colors",
+                        "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors",
                         item.enabled &&
                           "border-foreground bg-foreground text-background",
                       )}
@@ -2438,7 +2442,7 @@ function MonitoringControl({
           </Chip>
         ))}
       </div>
-      <div className="bg-background mt-5 border p-4">
+      <div className="bg-background mt-5 rounded-xl border p-4">
         <div className="max-w-xl">
           <p className="text-sm font-medium">What should agents look for?</p>
           <p className="text-muted-foreground mt-1.5 text-xs leading-5">
@@ -2696,18 +2700,20 @@ function PricingControl({
   saving: boolean;
 }) {
   return (
-    <div className="bg-card border p-5">
+    <div className="bg-card rounded-xl border p-5">
       <div className="grid gap-3 sm:grid-cols-2">
         <button
           type="button"
           onClick={() => setPlan("monthly")}
           className={cn(
-            "hover:border-foreground border p-5 text-left transition-colors",
+            "hover:border-foreground rounded-xl border p-5 text-left transition-colors",
             plan === "monthly" && "border-foreground",
           )}
         >
           <span className="text-sm font-medium">Monthly</span>
-          <span className="mt-4 block font-serif text-3xl">$49/mo</span>
+          <span className="mt-4 block text-3xl font-semibold tracking-[-0.035em]">
+            $49/mo
+          </span>
           <span className="text-muted-foreground mt-2 block text-xs leading-5">
             Per workspace. Card required for the free trial.
           </span>
@@ -2716,12 +2722,14 @@ function PricingControl({
           type="button"
           onClick={() => setPlan("annual")}
           className={cn(
-            "hover:border-foreground border p-5 text-left transition-colors",
+            "hover:border-foreground rounded-xl border p-5 text-left transition-colors",
             plan === "annual" && "border-foreground",
           )}
         >
           <span className="text-sm font-medium">Annual</span>
-          <span className="mt-4 block font-serif text-3xl">$44/mo</span>
+          <span className="mt-4 block text-3xl font-semibold tracking-[-0.035em]">
+            $44/mo
+          </span>
           <span className="text-muted-foreground mt-2 block text-xs leading-5">
             10% off. Billed yearly at $529.
           </span>
@@ -2750,11 +2758,13 @@ function CompletionControl({
   saving: boolean;
 }) {
   return (
-    <div className="bg-card flex min-h-[480px] w-full items-center justify-center border px-6 py-14">
+    <div className="bg-card flex min-h-[480px] w-full items-center justify-center rounded-xl border px-6 py-14">
       <div className="flex max-w-sm flex-col items-center text-center">
         <SuccessCheck className="mb-8" />
         <div className="success-copy flex flex-col items-center">
-          <h2 className="font-serif text-4xl leading-none">You're in.</h2>
+          <h2 className="text-4xl leading-none font-semibold tracking-[-0.04em]">
+            You're in.
+          </h2>
           <p className="text-muted-foreground mt-4 text-sm leading-6">
             {ready
               ? "Your workspace is ready. Chief will begin learning your business and show the work on Overview."
@@ -3270,20 +3280,6 @@ export function OnboardingPage() {
         aeo: draft.aeo,
       });
       const schedules = buildOnboardingSchedules(draft.automation, org.id);
-      const chatId = await workspaceData.bootstrapOnboardingWork(
-        jobs,
-        schedules,
-        workspaceContextFromOrganization({
-          ...org,
-          name: draft.companyName.trim() || org.name,
-          metadata: kickoffMetadata,
-        }),
-        draft.provider ?? undefined,
-        draft.model || null,
-      );
-      if (!chatId) {
-        throw new Error("Chief did not return an initial review conversation.");
-      }
       const completedMetadata = {
         ...kickoffMetadata,
         onboarding: {
@@ -3295,9 +3291,37 @@ export function OnboardingPage() {
         name: draft.companyName.trim() || org.name,
         metadata: completedMetadata,
       });
+      // Workspace access and the initial agent run have different durability
+      // guarantees. Commit onboarding first, then let the runtime's persisted
+      // queue launch or retry the review without trapping the user here.
+      let initialReview: Promise<string> | null = null;
+      try {
+        initialReview = workspaceData.bootstrapOnboardingWork(
+          jobs,
+          schedules,
+          workspaceContextFromOrganization({
+            ...org,
+            name: draft.companyName.trim() || org.name,
+            metadata: completedMetadata,
+          }),
+          draft.provider ?? undefined,
+          draft.model || null,
+        );
+      } catch (initialReviewError) {
+        console.warn(
+          "[Onboarding] Initial review could not be queued yet",
+          initialReviewError,
+        );
+      }
       localStorage.removeItem(storageKey(org.id));
       window.dispatchEvent(new Event("chief:onboarding-complete"));
       navigate("/", { replace: true });
+      void initialReview?.catch((initialReviewError: unknown) => {
+        console.warn(
+          "[Onboarding] Initial review will retry in the background",
+          initialReviewError,
+        );
+      });
     } catch (err) {
       sessionStorage.removeItem(`chief:initial-review:${org.id}`);
       setError(err instanceof Error ? err.message : String(err));

@@ -17,7 +17,7 @@ export function Chip({
       type="button"
       onClick={onClick}
       className={cn(
-        "hover:border-foreground inline-flex min-h-9 items-center gap-2 border px-3 py-1.5 text-sm transition-colors",
+        "hover:border-foreground inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors",
         selected
           ? "border-foreground bg-accent text-foreground"
           : "bg-background text-muted-foreground",
@@ -46,7 +46,7 @@ export function StepFrame({
   actionsAlign?: "left" | "right";
 }) {
   return (
-    <div className="bg-card/60 w-full border p-5 shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]">
+    <div className="bg-card/60 w-full rounded-xl border p-5 shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]">
       {children}
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
         <div

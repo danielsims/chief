@@ -14,7 +14,7 @@ function IntegrationLogo({
   const [failed, setFailed] = useState(false);
   if (integration.domain.endsWith(".googleapis.com")) {
     return (
-      <span className="bg-background flex h-7 w-7 shrink-0 items-center justify-center border">
+      <span className="bg-background flex h-7 w-7 shrink-0 items-center justify-center rounded-md border">
         <GoogleLogo className="h-4 w-4" />
       </span>
     );
@@ -22,14 +22,14 @@ function IntegrationLogo({
 
   if (integration.domain === "none" || failed) {
     return (
-      <span className="bg-background text-muted-foreground flex h-7 w-7 shrink-0 items-center justify-center border text-[10px]">
+      <span className="bg-background text-muted-foreground flex h-7 w-7 shrink-0 items-center justify-center rounded-md border text-[10px]">
         {integration.name.slice(0, 1)}
       </span>
     );
   }
 
   return (
-    <span className="bg-background flex h-7 w-7 shrink-0 items-center justify-center border">
+    <span className="bg-background flex h-7 w-7 shrink-0 items-center justify-center rounded-md border">
       <img
         src={integrationLogoUrl(integration.domain)}
         alt=""
@@ -55,7 +55,7 @@ export function IntegrationChoiceCard({
       type="button"
       onClick={onClick}
       className={cn(
-        "bg-background hover:border-foreground flex h-[100px] items-start gap-3 overflow-hidden border p-4 text-left transition-colors",
+        "bg-background hover:border-foreground flex h-[100px] items-start gap-3 overflow-hidden rounded-xl border p-4 text-left transition-colors",
         selected && "border-foreground bg-muted",
       )}
     >
