@@ -16,12 +16,10 @@ import { useAction, useConvexAuth, useMutation } from "convex/react";
 import { toast } from "sonner";
 
 import type {
-  ActionItem,
   AgentDefinition,
   AgentEvent,
   AgentPreference,
   AgentQuestion,
-  AnalyticsDataset,
   BrowserRunRecord,
   CampaignRecord,
   ChannelEvent,
@@ -29,7 +27,6 @@ import type {
   ChiefUIMessage,
   ClientMessage,
   ContentBlock,
-  ContentDraftRecord,
   DiagnosticEventRecord,
   DriverType,
   ExecutorCapability,
@@ -38,12 +35,10 @@ import type {
   MessageAttachment,
   OnboardingSchedule,
   OnboardingWorkJob,
-  ProspectRecord,
   ProviderModelOption,
   RecurringWorkRecord,
   ServerMessage,
   SessionRecord,
-  TrendRecord,
   WorkspaceChannel,
   WorkspaceEnvironmentVariable,
   WorkspaceFileRecord,
@@ -57,6 +52,7 @@ import type {
   RuntimeBrowserSessions,
 } from "./browser-sessions";
 import type { ChannelReactionSummary } from "./channel-reactions";
+import type { WorkspaceDataState } from "./workspace-data";
 import { useAuth } from "./auth/auth-context";
 import {
   anchorBrowserRun as anchorRuntimeBrowserRun,
@@ -82,6 +78,7 @@ import {
   visibleRuntimeError,
 } from "./runtime-messages";
 import { buildWorkspaceContext } from "./workspace-context";
+import { emptyWorkspaceData, normalizeWorkspaceData } from "./workspace-data";
 
 // "localhost" (not 127.0.0.1) — macOS ATS only exempts the literal
 // localhost hostname for insecure websockets inside WKWebView.
@@ -1253,28 +1250,6 @@ export function useProviderModels(driver: DriverType | null) {
   return { models, loading };
 }
 
-interface WorkspaceDataState {
-  prospects: ProspectRecord[];
-  trends: TrendRecord[];
-  analyticsDatasets: AnalyticsDataset[];
-  drafts: ContentDraftRecord[];
-  campaigns: CampaignRecord[];
-  recurringWork: RecurringWorkRecord[];
-  activity: SessionRecord[];
-  actionItems: ActionItem[];
-}
-
-const emptyWorkspaceData: WorkspaceDataState = {
-  prospects: [],
-  trends: [],
-  analyticsDatasets: [],
-  drafts: [],
-  campaigns: [],
-  recurringWork: [],
-  activity: [],
-  actionItems: [],
-};
-
 const workspaceDataCache = new Map<string, WorkspaceDataState>();
 
 function onboardingJobsStorageKey(workspaceId: string) {
@@ -1437,16 +1412,7 @@ function useWorkspaceDataSource(workspaceId: string | null) {
       ) {
         if (message.revision <= workspaceRevisionRef.current) return;
         workspaceRevisionRef.current = message.revision;
-        const next = {
-          prospects: message.prospects,
-          trends: message.trends,
-          analyticsDatasets: message.analyticsDatasets,
-          drafts: message.drafts,
-          campaigns: message.campaigns,
-          recurringWork: message.recurringWork,
-          activity: message.activity,
-          actionItems: message.actionItems,
-        };
+        const next = normalizeWorkspaceData(message);
         workspaceDataCache.set(workspaceId, next);
         setData(next);
         setLoading(false);
