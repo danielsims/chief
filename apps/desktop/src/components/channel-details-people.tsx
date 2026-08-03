@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Bot } from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
@@ -31,6 +32,31 @@ function MemberAvatar({ image, name }: { image?: string; name: string }) {
   );
 }
 
+function ChannelPersonRow({
+  avatar,
+  label,
+  name,
+  secondary,
+}: {
+  avatar: ReactNode;
+  label: string;
+  name: string;
+  secondary: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 px-4 py-3.5">
+      {avatar}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-semibold">{name}</p>
+        <p className="text-muted-foreground truncate text-xs">{secondary}</p>
+      </div>
+      <span className="bg-background/45 text-muted-foreground rounded-md px-2 py-1 text-[10px] font-semibold">
+        {label}
+      </span>
+    </div>
+  );
+}
+
 export function ChannelMembersPanel({
   agentIds,
   user,
@@ -48,39 +74,28 @@ export function ChannelMembersPanel({
       </div>
       <div className="border-border/70 bg-muted/25 divide-y overflow-hidden rounded-2xl border">
         {user ? (
-          <div className="flex items-center gap-3 px-4 py-3.5">
-            <MemberAvatar image={user.image} name={user.name} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">{user.name}</p>
-              <p className="text-muted-foreground truncate text-xs">
-                {user.email}
-              </p>
-            </div>
-            <span className="bg-background/45 text-muted-foreground rounded-md px-2 py-1 text-[10px] font-semibold uppercase">
-              You
-            </span>
-          </div>
+          <ChannelPersonRow
+            avatar={<MemberAvatar image={user.image} name={user.name} />}
+            label="You"
+            name={user.name}
+            secondary={user.email}
+          />
         ) : null}
         {agentIds.map((agentId) => {
           const identity = getAgentIdentity(agentId);
           return (
-            <div key={agentId} className="flex items-center gap-3 px-4 py-3.5">
-              <AgentAvatar
-                label={identity.name}
-                className="size-9 rounded-xl"
-              />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">
-                  {identity.name}
-                </p>
-                <p className="text-muted-foreground truncate text-xs">
-                  {identity.role}
-                </p>
-              </div>
-              <span className="bg-background/45 text-muted-foreground rounded-md px-2 py-1 text-[10px] font-semibold uppercase">
-                Agent
-              </span>
-            </div>
+            <ChannelPersonRow
+              key={agentId}
+              avatar={
+                <AgentAvatar
+                  label={identity.name}
+                  className="size-9 rounded-xl"
+                />
+              }
+              label="Agent"
+              name={identity.name}
+              secondary={identity.role}
+            />
           );
         })}
       </div>
@@ -101,7 +116,7 @@ export function ChannelAgentsPanel({
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-sm font-semibold">Agents & apps</h2>
+          <h2 className="text-sm font-semibold">Agents and apps</h2>
           <p className="text-muted-foreground mt-1 text-xs">
             Agents with access to this channel and its conversation.
           </p>
@@ -117,25 +132,18 @@ export function ChannelAgentsPanel({
           agentIds.map((agentId) => {
             const identity = getAgentIdentity(agentId);
             return (
-              <div key={agentId} className="flex items-center gap-3 px-4 py-4">
-                <AgentAvatar
-                  label={identity.name}
-                  className="size-10 rounded-xl"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate text-sm font-semibold">
-                      {identity.name}
-                    </p>
-                    <span className="bg-background/45 text-muted-foreground rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase">
-                      Agent
-                    </span>
-                  </div>
-                  <p className="text-muted-foreground mt-0.5 truncate text-xs">
-                    {identity.role}
-                  </p>
-                </div>
-              </div>
+              <ChannelPersonRow
+                key={agentId}
+                avatar={
+                  <AgentAvatar
+                    label={identity.name}
+                    className="size-9 rounded-xl"
+                  />
+                }
+                label="Agent"
+                name={identity.name}
+                secondary={identity.role}
+              />
             );
           })
         ) : (
