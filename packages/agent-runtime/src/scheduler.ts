@@ -802,10 +802,11 @@ export class RecurringWorkScheduler {
             ]),
           ]
         : blockedTools;
+      const artifactBaseline = beforeData;
       const artifacts = await this.manager
         .workspaceData(workspaceId)
         .then((afterData) =>
-          artifactsFromSession(sessionEvents, beforeData!, afterData),
+          artifactsFromSession(sessionEvents, artifactBaseline, afterData),
         )
         .catch(() => []);
       const deploymentMissing =
@@ -888,17 +889,7 @@ export class RecurringWorkScheduler {
                   status: "open",
                   createdAt: finishedAt,
                 }
-              : status === "failed"
-                ? {
-                    id: `action-${work.id}-failed`,
-                    agentId: "cmo",
-                    title: work.title,
-                    reason: summary ?? "The task failed.",
-                    sourceId: occurrence.id,
-                    status: "open",
-                    createdAt: finishedAt,
-                  }
-                : undefined;
+              : undefined;
       const staleActionIds = staleOutcomeActionIds(work.id).filter(
         (id) => id !== action?.id,
       );
@@ -1041,17 +1032,17 @@ export class RecurringWorkScheduler {
         terminalSaved = true;
         return;
       }
-      const action: ActionItem = {
-        id: deploymentMissing
-          ? deploymentActionId(workspaceId)
-          : `action-${work.id}-failed`,
-        agentId: "cmo",
-        title: deploymentMissing ? "Connect Chief" : work.title,
-        reason: message,
-        sourceId: occurrence.id,
-        status: "open",
-        createdAt: transitionAt,
-      };
+      const action: ActionItem | undefined = deploymentMissing
+        ? {
+            id: deploymentActionId(workspaceId),
+            agentId: "cmo",
+            title: "Connect Chief",
+            reason: message,
+            sourceId: occurrence.id,
+            status: "open",
+            createdAt: transitionAt,
+          }
+        : undefined;
       await this.manager.finishScheduleSession(
         workspaceId,
         {
@@ -1078,7 +1069,7 @@ export class RecurringWorkScheduler {
         {
           upsert: action,
           dismissIds: staleOutcomeActionIds(work.id).filter(
-            (id) => id !== action.id,
+            (id) => id !== action?.id,
           ),
         },
       );
