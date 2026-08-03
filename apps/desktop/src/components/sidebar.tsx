@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { CalendarClock, FolderOpen, LayoutGrid, Network } from "lucide-react";
+import {
+  BarChart3,
+  CalendarClock,
+  FolderOpen,
+  LayoutGrid,
+  Network,
+} from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 
 import { cn } from "@chief/ui/lib/utils";
@@ -33,6 +39,7 @@ const PRIMARY_ITEMS = [
   { to: "/", label: "Overview", icon: LayoutGrid },
   { to: "/schedule", label: "Schedule", icon: CalendarClock },
   { to: "/agents", label: "Agents", icon: Network },
+  { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/files", label: "Files", icon: FolderOpen },
 ] as const;
 

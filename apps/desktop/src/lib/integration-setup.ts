@@ -14,8 +14,6 @@ import {
   isOnboardingGoogleAnalyticsAction,
 } from "@chief/agent-runtime/integration-requests";
 
-import { GETTING_STARTED_CHANNEL_ID } from "./workspace-channels";
-
 export { GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST } from "@chief/agent-runtime/integration-requests";
 export {
   googleAnalyticsActionChatId,
@@ -81,7 +79,7 @@ export function integrationSetupChannelPath(
   attemptId: string = crypto.randomUUID(),
 ) {
   const params = new URLSearchParams({
-    channel: GETTING_STARTED_CHANNEL_ID,
+    dm: "setup",
     setup: integration.domain,
     prompt: [
       `${SETUP_ATTEMPT_PREFIX}${attemptId}]`,

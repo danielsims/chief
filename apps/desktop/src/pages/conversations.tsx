@@ -192,7 +192,7 @@ export function ConversationsPage() {
   const activeSetupDomain =
     params.get("setup") ?? integrationSetupDomainFromChat(activeChatId);
   const legacySetupPath = (() => {
-    if (!activeSetupDomain || !activeChatId) return null;
+    if (!activeSetupDomain || !activeSetupActionId) return null;
     const integration = INTEGRATION_CATALOG.flatMap(
       (group) => group.integrations,
     ).find((candidate) => candidate.domain === activeSetupDomain);
@@ -201,7 +201,7 @@ export function ConversationsPage() {
         domain: activeSetupDomain,
         name: integration?.name ?? activeSetupDomain,
       },
-      activeSetupActionId ?? activeChatId,
+      activeSetupActionId,
     );
   })();
   const activeEntry = localChats.chats.find(

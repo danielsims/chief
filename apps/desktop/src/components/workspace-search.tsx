@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  BarChart3,
   CalendarClock,
   FileText,
   FolderOpen,
@@ -37,6 +38,12 @@ const DESTINATIONS = [
     icon: CalendarClock,
   },
   { label: "Agents", hint: "Your team", to: "/agents", icon: Network },
+  {
+    label: "Analytics",
+    hint: "Measurement and reporting",
+    to: "/analytics",
+    icon: BarChart3,
+  },
   { label: "Files", hint: "Workspace context", to: "/files", icon: FolderOpen },
 ] as const;
 

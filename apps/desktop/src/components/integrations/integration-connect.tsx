@@ -7,7 +7,7 @@ import { integrationSetupChannelPath } from "../../lib/integration-setup";
 
 /**
  * The one way any integration gets connected, wherever it appears. Connect
- * starts one visible Setup conversation in the private getting-started channel.
+ * starts one visible, private conversation with Setup.
  */
 export function IntegrationConnect({
   integration,
