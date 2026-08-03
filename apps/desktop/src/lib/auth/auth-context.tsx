@@ -18,10 +18,12 @@ import {
 } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
+import type { OrganizationRole } from "./organization-role";
 import type { StoredSession } from "./session";
 import {
   AUTH_BASE_URL,
   authClient,
+  getActiveAuthOrganizationMember,
   updateAuthUser,
   validateStoredSession,
 } from "./better-auth-client";
@@ -52,6 +54,7 @@ interface AuthState {
     image?: string;
   } | null;
   cloudOrganizationId: string | null;
+  organizationRole: OrganizationRole | null;
   /** Last sign-in failure, surfaced on the splash screen. */
   authError: string | null;
   signIn: () => void;
@@ -71,6 +74,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [storedSession, setStoredSessionState] = useState<StoredSession | null>(
     () => getStoredSession(),
   );
+  const [organizationMembership, setOrganizationMembership] = useState<{
+    organizationId: string;
+    role: OrganizationRole;
+    token: string;
+  } | null>(null);
   const authFlowCleanupRef = useRef<(() => void) | null>(null);
   const authFlowCompletedRef = useRef(false);
 
@@ -180,6 +188,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [invalidateSession, storedSession?.token]);
 
+  useEffect(() => {
+    const organizationId = storedSession?.organizationId;
+    const token = storedSession?.token;
+    if (!token || !organizationId) return;
+    let cancelled = false;
+    void getActiveAuthOrganizationMember(organizationId)
+      .then((member) => {
+        if (!cancelled && member) {
+          setOrganizationMembership({
+            organizationId,
+            role: member.role,
+            token,
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn("[Auth] Could not resolve organization role:", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [storedSession?.organizationId, storedSession?.token]);
+
   // ─── Actions ─────────────────────────────────────────────────────────
 
   const signIn = useCallback(async () => {
@@ -252,6 +283,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ─── Context Value ───────────────────────────────────────────────────
 
   const user = storedSession?.user ?? null;
+  const organizationRole =
+    organizationMembership &&
+    organizationMembership.token === storedSession?.token &&
+    organizationMembership.organizationId === storedSession.organizationId
+      ? organizationMembership.role
+      : null;
 
   const value = useMemo<AuthState>(
     () => ({
@@ -269,6 +306,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         : null,
       cloudOrganizationId: storedSession?.organizationId ?? null,
+      organizationRole,
       authError,
       signIn,
       signOut,
@@ -280,6 +318,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       isSigningIn,
       invalidateSession,
+      organizationRole,
       signIn,
       signOut,
       storedSession,
@@ -301,6 +340,7 @@ export function useAuth(): AuthState {
       sessionToken: null,
       user: null,
       cloudOrganizationId: null,
+      organizationRole: null,
       authError: null,
       signIn: () => {},
       signOut: () => {},
