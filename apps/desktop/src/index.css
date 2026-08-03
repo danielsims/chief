@@ -1,8 +1,27 @@
 @import "@chief/ui/globals.css";
+
 @import "@browser-ui/react/styles.css";
 @import "streamdown/styles.css";
 @source "../../../packages/ui/src";
 @source "../node_modules/streamdown/dist/*.js";
+
+@keyframes chief-message-notification-pulse {
+  0%,
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+  }
+  18%,
+  72% {
+    background-color: color-mix(in srgb, var(--foreground) 5%, transparent);
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--foreground) 3%, transparent);
+  }
+}
+
+.chief-message-notification-target {
+  border-radius: 0.75rem;
+  animation: chief-message-notification-pulse 2.2s ease-out;
+}
 
 @font-face {
   font-family: "Geist Pixel Square";
@@ -20,15 +39,10 @@
   src: url("./assets/fonts/GeistPixel-Line.woff2") format("woff2");
 }
 
-@theme inline {
-  --font-serif: var(--font-pixel);
-}
-
 :root {
   --font-pixel: "Geist Pixel Square", "Geist Variable", system-ui, sans-serif;
   --font-pixel-line:
     "Geist Pixel Line", "Geist Variable", system-ui, sans-serif;
-  --font-serif: var(--font-pixel);
 }
 
 .chief-browser,
@@ -44,8 +58,11 @@
   aspect-ratio: auto;
 }
 
-.chief-browser .bui-browser-frame--bare > .bui-surface {
-  border-radius: 0;
+.chief-browser .bui-browser-frame--bare,
+.chief-browser .bui-browser-frame--bare > .bui-surface,
+.chief-browser .bui-agent-viewport {
+  overflow: hidden;
+  border-radius: inherit;
 }
 
 .chief-browser .bui-toolbar {

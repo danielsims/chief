@@ -41,21 +41,15 @@ function MiniApplication({ mode }: { mode: ThemePreference }) {
       : mode === "dark"
         ? "bg-[#171717] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.09)]"
         : "bg-[#f6f5f1] shadow-[inset_0_0_0_1px_rgba(24,24,24,0.09)]";
-  const strong =
+  const element =
     mode === "system"
-      ? "bg-white/70 mix-blend-difference"
+      ? "bg-white/14 mix-blend-difference"
       : mode === "dark"
-        ? "bg-white/64"
-        : "bg-black/58";
-  const muted =
-    mode === "system"
-      ? "bg-white/82 mix-blend-difference"
-      : mode === "dark"
-        ? "bg-white/18"
-        : "bg-black/14";
+        ? "bg-white/15"
+        : "bg-black/12";
   const hairline =
     mode === "system"
-      ? "bg-white/85 mix-blend-difference"
+      ? "bg-white/10 mix-blend-difference"
       : mode === "dark"
         ? "bg-white/9"
         : "bg-black/8";
@@ -73,29 +67,36 @@ function MiniApplication({ mode }: { mode: ThemePreference }) {
           className={cn("absolute inset-y-0 right-0 w-px opacity-80", hairline)}
         />
         <span
-          className={cn("absolute top-3 left-2.5 size-2 rounded-[3px]", strong)}
+          className={cn(
+            "absolute top-3 left-2.5 size-2 rounded-[3px]",
+            element,
+          )}
         />
         <span
-          className={cn("absolute top-8 left-2.5 h-1 w-7 rounded-full", muted)}
+          className={cn(
+            "absolute top-8 left-2.5 h-1 w-7 rounded-full",
+            element,
+          )}
         />
         <span
-          className={cn("absolute top-12 left-2.5 h-1 w-5 rounded-full", muted)}
+          className={cn(
+            "absolute top-12 left-2.5 h-1 w-5 rounded-full",
+            element,
+          )}
         />
       </span>
       <span className="absolute inset-y-0 right-0 left-[24%] px-3 pt-3">
-        <span className={cn("block h-1.5 w-14 rounded-full", strong)} />
+        <span className={cn("block h-1.5 w-14 rounded-full", element)} />
         <span className="mt-3 flex items-center gap-2">
-          <span className={cn("size-3 shrink-0 rounded-full", muted)} />
+          <span className={cn("size-3 shrink-0 rounded-full", element)} />
           <span className="min-w-0 flex-1 space-y-1.5">
-            <span className={cn("block h-1 w-1/2 rounded-full", muted)} />
-            <span
-              className={cn("block h-1 w-3/4 rounded-full opacity-60", muted)}
-            />
+            <span className={cn("block h-1 w-1/2 rounded-full", element)} />
+            <span className={cn("block h-1 w-3/4 rounded-full", element)} />
           </span>
         </span>
         <span className="mt-2 flex items-center gap-2">
-          <span className={cn("size-3 shrink-0 rounded-full", muted)} />
-          <span className={cn("h-1 w-1/3 rounded-full opacity-70", muted)} />
+          <span className={cn("size-3 shrink-0 rounded-full", element)} />
+          <span className={cn("h-1 w-1/3 rounded-full", element)} />
         </span>
       </span>
     </span>
