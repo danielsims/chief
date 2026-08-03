@@ -124,7 +124,7 @@ export function AgentChannelsPanel({
           {selectedChannel !== "slack" ? (
             <div className="flex min-h-[420px] flex-col items-start justify-center">
               <p className="text-muted-foreground text-xs">Eve channel</p>
-              <h4 className="mt-2 font-serif text-3xl">
+              <h4 className="mt-2 text-3xl font-normal">
                 {CHANNELS.find((item) => item.id === selectedChannel)?.label}
               </h4>
               <p className="text-muted-foreground mt-3 max-w-lg text-sm leading-6">

@@ -6,7 +6,7 @@ import { cn } from "@chief/ui/lib/utils";
  * Square workspace logo-or-initial tile, shared by the workspace switcher,
  * the dashboard workspace indicator and the settings preview.
  *
- * Falls back to the workspace's first initial (serif, matching the wordmark)
+ * Falls back to the workspace's first initial.
  * when there is no logo, the image fails to load, or the image is a stub.
  * Google's s2 favicon service never 404s: when a site has no real favicon it
  * returns a 16x16 generic globe even at sz=64, so anything under 32px wide is
@@ -86,7 +86,7 @@ export function OrgLogo({
         className,
       )}
     >
-      <span className="translate-y-[0.055em] font-serif leading-none select-none">
+      <span className="translate-y-[0.055em] leading-none font-normal select-none">
         {initial}
       </span>
       {candidate ? (

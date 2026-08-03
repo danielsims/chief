@@ -42,7 +42,7 @@ function BillingReturnContent() {
             <>
               <SuccessCheck className="mb-8" />
               <div className="success-copy flex w-full flex-col items-center">
-                <h1 className="font-serif text-4xl leading-tight">
+                <h1 className="text-4xl leading-tight font-normal">
                   You&rsquo;re in.
                 </h1>
                 <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
@@ -59,7 +59,7 @@ function BillingReturnContent() {
             </>
           ) : (
             <>
-              <h1 className="font-serif text-4xl leading-tight">
+              <h1 className="text-4xl leading-tight font-normal">
                 Checkout canceled.
               </h1>
               <p className="text-muted-foreground mt-4 text-sm leading-relaxed">

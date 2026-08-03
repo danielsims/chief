@@ -120,7 +120,7 @@ function SignInContent() {
 
       <div className="flex flex-1 items-center justify-center px-8 pb-24">
         <div className="mx-auto flex w-full max-w-sm flex-col text-center">
-          <h1 className="font-serif text-3xl leading-tight">
+          <h1 className="text-3xl leading-tight font-normal">
             {isDesktopFlow ? "Connect the desktop app" : "Sign in to Chief"}
           </h1>
           <p className="text-muted-foreground mt-4 text-sm leading-relaxed">

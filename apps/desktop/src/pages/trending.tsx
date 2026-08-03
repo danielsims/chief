@@ -28,7 +28,7 @@ export function TrendingPage() {
     <div className="-mx-8 -mb-8 min-h-[calc(100vh-48px)]">
       <header className="flex items-end justify-between gap-6 border-b px-8 pt-4 pb-5">
         <div>
-          <h1 className="font-serif text-3xl">Trending</h1>
+          <h1 className="text-3xl font-normal">Trending</h1>
           <p className="text-muted-foreground mt-2 text-sm">
             Signals worth watching across your market and channels.
           </p>
@@ -114,7 +114,7 @@ export function TrendingPage() {
       ) : (
         <div className="flex min-h-[calc(100vh-170px)] items-center justify-center px-8 text-center">
           <div className="max-w-sm">
-            <p className="font-serif text-2xl">No trends yet</p>
+            <p className="text-2xl font-normal">No trends yet</p>
             <p className="text-muted-foreground mt-2 text-sm leading-6">
               Chief saves supported market signals here after consulting the
               Prospector, with the source and why each one matters.

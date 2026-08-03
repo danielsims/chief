@@ -124,7 +124,7 @@ export function CampaignsPage() {
     <div className="-mx-8 -mb-8 min-h-[calc(100vh-48px)]">
       <header className="flex items-center justify-between border-b px-8 pt-4 pb-5">
         <div>
-          <h1 className="font-serif text-3xl">Campaigns</h1>
+          <h1 className="text-3xl font-normal">Campaigns</h1>
           <p className="text-muted-foreground mt-1 text-xs">
             Plan, review and monitor paid acquisition.
           </p>
@@ -264,7 +264,7 @@ export function CampaignsPage() {
           {!workspace.loading && visibleCampaigns.length === 0 ? (
             <div className="flex min-h-60 items-center justify-center border-t px-6 text-center">
               <div className="max-w-sm">
-                <h2 className="font-serif text-2xl">
+                <h2 className="text-2xl font-normal">
                   {workspace.campaigns.length === 0
                     ? "No campaigns yet"
                     : "No matching campaigns"}

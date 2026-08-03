@@ -21,7 +21,6 @@
 :root {
   scroll-behavior: smooth;
   /* Keep editorial type consistent with the desktop app across public and auth pages. */
-  --font-serif: var(--font-pixel);
 }
 body {
   margin: 0;
@@ -390,7 +389,7 @@ body {
 }
 .hero-dashboard-heading h2 {
   margin: 0;
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: 29px;
   font-weight: 400;
   line-height: 1.1;
@@ -945,7 +944,7 @@ body {
   border-bottom: 1px solid var(--line);
 }
 .playbook-showcase > header strong {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: 22px;
   font-weight: 400;
 }
@@ -1100,7 +1099,7 @@ body {
   height: 57px;
   display: grid;
   place-items: center;
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: 18px;
   font-style: italic;
   font-weight: 400;
@@ -1158,7 +1157,7 @@ body {
   border-bottom: 1px solid #292929;
 }
 .calendar-toolbar > strong {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: 20px;
   font-weight: 400;
 }
@@ -1207,7 +1206,7 @@ body {
   border-bottom: 1px solid #292929;
 }
 .calendar-monthbar > strong {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: 17px;
   font-weight: 400;
 }
@@ -1405,7 +1404,7 @@ body {
   display: block;
 }
 .runtime-setup > header strong {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: 20px;
   font-weight: 400;
 }
@@ -1562,7 +1561,7 @@ body {
   border-bottom: 1px solid #292929;
 }
 .proactive-schedule > header strong {
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: 16px;
   font-weight: 400;
 }
@@ -2152,7 +2151,7 @@ body {
   line-height: 1.35;
 }
 .destination-claude {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-sans);
   border-color: #d8d1c3;
   background: #f5f1e8;
   color: #2f2c27;
@@ -2739,7 +2738,7 @@ footer > span {
 }
 .content-rail h1 {
   margin: 0;
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: clamp(40px, 5vw, 64px);
   font-weight: 400;
   line-height: 1;
@@ -2795,7 +2794,7 @@ footer > span {
 .pricing-hero h1 {
   max-width: 900px;
   margin: 0;
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: clamp(48px, 6.2vw, 78px);
   font-weight: 400;
   line-height: 0.96;
@@ -2859,7 +2858,7 @@ footer > span {
 }
 .offer-summary h2 {
   margin: 16px 0 0;
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: 76px;
   font-weight: 400;
   line-height: 0.8;
@@ -2916,7 +2915,7 @@ footer > span {
 .plan-comparison h2,
 .pricing-faq h2 {
   margin: 0;
-  font-family: var(--font-serif);
+  font-family: var(--font-sans);
   font-size: clamp(38px, 5vw, 58px);
   font-weight: 400;
   line-height: 1;
