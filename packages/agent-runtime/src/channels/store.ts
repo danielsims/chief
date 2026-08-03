@@ -7,30 +7,55 @@ import * as schema from "../db/schema.js";
 import { defaultWorkspaceChannels } from "./nip29.js";
 
 export class ChannelStore {
+  private readonly seededWorkspaces = new Map<string, Promise<void>>();
+
   constructor(
     private readonly database: () => LibSQLDatabase,
     private readonly ready: Promise<void>,
   ) {}
 
+  private seedWorkspace(workspaceId: string) {
+    const existing = this.seededWorkspaces.get(workspaceId);
+    if (existing) return existing;
+    const seed = this.ready
+      .then(async () => {
+        const existing = await this.database()
+          .select({ id: schema.channels.id })
+          .from(schema.channels)
+          .where(eq(schema.channels.organizationId, workspaceId))
+          .limit(1)
+          .get();
+        if (existing) return;
+        await this.database()
+          .insert(schema.channels)
+          .values(
+            defaultWorkspaceChannels().map((channel) => ({
+              organizationId: workspaceId,
+              ...channel,
+            })),
+          )
+          .onConflictDoNothing()
+          .run();
+      })
+      .then(() => undefined)
+      .catch((error: unknown) => {
+        this.seededWorkspaces.delete(workspaceId);
+        throw error;
+      });
+    this.seededWorkspaces.set(workspaceId, seed);
+    return seed;
+  }
+
   async list(workspaceId: string): Promise<WorkspaceChannel[]> {
-    await this.ready;
+    await this.seedWorkspace(workspaceId);
     const db = this.database();
-    await db
-      .insert(schema.channels)
-      .values(
-        defaultWorkspaceChannels().map((channel) => ({
-          organizationId: workspaceId,
-          ...channel,
-        })),
-      )
-      .onConflictDoNothing()
-      .run();
     return db
       .select({
         protocol: schema.channels.protocol,
         id: schema.channels.id,
         slug: schema.channels.slug,
         name: schema.channels.name,
+        topic: schema.channels.topic,
         description: schema.channels.description,
         agentIds: schema.channels.agentIds,
         createdAt: schema.channels.createdAt,
@@ -81,6 +106,7 @@ export class ChannelStore {
       id: randomUUID(),
       slug,
       name,
+      topic: "",
       description: description ?? `Work and conversation in #${name}`,
       agentIds: ["cmo"],
       visibility: "public",
@@ -91,6 +117,84 @@ export class ChannelStore {
       .insert(schema.channels)
       .values({ organizationId: workspaceId, ...channel })
       .run();
+    return channel;
+  }
+
+  async update(
+    workspaceId: string,
+    channelId: string,
+    input: { name: string; topic: string; description: string },
+  ) {
+    const channel = await this.get(workspaceId, channelId);
+    if (!channel) throw new Error("Channel was not found in this workspace.");
+    if (channel.visibility === "direct") {
+      throw new Error("Direct messages cannot be edited as channels.");
+    }
+    const name = input.name.trim();
+    const topic = input.topic.trim();
+    const description = input.description.trim();
+    if (!name) throw new Error("Channel name is required.");
+    if (name.length > 60) {
+      throw new Error("Channel names can be at most 60 characters.");
+    }
+    if (description.length > 160) {
+      throw new Error("Channel descriptions can be at most 160 characters.");
+    }
+    if (topic.length > 250) {
+      throw new Error("Channel topics can be at most 250 characters.");
+    }
+    const updatedAt = Date.now();
+    await this.database()
+      .update(schema.channels)
+      .set({ name, topic, description, updatedAt })
+      .where(
+        and(
+          eq(schema.channels.organizationId, workspaceId),
+          eq(schema.channels.id, channel.id),
+        ),
+      )
+      .run();
+    // The stable slug is deliberately retained so existing links keep working.
+    return { ...channel, name, topic, description, updatedAt };
+  }
+
+  async assertRemovable(workspaceId: string, channelId: string) {
+    const channel = await this.get(workspaceId, channelId);
+    if (!channel) throw new Error("Channel was not found in this workspace.");
+    if (channel.visibility === "direct") {
+      throw new Error("Direct messages cannot be deleted as channels.");
+    }
+    const publicChannels = (await this.list(workspaceId)).filter(
+      (candidate) => candidate.visibility !== "direct",
+    );
+    if (publicChannels.length <= 1) {
+      throw new Error("A workspace must keep at least one channel.");
+    }
+    return channel;
+  }
+
+  async remove(workspaceId: string, channelId: string) {
+    const channel = await this.assertRemovable(workspaceId, channelId);
+    await this.database().transaction(async (tx) => {
+      await tx
+        .delete(schema.channelEvents)
+        .where(
+          and(
+            eq(schema.channelEvents.organizationId, workspaceId),
+            eq(schema.channelEvents.channelId, channel.id),
+          ),
+        )
+        .run();
+      await tx
+        .delete(schema.channels)
+        .where(
+          and(
+            eq(schema.channels.organizationId, workspaceId),
+            eq(schema.channels.id, channel.id),
+          ),
+        )
+        .run();
+    });
     return channel;
   }
 

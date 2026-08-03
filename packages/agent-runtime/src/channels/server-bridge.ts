@@ -1,3 +1,4 @@
+import type { ChannelEvent, ChannelMessageEvent } from "../channel-types.js";
 import type { SessionManager } from "../manager.js";
 import type {
   AgentDefinition,
@@ -15,6 +16,58 @@ import {
 } from "./nip29.js";
 
 type Send = (message: ServerMessage) => void;
+export type ChannelEventBroadcast = (
+  workspaceId: string,
+  event: ChannelEvent,
+) => void;
+
+export type ChannelAssistantMessage = Extract<
+  AgentEvent,
+  { type: "message" }
+> & { role: "assistant" };
+
+export interface ChannelTurnMirrorState {
+  pending?: ChannelAssistantMessage;
+  terminal: boolean;
+}
+
+export function isUserFacingChannelMessage(
+  event: AgentEvent,
+): event is ChannelAssistantMessage {
+  return (
+    event.type === "message" &&
+    event.role === "assistant" &&
+    event.content.some(
+      (block) =>
+        block.type === "image" ||
+        (block.type === "text" && block.text.trim().length > 0),
+    )
+  );
+}
+
+export function advanceChannelTurnMirror(
+  current: ChannelTurnMirrorState,
+  event: AgentEvent,
+): { state: ChannelTurnMirrorState; schedule: boolean } {
+  if (event.type === "message" && event.role === "user") {
+    return { state: { terminal: false }, schedule: false };
+  }
+  if (isUserFacingChannelMessage(event)) {
+    return {
+      state: { ...current, pending: event },
+      schedule: current.terminal,
+    };
+  }
+  if (event.type === "result") {
+    if (!event.ok) return { state: { terminal: false }, schedule: false };
+    const state = { ...current, terminal: true };
+    return { state, schedule: Boolean(state.pending) };
+  }
+  if (event.type === "error" || event.type === "exit") {
+    return { state: { terminal: false }, schedule: false };
+  }
+  return { state: current, schedule: false };
+}
 
 export async function mirrorEvent(
   manager: SessionManager,
@@ -24,20 +77,33 @@ export async function mirrorEvent(
   agentEvent: AgentEvent,
   explicitChannelId?: string,
   assistantActor?: { id: string; name: string },
-) {
+  broadcast?: ChannelEventBroadcast,
+): Promise<ChannelMessageEvent | undefined> {
   const channelId = explicitChannelId ?? channelIdFromChatId(chatId);
   if (!channelId || agentEvent.type !== "message") return;
   const content = agentEvent.content
     .flatMap((block) => (block.type === "text" ? [block.text] : []))
     .join("\n")
     .trim();
-  if (!content) return;
-  const threadRootId = agentEvent.threadRootId
-    ? ((await manager.store.channelStore().events(workspaceId, channelId)).find(
-        (event) =>
+  if (!content && !agentEvent.content.some((block) => block.type === "image"))
+    return;
+  const channelStore = manager.store.channelStore();
+  const events = await channelStore.events(workspaceId, channelId);
+  const existing = agentEvent.id
+    ? events.find(
+        (event): event is ChannelMessageEvent =>
+          event.kind === 9 &&
           event.tags.some(
-            (tag) => tag[0] === "client" && tag[1] === agentEvent.threadRootId,
+            (tag) => tag[0] === "client" && tag[1] === agentEvent.id,
           ),
+      )
+    : undefined;
+  if (existing) return existing;
+  const threadRootId = agentEvent.threadRootId
+    ? (events.find((event) =>
+        event.tags.some(
+          (tag) => tag[0] === "client" && tag[1] === agentEvent.threadRootId,
+        ),
       )?.id ?? agentEvent.threadRootId)
     : undefined;
   const event = createChannelEvent({
@@ -58,15 +124,13 @@ export async function mirrorEvent(
     channelAction: agentEvent.channelAction,
     threadRootId,
   });
-  await manager.store.channelStore().appendEvent(workspaceId, event);
-  send({
-    type: "channelEvent",
-    workspaceId,
-    event,
-  });
+  await channelStore.appendEvent(workspaceId, event);
+  if (broadcast) broadcast(workspaceId, event);
+  else send({ type: "channelEvent", workspaceId, event });
+  return event;
 }
 
-async function sendChannels(
+export async function sendChannels(
   manager: SessionManager,
   workspaceId: string,
   send: Send,
@@ -90,6 +154,37 @@ async function sendChannelEvents(
     channelId,
     events: await manager.store.channelStore().events(workspaceId, channelId),
   });
+}
+
+export async function beginAgentActivityReaction(
+  manager: SessionManager,
+  send: Send,
+  workspaceId: string,
+  channelId: string,
+  targetEventId: string,
+  agent: { id: string; name: string },
+) {
+  const reaction = createChannelReaction({
+    workspaceId,
+    channelId,
+    targetEventId,
+    actor: { type: "agent", ...agent },
+    reaction: "👀",
+  });
+  await manager.store.channelStore().appendEvent(workspaceId, reaction);
+  send({ type: "channelEvent", workspaceId, event: reaction });
+  return reaction.id;
+}
+
+export async function endAgentActivityReaction(
+  manager: SessionManager,
+  send: Send,
+  workspaceId: string,
+  channelId: string,
+  reactionId: string,
+) {
+  await manager.store.channelStore().removeEvent(workspaceId, reactionId);
+  await sendChannelEvents(manager, workspaceId, channelId, send);
 }
 
 export async function channelForChat(

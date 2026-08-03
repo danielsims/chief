@@ -32,7 +32,7 @@ export function browserOpenApiPaths(body: (schema: string) => RequestBody) {
         operationId: "browser.click",
         summary: "Click an agent-browser ref or visible control",
         description:
-          "Clicks the first matching agent-browser snapshot ref or semantic label. Re-snapshot after navigation because refs are invalidated when the page changes.",
+          "Clicks the first matching current agent-browser snapshot ref or semantic label and returns the refreshed page snapshot. Prefer the exact @ref from the latest snapshot, including for radio-style option cards.",
         requestBody: body("BrowserLabelsInput"),
         responses: { "200": { description: "Click result" } },
       },
@@ -62,7 +62,7 @@ export function browserOpenApiPaths(body: (schema: string) => RequestBody) {
         operationId: "browser.press",
         summary: "Press a key in the visible browser",
         description:
-          "Presses a key such as Enter, Tab, Escape, or ArrowDown in the shared agent-browser session.",
+          "Presses a key such as Enter or Escape in the shared agent-browser session. Do not traverse controls with repeated Tab or arrow presses when the current snapshot exposes a clickable @ref.",
         requestBody: body("BrowserPressInput"),
         responses: { "200": { description: "Key press result" } },
       },
@@ -100,9 +100,14 @@ export const browserOpenApiSchemas = {
   BrowserLabelsInput: {
     type: "object",
     additionalProperties: false,
-    required: ["conversationId", "labels"],
+    required: ["conversationId"],
     properties: {
       conversationId: { type: "string", maxLength: 160 },
+      ref: {
+        type: "string",
+        maxLength: 32,
+        description: "Exact ref from the latest browser snapshot",
+      },
       labels,
     },
   },
@@ -206,7 +211,17 @@ export async function handleBrowserLocalTool(
       }),
     };
   }
-  const commandLabels = stringList(body, "labels");
+  const commandLabels = [
+    ...(typeof body.ref === "string" && body.ref.trim()
+      ? [body.ref.trim().replace(/^@?/, "@")]
+      : []),
+    ...(Array.isArray(body.labels) && body.labels.length > 0
+      ? stringList(body, "labels")
+      : []),
+  ];
+  if (commandLabels.length === 0) {
+    throw new Error("ref or labels are required.");
+  }
   let command: BrowserAutomationCommand | undefined;
   if (path === "/local-tools/browser/click") {
     command = { type: "click", labels: commandLabels };

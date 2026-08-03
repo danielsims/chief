@@ -25,6 +25,7 @@ export const channels = sqliteTable(
     protocol: text({ enum: ["nip29"] }).notNull(),
     slug: text().notNull(),
     name: text().notNull(),
+    topic: text().notNull().default(""),
     description: text().notNull(),
     agentIds: text("agent_ids", { mode: "json" }).$type<string[]>().notNull(),
     createdAt: integer("created_at").notNull(),
@@ -185,6 +186,33 @@ export const messages = sqliteTable(
       table.sessionId,
     ),
     index("message_session_created").on(table.sessionId, table.createdAt),
+  ],
+);
+
+export const browserRuns = sqliteTable(
+  "browser",
+  {
+    id: text().primaryKey(),
+    organizationId: text("organization_id").notNull(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    parentConversationId: text("parent_conversation_id"),
+    threadRootId: text("thread_root_id"),
+    anchorMessageId: text("anchor_message_id"),
+    url: text().notNull(),
+    title: text().notNull().default(""),
+    status: text({ enum: ["active", "complete"] }).notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("browser_organization_conversation").on(
+      table.organizationId,
+      table.conversationId,
+      table.createdAt,
+    ),
+    index("browser_active").on(table.organizationId, table.status),
   ],
 );
 

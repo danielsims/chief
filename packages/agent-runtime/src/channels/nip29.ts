@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type {
   ChannelActor,
-  ChannelEvent,
+  ChannelMessageEvent,
   ChannelReactionEvent,
   WorkspaceChannel,
 } from "../channel-types.js";
@@ -99,6 +99,7 @@ const DEFAULT_CHANNELS = [
 export function defaultWorkspaceChannels(now = Date.now()): WorkspaceChannel[] {
   return DEFAULT_CHANNELS.map((channel, index) => ({
     ...channel,
+    topic: "",
     agentIds: [...channel.agentIds],
     protocol: "nip29",
     createdAt: now + index,
@@ -181,7 +182,7 @@ export function createChannelEvent(input: {
   threadRootId?: string;
   sourceId?: string;
   createdAt?: number;
-}): ChannelEvent {
+}): ChannelMessageEvent {
   const createdAt = input.createdAt ?? Date.now();
   const pubkey = actorPubkey(input.workspaceId, input.actor);
   const tags = [

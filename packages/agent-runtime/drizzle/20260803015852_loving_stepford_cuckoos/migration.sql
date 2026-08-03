@@ -1,0 +1,1 @@
+ALTER TABLE `channel` ADD `topic` text DEFAULT '' NOT NULL;

@@ -707,10 +707,36 @@ interface BrowserConversationMessage<T extends string> {
   conversationId: string;
 }
 
+export interface BrowserRunRecord {
+  id: string;
+  workspaceId: string;
+  conversationId: string;
+  parentConversationId?: string;
+  threadRootId?: string;
+  anchorMessageId?: string;
+  url: string;
+  title?: string;
+  status: "active" | "complete";
+  createdAt: number;
+  updatedAt: number;
+}
+
 export type ClientMessage =
   | { type: "listAgents" }
   | ChannelClientMessage
   | Artifacts.ListArtifactsMessage
+  | {
+      type: "listBrowserRuns";
+      workspaceId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "anchorBrowserRun";
+      workspaceId: string;
+      browserRunId: string;
+      messageId: string;
+      executorCapability: ExecutorCapability;
+    }
   | {
       type: "listChats";
       workspaceId: string;
@@ -1002,6 +1028,7 @@ export type ClientMessage =
       type: "browserNavigateRequest";
       workspaceId: string;
       conversationId: string;
+      browserRunId?: string;
       threadRootId?: string;
       url: string;
       width: number;
@@ -1056,20 +1083,46 @@ export type ServerMessage =
   | Artifacts.ArtifactsMessage
   | {
       type: "browserNavigate";
+      browserRunId: string;
       workspaceId: string;
       conversationId: string;
+      parentConversationId?: string;
       threadRootId?: string;
+      anchorMessageId?: string;
       url: string;
       streamUrl: string;
     }
   | {
       type: "browserPrepare";
+      browserRunId: string;
       workspaceId: string;
       conversationId: string;
+      parentConversationId?: string;
       threadRootId?: string;
+      anchorMessageId?: string;
       url: string;
     }
-  | BrowserConversationMessage<"browserClosed">
+  | {
+      type: "browserActivity";
+      browserRunId: string;
+      workspaceId: string;
+      conversationId: string;
+      phase: "started" | "completed";
+      label: string;
+      cursor?: {
+        x: number;
+        y: number;
+        pressed?: boolean;
+        typing?: boolean;
+        visible?: boolean;
+      };
+    }
+  | (BrowserConversationMessage<"browserClosed"> & { browserRunId: string })
+  | {
+      type: "browserRuns";
+      workspaceId: string;
+      runs: BrowserRunRecord[];
+    }
   | { type: "runtimeNotice"; workspaceId: string; notice: RuntimeNotice }
   | {
       type: "integrationSetupProgress";

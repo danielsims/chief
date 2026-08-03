@@ -29,6 +29,53 @@ const cmo: AgentDefinition = {
   instructions: "Run the requested work.",
 };
 
+void test("browser run history survives restart and closes interrupted sessions", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "chief-browser-history-"));
+  const store = new LocalStore(join(directory, "chief.sqlite"));
+  const manager = new SessionManager(store);
+  try {
+    await manager.createRootChat(
+      "workspace-a",
+      "conversation-a",
+      "Browser chat",
+      "codex",
+    );
+    await store.saveBrowserRun({
+      id: "browser-run-a",
+      workspaceId: "workspace-a",
+      conversationId: "conversation-a",
+      threadRootId: "thread-root",
+      url: "https://www.apple.com/au/shop/buy-mac/macbook-pro",
+      title: "Buy MacBook Pro - Apple (AU)",
+      status: "active",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    await store.updateBrowserRun("workspace-a", "browser-run-a", {
+      anchorMessageId: "message-a",
+    });
+    const resumed = await store.browserRun("workspace-a", "browser-run-a");
+    assert.ok(resumed);
+    assert.equal(resumed.conversationId, "conversation-a");
+    assert.equal(resumed.anchorMessageId, "message-a");
+    assert.equal(
+      await store.browserRun("workspace-b", "browser-run-a"),
+      undefined,
+    );
+    await store.reconcileInterruptedBrowserRuns(Date.now());
+
+    const [run] = await store.listBrowserRuns("workspace-a");
+    assert.ok(run);
+    assert.equal(run.status, "complete");
+    assert.equal(run.anchorMessageId, "message-a");
+    assert.equal(run.threadRootId, "thread-root");
+    assert.equal(run.title, "Buy MacBook Pro - Apple (AU)");
+  } finally {
+    await manager.stopAll();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 function recurringWork(
   conversationId: string | undefined = "root",
 ): RecurringWorkRecord {
@@ -385,6 +432,57 @@ void test("schedule task ownership is isolated from its conversation", async () 
   }
 });
 
+void test("chat-adjacent writes are serialized with transcript persistence", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "chief-chat-write-queue-"));
+  const store = new LocalStore(join(directory, "chief.sqlite"));
+  const manager = new SessionManager(store);
+  const order: string[] = [];
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  try {
+    const first = manager.enqueueChatPersistence(
+      "workspace",
+      "channel:general",
+      async () => {
+        order.push("first:start");
+        await firstGate;
+        order.push("first:end");
+      },
+    );
+    const second = manager.enqueueChatPersistence(
+      "workspace",
+      "channel:general",
+      () => {
+        order.push("second");
+        return Promise.resolve();
+      },
+    );
+
+    await Promise.resolve();
+    assert.deepEqual(order, ["first:start"]);
+    releaseFirst();
+    await Promise.all([first, second]);
+    assert.deepEqual(order, ["first:start", "first:end", "second"]);
+
+    await assert.rejects(
+      manager.enqueueChatPersistence("workspace", "channel:general", () =>
+        Promise.reject(new Error("expected write failure")),
+      ),
+      /expected write failure/,
+    );
+    await manager.enqueueChatPersistence("workspace", "channel:general", () => {
+      order.push("after failure");
+      return Promise.resolve();
+    });
+    assert.equal(order.at(-1), "after failure");
+  } finally {
+    await manager.stopAll();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 void test("task sessions preserve schedule metadata and persist every diagnostic event", async () => {
   const directory = mkdtempSync(join(tmpdir(), "chief-manager-diagnostics-"));
   const store = new LocalStore(join(directory, "chief.sqlite"));
@@ -677,6 +775,12 @@ void test("switching a channel responder keeps its transcript and adopts the tag
 
     assert.notEqual(first, second);
     assert.equal(second.agent.id, "analyst");
+    assert.match(second.agent.instructions, /named exactly chief-local/);
+    assert.match(
+      second.agent.instructions,
+      /copy the returned path byte-for-byte/,
+    );
+    assert.match(second.agent.instructions, /\{ body: \{ \.\.\. \} \}/);
     assert.ok(
       second.events.some(
         (event) =>

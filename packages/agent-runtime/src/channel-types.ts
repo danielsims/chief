@@ -5,6 +5,7 @@ export interface WorkspaceChannel {
   id: string;
   slug: string;
   name: string;
+  topic: string;
   description: string;
   agentIds: string[];
   visibility?: "public" | "direct";
@@ -70,6 +71,25 @@ export type ChannelClientMessage =
       executorCapability: ExecutorCapability;
     }
   | {
+      type: "updateChannel";
+      requestId: string;
+      workspaceId: string;
+      channelId: string;
+      name: string;
+      topic: string;
+      description: string;
+      sessionToken: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "deleteChannel";
+      requestId: string;
+      workspaceId: string;
+      channelId: string;
+      sessionToken: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
       type: "reactToChannelMessage";
       workspaceId: string;
       channelId: string;
@@ -89,6 +109,32 @@ export type ChannelServerMessage =
       requestId: string;
       workspaceId: string;
       channel: WorkspaceChannel;
+    }
+  | {
+      type: "channelUpdated";
+      requestId: string;
+      workspaceId: string;
+      channel: WorkspaceChannel;
+    }
+  | {
+      type: "channelUpdateFailed";
+      requestId: string;
+      workspaceId: string;
+      channelId: string;
+      message: string;
+    }
+  | {
+      type: "channelDeleted";
+      requestId: string;
+      workspaceId: string;
+      channelId: string;
+    }
+  | {
+      type: "channelDeleteFailed";
+      requestId: string;
+      workspaceId: string;
+      channelId: string;
+      message: string;
     }
   | {
       type: "channelEvents";

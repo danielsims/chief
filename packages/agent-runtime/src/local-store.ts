@@ -36,6 +36,7 @@ import type {
   AgentEvent,
   AgentPreference,
   AnalyticsDataset,
+  BrowserRunRecord,
   CampaignRecord,
   ChiefMessageEventMetadata,
   ChiefMessageMetadata,
@@ -708,6 +709,7 @@ export class LocalStore {
   private client: Client;
   private db: LibSQLDatabase;
   private readonly ready: Promise<void>;
+  private channelStoreInstance: ChannelStore | undefined;
 
   constructor(path = defaultDatabasePath()) {
     const directory = dirname(path);
@@ -766,7 +768,162 @@ export class LocalStore {
     await this.ready;
     await this.client.execute("SELECT 1");
   }
-  channelStore = () => new ChannelStore(() => this.db, this.ready);
+  async saveBrowserRun(run: BrowserRunRecord) {
+    await this.ready;
+    const conversation = await this.db
+      .select({ organizationId: schema.sessions.organizationId })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, run.conversationId))
+      .get();
+    if (conversation?.organizationId !== run.workspaceId) {
+      throw new Error("Browser conversation belongs to a different workspace.");
+    }
+    await this.db
+      .insert(schema.browserRuns)
+      .values({
+        id: run.id,
+        organizationId: run.workspaceId,
+        conversationId: run.conversationId,
+        parentConversationId: run.parentConversationId,
+        threadRootId: run.threadRootId,
+        anchorMessageId: run.anchorMessageId,
+        url: run.url,
+        title: run.title ?? "",
+        status: run.status,
+        createdAt: run.createdAt,
+        updatedAt: run.updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: schema.browserRuns.id,
+        set: {
+          parentConversationId: run.parentConversationId,
+          threadRootId: run.threadRootId,
+          anchorMessageId: run.anchorMessageId,
+          url: run.url,
+          title: run.title ?? "",
+          status: run.status,
+          updatedAt: run.updatedAt,
+        },
+      })
+      .run();
+  }
+
+  async updateBrowserRun(
+    workspaceId: string,
+    id: string,
+    patch: Partial<
+      Pick<
+        BrowserRunRecord,
+        | "anchorMessageId"
+        | "parentConversationId"
+        | "status"
+        | "threadRootId"
+        | "title"
+        | "url"
+      >
+    >,
+  ) {
+    await this.ready;
+    await this.db
+      .update(schema.browserRuns)
+      .set({
+        ...(patch.anchorMessageId !== undefined
+          ? { anchorMessageId: patch.anchorMessageId }
+          : {}),
+        ...(patch.parentConversationId !== undefined
+          ? { parentConversationId: patch.parentConversationId }
+          : {}),
+        ...(patch.status !== undefined ? { status: patch.status } : {}),
+        ...(patch.threadRootId !== undefined
+          ? { threadRootId: patch.threadRootId }
+          : {}),
+        ...(patch.title !== undefined ? { title: patch.title } : {}),
+        ...(patch.url !== undefined ? { url: patch.url } : {}),
+        updatedAt: Date.now(),
+      })
+      .where(
+        and(
+          eq(schema.browserRuns.id, id),
+          eq(schema.browserRuns.organizationId, workspaceId),
+        ),
+      )
+      .run();
+  }
+
+  async browserRun(
+    workspaceId: string,
+    id: string,
+  ): Promise<BrowserRunRecord | undefined> {
+    await this.ready;
+    const run = await this.db
+      .select()
+      .from(schema.browserRuns)
+      .where(
+        and(
+          eq(schema.browserRuns.id, id),
+          eq(schema.browserRuns.organizationId, workspaceId),
+        ),
+      )
+      .get();
+    if (!run) return undefined;
+    return {
+      id: run.id,
+      workspaceId: run.organizationId,
+      conversationId: run.conversationId,
+      ...(run.parentConversationId
+        ? { parentConversationId: run.parentConversationId }
+        : {}),
+      ...(run.threadRootId ? { threadRootId: run.threadRootId } : {}),
+      ...(run.anchorMessageId ? { anchorMessageId: run.anchorMessageId } : {}),
+      url: run.url,
+      ...(run.title ? { title: run.title } : {}),
+      status: run.status,
+      createdAt: run.createdAt,
+      updatedAt: run.updatedAt,
+    };
+  }
+
+  async listBrowserRuns(workspaceId: string): Promise<BrowserRunRecord[]> {
+    await this.ready;
+    const rows = await this.db
+      .select()
+      .from(schema.browserRuns)
+      .where(eq(schema.browserRuns.organizationId, workspaceId))
+      .orderBy(schema.browserRuns.createdAt)
+      .all();
+    return rows.map((run) => ({
+      id: run.id,
+      workspaceId: run.organizationId,
+      conversationId: run.conversationId,
+      ...(run.parentConversationId
+        ? { parentConversationId: run.parentConversationId }
+        : {}),
+      ...(run.threadRootId ? { threadRootId: run.threadRootId } : {}),
+      ...(run.anchorMessageId ? { anchorMessageId: run.anchorMessageId } : {}),
+      url: run.url,
+      ...(run.title ? { title: run.title } : {}),
+      status: run.status,
+      createdAt: run.createdAt,
+      updatedAt: run.updatedAt,
+    }));
+  }
+
+  async reconcileInterruptedBrowserRuns(cutoff: number) {
+    await this.ready;
+    const result = await this.db
+      .update(schema.browserRuns)
+      .set({ status: "complete", updatedAt: cutoff })
+      .where(
+        and(
+          eq(schema.browserRuns.status, "active"),
+          lte(schema.browserRuns.updatedAt, cutoff),
+        ),
+      )
+      .run();
+    return result.rowsAffected;
+  }
+  channelStore = () =>
+    (this.channelStoreInstance ??= new ChannelStore(() => this.db, this.ready));
   async hasChat(chatId: string) {
     await this.ready;
     return Boolean(
