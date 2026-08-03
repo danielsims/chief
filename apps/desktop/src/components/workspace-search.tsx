@@ -5,6 +5,7 @@ import {
   FolderOpen,
   Hash,
   LayoutGrid,
+  MessageSquare,
   Network,
   Search,
 } from "lucide-react";
@@ -19,7 +20,8 @@ import {
 import { cn } from "@chief/ui/lib/utils";
 
 import { useAuth } from "../lib/auth/auth-context";
-import { useWorkspaceChannels } from "../lib/runtime";
+import { channelEventSourceId } from "../lib/channel-read-state";
+import { useChannelEvents, useWorkspaceChannels } from "../lib/runtime";
 import {
   WORKSPACE_AGENT_IDENTITIES,
   WORKSPACE_CHANNELS,
@@ -45,13 +47,20 @@ interface SearchItem {
   to: string;
   icon?: typeof Search;
   image?: string;
-  kind: "Destination" | "Channel" | "Person" | "Agent";
+  kind: "Destination" | "Channel" | "Message" | "Person" | "Agent";
 }
 
-const RESULT_GROUPS = ["Channel", "Person", "Agent", "Destination"] as const;
+const RESULT_GROUPS = [
+  "Message",
+  "Channel",
+  "Person",
+  "Agent",
+  "Destination",
+] as const;
 
 const GROUP_LABELS: Record<SearchItem["kind"], string> = {
   Channel: "Channels",
+  Message: "Messages",
   Person: "People",
   Agent: "Agents",
   Destination: "Chief",
@@ -84,6 +93,7 @@ export function WorkspaceSearch() {
   const [channelScope, setChannelScope] = useState<ChannelSearchScope | null>(
     null,
   );
+  const channelEvents = useChannelEvents(channelScope?.channelId ?? null);
 
   const items = useMemo<SearchItem[]>(() => {
     const destinations = DESTINATIONS.map((item) => ({
@@ -133,11 +143,29 @@ export function WorkspaceSearch() {
       }),
     );
     const needle = query.trim().toLocaleLowerCase();
-    const searchable = channelScope
-      ? channels.filter((channel) => channel.id === channelScope.channelId)
-      : [...channels, ...people, ...agents, ...destinations];
+    if (channelScope) {
+      if (!needle) return [];
+      return channelEvents
+        .filter((event) => event.kind === 9)
+        .map((event): SearchItem => {
+          const messageId = channelEventSourceId(event) ?? event.id;
+          return {
+            id: event.id,
+            label: event.actor.name,
+            hint: event.content.replace(/\s+/g, " ").trim(),
+            to: `/conversations?channel=${encodeURIComponent(channelScope.channelId)}&message=${encodeURIComponent(messageId)}`,
+            icon: MessageSquare,
+            kind: "Message",
+          };
+        })
+        .filter((item) =>
+          `${item.label} ${item.hint}`.toLocaleLowerCase().includes(needle),
+        )
+        .slice(-50)
+        .reverse();
+    }
+    const searchable = [...channels, ...people, ...agents, ...destinations];
     if (!needle) {
-      if (channelScope) return searchable;
       return [
         ...channels.slice(0, 3),
         ...people,
@@ -150,7 +178,7 @@ export function WorkspaceSearch() {
         `${item.label} ${item.hint}`.toLocaleLowerCase().includes(needle),
       )
       .slice(0, 18);
-  }, [channelScope, query, user, workspaceChannels.channels]);
+  }, [channelEvents, channelScope, query, user, workspaceChannels.channels]);
 
   const groupedItems = useMemo(
     () =>
@@ -323,7 +351,11 @@ export function WorkspaceSearch() {
                 <FileText size={20} className="text-muted-foreground" />
                 <p className="mt-3 text-sm font-medium">Nothing found</p>
                 <p className="text-muted-foreground mt-1 text-xs">
-                  Try a channel title or workspace destination.
+                  {channelScope
+                    ? query.trim()
+                      ? "Try another word or phrase from the conversation."
+                      : "Type a word or phrase from this channel."
+                    : "Try a channel title or workspace destination."}
                 </p>
               </div>
             )}
