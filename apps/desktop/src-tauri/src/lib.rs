@@ -21,6 +21,21 @@ struct RuntimeProcess {
     supervisor: Mutex<Option<JoinHandle<()>>>,
 }
 
+#[derive(Default)]
+struct PendingNotificationActivation(Mutex<Option<serde_json::Value>>);
+
+impl PendingNotificationActivation {
+    fn replace(&self, target: serde_json::Value) {
+        if let Ok(mut pending) = self.0.lock() {
+            *pending = Some(target);
+        }
+    }
+
+    fn take(&self) -> Option<serde_json::Value> {
+        self.0.lock().ok()?.take()
+    }
+}
+
 fn terminate_runtime(child: &mut Child) {
     #[cfg(unix)]
     {
@@ -57,7 +72,6 @@ fn terminate_runtime(child: &mut Child) {
 
 impl RuntimeProcess {
     fn start(app: tauri::AppHandle) -> Self {
-        #[cfg(not(debug_assertions))]
         terminate_recorded_runtime(&app);
 
         let stop = Arc::new(AtomicBool::new(false));
@@ -128,7 +142,6 @@ impl RuntimeProcess {
                 } else if now >= next_spawn_at {
                     child = spawn_agent_runtime(&app);
                     if child.is_some() {
-                        #[cfg(not(debug_assertions))]
                         if let Some(runtime) = child.as_ref() {
                             record_runtime_process(&app, runtime.id());
                         }
@@ -164,7 +177,6 @@ impl RuntimeProcess {
     }
 }
 
-#[cfg(not(debug_assertions))]
 fn runtime_process_file(app: &tauri::AppHandle) -> Option<PathBuf> {
     use tauri::Manager;
 
@@ -176,7 +188,6 @@ fn runtime_process_file(app: &tauri::AppHandle) -> Option<PathBuf> {
     )
 }
 
-#[cfg(not(debug_assertions))]
 fn process_command(pid: u32) -> Option<String> {
     #[cfg(unix)]
     {
@@ -203,7 +214,6 @@ fn process_command(pid: u32) -> Option<String> {
     }
 }
 
-#[cfg(not(debug_assertions))]
 fn terminate_recorded_runtime(app: &tauri::AppHandle) {
     let Some(path) = runtime_process_file(app) else {
         return;
@@ -230,7 +240,11 @@ fn terminate_recorded_runtime(app: &tauri::AppHandle) {
     }
 
     let is_chief_runtime = process_command(runtime_pid)
-        .map(|command| command.contains("chief-agent-runtime"))
+        .map(|command| {
+            command.contains("chief-agent-runtime")
+                || command.contains("@chief/agent-runtime")
+                || (command.contains("packages/agent-runtime") && command.contains("tsx"))
+        })
         .unwrap_or(false);
     if is_chief_runtime {
         #[cfg(unix)]
@@ -257,7 +271,6 @@ fn terminate_recorded_runtime(app: &tauri::AppHandle) {
     let _ = std::fs::remove_file(path);
 }
 
-#[cfg(not(debug_assertions))]
 fn record_runtime_process(app: &tauri::AppHandle, runtime_pid: u32) {
     let Some(path) = runtime_process_file(app) else {
         return;
@@ -737,6 +750,51 @@ fn activate_app_window(app: tauri::AppHandle) {
     focus_main_window(&app);
 }
 
+#[tauri::command]
+fn show_native_notification(
+    app: tauri::AppHandle,
+    title: String,
+    body: String,
+    target: Option<serde_json::Value>,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::{Emitter, Manager};
+
+        let _ = notify_rust::set_application(&app.config().identifier);
+        let mut notification = notify_rust::Notification::new();
+        notification.summary(&title).body(&body);
+        let handle = notification
+            .show()
+            .map_err(|error| format!("native notification delivery failed: {error}"))?;
+        thread::spawn(move || {
+            handle.wait_for_action(move |action| {
+                if action != "default" {
+                    return;
+                }
+                if let Some(target) = target {
+                    app.state::<PendingNotificationActivation>().replace(target);
+                }
+                focus_main_window(&app);
+                let _ = app.emit("chief-notification-activated", ());
+            });
+        });
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, title, body, target);
+        Err("native notification delivery is only available on macOS".to_owned())
+    }
+}
+
+#[tauri::command]
+fn take_pending_notification_activation(
+    state: tauri::State<'_, PendingNotificationActivation>,
+) -> Option<serde_json::Value> {
+    state.take()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     use tauri::{Emitter, Manager, RunEvent};
@@ -745,6 +803,7 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             app.manage(RuntimeProcess::start(handle.clone()));
+            app.manage(PendingNotificationActivation::default());
             focus_main_window(&handle);
             Ok(())
         })
@@ -765,7 +824,12 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![greet, activate_app_window])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            activate_app_window,
+            show_native_notification,
+            take_pending_notification_activation
+        ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 

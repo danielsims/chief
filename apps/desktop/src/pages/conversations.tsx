@@ -1,10 +1,8 @@
 import { startTransition, useEffect, useMemo, useState } from "react";
-import { Hash, PanelRightClose } from "lucide-react";
-import { useSearchParams } from "react-router";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 
 import type { DriverType } from "@chief/agent-runtime/types";
 import { defaultAgents } from "@chief/agent-runtime/agent-roster";
-import { Button } from "@chief/ui/components/button";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { AgentPresence } from "../components/chat/agent-profile-panel";
@@ -19,13 +17,10 @@ import {
   clearComposerHandoff,
   composerHandoff,
 } from "../components/chat/composer-handoff";
-import {
-  ConversationAuxiliaryPanel,
-  useConversationAuxiliaryPanelSizing,
-} from "../components/chat/conversation-auxiliary-panel";
+import { useConversationAuxiliaryPanelSizing } from "../components/chat/conversation-auxiliary-panel";
+import { ConversationErrorBoundary } from "../components/chat/conversation-error-boundary";
 import { ConversationHeader } from "../components/chat/conversation-header";
 import { IntegrationSetupConversation } from "../components/chat/integration-setup-conversation";
-import { ObservedChat } from "../components/chat/observed-chat";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   googleAnalyticsActionIdFromChat,
@@ -110,11 +105,14 @@ export function ConversationsPage() {
   const workspaceChannels = useWorkspaceChannels();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const handoffId = params.get("handoff");
   const initialHandoff = useMemo(() => composerHandoff(handoffId), [handoffId]);
   const panelSizing = useConversationAuxiliaryPanelSizing();
   const running = useRunningChats();
   const { agents: runtimeAgents, status: runtimeStatus } = useRuntime();
+  const requestedChatId = params.get("chat");
   const staticRequestedChannel = workspaceChannel(params.get("channel"));
   const runtimeRequestedChannel = workspaceChannels.channels.find(
     (channel) =>
@@ -122,15 +120,25 @@ export function ConversationsPage() {
       (channel.id === params.get("channel") ||
         channel.slug === params.get("channel")),
   );
-  const requestedChannel = runtimeRequestedChannel
+  const channelRequestedByChat = workspaceChannels.channels.find(
+    (channel) =>
+      channel.visibility !== "direct" &&
+      channelChatId(channel.id) === requestedChatId,
+  );
+  const resolvedRuntimeChannel =
+    runtimeRequestedChannel ?? channelRequestedByChat;
+  const staticChannelRequestedByChat = WORKSPACE_CHANNELS.find(
+    (channel) => channelChatId(channel.id) === requestedChatId,
+  );
+  const requestedChannel = resolvedRuntimeChannel
     ? {
-        id: runtimeRequestedChannel.id,
-        relayId: runtimeRequestedChannel.id,
-        label: runtimeRequestedChannel.name,
-        description: runtimeRequestedChannel.description,
-        agentIds: runtimeRequestedChannel.agentIds,
+        id: resolvedRuntimeChannel.id,
+        relayId: resolvedRuntimeChannel.id,
+        label: resolvedRuntimeChannel.name,
+        description: resolvedRuntimeChannel.description,
+        agentIds: resolvedRuntimeChannel.agentIds,
       }
-    : staticRequestedChannel;
+    : (staticRequestedChannel ?? staticChannelRequestedByChat);
   const requestedDirectMessage = workspaceDirectMessage(params.get("dm"));
   const directIdentity = requestedDirectMessage
     ? WORKSPACE_AGENT_IDENTITIES[requestedDirectMessage.id]
@@ -149,10 +157,22 @@ export function ConversationsPage() {
           agentIds: defaultRuntimeChannel.agentIds,
         }
       : WORKSPACE_CHANNELS[3]);
+  const isDefaultChannelRoute =
+    requestedChatId === null &&
+    requestedDirectMessage === null &&
+    params.get("channel") === null;
+  const activeConversationChannel =
+    requestedChannel ?? (isDefaultChannelRoute ? activeChannel : undefined);
+  const navigationState =
+    typeof location.state === "object" && location.state !== null
+      ? (location.state as { focusComposerFor?: unknown })
+      : null;
+  const focusComposer =
+    navigationState?.focusComposerFor === activeConversationChannel?.id;
   const activeChatId =
-    params.get("chat") ??
-    (requestedChannel
-      ? channelChatId(requestedChannel.id)
+    requestedChatId ??
+    (activeConversationChannel
+      ? channelChatId(activeConversationChannel.id)
       : requestedDirectMessage
         ? directMessageChatId(requestedDirectMessage.id)
         : null);
@@ -214,12 +234,28 @@ export function ConversationsPage() {
         }))
     : [];
   const isNew = Boolean(activeChatId && !localChats.loading && !activeEntry);
+
+  useEffect(() => {
+    if (!focusComposer) return;
+    let clearFrame = 0;
+    const focusFrame = window.requestAnimationFrame(() => {
+      clearFrame = window.requestAnimationFrame(() => {
+        void navigate(`${location.pathname}${location.search}`, {
+          replace: true,
+          state: null,
+        });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.cancelAnimationFrame(clearFrame);
+    };
+  }, [focusComposer, location.pathname, location.search, navigate]);
   const activeChild = workspaceData.activity.find(
     (session) =>
       session.id === activeChildId && session.parentId === activeChatId,
   );
-  const hasAuxiliaryPanel =
-    userProfileOpen || activeProfileAgent !== null || activeChild !== undefined;
+  const hasAuxiliaryPanel = userProfileOpen || activeProfileAgent !== null;
   const openProfile = (selection: ConversationProfileSelection) => {
     setParams((current) => {
       const next = new URLSearchParams(current);
@@ -289,89 +325,90 @@ export function ConversationsPage() {
               </div>
             </>
           ) : activeChatId ? (
-            <ChiefChat
-              key={activeChatId}
-              chatId={activeChatId}
-              isNew={isNew}
-              channel={requestedChannel ?? undefined}
-              directAgent={
-                directIdentity && requestedDirectMessage
-                  ? {
-                      id: requestedDirectMessage.id,
-                      name: directIdentity.name,
-                      role: directIdentity.role,
-                    }
-                  : undefined
-              }
-              destinationChannelId={
-                requestedDirectMessage?.relayId ?? requestedChannel?.relayId
-              }
-              initialDriver={
-                activeEntry?.driver ??
-                (isNew ? requestedDriver(params.get("driver")) : undefined)
-              }
-              initialModel={
-                activeEntry?.model ??
-                (isNew ? (params.get("model") ?? undefined) : undefined)
-              }
-              composer={
-                params.get("compose") === "recurring"
-                  ? "recurring"
-                  : params.get("compose") === "oneoff"
-                    ? "oneoff"
+            <ConversationErrorBoundary resetKey={activeChatId}>
+              <ChiefChat
+                key={`${activeChatId}:${params.get("thread") ?? ""}:${params.get("message") ?? ""}`}
+                chatId={activeChatId}
+                initialMessageId={params.get("message") ?? undefined}
+                initialThreadRootId={params.get("thread") ?? undefined}
+                isNew={isNew}
+                channel={activeConversationChannel}
+                directAgent={
+                  directIdentity && requestedDirectMessage
+                    ? {
+                        id: requestedDirectMessage.id,
+                        name: directIdentity.name,
+                        role: directIdentity.role,
+                      }
                     : undefined
-              }
-              composerDate={params.get("date") ?? undefined}
-              composerPlaybookId={params.get("playbook") ?? undefined}
-              initialPrompt={
-                initialHandoff?.text ?? params.get("prompt") ?? undefined
-              }
-              initialAttachments={initialHandoff?.attachments}
-              initialDraft={params.get("draft") ?? undefined}
-              onInitialPromptSent={() => {
-                clearComposerHandoff(handoffId);
-                setParams(
-                  (current) => {
+                }
+                destinationChannelId={
+                  requestedDirectMessage?.relayId ??
+                  activeConversationChannel?.relayId
+                }
+                activeChild={activeChild}
+                initialDriver={
+                  activeEntry?.driver ??
+                  (isNew ? requestedDriver(params.get("driver")) : undefined)
+                }
+                initialModel={
+                  activeEntry?.model ??
+                  (isNew ? (params.get("model") ?? undefined) : undefined)
+                }
+                composer={
+                  params.get("compose") === "recurring"
+                    ? "recurring"
+                    : params.get("compose") === "oneoff"
+                      ? "oneoff"
+                      : undefined
+                }
+                composerDate={params.get("date") ?? undefined}
+                composerPlaybookId={params.get("playbook") ?? undefined}
+                initialPrompt={
+                  initialHandoff?.text ?? params.get("prompt") ?? undefined
+                }
+                initialAttachments={initialHandoff?.attachments}
+                initialDraft={params.get("draft") ?? undefined}
+                focusComposer={focusComposer}
+                onInitialPromptSent={() => {
+                  clearComposerHandoff(handoffId);
+                  setParams(
+                    (current) => {
+                      const next = new URLSearchParams(current);
+                      next.delete("handoff");
+                      next.delete("prompt");
+                      next.delete("driver");
+                      next.delete("model");
+                      return next;
+                    },
+                    { replace: true },
+                  );
+                }}
+                onCloseChild={() =>
+                  setParams((current) => {
                     const next = new URLSearchParams(current);
-                    next.delete("handoff");
-                    next.delete("prompt");
-                    next.delete("driver");
-                    next.delete("model");
+                    next.delete("child");
                     return next;
-                  },
-                  { replace: true },
-                );
-              }}
-              onOpenChild={(childId) =>
-                setParams((current) => {
-                  const next = new URLSearchParams(current);
-                  next.set("channel", activeChannel.id);
-                  next.set("chat", activeChatId);
-                  next.delete("profile");
-                  next.set("child", childId);
-                  return next;
-                })
-              }
-              onOpenInternalPanel={openInternalPanel}
-              onOpenProfile={openProfile}
-              panelSizing={panelSizing}
-              profileOpen={userProfileOpen || activeProfileAgent !== null}
-              header={conversationHeader}
-            />
-          ) : (
-            <>
-              {conversationHeader}
-              <div className="text-muted-foreground flex min-h-0 flex-1 flex-col items-center justify-center gap-3 text-center text-sm">
-                <span className="border-border bg-card flex size-10 items-center justify-center rounded-xl border">
-                  <Hash size={18} />
-                </span>
-                <p className="font-serif text-3xl text-current">
-                  #{activeChannel.label}
-                </p>
-                <p>{activeChannel.description}</p>
-              </div>
-            </>
-          )}
+                  })
+                }
+                onOpenChild={(childId) =>
+                  setParams((current) => {
+                    const next = new URLSearchParams(current);
+                    next.set("channel", activeChannel.id);
+                    next.set("chat", activeChatId);
+                    next.delete("profile");
+                    next.set("child", childId);
+                    return next;
+                  })
+                }
+                onOpenInternalPanel={openInternalPanel}
+                onOpenProfile={openProfile}
+                panelSizing={panelSizing}
+                profileOpen={userProfileOpen || activeProfileAgent !== null}
+                header={conversationHeader}
+              />
+            </ConversationErrorBoundary>
+          ) : null}
         </div>
       </section>
       {activeChatId && userProfileOpen ? (
@@ -391,51 +428,6 @@ export function ConversationsPage() {
           onClose={closeProfile}
           sizing={panelSizing}
         />
-      ) : activeChatId && activeChild ? (
-        <ConversationAuxiliaryPanel
-          sizing={panelSizing}
-          onClose={() =>
-            setParams((current) => {
-              const next = new URLSearchParams(current);
-              next.delete("child");
-              return next;
-            })
-          }
-        >
-          <ObservedChat
-            key={activeChild.id}
-            chatId={activeChild.id}
-            label={
-              <div className="flex min-w-0 items-center gap-2 px-4">
-                <span className="min-w-0 flex-1 truncate">
-                  <span className="text-muted-foreground">
-                    #{activeChannel.label}
-                  </span>
-                  <span className="px-1.5" aria-hidden>
-                    /
-                  </span>
-                  <strong className="text-foreground font-medium">
-                    {activeChild.title}
-                  </strong>
-                </span>
-                <Button
-                  aria-label="Close thread"
-                  onClick={() =>
-                    setParams((current) => {
-                      const next = new URLSearchParams(current);
-                      next.delete("child");
-                      return next;
-                    })
-                  }
-                  variant="ghost"
-                  size="icon-xs"
-                >
-                  <PanelRightClose size={14} />
-                </Button>
-              </div>
-            }
-          />
-        </ConversationAuxiliaryPanel>
       ) : null}
     </main>
   );

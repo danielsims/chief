@@ -15,10 +15,14 @@ export function ObservedChat({
   chatId,
   label = "Run transcript",
   capabilities,
+  inlineAttachment,
+  showHeader = true,
 }: {
   chatId: string;
   label?: ReactNode;
   capabilities?: readonly AgentCapabilityId[];
+  inlineAttachment?: ReactNode;
+  showHeader?: boolean;
 }) {
   const { messages, controls, chatReady } = useObservedChat(chatId);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -54,9 +58,11 @@ export function ObservedChat({
 
   return (
     <div className="flex h-full min-w-0 flex-col overflow-hidden">
-      <div className="text-muted-foreground shrink-0 border-b py-2 text-left text-xs">
-        {label}
-      </div>
+      {showHeader ? (
+        <div className="text-muted-foreground shrink-0 border-b py-2 text-left text-xs">
+          {label}
+        </div>
+      ) : null}
       <div className="min-w-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto p-6">
         {!chatReady ? (
           <p className="text-muted-foreground animate-pulse text-center font-mono text-xs">
@@ -108,6 +114,11 @@ export function ObservedChat({
         {controls.status === "running" && !hasActiveTool ? (
           <div className="mx-auto w-full max-w-3xl">
             <AgentWorkingIndicator />
+          </div>
+        ) : null}
+        {inlineAttachment ? (
+          <div className="mx-auto w-full max-w-3xl min-w-0 pl-11">
+            {inlineAttachment}
           </div>
         ) : null}
         <div ref={bottomRef} />

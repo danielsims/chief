@@ -9,14 +9,24 @@ export function AgentActivityComposerRow({
   statusLabel: string;
   onOpen: () => void;
 }) {
-  if (!running) return null;
-
   return (
-    <div className="flex h-8 items-center px-1" aria-live="polite">
+    <div
+      className="flex h-8 shrink-0 items-center px-1"
+      aria-live="polite"
+      aria-atomic="true"
+    >
       <button
         type="button"
         onClick={onOpen}
-        className="group/activity text-muted-foreground hover:text-foreground flex max-w-full min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left transition-colors"
+        disabled={!running}
+        tabIndex={running ? 0 : -1}
+        aria-hidden={!running}
+        className={
+          "group/activity text-muted-foreground hover:text-foreground flex max-w-full min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left transition-[color,opacity] duration-150 " +
+          (running
+            ? "opacity-100"
+            : "pointer-events-none opacity-0 select-none")
+        }
         aria-label={`${statusLabel}. View activity.`}
       >
         <AgentAvatar label="Chief" className="size-[18px]" />

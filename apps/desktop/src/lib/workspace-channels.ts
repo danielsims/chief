@@ -41,6 +41,27 @@ export const WORKSPACE_AGENT_IDENTITIES = {
 
 export type WorkspaceAgentId = keyof typeof WORKSPACE_AGENT_IDENTITIES;
 
+export type SidebarPinnedItem =
+  | { kind: "channel"; id: WorkspaceChannelId }
+  | { kind: "agent"; id: WorkspaceAgentId };
+
+export function sidebarPinnedItemKey(item: SidebarPinnedItem) {
+  return `${item.kind}:${item.id}`;
+}
+
+export function isSidebarPinnedItem(
+  value: unknown,
+): value is SidebarPinnedItem {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<SidebarPinnedItem>;
+  if (typeof item.id !== "string") return false;
+  return (
+    item.kind === "channel" ||
+    (item.kind === "agent" &&
+      Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, item.id))
+  );
+}
+
 export const WORKSPACE_DIRECT_MESSAGES = [
   { id: "cmo", relayId: "cc7d57ef-d6ea-4ebf-a987-2dc33d18c8c7" },
   { id: "setup", relayId: "147c5d7b-8e35-43f1-94dd-230484502e81" },
@@ -145,5 +166,32 @@ export function placePinnedChannel(
   if (overIndex < 0) return [...next, channelId];
   const insertAt = oldIndex >= 0 ? overIndex : Math.min(overIndex, next.length);
   next.splice(insertAt, 0, channelId);
+  return next;
+}
+
+/** Place any sidebar destination at a pinned drop target, without duplicates. */
+export function placeSidebarPinnedItem(
+  pinnedItems: readonly SidebarPinnedItem[],
+  item: SidebarPinnedItem,
+  overItem: SidebarPinnedItem | null,
+) {
+  const itemKey = sidebarPinnedItemKey(item);
+  const overKey = overItem ? sidebarPinnedItemKey(overItem) : null;
+  const oldIndex = pinnedItems.findIndex(
+    (candidate) => sidebarPinnedItemKey(candidate) === itemKey,
+  );
+  if (overKey === itemKey) return [...pinnedItems];
+
+  const next = pinnedItems.filter(
+    (candidate) => sidebarPinnedItemKey(candidate) !== itemKey,
+  );
+  if (!overKey) return [...next, item];
+
+  const overIndex = pinnedItems.findIndex(
+    (candidate) => sidebarPinnedItemKey(candidate) === overKey,
+  );
+  if (overIndex < 0) return [...next, item];
+  const insertAt = oldIndex >= 0 ? overIndex : Math.min(overIndex, next.length);
+  next.splice(insertAt, 0, item);
   return next;
 }

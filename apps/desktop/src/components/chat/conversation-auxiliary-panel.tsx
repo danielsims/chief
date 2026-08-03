@@ -1,6 +1,6 @@
 import type { ComponentProps, PointerEventHandler, ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { ChevronLeft, X } from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
 import { cn } from "@chief/ui/lib/utils";
@@ -135,17 +135,34 @@ export function ConversationAuxiliaryPanel({
 
 export function ConversationAuxiliaryPanelHeader({
   actions,
+  backLabel = "Back",
+  onBack,
   onClose,
   subtitle,
   title,
 }: {
   actions?: ReactNode;
+  backLabel?: string;
+  onBack?: () => void;
   onClose: () => void;
   subtitle?: ReactNode;
   title: ReactNode;
 }) {
   return (
     <header className="border-border/60 flex h-14 shrink-0 cursor-default items-center gap-3 border-b px-4 py-2 select-none">
+      {onBack ? (
+        <Button
+          type="button"
+          aria-label={backLabel}
+          title={backLabel}
+          variant="ghost"
+          size="icon-sm"
+          onClick={onBack}
+          className="-ml-1"
+        >
+          <ChevronLeft size={16} />
+        </Button>
+      ) : null}
       <div className="min-w-0 flex-1">
         <h2 className="truncate text-[13px] leading-4 font-semibold">
           {title}
@@ -168,6 +185,37 @@ export function ConversationAuxiliaryPanelHeader({
         <X size={15} />
       </Button>
     </header>
+  );
+}
+
+export function ConversationAuxiliaryBreadcrumb({
+  current,
+  items,
+}: {
+  current: ReactNode;
+  items: readonly { key: string; label: ReactNode; onClick: () => void }[];
+}) {
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      {items.map((item, index) => (
+        <span key={item.key} className="contents">
+          {index > 0 ? (
+            <span className="text-muted-foreground/60">/</span>
+          ) : null}
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground min-w-0 truncate font-normal transition-colors"
+            onClick={item.onClick}
+          >
+            {item.label}
+          </button>
+        </span>
+      ))}
+      {items.length > 0 ? (
+        <span className="text-muted-foreground/60">/</span>
+      ) : null}
+      <strong className="min-w-0 truncate font-semibold">{current}</strong>
+    </span>
   );
 }
 

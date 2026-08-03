@@ -15,24 +15,44 @@ import { StreamingMarkdown } from "./streaming-markdown";
 
 const MAX_RESULT_CHARS = 3000;
 const AGENT_ACTIVITY_STYLES: Record<string, string> = {
-  brand: "border-sky-300/15 bg-sky-300/[0.055] text-sky-300",
-  content: "border-amber-200/15 bg-amber-200/[0.055] text-amber-200",
-  analyst: "border-emerald-300/15 bg-emerald-300/[0.055] text-emerald-300",
-  prospector: "border-violet-300/15 bg-violet-300/[0.055] text-violet-300",
-  ads: "border-rose-300/15 bg-rose-300/[0.055] text-rose-300",
+  brand: "text-sky-500 dark:text-sky-300",
+  content: "text-amber-500 dark:text-amber-300",
+  analyst: "text-emerald-500 dark:text-emerald-300",
+  prospector: "text-violet-500 dark:text-violet-300",
+  ads: "text-rose-500 dark:text-rose-300",
 };
+const SPECIALIST_SIGNAL_PIXELS = [
+  "top-0 left-1/2 -translate-x-1/2 opacity-100",
+  "top-px right-px opacity-80",
+  "top-1/2 right-0 -translate-y-1/2 opacity-65",
+  "right-px bottom-px opacity-50",
+  "bottom-0 left-1/2 -translate-x-1/2 opacity-35",
+  "bottom-px left-px opacity-25",
+  "top-1/2 left-0 -translate-y-1/2 opacity-15",
+  "top-px left-px opacity-10",
+] as const;
 
 function SpecialistActivity({ agentId }: { agentId: string }) {
   return (
     <span
       aria-hidden
       className={cn(
-        "relative flex size-8 shrink-0 items-center justify-center rounded-lg",
-        AGENT_ACTIVITY_STYLES[agentId] ??
-          "border-blue-300/15 bg-blue-300/[0.055] text-blue-300",
+        "bg-background/80 relative flex size-8 shrink-0 items-center justify-center rounded-lg shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_70%,transparent)]",
+        AGENT_ACTIVITY_STYLES[agentId] ?? "text-blue-500 dark:text-blue-300",
       )}
     >
-      <i className="absolute size-3 animate-[spin_1.2s_linear_infinite] rounded-full border border-current/15 border-t-current/80 border-r-current/35 motion-reduce:animate-none" />
+      <span className="relative size-4 animate-[spin_1.15s_steps(8,end)_infinite] motion-reduce:animate-none">
+        {SPECIALIST_SIGNAL_PIXELS.map((className) => (
+          <i
+            key={className}
+            className={cn(
+              "absolute size-[3px] rounded-[1px] bg-current",
+              className,
+            )}
+          />
+        ))}
+      </span>
+      <i className="absolute size-0.5 rounded-[1px] bg-current opacity-20" />
     </span>
   );
 }
