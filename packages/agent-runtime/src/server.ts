@@ -1,6 +1,6 @@
 /* eslint-disable max-lines */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { basename, join } from "node:path";
@@ -20,12 +20,14 @@ import {
   withGoogleAuthUser,
 } from "@chief/google-oauth-connector";
 
+import type { ChannelEvent } from "./channel-types.js";
 import type { AgentSession } from "./session.js";
 import type {
   AgentDeploymentRecord,
   AgentEvent,
   BrowserAutomationCommand,
   BrowserAutomationResult,
+  BrowserPageSnapshot,
   ChatExecutionSelection,
   ClientMessage,
   DriverType,
@@ -50,6 +52,8 @@ import {
   availableCapabilities,
   composeAgentCapabilities,
 } from "./capabilities/index.js";
+import { channelReplyThreadRoot } from "./channel-reply-routing.js";
+import { channelChatId } from "./channels/nip29.js";
 import * as channelBridge from "./channels/server-bridge.js";
 import {
   loadSlackGatewayConfig,
@@ -87,6 +91,7 @@ import { SessionManager } from "./manager.js";
 import { createChiefMcpHandler } from "./mcp-server.js";
 import { listModels } from "./models.js";
 import { planOnboardingWork } from "./onboarding-preflight.js";
+import { authorizeOrganizationRole } from "./organization-authorization.js";
 import { ProviderAuthentication } from "./provider-authentication.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
 import { resumeDriverBlockedWork } from "./scheduled-agent-config.js";
@@ -357,6 +362,9 @@ export function startServer(port = PORT) {
   const browserKey = (workspaceId: string, conversationId: string) =>
     browsers.key(workspaceId, conversationId);
   const browserThreadRoots = new Map<string, string | undefined>();
+  const browserParentConversations = new Map<string, string | undefined>();
+  const browserAnchorMessages = new Map<string, string>();
+  const browserRunIds = new Map<string, string>();
   const browserSession = (workspaceId: string, conversationId: string) =>
     browsers.session(workspaceId, conversationId);
   const activeIntegrationSetup =
@@ -470,6 +478,96 @@ export function startServer(port = PORT) {
   let broadcastWorkspaceFiles = (_workspaceId: string) => Promise.resolve();
   let broadcastNotice = (_workspaceId: string, _notice: RuntimeNotice) =>
     undefined;
+  let broadcastChannelEvent = (_workspaceId: string, _event: ChannelEvent) =>
+    undefined;
+  const channelMirrorBindings = new Map<
+    string,
+    {
+      session: AgentSession;
+      listener: (event: unknown) => void;
+      state: channelBridge.ChannelTurnMirrorState;
+      settleTimer?: ReturnType<typeof setTimeout>;
+    }
+  >();
+  const bindChannelEventMirror = (
+    workspaceId: string,
+    chatId: string,
+    session: AgentSession,
+  ) => {
+    const key = `${workspaceId}\0${chatId}`;
+    const existing = channelMirrorBindings.get(key);
+    if (existing?.session === session) return;
+    if (existing?.settleTimer) clearTimeout(existing.settleTimer);
+    existing?.session.off("event", existing.listener);
+
+    const binding: {
+      session: AgentSession;
+      listener: (event: unknown) => void;
+      state: channelBridge.ChannelTurnMirrorState;
+      settleTimer?: ReturnType<typeof setTimeout>;
+    } = {
+      session,
+      state: { terminal: false },
+      listener: () => undefined,
+    };
+    const discardPending = () => {
+      if (binding.settleTimer) clearTimeout(binding.settleTimer);
+      binding.settleTimer = undefined;
+      binding.state = { terminal: false };
+    };
+    const flushPending = () => {
+      binding.settleTimer = undefined;
+      if (channelMirrorBindings.get(key) !== binding) return;
+      const event = binding.state.pending;
+      binding.state = { terminal: binding.state.terminal };
+      if (!event) return;
+      void manager
+        .enqueueChatPersistence(workspaceId, chatId, () =>
+          channelBridge.mirrorEvent(
+            manager,
+            () => undefined,
+            workspaceId,
+            chatId,
+            event,
+            undefined,
+            { id: session.agent.id, name: session.agent.name },
+            broadcastChannelEvent,
+          ),
+        )
+        .catch((error: unknown) =>
+          console.error("[runtime] background channel event mirror:", error),
+        );
+    };
+    const scheduleFlush = () => {
+      if (binding.settleTimer) clearTimeout(binding.settleTimer);
+      binding.settleTimer = setTimeout(flushPending, 250);
+      binding.settleTimer.unref();
+    };
+    const listener = (rawEvent: unknown) => {
+      const event = rawEvent as AgentEvent;
+      const transition = channelBridge.advanceChannelTurnMirror(
+        binding.state,
+        event,
+      );
+      binding.state = transition.state;
+      if (transition.schedule) scheduleFlush();
+      if (event.type === "message" && event.role === "user") {
+        if (binding.settleTimer) clearTimeout(binding.settleTimer);
+        binding.settleTimer = undefined;
+      }
+      if (event.type === "error") discardPending();
+      if (
+        event.type === "exit" &&
+        channelMirrorBindings.get(key)?.session === session
+      ) {
+        discardPending();
+        channelMirrorBindings.delete(key);
+      }
+    };
+    binding.listener = listener;
+    session.on("event", listener);
+    channelMirrorBindings.set(key, binding);
+  };
   let broadcastBrowserNavigate = (
     _workspaceId: string,
     _conversationId: string,
@@ -485,6 +583,21 @@ export function startServer(port = PORT) {
     _workspaceId: string,
     _conversationId: string,
   ) => undefined;
+  let broadcastBrowserActivity = (
+    _workspaceId: string,
+    _conversationId: string,
+    _activity: {
+      phase: "started" | "completed";
+      label: string;
+      cursor?: {
+        x: number;
+        y: number;
+        pressed?: boolean;
+        typing?: boolean;
+        visible?: boolean;
+      };
+    },
+  ) => undefined;
   let broadcastIntegrationSetupProgress = (
     _workspaceId: string,
     _conversationId: string,
@@ -495,12 +608,30 @@ export function startServer(port = PORT) {
     conversationId: string,
   ) => {
     const key = browserKey(workspaceId, conversationId);
+    const browserRunId = browserRunIds.get(key);
     pendingGoogleAuthentication.delete(key);
     providerAuthentication.clear(workspaceId, conversationId);
     googleAccountSessions.delete(key);
+    if (browserRunId) {
+      const session = browserSession(workspaceId, conversationId);
+      const [url, title] = await Promise.all([
+        session.getUrl().catch(() => undefined),
+        session.getTitle().catch(() => undefined),
+      ]);
+      await manager.store.updateBrowserRun(workspaceId, browserRunId, {
+        ...(url ? { url } : {}),
+        ...(title ? { title } : {}),
+        status: "complete",
+      });
+    }
     await browsers.close(workspaceId, conversationId);
-    broadcastBrowserClosed(workspaceId, conversationId);
+    if (browserRunId) {
+      broadcastBrowserClosed(workspaceId, conversationId);
+      browserRunIds.delete(key);
+    }
     browserThreadRoots.delete(key);
+    browserParentConversations.delete(key);
+    browserAnchorMessages.delete(key);
   };
   const openBrowserSession = async (
     workspaceId: string,
@@ -508,10 +639,79 @@ export function startServer(port = PORT) {
     url: string,
     viewport?: { width: number; height: number },
     threadRootId?: string,
+    requestedBrowserRunId?: string,
   ) => {
     const key = browserKey(workspaceId, conversationId);
-    if (threadRootId !== undefined) {
-      browserThreadRoots.set(key, threadRootId);
+    const requestedRun = requestedBrowserRunId
+      ? await manager.store.browserRun(workspaceId, requestedBrowserRunId)
+      : undefined;
+    if (
+      requestedBrowserRunId &&
+      requestedRun?.conversationId !== conversationId
+    ) {
+      throw new Error(
+        "This browsing session does not belong to the conversation.",
+      );
+    }
+    const activeBrowserRunId = browserRunIds.get(key);
+    if (
+      activeBrowserRunId &&
+      requestedBrowserRunId &&
+      activeBrowserRunId !== requestedBrowserRunId
+    ) {
+      await closeBrowserSession(workspaceId, conversationId);
+    }
+    const conversation = await manager.store.chatRecord(
+      workspaceId,
+      conversationId,
+    );
+    browserParentConversations.set(
+      key,
+      requestedRun?.parentConversationId ?? conversation?.parentId,
+    );
+    const resolvedThreadRootId = threadRootId ?? requestedRun?.threadRootId;
+    if (resolvedThreadRootId !== undefined) {
+      browserThreadRoots.set(key, resolvedThreadRootId);
+    }
+    if (requestedRun?.anchorMessageId) {
+      browserAnchorMessages.set(key, requestedRun.anchorMessageId);
+    } else if (!requestedRun) {
+      browserAnchorMessages.delete(key);
+    }
+    let browserRunId = browserRunIds.get(key);
+    if (!browserRunId && requestedRun) {
+      browserRunId = requestedRun.id;
+      browserRunIds.set(key, browserRunId);
+      await manager.store.updateBrowserRun(workspaceId, browserRunId, {
+        url,
+        status: "active",
+      });
+    }
+    if (!browserRunId) {
+      browserRunId = randomUUID();
+      browserRunIds.set(key, browserRunId);
+      const now = Date.now();
+      await manager.store.saveBrowserRun({
+        id: browserRunId,
+        workspaceId,
+        conversationId,
+        ...(conversation?.parentId
+          ? { parentConversationId: conversation.parentId }
+          : {}),
+        ...(resolvedThreadRootId ? { threadRootId: resolvedThreadRootId } : {}),
+        url,
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+    } else {
+      await manager.store.updateBrowserRun(workspaceId, browserRunId, {
+        ...(conversation?.parentId
+          ? { parentConversationId: conversation.parentId }
+          : {}),
+        ...(resolvedThreadRootId ? { threadRootId: resolvedThreadRootId } : {}),
+        url,
+      });
     }
     if (isGoogleAccountChooserUrl(url)) {
       googleAccountSessions.set(key, {
@@ -523,14 +723,30 @@ export function startServer(port = PORT) {
     const lockedUrl = account?.authuser
       ? withGoogleAuthUser(url, account.authuser)
       : url;
-    const initialViewport =
-      viewport ??
-      (await browsers.waitForViewport(workspaceId, conversationId, () =>
-        broadcastBrowserPrepare(workspaceId, conversationId, lockedUrl),
-      ));
+    if (!viewport) {
+      broadcastBrowserPrepare(workspaceId, conversationId, lockedUrl);
+    }
+    // Keep the remote page at a stable coordinate system and scale it into the
+    // chat surface. Resizing Chromium to the rendered card made automation
+    // coordinates drift whenever the thread panel changed width.
+    const initialViewport = viewport ?? { width: 1280, height: 800 };
     const session = browserSession(workspaceId, conversationId);
-    const stream = await session.open(lockedUrl, initialViewport);
+    const stream = await session
+      .open(lockedUrl, initialViewport)
+      .catch(async (error: unknown) => {
+        await manager.store.updateBrowserRun(workspaceId, browserRunId, {
+          status: "complete",
+        });
+        broadcastBrowserClosed(workspaceId, conversationId);
+        browserRunIds.delete(key);
+        throw error;
+      });
     const currentUrl = await session.getUrl().catch(() => lockedUrl);
+    const title = await session.getTitle().catch(() => "");
+    await manager.store.updateBrowserRun(workspaceId, browserRunId, {
+      url: currentUrl,
+      ...(title ? { title } : {}),
+    });
     reportGoogleBrowserStep(workspaceId, conversationId, currentUrl);
     broadcastBrowserNavigate(
       workspaceId,
@@ -566,8 +782,15 @@ export function startServer(port = PORT) {
         );
       }
     }
-    if (command.type === "snapshot") {
+    const currentBrowserSnapshot = async (): Promise<BrowserPageSnapshot> => {
       const snapshot = await session.snapshot();
+      const browserRunId = browserRunIds.get(key);
+      if (browserRunId) {
+        await manager.store.updateBrowserRun(workspaceId, browserRunId, {
+          url: snapshot.url,
+          title: snapshot.title,
+        });
+      }
       const isGoogleSetup =
         integrationSetups
           .domain(workspaceId, conversationId)
@@ -583,31 +806,125 @@ export function startServer(port = PORT) {
           : snapshot.snapshot,
       );
       return {
-        snapshot: {
-          url: visibleUrl,
-          title: snapshot.title,
-          text: visibleSnapshot,
-          controls: visibleSnapshot
-            .split("\n")
-            .filter((line) => line.includes("@e"))
-            .slice(0, 300),
-        },
+        url: visibleUrl,
+        title: snapshot.title,
+        text: visibleSnapshot,
+        controls: visibleSnapshot
+          .split("\n")
+          .filter((line) => line.includes("@e"))
+          .slice(0, 300),
       };
+    };
+    if (command.type === "snapshot") {
+      return { snapshot: await currentBrowserSnapshot() };
+    }
+    const preparedInteraction =
+      "labels" in command
+        ? await session.prepareInteraction(command.labels)
+        : undefined;
+    const resolvedLabel = preparedInteraction?.label;
+    const normalizedLabel = resolvedLabel?.replace(/\s+/g, " ").trim();
+    const visibleLabel =
+      normalizedLabel && normalizedLabel.length > 64
+        ? `${normalizedLabel.slice(0, 63).trimEnd()}…`
+        : normalizedLabel;
+    const activityLabel =
+      command.type === "click"
+        ? visibleLabel
+          ? `Clicking ${visibleLabel}`
+          : "Clicking a page control"
+        : command.type === "fill"
+          ? visibleLabel
+            ? `Filling ${visibleLabel}`
+            : "Filling a field"
+          : command.type === "select"
+            ? visibleLabel
+              ? `Selecting ${visibleLabel}`
+              : "Selecting an option"
+            : `Pressing ${command.key}`;
+    const cursor = preparedInteraction?.cursor;
+    const cursorState = cursor
+      ? { ...cursor, pressed: false, typing: false, visible: true }
+      : undefined;
+    broadcastBrowserActivity(workspaceId, conversationId, {
+      phase: "started",
+      label: activityLabel,
+      ...(cursorState ? { cursor: cursorState } : {}),
+    });
+    const completed = () =>
+      broadcastBrowserActivity(workspaceId, conversationId, {
+        phase: "completed",
+        label: activityLabel,
+        ...(cursorState ? { cursor: cursorState } : {}),
+      });
+    const releaseCursor = () => {
+      if (!cursorState) return;
+      broadcastBrowserActivity(workspaceId, conversationId, {
+        phase: "started",
+        label: activityLabel,
+        cursor: cursorState,
+      });
+    };
+    if (cursorState) {
+      // Keep the browser action behind Browser UI's 680ms travel curve so the
+      // cursor visibly reaches the target before the page responds.
+      await new Promise((resolve) => setTimeout(resolve, 780));
+      broadcastBrowserActivity(workspaceId, conversationId, {
+        phase: "started",
+        label: activityLabel,
+        cursor: {
+          ...cursorState,
+          pressed: true,
+          typing: command.type === "fill",
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 150));
     }
     if (command.type === "click") {
-      await session.click(command.labels);
-      return { clicked: true };
+      try {
+        await session.click(command.labels);
+        releaseCursor();
+        return {
+          clicked: true,
+          snapshot: await currentBrowserSnapshot(),
+        };
+      } finally {
+        completed();
+      }
     }
     if (command.type === "fill") {
-      await session.fill(command.labels, command.value);
-      return { filled: true };
+      try {
+        await session.fill(command.labels, command.value);
+        releaseCursor();
+        return {
+          filled: true,
+          snapshot: await currentBrowserSnapshot(),
+        };
+      } finally {
+        completed();
+      }
     }
     if (command.type === "select") {
-      await session.select(command.labels, command.values);
-      return { selected: true };
+      try {
+        await session.select(command.labels, command.values);
+        releaseCursor();
+        return {
+          selected: true,
+          snapshot: await currentBrowserSnapshot(),
+        };
+      } finally {
+        completed();
+      }
     }
-    await session.press(command.key);
-    return { pressed: true };
+    try {
+      await session.press(command.key);
+      return {
+        pressed: true,
+        snapshot: await currentBrowserSnapshot(),
+      };
+    } finally {
+      completed();
+    }
   };
   let broadcastIntegrationVerified = (
     _workspaceId: string,
@@ -1471,15 +1788,36 @@ export function startServer(port = PORT) {
       }
     }
   };
+  broadcastChannelEvent = (workspaceId, event) => {
+    const message = JSON.stringify({
+      type: "channelEvent",
+      workspaceId,
+      event,
+    } satisfies ServerMessage);
+    for (const client of new Set([...wss.clients, ...wss6.clients])) {
+      if (
+        client.readyState === WebSocket.OPEN &&
+        socketAuthorization.canReceive(client, workspaceId)
+      ) {
+        client.send(message);
+      }
+    }
+  };
   broadcastBrowserNavigate = (workspaceId, conversationId, url, streamUrl) => {
-    const threadRootId = browserThreadRoots.get(
-      browserKey(workspaceId, conversationId),
-    );
+    const key = browserKey(workspaceId, conversationId);
+    const browserRunId = browserRunIds.get(key);
+    if (!browserRunId) return;
+    const threadRootId = browserThreadRoots.get(key);
+    const parentConversationId = browserParentConversations.get(key);
+    const anchorMessageId = browserAnchorMessages.get(key);
     const message = JSON.stringify({
       type: "browserNavigate",
+      browserRunId,
       workspaceId,
       conversationId,
+      parentConversationId,
       threadRootId,
+      anchorMessageId,
       url,
       streamUrl,
     } satisfies ServerMessage);
@@ -1493,14 +1831,20 @@ export function startServer(port = PORT) {
     }
   };
   broadcastBrowserPrepare = (workspaceId, conversationId, url) => {
-    const threadRootId = browserThreadRoots.get(
-      browserKey(workspaceId, conversationId),
-    );
+    const key = browserKey(workspaceId, conversationId);
+    const browserRunId = browserRunIds.get(key);
+    if (!browserRunId) return;
+    const threadRootId = browserThreadRoots.get(key);
+    const parentConversationId = browserParentConversations.get(key);
+    const anchorMessageId = browserAnchorMessages.get(key);
     const message = JSON.stringify({
       type: "browserPrepare",
+      browserRunId,
       workspaceId,
       conversationId,
+      parentConversationId,
       threadRootId,
+      anchorMessageId,
       url,
     } satisfies ServerMessage);
     for (const client of new Set([...wss.clients, ...wss6.clients])) {
@@ -1512,9 +1856,35 @@ export function startServer(port = PORT) {
       }
     }
   };
+  broadcastBrowserActivity = (workspaceId, conversationId, activity) => {
+    const browserRunId = browserRunIds.get(
+      browserKey(workspaceId, conversationId),
+    );
+    if (!browserRunId) return;
+    const message = JSON.stringify({
+      type: "browserActivity",
+      browserRunId,
+      workspaceId,
+      conversationId,
+      ...activity,
+    } satisfies ServerMessage);
+    for (const client of new Set([...wss.clients, ...wss6.clients])) {
+      if (
+        client.readyState === WebSocket.OPEN &&
+        socketAuthorization.canReceive(client, workspaceId)
+      ) {
+        client.send(message);
+      }
+    }
+  };
   broadcastBrowserClosed = (workspaceId, conversationId) => {
+    const browserRunId = browserRunIds.get(
+      browserKey(workspaceId, conversationId),
+    );
+    if (!browserRunId) return;
     const message = JSON.stringify({
       type: "browserClosed",
+      browserRunId,
       workspaceId,
       conversationId,
     } satisfies ServerMessage);
@@ -1599,6 +1969,7 @@ export function startServer(port = PORT) {
       chatId: string,
       session: AgentSession,
     ) => {
+      bindChannelEventMirror(workspaceId, chatId, session);
       const subscriptionKey = `${workspaceId}\0${chatId}`;
       const registered = sessionListeners.get(subscriptionKey);
       if (registered?.session === session) return;
@@ -1636,21 +2007,6 @@ export function startServer(port = PORT) {
               chatId,
               message: persisted,
             });
-          }
-          if (agentEvent.type === "message") {
-            await channelBridge
-              .mirrorEvent(
-                manager,
-                send,
-                workspaceId,
-                chatId,
-                agentEvent,
-                chatDestinations.get(subscriptionKey),
-                { id: session.agent.id, name: session.agent.name },
-              )
-              .catch((error: unknown) =>
-                console.error("[runtime] channel event mirror:", error),
-              );
           }
         }
         if (agentEvent.type === "message" && agentEvent.role === "user") {
@@ -1728,6 +2084,14 @@ export function startServer(port = PORT) {
               throw new Error("Browser URLs must use HTTP or HTTPS.");
             }
             const key = browserKey(msg.workspaceId, msg.conversationId);
+            const browserRunId = browserRunIds.get(key);
+            if (browserRunId) {
+              await manager.store.updateBrowserRun(
+                msg.workspaceId,
+                browserRunId,
+                { url: url.toString() },
+              );
+            }
             const account = googleAccountSessions.get(key);
             if (
               url.hostname === "console.cloud.google.com" &&
@@ -1779,6 +2143,7 @@ export function startServer(port = PORT) {
               url.toString(),
               { width: msg.width, height: msg.height },
               msg.threadRootId,
+              msg.browserRunId,
             );
           } else {
             const browser = browserSession(msg.workspaceId, msg.conversationId);
@@ -1834,6 +2199,108 @@ export function startServer(port = PORT) {
             }
           }
         }
+        if (msg.type === "updateChannel") {
+          try {
+            const verified = localCapabilities.get(
+              msg.executorCapability.token,
+            );
+            if (!verified) {
+              throw new Error("Could not verify access to this workspace.");
+            }
+            await authorizeOrganizationRole({
+              apiBaseUrl: verified.apiBaseUrl,
+              allowedRoles: ["owner", "admin"],
+              errorMessage:
+                "Only workspace owners and admins can edit channels.",
+              sessionToken: msg.sessionToken,
+              workspaceId: msg.workspaceId,
+            });
+            const channel = await manager.store
+              .channelStore()
+              .update(msg.workspaceId, msg.channelId, {
+                name: msg.name,
+                topic: msg.topic,
+                description: msg.description,
+              });
+            send({
+              type: "channelUpdated",
+              requestId: msg.requestId,
+              workspaceId: msg.workspaceId,
+              channel,
+            });
+            await channelBridge.sendChannels(manager, msg.workspaceId, send);
+          } catch (error) {
+            send({
+              type: "channelUpdateFailed",
+              requestId: msg.requestId,
+              workspaceId: msg.workspaceId,
+              channelId: msg.channelId,
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Chief could not update this channel.",
+            });
+          }
+          return;
+        }
+        if (msg.type === "deleteChannel") {
+          const channelStore = manager.store.channelStore();
+          try {
+            const verified = localCapabilities.get(
+              msg.executorCapability.token,
+            );
+            if (!verified) {
+              throw new Error("Could not verify access to this workspace.");
+            }
+            await authorizeOrganizationRole({
+              apiBaseUrl: verified.apiBaseUrl,
+              allowedRoles: ["owner"],
+              errorMessage: "Only workspace owners can delete channels.",
+              sessionToken: msg.sessionToken,
+              workspaceId: msg.workspaceId,
+            });
+            const channel = await channelStore.assertRemovable(
+              msg.workspaceId,
+              msg.channelId,
+            );
+            const chatId = channelChatId(channel.id);
+            const chat = await manager.store.chatRecord(
+              msg.workspaceId,
+              chatId,
+            );
+            if (chat) {
+              await closeBrowserSession(msg.workspaceId, chatId);
+              await manager.remove(msg.workspaceId, chatId);
+              const subscriptionKey = `${msg.workspaceId}\0${chatId}`;
+              subscriptions.delete(subscriptionKey);
+              const registered = sessionListeners.get(subscriptionKey);
+              if (registered) {
+                registered.session.off("event", registered.listener);
+                sessionListeners.delete(subscriptionKey);
+              }
+            }
+            await channelStore.remove(msg.workspaceId, channel.id);
+            send({
+              type: "channelDeleted",
+              requestId: msg.requestId,
+              workspaceId: msg.workspaceId,
+              channelId: channel.id,
+            });
+            await channelBridge.sendChannels(manager, msg.workspaceId, send);
+          } catch (error) {
+            send({
+              type: "channelDeleteFailed",
+              requestId: msg.requestId,
+              workspaceId: msg.workspaceId,
+              channelId: msg.channelId,
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Chief could not delete this channel.",
+            });
+          }
+          return;
+        }
         if (await channelBridge.handleRequest(manager, msg, send)) return;
         switch (msg.type) {
           case "listAgents":
@@ -1845,6 +2312,30 @@ export function startServer(port = PORT) {
               driver: msg.driver,
               models: await listModels(msg.driver),
             });
+            break;
+
+          case "listBrowserRuns":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            send({
+              type: "browserRuns",
+              workspaceId: msg.workspaceId,
+              runs: await manager.store.listBrowserRuns(msg.workspaceId),
+            });
+            break;
+
+          case "anchorBrowserRun":
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            await manager.store.updateBrowserRun(
+              msg.workspaceId,
+              msg.browserRunId,
+              { anchorMessageId: msg.messageId },
+            );
+            for (const [key, runId] of browserRunIds) {
+              if (runId === msg.browserRunId) {
+                browserAnchorMessages.set(key, msg.messageId);
+                break;
+              }
+            }
             break;
 
           case "listWorkspaceData": {
@@ -3246,7 +3737,8 @@ export function startServer(port = PORT) {
                 if (
                   event.type === "result" ||
                   event.type === "error" ||
-                  event.type === "exit"
+                  event.type === "exit" ||
+                  (event.type === "status" && event.status === "idle")
                 ) {
                   session.off("event", releaseOnTerminal);
                   releaseExecution();
@@ -3344,27 +3836,72 @@ export function startServer(port = PORT) {
               const names = newAgentIds.map(
                 (agentId) => getAgent(agentId)?.name ?? agentId,
               );
-              openedSession.recordUserMessage(
-                `${actorName} added ${names.join(", ")} to the channel.`,
-                `${msg.messageId}:member-added`,
-                {
-                  mentions: newAgentIds,
-                  channelAction: {
-                    type: "member-added",
-                    actorName,
-                    agentIds: newAgentIds,
-                  },
+              const membershipText = `${actorName} added ${names.join(", ")} to the channel.`;
+              const membershipId = `${msg.messageId}:member-added`;
+              const membershipEvent = {
+                type: "message",
+                id: membershipId,
+                role: "user",
+                content: [{ type: "text", text: membershipText }],
+                mentions: newAgentIds,
+                channelAction: {
+                  type: "member-added",
+                  actorName,
+                  agentIds: newAgentIds,
                 },
+              } satisfies AgentEvent;
+              await channelBridge.mirrorEvent(
+                manager,
+                send,
+                msg.workspaceId,
+                msg.chatId,
+                membershipEvent,
+                destinationChannel?.id,
+                undefined,
+                broadcastChannelEvent,
               );
+              openedSession.recordUserMessage(membershipText, membershipId, {
+                mentions: newAgentIds,
+                channelAction: {
+                  type: "member-added",
+                  actorName,
+                  agentIds: newAgentIds,
+                },
+              });
+              await manager.waitForChatPersistence(msg.workspaceId, msg.chatId);
+              const persistedMembership = (
+                await manager.messages(msg.workspaceId, msg.chatId)
+              ).find((message) => message.id === membershipId);
+              if (persistedMembership) {
+                send({
+                  type: "message",
+                  workspaceId: msg.workspaceId,
+                  chatId: msg.chatId,
+                  message: persistedMembership,
+                });
+              }
             }
-            if (
-              destinationChannel?.visibility !== "direct" &&
-              !msg.mentions?.length
-            ) {
+            const isSharedChannel = destinationChannel?.visibility !== "direct";
+            if (isSharedChannel) {
               openedSession.recordUserMessage(msg.text, msg.messageId, {
                 threadRootId: msg.threadRootId,
+                mentions: msg.mentions,
                 attachments,
               });
+              await manager.waitForChatPersistence(msg.workspaceId, msg.chatId);
+              const persistedMessage = (
+                await manager.messages(msg.workspaceId, msg.chatId)
+              ).find((message) => message.id === msg.messageId);
+              if (persistedMessage) {
+                send({
+                  type: "message",
+                  workspaceId: msg.workspaceId,
+                  chatId: msg.chatId,
+                  message: persistedMessage,
+                });
+              }
+            }
+            if (isSharedChannel && !msg.mentions?.length) {
               break;
             }
             const releaseExecution = manager.acquireExecution(
@@ -3374,7 +3911,44 @@ export function startServer(port = PORT) {
             );
             let session = openedSession;
             let releaseOnTerminal: ((event: AgentEvent) => void) | undefined;
+            let agentActivity:
+              { channelId: string; reactionId: string } | undefined;
+            const finishAgentActivity = async () => {
+              const current = agentActivity;
+              agentActivity = undefined;
+              if (!current) return;
+              await channelBridge.endAgentActivityReaction(
+                manager,
+                send,
+                msg.workspaceId,
+                current.channelId,
+                current.reactionId,
+              );
+            };
             try {
+              // A chat can be opened while its isolated Executor daemon is
+              // still recovering. Never let that one transient failure leave
+              // a long-lived provider continuation without Chief's internal
+              // tools: reattach the current workspace tool server immediately
+              // before every turn that is actually addressed to an agent.
+              const executorWorkspace = await ensureExecutorWorkspace(
+                msg.workspaceId,
+                msg.executorCapability,
+              );
+              session = await manager.ensureRootChat(
+                session.agent,
+                msg.chatId,
+                {
+                  ...session.config,
+                  mcpServers: [
+                    executorToolServer(
+                      executorWorkspace,
+                      session.config.access === "full" ? "model" : "browser",
+                    ),
+                  ],
+                },
+              );
+              bindRootSession(msg.workspaceId, msg.chatId, session);
               const firstLine = msg.text.split("\n", 1)[0] ?? "";
               if (
                 firstLine.startsWith(SETUP_ATTEMPT_PREFIX) &&
@@ -3413,6 +3987,52 @@ export function startServer(port = PORT) {
                   throw new Error(
                     `${respondingAgentId} persona is missing from this workspace.`,
                   );
+                }
+                const targetEvent = await channelBridge.mirrorEvent(
+                  manager,
+                  send,
+                  msg.workspaceId,
+                  msg.chatId,
+                  {
+                    type: "message",
+                    id: msg.messageId,
+                    role: "user",
+                    content: [
+                      ...(msg.text
+                        ? [{ type: "text" as const, text: msg.text }]
+                        : []),
+                      ...(attachments ?? []).map((attachment) => ({
+                        type: "image" as const,
+                        ...attachment,
+                      })),
+                    ],
+                    threadRootId: msg.threadRootId,
+                    mentions: msg.mentions,
+                  },
+                  destinationChannel.id,
+                  undefined,
+                  broadcastChannelEvent,
+                );
+                if (targetEvent) {
+                  try {
+                    agentActivity = {
+                      channelId: destinationChannel.id,
+                      reactionId:
+                        await channelBridge.beginAgentActivityReaction(
+                          manager,
+                          send,
+                          msg.workspaceId,
+                          destinationChannel.id,
+                          targetEvent.id,
+                          {
+                            id: respondingAgent.id,
+                            name: respondingAgent.name,
+                          },
+                        ),
+                    };
+                  } catch (error) {
+                    console.error("[runtime] agent activity reaction:", error);
+                  }
                 }
                 const preference =
                   (await manager.agentPreference(
@@ -3462,18 +4082,42 @@ export function startServer(port = PORT) {
                 ) {
                   session.off("event", releaseOnTerminal!);
                   releaseExecution();
+                  void finishAgentActivity().catch((error: unknown) =>
+                    console.error(
+                      "[runtime] agent activity reaction cleanup:",
+                      error,
+                    ),
+                  );
                 }
               };
               session.on("event", releaseOnTerminal);
-              await session.sendPrompt(msg.text, msg.messageId, true, {
-                threadRootId: msg.threadRootId,
+              const replyThreadRootId = channelReplyThreadRoot({
+                isSharedChannel: Boolean(isSharedChannel),
                 mentions: msg.mentions,
-                attachments,
+                messageId: msg.messageId,
+                text: msg.text,
+                threadRootId: msg.threadRootId,
               });
+              await session.sendPrompt(
+                msg.text,
+                msg.messageId,
+                !isSharedChannel,
+                {
+                  threadRootId: replyThreadRootId,
+                  mentions: msg.mentions,
+                  attachments,
+                },
+              );
             } catch (error) {
               if (releaseOnTerminal) {
                 session.off("event", releaseOnTerminal);
               }
+              await finishAgentActivity().catch((reactionError: unknown) =>
+                console.error(
+                  "[runtime] agent activity reaction cleanup:",
+                  reactionError,
+                ),
+              );
               releaseExecution();
               throw error;
             }
@@ -3795,7 +4439,8 @@ export function startServer(port = PORT) {
     console.log(`[chief] agent runtime listening on ws://127.0.0.1:${port}`);
     const startupCutoff = Date.now();
     void manager
-      .reconcileInterruptedSpecialistSessions(startupCutoff)
+      .reconcileInterruptedBrowserRuns(startupCutoff)
+      .then(() => manager.reconcileInterruptedSpecialistSessions(startupCutoff))
       .then(() =>
         manager.reconcileStaleActivitySessions(startupCutoff - 10 * 60_000),
       )

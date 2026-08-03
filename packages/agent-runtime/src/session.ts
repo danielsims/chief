@@ -205,7 +205,7 @@ export class AgentSession extends EventEmitter {
     }
     this.status = "running";
     this.activeReplyContext = {
-      threadRootId: context?.threadRootId ?? messageId,
+      threadRootId: context?.threadRootId,
       explicitThreadRootId: context?.threadRootId,
       mentions: context?.mentions,
     };
@@ -261,40 +261,73 @@ export class AgentSession extends EventEmitter {
   }
 
   private async threadPromptContext(threadRootId: string) {
-    const messages = this.events
+    const allMessages = this.events.filter(
+      (event): event is Extract<AgentEvent, { type: "message" }> =>
+        event.type === "message",
+    );
+    const rootIndex = allMessages.findIndex(
+      (message) => message.id === threadRootId,
+    );
+    const recentChannelMessages =
+      rootIndex > 0
+        ? allMessages
+            .slice(0, rootIndex)
+            .filter((message) => !message.threadRootId)
+            .slice(-8)
+        : [];
+    const threadMessages = allMessages
       .filter(
-        (event): event is Extract<AgentEvent, { type: "message" }> =>
-          event.type === "message" &&
-          (event.id === threadRootId || event.threadRootId === threadRootId),
+        (message) =>
+          message.id === threadRootId || message.threadRootId === threadRootId,
       )
       .slice(-20);
-    if (messages.length === 0) return undefined;
-    const lines: string[] = [];
-    for (const message of messages) {
-      const text = message.content
-        .flatMap((block) => (block.type === "text" ? [block.text] : []))
-        .join("\n")
-        .trim();
-      const attachments = message.content.flatMap((block) =>
-        block.type === "image"
-          ? [
-              {
-                name: block.name,
-                mediaType: block.mediaType,
-                url: block.url,
-              },
-            ]
-          : [],
-      );
-      const imageContext = await this.attachmentPromptContext(attachments);
-      const content = [text, imageContext].filter(Boolean).join("\n");
-      if (content) {
-        lines.push(`${message.role === "user" ? "User" : "Agent"}: ${content}`);
+    if (threadMessages.length === 0) return undefined;
+
+    const formatMessages = async (
+      messages: readonly Extract<AgentEvent, { type: "message" }>[],
+    ) => {
+      const lines: string[] = [];
+      for (const message of messages) {
+        const text = message.content
+          .flatMap((block) => (block.type === "text" ? [block.text] : []))
+          .join("\n")
+          .trim();
+        const attachments = message.content.flatMap((block) =>
+          block.type === "image"
+            ? [
+                {
+                  name: block.name,
+                  mediaType: block.mediaType,
+                  url: block.url,
+                },
+              ]
+            : [],
+        );
+        const imageContext = await this.attachmentPromptContext(attachments);
+        const content = [text, imageContext].filter(Boolean).join("\n");
+        if (content) {
+          lines.push(
+            `${message.role === "user" ? "User" : "Agent"}: ${content}`,
+          );
+        }
       }
-    }
-    return lines.length
-      ? `[Current channel thread context:\n${lines.join("\n\n")}]`
-      : undefined;
+      return lines;
+    };
+
+    const [channelLines, threadLines] = await Promise.all([
+      formatMessages(recentChannelMessages),
+      formatMessages(threadMessages),
+    ]);
+    return [
+      channelLines.length
+        ? `[Recent shared channel context before this thread:\n${channelLines.join("\n\n")}]`
+        : undefined,
+      threadLines.length
+        ? `[Current channel thread context:\n${threadLines.join("\n\n")}]`
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
   }
 
   recordUserMessage(

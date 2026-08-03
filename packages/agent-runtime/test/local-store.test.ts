@@ -555,6 +555,7 @@ void test("baseline contains only the required singular one-word tables", async 
       }),
       [
         "action",
+        "browser",
         "campaign",
         "channel",
         "content",
@@ -573,6 +574,7 @@ void test("baseline contains only the required singular one-word tables", async 
     );
     for (const table of [
       "action",
+      "browser",
       "campaign",
       "content",
       "dataset",

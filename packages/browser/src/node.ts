@@ -1,5 +1,11 @@
 import { execFile } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import {
+  accessSync,
+  chmodSync,
+  constants,
+  readdirSync,
+  readFileSync,
+} from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
@@ -25,7 +31,19 @@ function resolveAgentBrowserExecutable() {
       `agent-browser does not include a native client for ${process.platform}-${process.arch}.`,
     );
   }
-  return join(directory, executable);
+  const resolved = join(directory, executable);
+  if (process.platform !== "win32") {
+    try {
+      accessSync(resolved, constants.X_OK);
+    } catch {
+      // agent-browser's native binaries can lose their executable bit when a
+      // pnpm store is restored or copied. We execute the native client
+      // directly, so repair the same permission its JS launcher repairs.
+      chmodSync(resolved, 0o755);
+      accessSync(resolved, constants.X_OK);
+    }
+  }
+  return resolved;
 }
 
 const agentBrowserExecutable = resolveAgentBrowserExecutable();
@@ -61,6 +79,90 @@ export interface AgentBrowserSnapshot {
   snapshot: string;
   url: string;
   title: string;
+}
+
+export interface AgentBrowserSnapshotRef {
+  name?: string;
+  role?: string;
+}
+
+const interactiveRolePriority = new Map([
+  ["radio", 0],
+  ["checkbox", 1],
+  ["button", 2],
+  ["link", 3],
+  ["tab", 4],
+  ["option", 5],
+]);
+
+function normalizedBrowserLabel(value: string) {
+  return value
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function canonicalBrowserRef(value: string) {
+  const match = /^@?(e\d+)$/i.exec(value.trim());
+  return match?.[1] ? `@${match[1].toLocaleLowerCase()}` : undefined;
+}
+
+/** Resolve a semantic tool label to the latest snapshot ref for cursor UI and resilient clicking. */
+export function browserSnapshotRef(
+  labels: string[],
+  refs: Record<string, AgentBrowserSnapshotRef>,
+) {
+  const direct = labels.map(canonicalBrowserRef).find(Boolean);
+  if (direct) return direct;
+  const candidates = Object.entries(refs)
+    .filter(
+      ([, ref]) => ref.name && interactiveRolePriority.has(ref.role ?? ""),
+    )
+    .map(([id, ref]) => ({
+      id,
+      name: normalizedBrowserLabel(ref.name ?? ""),
+      priority: interactiveRolePriority.get(ref.role ?? "") ?? 99,
+    }));
+  for (const label of labels) {
+    const target = normalizedBrowserLabel(label);
+    if (!target) continue;
+    const match = candidates
+      .filter(
+        (candidate) =>
+          candidate.name === target ||
+          candidate.name.startsWith(target) ||
+          candidate.name.includes(target),
+      )
+      .sort(
+        (left, right) =>
+          Number(left.name !== target) - Number(right.name !== target) ||
+          left.priority - right.priority ||
+          left.name.length - right.name.length,
+      )[0];
+    if (match) return `@${match.id}`;
+  }
+  return undefined;
+}
+
+/** Keep snapshot selectors internal while exposing the element's accessible name. */
+export function browserSnapshotLabel(
+  labels: string[],
+  refs: Record<string, AgentBrowserSnapshotRef>,
+) {
+  const ref = browserSnapshotRef(labels, refs)?.slice(1);
+  const resolved = ref ? refs[ref]?.name?.trim() : undefined;
+  if (resolved) return resolved;
+  return labels.find((label) => !canonicalBrowserRef(label))?.trim();
+}
+
+function browserSnapshotRefLine(snapshot: string, ref: string) {
+  const id = ref.replace(/^@/, "");
+  return snapshot.split("\n").find((line) => line.includes(`ref=${id}`));
+}
+
+export interface AgentBrowserCursorPosition {
+  x: number;
+  y: number;
 }
 
 /**
@@ -158,6 +260,8 @@ export class AgentBrowserSession {
   readonly downloadPath: string;
   readonly sessionId: string;
   private readonly options: AgentBrowserSessionOptions;
+  private snapshotRefs: Record<string, AgentBrowserSnapshotRef> = {};
+  private viewport: { width: number; height: number } | null = null;
 
   constructor(options: AgentBrowserSessionOptions) {
     this.options = options;
@@ -280,27 +384,139 @@ export class AgentBrowserSession {
   }
 
   async snapshot(): Promise<AgentBrowserSnapshot> {
-    const result = await this.command<{ snapshot?: string }>([
-      "snapshot",
-      "--interactive",
-      "--compact",
-    ]);
+    const result = await this.command<{
+      snapshot?: string;
+      refs?: Record<string, AgentBrowserSnapshotRef>;
+    }>(["snapshot", "--interactive", "--compact"]);
+    this.snapshotRefs = result.refs ?? {};
     const [url, title] = await Promise.all([this.getUrl(), this.getTitle()]);
     return { snapshot: result.snapshot ?? JSON.stringify(result), title, url };
   }
 
+  async cursorFor(
+    labels: string[],
+  ): Promise<AgentBrowserCursorPosition | undefined> {
+    const ref = browserSnapshotRef(labels, this.snapshotRefs);
+    const viewport = this.viewport;
+    if (!ref || !viewport) return undefined;
+    const box = await this.command<{
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+    }>(["get", "box", ref]).catch(() => undefined);
+    const { x, y, width, height } = box ?? {};
+    if (
+      typeof x !== "number" ||
+      typeof y !== "number" ||
+      typeof width !== "number" ||
+      typeof height !== "number" ||
+      !Number.isFinite(x) ||
+      !Number.isFinite(y) ||
+      !Number.isFinite(width) ||
+      !Number.isFinite(height)
+    ) {
+      return undefined;
+    }
+    const normalizedX = (x + width / 2) / viewport.width;
+    const normalizedY = (y + height / 2) / viewport.height;
+    return {
+      x: Math.max(0, Math.min(1, normalizedX)),
+      y: Math.max(0, Math.min(1, normalizedY)),
+    };
+  }
+
+  labelFor(labels: string[]) {
+    return browserSnapshotLabel(labels, this.snapshotRefs);
+  }
+
+  /**
+   * Put the semantic target inside the stable desktop viewport before the UI
+   * animates its remote cursor. Product configurators commonly use sticky
+   * headers, so clicking a cached off-screen box is not safe.
+   */
+  async prepareInteraction(labels: string[]) {
+    let ref = browserSnapshotRef(labels, this.snapshotRefs);
+    if (!ref) {
+      await this.snapshot();
+      ref = browserSnapshotRef(labels, this.snapshotRefs);
+    }
+    if (ref) {
+      await this.command(["scrollintoview", ref]).catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      await this.snapshot();
+    }
+    return {
+      label: browserSnapshotLabel(labels, this.snapshotRefs),
+      cursor: await this.cursorFor(labels),
+    };
+  }
+
   async click(labels: string[]) {
-    return this.trySemanticCommands(
-      labels.flatMap((label) =>
+    await this.prepareInteraction(labels);
+    const snapshotRef = browserSnapshotRef(labels, this.snapshotRefs);
+    const target = snapshotRef
+      ? this.snapshotRefs[snapshotRef.replace(/^@/, "")]
+      : undefined;
+    const targetName = target?.name?.trim();
+    const normalizedTargetName = normalizedBrowserLabel(targetName ?? "");
+    const associatedLabelRefs = targetName
+      ? Object.entries(this.snapshotRefs)
+          .filter(([id, ref]) => {
+            const normalizedLabelName = normalizedBrowserLabel(ref.name ?? "");
+            return (
+              `@${id}` !== snapshotRef &&
+              ref.role === "LabelText" &&
+              (normalizedLabelName === normalizedTargetName ||
+                normalizedLabelName.startsWith(normalizedTargetName) ||
+                normalizedTargetName.startsWith(normalizedLabelName))
+            );
+          })
+          .map(([id]) => `@${id}`)
+      : [];
+    const commands = [
+      ...(snapshotRef ? [["click", snapshotRef]] : []),
+      ...associatedLabelRefs.map((ref) => ["click", ref]),
+      ...labels.flatMap((label) =>
         label.startsWith("@")
           ? [["click", label]]
           : [
-              ["find", "role", "button", "click", "--name", label],
-              ["find", "role", "link", "click", "--name", label],
+              ...["radio", "checkbox", "button", "link", "tab", "option"].map(
+                (role) => ["find", "role", role, "click", "--name", label],
+              ),
+              ["find", "label", label, "click"],
               ["find", "text", label, "click"],
             ],
       ),
-    );
+    ];
+    if (target?.role !== "radio" || !targetName) {
+      return this.trySemanticCommands(commands);
+    }
+
+    let lastError: unknown;
+    for (const command of commands) {
+      try {
+        await this.command(command);
+        if (await this.waitForRadioSelection(targetName)) return true;
+        lastError = new Error(
+          `The browser control \"${targetName}\" did not become selected.`,
+        );
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw commandError(lastError);
+  }
+
+  private async waitForRadioSelection(name: string) {
+    for (const delay of [120, 240, 400, 650]) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      const snapshot = await this.snapshot();
+      const ref = browserSnapshotRef([name], this.snapshotRefs);
+      const line = ref ? browserSnapshotRefLine(snapshot.snapshot, ref) : null;
+      if (line?.includes("checked=true")) return true;
+    }
+    return false;
   }
 
   async fill(labels: string[], value: string) {
@@ -349,13 +565,18 @@ export class AgentBrowserSession {
   }
 
   async setViewport(width: number, height: number) {
+    const viewport = {
+      width: Math.max(320, Math.round(width)),
+      height: Math.max(240, Math.round(height)),
+    };
     await this.command([
       "set",
       "viewport",
-      String(Math.max(320, Math.round(width))),
-      String(Math.max(240, Math.round(height))),
+      String(viewport.width),
+      String(viewport.height),
       "2",
     ]);
+    this.viewport = viewport;
   }
 
   async waitForUrl(pattern: string, timeout = 15 * 60_000) {

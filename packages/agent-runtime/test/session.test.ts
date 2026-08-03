@@ -172,7 +172,7 @@ void test("late assistant content stays with the turn that completed", async () 
   if (nextMessage?.type !== "message") {
     assert.fail("Expected the next assistant message.");
   }
-  assert.equal(nextMessage.threadRootId, "next-message");
+  assert.equal(nextMessage.threadRootId, undefined);
 });
 
 void test("recorded channel membership retains its durable UI action", () => {
@@ -271,4 +271,46 @@ void test("a later agent reply receives images from the current thread", async (
     /thread\.png: \/tmp\/\.message-attachments\/.*\.png/u,
   );
   assert.match(prompts[0] ?? "", /What is this\?/u);
+});
+
+void test("a newly addressed channel thread receives the recent shared channel context", async () => {
+  const session = new AgentSession(cmo, "channel-context-chat", {
+    driver: "codex",
+    access: "guarded",
+    workspaceId: "workspace",
+  });
+  session.recordUserMessage(
+    "The app still crashes whenever the agent opens its browser.",
+    "previous-channel-message",
+  );
+  session.recordUserMessage(
+    "@Chief see my last message",
+    "addressed-thread-root",
+    { mentions: ["cmo"] },
+  );
+  const prompts: string[] = [];
+  const driver = {
+    start: async () => Promise.resolve(),
+    sendPrompt: async (prompt: string) => {
+      prompts.push(prompt);
+      await Promise.resolve();
+    },
+  };
+  (session as unknown as { driver: typeof driver }).driver = driver;
+  await session.start("/tmp");
+
+  await session.sendPrompt(
+    "@Chief see my last message",
+    "addressed-thread-root",
+    false,
+    {
+      threadRootId: "addressed-thread-root",
+      mentions: ["cmo"],
+    },
+  );
+
+  assert.match(prompts[0] ?? "", /Recent shared channel context/u);
+  assert.match(prompts[0] ?? "", /still crashes whenever/u);
+  assert.match(prompts[0] ?? "", /Current channel thread context/u);
+  assert.match(prompts[0] ?? "", /see my last message/u);
 });

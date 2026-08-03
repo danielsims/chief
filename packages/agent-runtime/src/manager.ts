@@ -157,6 +157,10 @@ export class SessionManager {
     return this.store.reconcileInterruptedSpecialistSessions(cutoff);
   }
 
+  reconcileInterruptedBrowserRuns(cutoff: number) {
+    return this.store.reconcileInterruptedBrowserRuns(cutoff);
+  }
+
   reconcileStaleActivitySessions(cutoff: number) {
     return this.store.reconcileStaleActivitySessions(cutoff);
   }
@@ -450,7 +454,7 @@ export class SessionManager {
     const runtimeContext = [
       `Runtime context: the current Chief session ID is ${chatId}. Pass this exact value as sourceId whenever you call action.raise.`,
       conversationId
-        ? `The owning Chief conversation ID is ${conversationId}. Pass this exact value as conversationId whenever you propose scheduled work or open Chief's embedded browser.`
+        ? `The owning Chief conversation ID is ${conversationId}. Pass this exact value as conversationId whenever you propose scheduled work or open Chief's embedded browser. Chief's local Executor integration is named exactly chief-local: search for an operation such as localTools.browserOpen, copy the returned path byte-for-byte without camel-casing it, and invoke its OpenAPI operation with the schema's { body: { ... } } envelope rather than bare input fields.`
         : undefined,
     ]
       .filter(Boolean)
@@ -699,12 +703,12 @@ export class SessionManager {
     await this.rootChat(workspaceId, chatId);
     const key = workspaceChatKey(workspaceId, chatId);
     const session = this.sessions.get(key);
+    await this.store.deleteChat(workspaceId, chatId);
     this.sessions.delete(key);
     this.archivedEvents.delete(workspaceChatKey(workspaceId, chatId));
     this.retainCounts.delete(key);
     this.released.delete(key);
     this.executionOwners.delete(key);
-    await this.store.deleteChat(workspaceId, chatId);
     await session?.stop();
     if (session) this.lockWorkspaceIfInactive(session.config.workspaceId);
   }
@@ -854,6 +858,29 @@ export class SessionManager {
       this.persistence.get(workspaceChatKey(workspaceId, chatId)) ??
       Promise.resolve()
     );
+  }
+
+  /**
+   * Run a write after the chat transcript queue and make later transcript
+   * writes wait for it. Channel mirroring shares Chief's SQLite database with
+   * transcript persistence, so merely awaiting the current promise still
+   * leaves a race with the next event's write.
+   */
+  enqueueChatPersistence<T>(
+    workspaceId: string,
+    chatId: string,
+    write: () => Promise<T>,
+  ): Promise<T> {
+    const key = workspaceChatKey(workspaceId, chatId);
+    const queued = (this.persistence.get(key) ?? Promise.resolve()).then(write);
+    this.persistence.set(
+      key,
+      queued.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return queued;
   }
 
   async stopRuntimeChat(workspaceId: string, chatId: string) {
