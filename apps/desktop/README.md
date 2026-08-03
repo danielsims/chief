@@ -39,6 +39,14 @@ Install the platform prerequisites from the [Tauri documentation](https://v2.tau
 pnpm --filter @chief/desktop build:app
 ```
 
+On the Chief release Mac, the local development packaging loop is available
+from the repository root. It selects the Developer ID identity, builds the
+app and DMG, verifies the app signature, and reveals the DMG in Finder:
+
+```bash
+pnpm desktop:dmg
+```
+
 Tauri writes installers to `src-tauri/target/release/bundle`. Official signing and notarization values are supplied by the private release environment, not stored in this repository.
 
 Release builds also create signed updater artifacts. Forge must provide the
