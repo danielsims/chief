@@ -1146,29 +1146,31 @@ export class LocalStore {
     chatId: string,
   ): Promise<ChiefUIMessage[]> {
     const messages = await this.messages(workspaceId, chatId);
-    return messages.map((message) => ({
-      id: message.id,
-      role: message.role,
-      parts: message.parts as ChiefUIMessage["parts"],
-      metadata: {
-        createdAt: message.createdAt,
-        ...(message.metadata?.type === "channel"
-          ? {
-              ...(message.metadata.threadRootId
-                ? { threadRootId: message.metadata.threadRootId }
-                : {}),
-              ...(message.metadata.mentions?.length
-                ? { mentions: message.metadata.mentions }
-                : {}),
-              ...(message.metadata.channelAction
-                ? { channelAction: message.metadata.channelAction }
-                : {}),
-            }
-          : message.metadata
-            ? { event: message.metadata }
-            : {}),
-      },
-    }));
+    return messages
+      .filter((message) => !message.id.endsWith("-kickoff"))
+      .map((message) => ({
+        id: message.id,
+        role: message.role,
+        parts: message.parts as ChiefUIMessage["parts"],
+        metadata: {
+          createdAt: message.createdAt,
+          ...(message.metadata?.type === "channel"
+            ? {
+                ...(message.metadata.threadRootId
+                  ? { threadRootId: message.metadata.threadRootId }
+                  : {}),
+                ...(message.metadata.mentions?.length
+                  ? { mentions: message.metadata.mentions }
+                  : {}),
+                ...(message.metadata.channelAction
+                  ? { channelAction: message.metadata.channelAction }
+                  : {}),
+              }
+            : message.metadata
+              ? { event: message.metadata }
+              : {}),
+        },
+      }));
   }
 
   async saveMessages<Metadata>(

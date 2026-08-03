@@ -2692,55 +2692,6 @@ export function startServer(port = PORT) {
                   msg.workspaceId,
                   chatId,
                 );
-                const welcomeId = `${chatId}-welcome`;
-                const firstItem = msg.jobs.find(
-                  (job) => job.agentId === "setup",
-                )?.title;
-                if (
-                  !persistedMessages.some(
-                    (event) =>
-                      event.type === "message" && event.id === welcomeId,
-                  )
-                ) {
-                  const welcome: AgentEvent = {
-                    type: "message",
-                    id: welcomeId,
-                    role: "assistant",
-                    content: [
-                      {
-                        type: "text",
-                        text: [
-                          "Welcome to Chief — I’ve set up this private channel for you, me, and Setup.",
-                          "We’ll work through setup here one outcome at a time, and I’ll bring Setup into the conversation whenever a provider needs secure sign-in.",
-                          firstItem
-                            ? `I’m starting with **${firstItem}** while the rest of your initial review gets underway.`
-                            : "I’m starting your first useful workspace review now.",
-                        ].join("\n\n"),
-                      },
-                    ],
-                  };
-                  await manager.saveTranscript(
-                    {
-                      id: chatId,
-                      organizationId: msg.workspaceId,
-                      agentId: "cmo",
-                      driver,
-                      model,
-                    },
-                    [welcome],
-                    "Getting started",
-                  );
-                  await channelBridge.mirrorEvent(
-                    manager,
-                    () => undefined,
-                    msg.workspaceId,
-                    chatId,
-                    welcome,
-                    channel.id,
-                    { id: "cmo", name: "Chief" },
-                    broadcastChannelEvent,
-                  );
-                }
                 const kickoffId = `${chatId}-kickoff`;
                 const kickoffIndex = persistedMessages.findIndex(
                   (event) => event.type === "message" && event.id === kickoffId,
@@ -3958,6 +3909,14 @@ export function startServer(port = PORT) {
               );
             };
             try {
+              const setupSkill = setupSkillFromPrompt(msg.text);
+              if (setupSkill?.domain) {
+                integrationSetups.assignDomain(
+                  msg.workspaceId,
+                  msg.chatId,
+                  setupSkill.domain,
+                );
+              }
               // A chat can be opened while its isolated Executor daemon is
               // still recovering. Never let that one transient failure leave
               // a long-lived provider continuation without Chief's internal
@@ -3975,20 +3934,16 @@ export function startServer(port = PORT) {
                   mcpServers: [
                     executorToolServer(
                       executorWorkspace,
-                      session.config.access === "full" ? "model" : "browser",
+                      integrationSetups.domain(msg.workspaceId, msg.chatId)
+                        ? "browser"
+                        : session.config.access === "full"
+                          ? "model"
+                          : "browser",
                     ),
                   ],
                 },
               );
               bindRootSession(msg.workspaceId, msg.chatId, session);
-              const setupSkill = setupSkillFromPrompt(msg.text);
-              if (setupSkill?.domain) {
-                integrationSetups.assignDomain(
-                  msg.workspaceId,
-                  msg.chatId,
-                  setupSkill.domain,
-                );
-              }
               const firstLine = msg.text.split("\n", 1)[0] ?? "";
               if (
                 firstLine.startsWith(SETUP_ATTEMPT_PREFIX) &&
