@@ -4,6 +4,7 @@ import { Outlet, useLocation } from "react-router";
 import { TooltipProvider } from "@chief/ui/components/tooltip";
 import { cn } from "@chief/ui/lib/utils";
 
+import { useAuth } from "../lib/auth/auth-context";
 import { AppTopChrome } from "./app-top-chrome";
 import { Sidebar } from "./sidebar";
 import { WorkspaceContentSurface } from "./workspace-content-surface";
@@ -25,12 +26,12 @@ function readSidebarOpen() {
 }
 
 export function Layout() {
+  const { isAuthenticated } = useAuth();
   const location = useLocation();
   const overview = location.pathname === "/";
   const channel = location.pathname.startsWith("/conversations");
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen);
-  const [hasWorkspaceRail, setHasWorkspaceRail] = useState(false);
 
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => {
@@ -70,10 +71,10 @@ export function Layout() {
   return (
     <TooltipProvider delayDuration={250}>
       <div className="bg-sidebar text-foreground flex h-dvh overflow-hidden">
-        <WorkspaceRail onVisibilityChange={setHasWorkspaceRail} />
+        <WorkspaceRail />
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <AppTopChrome
-            hasWorkspaceRail={hasWorkspaceRail}
+            hasWorkspaceRail={isAuthenticated}
             sidebarOpen={sidebarOpen}
             onToggleSidebar={toggleSidebar}
           />
