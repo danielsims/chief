@@ -3120,6 +3120,7 @@ export function useChiefChat(
     channelId?: string;
     agentId?: string;
     wakeOnMentionOnly?: boolean;
+    integrationDomain?: string;
   },
 ) {
   return useRuntimeChat(
@@ -3128,8 +3129,8 @@ export function useChiefChat(
     initialExecution,
     selectedExecution,
     access,
-    undefined,
-    undefined,
+    destination?.integrationDomain ? "integration-setup" : undefined,
+    destination?.integrationDomain,
     destination?.channelId,
     destination?.agentId,
     destination?.wakeOnMentionOnly,

@@ -189,7 +189,8 @@ export function ConversationsPage() {
       : requestedChatId;
   const activeChildId = params.get("child");
   const activeSetupActionId = googleAnalyticsActionIdFromChat(activeChatId);
-  const activeSetupDomain = integrationSetupDomainFromChat(activeChatId);
+  const activeSetupDomain =
+    params.get("setup") ?? integrationSetupDomainFromChat(activeChatId);
   const legacySetupPath = (() => {
     if (!activeSetupDomain || !activeChatId) return null;
     const integration = INTEGRATION_CATALOG.flatMap(
@@ -393,6 +394,7 @@ export function ConversationsPage() {
                   requestedDirectMessage?.relayId ??
                   activeConversationChannel?.relayId
                 }
+                integrationDomain={activeSetupDomain ?? undefined}
                 activeChild={activeChild}
                 initialDriver={
                   activeEntry?.driver ??

@@ -286,6 +286,9 @@ for (const entry of readdirSync(agentDefinitionsRoot, {
   cpSync(instructions, join(targetDirectory, "instructions.md"));
 }
 
+const setupSkillsRoot = join(packageRoot, "setup-skills");
+cpSync(setupSkillsRoot, join(runtimeRoot, "setup-skills"), { recursive: true });
+
 // App-managed deployments use a bundled, deterministic Eve workspace. The
 // desktop runtime materializes the selected canonical agent into a private
 // copy and only deploys after the user presses Deploy in Chief.
