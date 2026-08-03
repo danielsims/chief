@@ -1,6 +1,6 @@
 import type { KeyboardEvent } from "react";
 import { useState } from "react";
-import { ChevronRight, Copy, Hash, ShieldCheck, Users } from "lucide-react";
+import { Copy, Hash } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import { Button } from "@chief/ui/components/button";
@@ -21,14 +21,13 @@ import {
   ChannelMembersPanel,
 } from "./channel-details-people";
 
-type ChannelDetailsTab = "about" | "members" | "agents" | "settings";
+type ChannelDetailsTab = "about" | "members" | "agents";
 type EditableField = "name" | "topic" | "description";
 
 const CHANNEL_TABS: { id: ChannelDetailsTab; label: string }[] = [
   { id: "about", label: "About" },
   { id: "members", label: "Members" },
-  { id: "agents", label: "Agents & apps" },
-  { id: "settings", label: "Settings" },
+  { id: "agents", label: "Agents and apps" },
 ];
 
 function cleanChannelName(value: string) {
@@ -61,7 +60,7 @@ export function ChannelDetailsDialog({
   ) => Promise<void>;
 }) {
   const navigate = useNavigate();
-  const { organizationRole, user } = useAuth();
+  const { user } = useAuth();
   const [details, setDetails] = useState(channel);
   const [activeTab, setActiveTab] = useState<ChannelDetailsTab>("about");
   const [editing, setEditing] = useState<EditableField | null>(null);
@@ -215,10 +214,6 @@ export function ChannelDetailsDialog({
   };
 
   const created = displayDate(details?.createdAt);
-  const roleLabel = organizationRole
-    ? organizationRole.charAt(0).toLocaleUpperCase() + organizationRole.slice(1)
-    : "Member";
-
   return (
     <Dialog
       open={channel !== null}
@@ -326,58 +321,6 @@ export function ChannelDetailsDialog({
                 void navigate("/agents");
               }}
             />
-          ) : null}
-
-          {activeTab === "settings" ? (
-            <div className="space-y-4">
-              <div className="border-border/70 bg-muted/25 divide-y overflow-hidden rounded-2xl border">
-                <section className="flex items-start gap-3 px-5 py-4">
-                  <ShieldCheck className="text-muted-foreground mt-0.5 size-4 shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <h3 className="text-sm font-semibold">Your access</h3>
-                    <p className="text-muted-foreground mt-1 text-xs leading-5">
-                      {roleLabel}s can {canManage ? "edit" : "view"} channel
-                      details. Owners and admins can manage channel settings.
-                    </p>
-                  </div>
-                  <span className="bg-background/45 text-muted-foreground rounded-md px-2 py-1 text-[10px] font-semibold uppercase">
-                    {roleLabel}
-                  </span>
-                </section>
-                <button
-                  type="button"
-                  className="hover:bg-muted/35 flex w-full items-center gap-3 px-5 py-4 text-left transition-colors"
-                  onClick={() => setActiveTab("about")}
-                >
-                  <Hash className="text-muted-foreground size-4" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold">
-                      Channel details
-                    </span>
-                    <span className="text-muted-foreground mt-1 block text-xs">
-                      {canManage
-                        ? "Edit the channel name, topic, and description."
-                        : "View the channel name, topic, and description."}
-                    </span>
-                  </span>
-                  <ChevronRight className="text-muted-foreground size-4" />
-                </button>
-                <button
-                  type="button"
-                  className="hover:bg-muted/35 flex w-full items-center gap-3 px-5 py-4 text-left transition-colors"
-                  onClick={() => setActiveTab("members")}
-                >
-                  <Users className="text-muted-foreground size-4" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold">Members</span>
-                    <span className="text-muted-foreground mt-1 block text-xs">
-                      Review the people and agents in this channel.
-                    </span>
-                  </span>
-                  <ChevronRight className="text-muted-foreground size-4" />
-                </button>
-              </div>
-            </div>
           ) : null}
 
           {error ? (
