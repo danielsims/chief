@@ -19,13 +19,14 @@ import {
   setupResultMatchesIntegration,
 } from "../src/lib/integration-setup.ts";
 
-void test("integration setup starts visibly in the getting-started channel", () => {
+void test("integration setup starts visibly in a private Setup conversation", () => {
   const path = integrationSetupChannelPath(
     { domain: "github.com", name: "GitHub" },
     "attempt-one",
   );
   const url = new URL(path, "https://chief.local");
-  assert.equal(url.searchParams.get("channel"), "getting-started");
+  assert.equal(url.searchParams.get("dm"), "setup");
+  assert.equal(url.searchParams.get("channel"), null);
   assert.equal(url.searchParams.get("setup"), "github.com");
   assert.equal(url.searchParams.get("chat"), null);
   assert.match(
