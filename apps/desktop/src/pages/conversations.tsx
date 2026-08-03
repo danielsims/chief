@@ -21,10 +21,11 @@ import {
 import { useConversationAuxiliaryPanelSizing } from "../components/chat/conversation-auxiliary-panel";
 import { ConversationErrorBoundary } from "../components/chat/conversation-error-boundary";
 import { ConversationHeader } from "../components/chat/conversation-header";
-import { IntegrationSetupConversation } from "../components/chat/integration-setup-conversation";
 import { useAuth } from "../lib/auth/auth-context";
+import { INTEGRATION_CATALOG } from "../lib/integration-catalog";
 import {
   googleAnalyticsActionIdFromChat,
+  integrationSetupChannelPath,
   integrationSetupDomainFromChat,
 } from "../lib/integration-setup";
 import {
@@ -183,6 +184,19 @@ export function ConversationsPage() {
   const activeChildId = params.get("child");
   const activeSetupActionId = googleAnalyticsActionIdFromChat(activeChatId);
   const activeSetupDomain = integrationSetupDomainFromChat(activeChatId);
+  const legacySetupPath = (() => {
+    if (!activeSetupDomain || !activeChatId) return null;
+    const integration = INTEGRATION_CATALOG.flatMap(
+      (group) => group.integrations,
+    ).find((candidate) => candidate.domain === activeSetupDomain);
+    return integrationSetupChannelPath(
+      {
+        domain: activeSetupDomain,
+        name: integration?.name ?? activeSetupDomain,
+      },
+      activeSetupActionId ?? activeChatId,
+    );
+  })();
   const activeEntry = localChats.chats.find(
     (entry) => entry.id === activeChatId,
   );
@@ -240,6 +254,11 @@ export function ConversationsPage() {
   const isNew = Boolean(activeChatId && !localChats.loading && !activeEntry);
   const activeView =
     !directIdentity && params.get("view") === "canvas" ? "canvas" : "messages";
+
+  useEffect(() => {
+    if (!legacySetupPath) return;
+    void navigate(legacySetupPath, { replace: true });
+  }, [legacySetupPath, navigate]);
 
   useEffect(() => {
     if (!focusComposer) return;
@@ -333,27 +352,9 @@ export function ConversationsPage() {
             <>
               {conversationHeader}
               <ChannelCanvas
-                channelId={
-                  activeConversationChannel?.relayId ?? activeChannel.id
-                }
                 channelName={activeChannel.label}
-                description={activeChannel.description}
                 onContinueArtifact={continueArtifact}
-                onOpenMessages={() => setConversationView("messages")}
               />
-            </>
-          ) : activeChatId && activeSetupDomain ? (
-            <>
-              {conversationHeader}
-              <div className="min-h-0 flex-1 px-5 pb-5">
-                <IntegrationSetupConversation
-                  key={activeChatId}
-                  chatId={activeChatId}
-                  domain={activeSetupDomain}
-                  actionId={activeSetupActionId ?? undefined}
-                  channelId={requestedDirectMessage?.relayId}
-                />
-              </div>
             </>
           ) : activeChatId ? (
             <ConversationErrorBoundary resetKey={activeChatId}>

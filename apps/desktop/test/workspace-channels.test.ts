@@ -68,7 +68,7 @@ void test("gives every agent direct message a private stable destination", () =>
 void test("routes overview actions to the channel that owns the work", () => {
   assert.deepEqual(
     actionConversation({ title: "Connect GitHub", agentId: "setup" }),
-    { kind: "dm", id: "setup" },
+    { kind: "channel", id: "getting-started" },
   );
   assert.deepEqual(
     actionConversation({ title: "Review acquisition performance report" }),

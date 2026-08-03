@@ -1,38 +1,29 @@
-import { useState } from "react";
+import { useNavigate } from "react-router";
 
 import { Button } from "@chief/ui/components/button";
 
-import type {
-  SetupIntegration,
-  SetupResult,
-} from "../../lib/integration-setup";
-import { integrationSetupTask } from "../../lib/integration-setup";
-import { IntegrationSetupPanel } from "../chat/integration-setup-panel";
+import type { SetupIntegration } from "../../lib/integration-setup";
+import { integrationSetupChannelPath } from "../../lib/integration-setup";
 
 /**
  * The one way any integration gets connected, wherever it appears. Connect
- * starts one visible Setup agent directly with full authority for that run;
- * it never routes through the CMO or an Overview action.
+ * starts one visible Setup conversation in the private getting-started channel.
  */
 export function IntegrationConnect({
   integration,
   connected,
   connectedLabel,
-  onResult,
 }: {
   integration: SetupIntegration;
   connected: boolean;
   connectedLabel?: string;
-  onResult: (result: SetupResult) => void;
 }) {
+  const navigate = useNavigate();
   const storageKey = `chief:integration-setup:${integration.domain}`;
-  const [started, setStarted] = useState(
-    () => localStorage.getItem(storageKey) === "active",
-  );
 
   const start = () => {
     localStorage.setItem(storageKey, "active");
-    setStarted(true);
+    void navigate(integrationSetupChannelPath(integration));
   };
 
   return (
@@ -41,16 +32,6 @@ export function IntegrationConnect({
         <p className="text-muted-foreground text-xs leading-5">
           {`${connectedLabel ?? integration.name} connected.`}
         </p>
-      ) : started ? (
-        <IntegrationSetupPanel
-          sessionKey={integration.domain}
-          prompt={integrationSetupTask(integration)}
-          onResult={(result) => {
-            localStorage.removeItem(storageKey);
-            setStarted(false);
-            onResult(result);
-          }}
-        />
       ) : (
         <Button type="button" onClick={start}>
           Connect {integration.name}

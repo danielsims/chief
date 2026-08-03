@@ -156,7 +156,7 @@ export function actionConversation(value: {
     value.agentId === "setup" ||
     /connect|integration|credential|github|vercel|engineering tool/.test(text)
   ) {
-    return { kind: "dm" as const, id: "setup" as const };
+    return { kind: "channel" as const, id: GETTING_STARTED_CHANNEL_ID };
   }
   return { kind: "channel" as const, id: channelForText(text) };
 }

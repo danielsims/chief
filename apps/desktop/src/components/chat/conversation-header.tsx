@@ -1,13 +1,5 @@
 import { useState } from "react";
-import {
-  Check,
-  Copy,
-  Hash,
-  MessageSquareText,
-  MoreHorizontal,
-  NotebookTabs,
-  UserRound,
-} from "lucide-react";
+import { Check, Copy, Hash, MoreHorizontal, UserRound } from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
 import {
@@ -20,10 +12,7 @@ import { cn } from "@chief/ui/lib/utils";
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { AgentPresence } from "./agent-profile-panel";
 import type { ConversationProfileSelection } from "./conversation-profile";
-import {
-  GETTING_STARTED_CHANNEL_RELAY_ID,
-  WORKSPACE_AGENT_IDENTITIES,
-} from "../../lib/workspace-channels";
+import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
 import { ChannelArtifactsMenu } from "../channel-artifacts-menu";
 import { AgentPresenceAvatar } from "./agent-profile-panel";
@@ -175,16 +164,8 @@ export function ConversationHeader({
         <nav aria-label="Channel views" className="flex h-10 gap-1 px-5">
           {(
             [
-              { id: "messages", label: "Messages", icon: MessageSquareText },
-              {
-                id: "canvas",
-                label:
-                  channel.id === GETTING_STARTED_CHANNEL_RELAY_ID ||
-                  channel.label === "getting-started"
-                    ? "Setup"
-                    : "Canvas",
-                icon: NotebookTabs,
-              },
+              { id: "messages", label: "Messages" },
+              { id: "canvas", label: "Canvas" },
             ] as const
           ).map((view) => (
             <button
@@ -192,14 +173,13 @@ export function ConversationHeader({
               type="button"
               onClick={() => onViewChange(view.id)}
               className={cn(
-                "text-muted-foreground hover:text-foreground relative flex h-full items-center gap-1.5 px-2.5 text-xs font-medium transition-colors",
+                "text-muted-foreground hover:text-foreground relative flex h-full items-center px-2.5 text-[12px] leading-4 font-normal transition-colors",
                 activeView === view.id && "text-foreground",
               )}
             >
-              <view.icon size={13} />
               {view.label}
               {activeView === view.id ? (
-                <span className="bg-foreground absolute right-2 bottom-0 left-2 h-0.5 rounded-full" />
+                <span className="bg-foreground absolute right-2.5 bottom-0 left-2.5 h-px" />
               ) : null}
             </button>
           ))}
