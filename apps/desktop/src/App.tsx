@@ -1,6 +1,6 @@
 import type { ErrorInfo, ReactNode } from "react";
-import { Component, useEffect, useRef, useState } from "react";
-import { useAction, useConvexAuth, useQuery } from "convex/react";
+import { Component, useEffect, useState } from "react";
+import { useConvexAuth } from "convex/react";
 import {
   BrowserRouter,
   Navigate,
@@ -10,7 +10,6 @@ import {
 } from "react-router";
 import { Toaster } from "sonner";
 
-import { api } from "@chief/backend/convex/_generated/api";
 import { Button } from "@chief/ui/components/button";
 
 import { EntryState } from "./components/entry-state";
@@ -23,7 +22,6 @@ import {
   listAuthOrganizations,
   parseOrganizationMetadata,
 } from "./lib/auth/better-auth-client";
-import { hasWorkspaceAccess, openWorkspaceCheckout } from "./lib/billing";
 import { ChannelReadStateProvider } from "./lib/channel-read-state-context";
 import { missingDesktopConfiguration } from "./lib/config";
 import { ConvexClientProvider } from "./lib/convex";
@@ -76,98 +74,11 @@ function ConfigurationRequired() {
   );
 }
 
-function WorkspaceAccessRequired() {
-  const [opening, setOpening] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const openCheckout = async () => {
-    setOpening(true);
-    setError(null);
-    const result = await openWorkspaceCheckout("monthly");
-    if (result.status === "error") setError(result.message);
-    if (result.status === "unavailable") {
-      setError("Checkout is not available right now.");
-    }
-    setOpening(false);
-  };
-
-  return (
-    <div className="bg-background text-foreground flex min-h-screen items-center justify-center px-6">
-      <div className="bg-card w-full max-w-md rounded-xl border p-8 text-center">
-        <PageTitle>Continue with Chief</PageTitle>
-        <p className="text-muted-foreground mt-3 text-sm leading-6">
-          Your workspace is already set up. Renew access to return to it.
-        </p>
-        <Button
-          className="mt-6"
-          onClick={() => void openCheckout()}
-          disabled={opening}
-        >
-          {opening ? "Opening checkout..." : "Continue to checkout"}
-        </Button>
-        {error ? (
-          <p className="text-destructive mt-3 text-xs">{error}</p>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 function OnboardingGate({ children }: { children: ReactNode }) {
   const location = useLocation();
   const { cloudOrganizationId } = useAuth();
   const { isAuthenticated: convexReady } = useConvexAuth();
   const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
-  const subscriptionQuery = useQuery(
-    api.billing.getSubscription,
-    // A cached Better Auth session can outlive its server-side session. Never
-    // let an authenticated query race Convex's token confirmation: a rejected
-    // query throws before the auth provider can return the user to sign-in.
-    cloudOrganizationId && convexReady ? {} : "skip",
-  );
-  const reconcileSubscription = useAction(api.billing.reconcileSubscription);
-  const reconciledWorkspaceRef = useRef<string | null>(null);
-  // Latch the last resolved subscription so a re-subscribe (auth refresh,
-  // org revalidation) revalidates behind the mounted app instead of tearing
-  // the whole tree down to a loading screen. Convex pushes real status
-  // changes reactively, so access enforcement stays server-driven.
-  const [knownSubscription, setKnownSubscription] =
-    useState<typeof subscriptionQuery>(undefined);
-  useEffect(() => {
-    if (subscriptionQuery !== undefined) {
-      setKnownSubscription(subscriptionQuery);
-    }
-  }, [subscriptionQuery]);
-  const subscription =
-    subscriptionQuery === undefined ? knownSubscription : subscriptionQuery;
-
-  useEffect(() => {
-    if (!cloudOrganizationId || !convexReady) return;
-
-    const reconcile = (sessionId?: string | null) => {
-      void reconcileSubscription({
-        ...(sessionId ? { sessionId } : {}),
-      }).catch((error) => {
-        console.warn("[Billing] Subscription reconciliation failed", error);
-      });
-    };
-    const onBillingSuccess = (event: Event) => {
-      // A new Checkout may complete after startup reconciliation, so always
-      // run again when the browser returns through the desktop deep link.
-      const detail = (event as CustomEvent<{ sessionId?: string | null }>)
-        .detail;
-      reconcile(detail?.sessionId);
-    };
-
-    window.addEventListener("chief:billing-success", onBillingSuccess);
-    if (reconciledWorkspaceRef.current !== cloudOrganizationId) {
-      reconciledWorkspaceRef.current = cloudOrganizationId;
-      reconcile();
-    }
-    return () => {
-      window.removeEventListener("chief:billing-success", onBillingSuccess);
-    };
-  }, [cloudOrganizationId, convexReady, reconcileSubscription]);
-
   useEffect(() => {
     let cancelled = false;
     let retryTimer: number | undefined;
@@ -221,11 +132,7 @@ function OnboardingGate({ children }: { children: ReactNode }) {
     return children;
   }
 
-  const billingLoading =
-    Boolean(cloudOrganizationId) &&
-    (!convexReady || subscription === undefined);
-
-  if (needsOnboarding === null || billingLoading) {
+  if (needsOnboarding === null || (cloudOrganizationId && !convexReady)) {
     return <EntryState />;
   }
 
@@ -236,8 +143,6 @@ function OnboardingGate({ children }: { children: ReactNode }) {
   if (needsOnboarding) {
     return <Navigate to="/onboarding" replace />;
   }
-
-  if (!hasWorkspaceAccess(subscription)) return <WorkspaceAccessRequired />;
 
   return children;
 }

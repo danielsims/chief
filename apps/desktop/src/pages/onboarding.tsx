@@ -43,7 +43,6 @@ import { SuccessCheck } from "@chief/ui/components/success-check";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { AuthOrganization } from "../lib/auth/better-auth-client";
-import type { BillingPlan } from "../lib/billing";
 import type { IntegrationSearchResult } from "../lib/integrations";
 import type { OnboardingStep } from "../lib/onboarding-flow";
 import type { SocialPlatform } from "../lib/social-platforms";
@@ -77,7 +76,6 @@ import {
   setActiveAuthOrganization,
   updateAuthOrganization,
 } from "../lib/auth/better-auth-client";
-import { hasWorkspaceAccess, openWorkspaceCheckout } from "../lib/billing";
 import {
   cachedIntegrationSearch,
   searchIntegrations,
@@ -136,7 +134,6 @@ interface OnboardingDraft {
   model: string;
   deploymentProvider: AgentDeploymentTarget | null;
   cloudDeploymentUrl: string;
-  billingPlan: BillingPlan;
   brand: {
     mode: "research" | "upload" | "skip";
     notes: string;
@@ -203,7 +200,6 @@ const questions: Record<StepKey, string> = {
   engineeringTools: "Which tools power your website?",
   automation:
     "Here is the recurring work I recommend starting with. Review the schedule, then activate what you want.",
-  pricing: "Choose how this workspace is billed.",
   finish: "You're in.",
 };
 
@@ -468,7 +464,6 @@ function baseDraft(): OnboardingDraft {
     model: "",
     deploymentProvider: null,
     cloudDeploymentUrl: "",
-    billingPlan: "monthly",
     brand: {
       mode: "research",
       notes: "",
@@ -653,7 +648,6 @@ function draftFromOrg(
       typeof onboarding.cloudDeploymentUrl === "string"
         ? onboarding.cloudDeploymentUrl
         : "",
-    billingPlan: onboarding.billingPlan === "annual" ? "annual" : "monthly",
     brand: {
       mode:
         brand.mode === "upload" || brand.mode === "skip"
@@ -714,7 +708,7 @@ function draftFromOrg(
           : baseDraft().automation.timezone,
       plan: normaliseAutomationPlan(automation.plan),
     },
-    step: typeof onboarding.completedAt === "string" ? "pricing" : "mode",
+    step: typeof onboarding.completedAt === "string" ? "finish" : "mode",
   };
 }
 
@@ -774,8 +768,6 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
             ? "vercel"
             : base.deploymentProvider,
       cloudDeploymentUrl: parsed.cloudDeploymentUrl ?? base.cloudDeploymentUrl,
-      billingPlan:
-        parsed.billingPlan === "annual" ? "annual" : base.billingPlan,
       brand: {
         mode:
           parsedBrand?.mode === "upload" || parsedBrand?.mode === "skip"
@@ -1223,14 +1215,6 @@ function AnswerPreview({
             {enabled.map((item) => item.title).join(", ")}
           </span>
         ) : null}
-      </UserBubble>
-    );
-  }
-
-  if (step === "pricing") {
-    return (
-      <UserBubble>
-        {draft.billingPlan === "annual" ? "Annual plan" : "Monthly plan"}
       </UserBubble>
     );
   }
@@ -2690,66 +2674,6 @@ function AeoControl({
   );
 }
 
-function PricingControl({
-  plan,
-  setPlan,
-  onCheckout,
-  saving,
-}: {
-  plan: BillingPlan;
-  setPlan: (plan: BillingPlan) => void;
-  onCheckout: () => void;
-  saving: boolean;
-}) {
-  return (
-    <div className="bg-card rounded-xl border p-5">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <button
-          type="button"
-          onClick={() => setPlan("monthly")}
-          className={cn(
-            "hover:border-foreground rounded-xl border p-5 text-left transition-colors",
-            plan === "monthly" && "border-foreground",
-          )}
-        >
-          <span className="text-sm font-medium">Monthly</span>
-          <span className="mt-4 block text-3xl font-semibold tracking-[-0.035em]">
-            $49/mo
-          </span>
-          <span className="text-muted-foreground mt-2 block text-xs leading-5">
-            Per workspace. Card required for the free trial.
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setPlan("annual")}
-          className={cn(
-            "hover:border-foreground rounded-xl border p-5 text-left transition-colors",
-            plan === "annual" && "border-foreground",
-          )}
-        >
-          <span className="text-sm font-medium">Annual</span>
-          <span className="mt-4 block text-3xl font-semibold tracking-[-0.035em]">
-            $44/mo
-          </span>
-          <span className="text-muted-foreground mt-2 block text-xs leading-5">
-            10% off. Billed yearly at $529.
-          </span>
-        </button>
-      </div>
-      <div className="mt-5 flex justify-end border-t pt-4">
-        <Button
-          type="button"
-          onClick={() => void onCheckout()}
-          disabled={saving}
-        >
-          {saving ? "Opening..." : "Open checkout"}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 function CompletionControl({
   onContinue,
   ready,
@@ -2770,7 +2694,7 @@ function CompletionControl({
           <p className="text-muted-foreground mt-4 text-sm leading-6">
             {ready
               ? "Your workspace is ready. Chief and Setup will meet you in a private getting-started channel."
-              : "Checkout is complete. Chief is preparing your local workspace now."}
+              : "Chief is preparing your workspace now."}
           </p>
           <Button
             type="button"
@@ -2804,11 +2728,6 @@ export function OnboardingPage() {
     api.socialAccounts.list,
     convexReady && cloudOrganizationId ? {} : "skip",
   );
-  const subscription = useQuery(
-    api.billing.getSubscription,
-    convexReady && cloudOrganizationId ? {} : "skip",
-  );
-
   const [org, setOrg] = useState<AuthOrganization | null>(null);
   const [draft, setDraft] = useState<OnboardingDraft | null>(null);
   const [loading, setLoading] = useState(true);
@@ -2883,30 +2802,6 @@ export function OnboardingPage() {
   const latestStep = draft?.step ?? "mode";
   const step = editingStep ?? latestStep;
   const currentIndex = steps.indexOf(latestStep);
-  const billingActive = hasWorkspaceAccess(subscription);
-  const billingResolved = subscription !== undefined;
-  const billingStep = draft?.step;
-
-  useEffect(() => {
-    if (!billingStep || !billingResolved) return;
-
-    if (billingActive && billingStep === "pricing") {
-      setNotice(null);
-      setError(null);
-      setDraft((current) =>
-        current?.step === "pricing" ? { ...current, step: "finish" } : current,
-      );
-      return;
-    }
-
-    if (!billingActive && billingStep === "finish") {
-      setNotice(null);
-      setDraft((current) =>
-        current?.step === "finish" ? { ...current, step: "pricing" } : current,
-      );
-    }
-  }, [billingActive, billingResolved, billingStep]);
-
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       currentQuestionRef.current?.scrollIntoView({ block: "start" });
@@ -3200,13 +3095,6 @@ export function OnboardingPage() {
 
   const completeOnboarding = useCallback(async () => {
     if (!org || !draft || completionStartedRef.current) return;
-    if (!billingActive) {
-      setDraft((current) =>
-        current ? { ...current, step: "pricing" } : current,
-      );
-      setError("Complete checkout before entering your workspace.");
-      return;
-    }
     if (!workspaceData.onboardingBootstrapReady) {
       return;
     }
@@ -3256,7 +3144,6 @@ export function OnboardingPage() {
                 deployment.target === draft.deploymentProvider &&
                 deployment.status === "ready",
             )?.url ?? draft.cloudDeploymentUrl.trim(),
-          billingPlan: draft.billingPlan,
           brand: {
             mode: draft.brand.mode,
             notes: draft.brand.notes,
@@ -3332,7 +3219,6 @@ export function OnboardingPage() {
       setSaving(false);
     }
   }, [
-    billingActive,
     draft,
     org,
     persistContext,
@@ -3397,23 +3283,6 @@ export function OnboardingPage() {
     startCloudDeployment,
     step,
   ]);
-
-  const startCheckout = useCallback(async () => {
-    setSaving(true);
-    setNotice(null);
-    setError(null);
-    if (!draft) return;
-    const result = await openWorkspaceCheckout(draft.billingPlan);
-    setSaving(false);
-    if (result.status === "unavailable") {
-      setNotice("Billing is not set up yet.");
-      return;
-    }
-    if (result.status === "error") {
-      setError(result.message);
-      return;
-    }
-  }, [draft]);
 
   const changeDeploymentProvider = useCallback(() => {
     setError(null);
@@ -3668,16 +3537,6 @@ export function OnboardingPage() {
         />
       );
     }
-    if (step === "pricing") {
-      return (
-        <PricingControl
-          plan={draft.billingPlan}
-          setPlan={(billingPlan) => setField({ billingPlan })}
-          onCheckout={startCheckout}
-          saving={saving}
-        />
-      );
-    }
     return (
       <CompletionControl
         onContinue={() => void completeOnboarding()}
@@ -3710,7 +3569,6 @@ export function OnboardingPage() {
     setMonitoring,
     setSocial,
     socialAccounts,
-    startCheckout,
     startCloudDeployment,
     step,
     useLocalWorkspace,
