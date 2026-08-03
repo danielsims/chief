@@ -1,5 +1,6 @@
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import { Children, lazy, Suspense, useMemo } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
@@ -44,6 +45,24 @@ function MarkdownLink({
   );
 }
 
+function MarkdownImage({
+  src,
+  alt,
+  ...props
+}: ComponentPropsWithoutRef<"img">) {
+  const target = src ? markdownLinkTarget(src) : null;
+  const resolved = target?.kind === "path" ? convertFileSrc(target.value) : src;
+  return (
+    <img
+      {...props}
+      src={resolved}
+      alt={alt ?? ""}
+      loading="lazy"
+      className="my-5 max-h-[560px] w-full rounded-xl object-contain"
+    />
+  );
+}
+
 function highlightMentions(
   children: ReactNode,
   onOpenMention?: (agentId: WorkspaceAgentId) => void,
@@ -69,6 +88,7 @@ export function StreamingMarkdown({
   const components = useMemo(
     () => ({
       a: MarkdownLink,
+      img: MarkdownImage,
       p: ({
         children: paragraphChildren,
         ...props

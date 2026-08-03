@@ -468,9 +468,9 @@ export function localToolsOpenApi(origin: string) {
       "/local-tools/files/write": {
         post: {
           operationId: "files.write",
-          summary: "Create or revise an editable workspace file",
+          summary: "Create or revise a rich workspace document",
           description:
-            "Saves Markdown or plain text as a durable versioned file. Pass expectedVersionId when revising a file so a user's newer edits are never overwritten.",
+            "Saves an editable, versioned workspace document. Compose a useful visual hierarchy with concise sections, tables or checklists where suitable, and inline Markdown images using direct HTTPS URLs or absolute local image paths. Do not save a raw transcript, generic report dump, or headings-only outline. Pass expectedVersionId when revising so a user's newer edits are never overwritten.",
           requestBody: body("FileWriteInput"),
           responses: saveResponse,
         },
