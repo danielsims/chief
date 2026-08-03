@@ -1089,21 +1089,8 @@ export function ChiefChat({
                 );
               }
               if (message.role === "user") {
-                return message.id === `${chatId}-kickoff` ? (
-                  <div
-                    key={message.id}
-                    className="mx-auto w-full max-w-3xl border-y py-4"
-                  >
-                    <div className="flex items-center gap-2 text-sm font-medium">
-                      <span className="size-1.5 bg-blue-500" />
-                      Initial business review
-                    </div>
-                    <p className="text-muted-foreground mt-1 pl-3.5 text-xs">
-                      Chief is learning your business. Research and specialist
-                      work will appear here as it happens.
-                    </p>
-                  </div>
-                ) : (
+                if (message.id === `${chatId}-kickoff`) return null;
+                return (
                   <div id={`chief-message-${message.id}`} key={message.id}>
                     <UserMessage
                       author={userAuthor}
@@ -1123,21 +1110,6 @@ export function ChiefChat({
               }
               if (message.role !== "assistant") return null;
               const blocks = withoutMarkerLines(messageBlocks(message));
-              const specialistBlocks = blocks.filter(
-                (block) =>
-                  block.type === "tool_use" &&
-                  specialistTasksForInput(block.input, childSessions).length >
-                    0,
-              );
-              if (
-                channel &&
-                currentTurn.messageIds.has(message.id) &&
-                (controls.status === "running" ||
-                  message.id !== currentTurn.finalTextMessageId) &&
-                specialistBlocks.length === 0
-              ) {
-                return null;
-              }
               const toolGroup = ordinaryToolGroups.get(message.id);
               if (toolGroup) return null;
               const timelineBlocks = channel
