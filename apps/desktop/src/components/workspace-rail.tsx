@@ -19,11 +19,7 @@ import {
 import { activeFirstOrganizations } from "../lib/workspace-organizations";
 import { OrgLogo } from "./org-logo";
 
-export function WorkspaceRail({
-  onVisibilityChange,
-}: {
-  onVisibilityChange?: (visible: boolean) => void;
-}) {
+export function WorkspaceRail() {
   const navigate = useNavigate();
   const { cloudOrganizationId, isAuthenticated } = useAuth();
   const [organizations, setOrganizations] = useState<AuthOrganization[] | null>(
@@ -32,21 +28,17 @@ export function WorkspaceRail({
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      onVisibilityChange?.(false);
-      return;
-    }
+    if (!isAuthenticated) return;
     let cancelled = false;
     void listAuthOrganizations(true).then((next) => {
       if (!cancelled) {
         setOrganizations(next);
-        onVisibilityChange?.(next.length > 1);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, onVisibilityChange]);
+  }, [isAuthenticated]);
 
   const orderedOrganizations = useMemo(
     () => activeFirstOrganizations(organizations ?? [], cloudOrganizationId),
@@ -67,7 +59,7 @@ export function WorkspaceRail({
     [cloudOrganizationId, switchingTo],
   );
 
-  if (!isAuthenticated || organizations === null || organizations.length < 2) {
+  if (!isAuthenticated) {
     return null;
   }
 
@@ -78,6 +70,12 @@ export function WorkspaceRail({
     >
       <div className="h-10 shrink-0" data-tauri-drag-region />
       <div className="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto px-1.5">
+        {organizations === null ? (
+          <span
+            aria-hidden
+            className="bg-sidebar-accent size-9 shrink-0 animate-pulse rounded-[13px]"
+          />
+        ) : null}
         {orderedOrganizations.map((organization) => {
           const active = organization.id === cloudOrganizationId;
           const metadata = parseOrganizationMetadata(organization);
