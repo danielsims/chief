@@ -12,6 +12,7 @@ import { useNavigate, useParams } from "react-router";
 import type { WorkspaceFileSnapshot } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 
+import { StreamingMarkdown } from "../components/chat/streaming-markdown";
 import { DocumentEditor } from "../components/files/document-editor";
 import { useAuth } from "../lib/auth/auth-context";
 import { createChat } from "../lib/chat-log";
@@ -77,7 +78,7 @@ function WorkspaceFileEditor({
   const navigate = useNavigate();
   const [name, setName] = useState(file.name);
   const [content, setContent] = useState(file.content);
-  const [view, setView] = useState<"edit" | "preview">("edit");
+  const [view, setView] = useState<"edit" | "preview">("preview");
   const emailPreview = useWorkspaceEmailPreview(workspaceId, file);
   const dirty = name.trim() !== file.name || content !== file.content;
   const continueWithAgent = () => {
@@ -130,24 +131,22 @@ function WorkspaceFileEditor({
                 ? "Unsaved changes"
                 : "Saved locally"}
         </span>
-        {file.kind === "email" ? (
-          <div className="flex border p-0.5">
-            <button
-              type="button"
-              className={`flex h-7 items-center gap-1.5 px-2 text-[11px] ${view === "edit" ? "bg-accent text-foreground" : "text-muted-foreground"}`}
-              onClick={() => setView("edit")}
-            >
-              <Pencil size={11} /> Edit
-            </button>
-            <button
-              type="button"
-              className={`flex h-7 items-center gap-1.5 px-2 text-[11px] ${view === "preview" ? "bg-accent text-foreground" : "text-muted-foreground"}`}
-              onClick={() => setView("preview")}
-            >
-              <Eye size={11} /> Preview
-            </button>
-          </div>
-        ) : null}
+        <div className="flex border p-0.5">
+          <button
+            type="button"
+            className={`flex h-7 items-center gap-1.5 px-2 text-[11px] ${view === "edit" ? "bg-accent text-foreground" : "text-muted-foreground"}`}
+            onClick={() => setView("edit")}
+          >
+            <Pencil size={11} /> Edit
+          </button>
+          <button
+            type="button"
+            className={`flex h-7 items-center gap-1.5 px-2 text-[11px] ${view === "preview" ? "bg-accent text-foreground" : "text-muted-foreground"}`}
+            onClick={() => setView("preview")}
+          >
+            <Eye size={11} /> Preview
+          </button>
+        </div>
         <Button
           variant="outline"
           size="sm"
@@ -195,6 +194,10 @@ function WorkspaceFileEditor({
             />
           ) : null}
         </div>
+      ) : view === "preview" ? (
+        <article className="chat-markdown bg-card/20 mt-5 min-h-[520px] border px-14 py-12 text-[15px] leading-7">
+          <StreamingMarkdown>{content}</StreamingMarkdown>
+        </article>
       ) : (
         <div className="bg-card/20 mt-5 border px-14 py-12">
           <DocumentEditor value={content} onChange={setContent} />
