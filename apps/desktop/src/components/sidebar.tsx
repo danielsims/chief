@@ -170,7 +170,10 @@ export function Sidebar({
   const visiblePublicChannels = publicChannels.filter(
     (channel) => !leftIds.includes(channel.id),
   );
-  const directMessageIds = directMessageIdsForChats(localChats.chats);
+  const directMessageIds = directMessageIdsForChats(
+    localChats.chats,
+    cloudOrganizationId,
+  );
   const unreadDirectMessageCounts = new Map(
     WORKSPACE_DIRECT_MESSAGES.map((message) => [
       message.id,

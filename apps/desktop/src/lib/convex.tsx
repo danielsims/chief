@@ -105,7 +105,7 @@ function useConvexAuthFromDesktop() {
   }, [cloudOrganizationId, invalidateSession, isAuthenticated, sessionToken]);
 
   const fetchAccessToken = useCallback(async () => {
-    if (!sessionToken) return null;
+    if (!sessionToken || !cloudOrganizationId) return null;
 
     try {
       const token = await requestConvexAccessToken(sessionToken);
