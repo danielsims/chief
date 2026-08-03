@@ -128,6 +128,7 @@ function signDarwinNativePayloads(root) {
     .filter(({ description }) => description.includes("Mach-O"));
 
   for (const { description, path } of nativeFiles) {
+    if (description.includes("executable")) chmodSync(path, 0o755);
     const args = ["--force", "--sign", identity];
     if (identity !== "-") args.push("--options", "runtime", "--timestamp");
     if (description.includes("executable") && existsSync(macEntitlements)) {
