@@ -21,6 +21,9 @@ struct RuntimeProcess {
     supervisor: Mutex<Option<JoinHandle<()>>>,
 }
 
+const RUNTIME_PORT: u16 = 4318;
+const RUNTIME_PROTOCOL: &str = "2";
+
 #[derive(Default)]
 struct PendingNotificationActivation(Mutex<Option<serde_json::Value>>);
 
@@ -73,6 +76,7 @@ fn terminate_runtime(child: &mut Child) {
 impl RuntimeProcess {
     fn start(app: tauri::AppHandle) -> Self {
         terminate_recorded_runtime(&app);
+        terminate_unrecognized_runtime_on_port();
 
         let stop = Arc::new(AtomicBool::new(false));
         let supervisor_stop = Arc::clone(&stop);
@@ -139,6 +143,17 @@ impl RuntimeProcess {
                     // alone while healthy, but take over if it later disappears.
                     restart_delay = Duration::from_secs(1);
                     next_spawn_at = now;
+                } else if runtime_port_is_open() {
+                    if now >= next_spawn_at {
+                        if terminate_unrecognized_runtime_on_port() {
+                            next_spawn_at = now + Duration::from_millis(500);
+                        } else {
+                            eprintln!(
+                                "[runtime] port {RUNTIME_PORT} is owned by another process; waiting"
+                            );
+                            next_spawn_at = restart_at(&mut restart_delay);
+                        }
+                    }
                 } else if now >= next_spawn_at {
                     child = spawn_agent_runtime(&app);
                     if child.is_some() {
@@ -214,6 +229,24 @@ fn process_command(pid: u32) -> Option<String> {
     }
 }
 
+fn command_runs_executable(command: &str, executable: &Path) -> bool {
+    let expected = executable.to_string_lossy();
+    command == expected || command.starts_with(&format!("{expected} "))
+}
+
+fn process_is_current_app(pid: u32) -> bool {
+    let Some(executable) = env::current_exe().ok() else {
+        return false;
+    };
+    process_command(pid).is_some_and(|command| command_runs_executable(&command, &executable))
+}
+
+fn is_chief_runtime_command(command: &str) -> bool {
+    command.contains("chief-agent-runtime")
+        || command.contains("@chief/agent-runtime")
+        || (command.contains("packages/agent-runtime") && command.contains("tsx"))
+}
+
 fn terminate_recorded_runtime(app: &tauri::AppHandle) {
     let Some(path) = runtime_process_file(app) else {
         return;
@@ -233,18 +266,13 @@ fn terminate_recorded_runtime(app: &tauri::AppHandle) {
     // first app instance. Only reap a process whose owning app has exited.
     if owner_pid
         .filter(|pid| *pid != std::process::id())
-        .and_then(process_command)
-        .is_some()
+        .is_some_and(process_is_current_app)
     {
         return;
     }
 
     let is_chief_runtime = process_command(runtime_pid)
-        .map(|command| {
-            command.contains("chief-agent-runtime")
-                || command.contains("@chief/agent-runtime")
-                || (command.contains("packages/agent-runtime") && command.contains("tsx"))
-        })
+        .map(|command| is_chief_runtime_command(&command))
         .unwrap_or(false);
     if is_chief_runtime {
         #[cfg(unix)]
@@ -291,6 +319,68 @@ fn restart_at(delay: &mut Duration) -> Instant {
     next
 }
 
+fn runtime_port_is_open() -> bool {
+    let addr: SocketAddr = format!("127.0.0.1:{RUNTIME_PORT}")
+        .parse()
+        .expect("valid local runtime socket address");
+    TcpStream::connect_timeout(&addr, Duration::from_millis(250)).is_ok()
+}
+
+#[cfg(unix)]
+fn runtime_listener_pids() -> Vec<u32> {
+    let args = [
+        "-nP".to_string(),
+        format!("-iTCP:{RUNTIME_PORT}"),
+        "-sTCP:LISTEN".to_string(),
+        "-t".to_string(),
+    ];
+    let output = ["/usr/sbin/lsof", "/usr/bin/lsof", "lsof"]
+        .into_iter()
+        .find_map(|executable| Command::new(executable).args(&args).output().ok());
+    let Some(output) = output else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse::<u32>().ok())
+        .collect()
+}
+
+#[cfg(windows)]
+fn runtime_listener_pids() -> Vec<u32> {
+    Vec::new()
+}
+
+fn terminate_unrecognized_runtime_on_port() -> bool {
+    if !runtime_port_is_open() || runtime_is_running() {
+        return false;
+    }
+    let mut terminated = false;
+    for pid in runtime_listener_pids() {
+        let is_chief_runtime = process_command(pid)
+            .map(|command| is_chief_runtime_command(&command))
+            .unwrap_or(false);
+        if !is_chief_runtime {
+            continue;
+        }
+        eprintln!("[runtime] replacing incompatible Chief runtime {pid}");
+        #[cfg(unix)]
+        let _ = Command::new("/bin/kill")
+            .args(["-TERM", &format!("-{pid}")])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        #[cfg(windows)]
+        let _ = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        terminated = true;
+    }
+    terminated
+}
+
 impl Drop for RuntimeProcess {
     fn drop(&mut self) {
         self.shutdown();
@@ -298,7 +388,7 @@ impl Drop for RuntimeProcess {
 }
 
 fn runtime_is_running() -> bool {
-    let addr: SocketAddr = "127.0.0.1:4318"
+    let addr: SocketAddr = format!("127.0.0.1:{RUNTIME_PORT}")
         .parse()
         .expect("valid local runtime socket address");
     let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(250)) else {
@@ -336,29 +426,56 @@ fn is_runtime_health_response(response: &[u8]) -> bool {
     let ready_status = lines
         .next()
         .is_some_and(|status| status.starts_with("HTTP/1.1 200"));
-    let chief_header = lines.any(|line| {
-        line.split_once(':').is_some_and(|(name, value)| {
-            name.eq_ignore_ascii_case("x-chief-runtime") && value.trim() == "ready"
-        })
-    });
-    ready_status && chief_header
+    let mut chief_ready = false;
+    let mut protocol_matches = false;
+    for line in lines {
+        if let Some((name, value)) = line.split_once(':') {
+            if name.eq_ignore_ascii_case("x-chief-runtime") && value.trim() == "ready" {
+                chief_ready = true;
+            }
+            if name.eq_ignore_ascii_case("x-chief-runtime-protocol")
+                && value.trim() == RUNTIME_PROTOCOL
+            {
+                protocol_matches = true;
+            }
+        }
+    }
+    ready_status && chief_ready && protocol_matches
 }
 
 #[cfg(test)]
 mod runtime_health_tests {
-    use super::is_runtime_health_response;
+    use std::path::Path;
+
+    use super::{command_runs_executable, is_runtime_health_response};
 
     #[test]
     fn accepts_only_the_ready_chief_runtime() {
         assert!(is_runtime_health_response(
-            b"HTTP/1.1 200 OK\r\nx-chief-runtime: ready\r\n\r\nchief-runtime-ready"
+            b"HTTP/1.1 200 OK\r\nx-chief-runtime: ready\r\nx-chief-runtime-protocol: 2\r\n\r\nchief-runtime-ready"
         ));
         assert!(!is_runtime_health_response(b"HTTP/1.1 200 OK\r\n\r\n"));
         assert!(!is_runtime_health_response(
-            b"HTTP/1.1 503 Service Unavailable\r\nx-chief-runtime: ready\r\n\r\n"
+            b"HTTP/1.1 503 Service Unavailable\r\nx-chief-runtime: ready\r\nx-chief-runtime-protocol: 2\r\n\r\n"
         ));
         assert!(!is_runtime_health_response(
-            b"HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\n\r\nx-chief-runtime: ready"
+            b"HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\n\r\nx-chief-runtime: ready\nx-chief-runtime-protocol: 2"
+        ));
+        assert!(!is_runtime_health_response(
+            b"HTTP/1.1 200 OK\r\nx-chief-runtime: ready\r\n\r\n"
+        ));
+    }
+
+    #[test]
+    fn matches_the_recorded_owner_to_the_exact_app_executable() {
+        let executable = Path::new("/Applications/Chief.app/Contents/MacOS/desktop");
+        assert!(command_runs_executable(
+            "/Applications/Chief.app/Contents/MacOS/desktop",
+            executable
+        ));
+        assert!(!command_runs_executable(
+            "/Applications/Codex.app/Contents/MacOS/Codex",
+            executable
         ));
     }
 }

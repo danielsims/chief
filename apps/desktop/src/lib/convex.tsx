@@ -60,7 +60,12 @@ async function requestConvexAccessToken(sessionToken: string) {
 }
 
 function useConvexAuthFromDesktop() {
-  const { invalidateSession, isAuthenticated, sessionToken } = useAuth();
+  const {
+    cloudOrganizationId,
+    invalidateSession,
+    isAuthenticated,
+    sessionToken,
+  } = useAuth();
   const tokenRef = useRef<string | null>(null);
   const [tokenReady, setTokenReady] = useState(false);
 
@@ -97,7 +102,7 @@ function useConvexAuthFromDesktop() {
     })();
 
     return () => controller.abort();
-  }, [invalidateSession, isAuthenticated, sessionToken]);
+  }, [cloudOrganizationId, invalidateSession, isAuthenticated, sessionToken]);
 
   const fetchAccessToken = useCallback(async () => {
     if (!sessionToken) return null;
@@ -116,7 +121,7 @@ function useConvexAuthFromDesktop() {
       console.warn("[Convex] Token refresh failed; using cached token", error);
       return tokenRef.current;
     }
-  }, [invalidateSession, sessionToken]);
+  }, [cloudOrganizationId, invalidateSession, sessionToken]);
 
   return useMemo(
     () => ({
