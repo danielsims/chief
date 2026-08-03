@@ -3,9 +3,11 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { organizationClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 
+import type { OrganizationRole } from "./organization-role";
 import type { StoredSession } from "./session";
 import { AUTH_BASE_URL } from "../config";
 import { fetchWithTimeout } from "../fetch-with-timeout";
+import { primaryOrganizationRole } from "./organization-role";
 import { getStoredSession, setStoredSession } from "./session";
 
 export { AUTH_BASE_URL } from "../config";
@@ -117,6 +119,49 @@ export interface AuthOrganization {
   logo?: string | null;
   /** JSON string (better-auth stores metadata stringified) or object. */
   metadata?: string | Record<string, unknown> | null;
+}
+
+export interface AuthOrganizationMember {
+  id: string;
+  organizationId: string;
+  userId: string;
+  role: OrganizationRole;
+}
+
+/** Resolve the signed-in user's live role in their active Better Auth organization. */
+export async function getActiveAuthOrganizationMember(
+  expectedOrganizationId: string,
+): Promise<AuthOrganizationMember | null> {
+  const storedSession = getStoredSession();
+  if (!storedSession?.token || !AUTH_BASE_URL) return null;
+  const fetcher = isTauri() ? tauriFetch : fetch;
+  const response = await fetchWithTimeout(
+    fetcher,
+    `${AUTH_BASE_URL}/api/auth/organization/get-active-member`,
+    { headers: { Authorization: `Bearer ${storedSession.token}` } },
+  );
+  if (!response.ok) return null;
+  const member = (await response.json().catch(() => null)) as {
+    id?: unknown;
+    organizationId?: unknown;
+    userId?: unknown;
+    role?: unknown;
+  } | null;
+  const role = primaryOrganizationRole(member?.role);
+  if (
+    typeof member?.id !== "string" ||
+    typeof member.userId !== "string" ||
+    member.organizationId !== expectedOrganizationId ||
+    !role
+  ) {
+    return null;
+  }
+  return {
+    id: member.id,
+    organizationId: expectedOrganizationId,
+    userId: member.userId,
+    role,
+  };
 }
 
 function normalizeOrganizations(value: unknown): AuthOrganization[] {

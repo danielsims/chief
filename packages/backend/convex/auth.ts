@@ -415,6 +415,8 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
     bearer(), // Accept raw session tokens via Authorization: Bearer header (desktop app)
     createDesktopPkcePlugin(), // Desktop PKCE auth (stateless for Convex)
     organization({
+      // The person who creates the workspace during onboarding is its owner.
+      creatorRole: "owner",
       organizationHooks: {
         // Append a 4-digit random suffix to prevent slug collisions
         beforeCreateOrganization: async ({ organization: org }) => {

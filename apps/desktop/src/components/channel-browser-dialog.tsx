@@ -13,7 +13,10 @@ import type { WorkspaceChannelId } from "../lib/workspace-channels";
 export interface SidebarChannel {
   id: WorkspaceChannelId;
   label: string;
+  topic: string;
   description: string;
+  agentIds: string[];
+  createdAt?: number;
 }
 
 function cleanChannelName(value: string) {
@@ -30,7 +33,10 @@ export function ChannelBrowserDialog({
   channels: SidebarChannel[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onOpenChannel: (channelId: WorkspaceChannelId) => void;
+  onOpenChannel: (
+    channelId: WorkspaceChannelId,
+    options?: { focusComposer?: boolean },
+  ) => void;
   onCreateChannel: (
     name: string,
     description?: string,
@@ -80,7 +86,7 @@ export function ChannelBrowserDialog({
       setSubmitting(false);
       return;
     }
-    onOpenChannel(channelId);
+    onOpenChannel(channelId, { focusComposer: true });
     close();
   };
 
