@@ -39,8 +39,14 @@ function resolveAgentBrowserExecutable() {
       // agent-browser's native binaries can lose their executable bit when a
       // pnpm store is restored or copied. We execute the native client
       // directly, so repair the same permission its JS launcher repairs.
-      chmodSync(resolved, 0o755);
-      accessSync(resolved, constants.X_OK);
+      try {
+        chmodSync(resolved, 0o755);
+        accessSync(resolved, constants.X_OK);
+      } catch {
+        // A signed app can be launched directly from a read-only DMG. Browser
+        // automation may be unavailable there, but the chat runtime must still
+        // start so conversations can load.
+      }
     }
   }
   return resolved;
