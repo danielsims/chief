@@ -3,8 +3,35 @@ import test from "node:test";
 
 import {
   channelReplyThreadRoot,
+  channelRespondingAgentId,
   requestsMainChannelReply,
 } from "../src/channel-reply-routing.js";
+import { GETTING_STARTED_CHANNEL_ID } from "../src/channels/nip29.js";
+
+void test("the private getting-started channel wakes Chief without a mention", () => {
+  assert.equal(
+    channelRespondingAgentId({
+      channelId: GETTING_STARTED_CHANNEL_ID,
+      isSharedChannel: true,
+    }),
+    "cmo",
+  );
+  assert.equal(
+    channelRespondingAgentId({
+      channelId: "general",
+      isSharedChannel: true,
+    }),
+    undefined,
+  );
+  assert.equal(
+    channelRespondingAgentId({
+      channelId: GETTING_STARTED_CHANNEL_ID,
+      isSharedChannel: true,
+      mentions: ["setup"],
+    }),
+    "setup",
+  );
+});
 
 void test("an addressed channel post receives the agent reply in a thread", () => {
   assert.equal(

@@ -34,6 +34,18 @@ void test("gives every product channel its own stable runtime session", () => {
   assert.ok(chatIds.every((chatId) => chatId.startsWith("channel:")));
 });
 
+void test("keeps getting started as a stable multi-agent channel", () => {
+  const channel = WORKSPACE_CHANNELS.find(
+    (candidate) => candidate.id === "getting-started",
+  );
+  assert.ok(channel);
+  assert.deepEqual(channel.agentIds, ["cmo", "setup"]);
+  assert.equal(
+    channelChatId(channel.id),
+    "channel:04e8b4b0-3b65-4a83-a2e0-7fd5aa9f70c4",
+  );
+});
+
 void test("shows direct messages only after a real user conversation exists", () => {
   assert.deepEqual(
     directMessageIdsForChats([

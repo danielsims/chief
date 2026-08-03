@@ -1,3 +1,5 @@
+/* eslint-disable max-lines */
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -64,6 +66,8 @@ import {
 } from "../lib/runtime";
 import {
   actionConversation,
+  channelChatId,
+  GETTING_STARTED_CHANNEL_RELAY_ID,
   WORKSPACE_AGENT_IDENTITIES,
 } from "../lib/workspace-channels";
 
@@ -77,7 +81,7 @@ const AGENT_NAMES: Record<string, string> = {
   setup: "Setup",
 };
 
-const LEARNING_ACTION_ID = "workspace-initial-review";
+const LEARNING_ACTION_ID = "workspace-getting-started";
 
 const OVERVIEW_MENTION_CANDIDATES = Object.entries(WORKSPACE_AGENT_IDENTITIES)
   .filter(([id]) => id !== "setup")
@@ -369,24 +373,24 @@ export function DashboardPage() {
         workspaceData.now - session.updatedAt < 10 * 60_000,
     ),
   );
-  const initialReviewStartedAt = cloudOrganizationId
+  const gettingStartedOpenedAt = cloudOrganizationId
     ? Number(
-        sessionStorage.getItem(`chief:initial-review:${cloudOrganizationId}`),
+        sessionStorage.getItem(`chief:getting-started:${cloudOrganizationId}`),
       )
     : Number.NaN;
-  const initialReviewPending = Boolean(
-    Number.isFinite(initialReviewStartedAt) &&
-    workspaceData.now - initialReviewStartedAt < 10 * 60_000 &&
+  const gettingStartedPending = Boolean(
+    Number.isFinite(gettingStartedOpenedAt) &&
+    workspaceData.now - gettingStartedOpenedAt < 10 * 60_000 &&
     (!preparationRoot || preparationRoot.status === "idle"),
   );
-  const showLearningCard = initialReviewPending || preparationActive;
+  const showLearningCard = gettingStartedPending || preparationActive;
   const overviewActions = useMemo<OverviewAction[]>(
     () => [
       ...(showLearningCard
         ? [
             {
               id: LEARNING_ACTION_ID,
-              title: "Chief is learning your business",
+              title: "Finish setting up with Chief",
               agentId: "cmo",
             },
           ]
@@ -406,7 +410,7 @@ export function DashboardPage() {
       preparationRoot &&
       preparationRoot.status !== "idle"
     ) {
-      sessionStorage.removeItem(`chief:initial-review:${cloudOrganizationId}`);
+      sessionStorage.removeItem(`chief:getting-started:${cloudOrganizationId}`);
     }
   }, [cloudOrganizationId, preparationRoot]);
   const requestedOverviewActionIndex = selectedActionId
@@ -831,7 +835,7 @@ export function DashboardPage() {
   const firstName = profileFirstName ?? "there";
   const preparingWorkspace =
     workspaceData.loading ||
-    initialReviewPending ||
+    gettingStartedPending ||
     preparationActive ||
     Boolean(continuingChatId);
   const activeAnalyticsSlide =
@@ -865,13 +869,11 @@ export function DashboardPage() {
                 actions={overviewActions}
                 index={resolvedOverviewActionIndex}
                 onMove={moveAction}
-                reviewChatId={preparationRoot?.id}
+                reviewChatId={channelChatId(GETTING_STARTED_CHANNEL_RELAY_ID)}
                 onOpen={() => {
-                  if (preparationRoot) {
-                    void navigate(
-                      `/conversations?chat=${encodeURIComponent(preparationRoot.id)}`,
-                    );
-                  }
+                  void navigate(
+                    `/conversations?channel=getting-started&chat=${encodeURIComponent(channelChatId(GETTING_STARTED_CHANNEL_RELAY_ID))}`,
+                  );
                 }}
               />
             ) : currentAction ? (

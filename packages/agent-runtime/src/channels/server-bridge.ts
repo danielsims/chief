@@ -13,6 +13,7 @@ import {
   channelIdFromChatId,
   createChannelEvent,
   createChannelReaction,
+  GETTING_STARTED_CHANNEL_ID,
 } from "./nip29.js";
 
 type Send = (message: ServerMessage) => void;
@@ -390,12 +391,16 @@ export function channelInstructions(
       "Answer as the selected agent, keep this transcript private to its participants, and do not redirect the user into a public channel.",
     ].join("\n\n");
   }
+  const responseGuidance =
+    channel.id === GETTING_STARTED_CHANNEL_ID
+      ? "This private setup channel is an active conversation: every user post wakes Chief unless another member agent is explicitly addressed. Lead the setup conversationally, read onboarding/getting-started.md for the selected work, involve Setup through visible delegation when useful, and ask before opening browser authentication or making consequential changes."
+      : "Ordinary channel posts are shared context and do not require an agent response. When your identity is addressed, answer directly as yourself in that message's thread. After the user explicitly addresses you in a thread, their subsequent replies in that thread may remain routed to you without repeating the textual @mention; treat recipient metadata as the wake signal and keep the response in that thread.";
   return [
     base,
     `You are working in Chief's shared #${channel.name} channel (${channel.id}).`,
     `The channel follows NIP-29 semantics and is shared with the user and these member agents: ${channel.agentIds.join(", ")}.`,
     "Treat its durable transcript as shared context. Delegate to the relevant member agent when specialist ownership helps, preserve the user's conversational thread, and bring the useful result back into this same channel.",
-    "Ordinary channel posts are shared context and do not require an agent response. When your identity is addressed, answer directly as yourself in that message's thread. After the user explicitly addresses you in a thread, their subsequent replies in that thread may remain routed to you without repeating the textual @mention; treat recipient metadata as the wake signal and keep the response in that thread.",
+    responseGuidance,
     "Use this agent pack's declared delegation tool so Chief can expose the specialist as an inspectable session. When localTools.specialistsDelegate is available, use it instead of provider-native or hidden background-agent features. Never imitate delegation with empty assistant messages.",
   ].join("\n\n");
 }
