@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -74,6 +74,7 @@ export class AgentSession extends EventEmitter {
         rawEvent.type === "message" && rawEvent.role === "assistant"
           ? {
               ...rawEvent,
+              id: rawEvent.id ?? randomUUID(),
               threadRootId: this.activeReplyContext?.threadRootId,
               mentions: this.activeReplyContext?.mentions,
             }

@@ -175,6 +175,38 @@ void test("late assistant content stays with the turn that completed", async () 
   assert.equal(nextMessage.threadRootId, undefined);
 });
 
+void test("assistant message events receive a stable id for channel mirroring", () => {
+  const session = new AgentSession(cmo, "chat", {
+    driver: "codex",
+    access: "guarded",
+    workspaceId: "workspace",
+  });
+  const driver = (
+    session as unknown as {
+      driver: {
+        emit: (type: "event", event: AgentEvent) => void;
+        sendPrompt: (prompt: string) => Promise<void>;
+      };
+    }
+  ).driver;
+
+  driver.emit("event", {
+    type: "message",
+    role: "assistant",
+    content: [{ type: "text", text: "The reply" }],
+  });
+
+  const recorded = session.events.find(
+    (event): event is Extract<AgentEvent, { type: "message" }> =>
+      event.type === "message" && event.role === "assistant",
+  );
+  assert.ok(recorded, "assistant message should be recorded");
+  assert.ok(
+    typeof recorded.id === "string" && recorded.id.length > 0,
+    "assistant message should be stamped with an id",
+  );
+});
+
 void test("recorded channel membership retains its durable UI action", () => {
   const session = new AgentSession(cmo, "chat", {
     driver: "codex",
