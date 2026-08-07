@@ -6,10 +6,12 @@ import {
   anchorBrowserRun,
   anchorBrowserSession,
   beginBrowserActivity,
+  browserOpenResultContent,
   completeBrowserActivity,
   completeBrowserRun,
   completeBrowserSession,
   hideBrowserCursor,
+  resolveBrowserOwnerMessageId,
   updateBrowserSession,
   upsertBrowserRun,
   upsertBrowserSession,
@@ -162,4 +164,119 @@ void test("keyboard-only browser activity keeps the last pointer position", () =
   });
 
   assert.deepEqual(keyboard.agentCursor, session("channel").agentCursor);
+});
+
+void test("browser owner matches the session thread, not the first open", () => {
+  const candidates = [
+    {
+      id: "main-open",
+      role: "assistant",
+      threadRootId: null,
+      isBrowserOpen: true,
+    },
+    {
+      id: "thread-reply",
+      role: "assistant",
+      threadRootId: "root",
+      isBrowserOpen: true,
+    },
+    {
+      id: "thread-text",
+      role: "assistant",
+      threadRootId: "root",
+      isBrowserOpen: false,
+    },
+  ];
+
+  assert.equal(
+    resolveBrowserOwnerMessageId(candidates, "root"),
+    "thread-reply",
+  );
+  assert.equal(resolveBrowserOwnerMessageId(candidates, null), "main-open");
+});
+
+void test("browser owner prefers a durable anchor that still exists", () => {
+  const candidates = [
+    {
+      id: "main-open",
+      role: "assistant",
+      threadRootId: null,
+      isBrowserOpen: true,
+    },
+    {
+      id: "thread-reply",
+      role: "assistant",
+      threadRootId: "root",
+      isBrowserOpen: true,
+    },
+  ];
+
+  assert.equal(
+    resolveBrowserOwnerMessageId(candidates, "root", "main-open"),
+    "main-open",
+  );
+  // A stale anchor (message no longer present) falls back to thread resolution.
+  assert.equal(
+    resolveBrowserOwnerMessageId(candidates, "root", "missing"),
+    "thread-reply",
+  );
+});
+
+void test("newest browser-open message wins within the matching thread", () => {
+  const candidates = [
+    {
+      id: "older",
+      role: "assistant",
+      threadRootId: "root",
+      isBrowserOpen: true,
+    },
+    {
+      id: "newer",
+      role: "assistant",
+      threadRootId: "root",
+      isBrowserOpen: true,
+    },
+  ];
+
+  assert.equal(resolveBrowserOwnerMessageId(candidates, "root"), "newer");
+});
+
+void test("no open call means no owner message", () => {
+  const candidates = [
+    {
+      id: "text-only",
+      role: "assistant",
+      threadRootId: null,
+      isBrowserOpen: false,
+    },
+    { id: "user-open", role: "user", threadRootId: null, isBrowserOpen: true },
+  ];
+
+  assert.equal(resolveBrowserOwnerMessageId(candidates, null), undefined);
+});
+
+void test("detects browserOpen from an executor tool result", () => {
+  assert.equal(
+    browserOpenResultContent(
+      '{\n  "ok": true,\n  "data": { "opened": true, "url": "https://program.video/" }\n}',
+    ),
+    true,
+  );
+});
+
+void test("does not treat snapshots or clicks as browser opens", () => {
+  assert.equal(
+    browserOpenResultContent(
+      '{"ok": true, "data": { "url": "https://program.video/", "title": "Home", "controls": [] }}',
+    ),
+    false,
+  );
+  assert.equal(
+    browserOpenResultContent(
+      '{"ok": true, "data": { "clicked": true, "url": "https://program.video/" }}',
+    ),
+    false,
+  );
+  assert.equal(browserOpenResultContent(undefined), false);
+  assert.equal(browserOpenResultContent("unrelated output"), false);
 });

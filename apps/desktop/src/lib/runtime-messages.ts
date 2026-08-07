@@ -124,3 +124,39 @@ export function deduplicateDocumentParts(messages: ChiefUIMessage[]) {
     }))
     .reverse();
 }
+
+/**
+ * Drop transcript copies produced by a provider-restart replay.
+ *
+ * When a driver reconnects it replays the session's history, and each replayed
+ * tool call is emitted as a fresh message: a new message id, the SAME
+ * toolCallId, and — because the replay runs outside any thread context — no
+ * threadRootId. Those copies render the thread's tool/browser UI in the main
+ * timeline as if it were main-chat content. A threadless message whose tool
+ * calls all already appear earlier in the list is such a replay; the original
+ * thread-attached message is the one that should render.
+ */
+export function dropReplayedToolMessages(
+  messages: ChiefUIMessage[],
+): ChiefUIMessage[] {
+  const keptToolCallIds = new Set<string>();
+  const result: ChiefUIMessage[] = [];
+  for (const message of messages) {
+    const toolParts = message.parts.filter(
+      (
+        part,
+      ): part is Extract<
+        ChiefUIMessage["parts"][number],
+        { type: "dynamic-tool" }
+      > => part.type === "dynamic-tool",
+    );
+    const isReplay =
+      toolParts.length > 0 &&
+      !message.metadata?.threadRootId &&
+      toolParts.every((part) => keptToolCallIds.has(part.toolCallId));
+    if (isReplay) continue;
+    result.push(message);
+    for (const part of toolParts) keptToolCallIds.add(part.toolCallId);
+  }
+  return result;
+}

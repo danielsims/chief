@@ -28,12 +28,6 @@ const RUNTIME_PROTOCOL: &str = "2";
 struct PendingNotificationActivation(Mutex<Option<serde_json::Value>>);
 
 impl PendingNotificationActivation {
-    fn replace(&self, target: serde_json::Value) {
-        if let Ok(mut pending) = self.0.lock() {
-            *pending = Some(target);
-        }
-    }
-
     fn take(&self) -> Option<serde_json::Value> {
         self.0.lock().ok()?.take()
     }
@@ -632,6 +626,16 @@ fn spawn_agent_runtime(_app: &tauri::AppHandle) -> Option<Child> {
         ));
     }
 
+    // Only attempt binaries that actually exist. Trying a missing absolute path
+    // (e.g. /opt/homebrew/bin/corepack on machines where corepack lives in the
+    // Node install) surfaces a noisy ENOENT before the loop reaches a working
+    // candidate, and a bare "corepack" on PATH is resolved lazily at spawn.
+    candidates.retain(|(program, _)| {
+        program.is_absolute()
+            .then(|| program.is_file())
+            .unwrap_or(true)
+    });
+
     for (program, args) in candidates {
         let log = OpenOptions::new()
             .create(true)
@@ -650,6 +654,7 @@ fn spawn_agent_runtime(_app: &tauri::AppHandle) -> Option<Child> {
             .args(args)
             .current_dir(&repo_dir)
             .env("PATH", &path)
+            .env("CHIEF_DEBUG_SESSION_FORCE", "1")
             .stdout(stdout)
             .stderr(stderr);
 
@@ -872,37 +877,21 @@ fn show_native_notification(
     app: tauri::AppHandle,
     title: String,
     body: String,
-    target: Option<serde_json::Value>,
+    _target: Option<serde_json::Value>,
 ) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        use tauri::{Emitter, Manager};
+    use tauri_plugin_notification::NotificationExt;
 
-        let _ = notify_rust::set_application(&app.config().identifier);
-        let mut notification = notify_rust::Notification::new();
-        notification.summary(&title).body(&body);
-        let handle = notification
-            .show()
-            .map_err(|error| format!("native notification delivery failed: {error}"))?;
-        thread::spawn(move || {
-            handle.wait_for_action(move |action| {
-                if action != "default" {
-                    return;
-                }
-                if let Some(target) = target {
-                    app.state::<PendingNotificationActivation>().replace(target);
-                }
-                focus_main_window(&app);
-                let _ = app.emit("chief-notification-activated", ());
-            });
-        });
-        Ok(())
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (app, title, body, target);
-        Err("native notification delivery is only available on macOS".to_owned())
-    }
+    app.notification()
+        .builder()
+        .title(&title)
+        .body(&body)
+        .show()
+        .map_err(|error| format!("native notification delivery failed: {error}"))?;
+    // Do not enqueue a route here. Showing a notification is not clicking it;
+    // enqueueing it makes the next focus event steal the user's location and
+    // navigate into the source channel. Explicit click routing needs a native
+    // notification action callback, not the delivery path.
+    Ok(())
 }
 
 #[tauri::command]

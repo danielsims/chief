@@ -297,7 +297,89 @@ function InstalledAgentCard({
         {agent.description}
       </p>
 
-      <div className="mt-5 grid grid-cols-3 gap-2">
+      <section className="mt-5 rounded-xl shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold">Agent app &amp; model</p>
+            <p className="text-muted-foreground mt-0.5 text-[10px]">
+              {meta
+                ? `Runs with ${meta.label}.`
+                : "Choose which model powers this agent."}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={driver ?? undefined}
+              disabled={!ready}
+              onValueChange={(value) =>
+                save({ driver: value as DriverType, model: "" })
+              }
+            >
+              <SelectTrigger className="h-8 w-auto min-w-36 gap-1.5 px-2 text-xs">
+                {meta ? (
+                  <span className="flex items-center gap-1.5">
+                    <meta.Icon size={13} />
+                    {meta.label}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    Choose agent app
+                  </span>
+                )}
+              </SelectTrigger>
+              <SelectContent className="min-w-36">
+                <SelectGroup>
+                  <SelectLabel>Local</SelectLabel>
+                  <SelectItem value="claude">
+                    <ProviderOption provider="claude" />
+                  </SelectItem>
+                  <SelectItem value="codex">
+                    <ProviderOption provider="codex" />
+                  </SelectItem>
+                  <SelectItem value="opencode">
+                    <ProviderOption provider="opencode" />
+                  </SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {driver ? (
+              <Select
+                value={model || "__auto__"}
+                disabled={!ready}
+                onValueChange={(value) =>
+                  save({ model: value === "__auto__" ? "" : value })
+                }
+              >
+                <SelectTrigger className="h-8 w-auto max-w-48 gap-1.5 px-2 text-xs">
+                  <span className="truncate">
+                    {models.loading
+                      ? "Loading…"
+                      : (models.models.find((item) => item.value === model)
+                          ?.label ??
+                          model) ||
+                        "Auto"}
+                  </span>
+                </SelectTrigger>
+                <SelectContent className="max-h-72 min-w-52">
+                  {(models.models.length
+                    ? models.models
+                    : [{ value: "", label: "Auto" }]
+                  ).map((item) => (
+                    <SelectItem
+                      key={item.value || "auto"}
+                      value={item.value || "__auto__"}
+                    >
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
+      <div className="mt-5 grid grid-cols-2 gap-2">
         <div className="bg-background/55 rounded-xl px-3 py-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
           <p className="text-muted-foreground text-[9px]">Capabilities</p>
           <p className="mt-1 text-xs font-semibold">{capabilities.length}</p>
@@ -306,12 +388,6 @@ function InstalledAgentCard({
           <p className="text-muted-foreground text-[9px]">Connections</p>
           <p className="mt-1 text-xs font-semibold">
             {assignedIntegrations.length}
-          </p>
-        </div>
-        <div className="bg-background/55 rounded-xl px-3 py-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
-          <p className="text-muted-foreground text-[9px]">Runs with</p>
-          <p className="mt-1 truncate text-xs font-semibold">
-            {meta?.label ?? "Not configured"}
           </p>
         </div>
       </div>
@@ -528,94 +604,20 @@ function InstalledAgentCard({
         </div>
       </div>
 
-      <div className="mt-auto flex items-center justify-between gap-3 pt-4 shadow-[inset_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
-        <div className="flex items-center gap-2">
-          <Select
-            value={driver ?? undefined}
-            disabled={!ready}
-            onValueChange={(value) =>
-              save({ driver: value as DriverType, model: "" })
-            }
-          >
-            <SelectTrigger className="text-muted-foreground hover:text-foreground data-[state=open]:text-foreground h-7 w-auto gap-1.5 border-transparent px-1 text-xs">
-              {meta ? (
-                <span className="flex items-center gap-1.5">
-                  <meta.Icon size={13} />
-                  {meta.label}
-                </span>
-              ) : (
-                <span>Choose agent app</span>
-              )}
-            </SelectTrigger>
-            <SelectContent className="min-w-36">
-              <SelectGroup>
-                <SelectLabel>Local</SelectLabel>
-                <SelectItem value="claude">
-                  <ProviderOption provider="claude" />
-                </SelectItem>
-                <SelectItem value="codex">
-                  <ProviderOption provider="codex" />
-                </SelectItem>
-                <SelectItem value="opencode">
-                  <ProviderOption provider="opencode" />
-                </SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          {driver ? (
-            <Select
-              value={model || "__auto__"}
-              disabled={!ready}
-              onValueChange={(value) =>
-                save({ model: value === "__auto__" ? "" : value })
-              }
-            >
-              <SelectTrigger className="text-muted-foreground hover:text-foreground h-7 w-auto max-w-40 gap-1.5 border-transparent px-1 text-xs">
-                <span className="truncate">
-                  {models.loading
-                    ? "Loading…"
-                    : (models.models.find((item) => item.value === model)
-                        ?.label ??
-                        model) ||
-                      "Auto"}
-                </span>
-              </SelectTrigger>
-              <SelectContent className="max-h-72 min-w-52">
-                {(models.models.length
-                  ? models.models
-                  : [{ value: "", label: "Auto" }]
-                ).map((item) => (
-                  <SelectItem
-                    key={item.value || "auto"}
-                    value={item.value || "__auto__"}
-                  >
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : null}
-          {meta ? (
-            <span className="text-muted-foreground text-xs">
-              {meta.location}
-            </span>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            to={`/conversations?dm=${encodeURIComponent(agent.id)}`}
-            className="text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent)] transition-colors"
-          >
-            <MessageCircle size={12} />
-            Message {agent.name}
-          </Link>
-          {onDeploy ? (
-            <Button size="sm" onClick={onDeploy}>
-              <Cloud size={12} />
-              Deploy {agent.name}
-            </Button>
-          ) : null}
-        </div>
+      <div className="mt-auto flex items-center justify-end gap-2 pt-4 shadow-[inset_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
+        <Link
+          to={`/conversations?dm=${encodeURIComponent(agent.id)}`}
+          className="text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent)] transition-colors"
+        >
+          <MessageCircle size={12} />
+          Message {agent.name}
+        </Link>
+        {onDeploy ? (
+          <Button size="sm" onClick={onDeploy}>
+            <Cloud size={12} />
+            Deploy {agent.name}
+          </Button>
+        ) : null}
       </div>
     </div>
   );

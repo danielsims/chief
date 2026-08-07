@@ -117,11 +117,6 @@
       "count": 1
     }
   },
-  "src/lib/config.ts": {
-    "turbo/no-undeclared-env-vars": {
-      "count": 1
-    }
-  },
   "src/lib/convex.tsx": {
     "@typescript-eslint/no-non-null-assertion": {
       "count": 1
@@ -144,11 +139,6 @@
     },
     "react-hooks/set-state-in-effect": {
       "count": 4
-    }
-  },
-  "src/lib/updater.ts": {
-    "turbo/no-undeclared-env-vars": {
-      "count": 1
     }
   },
   "src/main.tsx": {

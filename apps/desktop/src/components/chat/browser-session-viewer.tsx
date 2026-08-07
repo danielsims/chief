@@ -1,14 +1,11 @@
 import type { BrowserDisplayMode } from "@browser-ui/react";
 import { useState } from "react";
-import { Browser, BrowserDisplayTrigger } from "@browser-ui/react";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import {
-  ArrowRight,
-  ExternalLink,
-  Maximize2,
-  Minimize2,
-  X,
-} from "lucide-react";
+  Browser,
+  BrowserDisplayTrigger,
+  BrowserPictureInPictureTrigger,
+} from "@browser-ui/react";
+import { Maximize2, Minimize2, X } from "lucide-react";
 
 import { cn } from "@chief/ui/lib/utils";
 
@@ -20,13 +17,11 @@ export function BrowserSessionViewer({
   conversationId,
   onCloseViewer,
   operating,
-  onOpenPanel,
 }: {
   className?: string;
   conversationId: string;
   onCloseViewer?: () => void;
   operating: boolean;
-  onOpenPanel?: () => void;
 }) {
   const {
     browserSessions,
@@ -58,25 +53,18 @@ export function BrowserSessionViewer({
 
   const displayControls = (
     <>
-      {onOpenPanel ? (
-        <BrowserDisplayTrigger
-          aria-label="Open browser in side panel"
-          onClick={() => {
-            setWindowFullscreen(false);
-            onOpenPanel();
-          }}
-          title="Open in side panel"
-        >
-          <ArrowRight aria-hidden />
-        </BrowserDisplayTrigger>
-      ) : null}
-      <BrowserDisplayTrigger
-        aria-label="Open in primary browser"
-        onClick={() => void openUrl(session.url)}
-        title="Open in browser"
-      >
-        <ExternalLink aria-hidden />
-      </BrowserDisplayTrigger>
+      <BrowserPictureInPictureTrigger
+        aria-label={
+          displayMode === "picture-in-picture"
+            ? "Return browser inline"
+            : "Open browser in picture-in-picture"
+        }
+        title={
+          displayMode === "picture-in-picture"
+            ? "Return inline"
+            : "Picture-in-picture"
+        }
+      />
       <BrowserDisplayTrigger
         aria-label={windowFullscreen ? "Exit fullscreen" : "Open fullscreen"}
         onClick={() => setWindowFullscreen((current) => !current)}
@@ -119,6 +107,7 @@ export function BrowserSessionViewer({
       operatingLabel={
         session.operatingLabel ?? "Chief is working in this browser"
       }
+      showPictureInPicture
       streamUrl={session.streamUrl}
       url={session.url}
       variant="bare"

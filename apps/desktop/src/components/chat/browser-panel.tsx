@@ -1,7 +1,6 @@
 import type { ErrorInfo, ReactNode, Ref } from "react";
 import { Component, lazy, Suspense, useLayoutEffect, useState } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowRight, ExternalLink, Globe2 } from "lucide-react";
+import { ArrowRight, Globe2 } from "lucide-react";
 import { createPortal } from "react-dom";
 
 import type { BrowserRunRecord } from "@chief/agent-runtime/types";
@@ -80,13 +79,11 @@ function SafeBrowserSessionViewer({
   conversationId,
   onCloseViewer,
   operating,
-  onOpenPanel,
 }: {
   className?: string;
   conversationId: string;
   onCloseViewer?: () => void;
   operating: boolean;
-  onOpenPanel?: () => void;
 }) {
   return (
     <BrowserSessionErrorBoundary
@@ -99,7 +96,6 @@ function SafeBrowserSessionViewer({
           conversationId={conversationId}
           onCloseViewer={onCloseViewer}
           operating={operating}
-          onOpenPanel={onOpenPanel}
         />
       </Suspense>
     </BrowserSessionErrorBoundary>
@@ -165,15 +161,6 @@ function BrowserSessionCard({
         </span>
       </div>
       <div className="relative z-10 flex shrink-0 items-center gap-1">
-        <button
-          aria-label="Open in primary browser"
-          className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring/30 flex size-7 items-center justify-center rounded-lg transition-colors outline-none focus-visible:ring-2"
-          title="Open in browser"
-          type="button"
-          onClick={() => void openUrl(url)}
-        >
-          <ExternalLink aria-hidden size={13} strokeWidth={1.7} />
-        </button>
         {onClick ? (
           <button
             className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring/30 flex h-7 items-center gap-1 rounded-lg px-2 text-[11px] leading-none font-medium transition-colors outline-none focus-visible:ring-2"
@@ -193,6 +180,7 @@ function BrowserSessionAttachmentContent({
   conversationId,
   detached = false,
   onOpenPanel,
+  operating = false,
   run,
   targetRef,
 }: {
@@ -243,10 +231,18 @@ function BrowserSessionAttachmentContent({
   return (
     <div className="mt-1 w-full max-w-[64rem] min-w-0 overflow-visible">
       <div className="bg-muted/45 overflow-hidden rounded-2xl p-1 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_70%,transparent)]">
-        <div
-          ref={targetRef}
-          className="chief-browser-viewport-target aspect-[16/10] min-h-0 w-full overflow-hidden rounded-xl"
-        />
+        {targetRef ? (
+          <div
+            ref={targetRef}
+            className="chief-browser-viewport-target aspect-[16/10] min-h-0 w-full overflow-hidden rounded-xl"
+          />
+        ) : (
+          <SafeBrowserSessionViewer
+            className="w-full overflow-hidden rounded-xl"
+            conversationId={conversationId}
+            operating={operating}
+          />
+        )}
       </div>
     </div>
   );
@@ -266,14 +262,12 @@ export function BrowserSessionPortal({
   conversationId,
   fullscreenTarget,
   onCloseViewer,
-  onOpenPanel,
   operating = false,
   panelOpen = false,
 }: {
   conversationId: string;
   fullscreenTarget: HTMLElement | null;
   onCloseViewer?: () => void;
-  onOpenPanel?: () => void;
   operating?: boolean;
   panelOpen?: boolean;
 }) {
@@ -304,7 +298,6 @@ export function BrowserSessionPortal({
         conversationId={conversationId}
         onCloseViewer={onCloseViewer}
         operating={operating}
-        onOpenPanel={panelOpen ? undefined : onOpenPanel}
       />
     </BrowserSessionErrorBoundary>,
     dock,

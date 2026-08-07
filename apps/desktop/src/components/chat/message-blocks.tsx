@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Fragment, useEffect, useState } from "react";
 import { ArrowRight, Check, ChevronDown, LoaderCircle, X } from "lucide-react";
 
@@ -55,7 +56,14 @@ function canonicalTool(name: string) {
   if (clean === "skill" || clean === "skills" || clean.includes("skill")) {
     return "skill";
   }
-  if (clean === "execute" || clean.endsWith("__execute")) return "integration";
+  if (
+    clean === "execute" ||
+    clean.endsWith("__execute") ||
+    clean.endsWith(".execute") ||
+    clean.includes("executor")
+  ) {
+    return "integration";
+  }
   if (clean.includes("search")) return "search";
   if (clean.includes("web") || clean.includes("fetch")) return "web";
   if (clean.includes("read")) return "read";
@@ -84,7 +92,9 @@ export function toolPresentation(name: string, input: unknown) {
   if (kind === "web") return "Browse";
   if (kind === "read") return "Read";
   if (kind === "edit") return "Edit";
-  return name.replace(/_/g, " ");
+  // Fall back to the executor operation label when the tool name is generic
+  // but the input carries a recognizable connected-tool call.
+  return executorToolLabel(input) ?? name.replace(/_/g, " ");
 }
 
 export function toolSummary(input: unknown): string {
@@ -305,6 +315,7 @@ export function Blocks({
   taskOwners,
   ownerId,
   onOpenTask,
+  toolAttachment,
 }: {
   blocks: ContentBlock[];
   progress?: Record<string, string>;
@@ -314,6 +325,18 @@ export function Blocks({
   taskOwners?: ReadonlyMap<string, string>;
   ownerId?: string;
   onOpenTask?: (taskId: string) => void;
+  /**
+   * A generic hook for tools that carry a rich inline UI (Chief's embedded
+   * browser, etc.). A tool block can render a live attachment at its exact
+   * position in the message stream instead of a plain tool card — the same way
+   * the channel feed embeds an attachment into the message body. Position is
+   * inherent to the message, so the attachment never floats or re-anchors.
+   */
+  toolAttachment?: (
+    block: Extract<ContentBlock, { type: "tool_use" }>,
+    ownerId?: string,
+    result?: Extract<ContentBlock, { type: "tool_result" }>,
+  ) => ReactNode | undefined;
 }) {
   const results = new Map(
     blocks
@@ -366,6 +389,14 @@ export function Blocks({
               </details>
             );
           case "tool_use": {
+            const attachment = toolAttachment?.(
+              block,
+              ownerId,
+              results.get(block.id),
+            );
+            if (attachment !== undefined) {
+              return <Fragment key={block.id}>{attachment}</Fragment>;
+            }
             const blockTasks = specialistTasksForInput(block.input, tasks);
             const visibleTasks = blockTasks.filter(
               (task) =>

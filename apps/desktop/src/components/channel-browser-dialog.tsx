@@ -109,7 +109,7 @@ export function ChannelBrowserDialog({
       <DialogContent className="max-w-lg gap-0 overflow-hidden rounded-2xl p-0">
         {creating ? (
           <form
-            className="flex min-h-[420px] flex-col"
+            className="flex h-[420px] max-h-[70vh] flex-col"
             onSubmit={(event) => {
               event.preventDefault();
               void create(name, description);
@@ -175,7 +175,7 @@ export function ChannelBrowserDialog({
             </div>
           </form>
         ) : (
-          <div className="flex min-h-[440px] flex-col">
+          <div className="flex h-[440px] max-h-[70vh] flex-col">
             <div className="px-5 pt-5 pb-4">
               <DialogTitle>Browse channels</DialogTitle>
               <DialogDescription className="sr-only">

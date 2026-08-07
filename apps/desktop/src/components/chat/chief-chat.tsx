@@ -1,13 +1,13 @@
 /* eslint-disable max-lines */
 
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
-  BrowserRunRecord,
   ChatExecutionSelection,
   ChiefMessageMetadata,
   ChiefUIMessage,
+  ContentBlock,
   DriverType,
   MessageAttachment,
   SessionRecord,
@@ -21,6 +21,10 @@ import type { ConversationProfileSelection } from "./conversation-profile";
 import type { SchedulingDraft } from "./recurring-work-composer";
 import { useAgentConfig } from "../../lib/agent-config";
 import { useAuth } from "../../lib/auth/auth-context";
+import {
+  browserOpenResultContent,
+  resolveBrowserOwnerMessageId,
+} from "../../lib/browser-sessions";
 import { useChannelReadState } from "../../lib/channel-read-state-context";
 import {
   findPendingInputRequest,
@@ -42,10 +46,7 @@ import { InputRequestSection } from "../integrations/input-request-section";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
 import { AgentActivityPanel, taskAgentLabel } from "./agent-activity-panel";
 import { ApprovalCard } from "./approval-card";
-import {
-  BrowserSessionAttachment,
-  BrowserSessionPortal,
-} from "./browser-panel";
+import { BrowserSessionAttachment } from "./browser-panel";
 import { channelActivityState } from "./channel-activity-state";
 import {
   ChannelMessageActions,
@@ -67,19 +68,125 @@ import { ObservedChat } from "./observed-chat";
 import { QuestionCard } from "./question-card";
 import { RecurringWorkComposer } from "./recurring-work-composer";
 import {
-  ordinaryToolMessageGroups,
   specialistTaskOwners,
   specialistTasksForInput,
 } from "./specialist-task-display";
 import { summarizeThreadReplyCandidates } from "./thread-reply-summary";
 import { UserMessage } from "./user-message";
 
-function browserHostname(url: string) {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return url;
+/** True when a block is a Chief embedded-browser tool call. */
+function isBrowserToolBlock(block: ContentBlock): boolean {
+  if (block.type !== "tool_use") return false;
+  const name = block.name.toLowerCase();
+  if (
+    name === "browser.open" ||
+    name === "browser.snapshot" ||
+    name === "browser.click" ||
+    name === "browser.fill" ||
+    name === "browser.select" ||
+    name === "browser.press" ||
+    name === "googleoauth.provisionclient" ||
+    name === "googleanalytics.authorize"
+  ) {
+    return true;
   }
+  // The executor surfaces browser control through its `execute` tool with the
+  // operation encoded in the input's `code` field (for example
+  // `tools.browserOpen({ ... })` or `tools["…localTools.googleOAuthProvisionClient"]`).
+  // Fall back to scanning the input for a browser/oauth operation so the panel
+  // anchors to the message that invoked it.
+  const code = browserToolCode(block.input);
+  return (
+    code !== null &&
+    (code.includes("browserOpen") ||
+      code.includes("browser.open") ||
+      code.includes("browserSnapshot") ||
+      code.includes("browserClick") ||
+      code.includes("browserFill") ||
+      code.includes("browserSelect") ||
+      code.includes("browserPress") ||
+      code.includes("googleOAuthProvisionClient") ||
+      code.includes("googleOAuth.provisionClient") ||
+      code.includes("googleAnalyticsAuthorize"))
+  );
+}
+
+/**
+ * True only for the tool call that OPENS the browser session. Interactions
+ * (snapshot, click, fill, select, press) operate on an already-open browser
+ * and must not render a second attachment — otherwise a turn with several
+ * browser steps renders one placeholder container per step, with the live
+ * viewer only attached to the last.
+ */
+function isBrowserOpenBlock(block: ContentBlock): boolean {
+  if (block.type !== "tool_use") return false;
+  const name = block.name.toLowerCase();
+  if (
+    name === "browser.open" ||
+    name === "googleoauth.provisionclient" ||
+    name === "googleanalytics.authorize"
+  ) {
+    return true;
+  }
+  const code = browserToolCode(block.input);
+  return (
+    code !== null &&
+    (code.includes("browserOpen") ||
+      code.includes("browser.open") ||
+      code.includes("googleOAuthProvisionClient") ||
+      code.includes("googleOAuth.provisionClient") ||
+      code.includes("googleAnalyticsAuthorize"))
+  );
+}
+
+/**
+ * The browser-open tool_use block of a message, if any. The input-based check
+ * is supplemented by the paired tool result so the executor's `executor_execute`
+ * browserOpen call (empty persisted input, `{ opened: true, url }` output) is
+ * recognized.
+ */
+function browserOpenBlockIn(
+  blocks: ContentBlock[],
+): Extract<ContentBlock, { type: "tool_use" }> | undefined {
+  const results = new Map(
+    blocks
+      .filter(
+        (block): block is Extract<ContentBlock, { type: "tool_result" }> =>
+          block.type === "tool_result",
+      )
+      .map((block) => [block.tool_use_id, block]),
+  );
+  return blocks.find(
+    (block): block is Extract<ContentBlock, { type: "tool_use" }> =>
+      block.type === "tool_use" &&
+      (isBrowserOpenBlock(block) ||
+        Boolean(
+          results.get(block.id) &&
+          browserOpenResultContent(results.get(block.id)?.content),
+        )),
+  );
+}
+
+function browserToolCode(input: unknown): string | null {
+  if (!input || typeof input !== "object") return null;
+  const candidate = (input as Record<string, unknown>).code;
+  if (typeof candidate === "string") {
+    if (candidate.includes("tools.") || candidate.includes('tools["')) {
+      return candidate;
+    }
+    return null;
+  }
+  if (candidate && typeof candidate === "object") {
+    const nested = browserToolCode(candidate);
+    if (nested !== null) return nested;
+  }
+  for (const value of Object.values(input as Record<string, unknown>)) {
+    if (typeof value !== "string") continue;
+    if (value.includes("tools.") || value.includes('tools["')) return value;
+    const nested = browserToolCode(value);
+    if (nested !== null) return nested;
+  }
+  return null;
 }
 
 function ChiefMessage({
@@ -265,10 +372,10 @@ export function ChiefChat({
   const resolved = agentConfig.forAgent(directAgent?.id ?? "cmo");
   const isGettingStarted =
     destinationChannelId === GETTING_STARTED_CHANNEL_RELAY_ID;
-  const initialExecution = initialDriver
-    ? { driver: initialDriver, model: initialModel }
-    : resolved.driver
-      ? { driver: resolved.driver, model: resolved.model }
+  const initialExecution = resolved.driver
+    ? { driver: resolved.driver, model: resolved.model }
+    : initialDriver
+      ? { driver: initialDriver, model: initialModel }
       : undefined;
   const [selectedExecution, setSelectedExecution] =
     useState<ChatExecutionSelection | null>(null);
@@ -296,11 +403,6 @@ export function ChiefChat({
     },
   );
   const [activityOpen, setActivityOpen] = useState(false);
-  const [browserOpen, setBrowserOpen] = useState(false);
-  const [browserInlineTarget, setBrowserInlineTarget] =
-    useState<HTMLDivElement | null>(null);
-  const [browserPanelTarget, setBrowserPanelTarget] =
-    useState<HTMLDivElement | null>(null);
   const currentTurn = useMemo(
     () => channelActivityState(messages, controls.hasAgentOutput),
     [controls.hasAgentOutput, messages],
@@ -429,7 +531,6 @@ export function ChiefChat({
 
   const selectProfile = (selection: ConversationProfileSelection) => {
     setActivityOpen(false);
-    setBrowserOpen(false);
     setThreadRootId(null);
     onOpenProfile?.(selection);
   };
@@ -575,14 +676,6 @@ export function ChiefChat({
     : undefined;
   const activeChildThreadRootId =
     activeChildOwner?.metadata?.threadRootId ?? threadRootId;
-  const ordinaryToolGroups = ordinaryToolMessageGroups(
-    messages.map((message) => ({
-      id: message.id,
-      role: message.role,
-      blocks: withoutMarkerLines(messageBlocks(message)),
-    })),
-    childSessions,
-  );
   const threadReplies = useMemo(() => {
     const replies = new Map<string, typeof messages>();
     for (const message of messages) {
@@ -651,212 +744,158 @@ export function ChiefChat({
     [activeThreadReplies, activeThreadRoot, knownAgentIds],
   );
   const chatBrowserSession = browserSessions[chatId];
+  const chatBrowserRun = browserRuns
+    .filter(
+      (run) =>
+        run.workspaceId === cloudOrganizationId &&
+        run.conversationId === chatId,
+    )
+    .sort((left, right) => right.createdAt - left.createdAt)[0];
   const childBrowserSession = activeChild
     ? browserSessions[activeChild.id]
     : undefined;
   const browserBelongsToChat = Boolean(
-    chatBrowserSession?.workspaceId === cloudOrganizationId,
+    chatBrowserSession?.workspaceId === cloudOrganizationId ||
+    chatBrowserRun?.workspaceId === cloudOrganizationId,
   );
-  const browserInThread = Boolean(
-    browserBelongsToChat &&
-    chatBrowserSession?.threadRootId &&
-    chatBrowserSession.threadRootId === threadRootId,
-  );
-  const browserInTimeline =
-    browserBelongsToChat && !chatBrowserSession?.threadRootId;
   const browserInActiveChild = Boolean(
     childBrowserSession?.workspaceId === cloudOrganizationId,
   );
-  const browserPanelConversationId =
-    browserInActiveChild && activeChild ? activeChild.id : chatId;
-  const browserPanelSession = browserSessions[browserPanelConversationId];
   const browserOperating = browserInActiveChild
     ? activeChild?.status === "running" || activeChild?.status === "waiting"
     : controls.status === "running";
-  const derivedBrowserAnchorId = browserInThread
-    ? (activeThreadReplies.at(-1)?.id ?? activeThreadRoot?.id ?? null)
-    : browserInTimeline
-      ? ([...messages]
-          .reverse()
-          .find((message) => !message.metadata?.threadRootId)?.id ?? null)
-      : null;
-  const browserAnchorId =
-    chatBrowserSession?.anchorMessageId ?? derivedBrowserAnchorId;
+  // The browser renders as an attachment anchored to the message whose turn
+  // opened it — the same way Buzz embeds the browser into the message body. The
+  // anchor is resolved once and persisted (anchorBrowserSession keeps the first
+  // insertion point), so the viewer never re-anchors as the agent streams new
+  // messages: it stays at the position it was opened at instead of popping
+  // down to the end of the thread.
+  const derivedBrowserAnchorId = useMemo(() => {
+    if (!browserBelongsToChat) return undefined;
+    const browserThreadRootId =
+      chatBrowserSession?.threadRootId ?? chatBrowserRun?.threadRootId ?? null;
+    const resolved = resolveBrowserOwnerMessageId(
+      messages.map((message) => ({
+        id: message.id,
+        role: message.role,
+        threadRootId: message.metadata?.threadRootId ?? null,
+        isBrowserOpen: browserOpenBlockIn(messageBlocks(message)) !== undefined,
+      })),
+      browserThreadRootId,
+      chatBrowserRun?.anchorMessageId,
+    );
+    if (resolved) return resolved;
+    // No browser-open tool message could be identified (executor inputs are
+    // frequently empty and the open result can be lost to a transport error).
+    // Anchor to the newest assistant message in the session's thread so the
+    // browser is visible; the persistence effect freezes this position.
+    const pool = messages.filter(
+      (message) =>
+        message.role === "assistant" &&
+        (message.metadata?.threadRootId ?? null) === browserThreadRootId,
+    );
+    if (pool.length > 0) return pool.at(-1)?.id;
+    return messages.filter((message) => message.role === "assistant").at(-1)
+      ?.id;
+  }, [
+    browserBelongsToChat,
+    chatBrowserRun?.anchorMessageId,
+    chatBrowserRun?.threadRootId,
+    chatBrowserSession?.threadRootId,
+    messages,
+  ]);
+  const anchoredBrowserRunIdRef = useRef<string | null>(null);
   useEffect(() => {
+    const runId = chatBrowserSession?.runId;
     if (
-      !chatBrowserSession ||
-      chatBrowserSession.anchorMessageId ||
-      !derivedBrowserAnchorId
+      !browserBelongsToChat ||
+      !derivedBrowserAnchorId ||
+      chatBrowserSession?.anchorMessageId ||
+      !runId ||
+      anchoredBrowserRunIdRef.current === runId
     ) {
       return;
     }
+    anchoredBrowserRunIdRef.current = runId;
     anchorBrowserSession(chatId, derivedBrowserAnchorId);
   }, [
     anchorBrowserSession,
-    chatBrowserSession,
+    browserBelongsToChat,
+    chatBrowserSession?.anchorMessageId,
+    chatBrowserSession?.runId,
     chatId,
     derivedBrowserAnchorId,
   ]);
-  const conversationBrowserRuns = useMemo(
-    () =>
-      browserRuns.filter(
-        (run) =>
-          run.workspaceId === cloudOrganizationId &&
-          run.conversationId === chatId,
-      ),
-    [browserRuns, chatId, cloudOrganizationId],
+  const browserAnchorMessageId =
+    chatBrowserSession?.anchorMessageId ?? derivedBrowserAnchorId;
+  const browserThreadRootId =
+    chatBrowserSession?.threadRootId ?? chatBrowserRun?.threadRootId ?? null;
+  // The browser is rendered in the main timeline whenever it would otherwise be
+  // out of view (its thread is not the one currently open), so it can never be
+  // lost while the agent keeps operating it. When its thread IS open it renders
+  // inside that thread instead, matching the "attachment at the message" model.
+  const browserInOpenThread = Boolean(
+    browserBelongsToChat &&
+    threadRootId &&
+    browserThreadRootId === threadRootId,
   );
-  const timelineBrowserRuns = useMemo(
-    () => conversationBrowserRuns.filter((run) => !run.threadRootId),
-    [conversationBrowserRuns],
-  );
-  const activeThreadBrowserRuns = useMemo(
-    () =>
-      threadRootId
-        ? conversationBrowserRuns.filter(
-            (run) => run.threadRootId === threadRootId,
-          )
-        : [],
-    [conversationBrowserRuns, threadRootId],
-  );
+  const browserAttachmentNode =
+    browserBelongsToChat && browserAnchorMessageId ? (
+      <div className="mx-auto w-full max-w-3xl py-1">
+        <BrowserSessionAttachment
+          conversationId={chatId}
+          operating={controls.status === "running"}
+          run={chatBrowserRun}
+        />
+      </div>
+    ) : null;
   const timelineEntries = useMemo(() => {
     const entries: (
       | { type: "message"; message: ChiefUIMessage }
-      | { type: "browser"; key: string; run?: BrowserRunRecord }
+      | { type: "browser"; key: string }
     )[] = [];
-    const inserted = new Set<string>();
-    const visibleRuns = [...timelineBrowserRuns];
-    if (
-      browserInTimeline &&
-      (!chatBrowserSession?.runId ||
-        !visibleRuns.some((run) => run.id === chatBrowserSession.runId))
-    ) {
-      visibleRuns.push({
-        id: `pending:${chatId}`,
-        workspaceId: cloudOrganizationId ?? "",
-        conversationId: chatId,
-        ...(browserAnchorId ? { anchorMessageId: browserAnchorId } : {}),
-        url: chatBrowserSession?.url ?? "about:blank",
-        status: chatBrowserSession?.status ?? "active",
-        createdAt: 0,
-        updatedAt: 0,
-      });
-    }
+    const anchorMessage = messages.find((m) => m.id === browserAnchorMessageId);
+    const anchorIsThreadReply = Boolean(
+      channel && anchorMessage?.metadata?.threadRootId,
+    );
+    let anchorPlaced = false;
     for (const message of messages) {
       entries.push({ type: "message", message });
-      for (const run of visibleRuns) {
-        if (run.anchorMessageId !== message.id) continue;
-        entries.push({ type: "browser", key: run.id, run });
-        inserted.add(run.id);
+      if (message.id === browserAnchorMessageId && !anchorIsThreadReply) {
+        entries.push({ type: "browser", key: `browser:${message.id}` });
+        anchorPlaced = true;
       }
     }
-    for (const run of visibleRuns) {
-      if (!inserted.has(run.id)) {
-        entries.push({ type: "browser", key: run.id, run });
-      }
+    if (browserAnchorMessageId && !anchorPlaced) {
+      entries.push({ type: "browser", key: "browser:end" });
     }
     return entries;
-  }, [
-    browserAnchorId,
-    browserInTimeline,
-    chatBrowserSession,
-    chatId,
-    cloudOrganizationId,
-    messages,
-    timelineBrowserRuns,
-  ]);
+  }, [browserAnchorMessageId, channel, messages]);
   const threadReplyEntries = useMemo(() => {
     const entries: (
       | { type: "message"; message: ChiefUIMessage }
-      | { type: "browser"; key: string; run?: BrowserRunRecord }
+      | { type: "browser"; key: string }
     )[] = [];
-    const inserted = new Set<string>();
-    const visibleRuns = [...activeThreadBrowserRuns];
-    if (
-      browserInThread &&
-      (!chatBrowserSession?.runId ||
-        !visibleRuns.some((run) => run.id === chatBrowserSession.runId))
-    ) {
-      visibleRuns.push({
-        id: `pending:${chatId}`,
-        workspaceId: cloudOrganizationId ?? "",
-        conversationId: chatId,
-        ...(threadRootId ? { threadRootId } : {}),
-        ...(browserAnchorId ? { anchorMessageId: browserAnchorId } : {}),
-        url: chatBrowserSession?.url ?? "about:blank",
-        status: chatBrowserSession?.status ?? "active",
-        createdAt: 0,
-        updatedAt: 0,
-      });
-    }
-    for (const run of visibleRuns) {
-      if (run.anchorMessageId === activeThreadRoot?.id) inserted.add(run.id);
-    }
+    let anchorPlaced = false;
     for (const message of activeThreadReplies) {
       entries.push({ type: "message", message });
-      for (const run of visibleRuns) {
-        if (run.anchorMessageId !== message.id) continue;
-        entries.push({ type: "browser", key: run.id, run });
-        inserted.add(run.id);
+      if (message.id === browserAnchorMessageId) {
+        entries.push({ type: "browser", key: `browser:${message.id}` });
+        anchorPlaced = true;
       }
     }
-    for (const run of visibleRuns) {
-      if (!inserted.has(run.id)) {
-        entries.push({ type: "browser", key: run.id, run });
-      }
+    if (browserAnchorMessageId && !anchorPlaced) {
+      entries.push({ type: "browser", key: "browser:end" });
     }
     return entries;
-  }, [
-    activeThreadBrowserRuns,
-    activeThreadReplies,
-    activeThreadRoot?.id,
-    browserAnchorId,
-    browserInThread,
-    chatBrowserSession,
-    chatId,
-    cloudOrganizationId,
-    threadRootId,
-  ]);
-  const threadRootBrowserRuns = activeThreadBrowserRuns.filter(
-    (run) => run.anchorMessageId === activeThreadRoot?.id,
-  );
-  const threadRootBrowserEntries: BrowserRunRecord[] = [
-    ...threadRootBrowserRuns,
-  ];
-  if (
-    browserInThread &&
-    browserAnchorId === activeThreadRoot?.id &&
-    (!chatBrowserSession?.runId ||
-      !threadRootBrowserEntries.some(
-        (run) => run.id === chatBrowserSession.runId,
-      ))
-  ) {
-    threadRootBrowserEntries.push({
-      id: `pending:${chatId}`,
-      workspaceId: cloudOrganizationId ?? "",
-      conversationId: chatId,
-      ...(threadRootId ? { threadRootId } : {}),
-      ...(browserAnchorId ? { anchorMessageId: browserAnchorId } : {}),
-      url: chatBrowserSession?.url ?? "about:blank",
-      status: chatBrowserSession?.status ?? "active",
-      createdAt: 0,
-      updatedAt: 0,
-    });
-  }
-  const openBrowserPanel = () => {
-    setActivityOpen(false);
-    setBrowserOpen(true);
-    if (!activeChild) onOpenInternalPanel?.();
-  };
+  }, [activeThreadReplies, browserAnchorMessageId]);
   const closeAuxiliaryWorkspace = () => {
-    setBrowserOpen(false);
     setActivityOpen(false);
     setThreadRootId(null);
     onCloseChild?.();
   };
   const returnToThread = () => {
     if (!activeChildThreadRootId) return;
-    setBrowserOpen(false);
     setActivityOpen(false);
     onCloseChild?.();
     setThreadRootId(activeChildThreadRootId);
@@ -868,20 +907,23 @@ export function ChiefChat({
       setThreadRootId(activeChildThreadRootId);
     }
   };
-  const returnFromBrowserPanel = () => {
-    if (activeChild && activeChildThreadRootId) {
-      returnToThread();
-      return;
-    }
-    setBrowserOpen(false);
-  };
   const channelVisibleBlocks = (message: ChiefUIMessage) =>
     withoutMarkerLines(messageBlocks(message)).filter(
       (block) =>
         block.type !== "thinking" &&
-        block.type !== "tool_result" &&
         (block.type !== "tool_use" ||
+          isBrowserToolBlock(block) ||
           specialistTasksForInput(block.input, childSessions).length > 0),
+    );
+  // The thread panel is a focused conversation, not the noisy channel feed:
+  // every agent tool card (browser, executor calls, delegations) renders inline
+  // at the message that produced it. Only collapsible reasoning is hidden.
+  // tool_result blocks are intentionally kept: `Blocks` pairs them with their
+  // tool_use (rendering nothing) and the browser-open attachment needs the
+  // paired result to recognize an executor `browserOpen` call.
+  const threadBlocks = (message: ChiefUIMessage) =>
+    withoutMarkerLines(messageBlocks(message)).filter(
+      (block) => block.type !== "thinking",
     );
   const summarizeThreadReplies = (replies: readonly ChiefUIMessage[]) => {
     const summary = summarizeThreadReplyCandidates(
@@ -921,7 +963,6 @@ export function ChiefChat({
       .join("\n");
     const openThread = () => {
       setActivityOpen(false);
-      setBrowserOpen(false);
       setThreadRootId(message.id);
       onOpenInternalPanel?.();
     };
@@ -1055,29 +1096,11 @@ export function ChiefChat({
             ) : null}
             {timelineEntries.map((entry) => {
               if (entry.type === "browser") {
+                // When the browser's thread is open it renders in the thread
+                // panel; here it is only shown when it would otherwise be lost.
+                if (browserInOpenThread) return null;
                 return (
-                  <div
-                    key={entry.key}
-                    className="mx-auto w-full max-w-3xl py-1"
-                  >
-                    <BrowserSessionAttachment
-                      conversationId={chatId}
-                      detached={
-                        browserOpen &&
-                        (entry.run?.id.startsWith("pending:") === true ||
-                          entry.run?.id === chatBrowserSession?.runId)
-                      }
-                      operating={controls.status === "running"}
-                      onOpenPanel={openBrowserPanel}
-                      run={entry.run}
-                      targetRef={
-                        entry.run?.id.startsWith("pending:") ||
-                        entry.run?.id === chatBrowserSession?.runId
-                          ? setBrowserInlineTarget
-                          : undefined
-                      }
-                    />
-                  </div>
+                  <Fragment key={entry.key}>{browserAttachmentNode}</Fragment>
                 );
               }
               const { message } = entry;
@@ -1113,15 +1136,16 @@ export function ChiefChat({
               }
               if (message.role !== "assistant") return null;
               const blocks = withoutMarkerLines(messageBlocks(message));
-              const toolGroup = ordinaryToolGroups.get(message.id);
-              if (toolGroup) return null;
               const timelineBlocks = channel
                 ? channelVisibleBlocks(message)
                 : blocks;
               if (timelineBlocks.length === 0) return null;
+              const visibleNonResults = timelineBlocks.filter(
+                (block) => block.type !== "tool_result",
+              );
               const specialistOnly =
-                timelineBlocks.length > 0 &&
-                timelineBlocks.every((block) => block.type === "tool_use");
+                visibleNonResults.length > 0 &&
+                visibleNonResults.every((block) => block.type === "tool_use");
               if (specialistOnly) {
                 return (
                   <div
@@ -1171,17 +1195,19 @@ export function ChiefChat({
                 />
               </div>
             ))}
-            {controls.questions.map((pending) => (
-              <div key={pending.requestId} className="mx-auto max-w-3xl">
-                <QuestionCard
-                  pending={pending}
-                  onSubmit={(answers) =>
-                    respondQuestion(pending.requestId, answers)
-                  }
-                  onDismiss={() => respondQuestion(pending.requestId, null)}
-                />
-              </div>
-            ))}
+            {!threadRootId
+              ? controls.questions.map((pending) => (
+                  <div key={pending.requestId} className="mx-auto max-w-3xl">
+                    <QuestionCard
+                      pending={pending}
+                      onSubmit={(answers) =>
+                        respondQuestion(pending.requestId, answers)
+                      }
+                      onDismiss={() => respondQuestion(pending.requestId, null)}
+                    />
+                  </div>
+                ))
+              : null}
             {pendingInput ? (
               <div className="mx-auto max-w-3xl">
                 <InputRequestSection
@@ -1238,7 +1264,6 @@ export function ChiefChat({
               running={Boolean(channel && controls.status === "running")}
               statusLabel={statusLabel}
               onOpen={() => {
-                setBrowserOpen(false);
                 setThreadRootId(null);
                 setActivityOpen(true);
                 onOpenInternalPanel?.();
@@ -1247,62 +1272,7 @@ export function ChiefChat({
           </div>
         </div>
       </div>
-      {browserOpen &&
-      (browserBelongsToChat || browserInActiveChild) &&
-      !profileOpen ? (
-        <ConversationAuxiliaryPanel
-          onClose={closeAuxiliaryWorkspace}
-          sizing={panelSizing}
-        >
-          <ConversationAuxiliaryPanelHeader
-            backLabel={
-              activeChild
-                ? `Back to ${activeChild.title}`
-                : activeChildThreadRootId
-                  ? "Back to thread"
-                  : "Back"
-            }
-            onBack={returnFromBrowserPanel}
-            title={
-              <ConversationAuxiliaryBreadcrumb
-                current="Browser"
-                items={[
-                  ...(activeChildThreadRootId
-                    ? [
-                        {
-                          key: "thread",
-                          label: "Thread",
-                          onClick: returnToThread,
-                        },
-                      ]
-                    : []),
-                  ...(activeChild
-                    ? [
-                        {
-                          key: "child",
-                          label: activeChild.title,
-                          onClick: () => setBrowserOpen(false),
-                        },
-                      ]
-                    : []),
-                ]}
-              />
-            }
-            subtitle={
-              browserPanelSession
-                ? browserHostname(browserPanelSession.url)
-                : undefined
-            }
-            onClose={returnFromBrowserPanel}
-          />
-          <ConversationAuxiliaryPanelBody className="overflow-hidden">
-            <div
-              ref={setBrowserPanelTarget}
-              className="chief-browser-viewport-target h-full min-h-0 w-full overflow-hidden"
-            />
-          </ConversationAuxiliaryPanelBody>
-        </ConversationAuxiliaryPanel>
-      ) : activeChild && !profileOpen ? (
+      {activeChild && !profileOpen ? (
         <ConversationAuxiliaryPanel
           onClose={closeAuxiliaryWorkspace}
           sizing={panelSizing}
@@ -1344,10 +1314,7 @@ export function ChiefChat({
                 browserInActiveChild ? (
                   <BrowserSessionAttachment
                     conversationId={activeChild.id}
-                    detached={browserOpen}
                     operating={browserOperating}
-                    onOpenPanel={openBrowserPanel}
-                    targetRef={setBrowserInlineTarget}
                   />
                 ) : undefined
               }
@@ -1383,30 +1350,10 @@ export function ChiefChat({
                 />
               </div>
             ) : null}
-            {threadRootBrowserEntries.map((run) => (
-              <div
-                key={run.id}
-                className="mx-auto w-full max-w-3xl min-w-0 pl-11"
-              >
-                <BrowserSessionAttachment
-                  conversationId={chatId}
-                  detached={
-                    browserOpen &&
-                    (run.id.startsWith("pending:") ||
-                      run.id === chatBrowserSession?.runId)
-                  }
-                  operating={controls.status === "running"}
-                  onOpenPanel={openBrowserPanel}
-                  run={run}
-                  targetRef={
-                    run.id.startsWith("pending:") ||
-                    run.id === chatBrowserSession?.runId
-                      ? setBrowserInlineTarget
-                      : undefined
-                  }
-                />
-              </div>
-            ))}
+            {browserInOpenThread &&
+            browserAnchorMessageId === activeThreadRoot?.id
+              ? browserAttachmentNode
+              : null}
             <div className="my-3 flex items-center gap-2">
               <span className="bg-border h-px flex-1" />
               <span className="text-muted-foreground text-[10px]">
@@ -1417,29 +1364,9 @@ export function ChiefChat({
             </div>
             {threadReplyEntries.map((entry) => {
               if (entry.type === "browser") {
+                if (!browserInOpenThread) return null;
                 return (
-                  <div
-                    key={entry.key}
-                    className="mx-auto w-full max-w-3xl min-w-0 pl-11"
-                  >
-                    <BrowserSessionAttachment
-                      conversationId={chatId}
-                      detached={
-                        browserOpen &&
-                        (entry.run?.id.startsWith("pending:") === true ||
-                          entry.run?.id === chatBrowserSession?.runId)
-                      }
-                      operating={controls.status === "running"}
-                      onOpenPanel={openBrowserPanel}
-                      run={entry.run}
-                      targetRef={
-                        entry.run?.id.startsWith("pending:") ||
-                        entry.run?.id === chatBrowserSession?.runId
-                          ? setBrowserInlineTarget
-                          : undefined
-                      }
-                    />
-                  </div>
+                  <Fragment key={entry.key}>{browserAttachmentNode}</Fragment>
                 );
               }
               const { message } = entry;
@@ -1461,11 +1388,14 @@ export function ChiefChat({
                   </div>
                 );
               }
-              const blocks = channelVisibleBlocks(message);
+              const blocks = threadBlocks(message);
               if (blocks.length === 0) return null;
-              const specialistOnly = blocks.every(
-                (block) => block.type === "tool_use",
+              const visibleNonResults = blocks.filter(
+                (block) => block.type !== "tool_result",
               );
+              const specialistOnly =
+                visibleNonResults.length > 0 &&
+                visibleNonResults.every((block) => block.type === "tool_use");
               if (specialistOnly) {
                 return (
                   <div
@@ -1506,6 +1436,19 @@ export function ChiefChat({
                 </ChiefMessage>
               );
             })}
+            {threadRootId
+              ? controls.questions.map((pending) => (
+                  <div key={pending.requestId} className="mx-auto max-w-3xl">
+                    <QuestionCard
+                      pending={pending}
+                      onSubmit={(answers) =>
+                        respondQuestion(pending.requestId, answers)
+                      }
+                      onDismiss={() => respondQuestion(pending.requestId, null)}
+                    />
+                  </div>
+                ))
+              : null}
             <div ref={threadBottomRef} />
           </ConversationAuxiliaryPanelBody>
           <div className="shrink-0 space-y-2 px-3 pb-3">
@@ -1560,18 +1503,6 @@ export function ChiefChat({
           onClose={() => setActivityOpen(false)}
           onOpenTask={onOpenChild}
           sizing={panelSizing}
-        />
-      ) : null}
-      {browserPanelSession?.status === "active" ? (
-        <BrowserSessionPortal
-          conversationId={browserPanelConversationId}
-          fullscreenTarget={
-            browserOpen ? browserPanelTarget : browserInlineTarget
-          }
-          operating={browserOperating}
-          onCloseViewer={browserOpen ? returnFromBrowserPanel : undefined}
-          onOpenPanel={openBrowserPanel}
-          panelOpen={browserOpen}
         />
       ) : null}
     </div>

@@ -77,6 +77,7 @@ import {
 import { navigateApp, notifySystem } from "./notifications";
 import {
   deduplicateDocumentParts,
+  dropReplayedToolMessages,
   mergeRuntimeHistory,
   mergeRuntimeMessage,
   visibleRuntimeError,
@@ -2748,7 +2749,7 @@ function useRuntimeChat(
     selectedExecution ?? initialExecution,
   );
   useEffect(() => {
-    executionRef.current = selectedExecution ?? execution ?? initialExecution;
+    executionRef.current = selectedExecution ?? initialExecution ?? execution;
   }, [execution, initialExecution, selectedExecution]);
   const transport = useMemo<ChatTransport<ChiefUIMessage>>(
     () => ({
@@ -2944,6 +2945,33 @@ function useRuntimeChat(
         msg.workspaceId === cloudOrganizationId &&
         msg.chatId === chatId
       ) {
+        if (import.meta.env.DEV) {
+          const text = msg.message.parts
+            .flatMap((part) => (part.type === "text" ? [part.text] : []))
+            .join(" ")
+            .slice(0, 80);
+          const toolNames = msg.message.parts
+            .filter(
+              (
+                part,
+              ): part is Extract<
+                ChiefUIMessage["parts"][number],
+                { type: "dynamic-tool" }
+              > => part.type === "dynamic-tool",
+            )
+            .map((part) => part.toolName);
+          console.log(
+            "[chief-msg-in]",
+            JSON.stringify({
+              id: msg.message.id,
+              role: msg.message.role,
+              threadRootId: msg.message.metadata?.threadRootId ?? null,
+              text,
+              toolNames,
+              parts: msg.message.parts.length,
+            }),
+          );
+        }
         const hasAssistantText =
           msg.message.role === "assistant" &&
           msg.message.parts.some(
@@ -2995,6 +3023,12 @@ function useRuntimeChat(
     });
     return () => {
       cancelled = true;
+      // Navigating away unloads the chat. Reset the history marker so the
+      // next open of the SAME chat replaces (not merges) the transcript — the
+      // server history is authoritative and merging it into the stale live
+      // buffer re-inserted every thread message into the timeline.
+      initializedChatKeyRef.current = null;
+      loadedHistoryKeyRef.current = null;
       client.send({
         type: "closeChat",
         workspaceId: cloudOrganizationId,
@@ -3102,45 +3136,79 @@ function useRuntimeChat(
   );
 
   const visibleMessages = useMemo(() => {
-    if (!channelId || channelEvents.length === 0) return messages;
+    // A provider restart replays the session's history through the driver, and
+    // each replayed tool call is emitted as a fresh transcript message (new
+    // id, same toolCallId, no threadRootId). Those copies would render the
+    // thread's tool/browser UI in the main timeline. dropReplayedToolMessages
+    // keeps only the original thread-attached copy.
+    if (!channelId || channelEvents.length === 0) {
+      return dropReplayedToolMessages(messages);
+    }
+
     const sourceIdsByEventId = new Map(
       channelEvents.flatMap((event) => {
         const sourceId = channelEventSourceId(event);
         return sourceId ? [[event.id, sourceId] as const] : [];
       }),
     );
-    const persistedIds = new Set(messages.map((message) => message.id));
-    const durableMessages = channelEvents.flatMap((event): ChiefUIMessage[] => {
-      if (event.kind !== 9) return [];
+    // Channel events are the authoritative source for thread placement. On a
+    // reconnect, a transcript message can arrive before its channel event and
+    // lack the thread metadata in the client buffer. Enrich it from the event
+    // tags before rendering, otherwise the same thread reply leaks into the
+    // top-level timeline after navigating away and back.
+    const directById = new Map(
+      messages.map((message) => [message.id, message]),
+    );
+    const seenIds = new Set<string>();
+    const canonicalMessages: ChiefUIMessage[] = [];
+    for (const event of channelEvents) {
+      if (event.kind !== 9 || !event.content.trim()) continue;
       const id = channelEventSourceId(event) ?? event.id;
-      if (
-        id.endsWith("-welcome") ||
-        persistedIds.has(id) ||
-        !event.content.trim()
-      ) {
-        return [];
-      }
+      if (id.endsWith("-welcome") || seenIds.has(id)) continue;
+      const direct = directById.get(id);
       const protocolRootId = channelEventThreadRootId(event);
-      return [
-        {
-          id,
-          role: event.actor.type === "user" ? "user" : "assistant",
-          parts: [{ type: "text", text: event.content }],
-          metadata: {
-            createdAt: event.createdAt,
-            ...(protocolRootId
-              ? {
-                  threadRootId:
-                    sourceIdsByEventId.get(protocolRootId) ?? protocolRootId,
-                }
-              : {}),
-          },
-        },
-      ];
-    });
-    return [...messages, ...durableMessages].sort(
-      (left, right) =>
-        (left.metadata?.createdAt ?? 0) - (right.metadata?.createdAt ?? 0),
+      const threadRootId = protocolRootId
+        ? (sourceIdsByEventId.get(protocolRootId) ?? protocolRootId)
+        : direct?.metadata?.threadRootId;
+      canonicalMessages.push(
+        direct
+          ? {
+              ...direct,
+              metadata: {
+                ...direct.metadata,
+                createdAt: direct.metadata?.createdAt ?? event.createdAt,
+                ...(threadRootId ? { threadRootId } : {}),
+              },
+            }
+          : {
+              id,
+              role: event.actor.type === "user" ? "user" : "assistant",
+              parts: [{ type: "text", text: event.content }],
+              metadata: {
+                createdAt: event.createdAt,
+                ...(threadRootId ? { threadRootId } : {}),
+              },
+            },
+      );
+      seenIds.add(id);
+    }
+    // Keep live tool-only transcript messages until their mirrored text event
+    // exists; they carry the inline browser/tool UI but no channel body.
+    for (const message of messages) {
+      if (seenIds.has(message.id)) continue;
+      const hasToolPart = message.parts.some(
+        (part) => part.type === "dynamic-tool",
+      );
+      if (hasToolPart || !channelEvents.length) {
+        canonicalMessages.push(message);
+        seenIds.add(message.id);
+      }
+    }
+    return dropReplayedToolMessages(
+      canonicalMessages.sort(
+        (left, right) =>
+          (left.metadata?.createdAt ?? 0) - (right.metadata?.createdAt ?? 0),
+      ),
     );
   }, [channelEvents, channelId, messages]);
 

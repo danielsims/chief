@@ -179,6 +179,7 @@ function ScopedChannelReadStateProvider({
   const sourceAliasesRef = useRef(new Map<string, Map<string, string>>());
   const [startedAt] = useState(() => Date.now());
   const seenLiveEventsRef = useRef(new Set<string>());
+  const notifiedLiveEventsRef = useRef(new Set<string>());
   const liveMessageIdsRef = useRef(new Set<string>());
   const visibleThreadRef = useRef<{ channelId: string; rootId: string } | null>(
     null,
@@ -240,12 +241,15 @@ function ScopedChannelReadStateProvider({
         messages,
         (message) => message.rootId === canonical,
       );
-      if (latest === null) return;
+      // A thread can open before its channel snapshot finishes hydrating. The
+      // visible thread is still the user's explicit read action, so advance
+      // its marker to now rather than leaving an old sidebar badge stuck.
+      const readAt = Math.max(latest ?? 0, Date.now());
       updateMarkers((current) =>
         advanceReadContext(
           current,
           threadContextKey(channelId, canonical),
-          latest,
+          readAt,
         ),
       );
     },
@@ -343,10 +347,20 @@ function ScopedChannelReadStateProvider({
         routeChannel?.id === observed.channelId &&
         document.visibilityState === "visible" &&
         document.hasFocus();
-      // Thread replies are explicit agent/user responses and always notify,
-      // even while the parent channel or exact thread is visible. Only an
-      // ordinary top-level message in the focused channel is silent.
-      if (isVisibleTopLevel) return;
+      // When the user is actively viewing the channel, top-level messages are
+      // silent. The thread the agent is replying into is also silent: the user
+      // is already watching those replies arrive, so a notification + sound for
+      // each one is noise. Only notify for other threads and other channels.
+      const visibleThread = visibleThreadRef.current;
+      const isVisibleThread =
+        observed.rootId !== null &&
+        visibleThread?.channelId === observed.channelId &&
+        visibleThread.rootId === observed.rootId &&
+        document.visibilityState === "visible" &&
+        document.hasFocus();
+      // Thread replies are explicit agent/user responses and always notify
+      // when away, but not when the exact thread is already on screen.
+      if (isVisibleTopLevel || isVisibleThread) return;
 
       const channel = channelsRef.current.find(
         (candidate) => candidate.id === observed.channelId,
@@ -379,6 +393,14 @@ function ScopedChannelReadStateProvider({
       title: string,
       content: string,
     ) => {
+      // Thread replies are explicit agent/user responses and must notify even
+      // when the event was seen in an earlier history batch — the user is away
+      // from the channel and expects a ping. The seen-set gates read-state
+      // bookkeeping, not delivery.
+      if (observed.rootId && !notifiedLiveEventsRef.current.has(observed.id)) {
+        notifiedLiveEventsRef.current.add(observed.id);
+        notifyForMessage(observed, title, content);
+      }
       if (seenLiveEventsRef.current.has(observed.id)) return;
       recordSeenEvent(seenLiveEventsRef.current, observed.id);
       recordSeenEvent(liveMessageIdsRef.current, observed.id);
@@ -389,7 +411,9 @@ function ScopedChannelReadStateProvider({
         next.set(observed.channelId, messages);
         return next;
       });
-      notifyForMessage(observed, title, content);
+      if (!observed.rootId) {
+        notifyForMessage(observed, title, content);
+      }
     };
     const unsubscribe = client.subscribe((message) => {
       if (message.type !== "channelEvents" && message.type !== "channelEvent")
