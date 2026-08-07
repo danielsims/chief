@@ -4,6 +4,7 @@ import test from "node:test";
 import type { ChiefUIMessage } from "@chief/agent-runtime/types";
 
 import {
+  dropReplayedToolMessages,
   mergeRuntimeHistory,
   mergeRuntimeMessage,
   visibleRuntimeError,
@@ -74,5 +75,75 @@ void test("a reconnect snapshot keeps a newer optimistic channel message", () =>
   assert.deepEqual(
     messages.map((message) => message.id),
     ["older-message", "new-message"],
+  );
+});
+
+const toolMessage = (
+  id: string,
+  toolCallId: string,
+  threadRootId?: string,
+): ChiefUIMessage => ({
+  id,
+  role: "assistant",
+  ...(threadRootId
+    ? { metadata: { createdAt: 1, threadRootId } }
+    : { metadata: { createdAt: 1 } }),
+  parts: [
+    {
+      type: "dynamic-tool",
+      toolCallId,
+      toolName: "executor_execute",
+      input: { code: "tools.search()" },
+      state: "output-available",
+      output: "ok",
+    },
+  ],
+});
+
+void test("drops replayed threadless copies that reuse tool call ids", () => {
+  const messages = [
+    toolMessage("original", "call_x", "root-1"),
+    toolMessage("replayed", "call_x"),
+  ];
+
+  assert.deepEqual(
+    dropReplayedToolMessages(messages).map((m) => m.id),
+    ["original"],
+  );
+});
+
+void test("keeps genuine threadless tool messages with fresh call ids", () => {
+  const messages = [
+    toolMessage("thread", "call_x", "root-1"),
+    toolMessage("main", "call_y"),
+  ];
+
+  assert.deepEqual(
+    dropReplayedToolMessages(messages).map((m) => m.id),
+    ["thread", "main"],
+  );
+});
+
+void test("thread-attached copies are never treated as replays", () => {
+  const messages = [
+    toolMessage("first", "call_x", "root-1"),
+    toolMessage("second", "call_x", "root-1"),
+  ];
+
+  assert.deepEqual(
+    dropReplayedToolMessages(messages).map((m) => m.id),
+    ["first", "second"],
+  );
+});
+
+void test("text-only messages are untouched by replay dedup", () => {
+  const messages: ChiefUIMessage[] = [
+    { id: "a", role: "assistant", parts: [{ type: "text", text: "Hello" }] },
+    { id: "b", role: "assistant", parts: [{ type: "text", text: "Hello" }] },
+  ];
+
+  assert.deepEqual(
+    dropReplayedToolMessages(messages).map((m) => m.id),
+    ["a", "b"],
   );
 });

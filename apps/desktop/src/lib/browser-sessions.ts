@@ -28,6 +28,77 @@ export type RuntimeBrowserSessions = Readonly<
 
 export type RuntimeBrowserRuns = readonly BrowserRunRecord[];
 
+export interface BrowserOwnerCandidate {
+  id: string;
+  role: string;
+  threadRootId: string | null;
+  isBrowserOpen: boolean;
+}
+
+/**
+ * True when a tool result is a successful `browserOpen` payload. The executor
+ * surfaces the browser as a generic `executor_execute` call whose persisted
+ * input is often empty, so the result body — `{ opened: true, url: ... }` — is
+ * the reliable open signal. Snapshot/click/fill results do not contain it.
+ */
+export function browserOpenResultContent(content: unknown): boolean {
+  const text =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content
+            .map((block) =>
+              block &&
+              typeof block === "object" &&
+              "text" in block &&
+              typeof (block as { text: unknown }).text === "string"
+                ? (block as { text: string }).text
+                : "",
+            )
+            .join("\n")
+        : content && typeof content === "object"
+          ? JSON.stringify(content)
+          : "";
+  return (
+    /\bopened\s*["']?\s*:\s*true\b/i.test(text) &&
+    /["']?url["']?\s*:/i.test(text)
+  );
+}
+
+/**
+ * Resolve the assistant message that owns an embedded browser session.
+ *
+ * The browser renders inline at the message whose tool call opened it, exactly
+ * where that message sits in the conversation — a thread reply stays in the
+ * thread, a channel message stays in the main timeline. Scanning for the first
+ * browser-open call in the whole conversation is ambiguous: an older
+ * browser-open in the main timeline can steal the viewer from the thread reply
+ * that actually opened the current session. Match the session's thread
+ * placement first, then the newest candidate, so live and restored transcripts
+ * agree on the same owner.
+ */
+export function resolveBrowserOwnerMessageId(
+  candidates: readonly BrowserOwnerCandidate[],
+  threadRootId: string | null,
+  anchorMessageId?: string,
+): string | undefined {
+  if (
+    anchorMessageId &&
+    candidates.some((candidate) => candidate.id === anchorMessageId)
+  ) {
+    return anchorMessageId;
+  }
+  const openers = candidates.filter(
+    (candidate) => candidate.isBrowserOpen && candidate.role === "assistant",
+  );
+  if (openers.length === 0) return undefined;
+  const threadMatches = openers.filter(
+    (candidate) => (candidate.threadRootId ?? null) === threadRootId,
+  );
+  const pool = threadMatches.length > 0 ? threadMatches : openers;
+  return pool.at(-1)?.id;
+}
+
 export function upsertBrowserRun(
   runs: RuntimeBrowserRuns,
   run: BrowserRunRecord,
