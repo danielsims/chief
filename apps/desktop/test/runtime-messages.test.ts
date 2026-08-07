@@ -11,9 +11,19 @@ import {
   visibleRuntimeError,
 } from "../src/lib/runtime-messages.js";
 
-void test("hides intentional turn cancellation from visible chat errors", () => {
+void test("hides intentional cancellation and internal runtime failures", () => {
   assert.equal(visibleRuntimeError(" Turn interrupted "), undefined);
   assert.equal(visibleRuntimeError("Turn cancelled"), undefined);
+  assert.equal(
+    visibleRuntimeError("OpenCode exited unexpectedly with code 1."),
+    undefined,
+  );
+  assert.equal(visibleRuntimeError("OpenCode stopped."), undefined);
+  assert.equal(visibleRuntimeError("OpenCode service failure"), undefined);
+  assert.equal(
+    visibleRuntimeError("Agent process exited with code 1."),
+    undefined,
+  );
   assert.equal(
     visibleRuntimeError("Browser session failed"),
     "Browser session failed",

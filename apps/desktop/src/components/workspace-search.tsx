@@ -100,7 +100,9 @@ export function WorkspaceSearch() {
   const [channelScope, setChannelScope] = useState<ChannelSearchScope | null>(
     null,
   );
-  const channelEvents = useChannelEvents(channelScope?.channelId ?? null);
+  const { events: channelEvents } = useChannelEvents(
+    channelScope?.channelId ?? null,
+  );
 
   const items = useMemo<SearchItem[]>(() => {
     const destinations = DESTINATIONS.map((item) => ({
