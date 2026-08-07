@@ -856,6 +856,14 @@ export function useLocalChats(workspaceId: string | null) {
 const channelCache = new Map<string, WorkspaceChannel[]>();
 const channelEventCache = new Map<string, ChannelEvent[]>();
 
+/**
+ * Last-known transcripts keyed by `workspaceId:chatId`. Retained across chat
+ * switches so returning to a channel renders its content immediately instead of
+ * flashing an empty frame while history reloads; the server snapshot replaces
+ * it moments later.
+ */
+const chatTranscriptCache = new Map<string, ChiefUIMessage[]>();
+
 /** Durable NIP-29 events for channel timelines and message search. */
 export function useChannelEvents(channelId: string | null) {
   const { client, status } = useRuntime();
@@ -867,9 +875,11 @@ export function useChannelEvents(channelId: string | null) {
   const [eventState, setEventState] = useState<{
     cacheKey: string | null;
     events: ChannelEvent[];
+    loaded: boolean;
   }>(() => ({
     cacheKey,
     events: cacheKey ? (channelEventCache.get(cacheKey) ?? []) : [],
+    loaded: cacheKey ? channelEventCache.has(cacheKey) : true,
   }));
   const events =
     eventState.cacheKey === cacheKey
@@ -877,6 +887,8 @@ export function useChannelEvents(channelId: string | null) {
       : cacheKey
         ? (channelEventCache.get(cacheKey) ?? [])
         : [];
+  const eventsLoaded =
+    eventState.cacheKey === cacheKey ? eventState.loaded : false;
 
   useEffect(() => {
     if (
@@ -895,7 +907,11 @@ export function useChannelEvents(channelId: string | null) {
         message.channelId === channelId
       ) {
         channelEventCache.set(activeCacheKey, message.events);
-        setEventState({ cacheKey: activeCacheKey, events: message.events });
+        setEventState({
+          cacheKey: activeCacheKey,
+          events: message.events,
+          loaded: true,
+        });
         return;
       }
       if (
@@ -909,11 +925,19 @@ export function useChannelEvents(channelId: string | null) {
               ? currentState.events
               : (channelEventCache.get(activeCacheKey) ?? []);
           if (current.some((event) => event.id === message.event.id)) {
-            return { cacheKey: activeCacheKey, events: current };
+            return {
+              cacheKey: activeCacheKey,
+              events: current,
+              loaded: currentState.loaded,
+            };
           }
           const next = [...current, message.event];
           channelEventCache.set(activeCacheKey, next);
-          return { cacheKey: activeCacheKey, events: next };
+          return {
+            cacheKey: activeCacheKey,
+            events: next,
+            loaded: true,
+          };
         });
       }
     });
@@ -928,7 +952,7 @@ export function useChannelEvents(channelId: string | null) {
     };
   }, [cacheKey, capability, channelId, client, cloudOrganizationId, status]);
 
-  return events;
+  return { events, loaded: eventsLoaded };
 }
 
 /** Durable NIP-29 destinations, including user-created workspace channels. */
@@ -1194,7 +1218,7 @@ function reactionIntentKey(messageId: string, emoji: string) {
 
 /** Durable NIP-25 reactions folded onto the local IDs used by chat messages. */
 export function useChannelReactions(channelId: string | null) {
-  const events = useChannelEvents(channelId);
+  const { events } = useChannelEvents(channelId);
   const { client } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
   const [optimistic, setOptimistic] = useState<
@@ -2630,7 +2654,9 @@ function reduceChatControls(
         status: "idle",
         error:
           event.code && event.code !== 0
-            ? `Agent process exited with code ${event.code}.`
+            ? visibleRuntimeError(
+                `Agent process exited with code ${event.code}.`,
+              )
             : controls.error,
       };
     default:
@@ -2724,7 +2750,8 @@ function useRuntimeChat(
   wakeOnMentionOnly = false,
 ) {
   const { client, status: runtimeStatus } = useRuntime();
-  const channelEvents = useChannelEvents(channelId ?? null);
+  const { events: channelEvents, loaded: channelEventsLoaded } =
+    useChannelEvents(channelId ?? null);
   const { user } = useAuth();
   const senderName = user?.name.trim();
   const {
@@ -2831,7 +2858,7 @@ function useRuntimeChat(
       wakeOnMentionOnly,
     ],
   );
-  const { messages, sendMessage, setMessages } = useChat<ChiefUIMessage>({
+  const { messages, sendMessage, setMessages, stop } = useChat<ChiefUIMessage>({
     id: chatId ?? "inactive-chief-chat",
     generateId: () => crypto.randomUUID(),
     transport,
@@ -2864,8 +2891,12 @@ function useRuntimeChat(
       loadedHistoryKeyRef.current = null;
       setControls(emptyChatControls);
       pendingStreamRef.current = "";
-      setMessages([]);
-      setChatReady(false);
+      // Restore the last-known transcript so returning to a channel is instant
+      // instead of flashing an empty frame while history reloads. The server
+      // snapshot replaces/merges it moments later.
+      const cached = chatTranscriptCache.get(chatKey);
+      setMessages(cached ? deduplicateDocumentParts(cached) : []);
+      setChatReady(cached ? true : false);
       setExecution(undefined);
     }
     let cancelled = false;
@@ -2923,6 +2954,7 @@ function useRuntimeChat(
       ) {
         pendingStreamRef.current = replayStreamingText(msg.events);
         const incoming = deduplicateDocumentParts(msg.messages);
+        chatTranscriptCache.set(chatKey, incoming);
         if (loadedHistoryKeyRef.current === chatKey) {
           setMessages((current) => mergeRuntimeHistory(current, incoming));
         } else {
@@ -3170,25 +3202,36 @@ function useRuntimeChat(
       const threadRootId = protocolRootId
         ? (sourceIdsByEventId.get(protocolRootId) ?? protocolRootId)
         : direct?.metadata?.threadRootId;
+      // Preserve message identity when the enrichment changes nothing, so
+      // React can skip re-rendering unchanged rows instead of rebuilding the
+      // whole thread on every event (that rebuild is what made threads flicker).
+      const needsEnrichment =
+        !direct ||
+        Boolean(
+          threadRootId && threadRootId !== direct.metadata?.threadRootId,
+        ) ||
+        Boolean(direct.metadata && !direct.metadata.createdAt);
       canonicalMessages.push(
-        direct
-          ? {
-              ...direct,
-              metadata: {
-                ...direct.metadata,
-                createdAt: direct.metadata?.createdAt ?? event.createdAt,
-                ...(threadRootId ? { threadRootId } : {}),
+        !needsEnrichment
+          ? direct
+          : direct
+            ? {
+                ...direct,
+                metadata: {
+                  ...direct.metadata,
+                  createdAt: direct.metadata?.createdAt ?? event.createdAt,
+                  ...(threadRootId ? { threadRootId } : {}),
+                },
+              }
+            : {
+                id,
+                role: event.actor.type === "user" ? "user" : "assistant",
+                parts: [{ type: "text", text: event.content }],
+                metadata: {
+                  createdAt: event.createdAt,
+                  ...(threadRootId ? { threadRootId } : {}),
+                },
               },
-            }
-          : {
-              id,
-              role: event.actor.type === "user" ? "user" : "assistant",
-              parts: [{ type: "text", text: event.content }],
-              metadata: {
-                createdAt: event.createdAt,
-                ...(threadRootId ? { threadRootId } : {}),
-              },
-            },
       );
       seenIds.add(id);
     }
@@ -3215,10 +3258,14 @@ function useRuntimeChat(
     sendMessage,
     sendMessageWithContext,
     interrupt,
+    stop,
     respondPermission,
     respondQuestion,
     provideInput,
     chatReady,
+    // The channel content is only rendered once both the transcript and its
+    // channel events have resolved, so elements never pop in after entry.
+    channelResolved: chatReady && (!channelId || channelEventsLoaded),
     execution,
   };
 }

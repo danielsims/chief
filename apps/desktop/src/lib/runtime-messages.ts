@@ -2,12 +2,26 @@ import type { ChiefUIMessage } from "@chief/agent-runtime/types";
 
 const HIDDEN_RUNTIME_ERRORS = new Set(["turn interrupted", "turn cancelled"]);
 
-/** Intentional cancellation is interaction state, not chat content. */
+/**
+ * Infrastructure failures that belong in logs, not in a shared chat: a driver
+ * process that exited, a service that failed to start, an agent runtime that
+ * went away. They are not user content and must not render in a channel or DM.
+ */
+const HIDDEN_RUNTIME_ERROR_PATTERNS = [
+  /^open ?code /i,
+  /service failure/i,
+  /^agent process exited/i,
+];
+
+/** Intentional cancellation and internal runtime failures are not chat content. */
 export function visibleRuntimeError(error?: string) {
   if (!error) return undefined;
-  return HIDDEN_RUNTIME_ERRORS.has(error.trim().toLocaleLowerCase())
-    ? undefined
-    : error;
+  const trimmed = error.trim();
+  if (HIDDEN_RUNTIME_ERRORS.has(trimmed.toLocaleLowerCase())) return undefined;
+  if (HIDDEN_RUNTIME_ERROR_PATTERNS.some((pattern) => pattern.test(trimmed))) {
+    return undefined;
+  }
+  return error;
 }
 
 function textContent(message: ChiefUIMessage) {
