@@ -619,6 +619,8 @@ async function configureToolPolicies(manifest: ServerManifest) {
       "localTools.integrationCaptureGeneratedCredential",
       "localTools.integrationOpenProviderPage",
       "localTools.specialistsDelegate",
+      "localTools.setupList",
+      "localTools.setupStart",
       "localTools.recurringWorkList",
       "localTools.recurringWorkPropose",
     ].map((name) => [name, "approve"] as const),

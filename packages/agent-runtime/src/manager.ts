@@ -132,6 +132,46 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Wait until a chat's current execution finishes, then resolve. Used to
+   * queue a user message that arrives while a turn (for example a browser
+   * setup handoff) is still running, so the reply is not rejected outright.
+   * Re-checks after each terminal event in case another turn (for example the
+   * setup auto-resume) immediately starts, and gives up after an overall bound
+   * so a hung session cannot block the message forever.
+   */
+  async waitForExecutionAvailability(
+    workspaceId: string,
+    chatId: string,
+    timeoutMs = 10 * 60_000,
+  ): Promise<void> {
+    const key = workspaceChatKey(workspaceId, chatId);
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const current = this.sessions.get(key);
+      if (!current?.isBusy) return;
+      await new Promise<void>((resolve) => {
+        const remaining = Math.max(1, deadline - Date.now());
+        const timer = setTimeout(() => {
+          current.off("event", listener);
+          resolve();
+        }, remaining);
+        const listener = (event: AgentEvent) => {
+          if (
+            event.type === "result" ||
+            event.type === "error" ||
+            event.type === "exit"
+          ) {
+            clearTimeout(timer);
+            current.off("event", listener);
+            resolve();
+          }
+        };
+        current.on("event", listener);
+      });
+    }
+  }
+
   releaseExecution(
     workspaceId: string,
     chatId: string,
@@ -147,6 +187,51 @@ export class SessionManager {
     return Promise.resolve().then(() =>
       this.assertExecutionAvailable(workspaceId, chatId, "interactive"),
     );
+  }
+
+  /**
+   * Resolve the chat that is actively running for a workspace. Browser tool
+   * calls carry a model-supplied conversationId that can be stale or wrong
+   * (the model sometimes reuses a remembered channel id); fall back to the
+   * live interactive session so host UI opens in the chat the user is actually
+   * watching.
+   */
+  activeChatId(workspaceId: string): string | undefined {
+    let fallback: string | undefined;
+    for (const session of this.sessions.values()) {
+      if (session.config.workspaceId !== workspaceId) continue;
+      if (session.isBusy) return session.chatId;
+      fallback ??= session.chatId;
+    }
+    return fallback;
+  }
+
+  /**
+   * Resolve the session that owns an active integration setup for a workspace.
+   * The model guesses sessionId/attemptId when calling OAuth/browser tools; the
+   * runtime must instead operate on the session that actually started the setup
+   * (or, failing that, the busy interactive session).
+   */
+  activeSetupSessionId(
+    workspaceId: string,
+    requestedSessionId?: string,
+  ): string | undefined {
+    for (const session of this.sessions.values()) {
+      if (session.config.workspaceId !== workspaceId) continue;
+      if (session.isBusy || session.chatId === requestedSessionId) {
+        return session.chatId;
+      }
+    }
+    return undefined;
+  }
+
+  activeSessionIds(workspaceId: string): string[] {
+    return [...this.sessions.values()]
+      .filter(
+        (session) =>
+          session.config.workspaceId === workspaceId && session.isBusy,
+      )
+      .map((session) => session.chatId);
   }
 
   health() {
@@ -551,10 +636,27 @@ export class SessionManager {
             console.error("[local-store] diagnostic:", error);
           }
           if (event.type === "init") {
+            const currentChat = await this.store.chatRecord(
+              config.workspaceId,
+              chatId,
+            );
+            const previousProviderState =
+              currentChat?.providerState &&
+              typeof currentChat.providerState === "object"
+                ? currentChat.providerState
+                : {};
             await this.store.updateChatState(config.workspaceId, chatId, {
               ...(config.driver === "remote"
                 ? {}
-                : { providerState: { sessionId: event.sessionId } }),
+                : {
+                    providerState: {
+                      ...previousProviderState,
+                      sessionId: event.sessionId,
+                      ...(session.persistedThreadRootId
+                        ? { threadRootId: session.persistedThreadRootId }
+                        : {}),
+                    },
+                  }),
             });
           }
           if (event.type === "status" && !storedChat.scheduleId) {
@@ -580,9 +682,14 @@ export class SessionManager {
                 scheduleId: storedChat.scheduleId,
                 kind: storedChat.kind,
                 visibility: storedChat.visibility,
-                providerState: session.sessionId
-                  ? { sessionId: session.sessionId }
-                  : undefined,
+                providerState: {
+                  ...(session.sessionId
+                    ? { sessionId: session.sessionId }
+                    : {}),
+                  ...(session.persistedThreadRootId
+                    ? { threadRootId: session.persistedThreadRootId }
+                    : {}),
+                },
                 eveState: session.driverState,
                 scheduledFor: storedChat.scheduledFor,
                 startedAt: storedChat.startedAt,
@@ -654,6 +761,17 @@ export class SessionManager {
         continuation,
         storedChat.provider === config.driver ? storedChat.eveState : undefined,
       );
+      // Restore the channel thread this conversation was anchored to so a
+      // rebuilt session keeps streaming into the same thread after a driver
+      // exit instead of falling into the main timeline.
+      if (
+        storedChat.providerState &&
+        typeof storedChat.providerState === "object" &&
+        "threadRootId" in storedChat.providerState &&
+        typeof storedChat.providerState.threadRootId === "string"
+      ) {
+        session.persistedThreadRootId = storedChat.providerState.threadRootId;
+      }
     } catch (error) {
       if (this.sessions.get(key) === session) {
         this.sessions.delete(key);
@@ -791,6 +909,31 @@ export class SessionManager {
       status: "running",
       startedAt: inspected.chat.startedAt ?? Date.now(),
     });
+  }
+
+  /** Reset a failed specialist session so a retry can run it fresh. */
+  async restartChildChat(workspaceId: string, chatId: string) {
+    const inspected = await this.inspectChat(workspaceId, chatId);
+    if (
+      inspected.chat.kind !== "task" ||
+      inspected.chat.visibility !== "private" ||
+      !inspected.chat.parentId ||
+      inspected.chat.scheduleId
+    ) {
+      throw new Error("Only delegated specialist sessions can restart here.");
+    }
+    const key = workspaceChatKey(workspaceId, chatId);
+    const existing = this.sessions.get(key);
+    if (existing?.isBusy) {
+      throw new Error("Wait for the current response before retrying it.");
+    }
+    await (this.persistence.get(key) ?? Promise.resolve());
+    if (existing) {
+      this.archivedEvents.set(key, existing.events.slice(-500));
+      this.sessions.delete(key);
+      await existing.stop();
+    }
+    await this.store.restartSpecialistSession(workspaceId, chatId);
   }
 
   async finishChildChat(

@@ -27,11 +27,6 @@ export type ChannelAssistantMessage = Extract<
   { type: "message" }
 > & { role: "assistant" };
 
-export interface ChannelTurnMirrorState {
-  pending?: ChannelAssistantMessage;
-  terminal: boolean;
-}
-
 export function isUserFacingChannelMessage(
   event: AgentEvent,
 ): event is ChannelAssistantMessage {
@@ -44,30 +39,6 @@ export function isUserFacingChannelMessage(
         (block.type === "text" && block.text.trim().length > 0),
     )
   );
-}
-
-export function advanceChannelTurnMirror(
-  current: ChannelTurnMirrorState,
-  event: AgentEvent,
-): { state: ChannelTurnMirrorState; schedule: boolean } {
-  if (event.type === "message" && event.role === "user") {
-    return { state: { terminal: false }, schedule: false };
-  }
-  if (isUserFacingChannelMessage(event)) {
-    return {
-      state: { ...current, pending: event },
-      schedule: current.terminal,
-    };
-  }
-  if (event.type === "result") {
-    if (!event.ok) return { state: { terminal: false }, schedule: false };
-    const state = { ...current, terminal: true };
-    return { state, schedule: Boolean(state.pending) };
-  }
-  if (event.type === "error" || event.type === "exit") {
-    return { state: { terminal: false }, schedule: false };
-  }
-  return { state: current, schedule: false };
 }
 
 export async function mirrorEvent(
@@ -100,13 +71,11 @@ export async function mirrorEvent(
       )
     : undefined;
   if (existing) return existing;
-  const threadRootId = agentEvent.threadRootId
-    ? (events.find((event) =>
-        event.tags.some(
-          (tag) => tag[0] === "client" && tag[1] === agentEvent.threadRootId,
-        ),
-      )?.id ?? agentEvent.threadRootId)
-    : undefined;
+  // The thread root is stored as the owning transcript message id (the
+  // `client` tag), never the mirrored event's own hash, so the client can map
+  // a thread reply back to the same thread the transcript uses. This is what
+  // keeps a thread reply out of the main timeline.
+  const threadRootId = agentEvent.threadRootId ?? undefined;
   const event = createChannelEvent({
     workspaceId,
     channelId,
@@ -393,7 +362,7 @@ export function channelInstructions(
   }
   const responseGuidance =
     channel.id === GETTING_STARTED_CHANNEL_ID
-      ? "This private setup channel is an active conversation: every user post wakes Chief unless another member agent is explicitly addressed. Lead the setup conversationally, read onboarding/getting-started.md for the selected work, involve Setup through visible delegation when useful, and ask before opening browser authentication or making consequential changes."
+      ? "This private setup channel is an active conversation: every user post wakes Chief unless another member agent is explicitly addressed. Lead the setup conversationally, read onboarding/getting-started.md for the selected work, involve Setup through visible delegation when useful. Acknowledge the request in one short line, then proceed: open the browser and drive the setup directly, pausing only for a genuine human step like sign-in or consent."
       : "Ordinary channel posts are shared context and do not require an agent response. When your identity is addressed, answer directly as yourself in that message's thread. After the user explicitly addresses you in a thread, their subsequent replies in that thread may remain routed to you without repeating the textual @mention; treat recipient metadata as the wake signal and keep the response in that thread.";
   return [
     base,

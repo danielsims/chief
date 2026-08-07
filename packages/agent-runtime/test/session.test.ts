@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 
 import type { AgentDefinition, AgentEvent } from "../src/types.js";
@@ -207,6 +208,203 @@ void test("assistant message events receive a stable id for channel mirroring", 
   );
 });
 
+void test("send marker flushes mid-turn messages without duplicating the final", async () => {
+  const session = new AgentSession(cmo, "chat", {
+    driver: "codex",
+    access: "guarded",
+    workspaceId: "workspace",
+  });
+  const driver = (
+    session as unknown as {
+      driver: {
+        emit: (type: "event", event: AgentEvent) => void;
+        sendPrompt: (prompt: string) => Promise<void>;
+      };
+    }
+  ).driver;
+  driver.sendPrompt = async () => Promise.resolve();
+
+  await session.sendPrompt("Set up analytics", "user-1");
+  driver.emit("event", {
+    type: "stream",
+    text: "On it, setting up now. [channel:send]",
+  });
+  driver.emit("event", { type: "stream", text: "Opening the browser." });
+  driver.emit("event", {
+    type: "message",
+    role: "assistant",
+    content: [
+      { type: "text", text: "On it, setting up now. Opening the browser." },
+    ],
+  });
+
+  const assistant = session.events.filter(
+    (event): event is Extract<AgentEvent, { type: "message" }> =>
+      event.type === "message" && event.role === "assistant",
+  );
+  assert.equal(assistant.length, 2, "one flushed message plus the final tail");
+  assert.match(
+    assistant[0]?.content.at(-1)?.type === "text"
+      ? (assistant[0].content.at(-1) as { text: string }).text
+      : "",
+    /On it, setting up now/,
+  );
+  assert.ok(
+    typeof assistant[0]?.id === "string" && assistant[0].id.length > 0,
+    "flushed message should carry an id",
+  );
+});
+
+void test("text before a tool call surfaces as its own message", async () => {
+  const session = new AgentSession(cmo, "chat", {
+    driver: "codex",
+    access: "guarded",
+    workspaceId: "workspace",
+  });
+  const driver = (
+    session as unknown as {
+      driver: {
+        emit: (type: "event", event: AgentEvent) => void;
+        sendPrompt: (prompt: string) => Promise<void>;
+      };
+    }
+  ).driver;
+  driver.sendPrompt = async () => Promise.resolve();
+
+  await session.sendPrompt("Open the browser", "user-1");
+  driver.emit("event", { type: "stream", text: "On it, opening the browser." });
+  driver.emit("event", {
+    type: "message",
+    role: "assistant",
+    content: [
+      { type: "tool_use", id: "tool-1", name: "browser.open", input: {} },
+    ],
+  });
+  driver.emit("event", {
+    type: "message",
+    role: "user",
+    content: [
+      { type: "tool_result", tool_use_id: "tool-1", content: "opened" },
+    ],
+  });
+  driver.emit("event", { type: "stream", text: "Done." });
+  driver.emit("event", {
+    type: "message",
+    role: "assistant",
+    content: [{ type: "text", text: "On it, opening the browser. Done." }],
+  });
+  driver.emit("event", { type: "result", ok: true });
+
+  const assistant = session.events.filter(
+    (event): event is Extract<AgentEvent, { type: "message" }> =>
+      event.type === "message" && event.role === "assistant",
+  );
+  const texts = assistant
+    .flatMap((event) =>
+      event.content.flatMap((block) =>
+        block.type === "text" ? [block.text] : [],
+      ),
+    )
+    .join(" | ");
+  // Narration before the tool call is flushed, the final tail is flushed, and
+  // the provider's full-text message must not add a third duplicate.
+  assert.match(texts, /On it, opening the browser/);
+  assert.match(texts, /Done/);
+  assert.ok(!assistant.some((event) => event.content.length === 0));
+});
+
+void test("narration between tool calls streams as its own messages", async () => {
+  const session = new AgentSession(cmo, "chat", {
+    driver: "codex",
+    access: "guarded",
+    workspaceId: "workspace",
+  });
+  await session.start("/tmp");
+  const driver = (
+    session as unknown as {
+      driver: {
+        emit: (type: "event", event: AgentEvent) => void;
+        sendPrompt: (prompt: string) => Promise<void>;
+      };
+    }
+  ).driver;
+  driver.sendPrompt = async () => Promise.resolve();
+
+  await session.sendPrompt("Set up analytics", "user-1");
+  // Opening confirmation, then three tool calls each preceded by narration the
+  // model streams before the tool boundary.
+  driver.emit("event", {
+    type: "stream",
+    text: "I'll set that up for you now.",
+  });
+  driver.emit("event", {
+    type: "message",
+    role: "assistant",
+    content: [{ type: "tool_use", id: "t1", name: "setup.list", input: {} }],
+  });
+  driver.emit("event", {
+    type: "message",
+    role: "user",
+    content: [{ type: "tool_result", tool_use_id: "t1", content: "tasks" }],
+  });
+  driver.emit("event", { type: "stream", text: "Let me check the schema." });
+  driver.emit("event", {
+    type: "message",
+    role: "assistant",
+    content: [{ type: "tool_use", id: "t2", name: "setup.start", input: {} }],
+  });
+  driver.emit("event", {
+    type: "message",
+    role: "user",
+    content: [{ type: "tool_result", tool_use_id: "t2", content: "started" }],
+  });
+  driver.emit("event", { type: "stream", text: "Let me authorize now." });
+  driver.emit("event", {
+    type: "message",
+    role: "assistant",
+    content: [{ type: "tool_use", id: "t3", name: "authorize", input: {} }],
+  });
+  driver.emit("event", {
+    type: "message",
+    role: "user",
+    content: [{ type: "tool_result", tool_use_id: "t3", content: "ready" }],
+  });
+  driver.emit("event", {
+    type: "message",
+    role: "assistant",
+    content: [
+      {
+        type: "text",
+        text: "I'll set that up for you now. Let me check the schema. Let me authorize now.",
+      },
+    ],
+  });
+  driver.emit("event", { type: "result", ok: true });
+
+  const assistant = session.events.filter(
+    (event): event is Extract<AgentEvent, { type: "message" }> =>
+      event.type === "message" && event.role === "assistant",
+  );
+  const texts = assistant
+    .flatMap((event) =>
+      event.content.flatMap((block) =>
+        block.type === "text" ? [block.text] : [],
+      ),
+    )
+    .join(" | ");
+  // Narration streams at tool boundaries: the opening and each mid-turn
+  // sentence surface as their own message, and the final message only carries
+  // the un-flushed tail without duplicating what already streamed.
+  assert.match(texts, /I'll set that up for you now/);
+  assert.match(texts, /Let me check the schema/);
+  assert.match(texts, /Let me authorize now/);
+  assert.ok(
+    texts.indexOf("I'll set that up for you now.") <
+      texts.indexOf("Let me check the schema"),
+    "the opening confirmation precedes the later narration",
+  );
+});
+
 void test("recorded channel membership retains its durable UI action", () => {
   const session = new AgentSession(cmo, "chat", {
     driver: "codex",
@@ -345,4 +543,38 @@ void test("a newly addressed channel thread receives the recent shared channel c
   assert.match(prompts[0] ?? "", /still crashes whenever/u);
   assert.match(prompts[0] ?? "", /Current channel thread context/u);
   assert.match(prompts[0] ?? "", /see my last message/u);
+});
+
+void test("the thread anchor survives a driver exit via the persisted getter", async () => {
+  const session = new AgentSession(cmo, "thread-anchor-chat", {
+    driver: "codex",
+    access: "guarded",
+    workspaceId: "workspace",
+  });
+  const driver = new EventEmitter() as EventEmitter & {
+    start: () => Promise<void>;
+    sendPrompt: (prompt: string) => Promise<void>;
+  };
+  driver.start = async () => Promise.resolve();
+  driver.sendPrompt = async (prompt: string) => {
+    void prompt;
+    await Promise.resolve();
+  };
+  (session as unknown as { driver: typeof driver }).driver = driver;
+  await session.start("/tmp");
+
+  // First turn anchors the session to a thread.
+  await session.sendPrompt("Set it up", "user-1", true, {
+    threadRootId: "thread-root-1",
+  });
+  assert.equal(session.persistedThreadRootId, "thread-root-1");
+  assert.equal(session.activeThreadRootId, "thread-root-1");
+
+  // A driver exit clears the live reply context (as happens on restart), but
+  // the persisted anchor must still resolve so a continuation keeps streaming
+  // into the same thread.
+  driver.emit("event", { type: "exit", code: 0 });
+  driver.emit("event", { type: "status", status: "idle" });
+  assert.equal(session.persistedThreadRootId, "thread-root-1");
+  assert.equal(session.activeThreadRootId, "thread-root-1");
 });

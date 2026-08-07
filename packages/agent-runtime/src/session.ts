@@ -79,24 +79,89 @@ export class AgentSession extends EventEmitter {
               mentions: this.activeReplyContext?.mentions,
             }
           : rawEvent;
-      const event = withGenerativeDataParts(contextualEvent);
-      if (event.type === "init") this.sessionId = event.sessionId;
-      if (event.type === "status") this.status = event.status;
-      if (
-        event.type === "result" ||
-        event.type === "error" ||
-        event.type === "exit"
-      ) {
-        this.status = event.type === "error" ? "error" : "idle";
-        // Some providers report completion before emitting their final
-        // assistant message. Keep the turn owner after a successful result so
-        // that late content remains attached to the channel thread that
-        // started it; the next user prompt replaces this context atomically.
-        if (event.type !== "result") this.activeReplyContext = undefined;
+      // Provider streaming model: text arrives as `stream` deltas, tool calls as
+      // `tool_use` message events, and a final full-text `message` + `result`
+      // close the turn. To surface progress messages live — the way the user
+      // experiences an agent "talking while it works" — the session turns the
+      // stream into discrete assistant messages:
+      //   - `[channel:send]` marker flushes the text so far immediately
+      //   - text accumulated before a tool call is flushed as its own message
+      //   - the turn's remaining tail is flushed at the final message / result
+      // Each flushed message carries a stable id and thread context so the
+      // client renders it once, exactly like a normal agent reply.
+      const events: AgentEvent[] =
+        rawEvent.type === "stream"
+          ? this.splitStreamMessages(rawEvent.text)
+          : rawEvent.type === "result" ||
+              rawEvent.type === "error" ||
+              rawEvent.type === "exit"
+            ? [...this.flushStreamTail(), contextualEvent]
+            : rawEvent.type === "message" &&
+                rawEvent.role === "assistant" &&
+                rawEvent.content.some(
+                  (block) =>
+                    block.type === "text" && block.text.trim().length > 0,
+                )
+              ? this.finalAssistantMessage(contextualEvent)
+              : rawEvent.type === "message" &&
+                  rawEvent.role === "assistant" &&
+                  rawEvent.content.some((block) => block.type === "tool_use")
+                ? [...this.flushStreamTail(), contextualEvent]
+                : [contextualEvent];
+      for (const event of events) {
+        const enriched = withGenerativeDataParts(event);
+        if (
+          process.env.CHIEF_DEBUG_SESSION === "1" ||
+          process.env.CHIEF_DEBUG_SESSION_FORCE === "1"
+        ) {
+          console.error(
+            `[session:${this.agent.id}:${this.chatId}]`,
+            enriched.type === "message"
+              ? [
+                  `message role=${enriched.role}`,
+                  `id=${String(enriched.id ?? "").slice(0, 8)}`,
+                  `threadRootId=${enriched.threadRootId ?? "none"}`,
+                  `blocks=${JSON.stringify(
+                    enriched.content.map((block) =>
+                      block.type === "tool_use"
+                        ? `tool_use:${block.name}`
+                        : block.type,
+                    ),
+                  )}`,
+                  `toolInput=${JSON.stringify(
+                    enriched.content
+                      .filter((block) => block.type === "tool_use")
+                      .map((block) => String(block.input).slice(0, 160)),
+                  )}`,
+                  `text=${JSON.stringify(
+                    enriched.content
+                      .filter((block) => block.type === "text")
+                      .map((block) => block.text.slice(0, 120)),
+                  )}`,
+                ].join(" ")
+              : enriched.type === "stream"
+                ? `stream "${enriched.text.slice(0, 120)}"`
+                : enriched.type,
+          );
+        }
+        if (enriched.type === "init") this.sessionId = enriched.sessionId;
+        if (enriched.type === "status") this.status = enriched.status;
+        if (
+          enriched.type === "result" ||
+          enriched.type === "error" ||
+          enriched.type === "exit"
+        ) {
+          this.status = enriched.type === "error" ? "error" : "idle";
+          // Some providers report completion before emitting their final
+          // assistant message. Keep the turn owner after a successful result so
+          // that late content remains attached to the channel thread that
+          // started it; the next user prompt replaces this context atomically.
+          if (enriched.type !== "result") this.activeReplyContext = undefined;
+        }
+        this.record(enriched);
+        if (this.status === "running") this.armStallWatchdog();
+        else this.clearStallWatchdog();
       }
-      this.record(event);
-      if (this.status === "running") this.armStallWatchdog();
-      else this.clearStallWatchdog();
     });
     this.driver.on("state", (state: unknown) => {
       this.driverState = state;
@@ -117,13 +182,120 @@ export class AgentSession extends EventEmitter {
 
   /** The explicit channel thread that owns host UI opened by this turn. */
   get activeThreadRootId() {
-    return this.activeReplyContext?.explicitThreadRootId;
+    return (
+      this.activeReplyContext?.explicitThreadRootId ?? this.lastThreadRootId
+    );
+  }
+  /**
+   * The most recent channel thread this session replied in, retained across
+   * turn boundaries and driver restarts so a continuation (for example after
+   * browser sign-in) keeps streaming into the same thread instead of landing
+   * in the main timeline.
+   */
+  private lastThreadRootId: string | undefined;
+
+  /** Persist-safe copy of the thread this session is anchored to. */
+  get persistedThreadRootId() {
+    return this.lastThreadRootId;
+  }
+
+  /** Restore the thread anchor when a session is rebuilt after a restart. */
+  set persistedThreadRootId(value: string | undefined) {
+    if (value) this.lastThreadRootId = value;
   }
 
   private record(event: AgentEvent) {
     this.events.push(event);
     if (this.events.length > 500) this.events.shift();
     this.emit("event", event);
+  }
+
+  /**
+   * Marker an agent can emit in its streamed output to flush the text up to
+   * that point as a complete assistant message. It is designed to be very
+   * unlikely to appear in ordinary application content.
+   */
+  private static readonly SEND_MARKER = "[channel:send]";
+
+  /**
+   * Pending text between send markers. Emitted as the final assistant message
+   * when the turn ends, so the closing provider message carries only the
+   * un-flushed tail and nothing is duplicated.
+   */
+  private streamTail = "";
+  /** Whether this turn produced streamed text deltas (vs a single message). */
+  private streamedThisTurn = false;
+
+  /**
+   * Split an incoming streamed text delta on the send marker, emitting a
+   * complete assistant message for every flushed segment and returning any
+   * events to record (the flush messages plus the delta itself). The final
+   * provider message handler emits the remaining tail.
+   */
+  private splitStreamMessages(text: string): AgentEvent[] {
+    this.streamedThisTurn = true;
+    this.streamTail += text;
+    const events: AgentEvent[] = [];
+    const parts = this.streamTail.split(AgentSession.SEND_MARKER);
+    this.streamTail = parts.at(-1) ?? "";
+    for (const part of parts.slice(0, -1)) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      events.push({
+        type: "message",
+        role: "assistant",
+        id: randomUUID(),
+        threadRootId: this.activeReplyContext?.threadRootId,
+        mentions: this.activeReplyContext?.mentions,
+        content: [{ type: "text", text: trimmed }],
+      });
+    }
+    return events;
+  }
+
+  /**
+   * Emit the currently accumulated stream tail as a complete assistant message,
+   * clearing it. Returns nothing when the tail is empty. Called before tool
+   * calls and at turn end so narration between tool calls surfaces as its own
+   * message.
+   */
+  private flushStreamTail(): AgentEvent[] {
+    const tail = this.streamTail.trim();
+    this.streamTail = "";
+    if (!tail) return [];
+    return [
+      {
+        type: "message",
+        role: "assistant",
+        id: randomUUID(),
+        threadRootId: this.activeReplyContext?.threadRootId,
+        mentions: this.activeReplyContext?.mentions,
+        content: [{ type: "text", text: tail }],
+      },
+    ];
+  }
+
+  /**
+   * The provider's final assistant message contains the entire streamed text.
+   * Any text already flushed (markers or tool-call boundaries) must not be
+   * repeated, so this emits only the un-flushed remainder. Returns nothing when
+   * there is no remaining text.
+   */
+  private finalAssistantMessage(event: AgentEvent): AgentEvent[] {
+    if (event.type !== "message") return [event];
+    const tail = this.streamTail.trim();
+    this.streamTail = "";
+    if (tail) {
+      return [
+        {
+          ...event,
+          content: [{ type: "text" as const, text: tail }],
+        },
+      ];
+    }
+    // No streamed text this turn (provider sent one full message): keep it.
+    if (!this.streamedThisTurn) return [event];
+    return [];
   }
 
   private clearStallWatchdog() {
@@ -205,6 +377,9 @@ export class AgentSession extends EventEmitter {
       this.emit("event", event);
     }
     this.status = "running";
+    this.streamTail = "";
+    this.streamedThisTurn = false;
+    if (context?.threadRootId) this.lastThreadRootId = context.threadRootId;
     this.activeReplyContext = {
       threadRootId: context?.threadRootId,
       explicitThreadRootId: context?.threadRootId,
