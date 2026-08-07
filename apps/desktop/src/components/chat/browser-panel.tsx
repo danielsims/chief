@@ -1,5 +1,12 @@
 import type { ErrorInfo, ReactNode, Ref } from "react";
-import { Component, lazy, Suspense, useLayoutEffect, useState } from "react";
+import {
+  Component,
+  lazy,
+  memo,
+  Suspense,
+  useLayoutEffect,
+  useState,
+} from "react";
 import { ArrowRight, Globe2 } from "lucide-react";
 import { createPortal } from "react-dom";
 
@@ -248,7 +255,7 @@ function BrowserSessionAttachmentContent({
   );
 }
 
-export function BrowserSessionAttachment(
+function BrowserSessionAttachmentImpl(
   props: Parameters<typeof BrowserSessionAttachmentContent>[0],
 ) {
   return (
@@ -257,6 +264,26 @@ export function BrowserSessionAttachment(
     </BrowserSessionErrorBoundary>
   );
 }
+
+/**
+ * Memoized so unrelated chat re-renders (tool progress, streaming text) do not
+ * remount the browser viewer and reconnect its stream — that remount is what
+ * made the thread flicker and the browser vanish while the agent kept working.
+ */
+export const BrowserSessionAttachment = memo(
+  BrowserSessionAttachmentImpl,
+  (prev, next) => {
+    if (prev.conversationId !== next.conversationId) return false;
+    if (prev.operating !== next.operating) return false;
+    if (prev.detached !== next.detached) return false;
+    const prevRun = prev.run?.id;
+    const nextRun = next.run?.id;
+    if (prevRun !== nextRun) return false;
+    if (prev.onOpenPanel !== next.onOpenPanel) return false;
+    if (prev.targetRef !== next.targetRef) return false;
+    return true;
+  },
+);
 
 export function BrowserSessionPortal({
   conversationId,

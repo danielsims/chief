@@ -616,7 +616,7 @@ export function ChiefChat({
   }, [initialPrompt, initialAttachments, runtimeStatus, driver, chatReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = () => {
-    if (controls.status === "running" || !driver || !chatReady) return;
+    if (!driver || !chatReady) return;
     const text = draft.trim();
     if (!text && imageAttachments.length === 0) return;
     if (composerOpen && approveAfterCreation) {
@@ -633,6 +633,11 @@ export function ChiefChat({
     setDraft("");
     setImageAttachments([]);
     setComposerOpen(false);
+    // Sending while the agent is mid-turn is a steering prompt: interrupt the
+    // current work first so the new message runs at the next available turn.
+    if (controls.status === "running") {
+      interrupt();
+    }
     send(text, undefined, [], imageAttachments);
   };
 

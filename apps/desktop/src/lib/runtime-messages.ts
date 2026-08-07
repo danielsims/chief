@@ -129,17 +129,22 @@ export function deduplicateDocumentParts(messages: ChiefUIMessage[]) {
  * Drop transcript copies produced by a provider-restart replay.
  *
  * When a driver reconnects it replays the session's history, and each replayed
- * tool call is emitted as a fresh message: a new message id, the SAME
- * toolCallId, and — because the replay runs outside any thread context — no
+ * message is emitted as a fresh message: a new message id, the SAME toolCallId
+ * and text, and — because the replay runs outside any thread context — no
  * threadRootId. Those copies render the thread's tool/browser UI in the main
  * timeline as if it were main-chat content. A threadless message whose tool
- * calls all already appear earlier in the list is such a replay; the original
- * thread-attached message is the one that should render.
+ * calls and text all already appear earlier in the list is such a replay; the
+ * original thread-attached message is the one that should render.
+ *
+ * The converse matters too: a brand-new live message (an optimistic user send,
+ * a streaming assistant reply) has no channel event yet and must stay visible
+ * until its mirror lands — it is never a replay because its content is new.
  */
-export function dropReplayedToolMessages(
+export function dropReplayedMessages(
   messages: ChiefUIMessage[],
 ): ChiefUIMessage[] {
   const keptToolCallIds = new Set<string>();
+  const keptTextSignatures = new Set<string>();
   const result: ChiefUIMessage[] = [];
   for (const message of messages) {
     const toolParts = message.parts.filter(
@@ -150,13 +155,39 @@ export function dropReplayedToolMessages(
         { type: "dynamic-tool" }
       > => part.type === "dynamic-tool",
     );
-    const isReplay =
+    const text = message.parts
+      .filter(
+        (
+          part,
+        ): part is Extract<ChiefUIMessage["parts"][number], { type: "text" }> =>
+          part.type === "text",
+      )
+      .map((part) => part.text)
+      .join("\n")
+      .trim();
+    // A replay is a threadless copy of a message that already exists with its
+    // thread context; match by role+text regardless of the earlier copy's root.
+    // Thread-attached messages are never treated as replays.
+    const signature = `${message.role}\0${text}`;
+    const toolReplay =
       toolParts.length > 0 &&
       !message.metadata?.threadRootId &&
       toolParts.every((part) => keptToolCallIds.has(part.toolCallId));
-    if (isReplay) continue;
+    const textReplay =
+      text.length > 0 &&
+      !message.metadata?.threadRootId &&
+      keptTextSignatures.has(signature);
+    if (toolReplay || textReplay) continue;
     result.push(message);
     for (const part of toolParts) keptToolCallIds.add(part.toolCallId);
+    if (text) keptTextSignatures.add(signature);
   }
   return result;
+}
+
+/** @deprecated Use {@link dropReplayedMessages} — it also covers text. */
+export function dropReplayedToolMessages(
+  messages: ChiefUIMessage[],
+): ChiefUIMessage[] {
+  return dropReplayedMessages(messages);
 }

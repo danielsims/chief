@@ -1,5 +1,5 @@
 import type { BrowserDisplayMode } from "@browser-ui/react";
-import { useState } from "react";
+import { memo, useState } from "react";
 import {
   Browser,
   BrowserDisplayTrigger,
@@ -12,7 +12,7 @@ import { cn } from "@chief/ui/lib/utils";
 import { useRuntime } from "../../lib/runtime";
 import { useTheme } from "../../lib/theme";
 
-export function BrowserSessionViewer({
+function BrowserSessionViewerImpl({
   className,
   conversationId,
   onCloseViewer,
@@ -124,3 +124,12 @@ export function BrowserSessionViewer({
     />
   );
 }
+
+export const BrowserSessionViewer = memo(
+  BrowserSessionViewerImpl,
+  (prev, next) =>
+    prev.conversationId === next.conversationId &&
+    prev.operating === next.operating &&
+    prev.className === next.className &&
+    prev.onCloseViewer === next.onCloseViewer,
+);
