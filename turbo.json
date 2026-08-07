@@ -8,6 +8,7 @@
     "CLOUDFLARE_*",
     "CODEX_PATH",
     "CONVEX_SITE_URL",
+    "DEV",
     "EXECUTOR_*",
     "GOOGLE_*",
     "LOCALAPPDATA",
@@ -17,7 +18,8 @@
     "STRIPE_*",
     "TAURI_*",
     "VITE_*",
-    "WORKSPACE_MODEL"
+    "WORKSPACE_MODEL",
+    "XDG_CACHE_HOME"
   ],
   "globalPassThroughEnv": [
     "APPLE_SIGNING_IDENTITY",

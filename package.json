@@ -21,7 +21,8 @@
     "lint:fix": "turbo run lint --continue -- --fix --cache --cache-location .cache/.eslintcache",
     "prepare": "husky",
     "test": "turbo run test",
-    "typecheck": "turbo run typecheck"
+    "typecheck": "turbo run typecheck",
+    "desktop:dev": "bash scripts/dev-desktop.sh"
   },
   "devDependencies": {
     "@chief/prettier-config": "workspace:*",

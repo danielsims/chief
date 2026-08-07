@@ -1,10 +1,15 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   accessSync,
   chmodSync,
   constants,
+  copyFileSync,
+  mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
+  writeFileSync,
 } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -16,6 +21,14 @@ const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
 const agentBrowserEntry = require.resolve("agent-browser/bin/agent-browser.js");
 
+/**
+ * Resolve the agent-browser native client, ensuring it is executable.
+ *
+ * The binary ships inside the packaged runtime, which can live on a read-only
+ * filesystem (a mounted DMG) where an in-place chmod fails. Browser automation
+ * is a core Chief primitive, so never depend on the bundle being writable:
+ * copy the client once into a user-writable cache directory and run the copy.
+ */
 function resolveAgentBrowserExecutable() {
   const directory = dirname(agentBrowserEntry);
   const platform = process.platform === "win32" ? "win32" : process.platform;
@@ -31,25 +44,58 @@ function resolveAgentBrowserExecutable() {
       `agent-browser does not include a native client for ${process.platform}-${process.arch}.`,
     );
   }
-  const resolved = join(directory, executable);
-  if (process.platform !== "win32") {
+  const source = join(directory, executable);
+  if (process.platform === "win32") return source;
+
+  // Prefer the bundled binary when it is already executable; otherwise stage a
+  // writable copy so read-only installs (DMG) still get a working browser.
+  try {
+    accessSync(source, constants.X_OK);
+    return source;
+  } catch {
+    // fall through to a staged copy
+  }
+
+  const cacheDir = join(
+    process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"),
+    "chief",
+    "agent-browser",
+  );
+  const versionMarker = join(cacheDir, "source.txt");
+  let cachedSource = "";
+  try {
+    cachedSource = readFileSync(versionMarker, "utf8");
+  } catch {
+    cachedSource = "";
+  }
+  const target = join(cacheDir, executable);
+  if (cachedSource !== source || !isExecutable(target)) {
+    mkdirSync(cacheDir, { recursive: true });
+    const temporary = join(
+      cacheDir,
+      `${executable}.${process.pid}.${randomUUID()}.tmp`,
+    );
+    copyFileSync(source, temporary);
     try {
-      accessSync(resolved, constants.X_OK);
-    } catch {
-      // agent-browser's native binaries can lose their executable bit when a
-      // pnpm store is restored or copied. We execute the native client
-      // directly, so repair the same permission its JS launcher repairs.
-      try {
-        chmodSync(resolved, 0o755);
-        accessSync(resolved, constants.X_OK);
-      } catch {
-        // A signed app can be launched directly from a read-only DMG. Browser
-        // automation may be unavailable there, but the chat runtime must still
-        // start so conversations can load.
-      }
+      chmodSync(temporary, 0o755);
+      accessSync(temporary, constants.X_OK);
+      copyFileSync(temporary, target);
+      chmodSync(target, 0o755);
+      writeFileSync(versionMarker, source);
+    } finally {
+      rmSync(temporary, { force: true });
     }
   }
-  return resolved;
+  return target;
+}
+
+function isExecutable(path: string) {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const agentBrowserExecutable = resolveAgentBrowserExecutable();

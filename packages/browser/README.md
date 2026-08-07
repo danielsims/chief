@@ -47,11 +47,17 @@ existing Chrome session. `lastUsedChromeProfile()` resolves only Chrome's last
 active profile directory; agent-browser then copies that profile into a
 temporary directory so the original is never modified.
 
-Chief opts into this profile copy only for a user-initiated integration setup
-run. That makes existing provider sessions available in the shared browser
-without silently authenticating unrelated agent browsing.
-Set `CHIEF_BROWSER_PROFILE` to a Chrome profile name/directory to override the
-selection, or to `none` to keep Google setup fully isolated.
+Integration setup runs are **isolated by default**: Chief does not load a real
+Chrome profile, so the setup browser never surfaces the user's personal
+signed-in sessions and cannot pick the wrong account. The agent authenticates
+once per setup, Chief stores the credentials in the workspace vault, and later
+runs use those credentials rather than a persisted browser session.
+
+Set `CHIEF_BROWSER_PROFILE` to a Chrome profile name/directory to deliberately
+attach a real profile — for example an account an agent should drive on a
+schedule (a social account, an ad account) without re-authenticating or being
+given a password. Set it to `none` to force isolation even when an environment
+sets the variable globally.
 
 Chief deliberately does not load copied-profile extensions in its embedded
 browser. Password-manager native messaging, biometric prompts, and passkeys
