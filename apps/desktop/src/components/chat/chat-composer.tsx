@@ -353,6 +353,9 @@ export function ChatComposer({
             </ComposerToolbarRoot>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <Button size="icon-xs" aria-label="Send message" onClick={onSubmit}>
+              <ArrowUp size={14} />
+            </Button>
             {running && onInterrupt ? (
               <Button
                 size="icon-sm"
@@ -363,15 +366,7 @@ export function ChatComposer({
               >
                 <Square size={10} fill="currentColor" />
               </Button>
-            ) : (
-              <Button
-                size="icon-xs"
-                aria-label="Send message"
-                onClick={onSubmit}
-              >
-                <ArrowUp size={14} />
-              </Button>
-            )}
+            ) : null}
           </div>
         </div>
       </div>

@@ -77,7 +77,7 @@ import {
 import { navigateApp, notifySystem } from "./notifications";
 import {
   deduplicateDocumentParts,
-  dropReplayedToolMessages,
+  dropReplayedMessages,
   mergeRuntimeHistory,
   mergeRuntimeMessage,
   visibleRuntimeError,
@@ -3137,12 +3137,12 @@ function useRuntimeChat(
 
   const visibleMessages = useMemo(() => {
     // A provider restart replays the session's history through the driver, and
-    // each replayed tool call is emitted as a fresh transcript message (new
-    // id, same toolCallId, no threadRootId). Those copies would render the
-    // thread's tool/browser UI in the main timeline. dropReplayedToolMessages
-    // keeps only the original thread-attached copy.
+    // each replayed message is emitted as a fresh transcript message (new id,
+    // same toolCallId/text, no threadRootId). Those copies would render the
+    // thread's tool/browser UI in the main timeline. dropReplayedMessages keeps
+    // only the original thread-attached copies.
     if (!channelId || channelEvents.length === 0) {
-      return dropReplayedToolMessages(messages);
+      return dropReplayedMessages(messages);
     }
 
     const sourceIdsByEventId = new Map(
@@ -3192,19 +3192,16 @@ function useRuntimeChat(
       );
       seenIds.add(id);
     }
-    // Keep live tool-only transcript messages until their mirrored text event
-    // exists; they carry the inline browser/tool UI but no channel body.
+    // Keep live transcript messages that do not have a channel event yet — an
+    // optimistic user send or a streaming assistant reply must appear the moment
+    // it is created, not only after its mirror event lands. dropReplayedMessages
+    // removes restart-replay copies so these are never confused with duplicates.
     for (const message of messages) {
       if (seenIds.has(message.id)) continue;
-      const hasToolPart = message.parts.some(
-        (part) => part.type === "dynamic-tool",
-      );
-      if (hasToolPart || !channelEvents.length) {
-        canonicalMessages.push(message);
-        seenIds.add(message.id);
-      }
+      canonicalMessages.push(message);
+      seenIds.add(message.id);
     }
-    return dropReplayedToolMessages(
+    return dropReplayedMessages(
       canonicalMessages.sort(
         (left, right) =>
           (left.metadata?.createdAt ?? 0) - (right.metadata?.createdAt ?? 0),

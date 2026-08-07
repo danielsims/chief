@@ -4,6 +4,7 @@ import test from "node:test";
 import type { ChiefUIMessage } from "@chief/agent-runtime/types";
 
 import {
+  dropReplayedMessages,
   dropReplayedToolMessages,
   mergeRuntimeHistory,
   mergeRuntimeMessage,
@@ -136,7 +137,7 @@ void test("thread-attached copies are never treated as replays", () => {
   );
 });
 
-void test("text-only messages are untouched by replay dedup", () => {
+void test("drops identical threadless text copies as replays", () => {
   const messages: ChiefUIMessage[] = [
     { id: "a", role: "assistant", parts: [{ type: "text", text: "Hello" }] },
     { id: "b", role: "assistant", parts: [{ type: "text", text: "Hello" }] },
@@ -144,6 +145,32 @@ void test("text-only messages are untouched by replay dedup", () => {
 
   assert.deepEqual(
     dropReplayedToolMessages(messages).map((m) => m.id),
-    ["a", "b"],
+    ["a"],
+  );
+});
+
+void test("drops replayed threadless text copies but keeps live messages", () => {
+  const live: ChiefUIMessage = {
+    id: "optimistic",
+    role: "user",
+    parts: [{ type: "text", text: "@Chief set up GitHub" }],
+  };
+  const replayed: ChiefUIMessage = {
+    id: "replayed",
+    role: "assistant",
+    parts: [{ type: "text", text: "Checking GitHub." }],
+  };
+  const original: ChiefUIMessage = {
+    id: "original",
+    role: "assistant",
+    metadata: { createdAt: 1, threadRootId: "root-1" },
+    parts: [{ type: "text", text: "Checking GitHub." }],
+  };
+
+  const result = dropReplayedMessages([original, replayed, live]);
+
+  assert.deepEqual(
+    result.map((m) => m.id),
+    ["original", "optimistic"],
   );
 });
