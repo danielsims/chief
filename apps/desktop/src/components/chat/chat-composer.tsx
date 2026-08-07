@@ -353,10 +353,15 @@ export function ChatComposer({
             </ComposerToolbarRoot>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Button size="icon-xs" aria-label="Send message" onClick={onSubmit}>
-              <ArrowUp size={14} />
-            </Button>
-            {running && onInterrupt ? (
+            {value.trim() ? (
+              <Button
+                size="icon-xs"
+                aria-label="Send message"
+                onClick={onSubmit}
+              >
+                <ArrowUp size={14} />
+              </Button>
+            ) : running && onInterrupt ? (
               <Button
                 size="icon-sm"
                 variant="secondary"
@@ -366,7 +371,15 @@ export function ChatComposer({
               >
                 <Square size={10} fill="currentColor" />
               </Button>
-            ) : null}
+            ) : (
+              <Button
+                size="icon-xs"
+                aria-label="Send message"
+                onClick={onSubmit}
+              >
+                <ArrowUp size={14} />
+              </Button>
+            )}
           </div>
         </div>
       </div>
