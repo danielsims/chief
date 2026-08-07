@@ -1,4 +1,9 @@
-import type { ComponentProps, PointerEventHandler, ReactNode } from "react";
+import type {
+  ComponentProps,
+  PointerEventHandler,
+  ReactNode,
+  Ref,
+} from "react";
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, X } from "lucide-react";
 
@@ -221,10 +226,12 @@ export function ConversationAuxiliaryBreadcrumb({
 
 export function ConversationAuxiliaryPanelBody({
   className,
+  ref,
   ...props
-}: ComponentProps<"div">) {
+}: ComponentProps<"div"> & { ref?: Ref<HTMLDivElement> }) {
   return (
     <div
+      ref={ref}
       className={cn("min-h-0 flex-1 overflow-y-auto", className)}
       {...props}
     />
