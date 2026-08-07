@@ -23,7 +23,13 @@ interface TerminalState {
   exitCode: number | null;
   signal: NodeJS.Signals | null;
   pendingWaitId?: number | string;
+  pendingWaitTimer?: ReturnType<typeof setTimeout>;
 }
+
+/** Bound on a single terminal command so a hung process cannot stall a turn. */
+const TERMINAL_WAIT_TIMEOUT_MS = Number(
+  process.env.CHIEF_TERMINAL_TIMEOUT_MS ?? 60_000,
+);
 
 function findOpenCode() {
   const candidates = [
@@ -97,6 +103,13 @@ export class OpenCodeDriver extends BaseDriver {
     writeFileSync(join(options.cwd, "AGENTS.md"), options.instructions);
     const env = agentEnvironment(options.env);
     this.environment = env;
+    // Never let a repo command block on an interactive prompt (git credentials,
+    // pager, etc.) — that is what made agents look stuck mid-`Run`. Fail fast
+    // so the model sees an error and can adapt instead of hanging forever.
+    env.GIT_TERMINAL_PROMPT = "0";
+    env.GIT_ASKPASS = "/bin/true";
+    env.GIT_PAGER = "cat";
+    env.PAGER = "cat";
     if (options.model) {
       env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ model: options.model });
     }
@@ -264,6 +277,11 @@ export class OpenCodeDriver extends BaseDriver {
   }
 
   async interrupt() {
+    // A hung child command is the usual reason an agent looks stuck; kill the
+    // terminals too so SIGINT to the host actually frees the turn.
+    for (const terminal of this.terminals.values()) {
+      terminal.process.kill("SIGKILL");
+    }
     this.process?.kill("SIGINT");
   }
 
@@ -414,6 +432,19 @@ export class OpenCodeDriver extends BaseDriver {
         input = { value: input };
       }
     }
+    // An empty input object can shadow the raw code the model wrote (opencode
+    // reports both). Prefer the raw code so the UI can label the actual tool
+    // the agent called instead of a generic "Run connected tool".
+    if (
+      (!input ||
+        (typeof input === "object" &&
+          !Array.isArray(input) &&
+          Object.keys(input).length === 0)) &&
+      typeof update.rawInput === "string" &&
+      update.rawInput.trim()
+    ) {
+      input = { code: update.rawInput };
+    }
     if (process.env.CHIEF_DEBUG_SESSION_FORCE === "1") {
       console.error(
         `[opencode-tool] ${eventType} name=${name} id=${id} inputKeys=${JSON.stringify(
@@ -554,6 +585,8 @@ export class OpenCodeDriver extends BaseDriver {
       child.on("exit", (code, signal) => {
         state.exitCode = code;
         state.signal = signal;
+        if (state.pendingWaitTimer) clearTimeout(state.pendingWaitTimer);
+        state.pendingWaitTimer = undefined;
         if (state.pendingWaitId !== undefined) {
           this.respond(state.pendingWaitId, { exitCode: code, signal });
           state.pendingWaitId = undefined;
@@ -578,8 +611,24 @@ export class OpenCodeDriver extends BaseDriver {
           exitCode: state?.exitCode ?? null,
           signal: state?.signal ?? null,
         });
-      } else state.pendingWaitId = id;
+      } else {
+        state.pendingWaitId = id;
+        state.pendingWaitTimer = setTimeout(() => {
+          if (state.pendingWaitId !== id) return;
+          state.pendingWaitId = undefined;
+          state.pendingWaitTimer = undefined;
+          state.process.kill("SIGKILL");
+          this.respond(id, {
+            exitCode: null,
+            signal: "SIGKILL",
+            error: "Command timed out.",
+          });
+        }, TERMINAL_WAIT_TIMEOUT_MS);
+        state.pendingWaitTimer.unref();
+      }
     } else if (method === "terminal/kill" || method === "terminal/release") {
+      if (state?.pendingWaitTimer) clearTimeout(state.pendingWaitTimer);
+      if (state) state.pendingWaitTimer = undefined;
       state?.process.kill("SIGTERM");
       if (method === "terminal/release") this.terminals.delete(terminalId);
       this.respond(id, {});
