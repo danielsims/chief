@@ -2479,6 +2479,34 @@ export class LocalStore {
     }
   }
 
+  /** Reset a failed specialist session so a retry can run it fresh. */
+  async restartSpecialistSession(workspaceId: string, sessionId: string) {
+    await this.ready;
+    const result = await this.db
+      .update(schema.sessions)
+      .set({
+        status: "idle",
+        summary: null,
+        error: null,
+        finishedAt: null,
+        updatedAt: Date.now(),
+      })
+      .where(
+        and(
+          eq(schema.sessions.id, sessionId),
+          eq(schema.sessions.organizationId, workspaceId),
+          eq(schema.sessions.kind, "task"),
+          eq(schema.sessions.visibility, "private"),
+          isNotNull(schema.sessions.parentId),
+          isNull(schema.sessions.scheduleId),
+        ),
+      )
+      .run();
+    if (result.rowsAffected === 0) {
+      throw new Error("Specialist session could not be restarted.");
+    }
+  }
+
   /** Union of Executor addresses recent sessions of this schedule declined. */
   async latestSessionBlockedTools(
     workspaceId: string,

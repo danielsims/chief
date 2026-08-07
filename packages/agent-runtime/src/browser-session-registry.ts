@@ -1,15 +1,27 @@
 import type { AgentBrowserSession } from "@chief/browser/node";
-import { lastUsedChromeProfile } from "@chief/browser/node";
 
 interface Viewport {
   width: number;
   height: number;
 }
 
+/**
+ * Resolve the Chrome profile to copy for an integration setup browser run.
+ *
+ * The default is fully isolated: the setup browser never loads the user's real
+ * Chrome profile, so it never surfaces their personal signed-in sessions or
+ * invites an authentication-mismatch. The agent authenticates once per setup,
+ * Chief stores the credentials in the workspace vault, and later runs use those
+ * credentials instead of a persisted browser session.
+ *
+ * Set CHIEF_BROWSER_PROFILE to a Chrome profile name/directory to deliberately
+ * attach a real profile (for example an account an agent should drive on a
+ * schedule without re-authenticating), or to "none" to force isolation when an
+ * environment sets the variable globally.
+ */
 export function integrationBrowserProfile(setting?: string) {
   const configured = setting?.trim();
-  if (configured === "none") return undefined;
-  if (!configured) return lastUsedChromeProfile();
+  if (!configured || configured === "none") return undefined;
   return configured;
 }
 

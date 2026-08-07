@@ -19,3 +19,13 @@ void test("unknown setup skill markers are ignored", () => {
   assert.equal(setupSkillById("setup-not-real"), undefined);
   assert.equal(setupSkillFromPrompt("@Setup, connect GitHub."), undefined);
 });
+
+void test("gmail setup skill loads with its read-only connect recipe", () => {
+  const skill = setupSkillById("setup-gmail");
+
+  assert.ok(skill);
+  assert.equal(skill.id, "setup-gmail");
+  assert.equal(skill.domain, "gmail.googleapis.com");
+  assert.match(skill.instructions, /gmail\.readonly/u);
+  assert.match(skill.instructions, /Chief - Gmail/u);
+});

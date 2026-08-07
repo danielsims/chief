@@ -21,6 +21,11 @@ const definitions: SetupSkillDefinition[] = [
     domain: "analytics.googleapis.com",
     label: "Setup Google Analytics",
   },
+  {
+    id: "setup-gmail",
+    domain: "gmail.googleapis.com",
+    label: "Setup Gmail",
+  },
 ];
 
 function skillsRoot() {
@@ -55,4 +60,24 @@ export function setupSkillById(id: string): SetupSkill | undefined {
 export function setupSkillFromPrompt(prompt: string) {
   const id = /^\[chief-skill:([a-z0-9-]+)]$/im.exec(prompt)?.[1];
   return id ? setupSkillById(id) : undefined;
+}
+
+export interface SetupTask {
+  id: string;
+  domain: string;
+  label: string;
+  instructions: string;
+}
+
+/** Every integration the runtime can set up, with its progressive instructions. */
+export function setupTaskCatalog(): SetupTask[] {
+  return definitions
+    .map((definition) => setupSkillById(definition.id))
+    .filter((skill): skill is SetupSkill => Boolean(skill?.domain))
+    .map(({ id, domain, label, instructions }) => ({
+      id,
+      domain,
+      label,
+      instructions,
+    }));
 }

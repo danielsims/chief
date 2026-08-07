@@ -98,7 +98,7 @@ import { ProviderAuthentication } from "./provider-authentication.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
 import { resumeDriverBlockedWork } from "./scheduled-agent-config.js";
 import { RecurringWorkScheduler } from "./scheduler.js";
-import { setupSkillFromPrompt } from "./setup-skills.js";
+import { setupSkillFromPrompt, setupTaskCatalog } from "./setup-skills.js";
 import { executorArtifactsMessage } from "./tools/artifacts.js";
 import {
   awaitGoogleAnalyticsAuthorization,
@@ -507,7 +507,6 @@ export function startServer(port = PORT) {
     {
       session: AgentSession;
       listener: (event: unknown) => void;
-      state: channelBridge.ChannelTurnMirrorState;
       settleTimer?: ReturnType<typeof setTimeout>;
     }
   >();
@@ -525,64 +524,58 @@ export function startServer(port = PORT) {
     const binding: {
       session: AgentSession;
       listener: (event: unknown) => void;
-      state: channelBridge.ChannelTurnMirrorState;
       settleTimer?: ReturnType<typeof setTimeout>;
     } = {
       session,
-      state: { terminal: false },
       listener: () => undefined,
     };
-    const discardPending = () => {
+    // Every user-facing assistant message becomes its own channel event with
+    // the same thread tags a user message carries — one mirrorEvent per
+    // message, mirroring the exact path users use to post into a channel or a
+    // thread. No turn-collapsing state machine: that collapsed several
+    // streamed messages into one event and, when the turn's closing message
+    // lost its thread context, re-anchored the whole reply into the main
+    // timeline.
+    const queueMirror = (event: channelBridge.ChannelAssistantMessage) => {
       if (binding.settleTimer) clearTimeout(binding.settleTimer);
-      binding.settleTimer = undefined;
-      binding.state = { terminal: false };
-    };
-    const flushPending = () => {
-      binding.settleTimer = undefined;
-      if (channelMirrorBindings.get(key) !== binding) return;
-      const event = binding.state.pending;
-      binding.state = { terminal: binding.state.terminal };
-      if (!event) return;
-      void manager
-        .enqueueChatPersistence(workspaceId, chatId, () =>
-          channelBridge.mirrorEvent(
-            manager,
-            () => undefined,
-            workspaceId,
-            chatId,
-            event,
-            undefined,
-            { id: session.agent.id, name: session.agent.name },
-            broadcastChannelEvent,
-          ),
-        )
-        .catch((error: unknown) =>
-          console.error("[runtime] background channel event mirror:", error),
-        );
-    };
-    const scheduleFlush = () => {
-      if (binding.settleTimer) clearTimeout(binding.settleTimer);
-      binding.settleTimer = setTimeout(flushPending, 250);
+      binding.settleTimer = setTimeout(() => {
+        binding.settleTimer = undefined;
+        if (channelMirrorBindings.get(key) !== binding) return;
+        void manager
+          .enqueueChatPersistence(workspaceId, chatId, () =>
+            channelBridge.mirrorEvent(
+              manager,
+              () => undefined,
+              workspaceId,
+              chatId,
+              event,
+              undefined,
+              { id: session.agent.id, name: session.agent.name },
+              broadcastChannelEvent,
+            ),
+          )
+          .catch((error: unknown) =>
+            console.error("[runtime] background channel event mirror:", error),
+          );
+      }, 250);
       binding.settleTimer.unref();
     };
     const listener = (rawEvent: unknown) => {
       const event = rawEvent as AgentEvent;
-      const transition = channelBridge.advanceChannelTurnMirror(
-        binding.state,
-        event,
-      );
-      binding.state = transition.state;
-      if (transition.schedule) scheduleFlush();
-      if (event.type === "message" && event.role === "user") {
+      if (channelBridge.isUserFacingChannelMessage(event)) {
+        queueMirror(event);
+        return;
+      }
+      if (event.type === "error") {
         if (binding.settleTimer) clearTimeout(binding.settleTimer);
         binding.settleTimer = undefined;
       }
-      if (event.type === "error") discardPending();
       if (
         event.type === "exit" &&
         channelMirrorBindings.get(key)?.session === session
       ) {
-        discardPending();
+        if (binding.settleTimer) clearTimeout(binding.settleTimer);
+        binding.settleTimer = undefined;
         channelMirrorBindings.delete(key);
       }
     };
@@ -691,14 +684,27 @@ export function startServer(port = PORT) {
       key,
       requestedRun?.parentConversationId ?? conversation?.parentId,
     );
-    const resolvedThreadRootId = threadRootId ?? requestedRun?.threadRootId;
+    let resolvedThreadRootId = threadRootId ?? requestedRun?.threadRootId;
+    // Setup/OAuth-triggered opens don't carry the turn's thread context.
+    // Derive it from the live session so the browser is associated with the
+    // same thread its opening turn is streaming into.
+    resolvedThreadRootId ??= await manager
+      .rootChat(workspaceId, conversationId)
+      .then((result) => result.session?.activeThreadRootId)
+      .catch(() => undefined);
+    if (process.env.CHIEF_DEBUG_SESSION_FORCE === "1") {
+      console.error(
+        `[browser-open] workspace=${workspaceId} conversation=${conversationId} threadRoot=${resolvedThreadRootId ?? "none"} url=${url}`,
+      );
+    }
     if (resolvedThreadRootId !== undefined) {
       browserThreadRoots.set(key, resolvedThreadRootId);
     }
+    // Keep the first insertion point for the session. Re-opening or navigating
+    // the same browser must never clear the anchor — that would orphan the
+    // viewer and make it vanish from the chat while the agent keeps operating.
     if (requestedRun?.anchorMessageId) {
       browserAnchorMessages.set(key, requestedRun.anchorMessageId);
-    } else if (!requestedRun) {
-      browserAnchorMessages.delete(key);
     }
     let browserRunId = browserRunIds.get(key);
     if (!browserRunId && requestedRun) {
@@ -755,12 +761,11 @@ export function startServer(port = PORT) {
     const session = browserSession(workspaceId, conversationId);
     const stream = await session
       .open(lockedUrl, initialViewport)
-      .catch(async (error: unknown) => {
-        await manager.store.updateBrowserRun(workspaceId, browserRunId, {
-          status: "complete",
-        });
-        broadcastBrowserClosed(workspaceId, conversationId);
-        browserRunIds.delete(key);
+      .catch((error: unknown) => {
+        // A navigation failure is a page-level error, not a browser-session
+        // failure. Keep the session alive so the agent can retry with a
+        // corrected URL or the user can still see the browser; tearing the
+        // session down here makes a bad URL look like the browser never opened.
         throw error;
       });
     const currentUrl = await session.getUrl().catch(() => lockedUrl);
@@ -1175,8 +1180,14 @@ export function startServer(port = PORT) {
     capability: ExecutorCapability,
   ) => {
     const setupDomain = integrationSetups.domain(workspaceId, chatId);
+    // Reuse the live session for this chat regardless of the active setup
+    // domain. Switching to a separate setup-agent session here would drop the
+    // channel thread anchor the conversation was replying in, so resumed setup
+    // work would stream into the main timeline instead of the thread. The setup
+    // agent's instructions are the same tool surface; the session identity must
+    // not change mid-conversation.
     const current = manager.get(workspaceId, chatId);
-    if (current && (!setupDomain || current.agent.id === "setup")) {
+    if (current) {
       return current;
     }
     const agent = getAgent(setupDomain ? "setup" : "cmo");
@@ -1273,7 +1284,14 @@ export function startServer(port = PORT) {
       };
       session.on("event", releaseOnTerminal);
       try {
-        await session.sendPrompt(receipt);
+        // Resume in the same channel thread the setup started in. A fresh
+        // continuation without the threadRootId would stream its replies into
+        // the main timeline while the earlier messages stay in the thread,
+        // which looks like duplicates after the turn completes.
+        const threadRootId = session.activeThreadRootId;
+        await session.sendPrompt(receipt, undefined, true, {
+          ...(threadRootId ? { threadRootId } : {}),
+        });
       } catch (error) {
         session.off("event", releaseOnTerminal);
         releaseExecution();
@@ -1418,6 +1436,40 @@ export function startServer(port = PORT) {
       for await (const chunk of req) {
         chunks.push(Buffer.from(chunk as Uint8Array));
       }
+      // The model cannot be trusted to supply the correct sessionId/attemptId —
+      // it repeatedly passes a remembered or invented channel id. Resolve the
+      // active setup session for this workspace and inject the authoritative
+      // ids into browser/OAuth/setup calls so the runtime always operates on the
+      // conversation the user is actually watching.
+      const rawBody = Buffer.concat(chunks);
+      let body: Record<string, unknown> = {};
+      try {
+        body = rawBody.length
+          ? (JSON.parse(rawBody.toString("utf8")) as Record<string, unknown>)
+          : {};
+      } catch {
+        body = {};
+      }
+      const requestedSession =
+        typeof body.sessionId === "string"
+          ? body.sessionId
+          : typeof body.conversationId === "string"
+            ? body.conversationId
+            : undefined;
+      const activeSetupSession =
+        manager
+          .activeSessionIds(workspaceId)
+          .find((sessionId) => integrationSetups.get(workspaceId, sessionId)) ??
+        manager.activeSetupSessionId(workspaceId, requestedSession);
+      if (activeSetupSession) {
+        const activeSetup = integrationSetups.get(
+          workspaceId,
+          activeSetupSession,
+        );
+        body.sessionId = activeSetupSession;
+        body.conversationId = activeSetupSession;
+        if (activeSetup) body.attemptId = activeSetup.attemptId;
+      }
       const request = new Request(`http://127.0.0.1:${port}${req.url}`, {
         method: req.method,
         headers: Object.fromEntries(
@@ -1425,20 +1477,31 @@ export function startServer(port = PORT) {
             typeof value === "string" ? [[key, value]] : [],
           ),
         ),
-        ...(chunks.length > 0 ? { body: Buffer.concat(chunks) } : {}),
+        ...(Object.keys(body).length > 0 ? { body: JSON.stringify(body) } : {}),
       });
       const response = await handleLocalTool(request, workspaceId, manager, {
         onActivity: () => broadcastWorkspaceData(workspaceId),
         onFilesChanged: () => broadcastWorkspaceFiles(workspaceId),
         openBrowser: async (conversationId, url) => {
-          const root = await manager.rootChat(workspaceId, conversationId);
+          // The model may pass a stale or wrong conversationId (it sometimes
+          // reuses a remembered channel id). Resolve to the live interactive
+          // chat so the browser opens in the conversation the user is watching.
+          const resolvedConversationId =
+            (await manager
+              .rootChat(workspaceId, conversationId)
+              .then(() => conversationId)
+              .catch(() => undefined)) ?? manager.activeChatId(workspaceId);
+          const root = await manager.rootChat(
+            workspaceId,
+            resolvedConversationId ?? conversationId,
+          );
           browserThreadRoots.set(
-            browserKey(workspaceId, conversationId),
+            browserKey(workspaceId, resolvedConversationId ?? conversationId),
             root.session?.activeThreadRootId,
           );
           await openBrowserSession(
             workspaceId,
-            conversationId,
+            resolvedConversationId ?? conversationId,
             url,
             undefined,
             root.session?.activeThreadRootId,
@@ -1473,6 +1536,60 @@ export function startServer(port = PORT) {
                 : "The provider connection is ready. Opening sign-in…",
             status: "active",
           });
+        },
+        listSetupTasks: () => {
+          return Promise.resolve(
+            setupTaskCatalog().map(({ id, domain, label }) => ({
+              id,
+              domain,
+              label,
+            })),
+          );
+        },
+        startSetup: async (sessionId, domain) => {
+          const task = setupTaskCatalog().find(
+            (candidate) =>
+              candidate.domain === domain.toLowerCase() ||
+              candidate.id === domain.toLowerCase(),
+          );
+          if (!task) {
+            throw new Error(
+              `No setup task for "${domain}". Call setup.list to see available integrations.`,
+            );
+          }
+          const prepared = await prepareIntegrationSetup(
+            workspaceId,
+            { apiBaseUrl: cachedCapability.apiBaseUrl, token },
+            task.domain,
+          );
+          const attemptId = `chat:${randomUUID().slice(0, 12)}`;
+          integrationSetups.assignDomain(workspaceId, sessionId, task.domain);
+          integrationSetups.activate(workspaceId, sessionId, {
+            attemptId,
+            domain: task.domain,
+            integrationSlug: prepared.integrationSlug,
+            recipeId: prepared.recipeId,
+          });
+          broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+            recipeId: prepared.recipeId,
+            phase:
+              task.domain === GOOGLE_ANALYTICS_DOMAIN
+                ? "authenticated-session"
+                : "prepare-connection",
+            instruction: `Setup started: ${task.label}.`,
+            status: "active",
+          });
+          return {
+            attemptId,
+            domain: task.domain,
+            label: task.label,
+            instructions: task.instructions,
+            available: setupTaskCatalog().map(({ id, domain, label }) => ({
+              id,
+              domain,
+              label,
+            })),
+          };
         },
         openIntegrationHandoff: async (sessionId, attemptId, url) => {
           activeIntegrationSetup(workspaceId, sessionId, attemptId);
@@ -1540,9 +1657,18 @@ export function startServer(port = PORT) {
         },
         googleOAuth: {
           provisionClient: async (sessionId, attemptId) => {
+            // The model may pass a stale sessionId through the executor's
+            // generic `execute` tool. Fall back to the live interactive chat so
+            // the browser opens in the conversation the user is watching.
+            const resolvedSessionId =
+              (integrationSetups.get(workspaceId, sessionId)
+                ? sessionId
+                : undefined) ??
+              manager.activeChatId(workspaceId) ??
+              sessionId;
             const setup = activeIntegrationSetup(
               workspaceId,
-              sessionId,
+              resolvedSessionId,
               attemptId,
             );
             if (setup.domain !== "analytics.googleapis.com") {
@@ -1560,14 +1686,17 @@ export function startServer(port = PORT) {
             ) {
               return { status: "configured" as const };
             }
-            pendingGoogleAuthentication.set(`${workspaceId}\0${sessionId}`, {
-              attemptId,
-              capability: {
-                apiBaseUrl: cachedCapability.apiBaseUrl,
-                token,
+            pendingGoogleAuthentication.set(
+              `${workspaceId}\0${resolvedSessionId}`,
+              {
+                attemptId,
+                capability: {
+                  apiBaseUrl: cachedCapability.apiBaseUrl,
+                  token,
+                },
               },
-            });
-            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+            );
+            broadcastIntegrationSetupProgress(workspaceId, resolvedSessionId, {
               recipeId: "google-analytics",
               phase: "authenticated-session",
               instruction:
@@ -1578,7 +1707,7 @@ export function startServer(port = PORT) {
             if (!firstService) throw new Error("Google API recipe is empty.");
             await openBrowserSession(
               workspaceId,
-              sessionId,
+              resolvedSessionId,
               googleAccountChooserUrl(googleApiLibraryUrl(firstService)),
             );
             return {
@@ -1848,6 +1977,11 @@ export function startServer(port = PORT) {
     const threadRootId = browserThreadRoots.get(key);
     const parentConversationId = browserParentConversations.get(key);
     const anchorMessageId = browserAnchorMessages.get(key);
+    if (process.env.CHIEF_DEBUG_SESSION_FORCE === "1") {
+      console.error(
+        `[browser-broadcast] conversation=${conversationId} threadRoot=${threadRootId ?? "none"} anchor=${anchorMessageId ?? "none"} url=${url}`,
+      );
+    }
     const message = JSON.stringify({
       type: "browserNavigate",
       browserRunId,
@@ -2018,7 +2152,12 @@ export function startServer(port = PORT) {
       }
       const handleEvent = async (event: unknown) => {
         const agentEvent = event as AgentEvent;
-        if (agentEvent.type !== "message") {
+        // Stream deltas are folded into discrete assistant message events by
+        // the session (flushed at `[channel:send]` markers and at turn end), so
+        // do not forward raw stream deltas to the client. Forwarding them
+        // caused the buffered stream placeholder to commit as a duplicate
+        // message alongside the flushed messages.
+        if (agentEvent.type !== "message" && agentEvent.type !== "stream") {
           send({
             type: "event",
             workspaceId,
@@ -3492,10 +3631,12 @@ export function startServer(port = PORT) {
               throw new Error("This chat has an unsupported agent app.");
             }
             const driver =
-              requestedExecution?.driver ?? (storedChat.provider as DriverType);
+              requestedExecution?.driver ??
+              preference?.driver ??
+              (storedChat.provider as DriverType);
             const model = requestedExecution
               ? requestedExecution.model
-              : storedChat.model;
+              : (preference?.model ?? storedChat.model);
             let recoveryPrompt: string | undefined;
             let restartInterruptedSetup = false;
             if (
@@ -3772,6 +3913,16 @@ export function startServer(port = PORT) {
           case "sendMessage": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
+            // A user message may arrive while a turn is still running (for
+            // example the user replying "I'm signed in" during a browser
+            // setup handoff). Wait for the current turn to finish, then
+            // process this message as a normal turn so the agent can respond,
+            // instead of rejecting it with "already running interactive work".
+            if (manager.get(msg.workspaceId, msg.chatId)?.isBusy) {
+              await manager
+                .waitForExecutionAvailability(msg.workspaceId, msg.chatId)
+                .catch(() => undefined);
+            }
             const attachments = safeMessageAttachments(msg.attachments);
             const destinationId = chatDestinations.get(
               `${msg.workspaceId}\0${msg.chatId}`,
@@ -3796,16 +3947,39 @@ export function startServer(port = PORT) {
                   .list(msg.workspaceId),
               });
             }
-            const { session: openedSession } = await manager.rootChat(
-              msg.workspaceId,
-              msg.chatId,
-            );
+            let openedSession = (
+              await manager.rootChat(msg.workspaceId, msg.chatId)
+            ).session;
             if (!openedSession) {
-              return send({
-                type: "error",
-                message:
-                  "No session for this chat yet. Reopen it to reconnect.",
+              // A chat record can outlive its in-memory session (runtime
+              // restart, or the chat was closed and released while its tab
+              // stayed open). Restore it instead of asking the user to reopen
+              // the chat: the stored transcript + provider state are enough to
+              // rebuild the session and resume the conversation.
+              const restored = await ensureChiefSession(
+                msg.workspaceId,
+                msg.chatId,
+                msg.executorCapability,
+              ).catch(() => undefined);
+              if (!restored) {
+                return send({
+                  type: "error",
+                  message:
+                    "No session for this chat yet. Reopen it to reconnect.",
+                  chatId: msg.chatId,
+                });
+              }
+              openedSession = restored;
+              bindRootSession(msg.workspaceId, msg.chatId, restored);
+              send({
+                type: "chatOpened",
+                workspaceId: msg.workspaceId,
                 chatId: msg.chatId,
+                visibility: "user",
+                execution: {
+                  driver: restored.config.driver,
+                  model: restored.config.model,
+                },
               });
             }
             if (newAgentIds.length > 0) {
@@ -4088,6 +4262,15 @@ export function startServer(port = PORT) {
                 text: msg.text,
                 threadRootId: msg.threadRootId,
               });
+              if (process.env.CHIEF_DEBUG_SESSION_FORCE === "1") {
+                console.error(
+                  `[sendMessage] chatId=${msg.chatId} threadRootId=${
+                    msg.threadRootId ?? "none"
+                  } mentions=${JSON.stringify(msg.mentions ?? [])} shared=${
+                    isSharedChannel ? "y" : "n"
+                  } resolvedThreadRoot=${replyThreadRootId ?? "none"}`,
+                );
+              }
               const agentPrompt = setupSkill
                 ? `${msg.text}\n\n<chief_setup_skill id="${setupSkill.id}">\n${setupSkill.instructions}\n</chief_setup_skill>`
                 : msg.text;

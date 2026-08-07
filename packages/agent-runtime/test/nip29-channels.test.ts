@@ -13,7 +13,6 @@ import {
   createChannelReaction,
 } from "../src/channels/nip29.js";
 import {
-  advanceChannelTurnMirror,
   beginAgentActivityReaction,
   endAgentActivityReaction,
   isUserFacingChannelMessage,
@@ -34,54 +33,97 @@ void test("channel conversations are stable and isolated by workspace", () => {
   assert.equal(channelIdFromChatId(`channel:${channelId}`), channelId);
 });
 
-void test("only a completed user-facing agent reply is mirrored", () => {
-  const progress = {
-    type: "message",
-    role: "assistant",
-    content: [{ type: "text", text: "I’m checking that now." }],
-  } satisfies AgentEvent;
-  const activity = {
-    type: "message",
-    role: "assistant",
-    content: [{ type: "tool_use", id: "tool-1", name: "search", input: {} }],
-  } satisfies AgentEvent;
-  const finalReply = {
-    type: "message",
-    id: "final-reply",
-    role: "assistant",
-    content: [{ type: "text", text: "The report is ready." }],
-  } satisfies AgentEvent;
+void test("every user-facing assistant message mirrors with thread tags preserved", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "chief-mirror-"));
+  try {
+    const store = new LocalStore(join(directory, "chief.sqlite"));
+    const manager = new SessionManager(store);
+    const channel = (await store.channelStore().list("workspace-a")).find(
+      (candidate) => candidate.slug === "general",
+    );
+    assert.ok(channel);
+    const chatId = channelChatId("workspace-a", channel.id);
+    const sent: ServerMessage[] = [];
+    const send = (message: ServerMessage) => sent.push(message);
 
-  assert.equal(isUserFacingChannelMessage(activity), false);
-  assert.equal(isUserFacingChannelMessage(finalReply), true);
+    const first = {
+      type: "message",
+      id: "assistant-1",
+      role: "assistant",
+      threadRootId: "root-message",
+      content: [{ type: "text", text: "I’ll check the project first." }],
+    } satisfies AgentEvent;
+    const toolUse = {
+      type: "message",
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "inspecting" },
+        { type: "tool_use", id: "tool-1", name: "browser.open", input: {} },
+      ],
+    } satisfies AgentEvent;
+    const second = {
+      type: "message",
+      id: "assistant-2",
+      role: "assistant",
+      threadRootId: "root-message",
+      content: [{ type: "text", text: "Opening the browser for you." }],
+    } satisfies AgentEvent;
 
-  const state = { terminal: false };
-  let transition = advanceChannelTurnMirror(state, activity);
-  assert.equal(transition.schedule, false);
-  assert.equal(transition.state.pending, undefined);
+    // Tool-only messages are provider plumbing and carry no channel content.
+    assert.equal(isUserFacingChannelMessage(toolUse), false);
+    assert.equal(isUserFacingChannelMessage(first), true);
+    assert.equal(isUserFacingChannelMessage(second), true);
 
-  transition = advanceChannelTurnMirror(transition.state, progress);
-  assert.equal(transition.schedule, false);
-  assert.equal(transition.state.pending, progress);
+    const eventA = await mirrorEvent(
+      manager,
+      send,
+      "workspace-a",
+      chatId,
+      first,
+      channel.id,
+      { id: "cmo", name: "Chief" },
+    );
+    const eventB = await mirrorEvent(
+      manager,
+      send,
+      "workspace-a",
+      chatId,
+      second,
+      channel.id,
+      { id: "cmo", name: "Chief" },
+    );
 
-  transition = advanceChannelTurnMirror(transition.state, finalReply);
-  assert.equal(transition.schedule, false);
-  assert.equal(transition.state.pending, finalReply);
-
-  transition = advanceChannelTurnMirror(transition.state, {
-    type: "result",
-    ok: true,
-  });
-  assert.equal(transition.schedule, true);
-  assert.equal(transition.state.pending, finalReply);
-
-  transition = advanceChannelTurnMirror(transition.state, {
-    type: "message",
-    role: "user",
-    content: [{ type: "text", text: "Next request" }],
-  });
-  assert.deepEqual(transition.state, { terminal: false });
-  assert.equal(transition.schedule, false);
+    assert.ok(eventA);
+    assert.ok(eventB);
+    assert.notEqual(
+      eventA.id,
+      eventB.id,
+      "each message mirrors as its own event",
+    );
+    for (const event of [eventA, eventB]) {
+      assert.ok(
+        event.tags.some((tag) => tag[0] === "h" && tag[1] === channel.id),
+        "channel tag",
+      );
+      assert.ok(
+        event.tags.some(
+          (tag) =>
+            tag[0] === "e" && tag[1] === "root-message" && tag[3] === "root",
+        ),
+        "thread root tag preserved",
+      );
+      assert.ok(
+        event.tags.some(
+          (tag) =>
+            tag[0] === "client" &&
+            (tag[1] === "assistant-1" || tag[1] === "assistant-2"),
+        ),
+        "source message id tag",
+      );
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 void test("workspace channels are durable NIP-29 groups instead of chat labels", async () => {

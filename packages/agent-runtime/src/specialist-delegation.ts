@@ -241,12 +241,9 @@ async function executeSpecialistDelegation(
     };
   }
   if (existing?.status === "failed") {
-    return {
-      sessionId: existing.id,
-      agentId: existing.agent,
-      status: existing.status,
-      error: existing.error ?? "The specialist task failed.",
-    };
+    // A failed delegation is retryable: reset the specialist session so the
+    // same delegation ID can run again instead of re-serving the stale error.
+    await input.manager.restartChildChat(input.workspaceId, existing.id);
   }
 
   const preference = await input.manager.agentPreference(
@@ -280,7 +277,7 @@ async function executeSpecialistDelegation(
               ? initialReview
                 ? "You are working privately for Chief, not speaking directly to the user. Complete the bounded brand research and return the complete Markdown profile. Chief's runtime will save your returned Markdown automatically, so do not discover or call persistence tools. Do not inspect runtime source, environment variables, processes, ports, or Executor internals. Do not create an ad hoc handoff file or ask the user questions."
                 : 'You are working privately for Chief, not speaking directly to the user. Complete the bounded brand research, then use Executor operation localTools.brandProfileSave exactly once with input {"markdown":"<complete profile>"}. If it is not already visible, search once for the exact operation name; do not inspect runtime source, environment variables, processes, ports, or Executor internals. Return the complete Markdown to Chief and do not ask the user questions.'
-              : "You are working privately for Chief, not speaking directly to the user. Complete only the bounded task below. Return concise evidence, analysis, or draft material for Chief to verify and synthesize. You have no connected integrations or durable product-write tools in this session. Do not ask the user questions.",
+              : "You are working privately for Chief, not speaking directly to the user. Complete only the bounded task below. Return concise evidence, analysis, or draft material for Chief to verify and synthesize. You have no durable product-write tools in this session, but you may inspect work or verify behavior by opening Chief's embedded browser with localTools.browserOpen using the owning Chief conversation ID from the runtime context. Do not ask the user questions.",
       workspace ? `# Workspace\n\n${workspace}` : undefined,
     ]
       .filter(Boolean)
@@ -298,18 +295,12 @@ async function executeSpecialistDelegation(
         preference?.model ??
         (driver === parentProvider ? parentModel : undefined),
       executionOwner: "delegation",
-      mcpServers:
-        input.agentId === "prospector" ||
-        input.agentId === "setup" ||
-        input.agentId === "analyst" ||
-        input.agentId === "brand"
-          ? [
-              executorToolServer(
-                existingExecutorWorkspace(input.workspaceId),
-                "model",
-              ),
-            ]
-          : [],
+      mcpServers: [
+        executorToolServer(
+          existingExecutorWorkspace(input.workspaceId),
+          "model",
+        ),
+      ],
     },
     { title: input.title, triggerId: input.delegationId },
   );

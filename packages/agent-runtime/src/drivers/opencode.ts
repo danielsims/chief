@@ -78,11 +78,22 @@ export class OpenCodeDriver extends BaseDriver {
   private access: StartOptions["access"] = "guarded";
   private cwd = homedir();
   private environment: NodeJS.ProcessEnv = { ...process.env };
+  /**
+   * `session/load` replays the entire session as session/update notifications.
+   * The driver must not turn that replay into new messages: it would duplicate
+   * the transcript under fresh ids with no thread context and push the thread's
+   * tool/browser UI into the main timeline. Replay only happens between start
+   * and the first prompt, so suppression ends once a real prompt begins.
+   */
+  private suppressReplay = false;
+  private startOptions: StartOptions | undefined;
 
   async start(options: StartOptions) {
+    this.startOptions = options;
     this.access = options.access;
     this.cwd = options.cwd;
     this.sessionId = options.resumeSessionId;
+    this.suppressReplay = true;
     writeFileSync(join(options.cwd, "AGENTS.md"), options.instructions);
     const env = agentEnvironment(options.env);
     this.environment = env;
@@ -205,6 +216,9 @@ export class OpenCodeDriver extends BaseDriver {
 
   async sendPrompt(text: string) {
     if (!this.sessionId) throw new Error("OpenCode session is not ready.");
+    await this.restartIfNeeded();
+    // A real prompt is running now; anything opencode streams belongs to it.
+    this.suppressReplay = false;
     this.stream = "";
     this.thinking = "";
     this.activeTools.clear();
@@ -251,6 +265,23 @@ export class OpenCodeDriver extends BaseDriver {
 
   async interrupt() {
     this.process?.kill("SIGINT");
+  }
+
+  /**
+   * OpenCode can exit after a turn (idle exit, host teardown). The next prompt
+   * must transparently resume the same session instead of failing with
+   * "OpenCode stopped." Re-spawn the process and session/load the last id.
+   */
+  private async restartIfNeeded() {
+    if (this.process?.stdin && this.process.exitCode === null) return;
+    this.process = null;
+    if (!this.startOptions) {
+      throw new Error("OpenCode session is not ready.");
+    }
+    await this.start({
+      ...this.startOptions,
+      resumeSessionId: this.sessionId,
+    });
   }
 
   async stop() {
@@ -325,6 +356,17 @@ export class OpenCodeDriver extends BaseDriver {
   private sessionUpdate(params: Record<string, unknown>) {
     const update = record(params.update ?? params);
     const type = update.type ?? update.sessionUpdate;
+    if (
+      this.suppressReplay &&
+      (type === "agent_message_chunk" ||
+        type === "agent_thought_chunk" ||
+        type === "tool_call" ||
+        type === "tool_call_start" ||
+        type === "tool_call_update" ||
+        type === "tool_call_end")
+    ) {
+      return;
+    }
     if (type === "agent_message_chunk") {
       const text = textContent(update.content);
       if (text) {
@@ -371,6 +413,15 @@ export class OpenCodeDriver extends BaseDriver {
       } catch {
         input = { value: input };
       }
+    }
+    if (process.env.CHIEF_DEBUG_SESSION_FORCE === "1") {
+      console.error(
+        `[opencode-tool] ${eventType} name=${name} id=${id} inputKeys=${JSON.stringify(
+          Object.keys(update),
+        )} nestedKeys=${JSON.stringify(Object.keys(nested))} input=${JSON.stringify(
+          input,
+        ).slice(0, 300)}`,
+      );
     }
     if (!this.activeTools.has(id)) {
       this.activeTools.set(id, { name, input });

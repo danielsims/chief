@@ -519,6 +519,26 @@ export function localToolsOpenApi(origin: string) {
           responses: saveResponse,
         },
       },
+      "/local-tools/setup/list": {
+        post: {
+          operationId: "setup.list",
+          summary: "List integration setup tasks",
+          description:
+            "Lists the integrations Chief can set up for this workspace (for example Google Analytics, GitHub, Vercel). Call this first to see what setup work is possible before starting one.",
+          requestBody: body("SetupListInput"),
+          responses: saveResponse,
+        },
+      },
+      "/local-tools/setup/start": {
+        post: {
+          operationId: "setup.start",
+          summary: "Start an integration setup task",
+          description:
+            "Starts an agent-driven integration setup in this conversation. Supply a domain from setup.list (for example analytics.googleapis.com). Chief prepares the integration, activates the setup run, and returns the exact step-by-step instructions for completing it. Use this instead of asking the user to open a Settings page or click Connect.",
+          requestBody: body("SetupStartInput"),
+          responses: saveResponse,
+        },
+      },
       "/local-tools/integrations/google-analytics/authorize": {
         post: {
           operationId: "googleAnalytics.authorize",
@@ -802,6 +822,29 @@ export function localToolsOpenApi(origin: string) {
           properties: {
             sessionId: { type: "string" },
             attemptId: { type: "string" },
+          },
+        },
+        SetupListInput: {
+          type: "object",
+          additionalProperties: false,
+          properties: {},
+        },
+        SetupStartInput: {
+          type: "object",
+          additionalProperties: false,
+          required: ["conversationId", "domain"],
+          properties: {
+            conversationId: {
+              type: "string",
+              maxLength: 160,
+              description: "Owning Chief conversation ID from Runtime context",
+            },
+            domain: {
+              type: "string",
+              maxLength: 255,
+              description:
+                "Integration domain from setup.list, for example analytics.googleapis.com",
+            },
           },
         },
         IntegrationHandoffInput: {
@@ -1110,6 +1153,19 @@ export async function handleLocalTool(
         attemptId: string,
         domain: string,
       ) => void | Promise<void>;
+      startSetup?: (
+        sessionId: string,
+        domain: string,
+      ) => Promise<{
+        attemptId: string;
+        domain: string;
+        label: string;
+        instructions: string;
+        available: { id: string; domain: string; label: string }[];
+      }>;
+      listSetupTasks?: () => Promise<
+        { id: string; domain: string; label: string }[]
+      >;
       googleOAuth?: {
         provisionClient?: (
           sessionId: string,
@@ -1246,6 +1302,28 @@ export async function handleLocalTool(
       context,
     );
     if (integrationSetup.handled) return json(integrationSetup.value);
+    if (path === "/local-tools/setup/list") {
+      if (!context.listSetupTasks) {
+        throw new Error("Setup task discovery is unavailable.");
+      }
+      return json({ available: await context.listSetupTasks() });
+    }
+    if (path === "/local-tools/setup/start") {
+      if (!context.startSetup) {
+        throw new Error("Agent-driven setup is unavailable.");
+      }
+      const conversationId = requiredValue(
+        body.conversationId ?? context.conversationId,
+        "conversationId",
+        160,
+      );
+      return json(
+        await context.startSetup(
+          conversationId,
+          requiredValue(body.domain, "domain", 255),
+        ),
+      );
+    }
     if (path === "/local-tools/specialists/delegate") {
       const delegationId = requiredValue(body.delegationId, "delegationId", 64);
       if (!/^[a-z0-9][a-z0-9-]{5,63}$/.test(delegationId)) {

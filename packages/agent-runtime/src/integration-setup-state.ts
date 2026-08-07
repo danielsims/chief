@@ -47,13 +47,18 @@ export class IntegrationSetupRegistry {
     this.setups.get(workspaceId)?.delete(sessionId);
   }
 
-  require(workspaceId: string, sessionId: string, attemptId: string) {
+  require(workspaceId: string, sessionId: string, _attemptId: string) {
     const setup = this.get(workspaceId, sessionId);
-    if (setup?.attemptId !== attemptId || setup.expiresAt <= Date.now()) {
-      this.remove(workspaceId, sessionId);
-      throw new Error("This integration setup run is not active.");
+    // The model sometimes passes a stale or invented attemptId through the
+    // executor's generic `execute` tool. The session is the source of truth —
+    // it holds exactly one active setup. Treat a wrong attemptId as a mismatch
+    // on the caller's side and still use the session's live setup so browser
+    // and OAuth flows can proceed instead of dying on a bad parameter.
+    if (setup && setup.expiresAt > Date.now()) {
+      return setup;
     }
-    return setup;
+    this.remove(workspaceId, sessionId);
+    throw new Error("This integration setup run is not active.");
   }
 
   requireDomain(

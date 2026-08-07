@@ -364,6 +364,25 @@ for (const name of ["convex", "executor"]) {
   }
 }
 
+const agentBrowserBin = join(
+  runtimeRoot,
+  "node_modules",
+  "agent-browser",
+  "bin",
+);
+const agentBrowserClient = existsSync(agentBrowserBin)
+  ? readdirSync(agentBrowserBin).find(
+      (entry) =>
+        entry.startsWith("agent-browser-darwin") ||
+        entry.startsWith("agent-browser-linux"),
+    )
+  : undefined;
+if (!agentBrowserClient) {
+  throw new Error(
+    "Required bundled agent-browser native client is missing from the runtime.",
+  );
+}
+
 for (const cli of [
   join(runtimeRoot, "node_modules", "convex", "bin", "main.js"),
   join(runtimeRoot, "node_modules", "eve", "bin", "eve.js"),
