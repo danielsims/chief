@@ -1,9 +1,19 @@
 /* eslint-disable max-lines */
 
 import type { ReactNode } from "react";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { ArrowDown } from "lucide-react";
 
 import type {
+  AgentCapabilityId,
   ChatExecutionSelection,
   ChiefMessageMetadata,
   ChiefUIMessage,
@@ -74,40 +84,82 @@ import {
 import { summarizeThreadReplyCandidates } from "./thread-reply-summary";
 import { UserMessage } from "./user-message";
 
-/** True when a block is a Chief embedded-browser tool call. */
-function isBrowserToolBlock(block: ContentBlock): boolean {
-  if (block.type !== "tool_use") return false;
-  const name = block.name.toLowerCase();
-  if (
-    name === "browser.open" ||
-    name === "browser.snapshot" ||
-    name === "browser.click" ||
-    name === "browser.fill" ||
-    name === "browser.select" ||
-    name === "browser.press" ||
-    name === "googleoauth.provisionclient" ||
-    name === "googleanalytics.authorize"
-  ) {
+/**
+ * Memoized per-message content. Thread rows are referentially stable after the
+ * runtime merge, so unchanged messages skip re-rendering entirely instead of
+ * rebuilding the whole thread on every stream/tool event — that rebuild is what
+ * made opening a thread (especially one with a browser) janky and flickery.
+ * progress is intentionally excluded: it only feeds tool cards, which no longer
+ * render in the chat.
+ */
+const MessageBlocksContent = memo(
+  function MessageBlocksContent({
+    message,
+    filter,
+    progress,
+    capabilities,
+    active,
+    tasks,
+    taskOwners,
+    ownerId,
+    onOpenTask,
+  }: {
+    message: ChiefUIMessage;
+    filter: (message: ChiefUIMessage) => ContentBlock[];
+    progress?: Record<string, string>;
+    capabilities?: readonly AgentCapabilityId[];
+    active?: boolean;
+    tasks?: readonly SessionRecord[];
+    taskOwners?: ReadonlyMap<string, string>;
+    ownerId?: string;
+    onOpenTask?: (taskId: string) => void;
+  }) {
+    const blocks = useMemo(() => filter(message), [filter, message]);
+    return (
+      <Blocks
+        blocks={blocks}
+        progress={progress}
+        capabilities={capabilities}
+        active={active}
+        tasks={tasks}
+        taskOwners={taskOwners}
+        ownerId={ownerId}
+        onOpenTask={onOpenTask}
+      />
+    );
+  },
+  (prev, next) => {
+    if (prev.message !== next.message) return false;
+    if (prev.filter !== next.filter) return false;
+    if (prev.active !== next.active) return false;
+    if (prev.capabilities !== next.capabilities) return false;
+    if (prev.ownerId !== next.ownerId) return false;
+    if (prev.tasks !== next.tasks) return false;
+    if (prev.taskOwners !== next.taskOwners) return false;
+    if (prev.onOpenTask !== next.onOpenTask) return false;
     return true;
-  }
-  // The executor surfaces browser control through its `execute` tool with the
-  // operation encoded in the input's `code` field (for example
-  // `tools.browserOpen({ ... })` or `tools["…localTools.googleOAuthProvisionClient"]`).
-  // Fall back to scanning the input for a browser/oauth operation so the panel
-  // anchors to the message that invoked it.
-  const code = browserToolCode(block.input);
+  },
+);
+
+/** Muted, Slack-like skeleton shown while a channel's content resolves. */
+function ChatSkeleton() {
   return (
-    code !== null &&
-    (code.includes("browserOpen") ||
-      code.includes("browser.open") ||
-      code.includes("browserSnapshot") ||
-      code.includes("browserClick") ||
-      code.includes("browserFill") ||
-      code.includes("browserSelect") ||
-      code.includes("browserPress") ||
-      code.includes("googleOAuthProvisionClient") ||
-      code.includes("googleOAuth.provisionClient") ||
-      code.includes("googleAnalyticsAuthorize"))
+    <div
+      aria-hidden
+      className="mx-auto w-full max-w-3xl space-y-6 py-2"
+      data-testid="chat-skeleton"
+    >
+      {[0, 1, 2, 3].map((row) => (
+        <div key={row} className="flex items-start gap-3">
+          <div className="bg-muted/60 size-8 shrink-0 animate-pulse rounded-full" />
+          <div className="min-w-0 flex-1 space-y-2 pt-1.5">
+            <div className="bg-muted/60 h-2.5 w-40 animate-pulse rounded-md" />
+            <div className="bg-muted/60 h-2.5 w-full animate-pulse rounded-md" />
+            <div className="bg-muted/40 h-2.5 w-3/4 animate-pulse rounded-md" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -384,10 +436,12 @@ export function ChiefChat({
     messages,
     controls,
     interrupt,
+    stop,
     respondPermission,
     respondQuestion,
     provideInput,
     chatReady,
+    channelResolved,
     execution,
     sendMessageWithContext,
   } = useChiefChat(
@@ -550,7 +604,30 @@ export function ChiefChat({
   } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const threadBottomRef = useRef<HTMLDivElement>(null);
+  const mainScrollRef = useRef<HTMLDivElement>(null);
+  const threadScrollRef = useRef<HTMLDivElement>(null);
+  const mainHasEnteredRef = useRef(false);
+  const threadHasEnteredRef = useRef(false);
   const sentInitial = useRef(false);
+
+  useEffect(() => {
+    mainHasEnteredRef.current = false;
+    threadHasEnteredRef.current = false;
+  }, [chatId]);
+
+  const [mainScrolledUp, setMainScrolledUp] = useState(false);
+  useEffect(() => {
+    const container = mainScrollRef.current;
+    if (!container) return;
+    const onScroll = () => {
+      const nearBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight <
+        120;
+      setMainScrolledUp(!nearBottom);
+    };
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => container.removeEventListener("scroll", onScroll);
+  }, []);
 
   useEffect(() => {
     const intent = autoApproveRef.current;
@@ -592,8 +669,24 @@ export function ChiefChat({
       suppressMainAutoScrollRef.current = false;
       return;
     }
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [initialMessageId, messages.length]);
+    const container = mainScrollRef.current;
+    if (!container || (!channelResolved && !isNew)) return;
+    // Entering a channel snaps to the bottom with zero animation. After that,
+    // follow new messages with the same snap, but only while the user is still
+    // near the bottom — never yank them if they scrolled up (a floating button
+    // offers the smooth scroll instead).
+    if (!mainHasEnteredRef.current) {
+      mainHasEnteredRef.current = true;
+      container.scrollTop = container.scrollHeight;
+      return;
+    }
+    const nearBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight <
+      120;
+    if (nearBottom) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [channelResolved, initialMessageId, isNew, messages.length]);
 
   useEffect(() => {
     if (
@@ -633,9 +726,11 @@ export function ChiefChat({
     setDraft("");
     setImageAttachments([]);
     setComposerOpen(false);
-    // Sending while the agent is mid-turn is a steering prompt: interrupt the
-    // current work first so the new message runs at the next available turn.
+    // Sending while the agent is mid-turn is a steering prompt: abort the
+    // in-flight SDK request and interrupt the server agent so the new message
+    // runs at the next available turn.
     if (controls.status === "running") {
+      void stop();
       interrupt();
     }
     send(text, undefined, [], imageAttachments);
@@ -730,13 +825,20 @@ export function ChiefChat({
       suppressThreadAutoScrollRef.current = false;
       return;
     }
-    const frame = window.requestAnimationFrame(() => {
-      threadBottomRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "end",
-      });
-    });
-    return () => window.cancelAnimationFrame(frame);
+    const container = threadScrollRef.current;
+    if (container && !threadHasEnteredRef.current) {
+      threadHasEnteredRef.current = true;
+      container.scrollTop = container.scrollHeight;
+      return;
+    }
+    // Follow new replies with the same zero-animation snap, never yanking the
+    // user if they scrolled up inside the thread.
+    if (container) {
+      const nearBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight <
+        120;
+      if (nearBottom) container.scrollTop = container.scrollHeight;
+    }
   }, [activeThreadReplies.length, initialMessageId, threadRootId]);
   const activeThreadAudience = useMemo(
     () =>
@@ -771,10 +873,10 @@ export function ChiefChat({
     : controls.status === "running";
   // The browser renders as an attachment anchored to the message whose turn
   // opened it — the same way Buzz embeds the browser into the message body. The
-  // anchor is resolved once and persisted (anchorBrowserSession keeps the first
+  // anchor is resolved and persisted once (anchorBrowserSession keeps the first
   // insertion point), so the viewer never re-anchors as the agent streams new
-  // messages: it stays at the position it was opened at instead of popping
-  // down to the end of the thread.
+  // messages or the thread hydrates: it stays where it was opened instead of
+  // popping around.
   const derivedBrowserAnchorId = useMemo(() => {
     if (!browserBelongsToChat) return undefined;
     const browserThreadRootId =
@@ -835,18 +937,21 @@ export function ChiefChat({
     chatBrowserSession?.anchorMessageId ?? derivedBrowserAnchorId;
   const browserThreadRootId =
     chatBrowserSession?.threadRootId ?? chatBrowserRun?.threadRootId ?? null;
-  // The browser is rendered in the main timeline whenever it would otherwise be
-  // out of view (its thread is not the one currently open), so it can never be
-  // lost while the agent keeps operating it. When its thread IS open it renders
-  // inside that thread instead, matching the "attachment at the message" model.
+  // A browser that belongs to a thread renders only inside that thread — it
+  // stays where it was opened and never migrates into the main chat, even when
+  // the thread is closed. A main-timeline browser renders in the main timeline.
   const browserInOpenThread = Boolean(
     browserBelongsToChat &&
     threadRootId &&
     browserThreadRootId === threadRootId,
   );
+  const browserSessionBelongsToTimeline = Boolean(
+    browserBelongsToChat && !browserThreadRootId,
+  );
   const browserAttachmentNode =
     browserBelongsToChat && browserAnchorMessageId ? (
-      <div className="mx-auto w-full max-w-3xl py-1">
+      // pl-11 aligns the card with the message content column (avatar + gap).
+      <div className="mx-auto w-full max-w-3xl py-1 pl-11">
         <BrowserSessionAttachment
           conversationId={chatId}
           operating={controls.status === "running"}
@@ -912,24 +1017,27 @@ export function ChiefChat({
       setThreadRootId(activeChildThreadRootId);
     }
   };
-  const channelVisibleBlocks = (message: ChiefUIMessage) =>
-    withoutMarkerLines(messageBlocks(message)).filter(
-      (block) =>
-        block.type !== "thinking" &&
-        (block.type !== "tool_use" ||
-          isBrowserToolBlock(block) ||
-          specialistTasksForInput(block.input, childSessions).length > 0),
-    );
-  // The thread panel is a focused conversation, not the noisy channel feed:
-  // every agent tool card (browser, executor calls, delegations) renders inline
-  // at the message that produced it. Only collapsible reasoning is hidden.
-  // tool_result blocks are intentionally kept: `Blocks` pairs them with their
-  // tool_use (rendering nothing) and the browser-open attachment needs the
-  // paired result to recognize an executor `browserOpen` call.
-  const threadBlocks = (message: ChiefUIMessage) =>
-    withoutMarkerLines(messageBlocks(message)).filter(
-      (block) => block.type !== "thinking",
-    );
+  const fullVisibleBlocks = useCallback(
+    (message: ChiefUIMessage) => withoutMarkerLines(messageBlocks(message)),
+    [],
+  );
+  const channelVisibleBlocks = useCallback(
+    (message: ChiefUIMessage) =>
+      withoutMarkerLines(messageBlocks(message)).filter(
+        (block) =>
+          block.type !== "thinking" &&
+          block.type !== "tool_result" &&
+          (block.type !== "tool_use" ||
+            specialistTasksForInput(block.input, childSessions).length > 0),
+      ),
+    [childSessions],
+  );
+  // The chat is a conversation, not an agent runtime: ordinary tool calls (Run
+  // connected tool, skill loads, browser commands) do not render as cards here.
+  // Their detail lives in the activity panel, and the embedded browser shows
+  // what the agent is doing through its own operating labels. Only specialist
+  // delegation cards (the actual work being done) stay inline.
+  const threadBlocks = channelVisibleBlocks;
   const summarizeThreadReplies = (replies: readonly ChiefUIMessage[]) => {
     const summary = summarizeThreadReplyCandidates(
       replies.map((reply) => ({
@@ -1037,8 +1145,11 @@ export function ChiefChat({
     <div className="relative flex h-full min-w-0 overflow-hidden">
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {header}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-5 pb-3">
-          <div className="min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto py-6 pr-2">
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-5 pb-3">
+          <div
+            ref={mainScrollRef}
+            className="min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto py-6 pr-2"
+          >
             {/* A new chat has nothing to replay, so its identity header renders
             immediately; existing chats wait for history so the empty state
             never flashes before the transcript. */}
@@ -1054,10 +1165,8 @@ export function ChiefChat({
                 />
               </div>
             ) : null}
-            {!chatReady && !isNew && !composerOpen && messages.length === 0 ? (
-              <div className="text-muted-foreground flex h-full items-center justify-center font-mono text-xs">
-                Loading conversation…
-              </div>
+            {!channelResolved && !isNew && !composerOpen ? (
+              <ChatSkeleton />
             ) : null}
             {(chatReady || isNew) &&
             !composerOpen &&
@@ -1099,99 +1208,109 @@ export function ChiefChat({
                 onOpenMention={openAgentMention}
               />
             ) : null}
-            {timelineEntries.map((entry) => {
-              if (entry.type === "browser") {
-                // When the browser's thread is open it renders in the thread
-                // panel; here it is only shown when it would otherwise be lost.
-                if (browserInOpenThread) return null;
-                return (
-                  <Fragment key={entry.key}>{browserAttachmentNode}</Fragment>
-                );
-              }
-              const { message } = entry;
-              if (channel && message.metadata?.threadRootId) return null;
-              if (message.metadata?.channelAction) {
-                return (
-                  <ChannelMembershipMessage
-                    key={message.id}
-                    action={message.metadata.channelAction}
-                    userImage={userAuthor.image}
-                  />
-                );
-              }
-              if (message.role === "user") {
-                if (message.id === `${chatId}-kickoff`) return null;
-                return (
-                  <div id={`chief-message-${message.id}`} key={message.id}>
-                    <UserMessage
-                      author={userAuthor}
-                      attachments={imageParts(message)}
+            {channelResolved || isNew
+              ? timelineEntries.map((entry) => {
+                  if (entry.type === "browser") {
+                    // Only a main-timeline browser renders here; a thread-owned
+                    // browser stays inside its thread even when the thread is closed.
+                    if (!browserSessionBelongsToTimeline) return null;
+                    return (
+                      <Fragment key={entry.key}>
+                        {browserAttachmentNode}
+                      </Fragment>
+                    );
+                  }
+                  const { message } = entry;
+                  if (channel && message.metadata?.threadRootId) return null;
+                  if (message.metadata?.channelAction) {
+                    return (
+                      <ChannelMembershipMessage
+                        key={message.id}
+                        action={message.metadata.channelAction}
+                        userImage={userAuthor.image}
+                      />
+                    );
+                  }
+                  if (message.role === "user") {
+                    if (message.id === `${chatId}-kickoff`) return null;
+                    return (
+                      <div id={`chief-message-${message.id}`} key={message.id}>
+                        <UserMessage
+                          author={userAuthor}
+                          attachments={imageParts(message)}
+                          metadata={channel ? null : undefined}
+                          onOpenProfile={openUserProfile}
+                          onOpenMention={openAgentMention}
+                          {...controlsForMessage(message)}
+                          text={messageBlocks(message)
+                            .flatMap((part) =>
+                              part.type === "text" ? [part.text] : [],
+                            )
+                            .join("\n")}
+                        />
+                      </div>
+                    );
+                  }
+                  if (message.role !== "assistant") return null;
+                  const timelineBlocks = channel
+                    ? channelVisibleBlocks(message)
+                    : fullVisibleBlocks(message);
+                  if (timelineBlocks.length === 0) return null;
+                  const visibleNonResults = timelineBlocks.filter(
+                    (block) => block.type !== "tool_result",
+                  );
+                  const specialistOnly =
+                    visibleNonResults.length > 0 &&
+                    visibleNonResults.every(
+                      (block) => block.type === "tool_use",
+                    );
+                  const timelineFilter = channel
+                    ? channelVisibleBlocks
+                    : fullVisibleBlocks;
+                  if (specialistOnly) {
+                    return (
+                      <div
+                        key={message.id}
+                        className="mx-auto w-full max-w-3xl pl-11"
+                      >
+                        <MessageBlocksContent
+                          message={message}
+                          filter={timelineFilter}
+                          progress={controls.toolProgress}
+                          capabilities={activeCapabilities}
+                          active={controls.status === "running"}
+                          tasks={childSessions}
+                          taskOwners={childSessionOwners}
+                          ownerId={message.id}
+                          onOpenTask={onOpenChild}
+                        />
+                      </div>
+                    );
+                  }
+                  return (
+                    <ChiefMessage
+                      key={message.id}
+                      messageId={message.id}
+                      agent={respondingAgentFor(message)}
                       metadata={channel ? null : undefined}
-                      onOpenProfile={openUserProfile}
-                      onOpenMention={openAgentMention}
+                      onOpenProfile={selectProfile}
                       {...controlsForMessage(message)}
-                      text={messageBlocks(message)
-                        .flatMap((part) =>
-                          part.type === "text" ? [part.text] : [],
-                        )
-                        .join("\n")}
-                    />
-                  </div>
-                );
-              }
-              if (message.role !== "assistant") return null;
-              const blocks = withoutMarkerLines(messageBlocks(message));
-              const timelineBlocks = channel
-                ? channelVisibleBlocks(message)
-                : blocks;
-              if (timelineBlocks.length === 0) return null;
-              const visibleNonResults = timelineBlocks.filter(
-                (block) => block.type !== "tool_result",
-              );
-              const specialistOnly =
-                visibleNonResults.length > 0 &&
-                visibleNonResults.every((block) => block.type === "tool_use");
-              if (specialistOnly) {
-                return (
-                  <div
-                    key={message.id}
-                    className="mx-auto w-full max-w-3xl pl-11"
-                  >
-                    <Blocks
-                      blocks={timelineBlocks}
-                      progress={controls.toolProgress}
-                      capabilities={activeCapabilities}
-                      active={controls.status === "running"}
-                      tasks={childSessions}
-                      taskOwners={childSessionOwners}
-                      ownerId={message.id}
-                      onOpenTask={onOpenChild}
-                    />
-                  </div>
-                );
-              }
-              return (
-                <ChiefMessage
-                  key={message.id}
-                  messageId={message.id}
-                  agent={respondingAgentFor(message)}
-                  metadata={channel ? null : undefined}
-                  onOpenProfile={selectProfile}
-                  {...controlsForMessage(message)}
-                >
-                  <Blocks
-                    blocks={timelineBlocks}
-                    progress={controls.toolProgress}
-                    capabilities={activeCapabilities}
-                    active={controls.status === "running"}
-                    tasks={childSessions}
-                    taskOwners={childSessionOwners}
-                    ownerId={message.id}
-                    onOpenTask={onOpenChild}
-                  />
-                </ChiefMessage>
-              );
-            })}
+                    >
+                      <MessageBlocksContent
+                        message={message}
+                        filter={timelineFilter}
+                        progress={controls.toolProgress}
+                        capabilities={activeCapabilities}
+                        active={controls.status === "running"}
+                        tasks={childSessions}
+                        taskOwners={childSessionOwners}
+                        ownerId={message.id}
+                        onOpenTask={onOpenChild}
+                      />
+                    </ChiefMessage>
+                  );
+                })
+              : null}
             {controls.approvals.map((approval) => (
               <div key={approval.requestId} className="mx-auto max-w-3xl">
                 <ApprovalCard
@@ -1225,12 +1344,28 @@ export function ChiefChat({
               </div>
             ) : null}
             {controls.error && (
-              <p className="border-destructive/40 text-destructive mx-auto max-w-3xl border px-3 py-2 text-xs">
+              <p className="border-destructive/40 text-destructive mx-auto max-w-3xl rounded-xl border px-3 py-2 text-xs">
                 {controls.error}
               </p>
             )}
             <div ref={bottomRef} />
           </div>
+
+          {mainScrolledUp && channelResolved ? (
+            <button
+              type="button"
+              aria-label="Scroll to latest"
+              onClick={() =>
+                mainScrollRef.current?.scrollTo({
+                  top: mainScrollRef.current.scrollHeight,
+                  behavior: "smooth",
+                })
+              }
+              className="bg-background text-muted-foreground hover:text-foreground focus-visible:ring-ring/30 absolute bottom-44 left-1/2 z-20 flex size-10 -translate-x-1/2 items-center justify-center rounded-full border shadow-lg transition-colors outline-none focus-visible:ring-2"
+            >
+              <ArrowDown size={16} />
+            </button>
+          ) : null}
 
           <div className="mx-auto w-full max-w-3xl space-y-2">
             {composerOpen && messages.length > 0 ? (
@@ -1338,7 +1473,10 @@ export function ChiefChat({
             subtitle={`${activeThreadSummary.count} ${activeThreadSummary.count === 1 ? "reply" : "replies"}`}
             onClose={() => setThreadRootId(null)}
           />
-          <ConversationAuxiliaryPanelBody className="space-y-2 px-4 py-4">
+          <ConversationAuxiliaryPanelBody
+            ref={threadScrollRef}
+            className="space-y-2 px-4 py-4"
+          >
             {activeThreadRoot?.role === "user" ? (
               <div id={`chief-message-${activeThreadRoot.id}`}>
                 <UserMessage
@@ -1407,8 +1545,9 @@ export function ChiefChat({
                     key={message.id}
                     className="mx-auto w-full max-w-3xl pl-11"
                   >
-                    <Blocks
-                      blocks={blocks}
+                    <MessageBlocksContent
+                      message={message}
+                      filter={threadBlocks}
                       progress={controls.toolProgress}
                       capabilities={activeCapabilities}
                       active={controls.status === "running"}
@@ -1428,8 +1567,9 @@ export function ChiefChat({
                   metadata={null}
                   onOpenProfile={selectProfile}
                 >
-                  <Blocks
-                    blocks={blocks}
+                  <MessageBlocksContent
+                    message={message}
+                    filter={threadBlocks}
                     progress={controls.toolProgress}
                     capabilities={activeCapabilities}
                     active={controls.status === "running"}

@@ -363,13 +363,13 @@ export function ChatComposer({
               </Button>
             ) : running && onInterrupt ? (
               <Button
-                size="icon-sm"
+                size="icon-xs"
                 variant="secondary"
                 aria-label="Stop response"
                 onClick={onInterrupt}
-                className="rounded-full shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent),0_1px_2px_rgba(0,0,0,0.08)]"
+                className="border-border/70 border shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]"
               >
-                <Square size={10} fill="currentColor" />
+                <Square size={9} fill="currentColor" />
               </Button>
             ) : (
               <Button

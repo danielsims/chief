@@ -211,8 +211,11 @@ function ScopedChannelReadStateProvider({
 
   const markChannelRead = useCallback(
     (channelId: string) => {
+      // Opening a channel is a read action for the whole channel, threads
+      // included — the user should not have to step into each thread to clear
+      // its badge. Advance the marker past the newest message of any kind.
       const messages = observedRef.current.get(channelId)?.values() ?? [];
-      const latest = latestTimestamp(messages, (message) => !message.rootId);
+      const latest = latestTimestamp(messages, () => true);
       if (latest === null) return;
       updateMarkers((current) =>
         advanceReadContext(current, channelContextKey(channelId), latest),
