@@ -109,6 +109,8 @@ interface AgentBrowserEnvelope<T> {
 export interface AgentBrowserSessionOptions {
   sessionId: string;
   downloadPath: string;
+  /** AES-256-GCM key used by agent-browser for encrypted restore state. */
+  encryptionKey?: string;
   executablePath?: string;
   extensions?: string[];
   allowedDomains?: string[];
@@ -381,11 +383,19 @@ export class AgentBrowserSession {
           encoding: "utf8",
           env: {
             ...process.env,
+            ...(this.options.encryptionKey
+              ? {
+                  AGENT_BROWSER_ENCRYPTION_KEY: this.options.encryptionKey,
+                }
+              : {}),
             AGENT_BROWSER_CONFIG: this.configPath,
             AGENT_BROWSER_DEFAULT_TIMEOUT: "20000",
             AGENT_BROWSER_EXTENSIONS: "",
             AGENT_BROWSER_HEADED: "false",
             AGENT_BROWSER_IDLE_TIMEOUT_MS: "30m",
+            ...(this.options.restore
+              ? { AGENT_BROWSER_AUTOSAVE_INTERVAL_MS: "5000" }
+              : {}),
           },
           maxBuffer: 10 * 1024 * 1024,
           timeout,
@@ -400,19 +410,20 @@ export class AgentBrowserSession {
   async open(
     url: string,
     viewport?: { width: number; height: number },
+    timeout = 60_000,
   ): Promise<AgentBrowserStream> {
-    await this.command(["open", url], 60_000);
+    await this.command(["open", url], timeout);
     if (viewport) await this.setViewport(viewport.width, viewport.height);
     return this.stream();
   }
 
-  async stream(): Promise<AgentBrowserStream> {
+  async stream(timeout = 30_000): Promise<AgentBrowserStream> {
     const status = await this.command<{
       connected: boolean;
       enabled: boolean;
       port: number;
       screencasting: boolean;
-    }>(["stream", "status"]);
+    }>(["stream", "status"], timeout);
     if (!status.enabled || !status.port) {
       throw new Error("agent-browser streaming is unavailable.");
     }
@@ -551,7 +562,7 @@ export class AgentBrowserSession {
         await this.command(command);
         if (await this.waitForRadioSelection(targetName)) return true;
         lastError = new Error(
-          `The browser control \"${targetName}\" did not become selected.`,
+          `The browser control "${targetName}" did not become selected.`,
         );
       } catch (error) {
         lastError = error;
@@ -647,5 +658,10 @@ export class AgentBrowserSession {
 
   async close() {
     await this.command(["close"]);
+  }
+
+  /** Remove the encrypted auto-restore state for this named session. */
+  async clearSavedState() {
+    await this.command(["state", "clear", this.sessionId]);
   }
 }

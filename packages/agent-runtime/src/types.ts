@@ -185,6 +185,10 @@ export interface ChiefMessageMetadata {
   threadRootId?: string;
   /** Stable user or agent identities explicitly addressed by this message. */
   mentions?: string[];
+  /** Ephemeral desktop delivery intent. It is not copied into durable agent
+   * events, but keeps a busy-turn follow-up attached to its own message while
+   * the transport sends it. */
+  interruptActive?: boolean;
   /** Durable channel lifecycle event rendered separately from authored chat. */
   channelAction?: {
     type: "member-added";
@@ -272,6 +276,8 @@ export type AgentEvent =
       requestId: string;
       toolName: string;
       input: unknown;
+      /** Channel thread whose turn requested this decision. */
+      threadRootId?: string;
     }
   /** Emitted once a permission request has been answered, so replayed
    * transcripts don't resurrect stale approval prompts. */
@@ -575,6 +581,8 @@ export interface AgentDefinition {
 
 export interface StartOptions {
   cwd: string;
+  /** Extra workspace roots the provider may read without an approval prompt. */
+  additionalDirectories?: string[];
   /** Stable provider storage identity for this Chief chat. */
   storageKey?: string;
   instructions: string;
@@ -707,6 +715,12 @@ interface BrowserConversationMessage<T extends string> {
   conversationId: string;
 }
 
+interface BrowserRunConversationMessage<
+  T extends string,
+> extends BrowserConversationMessage<T> {
+  browserRunId: string;
+}
+
 export interface BrowserRunRecord {
   id: string;
   workspaceId: string;
@@ -720,6 +734,8 @@ export interface BrowserRunRecord {
   createdAt: number;
   updatedAt: number;
 }
+
+export type BrowserPresentationMode = "inline" | "picture-in-picture";
 
 export type ClientMessage =
   | { type: "listAgents" }
@@ -892,6 +908,9 @@ export type ClientMessage =
       threadRootId?: string;
       mentions?: string[];
       senderName?: string;
+      /** A user follow-up should replace the active turn instead of waiting
+       * behind it. The runtime also detects a busy session defensively. */
+      interruptActive?: boolean;
       execution?: ChatExecutionSelection;
       executorCapability: ExecutorCapability;
     }
@@ -1034,18 +1053,20 @@ export type ClientMessage =
       width: number;
       height: number;
     }
-  | BrowserConversationMessage<"browserReload">
-  | BrowserConversationMessage<"browserClose">
+  | BrowserRunConversationMessage<"browserReload">
+  | BrowserRunConversationMessage<"browserClose">
   | {
       type: "browserUrlChanged";
       workspaceId: string;
       conversationId: string;
+      browserRunId: string;
       url: string;
     }
   | {
       type: "browserViewportResize";
       workspaceId: string;
       conversationId: string;
+      browserRunId: string;
       width: number;
       height: number;
     };
@@ -1116,6 +1137,13 @@ export type ServerMessage =
         typing?: boolean;
         visible?: boolean;
       };
+    }
+  | {
+      type: "browserPresentation";
+      browserRunId: string;
+      workspaceId: string;
+      conversationId: string;
+      mode: BrowserPresentationMode;
     }
   | (BrowserConversationMessage<"browserClosed"> & { browserRunId: string })
   | {

@@ -4,6 +4,7 @@ import { analyst } from "./analyst/agent.js";
 import { brand } from "./brand/agent.js";
 import { cmo } from "./cmo/agent.js";
 import { content } from "./content/agent.js";
+import { engineer } from "./engineer/agent.js";
 import { prospector } from "./prospector/agent.js";
 import { setup } from "./setup/agent.js";
 
@@ -21,6 +22,7 @@ export const agentManifests: readonly AgentManifest[] = [
   setup,
   brand,
   content,
+  engineer,
   analyst,
   prospector,
   ads,

@@ -34,6 +34,7 @@ void test("materializes one Chief root with private inspect-only specialists", (
       "analyst",
       "prospector",
       "ads",
+      "engineer",
       "setup",
     ]);
     assert.match(read(root, "agent/agent.ts"), /experimental_chatgpt\(\)/);

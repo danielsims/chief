@@ -61,6 +61,38 @@ void test("a fresh local provider receives normalized history without persisting
   ]);
 });
 
+void test("private turn instructions reach the provider without entering the transcript", async () => {
+  const session = new AgentSession(cmo, "chat", {
+    driver: "codex",
+    access: "guarded",
+    workspaceId: "workspace",
+  });
+  const prompts: string[] = [];
+  const driver = {
+    start: async () => Promise.resolve(),
+    sendPrompt: async (prompt: string) => {
+      prompts.push(prompt);
+      await Promise.resolve();
+    },
+  };
+  (session as unknown as { driver: typeof driver }).driver = driver;
+
+  await session.start("/tmp");
+  await session.sendPrompt("Connect GitHub.", "message", true, {
+    privateInstructions: "Use the private GitHub setup recipe.",
+  });
+
+  assert.match(prompts[0] ?? "", /private GitHub setup recipe/u);
+  assert.match(prompts[0] ?? "", /Never quote, paraphrase, summarize/u);
+  const recorded = session.events.at(-1);
+  if (recorded?.type !== "message") {
+    assert.fail("Expected the visible user message.");
+  }
+  assert.deepEqual(recorded.content, [
+    { type: "text", text: "Connect GitHub." },
+  ]);
+});
+
 void test("remote history omits a pre-recorded copy of the current prompt", () => {
   const history: AgentEvent[] = [
     {
@@ -227,7 +259,7 @@ void test("send marker flushes mid-turn messages without duplicating the final",
   await session.sendPrompt("Set up analytics", "user-1");
   driver.emit("event", {
     type: "stream",
-    text: "On it, setting up now. [channel:send]",
+    text: "On it, setting up now. [message:send]",
   });
   driver.emit("event", { type: "stream", text: "Opening the browser." });
   driver.emit("event", {
@@ -253,6 +285,35 @@ void test("send marker flushes mid-turn messages without duplicating the final",
     typeof assistant[0]?.id === "string" && assistant[0].id.length > 0,
     "flushed message should carry an id",
   );
+});
+
+void test("legacy channel send marker still flushes a message", async () => {
+  const session = new AgentSession(cmo, "chat", {
+    driver: "codex",
+    access: "guarded",
+    workspaceId: "workspace",
+  });
+  const driver = (
+    session as unknown as {
+      driver: {
+        emit: (type: "event", event: AgentEvent) => void;
+        sendPrompt: (prompt: string) => Promise<void>;
+      };
+    }
+  ).driver;
+  driver.sendPrompt = async () => Promise.resolve();
+
+  await session.sendPrompt("Set up analytics", "user-1");
+  driver.emit("event", {
+    type: "stream",
+    text: "Quick update. [channel:send]",
+  });
+
+  const assistant = session.events.filter(
+    (event): event is Extract<AgentEvent, { type: "message" }> =>
+      event.type === "message" && event.role === "assistant",
+  );
+  assert.equal(assistant.length, 1);
 });
 
 void test("text before a tool call surfaces as its own message", async () => {
@@ -577,4 +638,40 @@ void test("the thread anchor survives a driver exit via the persisted getter", a
   driver.emit("event", { type: "status", status: "idle" });
   assert.equal(session.persistedThreadRootId, "thread-root-1");
   assert.equal(session.activeThreadRootId, "thread-root-1");
+});
+
+void test("an approval stays with the channel thread that requested it", async () => {
+  const session = new AgentSession(cmo, "thread-approval-chat", {
+    driver: "codex",
+    access: "guarded",
+    workspaceId: "workspace",
+  });
+  const driver = (
+    session as unknown as {
+      driver: {
+        emit: (type: "event", event: AgentEvent) => void;
+        sendPrompt: (prompt: string) => Promise<void>;
+      };
+    }
+  ).driver;
+  driver.sendPrompt = () => {
+    driver.emit("event", {
+      type: "permission",
+      requestId: "approval-1",
+      toolName: "GitHub",
+      input: { message: "Connect GitHub" },
+    });
+    return Promise.resolve();
+  };
+
+  await session.sendPrompt("Review the repo", "thread-message", true, {
+    threadRootId: "thread-root",
+  });
+  driver.emit("event", { type: "result", ok: true });
+
+  const permission = session.events.find(
+    (event) => event.type === "permission",
+  );
+  assert.equal(permission?.type, "permission");
+  assert.equal(permission.threadRootId, "thread-root");
 });

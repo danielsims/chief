@@ -69,3 +69,105 @@ void test("Codex request_user_input uses Chief's structured question UI", () => 
     },
   ]);
 });
+
+void test("Codex identifies plugin suggestions in approval events", () => {
+  const driver = new CodexDriver();
+  const events: AgentEvent[] = [];
+  driver.on("event", (event: AgentEvent) => events.push(event));
+
+  const internals = driver as unknown as {
+    handleMessage(message: unknown): void;
+    write(message: unknown): void;
+  };
+  internals.write = () => undefined;
+  internals.handleMessage({
+    id: 7,
+    method: "mcpServer/elicitation/request",
+    params: {
+      _meta: {
+        codex_approval_kind: "tool_suggestion",
+        tool_name: "GitHub",
+        suggest_reason: "Use GitHub to inspect commits.",
+      },
+      message: "Use GitHub to inspect commits.",
+    },
+  });
+
+  const permission = events.find((event) => event.type === "permission");
+  assert.equal(permission?.type, "permission");
+  assert.equal(permission.toolName, "GitHub");
+});
+
+void test("Codex prompt stays active until the turn completes", async () => {
+  const driver = new CodexDriver();
+  const events: AgentEvent[] = [];
+  driver.on("event", (event: AgentEvent) => events.push(event));
+
+  const internals = driver as unknown as {
+    handleMessage(message: unknown): void;
+    rpc(method: string, params: unknown): Promise<unknown>;
+  };
+  internals.rpc = () => Promise.resolve({ turn: { id: "turn-1" } });
+
+  let settled = false;
+  const pending = driver.sendPromptOnce("Start onboarding").finally(() => {
+    settled = true;
+  });
+  await Promise.resolve();
+  assert.equal(settled, false);
+
+  internals.handleMessage({
+    method: "turn/completed",
+    params: { turn: { id: "turn-1", status: "completed" } },
+  });
+  await pending;
+
+  assert.equal(settled, true);
+  assert.ok(events.some((event) => event.type === "result" && event.ok));
+});
+
+void test("Codex turn failure rejects without publishing a terminal result", async () => {
+  const driver = new CodexDriver();
+  const events: AgentEvent[] = [];
+  driver.on("event", (event: AgentEvent) => events.push(event));
+
+  const internals = driver as unknown as {
+    handleMessage(message: unknown): void;
+    rpc(method: string, params: unknown): Promise<unknown>;
+  };
+  internals.rpc = () => Promise.resolve({ turn: { id: "turn-2" } });
+
+  const pending = driver.sendPromptOnce("Start onboarding");
+  await Promise.resolve();
+  internals.handleMessage({
+    method: "turn/failed",
+    params: { error: { message: "Codex is temporarily overloaded" } },
+  });
+
+  await assert.rejects(pending, /temporarily overloaded/);
+  assert.equal(
+    events.some((event) => event.type === "result"),
+    false,
+  );
+});
+
+void test("stopping Codex cancels an active prompt without restarting", async () => {
+  const driver = new CodexDriver();
+  let restarts = 0;
+  const internals = driver as unknown as {
+    rpc(method: string, params: unknown): Promise<unknown>;
+    restart(): Promise<void>;
+  };
+  internals.rpc = () => Promise.resolve({ turn: { id: "turn-3" } });
+  internals.restart = () => {
+    restarts += 1;
+    return Promise.resolve();
+  };
+
+  const pending = driver.sendPrompt("Start onboarding");
+  await Promise.resolve();
+  await driver.stop();
+  await pending;
+
+  assert.equal(restarts, 0);
+});

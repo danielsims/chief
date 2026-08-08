@@ -88,6 +88,7 @@ export class SessionManager {
     string,
     { id: string; owner: "interactive" | "schedule" | "channel" }
   >();
+  private executionWaiters = new Map<string, Set<() => void>>();
   /** Workspaces with a session mid-open, so their secrets must not lock. */
   private startingWorkspaces = new Map<string, number>();
   private readonly repairedFileWorkspaces = new Set<string>();
@@ -115,8 +116,13 @@ export class SessionManager {
     return () => {
       if (this.executionOwners.get(key)?.id === id) {
         this.executionOwners.delete(key);
+        this.notifyExecutionWaiters(key);
       }
     };
+  }
+
+  private notifyExecutionWaiters(key: string) {
+    for (const notify of this.executionWaiters.get(key) ?? []) notify();
   }
 
   assertExecutionAvailable(
@@ -149,26 +155,55 @@ export class SessionManager {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const current = this.sessions.get(key);
-      if (!current?.isBusy) return;
+      if (!this.executionOwners.has(key) && !current?.isBusy) return;
       await new Promise<void>((resolve) => {
         const remaining = Math.max(1, deadline - Date.now());
-        const timer = setTimeout(() => {
-          current.off("event", listener);
+        const waiters = this.executionWaiters.get(key) ?? new Set();
+        this.executionWaiters.set(key, waiters);
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          current?.off("event", listener);
+          waiters.delete(finish);
+          if (waiters.size === 0) this.executionWaiters.delete(key);
           resolve();
-        }, remaining);
+        };
+        const timer = setTimeout(finish, remaining);
         const listener = (event: AgentEvent) => {
           if (
             event.type === "result" ||
             event.type === "error" ||
             event.type === "exit"
           ) {
-            clearTimeout(timer);
-            current.off("event", listener);
-            resolve();
+            finish();
           }
         };
-        current.on("event", listener);
+        waiters.add(finish);
+        current?.on("event", listener);
       });
+    }
+    throw new Error(
+      "Timed out waiting for this chat's current work to finish.",
+    );
+  }
+
+  async acquireExecutionWhenAvailable(
+    workspaceId: string,
+    chatId: string,
+    owner: "interactive" | "schedule" | "channel",
+    timeoutMs = 10 * 60_000,
+  ) {
+    const deadline = Date.now() + timeoutMs;
+    while (true) {
+      try {
+        return this.acquireExecution(workspaceId, chatId, owner);
+      } catch (error) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) throw error;
+        await this.waitForExecutionAvailability(workspaceId, chatId, remaining);
+      }
     }
   }
 
@@ -180,6 +215,7 @@ export class SessionManager {
     const key = workspaceChatKey(workspaceId, chatId);
     if (this.executionOwners.get(key)?.owner === owner) {
       this.executionOwners.delete(key);
+      this.notifyExecutionWaiters(key);
     }
   }
 
@@ -601,6 +637,7 @@ export class SessionManager {
     }
     const scopedConfig = {
       ...config,
+      additionalDirectories: [workspaceRoot(config.workspaceId)],
       env: scopeRemoteAgentEnvironment(env, agent.id),
       runtimeContext,
     };

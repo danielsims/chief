@@ -1,8 +1,34 @@
 import type { AgentBrowserSession } from "@chief/browser/node";
 
+import type { BrowserRunRecord } from "./types.js";
+
 interface Viewport {
   width: number;
   height: number;
+}
+
+export function commandTargetsActiveBrowserRun(
+  activeRunId: string | undefined,
+  requestedRunId: string,
+) {
+  return activeRunId === requestedRunId;
+}
+
+/** Keep only the newest resumable run for each conversation. */
+export function resumableBrowserRuns(runs: readonly BrowserRunRecord[]) {
+  const latest = new Map<string, BrowserRunRecord>();
+  for (const run of runs) {
+    if (run.status !== "active") continue;
+    const current = latest.get(run.conversationId);
+    if (
+      !current ||
+      run.createdAt > current.createdAt ||
+      (run.createdAt === current.createdAt && run.id > current.id)
+    ) {
+      latest.set(run.conversationId, run);
+    }
+  }
+  return [...latest.values()];
 }
 
 /**
@@ -64,6 +90,22 @@ export class BrowserSessionRegistry {
     this.pendingViewports.delete(key);
     this.appliedViewports.delete(key);
     if (session) await session.close().catch(() => undefined);
+  }
+
+  /** End a session and deliberately forget its encrypted restore state. */
+  async reset(workspaceId: string, conversationId: string) {
+    const key = this.key(workspaceId, conversationId);
+    const session =
+      this.sessions.get(key) ?? this.create(workspaceId, conversationId);
+    this.sessions.delete(key);
+    this.viewportWaiters.delete(key);
+    this.resizeTasks.delete(key);
+    this.pendingViewports.delete(key);
+    this.appliedViewports.delete(key);
+    await session.close().catch(() => undefined);
+    // A fresh browser must fail closed if its old authentication state cannot
+    // be removed; silently continuing could reopen the identity being reset.
+    await session.clearSavedState();
   }
 
   async closeAll() {

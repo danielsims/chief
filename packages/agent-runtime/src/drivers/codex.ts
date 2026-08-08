@@ -58,6 +58,11 @@ interface RpcRequest {
   timer: NodeJS.Timeout;
 }
 
+interface ActiveTurn {
+  resolve: () => void;
+  reject: (error: Error) => void;
+}
+
 /**
  * Drives the Codex CLI via `codex app-server` — JSON-RPC 2.0 over
  * stdin/stdout (JSONL). Uses the user's existing `codex auth login`
@@ -90,9 +95,11 @@ export class CodexDriver extends BaseDriver {
   >();
   private activeToolUseIds = new Set<string>();
   private currentStream = "";
+  private activeTurn: ActiveTurn | null = null;
   private opts: StartOptions | null = null;
   private stopping = false;
   private stderrTail = "";
+  private lineReader: ReturnType<typeof createInterface> | null = null;
 
   private finishActiveTools(content: string, isError = false) {
     if (this.activeToolUseIds.size === 0) return;
@@ -110,8 +117,18 @@ export class CodexDriver extends BaseDriver {
   }
 
   async start(opts: StartOptions): Promise<void> {
+    this.stopping = false;
     this.opts = opts;
+    this.startOptions = opts;
     this.threadId = opts.resumeSessionId;
+    this.turnId = undefined;
+    this.approvals.clear();
+    this.pendingQuestions.clear();
+    this.activeToolUseIds.clear();
+    this.currentStream = "";
+    this.stderrTail = "";
+    this.lineReader?.close();
+    this.lineReader = null;
     // Codex reads per-directory instructions from AGENTS.md (same approach
     // as orbit): materialize the agent persona into the working dir.
     try {
@@ -125,7 +142,7 @@ export class CodexDriver extends BaseDriver {
     // surface. Without it, a scheduled writer or prospector can only inspect
     // already-connected records and turns a missing optional connector into a
     // dead end. Provider mutations remain governed by Executor separately.
-    this.proc = spawn(findCodex(), ["--search", "app-server"], {
+    const proc = spawn(findCodex(), ["--search", "app-server"], {
       cwd: opts.cwd,
       env: {
         ...environment,
@@ -144,8 +161,13 @@ export class CodexDriver extends BaseDriver {
       // spawned. Killing only the wrapper leaks app-server/Executor processes.
       detached: true,
     });
+    this.proc = proc;
 
-    this.proc.on("exit", (code, signal) => {
+    proc.on("exit", (code, signal) => {
+      if (this.proc !== proc) return;
+      this.proc = null;
+      this.lineReader?.close();
+      this.lineReader = null;
       const detail = this.stderrTail
         .split("\n")
         .map((line) => line.trim())
@@ -153,10 +175,18 @@ export class CodexDriver extends BaseDriver {
         .at(-1);
       const reason = `Codex exited${code === null ? "" : ` with code ${code}`}${signal ? ` (${signal})` : ""}${detail ? `: ${detail}` : "."}`;
       this.rejectPending(reason);
+      const promptWasActive = this.activeTurn !== null;
+      this.rejectActiveTurn(reason);
       this.finishActiveTools(
         "Tool stopped because the agent runtime exited.",
         true,
       );
+      // Let BaseDriver own an in-flight prompt failure so it can restart and
+      // retry when no output was produced. Emitting exit here would mark a
+      // private specialist terminal before that retry gets a chance to run.
+      if (promptWasActive && !this.stopping && !this.promptWasInterrupted()) {
+        return;
+      }
       if (!this.stopping && code !== 0) {
         this.emitEvent({
           type: "error",
@@ -166,13 +196,21 @@ export class CodexDriver extends BaseDriver {
       this.emitEvent({ type: "exit", code });
       this.emitEvent({ type: "status", status: "idle" });
     });
-    this.proc.on("error", (err) => {
+    proc.on("error", (err) => {
+      if (this.proc !== proc) return;
+      this.proc = null;
+      this.lineReader?.close();
+      this.lineReader = null;
       this.rejectPending(`Could not start Codex: ${err.message}`);
+      const promptWasActive = this.activeTurn !== null;
+      this.rejectActiveTurn(`Could not start Codex: ${err.message}`);
+      if (promptWasActive && !this.promptWasInterrupted()) return;
       this.emitEvent({ type: "error", message: err.message });
     });
     // Codex writes diagnostics to stderr. Always drain it so a full pipe can
     // never stall the app-server while a turn is streaming.
-    this.proc.stderr?.on("data", (chunk) => {
+    proc.stderr.on("data", (chunk) => {
+      if (this.proc !== proc) return;
       const text = String(chunk).trim();
       if (text) {
         this.stderrTail = `${this.stderrTail}\n${text}`.slice(-4_000);
@@ -180,8 +218,10 @@ export class CodexDriver extends BaseDriver {
       }
     });
 
-    const rl = createInterface({ input: this.proc.stdout! });
+    const rl = createInterface({ input: proc.stdout });
+    this.lineReader = rl;
     rl.on("line", (line) => {
+      if (this.proc !== proc) return;
       if (!line.trim()) return;
       try {
         this.handleMessage(JSON.parse(line));
@@ -543,34 +583,47 @@ export class CodexDriver extends BaseDriver {
               : "Tool completed.",
             failed || interrupted,
           );
-          this.emitEvent({
-            type: "result",
-            ok: !failed && !interrupted,
-            error: failed
+          if (failed || interrupted) {
+            const message = failed
               ? String(turn.error?.message ?? turn.error ?? "turn failed")
-              : interrupted
-                ? "Turn interrupted"
-                : undefined,
-          });
+              : "Turn interrupted";
+            const promptWasActive = this.activeTurn !== null;
+            this.rejectActiveTurn(message);
+            if (!promptWasActive) {
+              this.emitEvent({ type: "result", ok: false, error: message });
+            }
+            if (!promptWasActive || interrupted) {
+              this.emitEvent({ type: "status", status: "idle" });
+            }
+          } else {
+            this.emitEvent({ type: "result", ok: true });
+            this.resolveActiveTurn();
+            this.emitEvent({ type: "status", status: "idle" });
+          }
         }
+        this.turnId = undefined;
+        this.approvals.clear();
         this.currentStream = "";
         this.pendingQuestions.clear();
-        this.emitEvent({ type: "status", status: "idle" });
         break;
-      case "turn/failed":
+      case "turn/failed": {
+        this.turnId = undefined;
+        this.approvals.clear();
         this.pendingQuestions.clear();
         this.finishActiveTools("Tool stopped before completing.", true);
-        this.emitEvent({
-          type: "result",
-          ok: false,
-          error: String(
-            typeof p.error === "string"
-              ? p.error
-              : (p.error?.message ?? "turn failed"),
-          ),
-        });
-        this.emitEvent({ type: "status", status: "idle" });
+        const message = String(
+          typeof p.error === "string"
+            ? p.error
+            : (p.error?.message ?? "turn failed"),
+        );
+        const promptWasActive = this.activeTurn !== null;
+        this.rejectActiveTurn(message);
+        if (!promptWasActive) {
+          this.emitEvent({ type: "result", ok: false, error: message });
+          this.emitEvent({ type: "status", status: "idle" });
+        }
         break;
+      }
       case "serverRequest/resolved": {
         const resolvedId = String(p.requestId ?? "");
         const pending = [...this.pendingQuestions.entries()].find(
@@ -590,7 +643,7 @@ export class CodexDriver extends BaseDriver {
           // carry the tool and its params in _meta rather than Executor's
           // "Approve tools.…" phrasing. For granted runs, evaluate the actual
           // execute snippet: every referenced address must be delegated.
-          const meta = (p as { _meta?: Record<string, unknown> })?._meta;
+          const meta = (p as { _meta?: Record<string, unknown> })._meta;
           if (grant && meta?.codex_approval_kind === "mcp_tool_call") {
             const params = meta.tool_params as
               Record<string, unknown> | undefined;
@@ -662,10 +715,17 @@ export class CodexDriver extends BaseDriver {
               result: { action: "accept", content: {} },
             });
           } else {
+            const meta = (p as { _meta?: Record<string, unknown> })._meta;
+            const suggestedToolName =
+              typeof meta?.tool_name === "string"
+                ? meta.tool_name
+                : typeof meta?.toolName === "string"
+                  ? meta.toolName
+                  : undefined;
             this.emitEvent({
               type: "permission",
               requestId,
-              toolName: address ?? "Executor tool",
+              toolName: address ?? suggestedToolName ?? "Executor tool",
               input: p,
             });
             if (grant) {
@@ -703,18 +763,23 @@ export class CodexDriver extends BaseDriver {
       case "error":
       case "codex/event/error": {
         const error = p.error ?? p.event?.error ?? p.message ?? p;
+        const message =
+          typeof error === "string"
+            ? error
+            : String(error?.message ?? JSON.stringify(error));
         this.finishActiveTools(
           "Tool stopped because the agent encountered an error.",
           true,
         );
-        this.emitEvent({
-          type: "error",
-          message:
-            typeof error === "string"
-              ? error
-              : String(error?.message ?? JSON.stringify(error)),
-        });
-        this.emitEvent({ type: "status", status: "idle" });
+        this.turnId = undefined;
+        this.approvals.clear();
+        this.pendingQuestions.clear();
+        const promptWasActive = this.activeTurn !== null;
+        this.rejectActiveTurn(message);
+        if (!promptWasActive) {
+          this.emitEvent({ type: "error", message });
+          this.emitEvent({ type: "status", status: "idle" });
+        }
         break;
       }
     }
@@ -888,11 +953,38 @@ export class CodexDriver extends BaseDriver {
     return codexMcpResultText(item);
   }
 
-  async sendPrompt(text: string): Promise<void> {
-    await this.rpc("turn/start", {
-      threadId: this.threadId,
-      input: [{ type: "text", text }],
+  async sendPromptOnce(text: string): Promise<void> {
+    if (this.activeTurn) {
+      throw new Error("Codex already has an active turn");
+    }
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
     });
+    const activeTurn = { resolve, reject };
+    this.activeTurn = activeTurn;
+    try {
+      await this.rpc("turn/start", {
+        threadId: this.threadId,
+        input: [{ type: "text", text }],
+      });
+    } catch (error) {
+      if (this.activeTurn === activeTurn) this.activeTurn = null;
+      throw error;
+    }
+    await promise;
+  }
+
+  /** Recover from a failed prompt by restarting the codex thread. */
+  async restart(): Promise<void> {
+    if (this.stopping) return;
+    if (this.proc?.exitCode === null) return;
+    this.proc = null;
+    if (this.opts) {
+      await this.start({ ...this.opts, resumeSessionId: this.threadId });
+    }
   }
 
   override respondPermission(requestId: string, behavior: "allow" | "deny") {
@@ -942,6 +1034,7 @@ export class CodexDriver extends BaseDriver {
   }
 
   async interrupt(): Promise<void> {
+    this.interrupted = true;
     if (this.threadId && this.turnId) {
       await this.rpc("turn/interrupt", {
         threadId: this.threadId,
@@ -951,11 +1044,19 @@ export class CodexDriver extends BaseDriver {
   }
 
   async stop(): Promise<void> {
-    const proc = this.proc;
-    if (!proc) return;
+    this.interrupted = true;
     this.stopping = true;
+    const proc = this.proc;
     this.proc = null;
+    this.lineReader?.close();
+    this.lineReader = null;
+    this.approvals.clear();
+    this.pendingQuestions.clear();
+    this.activeToolUseIds.clear();
+    this.currentStream = "";
     this.rejectPending("Codex stopped");
+    this.rejectActiveTurn("Codex stopped");
+    if (!proc) return;
     proc.stdin?.end();
     const pid = proc.pid;
     if (!pid) return;
@@ -997,6 +1098,20 @@ export class CodexDriver extends BaseDriver {
       request.reject(new Error(reason));
     }
     this.pending.clear();
+  }
+
+  private resolveActiveTurn() {
+    const activeTurn = this.activeTurn;
+    if (!activeTurn) return;
+    this.activeTurn = null;
+    activeTurn.resolve();
+  }
+
+  private rejectActiveTurn(reason: string) {
+    const activeTurn = this.activeTurn;
+    if (!activeTurn) return;
+    this.activeTurn = null;
+    activeTurn.reject(new Error(reason));
   }
 
   private notify(method: string, params: unknown) {

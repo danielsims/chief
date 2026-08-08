@@ -33,6 +33,7 @@ void test("resumes the same setup agent when provider sign-in completes", async 
     },
   });
   assert.equal(result.status, "authentication-required");
+  assert.equal(authentication.hasPending("workspace", "session"), true);
 
   currentUrl = "https://github.com/settings/personal-access-tokens/new";
   await new Promise((resolve) => setTimeout(resolve, 25));
@@ -42,5 +43,6 @@ void test("resumes the same setup agent when provider sign-in completes", async 
     continuations[0] ?? "",
     /Operate every post-login provider control/,
   );
+  assert.equal(authentication.hasPending("workspace", "session"), false);
   authentication.clear("workspace", "session");
 });

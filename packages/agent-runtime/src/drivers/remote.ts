@@ -4,9 +4,11 @@ import { ConvexRemoteDriver } from "./remote-convex.js";
 import { EveRemoteDriver } from "./remote-eve.js";
 
 export class RemoteDriver extends BaseDriver {
+  protected override promptCompletesFromEvents = true;
   private transport: BaseDriver | undefined;
 
   async start(options: StartOptions) {
+    this.startOptions = options;
     this.transport =
       options.env?.CHIEF_REMOTE_AGENT_TARGET?.trim() === "convex"
         ? new ConvexRemoteDriver()
@@ -16,11 +18,16 @@ export class RemoteDriver extends BaseDriver {
     await this.transport.start(options);
   }
 
-  sendPrompt(text: string) {
-    return this.requireTransport().sendPrompt(text);
+  sendPromptOnce(text: string) {
+    return this.requireTransport().sendPromptOnce(text);
+  }
+
+  async restart() {
+    await this.requireTransport().restart();
   }
 
   interrupt() {
+    this.interrupted = true;
     return this.requireTransport().interrupt();
   }
 
