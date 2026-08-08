@@ -7,6 +7,7 @@ import { toolPresentation } from "./message-blocks";
 export function channelActivityState(
   messages: ChiefUIMessage[],
   hasAgentOutput: boolean,
+  agentLabel = "Chief",
 ) {
   let lastUserIndex = -1;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -43,9 +44,9 @@ export function channelActivityState(
     finalTextMessageId,
     statusLabel:
       activeTool?.type === "tool_use"
-        ? `Chief: ${toolPresentation(activeTool.name, activeTool.input)}`
+        ? `${agentLabel}: ${toolPresentation(activeTool.name, activeTool.input)}`
         : hasAgentOutput
-          ? "Chief is typing…"
-          : "Chief is getting started…",
+          ? `${agentLabel} is typing…`
+          : `${agentLabel} is getting started…`,
   };
 }

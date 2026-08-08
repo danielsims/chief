@@ -14,11 +14,15 @@ import type { BrowserRunRecord } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
 
 import { useRuntime } from "../../lib/runtime";
+import { INLINE_RESULT_ICON_CLASS } from "./inline-result-card";
 
 const BrowserSessionViewer = lazy(async () => {
   const module = await import("./browser-session-viewer");
   return { default: module.BrowserSessionViewer };
 });
+
+const INLINE_BROWSER_VIEWPORT_CLASS =
+  "aspect-[16/10] min-h-0 w-full overflow-hidden rounded-[14px]";
 
 class BrowserSessionErrorBoundary extends Component<
   { children: ReactNode; className?: string; resetKey?: string },
@@ -83,26 +87,23 @@ function BrowserSessionLoading({ className }: { className?: string }) {
 
 function SafeBrowserSessionViewer({
   className,
-  conversationId,
   onCloseViewer,
   operating,
+  runId,
 }: {
   className?: string;
-  conversationId: string;
   onCloseViewer?: () => void;
   operating: boolean;
+  runId: string;
 }) {
   return (
-    <BrowserSessionErrorBoundary
-      className={className}
-      resetKey={conversationId}
-    >
+    <BrowserSessionErrorBoundary className={className} resetKey={runId}>
       <Suspense fallback={<BrowserSessionLoading className={className} />}>
         <BrowserSessionViewer
           className={className}
-          conversationId={conversationId}
           onCloseViewer={onCloseViewer}
           operating={operating}
+          runId={runId}
         />
       </Suspense>
     </BrowserSessionErrorBoundary>
@@ -130,7 +131,7 @@ function BrowserFavicon({ url }: { url: string }) {
   const favicon = browserFavicon(url);
 
   return (
-    <span className="bg-background flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[9px] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
+    <span className={INLINE_RESULT_ICON_CLASS}>
       {favicon && !failed ? (
         <img
           alt=""
@@ -184,37 +185,30 @@ function BrowserSessionCard({
 }
 
 function BrowserSessionAttachmentContent({
-  conversationId,
   detached = false,
   onOpenPanel,
   operating = false,
   run,
   targetRef,
 }: {
-  conversationId: string;
   detached?: boolean;
   onOpenPanel?: () => void;
   operating?: boolean;
-  run?: BrowserRunRecord;
+  run: BrowserRunRecord;
   targetRef?: Ref<HTMLDivElement>;
 }) {
   const { browserSessions, openBrowser } = useRuntime();
-  const currentSession = browserSessions[conversationId];
-  const pendingRun = run?.id.startsWith("pending:") === true;
-  const session =
-    !run || pendingRun || currentSession?.runId === run.id
-      ? currentSession
-      : undefined;
-  const url = session?.url ?? run?.url;
+  const session = browserSessions[run.id];
+  const url = session?.url ?? run.url;
 
   if (!url) return null;
 
   const viewSession = () => {
     if (!session || session.status === "complete") {
-      openBrowser(url, conversationId, {
-        ...(run?.id && !pendingRun ? { browserRunId: run.id } : {}),
-        ...(run?.threadRootId ? { threadRootId: run.threadRootId } : {}),
-        ...(run?.anchorMessageId
+      openBrowser(url, run.conversationId, {
+        browserRunId: run.id,
+        ...(run.threadRootId ? { threadRootId: run.threadRootId } : {}),
+        ...(run.anchorMessageId
           ? { anchorMessageId: run.anchorMessageId }
           : {}),
       });
@@ -241,13 +235,16 @@ function BrowserSessionAttachmentContent({
         {targetRef ? (
           <div
             ref={targetRef}
-            className="chief-browser-viewport-target aspect-[16/10] min-h-0 w-full overflow-hidden rounded-xl"
+            className={cn(
+              "chief-browser-viewport-target",
+              INLINE_BROWSER_VIEWPORT_CLASS,
+            )}
           />
         ) : (
           <SafeBrowserSessionViewer
-            className="w-full overflow-hidden rounded-xl"
-            conversationId={conversationId}
+            className={INLINE_BROWSER_VIEWPORT_CLASS}
             operating={operating}
+            runId={run.id}
           />
         )}
       </div>
@@ -259,7 +256,10 @@ function BrowserSessionAttachmentImpl(
   props: Parameters<typeof BrowserSessionAttachmentContent>[0],
 ) {
   return (
-    <BrowserSessionErrorBoundary resetKey={props.conversationId}>
+    <BrowserSessionErrorBoundary
+      className={INLINE_BROWSER_VIEWPORT_CLASS}
+      resetKey={props.run.id}
+    >
       <BrowserSessionAttachmentContent {...props} />
     </BrowserSessionErrorBoundary>
   );
@@ -273,11 +273,10 @@ function BrowserSessionAttachmentImpl(
 export const BrowserSessionAttachment = memo(
   BrowserSessionAttachmentImpl,
   (prev, next) => {
-    if (prev.conversationId !== next.conversationId) return false;
     if (prev.operating !== next.operating) return false;
     if (prev.detached !== next.detached) return false;
-    const prevRun = prev.run?.id;
-    const nextRun = next.run?.id;
+    const prevRun = prev.run.id;
+    const nextRun = next.run.id;
     if (prevRun !== nextRun) return false;
     if (prev.onOpenPanel !== next.onOpenPanel) return false;
     if (prev.targetRef !== next.targetRef) return false;
@@ -286,17 +285,17 @@ export const BrowserSessionAttachment = memo(
 );
 
 export function BrowserSessionPortal({
-  conversationId,
   fullscreenTarget,
   onCloseViewer,
   operating = false,
   panelOpen = false,
+  runId,
 }: {
-  conversationId: string;
   fullscreenTarget: HTMLElement | null;
   onCloseViewer?: () => void;
   operating?: boolean;
   panelOpen?: boolean;
+  runId: string;
 }) {
   const [dock] = useState(() => {
     const element = document.createElement("div");
@@ -315,16 +314,16 @@ export function BrowserSessionPortal({
   return createPortal(
     <BrowserSessionErrorBoundary
       className="h-full rounded-none"
-      resetKey={conversationId}
+      resetKey={runId}
     >
       <SafeBrowserSessionViewer
         className={cn(
           "h-full min-h-0",
           panelOpen ? "rounded-none" : "rounded-xl",
         )}
-        conversationId={conversationId}
         onCloseViewer={onCloseViewer}
         operating={operating}
+        runId={runId}
       />
     </BrowserSessionErrorBoundary>,
     dock,

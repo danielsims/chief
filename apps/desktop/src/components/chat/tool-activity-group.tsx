@@ -7,11 +7,9 @@ import { toolPresentation, toolSummary } from "./message-blocks";
 
 export function ToolActivityGroup({
   blocks,
-  progress = {},
   active,
 }: {
   blocks: ContentBlock[];
-  progress?: Record<string, string>;
   active: boolean;
 }) {
   const results = new Map(
@@ -28,7 +26,9 @@ export function ToolActivityGroup({
   if (tools.length === 0) return null;
   const completed = tools.filter((tool) => results.has(tool.id)).length;
   const failed = tools.filter((tool) => results.get(tool.id)?.is_error).length;
-  const working = active && completed < tools.length;
+  const incomplete = tools.length - completed;
+  const working = active && incomplete > 0;
+  const stopped = !active && incomplete > 0;
 
   return (
     <details
@@ -38,7 +38,7 @@ export function ToolActivityGroup({
       <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3.5 py-2.5 text-xs [&::-webkit-details-marker]:hidden">
         <ListChecks className="text-muted-foreground" size={14} />
         <span className="font-medium">
-          {working ? "Working" : "Workspace activity"}
+          {working ? "Working" : stopped ? "Stopped" : "Workspace activity"}
         </span>
         <span className="text-muted-foreground min-w-0 flex-1 truncate">
           {tools.length} {tools.length === 1 ? "step" : "steps"}
@@ -53,7 +53,9 @@ export function ToolActivityGroup({
             ? `${failed} failed`
             : working
               ? `${completed}/${tools.length}`
-              : "Done"}
+              : stopped
+                ? `${completed}/${tools.length} complete`
+                : "Done"}
         </span>
         <ChevronDown
           size={12}
@@ -89,7 +91,7 @@ export function ToolActivityGroup({
                   ? result.is_error
                     ? "Failed"
                     : "Done"
-                  : active || progress[tool.id]
+                  : active
                     ? "Working"
                     : "Stopped"}
               </span>

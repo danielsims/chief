@@ -54,8 +54,16 @@
   min-height: 0;
 }
 
+.chief-browser > .bui-browser-inline-host,
+.chief-browser .bui-browser-frame,
+.chief-browser .bui-surface,
+.chief-browser .bui-agent-viewport {
+  border-radius: inherit;
+}
+
 .chief-browser[data-mode="inline"] {
   aspect-ratio: auto;
+  border-radius: 14px;
 }
 
 .chief-browser .bui-browser-frame--bare,
@@ -63,6 +71,43 @@
 .chief-browser .bui-agent-viewport {
   overflow: hidden;
   border-radius: inherit;
+}
+
+/* browser-ui's bare variant intentionally resets its surface radius to zero.
+ * Restore a slightly inset radius for embedded chat sessions so the live
+ * canvas clips concentrically inside the rounded result card. */
+.chief-browser[data-mode="inline"] .bui-browser-frame--bare {
+  border-radius: 14px;
+}
+
+.chief-browser[data-mode="inline"] .bui-browser-surface,
+.chief-browser[data-mode="inline"] .bui-agent-viewport,
+.chief-browser[data-mode="inline"] .bui-agent-viewport > canvas {
+  border-radius: 13px;
+}
+
+.chief-browser[data-mode="inline"] .bui-browser-surface {
+  overflow: hidden;
+  clip-path: inset(0 round 13px);
+}
+
+/* Keep the same concentric clipping if browser-ui promotes an inline session
+ * to its floating presentation. Its bare variant otherwise resets PiP to
+ * square corners even though the embedded session is rounded. */
+.chief-browser .bui-browser-frame--pip {
+  overflow: hidden;
+  border-radius: 14px;
+}
+
+.chief-browser .bui-browser-frame--pip .bui-browser-surface,
+.chief-browser .bui-browser-frame--pip .bui-agent-viewport,
+.chief-browser .bui-browser-frame--pip .bui-agent-viewport > canvas {
+  border-radius: 13px;
+}
+
+.chief-browser .bui-browser-frame--pip .bui-browser-surface {
+  overflow: hidden;
+  clip-path: inset(0 round 13px);
 }
 
 .chief-browser .bui-toolbar {

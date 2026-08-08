@@ -15,6 +15,33 @@ interface TranscriptMessage<TBlock extends ToolBlock> {
   blocks: readonly TBlock[];
 }
 
+export function chronologicallyMergeSpecialistTasks<
+  TMessage extends { metadata?: { createdAt?: number } },
+  TTask extends SpecialistTask & { createdAt: number },
+>(messages: readonly TMessage[], tasks: readonly TTask[]) {
+  const pendingTasks = [...tasks].sort(
+    (left, right) => left.createdAt - right.createdAt,
+  );
+  const entries: (
+    { type: "message"; message: TMessage } | { type: "specialist"; task: TTask }
+  )[] = [];
+  let taskIndex = 0;
+  for (const message of messages) {
+    const messageCreatedAt = message.metadata?.createdAt ?? 0;
+    while (taskIndex < pendingTasks.length) {
+      const task = pendingTasks[taskIndex];
+      if (!task || task.createdAt > messageCreatedAt) break;
+      entries.push({ type: "specialist", task });
+      taskIndex += 1;
+    }
+    entries.push({ type: "message", message });
+  }
+  for (const task of pendingTasks.slice(taskIndex)) {
+    entries.push({ type: "specialist", task });
+  }
+  return entries;
+}
+
 function delegationIds(input: unknown) {
   if (!input || typeof input !== "object") return undefined;
   const value = input as Record<string, unknown>;

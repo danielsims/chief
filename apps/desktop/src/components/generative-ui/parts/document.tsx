@@ -5,10 +5,7 @@ import type { GenerativeDocumentBlock } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { GenerativePartRenderer } from "../types";
-import {
-  INLINE_RESULT_CARD_CLASS,
-  INLINE_RESULT_ICON_CLASS,
-} from "../../chat/inline-result-card";
+import { INLINE_RESULT_CARD_CLASS } from "../../chat/inline-result-card";
 
 function DocumentPart({ part }: { part: GenerativeDocumentBlock }) {
   const navigate = useNavigate();
@@ -19,9 +16,11 @@ function DocumentPart({ part }: { part: GenerativeDocumentBlock }) {
       onClick={() => navigate(`/files/${encodeURIComponent(part.data.fileId)}`)}
       className={cn(INLINE_RESULT_CARD_CLASS, "text-xs")}
     >
-      <span className={INLINE_RESULT_ICON_CLASS}>
-        <Icon size={15} />
-      </span>
+      <Icon
+        aria-hidden
+        className="text-muted-foreground mx-1 shrink-0"
+        size={17}
+      />
       <span className="min-w-0 flex-1">
         <span className="block truncate font-medium">{part.data.title}</span>
         <span className="text-muted-foreground mt-0.5 block truncate font-mono text-[10px]">

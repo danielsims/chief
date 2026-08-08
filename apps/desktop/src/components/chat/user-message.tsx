@@ -4,6 +4,7 @@ import { Wrench } from "lucide-react";
 import type { MessageAttachment } from "@chief/agent-runtime/types";
 
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
+import { stripPrivateSetupInstructions } from "../../lib/integration-setup";
 import { StreamingMarkdown } from "./streaming-markdown";
 
 export function UserMessage({
@@ -14,6 +15,7 @@ export function UserMessage({
   onOpenMention,
   actions,
   footer,
+  acknowledgedBy,
   metadata,
 }: {
   text: string;
@@ -23,6 +25,8 @@ export function UserMessage({
   onOpenMention?: (agentId: WorkspaceAgentId) => void;
   actions?: ReactNode;
   footer?: ReactNode;
+  /** Brief DM acknowledgement shown while the agent begins its reply. */
+  acknowledgedBy?: string;
   /** Secondary identity copy. Omit for the default "You" label; pass null
    * when the surrounding channel already makes authorship clear. */
   metadata?: ReactNode;
@@ -36,7 +40,7 @@ export function UserMessage({
         "setup-integration": "Setup Integration",
       }[skillId] ?? skillId)
     : null;
-  const visibleText = text
+  const visibleText = stripPrivateSetupInstructions(text)
     .split("\n")
     .filter(
       (line) =>
@@ -110,6 +114,16 @@ export function UserMessage({
                 />
               </a>
             ))}
+          </div>
+        ) : null}
+        {acknowledgedBy ? (
+          <div
+            aria-label={`${acknowledgedBy} saw this message`}
+            className="bg-muted/55 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95 mt-2 inline-flex h-7 items-center rounded-full px-2.5 text-sm shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_9%,transparent)] motion-safe:duration-150 motion-safe:[animation-delay:900ms] motion-safe:[animation-fill-mode:backwards]"
+            role="status"
+            title={`${acknowledgedBy} saw this message`}
+          >
+            <span aria-hidden>👀</span>
           </div>
         ) : null}
         {footer}

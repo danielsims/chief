@@ -10,14 +10,14 @@ import { useTheme } from "../../lib/theme";
 
 function BrowserSessionViewerImpl({
   className,
-  conversationId,
   onCloseViewer,
   operating,
+  runId,
 }: {
   className?: string;
-  conversationId: string;
   onCloseViewer?: () => void;
   operating: boolean;
+  runId: string;
 }) {
   const {
     browserSessions,
@@ -26,11 +26,19 @@ function BrowserSessionViewerImpl({
     takeBrowserControl,
   } = useRuntime();
   const { resolved } = useTheme();
-  const [displayMode, setDisplayMode] = useState<BrowserDisplayMode>("inline");
+  const [displayOverride, setDisplayOverride] = useState<{
+    mode: BrowserDisplayMode;
+    presentationRevision: number;
+  } | null>(null);
   const [windowFullscreen, setWindowFullscreen] = useState(false);
-  const session = browserSessions[conversationId];
+  const session = browserSessions[runId];
 
   if (!session) return null;
+
+  const displayMode =
+    displayOverride?.presentationRevision === session.presentationRevision
+      ? displayOverride.mode
+      : session.presentation;
 
   if (!session.streamUrl) {
     return (
@@ -63,7 +71,7 @@ function BrowserSessionViewerImpl({
       <BrowserDisplayTrigger
         aria-label="Close browser viewer"
         onClick={() => {
-          closeBrowser(conversationId);
+          closeBrowser(runId);
           onCloseViewer?.();
         }}
         title="Close browser viewer"
@@ -101,10 +109,13 @@ function BrowserSessionViewerImpl({
           setWindowFullscreen(false);
           return;
         }
-        setDisplayMode(mode);
+        setDisplayOverride({
+          mode,
+          presentationRevision: session.presentationRevision,
+        });
       }}
-      onTakeControl={() => takeBrowserControl(conversationId)}
-      onUrlChange={(url) => reportBrowserUrl(conversationId, url)}
+      onTakeControl={() => takeBrowserControl(runId)}
+      onUrlChange={(url) => reportBrowserUrl(runId, url)}
     />
   );
 }
@@ -112,7 +123,7 @@ function BrowserSessionViewerImpl({
 export const BrowserSessionViewer = memo(
   BrowserSessionViewerImpl,
   (prev, next) =>
-    prev.conversationId === next.conversationId &&
+    prev.runId === next.runId &&
     prev.operating === next.operating &&
     prev.className === next.className &&
     prev.onCloseViewer === next.onCloseViewer,

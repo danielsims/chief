@@ -135,6 +135,44 @@
   }
 }
 
+@keyframes matrix-loader-pulse {
+  0%,
+  100% {
+    opacity: 0.14;
+  }
+  40% {
+    opacity: 0.78;
+  }
+}
+
+.matrix-loader-cell {
+  border-radius: 14%;
+  background: currentColor;
+  opacity: 0.18;
+  animation: matrix-loader-pulse var(--matrix-loader-duration, 1.35s)
+    ease-in-out infinite;
+}
+
+.matrix-loader-cell:nth-child(2),
+.matrix-loader-cell:nth-child(4) {
+  animation-delay: calc(var(--matrix-loader-duration, 1.35s) * -0.7778);
+}
+
+.matrix-loader-cell:nth-child(3),
+.matrix-loader-cell:nth-child(5),
+.matrix-loader-cell:nth-child(7) {
+  animation-delay: calc(var(--matrix-loader-duration, 1.35s) * -0.5556);
+}
+
+.matrix-loader-cell:nth-child(6),
+.matrix-loader-cell:nth-child(8) {
+  animation-delay: calc(var(--matrix-loader-duration, 1.35s) * -0.3333);
+}
+
+.matrix-loader-cell:nth-child(9) {
+  animation-delay: calc(var(--matrix-loader-duration, 1.35s) * -0.1111);
+}
+
 @layer utilities {
   .agent-working {
     width: fit-content;
@@ -185,6 +223,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .matrix-loader-cell {
+    animation: none;
+    opacity: 0.45;
+  }
   .success-ring,
   .success-check {
     animation: none;

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Fragment, useEffect, useState } from "react";
-import { ArrowRight, Check, ChevronDown, LoaderCircle, X } from "lucide-react";
+import { ArrowRight, Check, ChevronDown } from "lucide-react";
 
 import type {
   AgentCapabilityId,
@@ -15,20 +15,14 @@ import {
   INLINE_RESULT_CARD_CLASS,
   INLINE_RESULT_ICON_CLASS,
 } from "./inline-result-card";
+import {
+  specialistIsStartingOrWorking,
+  SpecialistStatusIndicator,
+} from "./specialist-status-indicator";
 import { specialistTasksForInput } from "./specialist-task-display";
 import { StreamingMarkdown } from "./streaming-markdown";
 
 const MAX_RESULT_CHARS = 3000;
-function SpecialistActivity() {
-  return (
-    <span aria-hidden className={INLINE_RESULT_ICON_CLASS}>
-      <LoaderCircle
-        className="animate-spin motion-reduce:animate-none"
-        size={15}
-      />
-    </span>
-  );
-}
 
 function toolResultText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -117,6 +111,67 @@ export function toolSummary(input: unknown): string {
   return "";
 }
 
+export function SpecialistTaskCard({
+  task,
+  onOpenTask,
+}: {
+  task: SessionRecord;
+  onOpenTask?: (taskId: string) => void;
+}) {
+  const working = specialistIsStartingOrWorking(task.status);
+  const agent =
+    task.agent === "brand"
+      ? "Brand Researcher"
+      : task.agent === "content"
+        ? "Content Writer"
+        : task.agent === "analyst"
+          ? "Analyst"
+          : task.agent === "prospector"
+            ? "Prospector"
+            : task.agent === "ads"
+              ? "Ads Manager"
+              : task.agent;
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenTask?.(task.id)}
+      className={cn(INLINE_RESULT_CARD_CLASS, "text-xs")}
+    >
+      <span className={INLINE_RESULT_ICON_CLASS}>
+        {working || task.status === "failed" ? (
+          <SpecialistStatusIndicator agent={task.agent} status={task.status} />
+        ) : (
+          <Check
+            aria-hidden
+            className="text-muted-foreground shrink-0"
+            size={15}
+          />
+        )}
+      </span>
+      <span className="min-w-0 flex-1">
+        <strong className="block truncate font-medium">{task.title}</strong>
+        <small className="text-muted-foreground mt-0.5 block text-[11px]">
+          {agent} ·{" "}
+          {working
+            ? task.status === "idle"
+              ? "Starting"
+              : "Working"
+            : task.status === "completed"
+              ? "Complete"
+              : task.status === "failed"
+                ? "Failed"
+                : "Stopped"}
+        </small>
+      </span>
+      <ArrowRight
+        aria-hidden
+        className="text-muted-foreground/55 shrink-0"
+        size={12}
+      />
+    </button>
+  );
+}
+
 function ToolCard({
   block,
   result,
@@ -162,56 +217,7 @@ function ToolCard({
   }, [active, result]);
 
   if (task) {
-    const running = task.status === "running" || task.status === "waiting";
-    const agent =
-      task.agent === "brand"
-        ? "Brand Researcher"
-        : task.agent === "content"
-          ? "Content Writer"
-          : task.agent === "analyst"
-            ? "Analyst"
-            : task.agent === "prospector"
-              ? "Prospector"
-              : task.agent === "ads"
-                ? "Ads Manager"
-                : task.agent;
-    return (
-      <button
-        type="button"
-        onClick={() => onOpenTask?.(task.id)}
-        className={cn(INLINE_RESULT_CARD_CLASS, "text-xs")}
-      >
-        {running ? (
-          <SpecialistActivity />
-        ) : (
-          <span className={INLINE_RESULT_ICON_CLASS}>
-            {task.status === "completed" ? (
-              <Check aria-hidden size={15} />
-            ) : (
-              <X aria-hidden className="text-destructive" size={15} />
-            )}
-          </span>
-        )}
-        <span className="min-w-0 flex-1">
-          <strong className="block truncate font-medium">{task.title}</strong>
-          <small className="text-muted-foreground mt-0.5 block text-[11px]">
-            {agent} ·{" "}
-            {running
-              ? "Working"
-              : task.status === "completed"
-                ? "Complete"
-                : task.status === "failed"
-                  ? "Failed"
-                  : "Stopped"}
-          </small>
-        </span>
-        <ArrowRight
-          aria-hidden
-          className="text-muted-foreground/55 shrink-0"
-          size={12}
-        />
-      </button>
-    );
+    return <SpecialistTaskCard task={task} onOpenTask={onOpenTask} />;
   }
 
   if (kind === "skill") {
