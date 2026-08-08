@@ -216,7 +216,7 @@ function ToolCard({
 
   if (kind === "skill") {
     return (
-      <div className="bg-card/50 flex w-96 max-w-full min-w-0 items-center gap-2.5 rounded-2xl border px-3 py-2.5 text-xs shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_72%,transparent)]">
+      <div className="bg-card/50 flex min-h-14 w-96 max-w-full min-w-0 items-center gap-2.5 rounded-2xl border px-3 py-2.5 text-[13px] leading-5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_72%,transparent)]">
         <span
           className={cn(
             "size-2 shrink-0 rounded-full",
@@ -231,7 +231,7 @@ function ToolCard({
         </span>
         <span
           className={cn(
-            "text-muted-foreground shrink-0 text-[10px]",
+            "text-muted-foreground shrink-0 text-[11px] leading-4",
             result?.is_error && "text-red-500",
           )}
         >
@@ -249,7 +249,7 @@ function ToolCard({
 
   return (
     <details className="group bg-card/50 w-96 max-w-full min-w-0 overflow-hidden rounded-2xl border shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_72%,transparent)]">
-      <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3 py-2.5 text-xs [&::-webkit-details-marker]:hidden">
+      <summary className="flex min-h-14 cursor-pointer list-none items-center gap-2.5 px-3 py-2.5 text-[13px] leading-5 [&::-webkit-details-marker]:hidden">
         <span
           className={cn(
             "size-2 shrink-0 rounded-full",
