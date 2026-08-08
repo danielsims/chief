@@ -1,10 +1,6 @@
 import type { BrowserDisplayMode } from "@browser-ui/react";
 import { memo, useState } from "react";
-import {
-  Browser,
-  BrowserDisplayTrigger,
-  BrowserPictureInPictureTrigger,
-} from "@browser-ui/react";
+import { Browser, BrowserDisplayTrigger } from "@browser-ui/react";
 import { Maximize2, Minimize2, X } from "lucide-react";
 
 import { cn } from "@chief/ui/lib/utils";
@@ -53,18 +49,6 @@ function BrowserSessionViewerImpl({
 
   const displayControls = (
     <>
-      <BrowserPictureInPictureTrigger
-        aria-label={
-          displayMode === "picture-in-picture"
-            ? "Return browser inline"
-            : "Open browser in picture-in-picture"
-        }
-        title={
-          displayMode === "picture-in-picture"
-            ? "Return inline"
-            : "Picture-in-picture"
-        }
-      />
       <BrowserDisplayTrigger
         aria-label={windowFullscreen ? "Exit fullscreen" : "Open fullscreen"}
         onClick={() => setWindowFullscreen((current) => !current)}
