@@ -1,3 +1,5 @@
+/* eslint-disable max-lines */
+
 import { startTransition, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
@@ -258,6 +260,7 @@ export function ConversationsPage() {
         }))
     : [];
   const userProfileOpen = profileParam === "user" && user !== null;
+  const activityOpen = params.get("activity") === "1";
   const userProfileChannels = userProfileOpen
     ? workspaceChannels.channels
         .filter((channel) => channel.visibility !== "direct")
@@ -300,6 +303,7 @@ export function ConversationsPage() {
   const openProfile = (selection: ConversationProfileSelection) => {
     setParams((current) => {
       const next = new URLSearchParams(current);
+      next.delete("activity");
       next.delete("child");
       next.set(
         "profile",
@@ -323,6 +327,19 @@ export function ConversationsPage() {
       return next;
     });
   };
+  const setActivityPanel = (open: boolean) => {
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      if (open) {
+        next.delete("child");
+        next.delete("profile");
+        next.set("activity", "1");
+      } else {
+        next.delete("activity");
+      }
+      return next;
+    });
+  };
   const continueArtifact = (artifact: { id: string; title: string }) => {
     startTransition(() =>
       setParams({
@@ -334,6 +351,7 @@ export function ConversationsPage() {
   const setConversationView = (view: "messages" | "canvas") => {
     setParams((current) => {
       const next = new URLSearchParams(current);
+      next.delete("activity");
       next.delete("child");
       next.delete("profile");
       if (view === "canvas") next.set("view", "canvas");
@@ -348,6 +366,7 @@ export function ConversationsPage() {
       directIdentity={directIdentity}
       directPresence={directPresence}
       onContinueArtifact={continueArtifact}
+      onOpenActivity={() => setActivityPanel(true)}
       onOpenProfile={openProfile}
       activeView={activeView}
       onViewChange={setConversationView}
@@ -451,6 +470,8 @@ export function ConversationsPage() {
                   })
                 }
                 onOpenInternalPanel={openInternalPanel}
+                activityOpen={activityOpen}
+                onActivityOpenChange={setActivityPanel}
                 onOpenProfile={openProfile}
                 panelSizing={panelSizing}
                 profileOpen={userProfileOpen || activeProfileAgent !== null}

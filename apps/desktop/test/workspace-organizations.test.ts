@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { nextWorkspaceMenuId } from "../src/components/workspace-action-menu.tsx";
 import { activeFirstOrganizations } from "../src/lib/workspace-organizations.js";
 
 const organizations = [
@@ -25,4 +26,11 @@ void test("preserves organization order when the active id is unavailable", () =
     ),
     ["first", "active", "third"],
   );
+});
+
+void test("a stale close cannot dismiss the newly hovered workspace menu", () => {
+  const newlyOpened = nextWorkspaceMenuId("first", "second", true);
+  assert.equal(newlyOpened, "second");
+  assert.equal(nextWorkspaceMenuId(newlyOpened, "first", false), "second");
+  assert.equal(nextWorkspaceMenuId(newlyOpened, "second", false), null);
 });

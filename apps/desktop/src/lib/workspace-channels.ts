@@ -11,6 +11,13 @@ export const WORKSPACE_CHANNELS = [
     agentIds: ["cmo", "setup"],
   },
   {
+    id: "engineering",
+    relayId: "749ad53f-bcb0-4e78-8732-4b0e05b96942",
+    label: "engineering",
+    description: "Product changes, bugs, and technical reviews",
+    agentIds: ["cmo", "engineer"],
+  },
+  {
     id: "analytics",
     relayId: "84d669ac-a8b3-4c09-8dd1-a620c2a76141",
     label: "analytics",
@@ -48,6 +55,7 @@ export const WORKSPACE_AGENT_IDENTITIES = {
   content: { name: "Content", role: "Content and Creative" },
   prospector: { name: "Prospector", role: "Research and Outreach" },
   brand: { name: "Brand", role: "Brand Research" },
+  engineer: { name: "Engineer", role: "Product Engineering" },
 } as const;
 
 export type WorkspaceAgentId = keyof typeof WORKSPACE_AGENT_IDENTITIES;
@@ -81,6 +89,7 @@ export const WORKSPACE_DIRECT_MESSAGES = [
   { id: "content", relayId: "3a9618e0-ef52-46af-988e-e19cd7111dfa" },
   { id: "prospector", relayId: "0094ccf0-fd7e-4c8a-b0a9-648758ae31d5" },
   { id: "brand", relayId: "16ca9ad9-7497-4cff-84f0-ff03550a88ac" },
+  { id: "engineer", relayId: "0cb9348d-a7a6-43fc-a5b7-088d40353c7c" },
 ] as const satisfies readonly { id: WorkspaceAgentId; relayId: string }[];
 
 export type WorkspaceChannelId = string;
@@ -100,6 +109,17 @@ const CHANNEL_KEYWORDS: {
   {
     id: "prospecting",
     keywords: ["prospect", "lead", "outreach", "buyer", "market research"],
+  },
+  {
+    id: "engineering",
+    keywords: [
+      "engineering",
+      "code",
+      "product change",
+      "bug",
+      "repository",
+      "pull request",
+    ],
   },
 ];
 
@@ -180,6 +200,12 @@ export function actionConversation(value: {
   agentId?: string;
 }) {
   const text = `${value.title} ${value.reason ?? ""}`.toLocaleLowerCase();
+  if (
+    value.agentId === "engineer" ||
+    /product change|code change|bug|repository|pull request/.test(text)
+  ) {
+    return { kind: "channel" as const, id: "engineering" };
+  }
   if (
     value.agentId === "setup" ||
     /connect|integration|credential|github|vercel|engineering tool/.test(text)

@@ -4,7 +4,6 @@ import {
   ArrowUpRight,
   ChevronLeft,
   ChevronRight,
-  MessagesSquare,
 } from "lucide-react";
 import {
   Line,
@@ -14,6 +13,7 @@ import {
 } from "recharts";
 
 import type { ActionItem } from "@chief/agent-runtime/types";
+import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { AuthOrganization } from "../lib/auth/better-auth-client";
@@ -145,6 +145,7 @@ export function WorkspaceIndicator({
           typeof metadata.websiteUrl === "string" ? metadata.websiteUrl : ""
         }
         className="size-6 shrink-0 text-xs"
+        transparentWhenLoaded
       />
       <span>{organization.name}</span>
     </div>
@@ -210,7 +211,12 @@ export function WorkspaceLearningCard({
 }) {
   return (
     <article className="relative flex min-h-0 flex-1 flex-col items-start justify-center p-7">
-      <MessagesSquare className="text-muted-foreground mb-6" size={18} />
+      <MatrixLoader
+        ariaLabel="Chief is learning"
+        className="text-muted-foreground mb-6"
+        fps={6}
+        size={15}
+      />
       <h2 className="text-[clamp(24px,3vw,34px)] leading-tight font-normal tracking-[-0.03em]">
         Finish setting up with Chief.
       </h2>

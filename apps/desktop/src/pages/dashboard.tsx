@@ -17,6 +17,7 @@ import type {
   AnalyticsDatasetPeriod,
   SessionRecord,
 } from "@chief/agent-runtime/types";
+import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { ComposerImageAttachment } from "../components/chat/composer-image-attachments";
@@ -78,6 +79,7 @@ const AGENT_NAMES: Record<string, string> = {
   brand: "Brand Researcher",
   cmo: "Chief Marketing Officer",
   content: "Content Writer",
+  engineer: "Engineer",
   prospector: "Prospector",
   setup: "Setup",
 };
@@ -148,8 +150,9 @@ function OverviewTaskInput({ task }: { task: SessionRecord }) {
   if (!pendingInput) return null;
 
   return (
-    <div className="mt-4 flex min-h-44 flex-1 [scrollbar-gutter:stable] overflow-y-auto overscroll-contain [&>div]:min-h-full [&>div]:w-full [&>div]:p-4">
+    <div className="mt-5 w-full max-w-[620px]">
       <InputRequestSection
+        progressive
         request={pendingInput}
         onSubmit={(request, values) => {
           provideInput(request, values);
@@ -930,7 +933,7 @@ export function DashboardPage() {
                   <h2 className="m-0 text-[clamp(23px,2.7vw,33px)] leading-[1.1] font-normal tracking-[-0.035em]">
                     {deploymentRecovery ? "Connect Chief" : currentAction.title}
                   </h2>
-                  <p className="text-muted-foreground mt-3 max-w-[560px] text-[13px] leading-6">
+                  <p className="text-muted-foreground mt-3 line-clamp-2 max-w-[560px] text-[13px] leading-6">
                     {deploymentRecovery
                       ? "Chief's previous cloud deployment no longer exists. Choose where Chief should run, then your scheduled work can continue."
                       : currentAction.reason.trim() ||
@@ -944,11 +947,12 @@ export function DashboardPage() {
                   ) : null}
                   {currentAction.request &&
                   !isGoogleAnalyticsConnectionAction(currentAction) ? (
-                    <div className="mt-4 flex min-h-44 flex-1 [scrollbar-gutter:stable] overflow-y-auto overscroll-contain [&>div]:min-h-full [&>div]:w-full [&>div]:p-4">
+                    <div className="mt-5 w-full max-w-[620px]">
                       <InputRequestSection
                         key={currentAction.request.id}
                         request={currentAction.request}
                         embedded
+                        progressive
                         onSubmit={(request, values, answers) => {
                           if (currentAction.sourceId) {
                             setContinuingChatId(currentAction.sourceId);
@@ -1053,9 +1057,11 @@ export function DashboardPage() {
             ) : (
               <article className="relative flex min-h-0 flex-1 flex-col items-start justify-center p-7">
                 {preparingWorkspace ? (
-                  <LoaderCircle
-                    className="text-muted-foreground mb-6 animate-spin"
-                    size={18}
+                  <MatrixLoader
+                    ariaLabel="Chief is learning"
+                    className="text-muted-foreground mb-6"
+                    fps={6}
+                    size={15}
                   />
                 ) : (
                   <Check className="text-muted-foreground mb-6" size={18} />

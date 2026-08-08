@@ -85,6 +85,9 @@ void test("gives every agent direct message a private stable destination", () =>
   );
   assert.equal(new Set(chatIds).size, WORKSPACE_DIRECT_MESSAGES.length);
   assert.ok(chatIds.every((chatId) => chatId.startsWith("channel:")));
+  assert.ok(
+    WORKSPACE_DIRECT_MESSAGES.some((message) => message.id === "engineer"),
+  );
 });
 
 void test("routes overview actions to the channel that owns the work", () => {
@@ -100,6 +103,13 @@ void test("routes overview actions to the channel that owns the work", () => {
     kind: "channel",
     id: "advertising",
   });
+  assert.deepEqual(
+    actionConversation({
+      title: "Fix the onboarding crash",
+      agentId: "engineer",
+    }),
+    { kind: "channel", id: "engineering" },
+  );
 });
 
 void test("types durable artifacts with the same product vocabulary", () => {
