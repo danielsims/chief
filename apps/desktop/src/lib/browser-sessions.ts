@@ -1,7 +1,10 @@
-import type { BrowserRunRecord } from "@chief/agent-runtime/types";
+import type {
+  BrowserPresentationMode,
+  BrowserRunRecord,
+} from "@chief/agent-runtime/types";
 
 export interface RuntimeBrowserSession {
-  runId: string | null;
+  runId: string;
   url: string;
   streamUrl: string | null;
   conversationId: string;
@@ -10,6 +13,9 @@ export interface RuntimeBrowserSession {
   threadRootId: string | null;
   anchorMessageId: string | null;
   status: "active" | "complete";
+  createdAt: number;
+  presentation: BrowserPresentationMode;
+  presentationRevision: number;
   operatingLabel: string | null;
   operating: boolean;
   agentCursor: {
@@ -209,27 +215,27 @@ export function upsertBrowserSession(
   sessions: RuntimeBrowserSessions,
   session: RuntimeBrowserSession,
 ): RuntimeBrowserSessions {
-  return { ...sessions, [session.conversationId]: session };
+  return { ...sessions, [session.runId]: session };
 }
 
 export function updateBrowserSession(
   sessions: RuntimeBrowserSessions,
-  conversationId: string,
+  runId: string,
   update: (session: RuntimeBrowserSession) => RuntimeBrowserSession,
 ): RuntimeBrowserSessions {
-  const session = sessions[conversationId];
+  const session = sessions[runId];
   if (!session) return sessions;
   const updated = update(session);
   if (updated === session) return sessions;
-  return { ...sessions, [conversationId]: updated };
+  return { ...sessions, [runId]: updated };
 }
 
 export function anchorBrowserSession(
   sessions: RuntimeBrowserSessions,
-  conversationId: string,
+  runId: string,
   messageId: string,
 ): RuntimeBrowserSessions {
-  return updateBrowserSession(sessions, conversationId, (session) =>
+  return updateBrowserSession(sessions, runId, (session) =>
     session.anchorMessageId
       ? session
       : { ...session, anchorMessageId: messageId },
@@ -238,14 +244,26 @@ export function anchorBrowserSession(
 
 export function completeBrowserSession(
   sessions: RuntimeBrowserSessions,
-  conversationId: string,
+  runId: string,
 ): RuntimeBrowserSessions {
-  return updateBrowserSession(sessions, conversationId, (session) => ({
+  return updateBrowserSession(sessions, runId, (session) => ({
     ...session,
     streamUrl: null,
     status: "complete",
     operatingLabel: null,
     operating: false,
     agentCursor: null,
+  }));
+}
+
+export function presentBrowserSession(
+  sessions: RuntimeBrowserSessions,
+  runId: string,
+  presentation: BrowserPresentationMode,
+): RuntimeBrowserSessions {
+  return updateBrowserSession(sessions, runId, (session) => ({
+    ...session,
+    presentation,
+    presentationRevision: session.presentationRevision + 1,
   }));
 }

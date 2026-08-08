@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { executorToolLabel } from "../src/components/chat/executor-tool-label.ts";
+import { specialistIsStartingOrWorking } from "../src/components/chat/specialist-status-indicator.tsx";
 
 void test("Executor activity labels current catalog calls", () => {
   assert.equal(
@@ -28,4 +29,12 @@ void test("Executor activity labels current catalog calls", () => {
     }),
     "Fetch analytics report",
   );
+});
+
+void test("a newly created specialist is presented as starting, not failed", () => {
+  assert.equal(specialistIsStartingOrWorking("idle"), true);
+  assert.equal(specialistIsStartingOrWorking("running"), true);
+  assert.equal(specialistIsStartingOrWorking("waiting"), true);
+  assert.equal(specialistIsStartingOrWorking("failed"), false);
+  assert.equal(specialistIsStartingOrWorking("completed"), false);
 });

@@ -11,15 +11,19 @@ import {
   completeBrowserRun,
   completeBrowserSession,
   hideBrowserCursor,
+  presentBrowserSession,
   resolveBrowserOwnerMessageId,
   updateBrowserSession,
   upsertBrowserRun,
   upsertBrowserSession,
 } from "../src/lib/browser-sessions.js";
 
-function session(conversationId: string): RuntimeBrowserSession {
+function session(
+  conversationId: string,
+  runId = `run-${conversationId}`,
+): RuntimeBrowserSession {
   return {
-    runId: `run-${conversationId}`,
+    runId,
     url: `https://${conversationId}.example`,
     streamUrl: `http://localhost/${conversationId}`,
     conversationId,
@@ -28,11 +32,44 @@ function session(conversationId: string): RuntimeBrowserSession {
     threadRootId: null,
     anchorMessageId: null,
     status: "active",
+    createdAt: 1,
+    presentation: "inline",
+    presentationRevision: 0,
     operatingLabel: "Browsing",
     operating: true,
     agentCursor: { x: 12, y: 24, visible: true },
   };
 }
+
+void test("closing an old run cannot close a fresh run in the same DM", () => {
+  const old = session("setup", "run-old");
+  const fresh = { ...session("setup", "run-fresh"), createdAt: 2 };
+  const sessions = upsertBrowserSession(upsertBrowserSession({}, old), fresh);
+  const completed = completeBrowserSession(sessions, old.runId);
+
+  assert.equal(completed[old.runId]?.status, "complete");
+  assert.equal(completed[fresh.runId]?.status, "active");
+  assert.equal(completed[fresh.runId]?.streamUrl, fresh.streamUrl);
+});
+
+void test("an explicit presentation changes only the addressed browser run", () => {
+  const first = session("setup", "run-first");
+  const second = session("setup", "run-second");
+  const sessions = upsertBrowserSession(
+    upsertBrowserSession({}, first),
+    second,
+  );
+  const presented = presentBrowserSession(
+    sessions,
+    second.runId,
+    "picture-in-picture",
+  );
+
+  assert.equal(presented[first.runId]?.presentation, "inline");
+  assert.equal(presented[first.runId]?.presentationRevision, 0);
+  assert.equal(presented[second.runId]?.presentation, "picture-in-picture");
+  assert.equal(presented[second.runId]?.presentationRevision, 1);
+});
 
 void test("durable browser runs keep independent historical insertion points", () => {
   const first = {
@@ -85,14 +122,14 @@ void test("browser sessions remain isolated by owning conversation", () => {
     upsertBrowserSession({}, channel),
     thread,
   );
-  const updated = updateBrowserSession(sessions, "thread", (current) => ({
+  const updated = updateBrowserSession(sessions, thread.runId, (current) => ({
     ...current,
     url: "https://updated.example",
   }));
 
-  const updatedThread = updated.thread;
+  const updatedThread = updated[thread.runId];
   assert.ok(updatedThread);
-  assert.strictEqual(updated.channel, channel);
+  assert.strictEqual(updated[channel.runId], channel);
   assert.equal(updatedThread.url, "https://updated.example");
   assert.equal(updatedThread.threadRootId, "root");
 });
@@ -104,19 +141,20 @@ void test("closing one browser preserves every other conversation", () => {
     upsertBrowserSession({}, channel),
     directMessage,
   );
-  const completed = completeBrowserSession(sessions, "channel");
+  const completed = completeBrowserSession(sessions, channel.runId);
 
-  const completedChannel = completed.channel;
+  const completedChannel = completed[channel.runId];
   assert.ok(completedChannel);
   assert.equal(completedChannel.status, "complete");
   assert.equal(completedChannel.streamUrl, null);
   assert.equal(completedChannel.agentCursor, null);
   assert.equal(completedChannel.operating, false);
-  assert.strictEqual(completed["direct-message"], directMessage);
+  assert.strictEqual(completed[directMessage.runId], directMessage);
 });
 
 void test("late events for unknown conversations are ignored", () => {
-  const sessions = { channel: session("channel") };
+  const channel = session("channel");
+  const sessions = { [channel.runId]: channel };
   const updated = updateBrowserSession(sessions, "missing", (current) => ({
     ...current,
     url: "https://wrong.example",
@@ -126,11 +164,12 @@ void test("late events for unknown conversations are ignored", () => {
 });
 
 void test("a browser keeps its first message insertion point", () => {
-  const sessions = { channel: session("channel") };
-  const anchored = anchorBrowserSession(sessions, "channel", "message-one");
-  const moved = anchorBrowserSession(anchored, "channel", "message-two");
+  const channel = session("channel");
+  const sessions = { [channel.runId]: channel };
+  const anchored = anchorBrowserSession(sessions, channel.runId, "message-one");
+  const moved = anchorBrowserSession(anchored, channel.runId, "message-two");
 
-  assert.equal(moved.channel?.anchorMessageId, "message-one");
+  assert.equal(moved[channel.runId]?.anchorMessageId, "message-one");
   assert.strictEqual(moved, anchored);
 });
 

@@ -195,7 +195,7 @@ export function latestSetupAttempt(messages: ChiefUIMessage[]): {
 
 /** Strips machine-readable marker lines so they never render in chat UI. */
 export function stripSetupResult(text: string): string {
-  return text
+  return stripPrivateSetupInstructions(text)
     .split("\n")
     .filter((l) => {
       const trimmed = l.trim();
@@ -206,6 +206,17 @@ export function stripSetupResult(text: string): string {
     })
     .join("\n")
     .trimEnd();
+}
+
+/** Defensive cleanup for transcripts created before setup skills were moved
+ * out of the recorded user prompt. Private instructions never belong in chat. */
+export function stripPrivateSetupInstructions(text: string): string {
+  return text
+    .replace(
+      /<chief_(?:setup_skill|private_instructions)\b[^>]*>[\s\S]*?<\/chief_(?:setup_skill|private_instructions)>/giu,
+      "",
+    )
+    .trim();
 }
 
 /** Removes marker lines from text blocks and drops blocks left empty. */

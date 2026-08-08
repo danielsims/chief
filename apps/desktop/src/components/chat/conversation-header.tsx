@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { Check, Copy, Hash, MoreHorizontal, UserRound } from "lucide-react";
+import {
+  Check,
+  Copy,
+  Hash,
+  ListChecks,
+  MoreHorizontal,
+  UserRound,
+} from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
 import {
@@ -30,6 +37,7 @@ interface ConversationHeaderProps {
   directIdentity: { name: string } | null;
   directPresence: AgentPresence;
   onContinueArtifact: (artifact: { id: string; title: string }) => void;
+  onOpenActivity: () => void;
   onOpenProfile: (selection: ConversationProfileSelection) => void;
   activeView: "messages" | "canvas";
   onViewChange: (view: "messages" | "canvas") => void;
@@ -42,11 +50,13 @@ export function ConversationHeader({
   directIdentity,
   directPresence,
   onContinueArtifact,
+  onOpenActivity,
   onOpenProfile,
   activeView,
   onViewChange,
   user,
 }: ConversationHeaderProps) {
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
   return (
@@ -109,7 +119,7 @@ export function ConversationHeader({
               />
             </>
           ) : null}
-          <Popover>
+          <Popover open={actionsOpen} onOpenChange={setActionsOpen}>
             <PopoverTrigger asChild>
               <Button
                 aria-label="Conversation actions"
@@ -122,21 +132,35 @@ export function ConversationHeader({
             </PopoverTrigger>
             <PopoverContent align="end" className="w-48 p-1.5">
               {directIdentity ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (directAgentId) {
-                      onOpenProfile({
-                        kind: "agent",
-                        agentId: directAgentId,
-                      });
-                    }
-                  }}
-                  className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
-                >
-                  <UserRound size={14} />
-                  View profile
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActionsOpen(false);
+                      if (directAgentId) {
+                        onOpenProfile({
+                          kind: "agent",
+                          agentId: directAgentId,
+                        });
+                      }
+                    }}
+                    className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
+                  >
+                    <UserRound size={14} />
+                    View profile
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActionsOpen(false);
+                      onOpenActivity();
+                    }}
+                    className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
+                  >
+                    <ListChecks size={14} />
+                    View activity
+                  </button>
+                </>
               ) : null}
               <button
                 type="button"

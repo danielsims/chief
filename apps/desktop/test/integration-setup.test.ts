@@ -17,6 +17,7 @@ import {
   persistSetupResult,
   SETUP_ATTEMPT_PREFIX,
   setupResultMatchesIntegration,
+  stripPrivateSetupInstructions,
 } from "../src/lib/integration-setup.ts";
 
 void test("integration setup starts visibly in a private Setup conversation", () => {
@@ -187,6 +188,21 @@ void test("GitHub setup details stay out of the visible message", () => {
   assert.match(task, /^@Setup, connect GitHub/u);
   assert.doesNotMatch(task, /token form|repositories|permissions/u);
   assert.ok(task.length < 300);
+});
+
+void test("private setup instructions from legacy transcripts never render", () => {
+  assert.equal(
+    stripPrivateSetupInstructions(
+      'Connect GitHub.\n\n<chief_setup_skill id="setup-github">\nSecret recipe\n</chief_setup_skill>',
+    ),
+    "Connect GitHub.",
+  );
+  assert.equal(
+    stripPrivateSetupInstructions(
+      "Before\n<chief_private_instructions>\nRuntime only\n</chief_private_instructions>\nAfter",
+    ),
+    "Before\n\nAfter",
+  );
 });
 
 void test("setup results belong only to the latest connection attempt", () => {

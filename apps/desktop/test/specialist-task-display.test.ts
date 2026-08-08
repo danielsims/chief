@@ -2,11 +2,31 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  chronologicallyMergeSpecialistTasks,
   ordinaryToolMessageGroups,
   specialistTaskForInput,
   specialistTaskOwners,
   specialistTasksForInput,
 } from "../src/components/chat/specialist-task-display.ts";
+
+void test("specialist cards keep their chronological place among later messages", () => {
+  const messages = [
+    { id: "opening", metadata: { createdAt: 100 } },
+    { id: "milestone", metadata: { createdAt: 300 } },
+    { id: "later-user-message", metadata: { createdAt: 500 } },
+  ];
+  const tasks = [
+    { id: "brand", agent: "brand", createdAt: 400 },
+    { id: "prospector", agent: "prospector", createdAt: 200 },
+  ];
+
+  assert.deepEqual(
+    chronologicallyMergeSpecialistTasks(messages, tasks).map((entry) =>
+      entry.type === "message" ? entry.message.id : entry.task.id,
+    ),
+    ["opening", "prospector", "milestone", "brand", "later-user-message"],
+  );
+});
 
 void test("one specialist session belongs to its first tool-call message", () => {
   const task = {

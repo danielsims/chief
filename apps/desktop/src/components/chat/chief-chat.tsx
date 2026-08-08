@@ -14,6 +14,7 @@ import { ArrowDown } from "lucide-react";
 
 import type {
   AgentCapabilityId,
+  BrowserRunRecord,
   ChatExecutionSelection,
   ChiefMessageMetadata,
   ChiefUIMessage,
@@ -31,10 +32,7 @@ import type { ConversationProfileSelection } from "./conversation-profile";
 import type { SchedulingDraft } from "./recurring-work-composer";
 import { useAgentConfig } from "../../lib/agent-config";
 import { useAuth } from "../../lib/auth/auth-context";
-import {
-  browserOpenResultContent,
-  resolveBrowserOwnerMessageId,
-} from "../../lib/browser-sessions";
+import { browserOpenResultContent } from "../../lib/browser-sessions";
 import { useChannelReadState } from "../../lib/channel-read-state-context";
 import {
   findPendingInputRequest,
@@ -56,7 +54,9 @@ import { InputRequestSection } from "../integrations/input-request-section";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
 import { AgentActivityPanel, taskAgentLabel } from "./agent-activity-panel";
 import { ApprovalCard } from "./approval-card";
+import { approvalBelongsToSurface } from "./approval-presentation";
 import { BrowserSessionAttachment } from "./browser-panel";
+import { resolveBrowserRunAnchors } from "./browser-run-placement";
 import { channelActivityState } from "./channel-activity-state";
 import {
   ChannelMessageActions,
@@ -67,19 +67,21 @@ import {
   threadAgentAudience,
 } from "./channel-thread-audience";
 import { ChatComposer } from "./chat-composer";
+import { conversationActivityTurns } from "./conversation-activity-history";
 import {
   ConversationAuxiliaryBreadcrumb,
   ConversationAuxiliaryPanel,
   ConversationAuxiliaryPanelBody,
   ConversationAuxiliaryPanelHeader,
 } from "./conversation-auxiliary-panel";
-import { Blocks } from "./message-blocks";
+import { conversationVisibleBlocks } from "./conversation-visible-blocks";
+import { Blocks, SpecialistTaskCard } from "./message-blocks";
 import { ObservedChat } from "./observed-chat";
 import { QuestionCard } from "./question-card";
 import { RecurringWorkComposer } from "./recurring-work-composer";
 import {
+  chronologicallyMergeSpecialistTasks,
   specialistTaskOwners,
-  specialistTasksForInput,
 } from "./specialist-task-display";
 import { summarizeThreadReplyCandidates } from "./thread-reply-summary";
 import { UserMessage } from "./user-message";
@@ -354,6 +356,8 @@ export function ChiefChat({
   onOpenChild,
   onOpenProfile,
   onOpenInternalPanel,
+  activityOpen,
+  onActivityOpenChange,
   panelSizing,
   profileOpen = false,
   header,
@@ -389,6 +393,8 @@ export function ChiefChat({
   onOpenChild?: (childId: string) => void;
   onOpenProfile?: (selection: ConversationProfileSelection) => void;
   onOpenInternalPanel?: () => void;
+  activityOpen: boolean;
+  onActivityOpenChange: (open: boolean) => void;
   panelSizing: ConversationAuxiliaryPanelSizing;
   profileOpen?: boolean;
   /** Conversation chrome belongs to the main split pane so auxiliary headers
@@ -436,7 +442,6 @@ export function ChiefChat({
     messages,
     controls,
     interrupt,
-    stop,
     respondPermission,
     respondQuestion,
     provideInput,
@@ -456,12 +461,48 @@ export function ChiefChat({
       integrationDomain,
     },
   );
-  const [activityOpen, setActivityOpen] = useState(false);
+  const setActivityOpen = onActivityOpenChange;
+  const activityAgentLabel = directAgent?.name ?? "Chief";
   const currentTurn = useMemo(
-    () => channelActivityState(messages, controls.hasAgentOutput),
-    [controls.hasAgentOutput, messages],
+    () =>
+      channelActivityState(
+        messages,
+        controls.hasAgentOutput,
+        activityAgentLabel,
+      ),
+    [activityAgentLabel, controls.hasAgentOutput, messages],
   );
   const currentTurnBlocks = currentTurn.blocks;
+  const activityTurns = useMemo(
+    () =>
+      conversationActivityTurns(
+        messages.flatMap((message) =>
+          message.role === "assistant" || message.role === "user"
+            ? [
+                {
+                  id: message.id,
+                  role: message.role,
+                  createdAt: message.metadata?.createdAt,
+                  blocks: withoutMarkerLines(messageBlocks(message)),
+                },
+              ]
+            : [],
+        ),
+      ),
+    [messages],
+  );
+  const currentActivityTurnId = activityTurns.at(-1)?.id;
+  const previousActivityTurns = useMemo(
+    () =>
+      activityTurns
+        .filter(
+          (turn) =>
+            turn.id !== currentActivityTurnId &&
+            turn.blocks.some((block) => block.type === "tool_use"),
+        )
+        .reverse(),
+    [activityTurns, currentActivityTurnId],
+  );
   const statusLabel = currentTurn.statusLabel;
   const activeExecution = selectedExecution ?? execution ?? initialExecution;
   const driver = activeExecution?.driver;
@@ -516,6 +557,7 @@ export function ChiefChat({
     threadRootId?: string,
     inheritedThreadAudience: readonly string[] = [],
     attachments: readonly MessageAttachment[] = [],
+    interruptActive = false,
   ) => {
     const mentions = channelRecipients(
       mentionsIn(text),
@@ -530,6 +572,7 @@ export function ChiefChat({
       {
         threadRootId,
         mentions,
+        interruptActive,
       },
       [...attachments],
     );
@@ -686,7 +729,13 @@ export function ChiefChat({
     if (nearBottom) {
       container.scrollTop = container.scrollHeight;
     }
-  }, [channelResolved, initialMessageId, isNew, messages.length]);
+  }, [
+    channelResolved,
+    childSessions.length,
+    initialMessageId,
+    isNew,
+    messages.length,
+  ]);
 
   useEffect(() => {
     if (
@@ -726,14 +775,10 @@ export function ChiefChat({
     setDraft("");
     setImageAttachments([]);
     setComposerOpen(false);
-    // Sending while the agent is mid-turn is a steering prompt: abort the
-    // in-flight SDK request and interrupt the server agent so the new message
-    // runs at the next available turn.
-    if (controls.status === "running") {
-      void stop();
-      interrupt();
-    }
-    send(text, undefined, [], imageAttachments);
+    // Sending a follow-up is one atomic preemption request. The runtime records
+    // the message immediately, interrupts the active turn, then continues with
+    // this updated conversation. There is no hidden queue or steering draft.
+    send(text, undefined, [], imageAttachments, controls.status === "running");
   };
 
   const composeSchedule = ({
@@ -755,18 +800,46 @@ export function ChiefChat({
         ),
     ),
   );
-  const childSessionOwners = specialistTaskOwners(
-    messages.flatMap((message) =>
-      message.role === "assistant"
-        ? [
-            {
-              id: message.id,
-              blocks: withoutMarkerLines(messageBlocks(message)),
-            },
-          ]
+  const childSessionOwners = useMemo(
+    () =>
+      specialistTaskOwners(
+        messages.flatMap((message) =>
+          message.role === "assistant"
+            ? [
+                {
+                  id: message.id,
+                  blocks: withoutMarkerLines(messageBlocks(message)),
+                },
+              ]
+            : [],
+        ),
+        childSessions,
+      ),
+    [childSessions, messages],
+  );
+  const mainTimelineChildSessions = useMemo(
+    () =>
+      childSessions.filter((task) => {
+        const ownerId = childSessionOwners.get(task.id);
+        if (!ownerId) return true;
+        const owner = messages.find((message) => message.id === ownerId);
+        return !owner?.metadata?.threadRootId;
+      }),
+    [childSessionOwners, childSessions, messages],
+  );
+  const activeThreadChildSessions = useMemo(
+    () =>
+      threadRootId
+        ? childSessions.filter((task) => {
+            const ownerId = childSessionOwners.get(task.id);
+            if (!ownerId) return false;
+            return (
+              messages.find((message) => message.id === ownerId)?.metadata
+                ?.threadRootId === threadRootId
+            );
+          })
         : [],
-    ),
-    childSessions,
+    [childSessionOwners, childSessions, messages, threadRootId],
   );
   const activeChildOwnerId = activeChild
     ? childSessionOwners.get(activeChild.id)
@@ -850,155 +923,166 @@ export function ChiefChat({
       ),
     [activeThreadReplies, activeThreadRoot, knownAgentIds],
   );
-  const chatBrowserSession = browserSessions[chatId];
-  const chatBrowserRun = browserRuns
-    .filter(
-      (run) =>
-        run.workspaceId === cloudOrganizationId &&
-        run.conversationId === chatId,
-    )
-    .sort((left, right) => right.createdAt - left.createdAt)[0];
-  const childBrowserSession = activeChild
-    ? browserSessions[activeChild.id]
-    : undefined;
-  const browserBelongsToChat = Boolean(
-    chatBrowserSession?.workspaceId === cloudOrganizationId ||
-    chatBrowserRun?.workspaceId === cloudOrganizationId,
+  const chatBrowserRuns = useMemo(
+    () =>
+      browserRuns
+        .filter(
+          (run) =>
+            run.workspaceId === cloudOrganizationId &&
+            run.conversationId === chatId,
+        )
+        .sort(
+          (left, right) =>
+            left.createdAt - right.createdAt || left.id.localeCompare(right.id),
+        ),
+    [browserRuns, chatId, cloudOrganizationId],
   );
-  const browserInActiveChild = Boolean(
-    childBrowserSession?.workspaceId === cloudOrganizationId,
-  );
-  const browserOperating = browserInActiveChild
-    ? activeChild?.status === "running" || activeChild?.status === "waiting"
-    : controls.status === "running";
-  // The browser renders as an attachment anchored to the message whose turn
-  // opened it — the same way Buzz embeds the browser into the message body. The
-  // anchor is resolved and persisted once (anchorBrowserSession keeps the first
-  // insertion point), so the viewer never re-anchors as the agent streams new
-  // messages or the thread hydrates: it stays where it was opened instead of
-  // popping around.
-  const derivedBrowserAnchorId = useMemo(() => {
-    if (!browserBelongsToChat) return undefined;
-    const browserThreadRootId =
-      chatBrowserSession?.threadRootId ?? chatBrowserRun?.threadRootId ?? null;
-    const resolved = resolveBrowserOwnerMessageId(
+  const browserAnchorCandidates = useMemo(
+    () =>
       messages.map((message) => ({
         id: message.id,
         role: message.role,
         threadRootId: message.metadata?.threadRootId ?? null,
         isBrowserOpen: browserOpenBlockIn(messageBlocks(message)) !== undefined,
+        createdAt: message.metadata?.createdAt,
       })),
-      browserThreadRootId,
-      chatBrowserRun?.anchorMessageId,
-    );
-    if (resolved) return resolved;
-    // No browser-open tool message could be identified (executor inputs are
-    // frequently empty and the open result can be lost to a transport error).
-    // Anchor to the newest assistant message in the session's thread so the
-    // browser is visible; the persistence effect freezes this position.
-    const pool = messages.filter(
-      (message) =>
-        message.role === "assistant" &&
-        (message.metadata?.threadRootId ?? null) === browserThreadRootId,
-    );
-    if (pool.length > 0) return pool.at(-1)?.id;
-    return messages.filter((message) => message.role === "assistant").at(-1)
-      ?.id;
-  }, [
-    browserBelongsToChat,
-    chatBrowserRun?.anchorMessageId,
-    chatBrowserRun?.threadRootId,
-    chatBrowserSession?.threadRootId,
-    messages,
-  ]);
-  const anchoredBrowserRunIdRef = useRef<string | null>(null);
+    [messages],
+  );
+  const liveBrowserAnchors = useMemo(
+    () =>
+      Object.fromEntries(
+        chatBrowserRuns.map((run) => [
+          run.id,
+          browserSessions[run.id]?.anchorMessageId ?? null,
+        ]),
+      ),
+    [browserSessions, chatBrowserRuns],
+  );
+  const browserRunAnchors = useMemo(
+    () =>
+      resolveBrowserRunAnchors(
+        chatBrowserRuns,
+        browserAnchorCandidates,
+        liveBrowserAnchors,
+      ),
+    [browserAnchorCandidates, chatBrowserRuns, liveBrowserAnchors],
+  );
+  const childBrowserRun = activeChild
+    ? browserRuns
+        .filter(
+          (run) =>
+            run.workspaceId === cloudOrganizationId &&
+            run.conversationId === activeChild.id &&
+            browserSessions[run.id]?.status === "active",
+        )
+        .at(-1)
+    : undefined;
+  const browserInActiveChild = Boolean(childBrowserRun);
+  const browserOperating = browserInActiveChild
+    ? activeChild?.status === "running" || activeChild?.status === "waiting"
+    : controls.status === "running";
+  const anchoredBrowserRunIdsRef = useRef(new Set<string>());
   useEffect(() => {
-    const runId = chatBrowserSession?.runId;
-    if (
-      !browserBelongsToChat ||
-      !derivedBrowserAnchorId ||
-      chatBrowserSession?.anchorMessageId ||
-      !runId ||
-      anchoredBrowserRunIdRef.current === runId
-    ) {
-      return;
+    for (const run of chatBrowserRuns) {
+      const session = browserSessions[run.id];
+      const anchor = browserRunAnchors.get(run.id);
+      if (
+        !anchor ||
+        (run.anchorMessageId === anchor &&
+          (!session || session.anchorMessageId === anchor)) ||
+        anchoredBrowserRunIdsRef.current.has(run.id)
+      ) {
+        continue;
+      }
+      anchoredBrowserRunIdsRef.current.add(run.id);
+      anchorBrowserSession(run.id, anchor);
     }
-    anchoredBrowserRunIdRef.current = runId;
-    anchorBrowserSession(chatId, derivedBrowserAnchorId);
   }, [
     anchorBrowserSession,
-    browserBelongsToChat,
-    chatBrowserSession?.anchorMessageId,
-    chatBrowserSession?.runId,
-    chatId,
-    derivedBrowserAnchorId,
+    browserRunAnchors,
+    browserSessions,
+    chatBrowserRuns,
   ]);
-  const browserAnchorMessageId =
-    chatBrowserSession?.anchorMessageId ?? derivedBrowserAnchorId;
-  const browserThreadRootId =
-    chatBrowserSession?.threadRootId ?? chatBrowserRun?.threadRootId ?? null;
-  // A browser that belongs to a thread renders only inside that thread — it
-  // stays where it was opened and never migrates into the main chat, even when
-  // the thread is closed. A main-timeline browser renders in the main timeline.
-  const browserInOpenThread = Boolean(
-    browserBelongsToChat &&
-    threadRootId &&
-    browserThreadRootId === threadRootId,
+  const browserAttachmentNode = (run: BrowserRunRecord) => (
+    <div className="mx-auto w-full max-w-3xl py-1 pl-11">
+      <BrowserSessionAttachment
+        operating={controls.status === "running"}
+        run={run}
+      />
+    </div>
   );
-  const browserSessionBelongsToTimeline = Boolean(
-    browserBelongsToChat && !browserThreadRootId,
-  );
-  const browserAttachmentNode =
-    browserBelongsToChat && browserAnchorMessageId ? (
-      // pl-11 aligns the card with the message content column (avatar + gap).
-      <div className="mx-auto w-full max-w-3xl py-1 pl-11">
-        <BrowserSessionAttachment
-          conversationId={chatId}
-          operating={controls.status === "running"}
-          run={chatBrowserRun}
-        />
-      </div>
-    ) : null;
   const timelineEntries = useMemo(() => {
     const entries: (
       | { type: "message"; message: ChiefUIMessage }
-      | { type: "browser"; key: string }
+      | { type: "browser"; key: string; run: BrowserRunRecord }
+      | { type: "specialist"; task: SessionRecord }
     )[] = [];
-    const anchorMessage = messages.find((m) => m.id === browserAnchorMessageId);
-    const anchorIsThreadReply = Boolean(
-      channel && anchorMessage?.metadata?.threadRootId,
-    );
-    let anchorPlaced = false;
-    for (const message of messages) {
+    const placed = new Set<string>();
+    for (const entry of chronologicallyMergeSpecialistTasks(
+      messages,
+      mainTimelineChildSessions,
+    )) {
+      if (entry.type === "specialist") {
+        entries.push(entry);
+        continue;
+      }
+      const { message } = entry;
       entries.push({ type: "message", message });
-      if (message.id === browserAnchorMessageId && !anchorIsThreadReply) {
-        entries.push({ type: "browser", key: `browser:${message.id}` });
-        anchorPlaced = true;
+      for (const run of chatBrowserRuns) {
+        if (run.threadRootId || browserRunAnchors.get(run.id) !== message.id)
+          continue;
+        entries.push({ type: "browser", key: `browser:${run.id}`, run });
+        placed.add(run.id);
       }
     }
-    if (browserAnchorMessageId && !anchorPlaced) {
-      entries.push({ type: "browser", key: "browser:end" });
+    for (const run of chatBrowserRuns) {
+      if (!run.threadRootId && !placed.has(run.id)) {
+        entries.push({ type: "browser", key: `browser:end:${run.id}`, run });
+      }
     }
     return entries;
-  }, [browserAnchorMessageId, channel, messages]);
+  }, [browserRunAnchors, chatBrowserRuns, mainTimelineChildSessions, messages]);
   const threadReplyEntries = useMemo(() => {
     const entries: (
       | { type: "message"; message: ChiefUIMessage }
-      | { type: "browser"; key: string }
+      | { type: "browser"; key: string; run: BrowserRunRecord }
+      | { type: "specialist"; task: SessionRecord }
     )[] = [];
-    let anchorPlaced = false;
-    for (const message of activeThreadReplies) {
+    const placed = new Set<string>();
+    for (const entry of chronologicallyMergeSpecialistTasks(
+      activeThreadReplies,
+      activeThreadChildSessions,
+    )) {
+      if (entry.type === "specialist") {
+        entries.push(entry);
+        continue;
+      }
+      const { message } = entry;
       entries.push({ type: "message", message });
-      if (message.id === browserAnchorMessageId) {
-        entries.push({ type: "browser", key: `browser:${message.id}` });
-        anchorPlaced = true;
+      for (const run of chatBrowserRuns) {
+        if (
+          run.threadRootId !== threadRootId ||
+          browserRunAnchors.get(run.id) !== message.id
+        ) {
+          continue;
+        }
+        entries.push({ type: "browser", key: `browser:${run.id}`, run });
+        placed.add(run.id);
       }
     }
-    if (browserAnchorMessageId && !anchorPlaced) {
-      entries.push({ type: "browser", key: "browser:end" });
+    for (const run of chatBrowserRuns) {
+      if (run.threadRootId === threadRootId && !placed.has(run.id)) {
+        entries.push({ type: "browser", key: `browser:end:${run.id}`, run });
+      }
     }
     return entries;
-  }, [activeThreadReplies, browserAnchorMessageId]);
+  }, [
+    activeThreadChildSessions,
+    activeThreadReplies,
+    browserRunAnchors,
+    chatBrowserRuns,
+    threadRootId,
+  ]);
   const closeAuxiliaryWorkspace = () => {
     setActivityOpen(false);
     setThreadRootId(null);
@@ -1017,34 +1101,25 @@ export function ChiefChat({
       setThreadRootId(activeChildThreadRootId);
     }
   };
-  const fullVisibleBlocks = useCallback(
-    (message: ChiefUIMessage) => withoutMarkerLines(messageBlocks(message)),
-    [],
-  );
-  const channelVisibleBlocks = useCallback(
+  const visibleConversationBlocks = useCallback(
     (message: ChiefUIMessage) =>
-      withoutMarkerLines(messageBlocks(message)).filter(
-        (block) =>
-          block.type !== "thinking" &&
-          block.type !== "tool_result" &&
-          (block.type !== "tool_use" ||
-            specialistTasksForInput(block.input, childSessions).length > 0),
-      ),
-    [childSessions],
+      conversationVisibleBlocks(withoutMarkerLines(messageBlocks(message))),
+    [],
   );
   // The chat is a conversation, not an agent runtime: ordinary tool calls (Run
   // connected tool, skill loads, browser commands) do not render as cards here.
   // Their detail lives in the activity panel, and the embedded browser shows
-  // what the agent is doing through its own operating labels. Only specialist
-  // delegation cards (the actual work being done) stay inline.
-  const threadBlocks = channelVisibleBlocks;
+  // what the agent is doing through its own operating labels. Specialist
+  // sessions render directly from durable activity below, so their visibility
+  // never depends on retaining a provider-specific delegation tool call.
+  const threadBlocks = visibleConversationBlocks;
   const summarizeThreadReplies = (replies: readonly ChiefUIMessage[]) => {
     const summary = summarizeThreadReplyCandidates(
       replies.map((reply) => ({
         role: reply.role,
         createdAt: reply.metadata?.createdAt,
         blocks: withoutMarkerLines(messageBlocks(reply)),
-        visibleBlocks: channelVisibleBlocks(reply),
+        visibleBlocks: visibleConversationBlocks(reply),
       })),
     );
     return {
@@ -1140,6 +1215,27 @@ export function ChiefChat({
       ? { id: mentionedId, name: identity.name, role: identity.role }
       : undefined;
   };
+  const acknowledgedDmMessageId = useMemo(() => {
+    if (channel || controls.status !== "running") return undefined;
+    let userIndex = messages.length - 1;
+    while (
+      userIndex >= 0 &&
+      (messages[userIndex]?.role !== "user" ||
+        messages[userIndex]?.metadata?.threadRootId)
+    ) {
+      userIndex -= 1;
+    }
+    if (userIndex < 0) return undefined;
+    const visibleReplyStarted = messages
+      .slice(userIndex + 1)
+      .some(
+        (message) =>
+          message.role === "assistant" &&
+          !message.metadata?.threadRootId &&
+          visibleConversationBlocks(message).length > 0,
+      );
+    return visibleReplyStarted ? undefined : messages[userIndex]?.id;
+  }, [channel, controls.status, messages, visibleConversationBlocks]);
 
   return (
     <div className="relative flex h-full min-w-0 overflow-hidden">
@@ -1203,6 +1299,11 @@ export function ChiefChat({
               <UserMessage
                 text={optimisticInitialPrompt}
                 author={userAuthor}
+                acknowledgedBy={
+                  controls.status === "running" && !channel
+                    ? (directAgent?.name ?? "Chief")
+                    : undefined
+                }
                 metadata={channel ? null : undefined}
                 onOpenProfile={openUserProfile}
                 onOpenMention={openAgentMention}
@@ -1211,13 +1312,23 @@ export function ChiefChat({
             {channelResolved || isNew
               ? timelineEntries.map((entry) => {
                   if (entry.type === "browser") {
-                    // Only a main-timeline browser renders here; a thread-owned
-                    // browser stays inside its thread even when the thread is closed.
-                    if (!browserSessionBelongsToTimeline) return null;
                     return (
                       <Fragment key={entry.key}>
-                        {browserAttachmentNode}
+                        {browserAttachmentNode(entry.run)}
                       </Fragment>
+                    );
+                  }
+                  if (entry.type === "specialist") {
+                    return (
+                      <div
+                        key={entry.task.id}
+                        className="mx-auto w-full max-w-3xl pl-11"
+                      >
+                        <SpecialistTaskCard
+                          task={entry.task}
+                          onOpenTask={onOpenChild}
+                        />
+                      </div>
                     );
                   }
                   const { message } = entry;
@@ -1237,6 +1348,11 @@ export function ChiefChat({
                       <div id={`chief-message-${message.id}`} key={message.id}>
                         <UserMessage
                           author={userAuthor}
+                          acknowledgedBy={
+                            message.id === acknowledgedDmMessageId
+                              ? (directAgent?.name ?? "Chief")
+                              : undefined
+                          }
                           attachments={imageParts(message)}
                           metadata={channel ? null : undefined}
                           onOpenProfile={openUserProfile}
@@ -1252,41 +1368,9 @@ export function ChiefChat({
                     );
                   }
                   if (message.role !== "assistant") return null;
-                  const timelineBlocks = channel
-                    ? channelVisibleBlocks(message)
-                    : fullVisibleBlocks(message);
+                  const timelineBlocks = visibleConversationBlocks(message);
                   if (timelineBlocks.length === 0) return null;
-                  const visibleNonResults = timelineBlocks.filter(
-                    (block) => block.type !== "tool_result",
-                  );
-                  const specialistOnly =
-                    visibleNonResults.length > 0 &&
-                    visibleNonResults.every(
-                      (block) => block.type === "tool_use",
-                    );
-                  const timelineFilter = channel
-                    ? channelVisibleBlocks
-                    : fullVisibleBlocks;
-                  if (specialistOnly) {
-                    return (
-                      <div
-                        key={message.id}
-                        className="mx-auto w-full max-w-3xl pl-11"
-                      >
-                        <MessageBlocksContent
-                          message={message}
-                          filter={timelineFilter}
-                          progress={controls.toolProgress}
-                          capabilities={activeCapabilities}
-                          active={controls.status === "running"}
-                          tasks={childSessions}
-                          taskOwners={childSessionOwners}
-                          ownerId={message.id}
-                          onOpenTask={onOpenChild}
-                        />
-                      </div>
-                    );
-                  }
+                  const timelineFilter = visibleConversationBlocks;
                   return (
                     <ChiefMessage
                       key={message.id}
@@ -1311,14 +1395,16 @@ export function ChiefChat({
                   );
                 })
               : null}
-            {controls.approvals.map((approval) => (
-              <div key={approval.requestId} className="mx-auto max-w-3xl">
-                <ApprovalCard
-                  approval={approval}
-                  onRespond={respondPermission}
-                />
-              </div>
-            ))}
+            {controls.approvals
+              .filter((approval) => approvalBelongsToSurface(approval, null))
+              .map((approval) => (
+                <div key={approval.requestId} className="mx-auto max-w-3xl">
+                  <ApprovalCard
+                    approval={approval}
+                    onRespond={respondPermission}
+                  />
+                </div>
+              ))}
             {!threadRootId
               ? controls.questions.map((pending) => (
                   <div key={pending.requestId} className="mx-auto max-w-3xl">
@@ -1351,64 +1437,66 @@ export function ChiefChat({
             <div ref={bottomRef} />
           </div>
 
-          {mainScrolledUp && channelResolved ? (
-            <button
-              type="button"
-              aria-label="Scroll to latest"
-              onClick={() =>
-                mainScrollRef.current?.scrollTo({
-                  top: mainScrollRef.current.scrollHeight,
-                  behavior: "smooth",
-                })
-              }
-              className="bg-background text-muted-foreground hover:text-foreground focus-visible:ring-ring/30 absolute bottom-44 left-1/2 z-20 flex size-10 -translate-x-1/2 items-center justify-center rounded-full border shadow-lg transition-colors outline-none focus-visible:ring-2"
-            >
-              <ArrowDown size={16} />
-            </button>
-          ) : null}
-
-          <div className="mx-auto w-full max-w-3xl space-y-2">
-            {composerOpen && messages.length > 0 ? (
-              <RecurringWorkComposer
-                mode={composer === "oneoff" ? "one-off" : "recurring"}
-                date={composerDate}
-                playbookId={composerPlaybookId}
-                onCompose={composeSchedule}
-                onSubmit={submit}
-                onDismiss={() => setComposerOpen(false)}
-              />
+          <div className="relative mx-auto w-full max-w-3xl">
+            {mainScrolledUp && channelResolved ? (
+              <button
+                type="button"
+                aria-label="Scroll to latest"
+                onClick={() =>
+                  mainScrollRef.current?.scrollTo({
+                    top: mainScrollRef.current.scrollHeight,
+                    behavior: "smooth",
+                  })
+                }
+                className="bg-background text-muted-foreground hover:text-foreground focus-visible:ring-ring/30 absolute -top-12 left-1/2 z-20 flex size-10 -translate-x-1/2 items-center justify-center rounded-full border shadow-lg transition-colors outline-none focus-visible:ring-2"
+              >
+                <ArrowDown size={16} />
+              </button>
             ) : null}
-            <ChatComposer
-              autoFocus={focusComposer}
-              value={draft}
-              onValueChange={setDraft}
-              onSubmit={submit}
-              imageAttachments={imageAttachments}
-              onImageAttachmentsChange={setImageAttachments}
-              execution={activeExecution}
-              onExecutionChange={setSelectedExecution}
-              running={controls.status === "running"}
-              onInterrupt={interrupt}
-              showSuggestions={false}
-              showExecutionControls={!channel && !directAgent}
-              mentionCandidates={channel ? mentionCandidates : []}
-              placeholder={
-                directAgent
-                  ? `Message ${directAgent.name}…`
-                  : channel
-                    ? `Message #${channel.label}…`
-                    : undefined
-              }
-            />
-            <AgentActivityComposerRow
-              running={Boolean(channel && controls.status === "running")}
-              statusLabel={statusLabel}
-              onOpen={() => {
-                setThreadRootId(null);
-                setActivityOpen(true);
-                onOpenInternalPanel?.();
-              }}
-            />
+            <div className="relative space-y-2">
+              {composerOpen && messages.length > 0 ? (
+                <RecurringWorkComposer
+                  mode={composer === "oneoff" ? "one-off" : "recurring"}
+                  date={composerDate}
+                  playbookId={composerPlaybookId}
+                  onCompose={composeSchedule}
+                  onSubmit={submit}
+                  onDismiss={() => setComposerOpen(false)}
+                />
+              ) : null}
+              <ChatComposer
+                autoFocus={focusComposer}
+                value={draft}
+                onValueChange={setDraft}
+                onSubmit={submit}
+                imageAttachments={imageAttachments}
+                onImageAttachmentsChange={setImageAttachments}
+                execution={activeExecution}
+                onExecutionChange={setSelectedExecution}
+                running={controls.status === "running"}
+                onInterrupt={interrupt}
+                showSuggestions={false}
+                showExecutionControls={!channel && !directAgent}
+                mentionCandidates={channel ? mentionCandidates : []}
+                placeholder={
+                  directAgent
+                    ? `Message ${directAgent.name}…`
+                    : channel
+                      ? `Message #${channel.label}…`
+                      : undefined
+                }
+              />
+              <AgentActivityComposerRow
+                agentLabel={activityAgentLabel}
+                running={controls.status === "running"}
+                statusLabel={statusLabel}
+                onOpen={() => {
+                  setThreadRootId(null);
+                  setActivityOpen(true);
+                  onOpenInternalPanel?.();
+                }}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -1442,7 +1530,7 @@ export function ChiefChat({
                 ]}
               />
             }
-            subtitle={`${taskAgentLabel(activeChild.agent)} · ${activeChild.status === "completed" ? "Complete" : activeChild.status === "running" || activeChild.status === "waiting" ? "Working" : activeChild.status}`}
+            subtitle={`${taskAgentLabel(activeChild.agent)} · ${activeChild.status === "completed" ? "Complete" : activeChild.status === "idle" ? "Starting" : activeChild.status === "running" || activeChild.status === "waiting" ? "Working" : activeChild.status}`}
             onClose={closeAuxiliaryWorkspace}
           />
           <ConversationAuxiliaryPanelBody className="overflow-hidden">
@@ -1451,10 +1539,10 @@ export function ChiefChat({
               chatId={activeChild.id}
               showHeader={false}
               inlineAttachment={
-                browserInActiveChild ? (
+                childBrowserRun ? (
                   <BrowserSessionAttachment
-                    conversationId={activeChild.id}
                     operating={browserOperating}
+                    run={childBrowserRun}
                   />
                 ) : undefined
               }
@@ -1493,10 +1581,14 @@ export function ChiefChat({
                 />
               </div>
             ) : null}
-            {browserInOpenThread &&
-            browserAnchorMessageId === activeThreadRoot?.id
-              ? browserAttachmentNode
-              : null}
+            {chatBrowserRuns.map((run) =>
+              run.threadRootId === threadRootId &&
+              browserRunAnchors.get(run.id) === activeThreadRoot?.id ? (
+                <Fragment key={`browser:root:${run.id}`}>
+                  {browserAttachmentNode(run)}
+                </Fragment>
+              ) : null,
+            )}
             <div className="my-3 flex items-center gap-2">
               <span className="bg-border h-px flex-1" />
               <span className="text-muted-foreground text-[10px]">
@@ -1507,9 +1599,23 @@ export function ChiefChat({
             </div>
             {threadReplyEntries.map((entry) => {
               if (entry.type === "browser") {
-                if (!browserInOpenThread) return null;
                 return (
-                  <Fragment key={entry.key}>{browserAttachmentNode}</Fragment>
+                  <Fragment key={entry.key}>
+                    {browserAttachmentNode(entry.run)}
+                  </Fragment>
+                );
+              }
+              if (entry.type === "specialist") {
+                return (
+                  <div
+                    key={entry.task.id}
+                    className="mx-auto w-full max-w-3xl pl-11"
+                  >
+                    <SpecialistTaskCard
+                      task={entry.task}
+                      onOpenTask={onOpenChild}
+                    />
+                  </div>
                 );
               }
               const { message } = entry;
@@ -1533,32 +1639,6 @@ export function ChiefChat({
               }
               const blocks = threadBlocks(message);
               if (blocks.length === 0) return null;
-              const visibleNonResults = blocks.filter(
-                (block) => block.type !== "tool_result",
-              );
-              const specialistOnly =
-                visibleNonResults.length > 0 &&
-                visibleNonResults.every((block) => block.type === "tool_use");
-              if (specialistOnly) {
-                return (
-                  <div
-                    key={message.id}
-                    className="mx-auto w-full max-w-3xl pl-11"
-                  >
-                    <MessageBlocksContent
-                      message={message}
-                      filter={threadBlocks}
-                      progress={controls.toolProgress}
-                      capabilities={activeCapabilities}
-                      active={controls.status === "running"}
-                      tasks={childSessions}
-                      taskOwners={childSessionOwners}
-                      ownerId={message.id}
-                      onOpenTask={onOpenChild}
-                    />
-                  </div>
-                );
-              }
               return (
                 <ChiefMessage
                   key={message.id}
@@ -1594,54 +1674,66 @@ export function ChiefChat({
                   </div>
                 ))
               : null}
+            {controls.approvals
+              .filter((approval) =>
+                approvalBelongsToSurface(approval, threadRootId),
+              )
+              .map((approval) => (
+                <div key={approval.requestId} className="w-full">
+                  <ApprovalCard
+                    approval={approval}
+                    onRespond={respondPermission}
+                  />
+                </div>
+              ))}
             <div ref={threadBottomRef} />
           </ConversationAuxiliaryPanelBody>
-          <div className="shrink-0 space-y-2 px-3 pb-3">
-            <ChatComposer
-              value={threadDraft}
-              onValueChange={setThreadDraft}
-              imageAttachments={threadImageAttachments}
-              onImageAttachmentsChange={setThreadImageAttachments}
-              onSubmit={() => {
-                const text = threadDraft.trim();
-                if (
-                  (!text && threadImageAttachments.length === 0) ||
-                  controls.status === "running"
-                )
-                  return;
-                setThreadDraft("");
-                setThreadImageAttachments([]);
-                send(
-                  text,
-                  threadRootId,
-                  activeThreadAudience,
-                  threadImageAttachments,
-                );
-              }}
-              running={controls.status === "running"}
-              onInterrupt={interrupt}
-              showSuggestions={false}
-              showExecutionControls={false}
-              mentionCandidates={mentionCandidates}
-              placeholder={`Reply in #${channel.label}…`}
-            />
-            <AgentActivityComposerRow
-              running={controls.status === "running"}
-              statusLabel={statusLabel}
-              onOpen={() => {
-                setThreadRootId(null);
-                setActivityOpen(true);
-                onOpenInternalPanel?.();
-              }}
-            />
+          <div className="relative shrink-0 px-3 pb-3">
+            <div className="relative space-y-2">
+              <ChatComposer
+                value={threadDraft}
+                onValueChange={setThreadDraft}
+                imageAttachments={threadImageAttachments}
+                onImageAttachmentsChange={setThreadImageAttachments}
+                onSubmit={() => {
+                  const text = threadDraft.trim();
+                  if (!text && threadImageAttachments.length === 0) return;
+                  setThreadDraft("");
+                  setThreadImageAttachments([]);
+                  send(
+                    text,
+                    threadRootId,
+                    activeThreadAudience,
+                    threadImageAttachments,
+                    controls.status === "running",
+                  );
+                }}
+                running={controls.status === "running"}
+                onInterrupt={interrupt}
+                showSuggestions={false}
+                showExecutionControls={false}
+                mentionCandidates={mentionCandidates}
+                placeholder={`Reply in #${channel.label}…`}
+              />
+              <AgentActivityComposerRow
+                running={controls.status === "running"}
+                statusLabel={statusLabel}
+                onOpen={() => {
+                  setThreadRootId(null);
+                  setActivityOpen(true);
+                  onOpenInternalPanel?.();
+                }}
+              />
+            </div>
           </div>
         </ConversationAuxiliaryPanel>
       ) : null}
-      {channel && activityOpen && !profileOpen && !activeChild ? (
+      {activityOpen && !profileOpen && !activeChild ? (
         <AgentActivityPanel
           blocks={currentTurnBlocks}
-          channelLabel={channel.label}
-          progress={controls.toolProgress}
+          previousTurns={previousActivityTurns}
+          agentLabel={activityAgentLabel}
+          contextLabel={channel ? `#${channel.label}` : "this direct message"}
           running={controls.status === "running"}
           statusLabel={statusLabel}
           tasks={childSessions}

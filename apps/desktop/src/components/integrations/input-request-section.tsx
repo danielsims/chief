@@ -61,13 +61,16 @@ export function InputRequestSection({
     (field) => "contextKey" in field.save,
   );
 
+  const activeStep =
+    request.steps?.findIndex((_, index) => !completedSteps.has(index)) ?? -1;
+  const activeRequestStep =
+    activeStep >= 0 ? request.steps?.[activeStep] : undefined;
   const ready =
+    (!progressive || !request.steps?.length || activeStep === -1) &&
     request.fields.every((field) => Boolean(values[field.key] ?? "")) &&
     (request.questions ?? []).every((question) =>
       Boolean((answers[question.question] ?? "").trim()),
     );
-  const activeStep =
-    request.steps?.findIndex((_, index) => !completedSteps.has(index)) ?? -1;
 
   const submit = async () => {
     if (!ready || submitting) return;
@@ -87,14 +90,27 @@ export function InputRequestSection({
   };
 
   return (
-    // Setup is paused on this; the label carries the urgency, the card stays
-    // neutral.
-    <div className={cn("bg-card border", progressive ? "p-4" : "p-5")}>
-      <p className="text-xs text-blue-400">
-        <CircleAlert size={13} className="mr-1.5 inline-block align-[-2px]" />
-        {savesWorkspaceContext
-          ? "Your agent needs an answer to continue"
-          : "Setup needs your input to continue"}
+    <div
+      className={cn(
+        progressive
+          ? "bg-muted/20 rounded-xl px-4 py-3.5"
+          : "bg-card border p-5",
+      )}
+    >
+      <p
+        className={cn(
+          "text-xs",
+          progressive ? "text-muted-foreground" : "text-blue-400",
+        )}
+      >
+        {progressive ? null : (
+          <CircleAlert size={13} className="mr-1.5 inline-block align-[-2px]" />
+        )}
+        {progressive
+          ? "One quick thing"
+          : savesWorkspaceContext
+            ? "Your agent needs an answer to continue"
+            : "Setup needs your input to continue"}
       </p>
       {!embedded ? (
         <>
@@ -107,66 +123,65 @@ export function InputRequestSection({
         </>
       ) : null}
 
-      {request.steps?.length ? (
-        <ol
-          className={cn(
-            "mt-4 border-t pt-4",
-            progressive ? "space-y-1" : "space-y-2.5",
+      {progressive && request.steps?.length ? (
+        <div className="mt-3 border-t pt-3">
+          {activeRequestStep ? (
+            <div className="flex items-start gap-3">
+              <span className="text-muted-foreground pt-0.5 text-[10px] tabular-nums">
+                {activeStep + 1}/{request.steps.length}
+              </span>
+              <p className="min-w-0 flex-1 text-sm leading-5">
+                {inline(activeRequestStep.text)}
+                {activeRequestStep.url ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (activeRequestStep.url?.startsWith("/")) {
+                        void navigate(activeRequestStep.url);
+                      } else if (activeRequestStep.url) {
+                        if (onOpenUrl) onOpenUrl(activeRequestStep.url);
+                        else void openUrl(activeRequestStep.url);
+                      }
+                    }}
+                    className="text-foreground ml-2 inline-flex items-center gap-0.5 underline underline-offset-2"
+                  >
+                    Open
+                    <ArrowUpRight size={12} />
+                  </button>
+                ) : null}
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  setCompletedSteps((current) =>
+                    new Set(current).add(activeStep),
+                  )
+                }
+                className="text-muted-foreground hover:text-foreground hover:bg-accent shrink-0 rounded-md px-2 py-1 text-[11px] transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          ) : (
+            <p className="flex items-center gap-2 text-sm">
+              <Check className="text-emerald-500" size={14} />
+              You’re ready to continue.
+            </p>
           )}
-        >
+        </div>
+      ) : request.steps?.length ? (
+        <ol className="mt-4 space-y-2.5 border-t pt-4">
           {request.steps.map((step, index) => {
-            const complete = completedSteps.has(index);
-            const active = index === activeStep;
             return (
               <li
                 key={index}
-                className={cn(
-                  "flex gap-3 text-sm leading-6 transition-colors",
-                  progressive && "py-0.5",
-                  complete && "text-muted-foreground/60 line-through",
-                  !complete && !active && "text-muted-foreground/45",
-                )}
+                className="text-muted-foreground flex gap-3 text-sm leading-6"
               >
-                {progressive ? (
-                  <button
-                    type="button"
-                    aria-label={
-                      complete
-                        ? `Reopen step ${index + 1}`
-                        : `Complete step ${index + 1}`
-                    }
-                    onClick={() =>
-                      setCompletedSteps((current) => {
-                        const next = new Set(current);
-                        if (complete) next.delete(index);
-                        else next.add(index);
-                        return next;
-                      })
-                    }
-                    className={cn(
-                      "mt-1 flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors",
-                      complete
-                        ? "border-muted-foreground/40 bg-muted-foreground/15"
-                        : active
-                          ? "border-foreground"
-                          : "border-muted-foreground/30",
-                    )}
-                  >
-                    {complete ? <Check size={10} /> : null}
-                  </button>
-                ) : (
-                  <span className="text-muted-foreground shrink-0 text-xs">
-                    {index + 1}
-                  </span>
-                )}
-                <span
-                  className={cn(
-                    "min-w-0",
-                    !progressive && "text-muted-foreground",
-                    active && "text-foreground",
-                  )}
-                >
-                  {inline(step.text, progressive && !active)}
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  {index + 1}
+                </span>
+                <span className="min-w-0">
+                  {inline(step.text)}
                   {step.url ? (
                     <button
                       type="button"
@@ -192,7 +207,12 @@ export function InputRequestSection({
       ) : null}
 
       {request.questions?.length ? (
-        <div className="mt-4 space-y-4 border-t pt-4">
+        <div
+          className={cn(
+            "mt-4 space-y-4 border-t pt-4",
+            progressive && "max-h-48 overflow-y-auto pr-1",
+          )}
+        >
           {request.questions.map((question) => {
             const selected = new Set(
               (answers[question.question] ?? "").split("\n").filter(Boolean),
@@ -269,7 +289,12 @@ export function InputRequestSection({
       ) : null}
 
       {request.fields.length > 0 ? (
-        <div className="mt-4 grid gap-3 border-t pt-4 sm:grid-cols-2">
+        <div
+          className={cn(
+            "mt-4 grid gap-3 border-t pt-4 sm:grid-cols-2",
+            progressive && "mt-3 pt-3",
+          )}
+        >
           {request.fields.map((field) => (
             <label
               key={field.key}
@@ -318,9 +343,11 @@ export function InputRequestSection({
           )}
         >
           {submitError ??
-            (savesWorkspaceContext
-              ? "Saved to this workspace."
-              : "Stored on this Mac only.")}
+            (progressive
+              ? "Your details stay private."
+              : savesWorkspaceContext
+                ? "Saved to this workspace."
+                : "Stored on this Mac only.")}
         </p>
         <Button
           type="button"

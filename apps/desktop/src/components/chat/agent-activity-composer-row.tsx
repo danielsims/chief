@@ -1,10 +1,12 @@
 import { AgentAvatar } from "../agent-avatar";
 
 export function AgentActivityComposerRow({
+  agentLabel = "Chief",
   running,
   statusLabel,
   onOpen,
 }: {
+  agentLabel?: string;
   running: boolean;
   statusLabel: string;
   onOpen: () => void;
@@ -29,7 +31,7 @@ export function AgentActivityComposerRow({
         }
         aria-label={`${statusLabel}. View activity.`}
       >
-        <AgentAvatar label="Chief" className="size-[18px]" />
+        <AgentAvatar label={agentLabel} className="size-[18px]" />
         <span className="chief-shimmer-text min-w-0 truncate text-[11px] font-medium">
           {statusLabel}
         </span>

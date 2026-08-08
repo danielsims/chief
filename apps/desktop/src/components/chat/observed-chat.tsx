@@ -89,7 +89,6 @@ export function ObservedChat({
               >
                 <ToolActivityGroup
                   blocks={toolGroup.blocks}
-                  progress={controls.toolProgress}
                   active={controls.status === "running"}
                 />
               </div>

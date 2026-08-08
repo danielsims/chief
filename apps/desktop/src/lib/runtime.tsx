@@ -52,6 +52,7 @@ import type {
   RuntimeBrowserSessions,
 } from "./browser-sessions";
 import type { ChannelReactionSummary } from "./channel-reactions";
+import type { ScopedWorkspaceCapability } from "./workspace-capability";
 import type { WorkspaceDataState } from "./workspace-data";
 import { useAuth } from "./auth/auth-context";
 import {
@@ -62,6 +63,7 @@ import {
   completeBrowserSession,
   completeBrowserRun as completeRuntimeBrowserRun,
   hideBrowserCursor,
+  presentBrowserSession,
   updateBrowserSession,
   upsertBrowserSession,
   upsertBrowserRun as upsertRuntimeBrowserRun,
@@ -82,6 +84,7 @@ import {
   mergeRuntimeMessage,
   visibleRuntimeError,
 } from "./runtime-messages";
+import { capabilityForWorkspace } from "./workspace-capability";
 import { buildWorkspaceContext } from "./workspace-context";
 import { emptyWorkspaceData, normalizeWorkspaceData } from "./workspace-data";
 
@@ -115,26 +118,33 @@ export function useWorkspaceCapability() {
   const { cloudOrganizationId } = useAuth();
   const { isAuthenticated } = useConvexAuth();
   const registerCapability = useAction(api.agentTools.registerCapability);
-  const [capability, setCapability] = useState<ExecutorCapability | null>(
-    cloudOrganizationId
-      ? (workspaceCapabilityCache.get(cloudOrganizationId) ?? null)
-      : null,
-  );
+  const [scopedCapability, setScopedCapability] =
+    useState<ScopedWorkspaceCapability | null>(() => {
+      const cached = cloudOrganizationId
+        ? workspaceCapabilityCache.get(cloudOrganizationId)
+        : undefined;
+      return cloudOrganizationId && cached
+        ? { workspaceId: cloudOrganizationId, capability: cached }
+        : null;
+    });
   const [error, setError] = useState<string | null>(null);
   const [retryAttempt, setRetryAttempt] = useState(0);
 
   useEffect(() => {
     if (!cloudOrganizationId || !isAuthenticated) {
-      setCapability(null);
+      setScopedCapability(null);
       setError(null);
       return;
     }
     const cached = workspaceCapabilityCache.get(cloudOrganizationId);
     if (cached) {
-      setCapability(cached);
+      setScopedCapability({
+        workspaceId: cloudOrganizationId,
+        capability: cached,
+      });
       setError(null);
     } else {
-      setCapability(null);
+      setScopedCapability(null);
       setError(null);
     }
 
@@ -164,7 +174,10 @@ export function useWorkspaceCapability() {
       .then((next) => {
         if (cancelled) return;
         workspaceCapabilityCache.set(cloudOrganizationId, next);
-        setCapability(next);
+        setScopedCapability({
+          workspaceId: cloudOrganizationId,
+          capability: next,
+        });
         setRetryAttempt(0);
       })
       .catch((reason) => {
@@ -186,7 +199,11 @@ export function useWorkspaceCapability() {
     };
   }, [cloudOrganizationId, isAuthenticated, registerCapability, retryAttempt]);
 
-  return { cloudOrganizationId, capability, error };
+  return {
+    cloudOrganizationId,
+    capability: capabilityForWorkspace(cloudOrganizationId, scopedCapability),
+    error,
+  };
 }
 
 type Listener = (msg: ServerMessage) => void;
@@ -308,7 +325,7 @@ interface RuntimeContextValue {
   agents: AgentDefinition[];
   browserSessions: RuntimeBrowserSessions;
   browserRuns: RuntimeBrowserRuns;
-  anchorBrowserSession: (conversationId: string, messageId: string) => void;
+  anchorBrowserSession: (browserRunId: string, messageId: string) => void;
   integrationSetupProgress: Readonly<Record<string, IntegrationSetupProgress>>;
   openBrowser: (
     url: string,
@@ -319,10 +336,10 @@ interface RuntimeContextValue {
       anchorMessageId?: string;
     },
   ) => void;
-  reportBrowserUrl: (conversationId: string, url: string) => void;
-  reloadBrowser: (conversationId: string) => void;
-  takeBrowserControl: (conversationId: string) => void;
-  closeBrowser: (conversationId: string) => void;
+  reportBrowserUrl: (browserRunId: string, url: string) => void;
+  reloadBrowser: (browserRunId: string) => void;
+  takeBrowserControl: (browserRunId: string) => void;
+  closeBrowser: (browserRunId: string) => void;
 }
 
 const RuntimeContext = createContext<RuntimeContextValue | null>(null);
@@ -361,25 +378,18 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     setupProgressState?.workspaceId === cloudOrganizationId
       ? setupProgressState.byConversation
       : EMPTY_SETUP_PROGRESS;
-  const completeBrowser = useCallback(
-    (conversationId: string, runId?: string) => {
-      const timer = browserCursorTimersRef.current.get(conversationId);
-      if (timer !== undefined) {
-        window.clearTimeout(timer);
-        browserCursorTimersRef.current.delete(conversationId);
-      }
-      browserOwnersRef.current.delete(conversationId);
-      setBrowserSessions((current) => {
-        return completeBrowserSession(current, conversationId);
-      });
-      if (runId) {
-        setBrowserRuns((current) => [
-          ...completeRuntimeBrowserRun(current, runId),
-        ]);
-      }
-    },
-    [],
-  );
+  const completeBrowser = useCallback((runId: string) => {
+    const timer = browserCursorTimersRef.current.get(runId);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      browserCursorTimersRef.current.delete(runId);
+    }
+    browserOwnersRef.current.delete(runId);
+    setBrowserSessions((current) => {
+      return completeBrowserSession(current, runId);
+    });
+    setBrowserRuns((current) => [...completeRuntimeBrowserRun(current, runId)]);
+  }, []);
   const openBrowser = useCallback(
     (
       url: string,
@@ -391,10 +401,8 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       },
     ) => {
       if (!conversationId || !cloudOrganizationId) return;
-      const existing = browserSessions[conversationId];
-      const runId =
-        options?.browserRunId ??
-        (existing?.status === "active" ? existing.runId : null);
+      const runId = options?.browserRunId;
+      const existing = runId ? browserSessions[runId] : undefined;
       const threadRootId =
         options?.threadRootId ?? existing?.threadRootId ?? null;
       const pending = {
@@ -403,25 +411,30 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         ...(threadRootId ? { threadRootId } : {}),
         url,
       };
-      browserOwnersRef.current.set(conversationId, pending);
-      setBrowserSessions((current) =>
-        upsertBrowserSession(current, {
-          runId,
-          url,
-          streamUrl: null,
-          conversationId,
-          parentConversationId: existing?.parentConversationId ?? null,
-          workspaceId: cloudOrganizationId,
-          threadRootId,
-          anchorMessageId:
-            options?.anchorMessageId ??
-            (existing?.runId === runId ? existing.anchorMessageId : null),
-          status: "active",
-          operatingLabel: null,
-          operating: false,
-          agentCursor: null,
-        }),
-      );
+      if (runId) {
+        browserOwnersRef.current.set(runId, pending);
+        setBrowserSessions((current) =>
+          upsertBrowserSession(current, {
+            runId,
+            url,
+            streamUrl: null,
+            conversationId,
+            parentConversationId: existing?.parentConversationId ?? null,
+            workspaceId: cloudOrganizationId,
+            threadRootId,
+            anchorMessageId:
+              options.anchorMessageId ??
+              (existing?.runId === runId ? existing.anchorMessageId : null),
+            status: "active",
+            createdAt: existing?.createdAt ?? Date.now(),
+            presentation: existing?.presentation ?? "inline",
+            presentationRevision: existing?.presentationRevision ?? 0,
+            operatingLabel: null,
+            operating: false,
+            agentCursor: null,
+          }),
+        );
+      }
       client.send({
         type: "browserNavigateRequest",
         ...pending,
@@ -434,23 +447,24 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     [browserSessions, client, cloudOrganizationId],
   );
   const reloadBrowser = useCallback(
-    (conversationId: string) => {
-      const session = browserSessions[conversationId];
+    (runId: string) => {
+      const session = browserSessions[runId];
       if (!session) return;
       client.send({
         type: "browserReload",
         workspaceId: session.workspaceId,
-        conversationId,
+        conversationId: session.conversationId,
+        browserRunId: runId,
       });
     },
     [browserSessions, client],
   );
   const reportBrowserUrl = useCallback(
-    (conversationId: string, url: string) => {
-      const session = browserSessions[conversationId];
+    (runId: string, url: string) => {
+      const session = browserSessions[runId];
       if (!session) return;
       setBrowserSessions((current) =>
-        updateBrowserSession(current, conversationId, (value) => ({
+        updateBrowserSession(current, runId, (value) => ({
           ...value,
           url,
         })),
@@ -458,30 +472,38 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       client.send({
         type: "browserUrlChanged",
         workspaceId: session.workspaceId,
-        conversationId,
+        conversationId: session.conversationId,
+        browserRunId: runId,
         url,
       });
     },
     [browserSessions, client],
   );
   const closeBrowser = useCallback(
-    (conversationId: string) => {
-      const owner = browserOwnersRef.current.get(conversationId);
-      const runId =
-        browserSessionsRef.current[conversationId]?.runId ?? undefined;
+    (runId: string) => {
+      const session = browserSessionsRef.current[runId];
+      const owner = browserOwnersRef.current.get(runId);
       if (owner) {
         client.send({
           type: "browserClose",
           ...owner,
+          browserRunId: runId,
+        });
+      } else if (session) {
+        client.send({
+          type: "browserClose",
+          workspaceId: session.workspaceId,
+          conversationId: session.conversationId,
+          browserRunId: runId,
         });
       }
-      completeBrowser(conversationId, runId);
+      completeBrowser(runId);
     },
     [client, completeBrowser],
   );
   const takeBrowserControl = useCallback(
-    (conversationId: string) => {
-      const session = browserSessions[conversationId];
+    (runId: string) => {
+      const session = browserSessions[runId];
       if (!session) return;
       const executorCapability = workspaceCapabilityCache.get(
         session.workspaceId,
@@ -490,19 +512,18 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       client.send({
         type: "interruptChat",
         workspaceId: session.workspaceId,
-        chatId: conversationId,
+        chatId: session.conversationId,
         executorCapability,
       });
     },
     [browserSessions, client],
   );
   const anchorBrowserSession = useCallback(
-    (conversationId: string, messageId: string) => {
-      const runId = browserSessions[conversationId]?.runId;
+    (runId: string, messageId: string) => {
       setBrowserSessions((current) =>
-        anchorRuntimeBrowserSession(current, conversationId, messageId),
+        anchorRuntimeBrowserSession(current, runId, messageId),
       );
-      if (!runId || !cloudOrganizationId || !capability) return;
+      if (!cloudOrganizationId || !capability) return;
       setBrowserRuns((current) => [
         ...anchorRuntimeBrowserRun(current, runId, messageId),
       ]);
@@ -514,7 +535,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         executorCapability: capability,
       });
     },
-    [browserSessions, capability, client, cloudOrganizationId],
+    [capability, client, cloudOrganizationId],
   );
 
   useEffect(() => {
@@ -536,39 +557,40 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         (msg.type === "browserPrepare" || msg.type === "browserNavigate") &&
         msg.workspaceId === cloudOrganizationId
       ) {
-        const currentOwner = browserOwners.get(msg.conversationId);
+        const currentOwner = browserOwners.get(msg.browserRunId);
         const owner = currentOwner ?? {
           workspaceId: msg.workspaceId,
           conversationId: msg.conversationId,
           ...(msg.threadRootId ? { threadRootId: msg.threadRootId } : {}),
         };
-        browserOwners.set(msg.conversationId, owner);
+        browserOwners.set(msg.browserRunId, owner);
         setBrowserSessions((current) => {
-          const existing = current[msg.conversationId];
-          return {
-            ...current,
-            [msg.conversationId]: {
-              runId: msg.browserRunId,
-              url: msg.url,
-              streamUrl: msg.type === "browserNavigate" ? msg.streamUrl : null,
-              conversationId: msg.conversationId,
-              parentConversationId:
-                existing?.parentConversationId ??
-                msg.parentConversationId ??
-                null,
-              workspaceId: msg.workspaceId,
-              threadRootId: existing?.threadRootId ?? msg.threadRootId ?? null,
-              anchorMessageId:
-                existing?.status === "active" &&
-                existing.runId === msg.browserRunId
-                  ? existing.anchorMessageId
-                  : (msg.anchorMessageId ?? null),
-              status: "active",
-              operatingLabel: existing?.operatingLabel ?? null,
-              operating: existing?.operating ?? false,
-              agentCursor: existing?.agentCursor ?? null,
-            },
-          };
+          const existing = current[msg.browserRunId];
+          const createdAt = existing?.createdAt ?? Date.now();
+          return upsertBrowserSession(current, {
+            runId: msg.browserRunId,
+            url: msg.url,
+            streamUrl: msg.type === "browserNavigate" ? msg.streamUrl : null,
+            conversationId: msg.conversationId,
+            parentConversationId:
+              existing?.parentConversationId ??
+              msg.parentConversationId ??
+              null,
+            workspaceId: msg.workspaceId,
+            threadRootId: existing?.threadRootId ?? msg.threadRootId ?? null,
+            anchorMessageId:
+              existing?.status === "active" &&
+              existing.runId === msg.browserRunId
+                ? existing.anchorMessageId
+                : (msg.anchorMessageId ?? null),
+            status: "active",
+            createdAt,
+            presentation: existing?.presentation ?? "inline",
+            presentationRevision: existing?.presentationRevision ?? 0,
+            operatingLabel: existing?.operatingLabel ?? null,
+            operating: existing?.operating ?? false,
+            agentCursor: existing?.agentCursor ?? null,
+          });
         });
         setBrowserRuns((current) => [
           ...upsertRuntimeBrowserRun(current, {
@@ -598,42 +620,47 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       if (
         msg.type === "browserActivity" &&
         msg.workspaceId === cloudOrganizationId &&
-        browserOwners.get(msg.conversationId)?.workspaceId === msg.workspaceId
+        browserOwners.get(msg.browserRunId)?.workspaceId === msg.workspaceId
       ) {
-        const currentTimer = browserCursorTimers.get(msg.conversationId);
+        const currentTimer = browserCursorTimers.get(msg.browserRunId);
         if (msg.cursor && currentTimer !== undefined) {
           window.clearTimeout(currentTimer);
-          browserCursorTimers.delete(msg.conversationId);
+          browserCursorTimers.delete(msg.browserRunId);
         }
         setBrowserSessions((current) => {
-          const session = current[msg.conversationId];
+          const session = current[msg.browserRunId];
           if (!session) return current;
-          return {
-            ...current,
-            [msg.conversationId]:
-              msg.phase === "started"
-                ? beginBrowserActivity(session, msg)
-                : completeBrowserActivity(session, msg),
-          };
+          return updateBrowserSession(current, msg.browserRunId, () =>
+            msg.phase === "started"
+              ? beginBrowserActivity(session, msg)
+              : completeBrowserActivity(session, msg),
+          );
         });
         if (msg.phase === "completed" && msg.cursor) {
           const hide = window.setTimeout(() => {
             setBrowserSessions((current) => {
-              const session = current[msg.conversationId];
+              const session = current[msg.browserRunId];
               if (!session) return current;
-              return {
-                ...current,
-                [msg.conversationId]: hideBrowserCursor(session),
-              };
+              return updateBrowserSession(current, msg.browserRunId, () =>
+                hideBrowserCursor(session),
+              );
             });
-            browserCursorTimers.delete(msg.conversationId);
+            browserCursorTimers.delete(msg.browserRunId);
           }, 4_000);
-          browserCursorTimers.set(msg.conversationId, hide);
+          browserCursorTimers.set(msg.browserRunId, hide);
         }
+      }
+      if (
+        msg.type === "browserPresentation" &&
+        msg.workspaceId === cloudOrganizationId
+      ) {
+        setBrowserSessions((current) =>
+          presentBrowserSession(current, msg.browserRunId, msg.mode),
+        );
       }
       const browserOwner =
         msg.type === "browserClosed"
-          ? browserOwners.get(msg.conversationId)
+          ? browserOwners.get(msg.browserRunId)
           : undefined;
       if (
         msg.type === "browserClosed" &&
@@ -641,7 +668,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         msg.workspaceId === browserOwner?.workspaceId &&
         msg.conversationId === browserOwner.conversationId
       ) {
-        completeBrowser(msg.conversationId, msg.browserRunId);
+        completeBrowser(msg.browserRunId);
       }
       if (
         msg.type === "integrationSetupProgress" &&
@@ -661,9 +688,9 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         msg.type === "integrationVerified" &&
         msg.workspaceId === cloudOrganizationId
       ) {
-        for (const [conversationId, owner] of browserOwners) {
+        for (const [runId, owner] of browserOwners) {
           if (owner.workspaceId === msg.workspaceId) {
-            closeBrowser(conversationId);
+            closeBrowser(runId);
           }
         }
         void markIntegrationConnected({
@@ -2528,6 +2555,7 @@ export interface PendingApproval {
   requestId: string;
   toolName: string;
   input: unknown;
+  threadRootId?: string;
 }
 
 export interface PendingQuestion {
@@ -2597,6 +2625,7 @@ function reduceChatControls(
                 requestId: event.requestId,
                 toolName: event.toolName,
                 input: event.input,
+                threadRootId: event.threadRootId,
               },
             ],
       };
@@ -2761,13 +2790,6 @@ function useRuntimeChat(
   } = useWorkspaceCapability();
   const [controls, setControls] = useState<ChatControlState>(emptyChatControls);
   const pendingStreamRef = useRef("");
-  const pendingMessageContextRef = useRef<
-    | {
-        threadRootId?: string;
-        mentions?: string[];
-      }
-    | undefined
-  >(undefined);
   const [chatReady, setChatReady] = useState(false);
   const [execution, setExecution] = useState<
     ChatExecutionSelection | undefined
@@ -2807,12 +2829,9 @@ function useRuntimeChat(
           executorCapability
         ) {
           const context = {
-            threadRootId:
-              message.metadata?.threadRootId ??
-              pendingMessageContextRef.current?.threadRootId,
-            mentions:
-              message.metadata?.mentions ??
-              pendingMessageContextRef.current?.mentions,
+            threadRootId: message.metadata?.threadRootId,
+            mentions: message.metadata?.mentions,
+            interruptActive: message.metadata?.interruptActive,
           };
           const expectsReply =
             !wakeOnMentionOnly || Boolean(context.mentions?.length);
@@ -2832,11 +2851,11 @@ function useRuntimeChat(
             attachments,
             threadRootId: context.threadRootId,
             mentions: context.mentions,
+            interruptActive: context.interruptActive,
             senderName: senderName?.length ? senderName : "You",
             execution: executionRef.current,
             executorCapability,
           });
-          pendingMessageContextRef.current = undefined;
         }
         return Promise.resolve(
           new ReadableStream({
@@ -3143,10 +3162,13 @@ function useRuntimeChat(
   const sendMessageWithContext = useCallback(
     (
       text: string,
-      context?: { threadRootId?: string; mentions?: string[] },
+      context?: {
+        threadRootId?: string;
+        mentions?: string[];
+        interruptActive?: boolean;
+      },
       attachments?: MessageAttachment[],
     ) => {
-      pendingMessageContextRef.current = context;
       void sendMessage({
         text,
         metadata: {
@@ -3155,6 +3177,7 @@ function useRuntimeChat(
             ? { threadRootId: context.threadRootId }
             : {}),
           ...(context?.mentions?.length ? { mentions: context.mentions } : {}),
+          ...(context?.interruptActive ? { interruptActive: true } : {}),
         },
         files: attachments?.map((attachment) => ({
           type: "file" as const,
