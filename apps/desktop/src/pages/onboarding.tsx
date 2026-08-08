@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import type { SimpleIcon } from "simple-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Claude, OpenAI, Vercel } from "@lobehub/icons";
+import { Claude, OpenAI, OpenCode, Vercel } from "@lobehub/icons";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import {
   Check,
@@ -1110,7 +1110,9 @@ function AnswerPreview({
           ? "Codex"
           : draft.provider === "claude"
             ? "Claude"
-            : "Not chosen yet";
+            : draft.provider === "opencode"
+              ? "OpenCode"
+              : "Not chosen yet";
     return <UserBubble>{label}</UserBubble>;
   }
 
@@ -1559,7 +1561,7 @@ function ProviderControl({
         continueLabel="Connect and deploy"
         actionsLeft={
           <Button type="button" variant="ghost" onClick={onChangeLocation}>
-            Change location
+            Back
           </Button>
         }
       >
@@ -1671,10 +1673,14 @@ function ProviderControl({
     <StepFrame
       onContinue={onContinue}
       saving={saving}
-      disabled={draft.provider !== "claude" && draft.provider !== "codex"}
+      disabled={
+        draft.provider !== "claude" &&
+        draft.provider !== "codex" &&
+        draft.provider !== "opencode"
+      }
       actionsLeft={
         <Button type="button" variant="ghost" onClick={onChangeLocation}>
-          Change location
+          Back
         </Button>
       }
     >
@@ -1712,6 +1718,28 @@ function ProviderControl({
             <span className="text-muted-foreground mt-1 block text-xs leading-5">
               Uses your existing Codex setup. Good when the agent needs to work
               in repos, files and local tools.
+            </span>
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            setField({
+              providerMode: "local",
+              provider: "opencode",
+              model: "",
+            })
+          }
+          className={optionClass(
+            draft.providerMode === "local" && draft.provider === "opencode",
+          )}
+        >
+          <OpenCode size={18} className="mt-0.5 shrink-0" />
+          <span>
+            <span className="block text-sm font-medium">OpenCode</span>
+            <span className="text-muted-foreground mt-1 block text-xs leading-5">
+              Uses your existing OpenCode setup on this Mac. Open and flexible
+              for general agent work in any project.
             </span>
           </span>
         </button>
@@ -1757,6 +1785,7 @@ function HealthControl({
   convexReady,
   deployment,
   deploymentProvider,
+  onBack,
   onRetryDeployment,
   onCancelDeployment,
   onChangeProvider,
@@ -1770,6 +1799,7 @@ function HealthControl({
   convexReady: boolean;
   deployment?: AgentDeploymentRecord;
   deploymentProvider: AgentDeploymentTarget | null;
+  onBack: () => void;
   onRetryDeployment: () => void;
   onCancelDeployment: () => void;
   onChangeProvider: () => void;
@@ -1790,7 +1820,9 @@ function HealthControl({
         ? "Codex on this Mac"
         : draft.provider === "claude"
           ? "Claude on this Mac"
-          : "No agent app chosen yet";
+          : draft.provider === "opencode"
+            ? "OpenCode on this Mac"
+            : "No agent app chosen yet";
   const runtimeReady =
     draft.workspaceMode === "cloud"
       ? deployment?.status === "ready"
@@ -1906,6 +1938,11 @@ function HealthControl({
       onContinue={onContinue}
       saving={saving}
       continueLabel="Continue onboarding"
+      actionsLeft={
+        <Button type="button" variant="ghost" onClick={onBack}>
+          Back
+        </Button>
+      }
     >
       <div className="bg-background divide-y overflow-hidden rounded-xl border px-4">
         <ReadinessRow
@@ -1950,16 +1987,22 @@ function HealthControl({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="auto">Auto</SelectItem>
-                  {providerModels.models.map((model) => (
-                    <SelectItem key={model.value} value={model.value}>
-                      {model.label}
-                    </SelectItem>
-                  ))}
+                  {providerModels.models
+                    .filter((model) => model.value.toLowerCase() !== "auto")
+                    .map((model) => (
+                      <SelectItem key={model.value} value={model.value}>
+                        {model.label}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </span>
           }
-          ready={draft.provider === "claude" || draft.provider === "codex"}
+          ready={
+            draft.provider === "claude" ||
+            draft.provider === "codex" ||
+            draft.provider === "opencode"
+          }
         />
       </div>
       {!runtimeReady ? (
@@ -3362,6 +3405,11 @@ export function OnboardingPage() {
           onChangeProvider={changeDeploymentProvider}
           onUseLocal={useLocalWorkspace}
           onModelChange={(model) => setField({ model })}
+          onBack={() =>
+            setDraft((current) =>
+              current ? { ...current, step: "inference" } : current,
+            )
+          }
           onContinue={advance}
           saving={saving}
         />
