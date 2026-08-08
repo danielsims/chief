@@ -62,6 +62,10 @@ export class ProviderAuthentication {
 
   constructor(private readonly options: ProviderAuthenticationOptions) {}
 
+  hasPending(workspaceId: string, sessionId: string) {
+    return this.pending.has(this.options.browserKey(workspaceId, sessionId));
+  }
+
   clear(workspaceId: string, sessionId: string) {
     const key = this.options.browserKey(workspaceId, sessionId);
     this.pending.delete(key);

@@ -27,7 +27,7 @@ npx --yes agent-browser@0.32.3 --namespace chief-setup --session browser-SESSION
 \`--restore\` is the official agent-browser persistence mechanism. It keeps cookies and local storage isolated to this named workflow so a human-completed challenge or sign-in can survive a browser restart without attaching to, modifying, or silently inheriting the user's everyday Chrome profile. Never add stealth scripts, spoof browser signals, attach to an unrelated Chrome window, or launch a second headed browser to evade a provider check.
 
 For each browser task:
-1. Before calling a tool, immediately acknowledge the request in one short sentence. Do not research, inspect unrelated tools, or describe a plan first.
+1. Before calling a tool, immediately acknowledge the request in one calm, specific sentence that names the provider, what you are checking first, and what will happen next. Never use a generic line such as "Yep, I'm on it" or "On it." Do not research, inspect unrelated tools, or describe a longer plan first.
 2. For a new workflow, open \`about:blank\` with the private process name derived from \`session_id\` and set the viewport to 1280 by 800. For a follow-up in the same workflow, derive that same private process name and preserve its current page.
 3. Call \`stream status\` for that private process name. Read \`data.port\` from its JSON response. Never guess, cache, or hard-code the streaming port.
 4. If streaming is disabled, call \`stream enable\` and then call \`stream status\` again. Do not publish the attachment until status reports \`enabled: true\` and returns a port. A status of \`screencasting: false\` is expected before Buzz connects its viewer and is not a stream failure.

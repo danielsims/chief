@@ -30,8 +30,17 @@ void test("embedded browser tool is discoverable and dispatches safe URLs", asyn
     specification.paths["/local-tools/browser/select"].post.operationId,
     "browser.select",
   );
+  assert.equal(
+    specification.paths["/local-tools/browser/close"].post.operationId,
+    "browser.close",
+  );
+  assert.equal(
+    specification.paths["/local-tools/browser/present"].post.operationId,
+    "browser.present",
+  );
 
-  let opened: { conversationId: string; url: string } | undefined;
+  let opened:
+    { conversationId: string; url: string; fresh: boolean } | undefined;
   const response = await handleLocalTool(
     new Request("http://127.0.0.1:4318/local-tools/browser/open", {
       method: "POST",
@@ -43,8 +52,8 @@ void test("embedded browser tool is discoverable and dispatches safe URLs", asyn
     "workspace-1",
     manager,
     {
-      openBrowser: (conversationId, url) => {
-        opened = { conversationId, url };
+      openBrowser: (conversationId, url, fresh) => {
+        opened = { conversationId, url, fresh };
       },
     },
   );
@@ -53,6 +62,81 @@ void test("embedded browser tool is discoverable and dispatches safe URLs", asyn
   assert.deepEqual(opened, {
     conversationId: "conversation-1",
     url: "https://example.com/setup",
+    fresh: false,
+  });
+});
+
+void test("browser close reaches the host only when explicitly called", async () => {
+  let closedConversation: string | undefined;
+  const response = await handleLocalTool(
+    new Request("http://127.0.0.1:4318/local-tools/browser/close", {
+      method: "POST",
+      body: JSON.stringify({ conversationId: "conversation-1" }),
+    }),
+    "workspace-1",
+    manager,
+    {
+      closeBrowser: (conversationId) => {
+        closedConversation = conversationId;
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(closedConversation, "conversation-1");
+  assert.deepEqual(await response.json(), { closed: true });
+});
+
+void test("picture-in-picture requires an explicit presentation call", async () => {
+  let presentation: string | undefined;
+  const response = await handleLocalTool(
+    new Request("http://127.0.0.1:4318/local-tools/browser/present", {
+      method: "POST",
+      body: JSON.stringify({
+        conversationId: "conversation-1",
+        mode: "picture-in-picture",
+      }),
+    }),
+    "workspace-1",
+    manager,
+    {
+      presentBrowser: (_conversationId, mode) => {
+        presentation = mode;
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(presentation, "picture-in-picture");
+  assert.deepEqual(await response.json(), { mode: "picture-in-picture" });
+});
+
+void test("an explicit fresh browser request reaches the host lifecycle", async () => {
+  let fresh = false;
+  const response = await handleLocalTool(
+    new Request("http://127.0.0.1:4318/local-tools/browser/open", {
+      method: "POST",
+      body: JSON.stringify({
+        conversationId: "conversation-1",
+        url: "https://example.com/fresh",
+        fresh: true,
+      }),
+    }),
+    "workspace-1",
+    manager,
+    {
+      openBrowser: (_conversationId, _url, requestedFresh) => {
+        fresh = requestedFresh;
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(fresh, true);
+  assert.deepEqual(await response.json(), {
+    opened: true,
+    fresh: true,
+    url: "https://example.com/fresh",
   });
 });
 

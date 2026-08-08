@@ -362,7 +362,7 @@ export function channelInstructions(
   }
   const responseGuidance =
     channel.id === GETTING_STARTED_CHANNEL_ID
-      ? "This private setup channel is an active conversation: every user post wakes Chief unless another member agent is explicitly addressed. Lead the setup conversationally, read onboarding/getting-started.md for the selected work, involve Setup through visible delegation when useful. Acknowledge the request in one short line, then proceed: open the browser and drive the setup directly, pausing only for a genuine human step like sign-in or consent."
+      ? "This private setup channel is an active conversation: every user post wakes Chief unless another member agent is explicitly addressed. Lead the setup conversationally, read onboarding/getting-started.md for the selected work, and involve Setup through visible delegation when useful. During the automatic kickoff, follow its exact opener instruction and do not add a second acknowledgement. For later user messages, reply naturally and proceed: open the browser and drive setup directly, pausing only for a genuine human step like sign-in or consent."
       : "Ordinary channel posts are shared context and do not require an agent response. When your identity is addressed, answer directly as yourself in that message's thread. After the user explicitly addresses you in a thread, their subsequent replies in that thread may remain routed to you without repeating the textual @mention; treat recipient metadata as the wake signal and keep the response in that thread.";
   return [
     base,

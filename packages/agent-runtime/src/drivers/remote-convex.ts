@@ -50,6 +50,7 @@ function isAgentEvent(value: unknown): value is AgentEvent {
 }
 
 export class ConvexRemoteDriver extends BaseDriver {
+  protected override promptCompletesFromEvents = true;
   private state: ConvexRemoteState | undefined;
   private password = "";
   private abort: AbortController | undefined;
@@ -57,6 +58,7 @@ export class ConvexRemoteDriver extends BaseDriver {
   private initialHistory: StartOptions["history"];
 
   async start(options: StartOptions) {
+    this.startOptions = options;
     const rawHost = options.env?.CHIEF_REMOTE_AGENT_URL?.trim();
     this.password = options.env?.CHIEF_EVE_ROUTE_PASSWORD?.trim() ?? "";
     if (!rawHost || !this.password) {
@@ -84,7 +86,7 @@ export class ConvexRemoteDriver extends BaseDriver {
     if (this.state.inFlight && this.state.sessionId) this.beginPump();
   }
 
-  async sendPrompt(text: string) {
+  async sendPromptOnce(text: string) {
     if (!this.state) throw new Error("Remote agent not started.");
     if (this.pumping || this.state.inFlight)
       throw new Error("The remote agent is already running.");
@@ -115,11 +117,19 @@ export class ConvexRemoteDriver extends BaseDriver {
   }
 
   async interrupt() {
+    this.interrupted = true;
     if (!this.state?.sessionId) return;
     await this.request(
       `/v1/sessions/${encodeURIComponent(this.state.sessionId)}/cancel`,
       { method: "POST" },
     );
+  }
+
+  /** Recover from a failed prompt by reconnecting to the remote agent. */
+  async restart() {
+    if (this.startOptions) {
+      await this.start({ ...this.startOptions, resumeState: this.state });
+    }
   }
 
   async stop() {
@@ -182,6 +192,8 @@ export class ConvexRemoteDriver extends BaseDriver {
       }
     } catch (error) {
       if (signal.aborted) return;
+      this.state = { ...this.state, inFlight: false };
+      this.emitState(this.state);
       this.emitEvent({
         type: "error",
         message: error instanceof Error ? error.message : String(error),

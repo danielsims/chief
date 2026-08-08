@@ -29,7 +29,7 @@ const cmo: AgentDefinition = {
   instructions: "Run the requested work.",
 };
 
-void test("browser run history survives restart and closes interrupted sessions", async () => {
+void test("browser run history survives restart as resumable state", async () => {
   const directory = mkdtempSync(join(tmpdir(), "chief-browser-history-"));
   const store = new LocalStore(join(directory, "chief.sqlite"));
   const manager = new SessionManager(store);
@@ -62,11 +62,9 @@ void test("browser run history survives restart and closes interrupted sessions"
       await store.browserRun("workspace-b", "browser-run-a"),
       undefined,
     );
-    await store.reconcileInterruptedBrowserRuns(Date.now());
-
     const [run] = await store.listBrowserRuns("workspace-a");
     assert.ok(run);
-    assert.equal(run.status, "complete");
+    assert.equal(run.status, "active");
     assert.equal(run.anchorMessageId, "message-a");
     assert.equal(run.threadRootId, "thread-root");
     assert.equal(run.title, "Buy MacBook Pro - Apple (AU)");
@@ -426,6 +424,55 @@ void test("schedule task ownership is isolated from its conversation", async () 
 
     releaseInteractive();
     releaseSchedule();
+  } finally {
+    await manager.stopAll();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+void test("queued execution claims are granted one at a time", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "chief-execution-queue-"));
+  const store = new LocalStore(join(directory, "chief.sqlite"));
+  const manager = new SessionManager(store);
+  try {
+    const releaseFirst = manager.acquireExecution(
+      "workspace",
+      "chat",
+      "interactive",
+    );
+    const second = manager.acquireExecutionWhenAvailable(
+      "workspace",
+      "chat",
+      "interactive",
+      1_000,
+    );
+    const third = manager.acquireExecutionWhenAvailable(
+      "workspace",
+      "chat",
+      "interactive",
+      1_000,
+    );
+
+    const claimed: string[] = [];
+    const secondReady = second.then((release) => {
+      claimed.push("second");
+      return { name: "second", release };
+    });
+    const thirdReady = third.then((release) => {
+      claimed.push("third");
+      return { name: "third", release };
+    });
+
+    releaseFirst();
+    const firstQueued = await Promise.race([secondReady, thirdReady]);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(claimed.length, 1);
+
+    firstQueued.release();
+    const finalQueued = await (firstQueued.name === "second"
+      ? thirdReady
+      : secondReady);
+    finalQueued.release();
   } finally {
     await manager.stopAll();
     rmSync(directory, { recursive: true, force: true });

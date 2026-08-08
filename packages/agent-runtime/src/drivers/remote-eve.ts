@@ -75,6 +75,7 @@ function actionName(action: RemoteAction) {
 const resultOutput = (result: { output?: unknown }) => result.output ?? null;
 
 export class EveRemoteDriver extends BaseDriver {
+  protected override promptCompletesFromEvents = true;
   private client: Client | undefined;
   private session: ReturnType<Client["session"]> | undefined;
   private state: RemoteDriverState | undefined;
@@ -85,6 +86,7 @@ export class EveRemoteDriver extends BaseDriver {
   private stopped = false;
 
   async start(options: StartOptions) {
+    this.startOptions = options;
     const host = options.env?.CHIEF_REMOTE_AGENT_URL?.trim();
     const password = options.env?.CHIEF_EVE_ROUTE_PASSWORD?.trim();
     if (!host || !password) {
@@ -145,7 +147,7 @@ export class EveRemoteDriver extends BaseDriver {
     }
   }
 
-  async sendPrompt(text: string) {
+  async sendPromptOnce(text: string) {
     if (!this.session || !this.state)
       throw new Error("Remote agent not started.");
     if (this.pumping || this.state.inFlight)
@@ -186,10 +188,18 @@ export class EveRemoteDriver extends BaseDriver {
   }
 
   async interrupt() {
+    this.interrupted = true;
     if (!this.session || !this.state?.session.sessionId) return;
     await this.session.cancel(
       this.state.activeTurnId ? { turnId: this.state.activeTurnId } : undefined,
     );
+  }
+
+  /** Recover from a failed prompt by reconnecting to the cloud agent. */
+  async restart() {
+    if (this.startOptions) {
+      await this.start({ ...this.startOptions, resumeState: this.state });
+    }
   }
 
   async stop() {

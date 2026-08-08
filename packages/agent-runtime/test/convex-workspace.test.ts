@@ -33,6 +33,7 @@ void test("compiles Chief and all bounded specialists into the Convex template",
       "analyst",
       "prospector",
       "ads",
+      "engineer",
       "setup",
     ]);
     const generated = readFileSync(

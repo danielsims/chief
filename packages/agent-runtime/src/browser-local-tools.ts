@@ -1,6 +1,7 @@
 import type {
   BrowserAutomationCommand,
   BrowserAutomationResult,
+  BrowserPresentationMode,
 } from "./types.js";
 
 type RequestBody = ReturnType<(schema: string) => object>;
@@ -12,7 +13,7 @@ export function browserOpenApiPaths(body: (schema: string) => RequestBody) {
         operationId: "browser.open",
         summary: "Open or navigate Chief's embedded browser",
         description:
-          "Shows an HTTP or HTTPS page beside the owning Chief conversation. Use the semantic browser tools to inspect and interact with it.",
+          "Shows an HTTP or HTTPS page as new inline content at the point where it was called, while preserving the current browser context and sign-in by default. Set fresh only when the user explicitly asks for a separate clean browser session. Use the semantic browser tools to inspect and interact with it.",
         requestBody: body("BrowserOpenInput"),
         responses: { "200": { description: "Browser navigation sent" } },
       },
@@ -25,6 +26,26 @@ export function browserOpenApiPaths(body: (schema: string) => RequestBody) {
           "Returns the current URL, title, readable text, and visible semantic controls. Re-inspect after navigation or a material page change.",
         requestBody: body("BrowserConversationInput"),
         responses: { "200": { description: "Semantic page snapshot" } },
+      },
+    },
+    "/local-tools/browser/close": {
+      post: {
+        operationId: "browser.close",
+        summary: "Close Chief's embedded browser",
+        description:
+          "Ends the current embedded browser run after its work is genuinely finished. Never close a browser after handing it to the user for sign-in, consent, MFA, or another human action.",
+        requestBody: body("BrowserConversationInput"),
+        responses: { "200": { description: "Browser session closed" } },
+      },
+    },
+    "/local-tools/browser/present": {
+      post: {
+        operationId: "browser.present",
+        summary: "Change the embedded browser presentation",
+        description:
+          "Keeps the browser inline by default. Use picture-in-picture only when the user asks to snap or minimize the live browser, or when an explicit handoff calls for it.",
+        requestBody: body("BrowserPresentationInput"),
+        responses: { "200": { description: "Browser presentation changed" } },
       },
     },
     "/local-tools/browser/click": {
@@ -89,6 +110,12 @@ export const browserOpenApiSchemas = {
         description: "Exact owning Chief conversation ID from runtime context",
       },
       url: { type: "string", format: "uri", maxLength: 2_000 },
+      fresh: {
+        type: "boolean",
+        default: false,
+        description:
+          "Destroy the current browser context and create a clean one. Use only when the user explicitly says fresh, separate, clean, or reset. Reopen, open again, and try again mean fresh=false and preserve the existing browser context.",
+      },
     },
   },
   BrowserConversationInput: {
@@ -96,6 +123,18 @@ export const browserOpenApiSchemas = {
     additionalProperties: false,
     required: ["conversationId"],
     properties: { conversationId: { type: "string", maxLength: 160 } },
+  },
+  BrowserPresentationInput: {
+    type: "object",
+    additionalProperties: false,
+    required: ["conversationId", "mode"],
+    properties: {
+      conversationId: { type: "string", maxLength: 160 },
+      mode: {
+        type: "string",
+        enum: ["inline", "picture-in-picture"],
+      },
+    },
   },
   BrowserLabelsInput: {
     type: "object",
@@ -143,11 +182,20 @@ export const browserOpenApiSchemas = {
 } as const;
 
 export interface BrowserLocalToolContext {
-  openBrowser?: (conversationId: string, url: string) => void | Promise<void>;
+  openBrowser?: (
+    conversationId: string,
+    url: string,
+    fresh: boolean,
+  ) => void | Promise<void>;
   browserCommand?: (
     conversationId: string,
     command: BrowserAutomationCommand,
   ) => Promise<BrowserAutomationResult>;
+  closeBrowser?: (conversationId: string) => void | Promise<void>;
+  presentBrowser?: (
+    conversationId: string,
+    mode: BrowserPresentationMode,
+  ) => void | Promise<void>;
 }
 
 function requiredString(body: Record<string, unknown>, key: string) {
@@ -190,8 +238,28 @@ export async function handleBrowserLocalTool(
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       throw new Error("url must use HTTP or HTTPS.");
     }
-    await context.openBrowser(conversationId, url.toString());
-    return { handled: true, value: { opened: true, url: url.toString() } };
+    const fresh = body.fresh === true;
+    await context.openBrowser(conversationId, url.toString(), fresh);
+    return {
+      handled: true,
+      value: { opened: true, fresh, url: url.toString() },
+    };
+  }
+  if (path === "/local-tools/browser/close") {
+    if (!context.closeBrowser)
+      throw new Error("The embedded browser is unavailable.");
+    await context.closeBrowser(conversationId);
+    return { handled: true, value: { closed: true } };
+  }
+  if (path === "/local-tools/browser/present") {
+    if (!context.presentBrowser)
+      throw new Error("The embedded browser is unavailable.");
+    const mode = requiredString(body, "mode");
+    if (mode !== "inline" && mode !== "picture-in-picture") {
+      throw new Error("mode must be inline or picture-in-picture.");
+    }
+    await context.presentBrowser(conversationId, mode);
+    return { handled: true, value: { mode } };
   }
   if (!context.browserCommand) {
     throw new Error("The embedded browser is unavailable.");

@@ -2,6 +2,11 @@ import { createHash } from "node:crypto";
 
 import type { SessionManager } from "./manager.js";
 import type { AgentEvent, DriverType, WorkspaceFileRecord } from "./types.js";
+import {
+  agentEventProducedOutput,
+  DEFAULT_AGENT_RETRY_DELAYS_MS,
+  retryableAgentFailure,
+} from "./agent-retry.js";
 import { getAgent } from "./agents.js";
 import { existingExecutorWorkspace } from "./tools/control-plane.js";
 import { executorToolServer } from "./tools/spec.js";
@@ -17,6 +22,7 @@ type DelegationResult = DelegationOutcome & {
   sessionId: string;
   agentId: string;
   file?: WorkspaceFileRecord;
+  retrySafe: boolean;
 };
 const activeDelegations = new Map<string, Promise<DelegationResult>>();
 
@@ -68,36 +74,55 @@ function isInitialReview(parentId: string, title: string) {
   );
 }
 
-function terminalOutcome(
+export function terminalOutcome(
   events: readonly AgentEvent[],
 ): DelegationOutcome | undefined {
+  let currentTurnStartedAt = -1;
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
-    if (!event) continue;
-    if (event.type === "result") {
-      return event.ok
-        ? {
-            status: "completed",
-            result:
-              lastAssistantText(events) ??
-              "The specialist completed the task without a text result.",
-          }
-        : {
-            status: "failed",
-            error: event.error ?? "The specialist task failed.",
-          };
+    if (event?.type === "message" && event.role === "user") {
+      currentTurnStartedAt = index;
+      break;
     }
+  }
+  for (
+    let index = events.length - 1;
+    index > currentTurnStartedAt;
+    index -= 1
+  ) {
+    const event = events[index];
+    if (event?.type !== "result") continue;
+    return event.ok
+      ? {
+          status: "completed",
+          result:
+            lastAssistantText(events.slice(currentTurnStartedAt + 1)) ??
+            "The specialist completed the task without a text result.",
+        }
+      : {
+          status: "failed",
+          error: event.error ?? "The specialist task failed.",
+        };
+  }
+  let exitOutcome: DelegationOutcome | undefined;
+  for (
+    let index = events.length - 1;
+    index > currentTurnStartedAt;
+    index -= 1
+  ) {
+    const event = events[index];
+    if (!event) continue;
     if (event.type === "error") {
       return { status: "failed", error: event.message };
     }
     if (event.type === "exit") {
-      return {
+      exitOutcome = {
         status: "failed",
         error: "The specialist session exited before returning a result.",
       };
     }
   }
-  return undefined;
+  return exitOutcome;
 }
 
 function notify(callback: (() => void | Promise<void>) | undefined) {
@@ -165,6 +190,8 @@ export async function runSpecialistDelegation(input: {
   onFilesChange?: () => void | Promise<void>;
   onSessionReady?: (sessionId: string) => void | Promise<void>;
   timeoutMs?: number;
+  /** Override the progressive retry schedule in focused tests. */
+  retryDelaysMs?: readonly number[];
 }) {
   const parent = await input.manager.rootChat(
     input.workspaceId,
@@ -220,6 +247,53 @@ async function executeSpecialistDelegation(
   parentModel: string | undefined,
   initialReview: boolean,
 ): Promise<DelegationResult> {
+  const retryDelays = input.retryDelaysMs ?? DEFAULT_AGENT_RETRY_DELAYS_MS;
+  for (let attempt = 0; ; attempt += 1) {
+    let result: DelegationResult;
+    try {
+      result = await executeSpecialistDelegationAttempt(
+        input,
+        sessionId,
+        specialistName,
+        parentProvider,
+        parentModel,
+        initialReview,
+      );
+    } catch (error) {
+      if (attempt >= retryDelays.length || !retryableAgentFailure(error)) {
+        throw error;
+      }
+      const delayMs = retryDelays[attempt] ?? 0;
+      console.error(
+        `[specialist] ${input.agentId} startup attempt ${attempt + 1}/${retryDelays.length + 1} failed (${error instanceof Error ? error.message : String(error)}); retrying in ${delayMs}ms`,
+      );
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      continue;
+    }
+    if (
+      result.status === "completed" ||
+      attempt >= retryDelays.length ||
+      !result.retrySafe ||
+      !retryableAgentFailure(result.error)
+    ) {
+      return result;
+    }
+    const delayMs = retryDelays[attempt] ?? 0;
+    console.error(
+      `[specialist] ${input.agentId} attempt ${attempt + 1}/${retryDelays.length + 1} failed (${result.error}); retrying in ${delayMs}ms`,
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+  }
+}
+
+async function executeSpecialistDelegationAttempt(
+  input: Parameters<typeof runSpecialistDelegation>[0],
+  sessionId: string,
+  specialistName: string,
+  parentProvider: string,
+  parentModel: string | undefined,
+  initialReview: boolean,
+): Promise<DelegationResult> {
   const existing = (
     await input.manager.childChats(input.workspaceId, input.conversationId)
   ).find((chat) => chat.id === sessionId);
@@ -237,12 +311,22 @@ async function executeSpecialistDelegation(
       agentId: existing.agent,
       status: existing.status,
       result,
+      retrySafe: false,
       ...(file ? { file } : {}),
     };
   }
-  if (existing?.status === "failed") {
+  const existingSession = existing
+    ? input.manager.get(input.workspaceId, existing.id)
+    : undefined;
+  const restartInterruptedSession = Boolean(
+    existing &&
+    (existing.status === "failed" ||
+      ((existing.status === "running" || existing.status === "waiting") &&
+        !existingSession?.isBusy)),
+  );
+  if (existing && restartInterruptedSession) {
     // A failed delegation is retryable: reset the specialist session so the
-    // same delegation ID can run again instead of re-serving the stale error.
+    // same card can run again instead of re-serving stale terminal events.
     await input.manager.restartChildChat(input.workspaceId, existing.id);
   }
 
@@ -304,6 +388,7 @@ async function executeSpecialistDelegation(
     },
     { title: input.title, triggerId: input.delegationId },
   );
+  const eventOffset = restartInterruptedSession ? session.events.length : 0;
   const outcome = await new Promise<DelegationOutcome>((resolve) => {
     let settled = false;
     let timer: NodeJS.Timeout;
@@ -325,13 +410,13 @@ async function executeSpecialistDelegation(
       }, input.timeoutMs ?? DELEGATION_INACTIVITY_TIMEOUT_MS);
     };
     const listener = (_event: AgentEvent) => {
-      const terminal = terminalOutcome(session.events);
+      const terminal = terminalOutcome(session.events.slice(eventOffset));
       if (terminal) finish(terminal);
       else armTimeout();
     };
     session.on("event", listener);
     armTimeout();
-    const alreadyTerminal = terminalOutcome(session.events);
+    const alreadyTerminal = terminalOutcome(session.events.slice(eventOffset));
     if (alreadyTerminal) {
       finish(alreadyTerminal);
       return;
@@ -340,6 +425,7 @@ async function executeSpecialistDelegation(
       if (
         existing &&
         (existing.status === "running" || existing.status === "waiting") &&
+        !restartInterruptedSession &&
         !session.isBusy
       ) {
         finish({
@@ -385,6 +471,9 @@ async function executeSpecialistDelegation(
     sessionId,
     agentId: input.agentId,
     ...outcome,
+    retrySafe: !session.events
+      .slice(eventOffset)
+      .some(agentEventProducedOutput),
     ...(file ? { file } : {}),
   };
 }

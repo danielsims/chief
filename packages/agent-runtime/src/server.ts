@@ -28,6 +28,7 @@ import type {
   BrowserAutomationCommand,
   BrowserAutomationResult,
   BrowserPageSnapshot,
+  BrowserPresentationMode,
   ChatExecutionSelection,
   ClientMessage,
   DriverType,
@@ -46,8 +47,11 @@ import {
 } from "./agents.js";
 import {
   BrowserSessionRegistry,
+  commandTargetsActiveBrowserRun,
   integrationBrowserProfile,
+  resumableBrowserRuns,
 } from "./browser-session-registry.js";
+import { browserStateEncryptionKey } from "./browser-state-encryption.js";
 import {
   availableCapabilities,
   composeAgentCapabilities,
@@ -74,6 +78,7 @@ import {
   googleOAuthAuthenticatedBrowserPrompt,
   googleOAuthInterruptedBrowserPrompt,
 } from "./google-oauth-browser-prompt.js";
+import { guardedRequestHandler, localToolRequest } from "./http-runtime.js";
 import { hasInputReceipt, inputReceipt } from "./input-receipt.js";
 import {
   assertSafeInputRequest,
@@ -93,6 +98,14 @@ import { handleLocalTool, localToolsOpenApi } from "./local-tools.js";
 import { SessionManager } from "./manager.js";
 import { createChiefMcpHandler } from "./mcp-server.js";
 import { listModels } from "./models.js";
+import {
+  ONBOARDING_OPENING_MESSAGE,
+  onboardingDirectory,
+  onboardingKickoffId,
+  onboardingKickoffProgress,
+  onboardingOpeningIsVisible,
+  onboardingRecoveryPrompt,
+} from "./onboarding-kickoff.js";
 import { authorizeOrganizationRole } from "./organization-authorization.js";
 import { ProviderAuthentication } from "./provider-authentication.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
@@ -329,7 +342,7 @@ export function startServer(port = PORT) {
   const cloudSyncs = new Map<string, Promise<void>>();
   const onboardingBootstraps = new Map<
     string,
-    { signature: string; promise: Promise<string> }
+    { signature: string; ready: Promise<string>; run: Promise<string> }
   >();
   const integrationSetups = new IntegrationSetupRegistry();
   const pendingGoogleAuthentication = new Map<
@@ -363,6 +376,7 @@ export function startServer(port = PORT) {
   ].find((candidate): candidate is string =>
     Boolean(candidate && existsSync(candidate)),
   );
+  const browserEncryptionKey = browserStateEncryptionKey();
   const browsers = new BrowserSessionRegistry((workspaceId, conversationId) => {
     const key = `${workspaceId}\0${conversationId}`;
     const isIntegrationSetup = Boolean(
@@ -378,7 +392,8 @@ export function startServer(port = PORT) {
       ),
       executablePath: systemChrome,
       profile: isIntegrationSetup ? inheritedChromeProfile : undefined,
-      restore: false,
+      restore: true,
+      encryptionKey: browserEncryptionKey,
     });
   });
   const browserKey = (workspaceId: string, conversationId: string) =>
@@ -613,20 +628,22 @@ export function startServer(port = PORT) {
       };
     },
   ) => undefined;
+  let broadcastBrowserPresentation = (
+    _workspaceId: string,
+    _conversationId: string,
+    _mode: BrowserPresentationMode,
+  ) => undefined;
   let broadcastIntegrationSetupProgress = (
     _workspaceId: string,
     _conversationId: string,
     _progress: IntegrationSetupProgress,
   ) => undefined;
-  const closeBrowserSession = async (
+  const completeBrowserRunPresentation = async (
     workspaceId: string,
     conversationId: string,
   ) => {
     const key = browserKey(workspaceId, conversationId);
     const browserRunId = browserRunIds.get(key);
-    pendingGoogleAuthentication.delete(key);
-    providerAuthentication.clear(workspaceId, conversationId);
-    googleAccountSessions.delete(key);
     if (browserRunId) {
       const session = browserSession(workspaceId, conversationId);
       const [url, title] = await Promise.all([
@@ -638,15 +655,34 @@ export function startServer(port = PORT) {
         ...(title ? { title } : {}),
         status: "complete",
       });
-    }
-    await browsers.close(workspaceId, conversationId);
-    if (browserRunId) {
       broadcastBrowserClosed(workspaceId, conversationId);
       browserRunIds.delete(key);
     }
     browserThreadRoots.delete(key);
     browserParentConversations.delete(key);
     browserAnchorMessages.delete(key);
+  };
+  const closeBrowserSession = async (
+    workspaceId: string,
+    conversationId: string,
+  ) => {
+    const key = browserKey(workspaceId, conversationId);
+    pendingGoogleAuthentication.delete(key);
+    providerAuthentication.clear(workspaceId, conversationId);
+    googleAccountSessions.delete(key);
+    await completeBrowserRunPresentation(workspaceId, conversationId);
+    await browsers.close(workspaceId, conversationId);
+  };
+  const resetBrowserSession = async (
+    workspaceId: string,
+    conversationId: string,
+  ) => {
+    const key = browserKey(workspaceId, conversationId);
+    pendingGoogleAuthentication.delete(key);
+    providerAuthentication.clear(workspaceId, conversationId);
+    googleAccountSessions.delete(key);
+    await completeBrowserRunPresentation(workspaceId, conversationId);
+    await browsers.reset(workspaceId, conversationId);
   };
   const openBrowserSession = async (
     workspaceId: string,
@@ -782,6 +818,114 @@ export function startServer(port = PORT) {
       stream.url,
     );
     return session;
+  };
+  const browserRecoveryTasks = new Map<string, Promise<void>>();
+  const recoverBrowserRuns = (workspaceId: string) => {
+    const current = browserRecoveryTasks.get(workspaceId);
+    if (current) return current;
+    const task = (async () => {
+      const runs = await manager.store.listBrowserRuns(workspaceId);
+      const resumable = resumableBrowserRuns(runs);
+      const resumableIds = new Set(resumable.map((run) => run.id));
+      await Promise.all(
+        runs
+          .filter((run) => run.status === "active" && !resumableIds.has(run.id))
+          .map((run) =>
+            manager.store.updateBrowserRun(workspaceId, run.id, {
+              status: "complete",
+            }),
+          ),
+      );
+
+      for (const run of resumable) {
+        const key = browserKey(workspaceId, run.conversationId);
+        if (browserRunIds.has(key)) {
+          try {
+            const session = browserSession(workspaceId, run.conversationId);
+            const stream = await session.stream(5_000);
+            const url = await session.getUrl().catch(() => run.url);
+            broadcastBrowserNavigate(
+              workspaceId,
+              run.conversationId,
+              url,
+              stream.url,
+            );
+            continue;
+          } catch {
+            // The UI reconnected but the browser daemon did not. Replace only
+            // the process wrapper; encrypted restore state remains available
+            // to the bounded recovery loop below.
+            await browsers.close(workspaceId, run.conversationId);
+          }
+        }
+        browserRunIds.set(key, run.id);
+        if (run.threadRootId !== undefined) {
+          browserThreadRoots.set(key, run.threadRootId);
+        }
+        if (run.parentConversationId !== undefined) {
+          browserParentConversations.set(key, run.parentConversationId);
+        }
+        if (run.anchorMessageId) {
+          browserAnchorMessages.set(key, run.anchorMessageId);
+        }
+        broadcastBrowserPrepare(workspaceId, run.conversationId, run.url);
+
+        let recovered = false;
+        let lastError: unknown;
+        for (const delay of [0, 300, 1_000, 2_500]) {
+          if (delay > 0) {
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+          try {
+            const session = browserSession(workspaceId, run.conversationId);
+            const stream = await session.open(
+              run.url,
+              {
+                width: 1280,
+                height: 800,
+              },
+              10_000,
+            );
+            const [url, title] = await Promise.all([
+              session.getUrl().catch(() => run.url),
+              session.getTitle().catch(() => run.title ?? ""),
+            ]);
+            await manager.store.updateBrowserRun(workspaceId, run.id, {
+              url,
+              ...(title ? { title } : {}),
+              status: "active",
+            });
+            broadcastBrowserNavigate(
+              workspaceId,
+              run.conversationId,
+              url,
+              stream.url,
+            );
+            recovered = true;
+            break;
+          } catch (error) {
+            lastError = error;
+            await browsers.close(workspaceId, run.conversationId);
+          }
+        }
+        if (recovered) continue;
+
+        console.error(
+          `[browser-recovery] could not restore ${run.id}:`,
+          lastError instanceof Error ? lastError.message : lastError,
+        );
+        await manager.store.updateBrowserRun(workspaceId, run.id, {
+          status: "complete",
+        });
+        broadcastBrowserClosed(workspaceId, run.conversationId);
+        browserRunIds.delete(key);
+        browserThreadRoots.delete(key);
+        browserParentConversations.delete(key);
+        browserAnchorMessages.delete(key);
+      }
+    })().finally(() => browserRecoveryTasks.delete(workspaceId));
+    browserRecoveryTasks.set(workspaceId, task);
+    return task;
   };
   const requestBrowserCommand = async (
     workspaceId: string,
@@ -1470,19 +1614,17 @@ export function startServer(port = PORT) {
         body.conversationId = activeSetupSession;
         if (activeSetup) body.attemptId = activeSetup.attemptId;
       }
-      const request = new Request(`http://127.0.0.1:${port}${req.url}`, {
+      const request = localToolRequest({
+        origin: `http://127.0.0.1:${port}`,
+        url: req.url,
         method: req.method,
-        headers: Object.fromEntries(
-          Object.entries(req.headers).flatMap(([key, value]) =>
-            typeof value === "string" ? [[key, value]] : [],
-          ),
-        ),
-        ...(Object.keys(body).length > 0 ? { body: JSON.stringify(body) } : {}),
+        headers: req.headers,
+        body,
       });
       const response = await handleLocalTool(request, workspaceId, manager, {
         onActivity: () => broadcastWorkspaceData(workspaceId),
         onFilesChanged: () => broadcastWorkspaceFiles(workspaceId),
-        openBrowser: async (conversationId, url) => {
+        openBrowser: async (conversationId, url, fresh) => {
           // The model may pass a stale or wrong conversationId (it sometimes
           // reuses a remembered channel id). Resolve to the live interactive
           // chat so the browser opens in the conversation the user is watching.
@@ -1495,6 +1637,21 @@ export function startServer(port = PORT) {
             workspaceId,
             resolvedConversationId ?? conversationId,
           );
+          if (fresh) {
+            await resetBrowserSession(
+              workspaceId,
+              resolvedConversationId ?? conversationId,
+            );
+          } else {
+            // A new browser.open call is new conversation content even when it
+            // reuses the same authenticated Chromium context. Settle the old
+            // transcript block and create a new run at this turn's insertion
+            // point without destroying cookies, auth, or the physical browser.
+            await completeBrowserRunPresentation(
+              workspaceId,
+              resolvedConversationId ?? conversationId,
+            );
+          }
           browserThreadRoots.set(
             browserKey(workspaceId, resolvedConversationId ?? conversationId),
             root.session?.activeThreadRootId,
@@ -1506,6 +1663,17 @@ export function startServer(port = PORT) {
             undefined,
             root.session?.activeThreadRootId,
           );
+        },
+        closeBrowser: async (conversationId) => {
+          await manager.rootChat(workspaceId, conversationId);
+          await closeBrowserSession(workspaceId, conversationId);
+        },
+        presentBrowser: async (conversationId, mode) => {
+          await manager.rootChat(workspaceId, conversationId);
+          if (!browserRunIds.has(browserKey(workspaceId, conversationId))) {
+            throw new Error("There is no active embedded browser to present.");
+          }
+          broadcastBrowserPresentation(workspaceId, conversationId, mode);
         },
         browserCommand: async (conversationId, command) => {
           await manager.rootChat(workspaceId, conversationId);
@@ -1897,8 +2065,9 @@ export function startServer(port = PORT) {
     manager,
     authorize: authorizeWorkspace,
   });
-  const http4 = createServer((req, res) => void handler(req, res));
-  const http6 = createServer((req, res) => void handler(req, res));
+  const serve = guardedRequestHandler(handler);
+  const http4 = createServer(serve);
+  const http6 = createServer(serve);
   const wss = new WebSocketServer({ server: http4 });
   const wss6 = new WebSocketServer({ server: http6 });
   const socketAuthorization = new WorkspaceAuthorization<WebSocket>();
@@ -2049,6 +2218,27 @@ export function startServer(port = PORT) {
       }
     }
   };
+  broadcastBrowserPresentation = (workspaceId, conversationId, mode) => {
+    const browserRunId = browserRunIds.get(
+      browserKey(workspaceId, conversationId),
+    );
+    if (!browserRunId) return;
+    const message = JSON.stringify({
+      type: "browserPresentation",
+      browserRunId,
+      workspaceId,
+      conversationId,
+      mode,
+    } satisfies ServerMessage);
+    for (const client of new Set([...wss.clients, ...wss6.clients])) {
+      if (
+        client.readyState === WebSocket.OPEN &&
+        socketAuthorization.canReceive(client, workspaceId)
+      ) {
+        client.send(message);
+      }
+    }
+  };
   broadcastBrowserClosed = (workspaceId, conversationId) => {
     const browserRunId = browserRunIds.get(
       browserKey(workspaceId, conversationId),
@@ -2153,7 +2343,7 @@ export function startServer(port = PORT) {
       const handleEvent = async (event: unknown) => {
         const agentEvent = event as AgentEvent;
         // Stream deltas are folded into discrete assistant message events by
-        // the session (flushed at `[channel:send]` markers and at turn end), so
+        // the session (flushed at `[message:send]` markers and at turn end), so
         // do not forward raw stream deltas to the client. Forwarding them
         // caused the buffered stream placeholder to commit as a duplicate
         // message alongside the flushed messages.
@@ -2217,6 +2407,11 @@ export function startServer(port = PORT) {
           agentEvent.type === "error" ||
           agentEvent.type === "exit"
         ) {
+          // A browser run belongs to the conversation, not to one model turn.
+          // Ending a turn is often the handoff point where the human takes
+          // control for sign-in, consent, passkeys, or MFA. Browser work closes
+          // explicitly through browser.close, a verified integration, user
+          // dismissal, deletion, or runtime recovery instead.
           await manager.waitForChatPersistence(workspaceId, chatId);
           await broadcastWorkspaceData(workspaceId);
         }
@@ -2250,6 +2445,16 @@ export function startServer(port = PORT) {
         ) {
           if (!socketAuthorization.canReceive(ws, msg.workspaceId)) {
             throw new Error("This browser action is not authorized.");
+          }
+          if (msg.type !== "browserNavigateRequest") {
+            const activeRunId = browserRunIds.get(
+              browserKey(msg.workspaceId, msg.conversationId),
+            );
+            // Browser controls are scoped to an immutable run. A delayed close,
+            // URL update, reload, or resize from an old component must never
+            // mutate the fresh browser that replaced it in the same chat.
+            if (!commandTargetsActiveBrowserRun(activeRunId, msg.browserRunId))
+              return;
           }
           if (msg.type === "browserClose") {
             await closeBrowserSession(msg.workspaceId, msg.conversationId);
@@ -2493,11 +2698,15 @@ export function startServer(port = PORT) {
 
           case "listBrowserRuns":
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            send({
-              type: "browserRuns",
-              workspaceId: msg.workspaceId,
-              runs: await manager.store.listBrowserRuns(msg.workspaceId),
-            });
+            {
+              await recoverBrowserRuns(msg.workspaceId);
+              const runs = await manager.store.listBrowserRuns(msg.workspaceId);
+              send({
+                type: "browserRuns",
+                workspaceId: msg.workspaceId,
+                runs,
+              });
+            }
             break;
 
           case "anchorBrowserRun":
@@ -2636,9 +2845,15 @@ export function startServer(port = PORT) {
                 "Chief is already preparing a different onboarding update. This update was kept for retry.",
               );
             }
-            let bootstrap = activeBootstrap?.promise;
+            let bootstrap = activeBootstrap;
             if (!bootstrap) {
-              bootstrap = (async () => {
+              let resolveReady!: (chatId: string) => void;
+              let rejectReady!: (error: unknown) => void;
+              const ready = new Promise<string>((resolve, reject) => {
+                resolveReady = resolve;
+                rejectReady = reject;
+              });
+              const preparedRun = (async () => {
                 console.log(
                   `[chief] preparing getting-started channel for ${msg.workspaceId}`,
                 );
@@ -2678,17 +2893,28 @@ export function startServer(port = PORT) {
                   model,
                 });
 
-                const onboardingDirectory = join(
+                const chiefOnboardingDirectory = onboardingDirectory(
                   workspaceRoot(msg.workspaceId),
-                  "onboarding",
+                  "cmo",
                 );
-                mkdirSync(onboardingDirectory, {
+                mkdirSync(chiefOnboardingDirectory, {
                   recursive: true,
                   mode: 0o700,
                 });
                 const attachmentPaths: string[][] = [];
                 let totalBytes = 0;
                 for (const [jobIndex, job] of msg.jobs.entries()) {
+                  if (!getAgent(job.agentId)) {
+                    throw new Error("Unknown onboarding agent.");
+                  }
+                  const attachmentDirectory = onboardingDirectory(
+                    workspaceRoot(msg.workspaceId),
+                    job.agentId,
+                  );
+                  mkdirSync(attachmentDirectory, {
+                    recursive: true,
+                    mode: 0o700,
+                  });
                   const saved: string[] = [];
                   for (const [attachmentIndex, attachment] of (
                     job.attachments ?? []
@@ -2713,7 +2939,7 @@ export function startServer(port = PORT) {
                       "-",
                     );
                     const path = join(
-                      onboardingDirectory,
+                      attachmentDirectory,
                       `${jobIndex + 1}-${attachmentIndex + 1}-${safeName || "attachment"}`,
                     );
                     writeFileSync(path, bytes, { mode: 0o600 });
@@ -2735,7 +2961,7 @@ export function startServer(port = PORT) {
                     `- ${schedule.title.trim() || schedule.id}: ${schedule.status}; cron ${schedule.cron} (${schedule.timezone}). ${schedule.instructions.trim().slice(0, 4_000)}`,
                 );
                 const planPath = join(
-                  onboardingDirectory,
+                  chiefOnboardingDirectory,
                   "getting-started.md",
                 );
                 writeFileSync(
@@ -2831,24 +3057,12 @@ export function startServer(port = PORT) {
                   msg.workspaceId,
                   chatId,
                 );
-                const kickoffId = `${chatId}-kickoff`;
-                const kickoffIndex = persistedMessages.findIndex(
-                  (event) => event.type === "message" && event.id === kickoffId,
+                const kickoffId = onboardingKickoffId(chatId);
+                const kickoff = onboardingKickoffProgress(
+                  persistedMessages,
+                  kickoffId,
                 );
-                const kickoffCompleted = persistedMessages
-                  .slice(kickoffIndex + 1)
-                  .some(
-                    (event) =>
-                      (event.type === "message" &&
-                        event.role === "assistant" &&
-                        event.content.some(
-                          (block) =>
-                            block.type === "text" &&
-                            block.text.trim().length > 0,
-                        )) ||
-                      (event.type === "result" && event.ok),
-                  );
-                if (kickoffIndex < 0 || !kickoffCompleted) {
+                if (!kickoff.completed) {
                   const chief = getAgent("cmo");
                   if (!chief) throw new Error("Chief persona is missing.");
                   const capabilities = existingPreference?.capabilities;
@@ -2903,78 +3117,156 @@ export function startServer(port = PORT) {
                   );
                   bindRootSession(msg.workspaceId, chatId, session);
                   if (session.isBusy) {
+                    resolveReady(chatId);
                     await broadcastWorkspaceData(msg.workspaceId);
                     return chatId;
                   }
-                  const releaseExecution = manager.acquireExecution(
-                    msg.workspaceId,
-                    chatId,
-                    "interactive",
-                  );
-                  const releaseOnTerminal = (event: AgentEvent) => {
-                    if (
-                      event.type === "result" ||
-                      event.type === "error" ||
-                      event.type === "exit" ||
-                      (event.type === "status" && event.status === "idle")
-                    ) {
+                  // A prior onboarding attempt can leave its public-research
+                  // browser alive when the agent process is interrupted. The
+                  // getting-started chat is intentionally reused for recovery,
+                  // but its browser run is not: retaining it also retains the
+                  // old message anchor and makes the replay appear inside an
+                  // earlier onboarding turn.
+                  await closeBrowserSession(msg.workspaceId, chatId);
+                  resolveReady(chatId);
+                  const sendOnboardingPrompt = async (
+                    prompt: string,
+                    messageId?: string,
+                    record = true,
+                  ) => {
+                    const releaseExecution = manager.acquireExecution(
+                      msg.workspaceId,
+                      chatId,
+                      "interactive",
+                    );
+                    const releaseOnTerminal = (event: AgentEvent) => {
+                      if (
+                        event.type === "result" ||
+                        event.type === "error" ||
+                        event.type === "exit" ||
+                        (event.type === "status" && event.status === "idle")
+                      ) {
+                        session.off("event", releaseOnTerminal);
+                        releaseExecution();
+                      }
+                    };
+                    session.on("event", releaseOnTerminal);
+                    try {
+                      await session.sendPrompt(prompt, messageId, record);
+                      await manager.waitForChatPersistence(
+                        msg.workspaceId,
+                        chatId,
+                      );
+                    } catch (error) {
                       session.off("event", releaseOnTerminal);
                       releaseExecution();
+                      throw error;
                     }
                   };
-                  session.on("event", releaseOnTerminal);
                   try {
-                    await session.sendPrompt(
-                      [
-                        "Start this workspace's setup and initial review now.",
-                        "Read onboarding/getting-started.md and coordinate the independent jobs recorded there without waiting for one job before starting another.",
-                        "Do useful public-source and workspace work immediately. When credentials, consent, or account selection are genuinely required, explain the exact next step in #getting-started and use Setup for the secure browser flow.",
-                        "Keep all user-facing progress and the final synthesis in this channel. Do not treat agent activity as a user-facing message.",
-                      ].join("\n\n"),
-                      kickoffIndex < 0 ? kickoffId : undefined,
-                      kickoffIndex < 0,
-                    );
-                    await manager.waitForChatPersistence(
+                    let initialError: unknown;
+                    try {
+                      const initialPrompt = kickoff.started
+                        ? onboardingRecoveryPrompt(
+                            driver,
+                            !onboardingOpeningIsVisible(
+                              persistedMessages,
+                              kickoffId,
+                            ),
+                          )
+                        : [
+                            `Start by sending this exact text as the first message, followed immediately by [message:send]:\n\n${ONBOARDING_OPENING_MESSAGE}\n\nDo not add another acknowledgement. Continue working in this same turn as soon as that message is sent.`,
+                            "Read onboarding/getting-started.md from the current working directory. Launch its independent specialist jobs immediately without waiting for one job before starting another.",
+                            "Once the independent specialists are visibly working, send one short, friendly milestone naming who is underway and what you are handling next. End that milestone with [message:send], then keep working.",
+                            "Do useful public-source and workspace work immediately. When credentials, consent, or account selection are genuinely required, explain the exact next step in #getting-started and use Setup for the secure browser flow.",
+                            "Keep all user-facing progress and the final synthesis in this channel. Do not treat agent activity as a user-facing message.",
+                          ].join("\n\n");
+                      await sendOnboardingPrompt(
+                        initialPrompt,
+                        kickoff.started ? undefined : kickoffId,
+                        !kickoff.started,
+                      );
+                    } catch (error) {
+                      initialError = error;
+                      await manager.waitForChatPersistence(
+                        msg.workspaceId,
+                        chatId,
+                      );
+                    }
+                    const afterInitialEvents = await manager.transcript(
                       msg.workspaceId,
                       chatId,
                     );
-                  } catch (error) {
-                    session.off("event", releaseOnTerminal);
-                    releaseExecution();
-                    throw error;
+                    const afterInitialAttempt = onboardingKickoffProgress(
+                      afterInitialEvents,
+                      kickoffId,
+                    );
+                    if (!afterInitialAttempt.completed) {
+                      console.error(
+                        `[chief] initial getting-started turn did not complete for ${msg.workspaceId}; recovering once`,
+                        initialError,
+                      );
+                      await sendOnboardingPrompt(
+                        onboardingRecoveryPrompt(
+                          driver,
+                          !onboardingOpeningIsVisible(
+                            afterInitialEvents,
+                            kickoffId,
+                          ),
+                        ),
+                        undefined,
+                        false,
+                      );
+                    }
+                  } finally {
+                    // Root onboarding browsing is public research. Secure
+                    // sign-in handoffs belong to Setup's separate session, so
+                    // it is safe to settle this viewer when the kickoff ends.
+                    await closeBrowserSession(msg.workspaceId, chatId);
                   }
                 }
+                resolveReady(chatId);
                 await broadcastWorkspaceData(msg.workspaceId);
                 return chatId;
               })();
-              onboardingBootstraps.set(msg.workspaceId, {
+              const run = preparedRun.catch((error: unknown) => {
+                rejectReady(error);
+                throw error;
+              });
+              bootstrap = {
                 signature,
-                promise: bootstrap,
-              });
+                ready,
+                run,
+              };
+              onboardingBootstraps.set(msg.workspaceId, bootstrap);
+              void run
+                .catch((error: unknown) =>
+                  console.error(
+                    `[chief] getting-started run failed for ${msg.workspaceId}:`,
+                    error,
+                  ),
+                )
+                .finally(() => {
+                  if (onboardingBootstraps.get(msg.workspaceId)?.run === run) {
+                    onboardingBootstraps.delete(msg.workspaceId);
+                  }
+                });
             }
-            try {
-              await bootstrap;
-              send({
-                type: "onboardingWorkBootstrapped",
-                workspaceId: msg.workspaceId,
-                requestId: msg.requestId,
-                chatId,
-              });
-              send({
-                type: "chats",
-                workspaceId: msg.workspaceId,
-                chats: await manager.listChats(msg.workspaceId),
-              });
-              console.log(
-                `[chief] getting-started channel prepared for ${msg.workspaceId}`,
-              );
-            } finally {
-              if (
-                onboardingBootstraps.get(msg.workspaceId)?.promise === bootstrap
-              ) {
-                onboardingBootstraps.delete(msg.workspaceId);
-              }
-            }
+            await bootstrap.ready;
+            send({
+              type: "onboardingWorkBootstrapped",
+              workspaceId: msg.workspaceId,
+              requestId: msg.requestId,
+              chatId,
+            });
+            send({
+              type: "chats",
+              workspaceId: msg.workspaceId,
+              chats: await manager.listChats(msg.workspaceId),
+            });
+            console.log(
+              `[chief] getting-started channel prepared for ${msg.workspaceId}`,
+            );
             break;
           }
 
@@ -3537,7 +3829,7 @@ export function startServer(port = PORT) {
             const onboardingBootstrap = msg.chatId.startsWith(
               "workspace-kickoff-",
             )
-              ? onboardingBootstraps.get(msg.workspaceId)?.promise
+              ? onboardingBootstraps.get(msg.workspaceId)?.ready
               : undefined;
             if (onboardingBootstrap) await onboardingBootstrap;
             await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
@@ -3677,41 +3969,19 @@ export function startServer(port = PORT) {
                 });
               }
             }
-            if (
-              msg.chatId.startsWith("workspace-kickoff-") &&
-              !onboardingBootstrap
-            ) {
+            if (msg.chatId.startsWith("workspace-kickoff-")) {
               const events = await manager.transcript(
                 msg.workspaceId,
                 msg.chatId,
               );
-              const reviewProducedOutput = events.some(
-                (event) =>
-                  (event.type === "message" && event.role === "assistant") ||
-                  (event.type === "result" && event.ok),
-              );
-              if (!reviewProducedOutput) {
-                recoveryPrompt = [
-                  "Resume the initial business review for this workspace.",
-                  driver === "remote"
-                    ? "Use current workspace context and connected cloud sources. Launch Brand Researcher and Prospector concurrently and exactly once through Eve's declared subagents before waiting for either. Persist the brand profile and full review through chief files.save, and persist five to eight qualified prospects with direct source URLs through chief prospects.save."
-                    : "Use the current workspace context and connected sources. Launch Brand Researcher and Prospector concurrently and exactly once with localTools.specialistsDelegate, omitting waitSeconds so both continue in the background. Save the verified brand Markdown with localTools.brandProfileSave and retain its visible versioned file. Require Prospector to persist five to eight qualified results with direct source URLs through prospectsSave. Reuse stable delegation IDs and never start equivalent duplicate specialists.",
-                  driver === "remote"
-                    ? "If workspace context names an unconnected analytics or advertising source, do not delegate setup. Persist one direct provider-specific connection action through chief actions.raise."
-                    : "If workspace context names an unconnected analytics or advertising source, do not delegate setup. Create one direct provider-specific connection action.",
-                  "Reconcile every analytics and advertising provider chosen in workspace context against connected sources. Create one exact setup action for each genuinely unconnected provider after useful work is complete. If AI referral tracking is enabled, include an attributable AI-referral measurement plan and any honest instrumentation gap.",
-                  "Do not ask the user for information Chief can discover. If authorization is genuinely required, complete everything else and create one distinct action per provider or user decision, with a provider-scoped stable dedupe key.",
-                  "Missing integrations are non-blocking. Complete and save all public-source, brand, and prospecting work first. Save the complete review as a versioned Markdown file under reviews/, include the document in the synthesis, then create only deduplicated structured setup actions with stable keys. Recording actions is not completion.",
-                ].join("\n\n");
-                const kickoffId = `${msg.chatId}-kickoff`;
-                if (
-                  !events.some(
-                    (event) =>
-                      event.type === "message" &&
-                      event.role === "user" &&
-                      event.id === kickoffId,
-                  )
-                ) {
+              const kickoffId = onboardingKickoffId(msg.chatId);
+              const kickoff = onboardingKickoffProgress(events, kickoffId);
+              if (!kickoff.completed) {
+                recoveryPrompt = onboardingRecoveryPrompt(
+                  driver,
+                  !onboardingOpeningIsVisible(events, kickoffId),
+                );
+                if (!kickoff.started) {
                   await manager.saveTranscript(
                     {
                       id: msg.chatId,
@@ -3913,16 +4183,6 @@ export function startServer(port = PORT) {
           case "sendMessage": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
-            // A user message may arrive while a turn is still running (for
-            // example the user replying "I'm signed in" during a browser
-            // setup handoff). Wait for the current turn to finish, then
-            // process this message as a normal turn so the agent can respond,
-            // instead of rejecting it with "already running interactive work".
-            if (manager.get(msg.workspaceId, msg.chatId)?.isBusy) {
-              await manager
-                .waitForExecutionAvailability(msg.workspaceId, msg.chatId)
-                .catch(() => undefined);
-            }
             const attachments = safeMessageAttachments(msg.attachments);
             const destinationId = chatDestinations.get(
               `${msg.workspaceId}\0${msg.chatId}`,
@@ -4039,7 +4299,17 @@ export function startServer(port = PORT) {
               isSharedChannel,
               mentions: msg.mentions,
             });
-            if (isSharedChannel) {
+            // Follow-ups are durable before any interruption or execution
+            // wait. That keeps the user's message visible even if stopping the
+            // active provider takes a moment or fails and must fall back to a
+            // normal wait.
+            const shouldPreempt = [
+              msg.interruptActive,
+              openedSession.isBusy,
+            ].some(Boolean);
+            const recordedBeforeExecution =
+              Boolean(isSharedChannel) || shouldPreempt;
+            if (recordedBeforeExecution) {
               openedSession.recordUserMessage(msg.text, msg.messageId, {
                 threadRootId: msg.threadRootId,
                 mentions: msg.mentions,
@@ -4058,18 +4328,66 @@ export function startServer(port = PORT) {
                 });
               }
             }
+            let agentActivity:
+              { channelId: string; reactionId: string } | undefined;
+            let channelMessageMirrored = false;
+            if (respondingAgentId && destinationChannel) {
+              const respondingAgent = getAgent(respondingAgentId);
+              if (!respondingAgent) {
+                throw new Error(
+                  `${respondingAgentId} persona is missing from this workspace.`,
+                );
+              }
+              const targetEvent = await channelBridge.mirrorEvent(
+                manager,
+                send,
+                msg.workspaceId,
+                msg.chatId,
+                {
+                  type: "message",
+                  id: msg.messageId,
+                  role: "user",
+                  content: [
+                    ...(msg.text
+                      ? [{ type: "text" as const, text: msg.text }]
+                      : []),
+                    ...(attachments ?? []).map((attachment) => ({
+                      type: "image" as const,
+                      ...attachment,
+                    })),
+                  ],
+                  threadRootId: msg.threadRootId,
+                  mentions: msg.mentions,
+                },
+                destinationChannel.id,
+                undefined,
+                broadcastChannelEvent,
+              );
+              channelMessageMirrored = Boolean(targetEvent);
+              if (targetEvent) {
+                try {
+                  agentActivity = {
+                    channelId: destinationChannel.id,
+                    reactionId: await channelBridge.beginAgentActivityReaction(
+                      manager,
+                      send,
+                      msg.workspaceId,
+                      destinationChannel.id,
+                      targetEvent.id,
+                      {
+                        id: respondingAgent.id,
+                        name: respondingAgent.name,
+                      },
+                    ),
+                  };
+                } catch (error) {
+                  console.error("[runtime] agent activity reaction:", error);
+                }
+              }
+            }
             if (isSharedChannel && !respondingAgentId) {
               break;
             }
-            const releaseExecution = manager.acquireExecution(
-              msg.workspaceId,
-              msg.chatId,
-              "interactive",
-            );
-            let session = openedSession;
-            let releaseOnTerminal: ((event: AgentEvent) => void) | undefined;
-            let agentActivity:
-              { channelId: string; reactionId: string } | undefined;
             const finishAgentActivity = async () => {
               const current = agentActivity;
               agentActivity = undefined;
@@ -4082,7 +4400,31 @@ export function startServer(port = PORT) {
                 current.reactionId,
               );
             };
+            if (shouldPreempt) {
+              try {
+                await openedSession.interrupt();
+              } catch (error) {
+                // The follow-up is already durable. If the provider cannot be
+                // interrupted cleanly, execution acquisition below waits for
+                // its terminal event instead of dropping the user's message.
+                console.error("[runtime] interrupt before follow-up:", error);
+              } finally {
+                manager.releaseExecution(
+                  msg.workspaceId,
+                  msg.chatId,
+                  "interactive",
+                );
+              }
+            }
+            let releaseExecution: (() => void) | undefined;
+            let session = openedSession;
+            let releaseOnTerminal: ((event: AgentEvent) => void) | undefined;
             try {
+              releaseExecution = await manager.acquireExecutionWhenAvailable(
+                msg.workspaceId,
+                msg.chatId,
+                "interactive",
+              );
               const setupSkill = setupSkillFromPrompt(msg.text);
               if (setupSkill?.domain) {
                 integrationSetups.assignDomain(
@@ -4152,51 +4494,32 @@ export function startServer(port = PORT) {
                     `${respondingAgentId} persona is missing from this workspace.`,
                   );
                 }
-                const targetEvent = await channelBridge.mirrorEvent(
-                  manager,
-                  send,
-                  msg.workspaceId,
-                  msg.chatId,
-                  {
-                    type: "message",
-                    id: msg.messageId,
-                    role: "user",
-                    content: [
-                      ...(msg.text
-                        ? [{ type: "text" as const, text: msg.text }]
-                        : []),
-                      ...(attachments ?? []).map((attachment) => ({
-                        type: "image" as const,
-                        ...attachment,
-                      })),
-                    ],
-                    threadRootId: msg.threadRootId,
-                    mentions: msg.mentions,
-                  },
-                  destinationChannel.id,
-                  undefined,
-                  broadcastChannelEvent,
-                );
-                if (targetEvent) {
-                  try {
-                    agentActivity = {
-                      channelId: destinationChannel.id,
-                      reactionId:
-                        await channelBridge.beginAgentActivityReaction(
-                          manager,
-                          send,
-                          msg.workspaceId,
-                          destinationChannel.id,
-                          targetEvent.id,
-                          {
-                            id: respondingAgent.id,
-                            name: respondingAgent.name,
-                          },
-                        ),
-                    };
-                  } catch (error) {
-                    console.error("[runtime] agent activity reaction:", error);
-                  }
+                if (!channelMessageMirrored) {
+                  await channelBridge.mirrorEvent(
+                    manager,
+                    send,
+                    msg.workspaceId,
+                    msg.chatId,
+                    {
+                      type: "message",
+                      id: msg.messageId,
+                      role: "user",
+                      content: [
+                        ...(msg.text
+                          ? [{ type: "text" as const, text: msg.text }]
+                          : []),
+                        ...(attachments ?? []).map((attachment) => ({
+                          type: "image" as const,
+                          ...attachment,
+                        })),
+                      ],
+                      threadRootId: msg.threadRootId,
+                      mentions: msg.mentions,
+                    },
+                    destinationChannel.id,
+                    undefined,
+                    broadcastChannelEvent,
+                  );
                 }
                 const preference =
                   (await manager.agentPreference(
@@ -4245,7 +4568,8 @@ export function startServer(port = PORT) {
                   event.type === "exit"
                 ) {
                   session.off("event", releaseOnTerminal!);
-                  releaseExecution();
+                  releaseExecution?.();
+                  releaseExecution = undefined;
                   void finishAgentActivity().catch((error: unknown) =>
                     console.error(
                       "[runtime] agent activity reaction cleanup:",
@@ -4271,17 +4595,17 @@ export function startServer(port = PORT) {
                   } resolvedThreadRoot=${replyThreadRootId ?? "none"}`,
                 );
               }
-              const agentPrompt = setupSkill
-                ? `${msg.text}\n\n<chief_setup_skill id="${setupSkill.id}">\n${setupSkill.instructions}\n</chief_setup_skill>`
-                : msg.text;
               await session.sendPrompt(
-                agentPrompt,
+                msg.text,
                 msg.messageId,
-                !isSharedChannel,
+                !recordedBeforeExecution,
                 {
                   threadRootId: replyThreadRootId,
                   mentions: msg.mentions,
                   attachments,
+                  privateInstructions: setupSkill
+                    ? `Setup skill ${setupSkill.id}:\n${setupSkill.instructions}`
+                    : undefined,
                 },
               );
             } catch (error) {
@@ -4294,7 +4618,7 @@ export function startServer(port = PORT) {
                   reactionError,
                 ),
               );
-              releaseExecution();
+              releaseExecution?.();
               throw error;
             }
             break;
@@ -4615,8 +4939,7 @@ export function startServer(port = PORT) {
     console.log(`[chief] agent runtime listening on ws://127.0.0.1:${port}`);
     const startupCutoff = Date.now();
     void manager
-      .reconcileInterruptedBrowserRuns(startupCutoff)
-      .then(() => manager.reconcileInterruptedSpecialistSessions(startupCutoff))
+      .reconcileInterruptedSpecialistSessions(startupCutoff)
       .then(() =>
         manager.reconcileStaleActivitySessions(startupCutoff - 10 * 60_000),
       )

@@ -21,7 +21,7 @@
       "count": 17
     },
     "@typescript-eslint/require-await": {
-      "count": 3
+      "count": 2
     }
   },
   "src/drivers/codex.ts": {
@@ -32,9 +32,6 @@
       "count": 8
     },
     "@typescript-eslint/no-non-null-assertion": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unnecessary-condition": {
       "count": 1
     },
     "@typescript-eslint/no-unsafe-argument": {
@@ -61,9 +58,6 @@
   "src/drivers/opencode.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 9
-    },
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 2
     },
     "@typescript-eslint/prefer-optional-chain": {
       "count": 1

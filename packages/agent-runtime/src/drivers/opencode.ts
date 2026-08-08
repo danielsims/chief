@@ -92,14 +92,15 @@ export class OpenCodeDriver extends BaseDriver {
    * and the first prompt, so suppression ends once a real prompt begins.
    */
   private suppressReplay = false;
-  private startOptions: StartOptions | undefined;
 
   async start(options: StartOptions) {
     this.startOptions = options;
+    this.stopping = false;
     this.access = options.access;
     this.cwd = options.cwd;
     this.sessionId = options.resumeSessionId;
     this.suppressReplay = true;
+    this.buffer = "";
     writeFileSync(join(options.cwd, "AGENTS.md"), options.instructions);
     const env = agentEnvironment(options.env);
     this.environment = env;
@@ -113,23 +114,42 @@ export class OpenCodeDriver extends BaseDriver {
     if (options.model) {
       env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ model: options.model });
     }
-    this.process = spawn(findOpenCode(), ["acp"], {
+    const child = spawn(findOpenCode(), ["acp"], {
       cwd: options.cwd,
       env,
       stdio: ["pipe", "pipe", "pipe"],
       detached: true,
     });
-    this.process.stdout?.on("data", (chunk) => this.consume(String(chunk)));
-    this.process.stderr?.on("data", (chunk) => {
+    this.process = child;
+    child.stdout.on("data", (chunk) => {
+      if (this.process === child) this.consume(String(chunk));
+    });
+    child.stderr.on("data", (chunk) => {
+      if (this.process !== child) return;
       const message = String(chunk).trim();
       if (message) console.error(`[opencode] ${message.slice(0, 800)}`);
     });
-    this.process.on("error", (error) => {
+    child.on("error", (error) => {
+      if (this.process !== child) return;
+      if (this.pending.size > 0) {
+        this.rejectPending(error.message);
+        return;
+      }
       this.emitEvent({ type: "error", message: error.message });
     });
-    this.process.on("exit", (code) => {
+    child.on("exit", (code) => {
+      // A forced retry can overlap the old process exit with initialization of
+      // the replacement. Ignore every stale callback from the old generation.
+      if (this.process !== child) return;
+      this.process = null;
+      const hadPending = this.pending.size > 0;
       this.rejectPending("OpenCode exited.");
-      if (!this.stopping && code !== 0) {
+      this.permissions.clear();
+      this.activeTools.clear();
+      // A pending prompt is still owned by BaseDriver while it retries. Do not
+      // mark the chat idle or release its execution lock between attempts.
+      if (hadPending && !this.promptWasInterrupted()) return;
+      if (!this.stopping && !this.promptWasInterrupted() && code !== 0) {
         this.emitEvent({
           type: "error",
           message: `OpenCode exited unexpectedly${code === null ? "." : ` with code ${code}.`}`,
@@ -197,17 +217,26 @@ export class OpenCodeDriver extends BaseDriver {
           await this.rpc("session/load", {
             sessionId: this.sessionId,
             cwd: options.cwd,
+            additionalDirectories: options.additionalDirectories,
             mcpServers,
           }),
         );
       } catch {
         session = record(
-          await this.rpc("session/new", { cwd: options.cwd, mcpServers }),
+          await this.rpc("session/new", {
+            cwd: options.cwd,
+            additionalDirectories: options.additionalDirectories,
+            mcpServers,
+          }),
         );
       }
     } else {
       session = record(
-        await this.rpc("session/new", { cwd: options.cwd, mcpServers }),
+        await this.rpc("session/new", {
+          cwd: options.cwd,
+          additionalDirectories: options.additionalDirectories,
+          mcpServers,
+        }),
       );
     }
     // session/new returns the id; session/load returns only configOptions —
@@ -227,7 +256,7 @@ export class OpenCodeDriver extends BaseDriver {
     this.emitEvent({ type: "status", status: "idle" });
   }
 
-  async sendPrompt(text: string) {
+  async sendPromptOnce(text: string) {
     if (!this.sessionId) throw new Error("OpenCode session is not ready.");
     await this.restartIfNeeded();
     // A real prompt is running now; anything opencode streams belongs to it.
@@ -236,6 +265,7 @@ export class OpenCodeDriver extends BaseDriver {
     this.thinking = "";
     this.activeTools.clear();
     this.emitEvent({ type: "status", status: "running" });
+    let completed = false;
     try {
       const result = record(
         await this.rpc(
@@ -251,7 +281,9 @@ export class OpenCodeDriver extends BaseDriver {
       if (this.thinking) {
         content.push({ type: "thinking", thinking: this.thinking });
       }
-      if (this.stream) content.push({ type: "text", text: this.stream });
+      if (this.stream) {
+        content.push({ type: "text", text: this.stream });
+      }
       if (content.length > 0) {
         this.emitEvent({ type: "message", role: "assistant", content });
       }
@@ -264,25 +296,32 @@ export class OpenCodeDriver extends BaseDriver {
             ? String(stopReason)
             : undefined,
       });
-    } catch (error) {
-      this.emitEvent({
-        type: "error",
-        message: error instanceof Error ? error.message : String(error),
-      });
+      completed = true;
     } finally {
       this.stream = "";
       this.thinking = "";
-      this.emitEvent({ type: "status", status: "idle" });
+      // Keep the session busy while BaseDriver backs off and retries a thrown
+      // transport failure. Only a terminal attempt should release execution.
+      if (completed) this.emitEvent({ type: "status", status: "idle" });
     }
   }
 
   async interrupt() {
+    this.interrupted = true;
     // A hung child command is the usual reason an agent looks stuck; kill the
     // terminals too so SIGINT to the host actually frees the turn.
     for (const terminal of this.terminals.values()) {
       terminal.process.kill("SIGKILL");
     }
     this.process?.kill("SIGINT");
+  }
+
+  /** Recover from a failed prompt by re-spawning opencode and resuming the session. */
+  async restart(): Promise<void> {
+    const options = this.startOptions;
+    if (!options) throw new Error("OpenCode session is not ready.");
+    this.terminateProcess("OpenCode is restarting.");
+    await this.start({ ...options, resumeSessionId: this.sessionId });
   }
 
   /**
@@ -304,20 +343,40 @@ export class OpenCodeDriver extends BaseDriver {
 
   async stop() {
     this.stopping = true;
+    this.terminateProcess("OpenCode stopped.");
+  }
+
+  private terminateProcess(reason: string) {
+    this.permissions.clear();
+    this.activeTools.clear();
     for (const terminal of this.terminals.values()) {
+      if (terminal.pendingWaitTimer) clearTimeout(terminal.pendingWaitTimer);
+      terminal.pendingWaitId = undefined;
+      terminal.pendingWaitTimer = undefined;
       terminal.process.kill("SIGTERM");
     }
     this.terminals.clear();
-    const pid = this.process?.pid;
+    const child = this.process;
+    this.process = null;
+    this.rejectPending(reason);
+    const pid = child?.pid;
     if (pid) {
       try {
         process.kill(-pid, "SIGTERM");
       } catch {
-        this.process?.kill("SIGTERM");
+        child.kill("SIGTERM");
       }
+      const force = setTimeout(() => {
+        if (child.exitCode !== null) return;
+        try {
+          process.kill(-pid, "SIGKILL");
+        } catch {
+          child.kill("SIGKILL");
+        }
+      }, 2_000);
+      force.unref();
+      child.once("exit", () => clearTimeout(force));
     }
-    this.rejectPending("OpenCode stopped.");
-    this.process = null;
   }
 
   override respondPermission(requestId: string, behavior: "allow" | "deny") {
@@ -580,8 +639,8 @@ export class OpenCodeDriver extends BaseDriver {
         signal: null,
       };
       this.terminals.set(terminalId, state);
-      child.stdout?.on("data", (chunk) => (state.output += String(chunk)));
-      child.stderr?.on("data", (chunk) => (state.output += String(chunk)));
+      child.stdout.on("data", (chunk) => (state.output += String(chunk)));
+      child.stderr.on("data", (chunk) => (state.output += String(chunk)));
       child.on("exit", (code, signal) => {
         state.exitCode = code;
         state.signal = signal;
