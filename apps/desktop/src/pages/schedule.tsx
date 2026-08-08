@@ -153,6 +153,9 @@ function draftAccent(status: ScheduledDraft["status"]) {
 }
 
 function agentWorkAccent(agentId: string) {
+  if (agentId === "engineer") {
+    return "bg-amber-500";
+  }
   if (agentId === "prospector") {
     return "bg-violet-500";
   }

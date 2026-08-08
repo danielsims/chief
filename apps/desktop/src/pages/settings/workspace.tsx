@@ -62,6 +62,7 @@ function LogoPreview({
       website={website}
       className="h-12 w-12 shrink-0 text-lg"
       imgClassName="h-8 w-8 object-contain"
+      transparentWhenLoaded
     />
   );
 }

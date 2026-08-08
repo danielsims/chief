@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, ChevronUp, Plus, Smile } from "lucide-react";
+import { ChevronRight, ChevronUp, Smile } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import {
@@ -18,6 +18,10 @@ import {
 import { useUserStatus } from "../lib/user-status";
 import { OrgLogo } from "./org-logo";
 import { SetStatusDialog } from "./set-status-dialog";
+import {
+  nextWorkspaceMenuId,
+  WorkspaceActionsPopover,
+} from "./workspace-action-menu";
 
 export function SidebarProfileMenu() {
   const { user, cloudOrganizationId, isAuthenticated } = useAuth();
@@ -145,7 +149,9 @@ export function SidebarProfileMenu() {
                   key={organization.id}
                   open={workspaceMenuId === organization.id}
                   onOpenChange={(nextOpen) =>
-                    setWorkspaceMenuId(nextOpen ? organization.id : null)
+                    setWorkspaceMenuId((currentId) =>
+                      nextWorkspaceMenuId(currentId, organization.id, nextOpen),
+                    )
                   }
                 >
                   <PopoverTrigger asChild>
@@ -163,6 +169,7 @@ export function SidebarProfileMenu() {
                             : ""
                         }
                         className="size-6 shrink-0 text-[10px]"
+                        transparentWhenLoaded
                       />
                       <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
                         {organization.name}
@@ -173,46 +180,24 @@ export function SidebarProfileMenu() {
                       />
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent
-                    side="right"
-                    align="start"
-                    sideOffset={8}
-                    className="w-52 p-1.5"
-                  >
-                    {active ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setProfileMenuOpen(false);
-                          void navigate("/settings/workspace");
-                        }}
-                        className="hover:bg-accent flex h-9 w-full items-center rounded-lg px-2 text-left text-[13px] transition-colors"
-                      >
-                        Workspace settings
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={switchingTo !== null}
-                        onClick={() => void switchWorkspace(organization)}
-                        className="hover:bg-accent flex h-9 w-full items-center rounded-lg px-2 text-left text-[13px] transition-colors disabled:opacity-50"
-                      >
-                        Open workspace
-                      </button>
-                    )}
-                    <div className="bg-border/60 my-1 h-px" />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setProfileMenuOpen(false);
-                        void navigate("/workspaces/new");
-                      }}
-                      className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-colors"
-                    >
-                      <Plus size={13} />
-                      Add a workspace
-                    </button>
-                  </PopoverContent>
+                  <WorkspaceActionsPopover
+                    primaryLabel={
+                      active ? "Workspace settings" : "Open workspace"
+                    }
+                    primaryDisabled={!active && switchingTo !== null}
+                    onPrimaryAction={() => {
+                      setProfileMenuOpen(false);
+                      if (active) {
+                        void navigate("/settings/workspace");
+                      } else {
+                        void switchWorkspace(organization);
+                      }
+                    }}
+                    onAddWorkspace={() => {
+                      setProfileMenuOpen(false);
+                      void navigate("/workspaces/new");
+                    }}
+                  />
                 </Popover>
               );
             })}
