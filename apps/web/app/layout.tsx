@@ -30,13 +30,13 @@ const geistPixel = localFont({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://heychief.sh"),
-  title: "Chief: Your marketing team, already at work.",
+  title: "Chief: Your team of agents, already at work.",
   description:
-    "Proactive specialist agents keep recurring marketing work on schedule and bring results and decisions back for review.",
+    "A coordinated team of specialist agents keeps recurring work moving and brings useful results and real decisions back for review.",
   openGraph: {
-    title: "Chief: Your marketing team, already at work.",
+    title: "Chief: Your team of agents, already at work.",
     description:
-      "Proactive specialist agents keep marketing work moving and bring results back for review.",
+      "Specialist agents work together, keep recurring work moving and bring results back for review.",
     url: "/",
     siteName: "Chief",
     images: [
@@ -51,9 +51,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Chief: Your marketing team, already at work.",
+    title: "Chief: Your team of agents, already at work.",
     description:
-      "Proactive specialist agents keep marketing work moving and bring results back for review.",
+      "Specialist agents work together, keep recurring work moving and bring results back for review.",
     images: ["/brand/chief-social-card.png"],
   },
 };

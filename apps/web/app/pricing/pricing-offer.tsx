@@ -8,11 +8,12 @@ import { api } from "@chief/backend/convex/_generated/api";
 import { AppleIcon } from "../marketing-chrome";
 
 const agents = [
-  ["Chief Marketing Officer", "Strategy, priorities, delegation and review"],
+  ["Chief", "Strategy, priorities, delegation and review"],
+  ["Engineer", "Code, product changes and technical delivery"],
+  ["Marketer", "Campaign planning, monitoring and growth execution"],
   ["Analyst", "Traffic, funnel, campaign and growth reporting"],
-  ["Content writer", "Research, drafts and channel-native creative"],
-  ["Prospector", "Buying signals, prospects and timely conversations"],
-  ["Ads manager", "Campaign planning, monitoring and optimisation"],
+  ["Writer", "Research, drafts and channel-native creative"],
+  ["Researcher", "Buying signals, prospects and timely conversations"],
   ["Setup agent", "Connections, credentials and workspace configuration"],
 ];
 

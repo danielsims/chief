@@ -25,16 +25,16 @@ export function WorkChannels() {
         </header>
         <div className="flow-result-cycle">
           <div className="flow-result-item">
-            <strong>Weekly review ready</strong>
-            <p>Signups increased 18%. Two decisions are ready.</p>
+            <strong>Release review ready</strong>
+            <p>The blocker is isolated. One decision is ready.</p>
           </div>
           <div className="flow-result-item">
-            <strong>Social calendar ready</strong>
-            <p>Twelve posts are prepared across three channels.</p>
+            <strong>Customer signals ready</strong>
+            <p>Seven interviews are synthesized into three themes.</p>
           </div>
           <div className="flow-result-item">
-            <strong>Ads check complete</strong>
-            <p>Two changes are ready for your approval.</p>
+            <strong>Dependency check complete</strong>
+            <p>Two follow-ups are ready for your approval.</p>
           </div>
         </div>
       </article>
@@ -84,7 +84,7 @@ export function WorkChannels() {
         <article className="flow-destination destination-slack">
           <header>
             <img src="https://integrations.sh/logo/slack.com" alt="" />
-            <strong>#marketing</strong>
+            <strong>#team-updates</strong>
           </header>
           <div className="slack-message">
             <span>
@@ -101,8 +101,8 @@ export function WorkChannels() {
                 <time>9:41 AM</time>
               </p>
               <small>
-                Weekly review is ready. Signups increased 18% and two decisions
-                need you.
+                The weekly review is ready. The team moved four priorities and
+                one decision needs you.
               </small>
             </div>
           </div>
@@ -116,8 +116,8 @@ export function WorkChannels() {
           <div>
             <img src="https://integrations.sh/logo/claude.ai" alt="" />
             <p>
-              I pulled the latest review from Chief. Signups increased 18% this
-              week.
+              I pulled the latest review from Chief. Four priorities moved this
+              week and one decision is ready.
             </p>
           </div>
         </article>
@@ -146,13 +146,13 @@ export function WorkChannels() {
               />
             </span>
             <div>
-              <b>Your weekly marketing digest</b>
+              <b>Your weekly team digest</b>
               <p>
                 <strong>Chief</strong>
                 <time>9:41 AM</time>
               </p>
               <small>
-                Signups are up 18%. Two decisions are ready for review.
+                Four priorities moved. One decision is ready for review.
               </small>
             </div>
           </div>
