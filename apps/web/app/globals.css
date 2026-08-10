@@ -2517,7 +2517,7 @@ body {
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  border-radius: 50%;
+  border-radius: 10px;
   background: #ededeb;
   color: #111;
   font-size: 17px;
@@ -2620,365 +2620,21 @@ body {
   padding: 12px 14px;
   border: 1px solid #303030;
 }
-.flow-destination > span {
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  overflow: hidden;
-  border: 1px solid rgba(127, 127, 127, 0.24);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-}
-.flow-destination img,
-.flow-destination svg {
-  width: 22px;
-  height: 22px;
-  object-fit: contain;
-}
-.destination-name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.destination-name i {
-  padding: 2px 4px;
-  border-radius: 3px;
-  background: rgba(127, 127, 127, 0.18);
-  font-size: 6px;
-  font-style: normal;
-}
-.flow-destination strong,
-.flow-destination small {
-  display: block;
-}
-.flow-destination strong {
-  font-size: 11px;
-  font-weight: 600;
-}
-.flow-destination small {
-  margin-top: 5px;
-  font-size: 9px;
-  line-height: 1.45;
-}
-.destination-slack {
-  border-color: #383b40;
-  background: #1a1d21;
-  color: #f3f3f3;
-}
-.destination-slack small {
-  color: #c0c0c2;
-}
-.destination-claude {
-  border-color: #d9d4c8;
-  background: #f2efe7;
-  color: #302d28;
-}
-.destination-claude small {
-  color: #6d675e;
-}
-.destination-chatgpt {
-  border-color: #292929;
-  background: #0b0b0b;
-  color: #f0f0f0;
-}
-.destination-chatgpt small {
-  color: #b4b4b4;
-}
-.destination-browser {
-  border-color: #dadad7;
-  background: #f5f5f2;
-  color: #191919;
-}
-.destination-browser small {
-  color: #686864;
-}
 .flow-destination {
   min-height: 96px;
   display: block;
   padding: 0;
   overflow: hidden;
 }
-.flow-destination img {
-  object-fit: contain;
-}
-.destination-slack {
-  font-family: var(--font-slack), Lato, Arial, sans-serif;
-  border-color: #d8d8d8;
-  background: #fff;
-  color: #1d1c1d;
-}
-.destination-slack > header {
-  height: 31px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 10px;
-  border-bottom: 1px solid #ddd;
-}
-.destination-slack > header img {
-  width: 14px;
-  height: 14px;
-}
-.destination-slack > header strong {
-  font-size: 10px;
-  font-weight: 700;
-}
-.slack-message {
-  display: flex;
-  gap: 8px;
-  padding: 9px 10px;
-}
-.slack-message > span {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  border: 1px solid #d8d8d6;
-  border-radius: 50%;
-  background: #fff;
-  color: #111;
-  font-size: 13px;
-  font-weight: 650;
-  letter-spacing: -0.04em;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
-}
-.slack-message p {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin: 0;
-}
-.slack-message p strong {
-  font-size: 9px;
-  font-weight: 700;
-}
-.slack-message p i {
-  padding: 1px 3px;
-  border-radius: 2px;
-  background: #e8e8e8;
-  color: #616061;
-  font-size: 5px;
-  font-style: normal;
-}
-.slack-message p time {
-  color: #616061;
-  font-size: 6px;
-}
-.slack-message small {
-  margin-top: 3px;
-  color: #1d1c1d;
-  font-size: 8px;
-  line-height: 1.35;
-}
-.destination-claude {
-  font-family: var(--font-sans);
-  border-color: #d8d1c3;
-  background: #f5f1e8;
-  color: #2f2c27;
-}
-.channel-chief-mark {
-  width: 16px;
-  height: 16px;
-}
-.destination-claude > header,
-.destination-chatgpt > header,
-.destination-gmail > header {
-  height: 31px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 10px;
-  border-bottom: 1px solid rgba(80, 80, 80, 0.17);
-}
-.destination-claude > header img {
-  width: 15px;
-  height: 15px;
-}
-.destination-claude > header strong {
-  font-size: 10px;
-  font-weight: 400;
-}
-.destination-claude > div {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 9px 10px;
-}
-.destination-claude > div img {
-  width: 17px;
-  height: 17px;
-}
-.destination-claude > div p {
-  margin: 0;
-  color: #413d36;
-  font-family: Arial, sans-serif;
-  font-size: 8px;
-  line-height: 1.45;
-}
-.destination-chatgpt {
-  font-family: Arial, sans-serif;
-  border-color: #292929;
-  background: #0b0b0b;
-  color: #ececec;
-}
-.destination-chatgpt > header img {
-  width: 15px;
-  height: 15px;
-  filter: grayscale(1) brightness(0) invert(1);
-}
-.destination-chatgpt > header strong {
-  font-size: 10px;
-}
-.destination-chatgpt > div {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 9px 10px;
-}
-.destination-chatgpt > div img {
-  width: 17px;
-  height: 17px;
-  filter: grayscale(1) brightness(0) invert(1);
-}
-.destination-chatgpt > div p {
-  margin: 0;
-  color: #e5e5e5;
-  font-size: 8px;
-  line-height: 1.45;
-}
-.destination-gmail {
-  font-family: Arial, sans-serif;
-  border-color: #dadce0;
-  background: #fff;
-  color: #202124;
-}
-.destination-gmail > header img {
-  width: 16px;
-  height: 16px;
-}
-.destination-gmail > header strong {
-  font-size: 10px;
-  font-weight: 500;
-}
-.destination-gmail > header span {
-  margin-left: auto;
-  color: #5f6368;
-  font-size: 7px;
-}
-.gmail-message {
-  display: flex;
-  gap: 8px;
-  padding: 8px 10px;
-}
-.gmail-message > span {
-  width: 27px;
-  height: 27px;
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  border: 1px solid #dadce0;
-  border-radius: 50%;
-  background: #fff;
-  color: #111;
-  font-size: 12px;
-  font-weight: 650;
-  letter-spacing: -0.04em;
-  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.18);
-}
-.gmail-message p {
-  display: flex;
-  align-items: center;
-  margin: 0;
-}
-.gmail-message p strong {
-  font-size: 8px;
-}
-.gmail-message p time {
-  margin-left: auto;
-  color: #5f6368;
-  font-size: 6px;
-}
-.gmail-message b,
-.gmail-message small {
-  display: block;
-}
-.gmail-message b {
-  margin-top: 2px;
-  font-size: 8px;
-}
-.gmail-message small {
-  margin-top: 2px;
-  color: #5f6368;
-  font-size: 7px;
-  line-height: 1.35;
-}
-
 .flow-lines circle {
   fill: #f1f1ec;
 }
 .flow-pulse {
   filter: drop-shadow(0 0 5px rgba(238, 238, 232, 0.75));
 }
-.destination-slack > header strong {
-  font-size: 11px;
+.flow-lines-mobile {
+  display: none;
 }
-.slack-message p strong {
-  font-size: 10.5px;
-}
-.slack-message small {
-  font-size: 10px;
-  line-height: 1.45;
-}
-.destination-claude > header strong {
-  font-size: 11.5px;
-}
-.destination-claude > div p {
-  font-size: 11px;
-  line-height: 1.5;
-}
-.destination-chatgpt {
-  font-family:
-    "OpenAI Sans",
-    var(--font-openai-fallback),
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
-}
-.destination-chatgpt > header strong {
-  font-size: 11.5px;
-}
-.destination-chatgpt > div p {
-  font-size: 11px;
-  line-height: 1.5;
-}
-.destination-gmail {
-  font-family: "Google Sans", Roboto, Arial, sans-serif;
-}
-.destination-gmail > header {
-  height: 31px;
-  background: #f6f8fc;
-}
-.gmail-message {
-  align-items: center;
-  padding: 10px 12px;
-}
-.gmail-message p {
-  margin: 3px 0 0;
-}
-.gmail-message p strong {
-  font-size: 8px;
-}
-.gmail-message b {
-  margin-top: 0;
-}
-.gmail-message small {
-  line-height: 1.35;
-}
-
 .channel-flow {
   min-height: 560px;
   border-top: 0;
@@ -2987,6 +2643,8 @@ body {
 .flow-result {
   height: 166px;
   overflow: hidden;
+  border-radius: 18px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.24);
 }
 .flow-result > header {
   padding: 16px 18px;
@@ -3026,83 +2684,107 @@ body {
   line-height: 1.55;
 }
 .flow-destination {
-  min-height: 104px;
+  min-height: 112px;
+  padding: 14px;
+  border-radius: 16px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16);
 }
-.destination-slack > header {
-  height: 34px;
+.flow-destination > header {
+  height: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
-.slack-message {
-  padding: 11px 12px;
+.flow-destination-icon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(127, 127, 127, 0.16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.76);
 }
-.slack-message p strong {
-  font-size: 10.5px;
+.flow-destination-icon img {
+  width: 17px;
+  height: 17px;
 }
-.slack-message p time {
+.flow-destination-name {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.flow-destination-name strong {
+  font-size: 11px;
+  font-weight: 600;
+}
+.flow-destination-name small {
+  margin: 0;
+  color: inherit;
+  font-size: 8px;
+  opacity: 0.58;
+}
+.flow-destination em {
+  margin-left: auto;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.12);
   font-size: 7px;
+  font-style: normal;
 }
-.slack-message small {
+.flow-destination > p {
+  margin: 13px 0 0;
   font-size: 10px;
   line-height: 1.45;
+  opacity: 0.8;
 }
-.destination-claude {
-  font-family:
-    "Anthropic Sans",
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    system-ui,
-    sans-serif;
+.flow-destination.destination-slack {
+  border-color: #4b2c4c;
+  background: #28162a;
+  color: #faf6fa;
 }
-.destination-claude > header,
-.destination-chatgpt > header {
-  height: 34px;
+.destination-slack .flow-destination-icon,
+.destination-claude .flow-destination-icon {
+  border: 0;
+  background: transparent;
 }
-.destination-claude > header strong,
-.destination-chatgpt > header strong {
-  font-size: 11.5px;
-  font-weight: 500;
+.destination-slack .flow-destination-icon img,
+.destination-claude .flow-destination-icon img {
+  width: 32px;
+  height: 32px;
+  display: block;
+  border-radius: 10px;
+  object-fit: cover;
 }
-.destination-claude > div,
-.destination-chatgpt > div {
-  gap: 10px;
-  padding: 12px;
+.flow-destination.destination-claude {
+  border-color: #d9d0bf;
+  background: #f4efe5;
+  color: #332f29;
 }
-.destination-claude > div img,
-.destination-chatgpt > div img {
-  width: 18px;
-  height: 18px;
+.flow-destination.destination-chatgpt {
+  border-color: #30302f;
+  background: #171717;
+  color: #f0f0ed;
 }
-.destination-claude > div p {
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  font-size: 11.5px;
-  line-height: 1.48;
-  letter-spacing: -0.01em;
+.destination-chatgpt .flow-destination-icon {
+  border-color: #363634;
+  background: #20201f;
 }
-.destination-chatgpt {
-  border: 1px solid #292929;
-  background: #0b0b0b;
-  font-family:
-    "OpenAI Sans",
-    var(--font-openai-fallback),
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    system-ui,
-    sans-serif;
+.destination-chatgpt .flow-destination-icon img {
+  filter: grayscale(1) brightness(0) invert(1);
 }
-.destination-chatgpt > header {
-  border-bottom: 0;
+.flow-destination.destination-gmail {
+  border-color: #dfe3eb;
+  background: #f8fafd;
+  color: #202124;
 }
-.destination-chatgpt > div p {
-  font-size: 11px;
-  line-height: 1.5;
-}
-.gmail-message b {
-  font-size: 9px;
-}
-.gmail-message small {
-  font-size: 8px;
+.destination-gmail .flow-destination-icon img {
+  display: block;
+  object-fit: contain;
+  object-position: center;
 }
 @keyframes result-cycle {
   0%,
@@ -3409,7 +3091,7 @@ body {
 .pricing-hero {
   min-height: 420px;
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: end;
   gap: 60px;
   padding: 88px 48px 56px;
@@ -3434,31 +3116,6 @@ body {
   font-size: 13px;
   line-height: 1.7;
 }
-.billing-toggle {
-  align-self: end;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  padding: 3px;
-  border: 1px solid #303030;
-  background: #0d0d0d;
-}
-.billing-toggle button {
-  min-height: 42px;
-  border: 0;
-  background: transparent;
-  color: #777773;
-  font-size: 11px;
-}
-.billing-toggle button.active {
-  background: #ededeb;
-  color: #111;
-}
-.billing-toggle span {
-  display: block;
-  margin-top: 2px;
-  font-size: 7px;
-  letter-spacing: 0.02em;
-}
 .offer-card {
   display: grid;
   grid-template-columns: 1.1fr 0.9fr;
@@ -3473,25 +3130,12 @@ body {
 .offer-summary {
   border-right: 1px solid var(--line);
 }
-.offer-highlights > p {
-  color: #777773;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.02em;
-}
 .offer-summary h2 {
-  margin: 16px 0 0;
+  margin: 0;
   font-family: var(--font-sans);
-  font-size: 76px;
+  font-size: clamp(48px, 5.5vw, 68px);
   font-weight: 400;
-  line-height: 0.8;
-}
-.offer-summary h2 small {
-  margin-left: 8px;
-  color: #777773;
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 400;
+  line-height: 0.94;
 }
 .offer-summary p {
   max-width: 390px;
@@ -3503,7 +3147,7 @@ body {
 .offer-highlights ul {
   display: grid;
   gap: 0;
-  margin: 28px 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
@@ -3608,7 +3252,7 @@ body {
   margin-bottom: 48px;
 }
 .pricing-faq h2 {
-  margin-top: 15px;
+  margin-top: 0;
 }
 .pricing-faq details {
   border-top: 1px solid var(--line);
@@ -4945,73 +4589,13 @@ body {
 
 @media (max-width: 900px) {
   .landing-app-shell {
-    width: 980px;
-    max-width: none;
+    width: 100%;
   }
   .hero-product .landing-app-shell {
-    width: 980px;
+    width: 100%;
   }
   .calendar-demo {
-    width: 980px;
-  }
-}
-
-@media (max-width: 700px) {
-  .hero-product .landing-app-shell,
-  .calendar-demo,
-  .calendar-demo .landing-app-shell {
-    width: 820px;
-  }
-  .calendar-backdrop {
-    overflow: hidden;
-  }
-  .calendar-demo {
-    display: block;
-    border: 0;
-  }
-  .calendar-demo .landing-app-sidebar,
-  .calendar-demo .landing-app-rail {
-    display: flex;
-  }
-  .calendar-body {
-    grid-template-columns: minmax(0, 1fr) 145px;
-  }
-  .calendar-weekdays {
-    display: grid;
-  }
-  .calendar-grid {
-    width: auto;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 0;
-    padding: 0;
-  }
-  .calendar-day {
-    min-height: 0;
-    height: auto;
-    display: block;
-    padding: 5px;
-    border: 0;
-    border-right: 1px solid #242424;
-    border-bottom: 1px solid #242424;
-    background: transparent;
-  }
-  .calendar-day:has(.calendar-post) {
-    min-height: 0;
-    height: auto;
-    display: block;
-    padding: 5px;
-    border: 0;
-    border-right: 1px solid #242424;
-    border-bottom: 1px solid #242424;
-    background: transparent;
-  }
-  .calendar-day:has(.calendar-post) > span {
-    text-align: right;
-    font-size: 7px;
-  }
-  .calendar-post {
-    margin-top: 7px;
-    padding: 4px;
+    width: 100%;
   }
 }
 
@@ -5170,7 +4754,7 @@ body {
     border-bottom: 1px solid var(--line);
   }
   .offer-summary h2 {
-    font-size: 64px;
+    font-size: 48px;
   }
   .pricing-agents,
   .plan-comparison,
@@ -5505,4 +5089,260 @@ body {
 .calendar-footer i.green {
   border-radius: 50%;
   background: #10b981;
+}
+
+@media (max-width: 700px) {
+  .hero-product,
+  .calendar-backdrop {
+    overflow: hidden;
+  }
+  .hero-product .landing-app-shell,
+  .calendar-demo,
+  .calendar-demo .landing-app-shell {
+    width: 100%;
+  }
+  .hero-product .landing-app-shell,
+  .calendar-demo .landing-app-shell {
+    aspect-ratio: 4 / 5;
+    grid-template-columns: 34px minmax(0, 1fr);
+    grid-template-rows: 30px minmax(0, 1fr);
+    border-radius: 14px;
+  }
+  .hero-product .landing-app-sidebar,
+  .calendar-demo .landing-app-sidebar {
+    display: none;
+  }
+  .hero-product .landing-app-chrome,
+  .calendar-demo .landing-app-chrome {
+    grid-column: 2;
+    gap: 7px;
+    padding-left: 10px;
+  }
+  .landing-app-lights {
+    height: 30px;
+    gap: 3px;
+    padding: 7px 0 0 5px;
+  }
+  .landing-app-lights i {
+    width: 6px;
+    height: 6px;
+  }
+  .landing-app-workspace {
+    width: 20px;
+    height: 20px;
+  }
+  .landing-app-surface {
+    margin: 0 6px 6px 0;
+    border-radius: 11px;
+  }
+
+  .landing-overview {
+    padding: 42px 12px 10px;
+  }
+  .landing-overview-heading h3 {
+    font-size: 19px;
+  }
+  .landing-overview-heading p {
+    margin-top: 7px;
+    font-size: 7px;
+  }
+  .landing-overview-chief {
+    display: none;
+  }
+  .landing-overview-grid {
+    height: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: 142px 105px;
+    gap: 7px;
+    margin-top: 14px;
+  }
+  .landing-focus-card {
+    grid-row: auto;
+    grid-column: 1 / -1;
+  }
+  .landing-learning-card {
+    padding: 16px;
+  }
+  .landing-learning-card h4 {
+    margin-top: 10px;
+    font-size: 17px;
+  }
+  .landing-learning-card p {
+    margin-top: 8px;
+    font-size: 7px;
+    line-height: 1.5;
+  }
+  .landing-learning-card > button {
+    min-height: 23px;
+    margin-top: 10px;
+    font-size: 7px;
+  }
+  .landing-traffic-card {
+    padding: 10px;
+  }
+  .landing-traffic-card h4 {
+    margin-top: 2px;
+    font-size: 12px;
+  }
+  .landing-traffic-card p {
+    margin-top: 6px;
+  }
+  .landing-traffic-card p strong {
+    font-size: 13px;
+  }
+  .landing-traffic-chart {
+    right: 10px;
+    bottom: 19px;
+    left: 10px;
+    height: 24px;
+  }
+  .landing-traffic-pagination {
+    right: 9px;
+    bottom: 5px;
+  }
+  .landing-agent-work-card {
+    padding: 10px;
+  }
+  .landing-agent-work-card > header span:last-child,
+  .landing-agent-work-row:nth-child(3) {
+    display: none;
+  }
+  .landing-agent-work-card > div {
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .landing-agent-work-row {
+    grid-template-columns: 5px minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+  .landing-agent-work-row > span:first-child {
+    display: none;
+  }
+  .landing-overview-composer {
+    display: none;
+  }
+
+  .calendar-page-heading {
+    min-height: 55px;
+    padding: 9px 11px 7px;
+  }
+  .calendar-page-heading strong {
+    font-size: 16px;
+  }
+  .calendar-page-heading small {
+    max-width: 190px;
+    font-size: 6px;
+  }
+  .calendar-page-heading > button {
+    min-height: 24px;
+    padding-inline: 7px;
+    font-size: 6.5px;
+  }
+  .calendar-toolbar {
+    min-height: 35px;
+    height: 35px;
+    padding: 0 11px;
+  }
+  .calendar-toolbar > strong {
+    font-size: 12px;
+  }
+  .calendar-toolbar > div > button:not(.calendar-review-trigger),
+  .calendar-toolbar > div > span {
+    display: none;
+  }
+  .calendar-weekdays,
+  .calendar-body > aside.calendar-review-popover {
+    display: none;
+  }
+  .calendar-grid {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 5px 10px;
+  }
+  .calendar-day {
+    display: none;
+  }
+  .calendar-day:has(.calendar-post) {
+    min-height: 0;
+    display: grid;
+    flex: 1 1 0;
+    grid-template-columns: 24px minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+    border: 0;
+    border-bottom: 1px solid #242424;
+    background: transparent;
+  }
+  .calendar-day:has(.calendar-post):last-child {
+    border-bottom: 0;
+  }
+  .calendar-day:has(.calendar-post) > span {
+    color: #777773;
+    font-size: 7px;
+    text-align: center;
+  }
+  .calendar-post {
+    margin: 0;
+    padding: 5px 7px;
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+  .calendar-post strong {
+    font-size: 7px;
+  }
+  .calendar-post small {
+    font-size: 5.5px;
+  }
+  .calendar-footer {
+    min-height: 24px;
+    gap: 8px;
+    padding: 0 10px;
+    font-size: 5.5px;
+  }
+  .calendar-footer span:nth-child(3) {
+    display: none;
+  }
+
+  .channel-flow {
+    gap: 22px;
+  }
+  .flow-result {
+    border-radius: 16px;
+  }
+  .flow-destinations {
+    position: relative;
+    gap: 10px;
+    padding-left: 22px;
+  }
+  .flow-lines-mobile {
+    display: block;
+    position: absolute;
+    top: -22px;
+    left: 0;
+    z-index: 0;
+    width: 100%;
+    height: calc(100% + 22px);
+    overflow: visible;
+    pointer-events: none;
+  }
+  .flow-lines-mobile path {
+    fill: none;
+    stroke: #3a3a38;
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+  }
+  .flow-lines-mobile circle {
+    fill: #f1f1ec;
+  }
+  .flow-destination {
+    min-height: 0;
+    position: relative;
+    z-index: 1;
+    padding: 14px;
+    border-radius: 15px;
+  }
 }

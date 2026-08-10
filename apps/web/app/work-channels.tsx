@@ -7,6 +7,48 @@ const flowPaths = [
   "M 495 260 C 545 260, 555 455, 610 455",
 ];
 
+const mobileFlowPaths = [
+  "M 19 0 L 19 160 L 54 160",
+  "M 19 0 L 19 400 L 54 400",
+  "M 19 0 L 19 640 L 54 640",
+  "M 19 0 L 19 880 L 54 880",
+];
+
+const destinations = [
+  {
+    id: "slack",
+    name: "Slack",
+    detail: "#team-updates",
+    status: "Posted",
+    copy: "Four priorities moved. One decision needs you.",
+    domain: "slack.com",
+  },
+  {
+    id: "claude",
+    name: "Claude",
+    detail: "Workspace context",
+    status: "Ready",
+    copy: "Bring the latest Chief result into the conversation.",
+    domain: "claude.ai",
+  },
+  {
+    id: "chatgpt",
+    name: "ChatGPT",
+    detail: "Connected app",
+    status: "Ready",
+    copy: "Ask with the useful workspace context already attached.",
+    domain: "chatgpt.com",
+  },
+  {
+    id: "gmail",
+    name: "Gmail",
+    detail: "Weekly digest",
+    status: "Delivered",
+    copy: "A calm summary arrives when results are ready.",
+    domain: "gmail.com",
+  },
+] as const;
+
 export function WorkChannels() {
   return (
     <div
@@ -40,7 +82,7 @@ export function WorkChannels() {
       </article>
 
       <svg
-        className="flow-lines"
+        className="flow-lines flow-lines-desktop"
         aria-hidden="true"
         viewBox="0 0 1000 520"
         preserveAspectRatio="none"
@@ -51,28 +93,25 @@ export function WorkChannels() {
             <circle className="flow-pulse" r="2.5">
               <animateMotion
                 path={path}
-                dur="6.4s"
-                begin={`-${index * 1.35}s`}
-                keyPoints="0;1"
-                keyTimes="0;1"
-                keySplines=".22 1 .36 1"
-                calcMode="spline"
+                dur="4.2s"
+                begin={`-${index * 1.05}s`}
+                calcMode="linear"
                 repeatCount="indefinite"
               />
               <animate
                 attributeName="r"
                 values="2;3.8;2.7;4.2;2"
-                keyTimes="0;0.64;0.8;0.9;1"
-                dur="6.4s"
-                begin={`-${index * 1.35}s`}
+                keyTimes="0;0.7;0.84;0.94;1"
+                dur="4.2s"
+                begin={`-${index * 1.05}s`}
                 repeatCount="indefinite"
               />
               <animate
                 attributeName="opacity"
-                values="0;1;1;.75;0"
-                keyTimes="0;.1;.8;.92;1"
-                dur="6.4s"
-                begin={`-${index * 1.35}s`}
+                values="0;1;1;0"
+                keyTimes="0;.06;.94;1"
+                dur="4.2s"
+                begin={`-${index * 1.05}s`}
                 repeatCount="indefinite"
               />
             </circle>
@@ -81,82 +120,58 @@ export function WorkChannels() {
       </svg>
 
       <div className="flow-destinations">
-        <article className="flow-destination destination-slack">
-          <header>
-            <img src="https://integrations.sh/logo/slack.com" alt="" />
-            <strong>#team-updates</strong>
-          </header>
-          <div className="slack-message">
-            <span>
-              <BrandMark
-                className="channel-chief-mark"
-                size={16}
-                tone="black"
-              />
-            </span>
-            <div>
-              <p>
-                <strong>Chief</strong>
-                <i>APP</i>
-                <time>9:41 AM</time>
-              </p>
-              <small>
-                The weekly review is ready. The team moved four priorities and
-                one decision needs you.
-              </small>
-            </div>
-          </div>
-        </article>
-
-        <article className="flow-destination destination-claude">
-          <header>
-            <img src="https://integrations.sh/logo/claude.ai" alt="" />
-            <strong>Claude</strong>
-          </header>
-          <div>
-            <img src="https://integrations.sh/logo/claude.ai" alt="" />
-            <p>
-              I pulled the latest review from Chief. Four priorities moved this
-              week and one decision is ready.
-            </p>
-          </div>
-        </article>
-
-        <article className="flow-destination destination-chatgpt">
-          <header>
-            <img src="https://integrations.sh/logo/chatgpt.com" alt="" />
-            <strong>ChatGPT</strong>
-          </header>
-          <div>
-            <p>Chief returned your weekly review with two actions ready.</p>
-          </div>
-        </article>
-
-        <article className="flow-destination destination-gmail">
-          <header>
-            <img src="https://integrations.sh/logo/gmail.com" alt="" />
-            <strong>Gmail</strong>
-          </header>
-          <div className="gmail-message">
-            <span>
-              <BrandMark
-                className="channel-chief-mark"
-                size={16}
-                tone="black"
-              />
-            </span>
-            <div>
-              <b>Your weekly team digest</b>
-              <p>
-                <strong>Chief</strong>
-                <time>9:41 AM</time>
-              </p>
-              <small>
-                Four priorities moved. One decision is ready for review.
-              </small>
-            </div>
-          </div>
-        </article>
+        <svg
+          className="flow-lines-mobile"
+          aria-hidden="true"
+          viewBox="0 0 100 1000"
+          preserveAspectRatio="xMinYMin meet"
+        >
+          {mobileFlowPaths.map((path, index) => (
+            <g key={path}>
+              <path d={path} />
+              <circle className="flow-pulse" r="2.4">
+                <animateMotion
+                  path={path}
+                  dur="8s"
+                  begin={`-${index * 2}s`}
+                  keyPoints="0;1;1"
+                  keyTimes="0;.25;1"
+                  calcMode="linear"
+                  repeatCount="indefinite"
+                />
+                <animate
+                  attributeName="opacity"
+                  values="0;1;1;0;0"
+                  keyTimes="0;.02;.23;.25;1"
+                  dur="8s"
+                  begin={`-${index * 2}s`}
+                  repeatCount="indefinite"
+                />
+              </circle>
+            </g>
+          ))}
+        </svg>
+        {destinations.map((destination) => (
+          <article
+            className={`flow-destination destination-${destination.id}`}
+            key={destination.id}
+          >
+            <header>
+              <span className="flow-destination-icon">
+                <img
+                  src={`https://integrations.sh/logo/${destination.domain}`}
+                  alt=""
+                />
+              </span>
+              <span className="flow-destination-name">
+                <strong>{destination.name}</strong>
+                <small>{destination.detail}</small>
+              </span>
+              <em>{destination.status}</em>
+            </header>
+            <p>{destination.copy}</p>
+          </article>
+        ))}
       </div>
     </div>
   );
