@@ -23,7 +23,19 @@ import {
   storeBrowserGeneratedCredential,
 } from "../integration-setup-control.js";
 import { browserCredentialSetupRecipe } from "../integration-setup-recipes.js";
+import { executorStructuredResult } from "./executor-response.js";
+import {
+  GOOGLE_ANALYTICS_AUTH_TEMPLATE,
+  GOOGLE_ANALYTICS_CONNECTION,
+  GOOGLE_ANALYTICS_INTEGRATION,
+  GOOGLE_ANALYTICS_OAUTH_CLIENT,
+  GOOGLE_ANALYTICS_OPENAPI_URL,
+  googleAnalyticsAuthentication,
+  prepareGoogleAnalyticsSpec,
+} from "./google-analytics-spec.js";
 import { executorBinary } from "./spec.js";
+
+export { executorStructuredResult } from "./executor-response.js";
 
 const execFileAsync = promisify(execFile);
 const CHIEF_INTEGRATION = "chief";
@@ -133,100 +145,10 @@ export function registerExecutorAgentPermissionCeiling(
 }
 const preparedGoogleAnalytics = new Set<string>();
 
-const GOOGLE_ANALYTICS_INTEGRATION = "google_analytics";
-const GOOGLE_ANALYTICS_CONNECTION = "main";
-const GOOGLE_ANALYTICS_OAUTH_CLIENT = "chief_google_analytics";
-const GOOGLE_ANALYTICS_AUTH_TEMPLATE = "google-analytics";
-const GOOGLE_ANALYTICS_SCOPE =
-  "https://www.googleapis.com/auth/analytics.readonly";
-const GOOGLE_ANALYTICS_OPENAPI_URL =
-  "https://api.apis.guru/v2/specs/googleapis.com/analyticsdata/v1beta/openapi.json";
-
-export function googleAnalyticsSpecOverrides() {
-  return [
-    {
-      op: "add",
-      path: "/paths/~1v1beta~1accountSummaries",
-      value: {
-        get: {
-          operationId: "accountSummariesList",
-          "x-executor-toolPath": "accountSummaries.list",
-          servers: [{ url: "https://analyticsadmin.googleapis.com" }],
-          parameters: [
-            {
-              name: "pageSize",
-              in: "query",
-              required: false,
-              schema: { type: "integer", minimum: 1, maximum: 200 },
-            },
-            {
-              name: "pageToken",
-              in: "query",
-              required: false,
-              schema: { type: "string" },
-            },
-          ],
-          responses: {
-            200: {
-              description:
-                "Accessible Google Analytics accounts and properties",
-              content: {
-                "application/json": {
-                  schema: { type: "object", additionalProperties: true },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-  ];
-}
-
-/** Repairs reserved Google resource names lost by the APIs.guru conversion. */
-export function prepareGoogleAnalyticsSpec(source: unknown) {
-  if (!source || typeof source !== "object") {
-    throw new Error("Google Analytics returned an invalid OpenAPI document.");
-  }
-  const spec = structuredClone(source) as Record<string, unknown>;
-  const paths =
-    spec.paths && typeof spec.paths === "object"
-      ? (spec.paths as Record<string, Record<string, unknown>>)
-      : {};
-  spec.paths = paths;
-  for (const pathItem of Object.values(paths)) {
-    for (const operation of [pathItem, ...Object.values(pathItem)]) {
-      if (!operation || typeof operation !== "object") continue;
-      const parameters = (operation as { parameters?: unknown }).parameters;
-      if (!Array.isArray(parameters)) continue;
-      for (const parameter of parameters) {
-        if (
-          parameter &&
-          typeof parameter === "object" &&
-          (parameter as { in?: unknown }).in === "path"
-        ) {
-          (parameter as { allowReserved?: boolean }).allowReserved = true;
-        }
-      }
-    }
-  }
-  const accountSummaries = googleAnalyticsSpecOverrides()[0];
-  if (!accountSummaries) {
-    throw new Error("Google Analytics account discovery is unavailable.");
-  }
-  paths["/v1beta/accountSummaries"] = accountSummaries.value;
-  return spec;
-}
-
-const googleAnalyticsAuthentication = [
-  {
-    slug: GOOGLE_ANALYTICS_AUTH_TEMPLATE,
-    kind: "oauth2",
-    authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-    tokenUrl: "https://oauth2.googleapis.com/token",
-    scopes: [GOOGLE_ANALYTICS_SCOPE],
-  },
-];
+export {
+  googleAnalyticsSpecOverrides,
+  prepareGoogleAnalyticsSpec,
+} from "./google-analytics-spec.js";
 
 function workspaceKey(workspaceId: string): string {
   return createHash("sha256").update(workspaceId).digest("hex").slice(0, 24);
@@ -349,25 +271,6 @@ export async function request<T>(
   return (text ? JSON.parse(text) : undefined) as T;
 }
 export { readManifest };
-export function executorStructuredResult(response: ExecutionResponse): unknown {
-  if (response.status !== "completed") {
-    throw new Error(
-      "The local connection unexpectedly paused a trusted Chief operation.",
-    );
-  }
-  if (response.isError) throw new Error(response.text);
-  if (
-    response.structured &&
-    typeof response.structured === "object" &&
-    Object.prototype.hasOwnProperty.call(response.structured, "result")
-  ) {
-    return (response.structured as { result: unknown }).result;
-  }
-  throw new Error(
-    "The local connection completed without a structured result.",
-  );
-}
-
 function executorToolData(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
   const envelope = value as { ok?: unknown; data?: unknown; error?: unknown };

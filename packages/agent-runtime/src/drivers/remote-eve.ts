@@ -1,78 +1,20 @@
-/* eslint-disable max-lines */
-
-import type {
-  HandleMessageStreamEvent,
-  InputRequest,
-  InputResponse,
-  SessionState,
-} from "eve/client";
+import type { HandleMessageStreamEvent, InputResponse } from "eve/client";
 import { Client, resolveTextToResponse } from "eve/client";
 
 import type { ContentBlock, StartOptions } from "../types.js";
+import type { RemoteDriverState } from "./remote-eve-state.js";
 import {
   DeploymentNotFoundError,
   isDeploymentNotFound,
   safeRuntimeError,
 } from "../deployment-failure.js";
 import { BaseDriver } from "./base.js";
+import {
+  remoteActionName,
+  remoteResultOutput,
+  savedRemoteDriverState,
+} from "./remote-eve-state.js";
 import { remoteHistoryContext } from "./remote-history.js";
-
-interface RemoteDriverState {
-  version: 1;
-  host: string;
-  session: SessionState;
-  inFlight: boolean;
-  awaitingInput: boolean;
-  activeTurnId?: string;
-  pendingRequests?: InputRequest[];
-  turnStartedAt?: number;
-  costUsd?: number;
-}
-
-function savedState(
-  value: unknown,
-  host: string,
-): RemoteDriverState | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const state = value as Partial<RemoteDriverState>;
-  if (
-    state.version !== 1 ||
-    state.host !== host ||
-    !state.session ||
-    typeof state.session.streamIndex !== "number"
-  ) {
-    return undefined;
-  }
-  return {
-    version: 1,
-    host,
-    session: state.session,
-    inFlight: state.inFlight === true,
-    awaitingInput: state.awaitingInput === true,
-    activeTurnId: state.activeTurnId,
-    pendingRequests: state.pendingRequests,
-    turnStartedAt: state.turnStartedAt,
-    costUsd: state.costUsd,
-  };
-}
-
-interface RemoteAction {
-  kind: string;
-  toolName?: string;
-  subagentName?: string;
-  remoteAgentName?: string;
-}
-
-function actionName(action: RemoteAction) {
-  const name =
-    action.toolName ??
-    action.subagentName ??
-    action.remoteAgentName ??
-    "load_skill";
-  return name.replace(/^executor__/, "");
-}
-
-const resultOutput = (result: { output?: unknown }) => result.output ?? null;
 
 export class EveRemoteDriver extends BaseDriver {
   protected override promptCompletesFromEvents = true;
@@ -98,7 +40,7 @@ export class EveRemoteDriver extends BaseDriver {
     if (url.protocol !== "https:") {
       throw new Error("The cloud agent URL must use HTTPS.");
     }
-    this.state = savedState(options.resumeState, url.origin) ?? {
+    this.state = savedRemoteDriverState(options.resumeState, url.origin) ?? {
       version: 1,
       host: url.origin,
       session: { streamIndex: 0 },
@@ -415,7 +357,7 @@ export class EveRemoteDriver extends BaseDriver {
         const content: ContentBlock[] = event.data.actions.map((action) => ({
           type: "tool_use",
           id: action.callId,
-          name: actionName(action),
+          name: remoteActionName(action),
           input: action.input,
         }));
         if (content.length) {
@@ -437,7 +379,7 @@ export class EveRemoteDriver extends BaseDriver {
             {
               type: "tool_result",
               tool_use_id: event.data.result.callId,
-              content: resultOutput(event.data.result),
+              content: remoteResultOutput(event.data.result),
               is_error:
                 event.data.status !== "completed" ||
                 event.data.result.isError === true,

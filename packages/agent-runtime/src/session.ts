@@ -1,7 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 
 import type { BaseDriver } from "./drivers/base.js";
 import type {
@@ -17,8 +15,11 @@ import type {
 import { createDriver } from "./drivers/index.js";
 import { remoteHistoryContext } from "./drivers/remote-history.js";
 import { withGenerativeDataParts } from "./generative-ui.js";
+import {
+  attachmentPromptContext,
+  channelThreadPromptContext,
+} from "./session-prompt-context.js";
 
-/** Runtime-owned execution configuration for one chat. */
 export interface SessionConfig {
   driver: DriverType;
   access: AccessMode;
@@ -39,7 +40,6 @@ export class AgentSession extends EventEmitter {
   readonly agent: AgentDefinition;
   readonly chatId: string;
   readonly config: SessionConfig;
-  /** Backend-native session/thread id, used for resume. */
   sessionId: string | undefined;
   driverState: unknown;
   events: AgentEvent[] = [];
@@ -361,9 +361,14 @@ export class AgentSession extends EventEmitter {
     },
   ) {
     const threadContext = context?.threadRootId
-      ? await this.threadPromptContext(context.threadRootId)
+      ? await channelThreadPromptContext(
+          this.events,
+          this.workingDirectory,
+          context.threadRootId,
+        )
       : undefined;
-    const attachmentContext = await this.attachmentPromptContext(
+    const attachmentContext = await attachmentPromptContext(
+      this.workingDirectory,
       context?.attachments,
     );
     // Record the user turn as an event so reconnecting clients can rebuild
@@ -428,105 +433,6 @@ export class AgentSession extends EventEmitter {
       this.clearStallWatchdog();
       throw error;
     }
-  }
-
-  private async attachmentPromptContext(
-    attachments: readonly MessageAttachment[] | undefined,
-  ) {
-    if (!attachments?.length || !this.workingDirectory) return undefined;
-    const directory = join(this.workingDirectory, ".message-attachments");
-    await mkdir(directory, { recursive: true });
-    const paths = await Promise.all(
-      attachments.map(async (attachment) => {
-        const extension =
-          attachment.mediaType === "image/png"
-            ? "png"
-            : attachment.mediaType === "image/webp"
-              ? "webp"
-              : attachment.mediaType === "image/gif"
-                ? "gif"
-                : "jpg";
-        const content = attachment.url.slice(attachment.url.indexOf(",") + 1);
-        const digest = createHash("sha256")
-          .update(content)
-          .digest("hex")
-          .slice(0, 20);
-        const path = join(directory, `${digest}.${extension}`);
-        await writeFile(path, Buffer.from(content, "base64"));
-        return `${attachment.name}: ${path}`;
-      }),
-    );
-    return `[Attached images — inspect these files with your image-reading tools before answering:\n${paths.map((path) => `- ${path}`).join("\n")}]`;
-  }
-
-  private async threadPromptContext(threadRootId: string) {
-    const allMessages = this.events.filter(
-      (event): event is Extract<AgentEvent, { type: "message" }> =>
-        event.type === "message",
-    );
-    const rootIndex = allMessages.findIndex(
-      (message) => message.id === threadRootId,
-    );
-    const recentChannelMessages =
-      rootIndex > 0
-        ? allMessages
-            .slice(0, rootIndex)
-            .filter((message) => !message.threadRootId)
-            .slice(-8)
-        : [];
-    const threadMessages = allMessages
-      .filter(
-        (message) =>
-          message.id === threadRootId || message.threadRootId === threadRootId,
-      )
-      .slice(-20);
-    if (threadMessages.length === 0) return undefined;
-
-    const formatMessages = async (
-      messages: readonly Extract<AgentEvent, { type: "message" }>[],
-    ) => {
-      const lines: string[] = [];
-      for (const message of messages) {
-        const text = message.content
-          .flatMap((block) => (block.type === "text" ? [block.text] : []))
-          .join("\n")
-          .trim();
-        const attachments = message.content.flatMap((block) =>
-          block.type === "image"
-            ? [
-                {
-                  name: block.name,
-                  mediaType: block.mediaType,
-                  url: block.url,
-                },
-              ]
-            : [],
-        );
-        const imageContext = await this.attachmentPromptContext(attachments);
-        const content = [text, imageContext].filter(Boolean).join("\n");
-        if (content) {
-          lines.push(
-            `${message.role === "user" ? "User" : "Agent"}: ${content}`,
-          );
-        }
-      }
-      return lines;
-    };
-
-    const [channelLines, threadLines] = await Promise.all([
-      formatMessages(recentChannelMessages),
-      formatMessages(threadMessages),
-    ]);
-    return [
-      channelLines.length
-        ? `[Recent shared channel context before this thread:\n${channelLines.join("\n\n")}]`
-        : undefined,
-      threadLines.length
-        ? `[Current channel thread context:\n${threadLines.join("\n\n")}]`
-        : undefined,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
   }
 
   recordUserMessage(

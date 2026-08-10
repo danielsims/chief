@@ -29,7 +29,7 @@
       "count": 1
     },
     "@typescript-eslint/no-explicit-any": {
-      "count": 8
+      "count": 4
     },
     "@typescript-eslint/no-non-null-assertion": {
       "count": 1
@@ -38,13 +38,13 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 15
+      "count": 7
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 18
+      "count": 16
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/require-await": {
       "count": 1
@@ -57,10 +57,7 @@
   },
   "src/drivers/opencode.ts": {
     "@typescript-eslint/no-base-to-string": {
-      "count": 9
-    },
-    "@typescript-eslint/prefer-optional-chain": {
-      "count": 1
+      "count": 8
     },
     "@typescript-eslint/require-await": {
       "count": 2
@@ -115,9 +112,6 @@
   },
   "src/server.ts": {
     "@typescript-eslint/no-base-to-string": {
-      "count": 1
-    },
-    "@typescript-eslint/no-non-null-assertion": {
       "count": 1
     },
     "@typescript-eslint/no-unsafe-assignment": {
