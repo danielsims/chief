@@ -5,9 +5,7 @@ import { Vercel } from "@lobehub/icons";
 
 import type {
   AgentDefinition,
-  AgentDeploymentPhase,
   AgentDeploymentTarget,
-  InputRequest,
 } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
@@ -35,82 +33,14 @@ import {
 import { playbookInstructions, PLAYBOOKS } from "../../lib/playbooks";
 import { useProviderModels, useStoredInputs } from "../../lib/runtime";
 import { ConvexLogo } from "../convex-logo";
-
-interface PersistedDeployment {
-  url: string;
-  target: AgentDeploymentTarget;
-  deployedAt?: number;
-  model?: string;
-}
-
-const PHASES: { phase: AgentDeploymentPhase; label: string }[] = [
-  { phase: "preparing", label: "Prepare" },
-  { phase: "authenticating", label: "Authenticate" },
-  { phase: "linking", label: "Link project" },
-  { phase: "configuring", label: "Configure" },
-  { phase: "building", label: "Build" },
-  { phase: "deploying", label: "Deploy" },
-  { phase: "verifying", label: "Verify" },
-];
-const DEPLOYED_SLACK_KEYS = ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"];
-const DEPLOYED_SLACK_REQUEST: InputRequest = {
-  id: "deployed-slack-credentials",
-  title: "Slack deployment credentials",
-  fields: [
-    {
-      key: "botToken",
-      label: "Bot token",
-      type: "secret",
-      save: { envKey: "SLACK_BOT_TOKEN" },
-    },
-    {
-      key: "signingSecret",
-      label: "Signing secret",
-      type: "secret",
-      save: { envKey: "SLACK_SIGNING_SECRET" },
-    },
-  ],
-};
-
-function persistedDeployment(
-  org: AuthOrganization | null,
-  agentId: string,
-): PersistedDeployment | null {
-  if (!org) return null;
-  const metadata = parseOrganizationMetadata(org);
-  const onboarding =
-    metadata.onboarding && typeof metadata.onboarding === "object"
-      ? (metadata.onboarding as Record<string, unknown>)
-      : {};
-  const agentDeployments =
-    onboarding.agentDeployments &&
-    typeof onboarding.agentDeployments === "object"
-      ? (onboarding.agentDeployments as Record<string, unknown>)
-      : {};
-  const raw =
-    agentDeployments[agentId] ??
-    (agentId === "cmo" ? onboarding.chiefDeployment : undefined);
-  if (!raw || typeof raw !== "object") return null;
-  const value = raw as Record<string, unknown>;
-  if (typeof value.url !== "string" || !value.url) return null;
-  return {
-    url: value.url,
-    target: value.target === "convex" ? "convex" : "vercel",
-    deployedAt:
-      typeof value.deployedAt === "number" ? value.deployedAt : undefined,
-    model: typeof value.model === "string" ? value.model : undefined,
-  };
-}
-
-function projectSlug(workspaceId: string | null, agentId: string) {
-  const suffix = workspaceId?.replace(/[^a-z0-9]/gi, "").slice(-8) ?? "local";
-  const agent = agentId.replace(/[^a-z0-9]/gi, "-").toLowerCase();
-  return `chief-${agent === "cmo" ? "" : `${agent}-`}${suffix}`.toLowerCase();
-}
-
-function phaseIndex(phase: AgentDeploymentPhase | undefined) {
-  return PHASES.findIndex((item) => item.phase === phase);
-}
+import {
+  DEPLOYED_SLACK_KEYS,
+  DEPLOYED_SLACK_REQUEST,
+  persistedDeployment,
+  phaseIndex,
+  PHASES,
+  projectSlug,
+} from "./agent-deployment-config";
 
 export function AgentDeploymentPanel({
   agent,

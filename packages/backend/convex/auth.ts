@@ -64,7 +64,6 @@ const TAURI_SCHEME = "chief-desktop";
 const DESKTOP_CLIENT_ID = "chief-desktop";
 const DESKTOP_COOKIE_PREFIX = "better-auth";
 const CODE_EXPIRES_IN = 300; // 5 minutes
-
 // Helper to safely parse JSON without throwing
 function safeJsonParse<T>(str: string): T | null {
   try {
@@ -559,7 +558,6 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
 export const createAuth = (ctx: GenericCtx<DataModel>) =>
   betterAuth(createAuthOptions(ctx));
 
-// Export the getAuthUser helper from the component
 export const { getAuthUser } = authComponent.clientApi();
 
 // Get the current authenticated user

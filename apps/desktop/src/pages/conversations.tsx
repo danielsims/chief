@@ -1,15 +1,11 @@
-/* eslint-disable max-lines */
-
 import { startTransition, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
-import type { DriverType } from "@chief/agent-runtime/types";
 import { defaultAgents } from "@chief/agent-runtime/agent-roster";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { AgentPresence } from "../components/chat/agent-profile-panel";
 import type { ConversationProfileSelection } from "../components/chat/conversation-profile";
-import type { WorkspaceAgentId } from "../lib/workspace-channels";
 import {
   AgentProfilePanel,
   UserProfilePanel,
@@ -44,26 +40,11 @@ import {
   workspaceChannel,
   workspaceDirectMessage,
 } from "../lib/workspace-channels";
+import { isWorkspaceAgentId, requestedDriver } from "./conversation-routing";
 
-const CHAT_DRIVERS = new Set<DriverType>([
-  "claude",
-  "codex",
-  "opencode",
-  "remote",
-]);
 const DEFAULT_WORKSPACE_CHANNEL =
   WORKSPACE_CHANNELS.find((channel) => channel.id === "general") ??
   WORKSPACE_CHANNELS[0];
-
-function requestedDriver(value: string | null): DriverType | undefined {
-  return value && CHAT_DRIVERS.has(value as DriverType)
-    ? (value as DriverType)
-    : undefined;
-}
-
-function isWorkspaceAgentId(value: string | null): value is WorkspaceAgentId {
-  return value !== null && Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, value);
-}
 
 function useRunningChats(): Record<string, boolean> {
   const { client } = useRuntime();

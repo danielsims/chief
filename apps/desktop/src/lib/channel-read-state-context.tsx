@@ -1,5 +1,3 @@
-/* eslint-disable max-lines */
-
 import type { ReactNode } from "react";
 import {
   createContext,
@@ -12,8 +10,6 @@ import {
 } from "react";
 import { useLocation } from "react-router";
 
-import type { ChannelEvent } from "@chief/agent-runtime/types";
-
 import type {
   ChannelReadStateBlob,
   ObservedChannelMessage,
@@ -22,13 +18,20 @@ import { useAuth } from "./auth/auth-context";
 import {
   advanceReadContext,
   channelContextKey,
-  EMPTY_CHANNEL_READ_STATE,
   mergeObservedMessageSnapshot,
   observedChannelMessage,
-  parseChannelReadState,
   threadContextKey,
   unreadCountsByChannel,
 } from "./channel-read-state";
+import {
+  channelMessagesFrom,
+  channelSourceAliasesFrom,
+  latestChannelMessageTimestamp,
+  MAX_SEEN_LIVE_EVENTS,
+  readChannelState,
+  recordSeenChannelEvent,
+  writeChannelState,
+} from "./channel-read-state-storage";
 import {
   messageNotificationTarget,
   notifySystem,
@@ -50,79 +53,6 @@ interface ChannelReadStateValue {
 const ChannelReadStateContext = createContext<ChannelReadStateValue | null>(
   null,
 );
-
-const MAX_SEEN_LIVE_EVENTS = 500;
-
-function recordSeenEvent(seen: Set<string>, eventId: string) {
-  seen.add(eventId);
-  if (seen.size <= MAX_SEEN_LIVE_EVENTS) return;
-  const oldest = seen.values().next().value;
-  if (typeof oldest === "string") seen.delete(oldest);
-}
-
-function storageKey(workspaceId: string, readerId: string) {
-  return `chief:channel-read-state:v1:${workspaceId}:${readerId}`;
-}
-
-function readState(workspaceId: string, readerId: string) {
-  try {
-    return parseChannelReadState(
-      JSON.parse(
-        window.localStorage.getItem(storageKey(workspaceId, readerId)) ??
-          "null",
-      ) as unknown,
-    );
-  } catch {
-    return EMPTY_CHANNEL_READ_STATE;
-  }
-}
-
-function writeState(
-  workspaceId: string,
-  readerId: string,
-  state: ChannelReadStateBlob,
-) {
-  try {
-    window.localStorage.setItem(
-      storageKey(workspaceId, readerId),
-      JSON.stringify(state),
-    );
-  } catch {
-    // Read state is recoverable from channel history; storage failures are safe.
-  }
-}
-
-function messagesFrom(events: readonly ChannelEvent[]) {
-  return new Map(
-    events.flatMap((event): [string, ObservedChannelMessage][] => {
-      const message = observedChannelMessage(event);
-      return message ? [[message.id, message]] : [];
-    }),
-  );
-}
-
-function sourceAliasesFrom(events: readonly ChannelEvent[]) {
-  const aliases = new Map<string, string>();
-  for (const event of events) {
-    if (event.kind !== 9) continue;
-    const sourceId = event.tags.find((tag) => tag[0] === "client")?.[1];
-    if (sourceId) aliases.set(sourceId, event.id);
-  }
-  return aliases;
-}
-
-function latestTimestamp(
-  messages: Iterable<ObservedChannelMessage>,
-  predicate: (message: ObservedChannelMessage) => boolean,
-) {
-  let latest: number | null = null;
-  for (const message of messages) {
-    if (!predicate(message)) continue;
-    latest =
-      latest === null ? message.createdAt : Math.max(latest, message.createdAt);
-  }
-  return latest;
-}
 
 export function ChannelReadStateProvider({
   children,
@@ -169,7 +99,7 @@ function ScopedChannelReadStateProvider({
   const { channels } = useWorkspaceChannels();
   const location = useLocation();
   const [readMarkers, setReadMarkers] = useState(() =>
-    readState(workspaceId, readerId),
+    readChannelState(workspaceId, readerId),
   );
   const [observedByChannel, setObservedByChannel] = useState(
     new Map<string, Map<string, ObservedChannelMessage>>(),
@@ -202,7 +132,7 @@ function ScopedChannelReadStateProvider({
       setReadMarkers((current) => {
         const next = update(current);
         if (next === current) return current;
-        writeState(workspaceId, readerId, next);
+        writeChannelState(workspaceId, readerId, next);
         return next;
       });
     },
@@ -215,7 +145,7 @@ function ScopedChannelReadStateProvider({
       // included — the user should not have to step into each thread to clear
       // its badge. Advance the marker past the newest message of any kind.
       const messages = observedRef.current.get(channelId)?.values() ?? [];
-      const latest = latestTimestamp(messages, () => true);
+      const latest = latestChannelMessageTimestamp(messages, () => true);
       if (latest === null) return;
       updateMarkers((current) =>
         advanceReadContext(current, channelContextKey(channelId), latest),
@@ -240,7 +170,7 @@ function ScopedChannelReadStateProvider({
     (channelId: string, rootId: string) => {
       const canonical = canonicalRootId(channelId, rootId);
       const messages = observedRef.current.get(channelId)?.values() ?? [];
-      const latest = latestTimestamp(
+      const latest = latestChannelMessageTimestamp(
         messages,
         (message) => message.rootId === canonical,
       );
@@ -405,8 +335,8 @@ function ScopedChannelReadStateProvider({
         notifyForMessage(observed, title, content);
       }
       if (seenLiveEventsRef.current.has(observed.id)) return;
-      recordSeenEvent(seenLiveEventsRef.current, observed.id);
-      recordSeenEvent(liveMessageIdsRef.current, observed.id);
+      recordSeenChannelEvent(seenLiveEventsRef.current, observed.id);
+      recordSeenChannelEvent(liveMessageIdsRef.current, observed.id);
       setObservedByChannel((current) => {
         const next = new Map(current);
         const messages = new Map(next.get(observed.channelId) ?? []);
@@ -423,15 +353,15 @@ function ScopedChannelReadStateProvider({
         return;
       if (message.workspaceId !== workspaceId) return;
       if (message.type === "channelEvents") {
-        const nextMessages = messagesFrom(message.events);
+        const nextMessages = channelMessagesFrom(message.events);
         sourceAliasesRef.current.set(
           message.channelId,
-          sourceAliasesFrom(message.events),
+          channelSourceAliasesFrom(message.events),
         );
         for (const id of [...nextMessages.keys()].slice(
           -MAX_SEEN_LIVE_EVENTS,
         )) {
-          recordSeenEvent(seenLiveEventsRef.current, id);
+          recordSeenChannelEvent(seenLiveEventsRef.current, id);
         }
         setObservedByChannel((current) => {
           const next = new Map(current);
@@ -450,7 +380,7 @@ function ScopedChannelReadStateProvider({
           const context = channelContextKey(message.channelId);
           updateMarkers((current) => {
             if (current.contexts[context] !== undefined) return current;
-            const latestBeforeMount = latestTimestamp(
+            const latestBeforeMount = latestChannelMessageTimestamp(
               nextMessages.values(),
               (candidate) => candidate.createdAt <= startedAt,
             );
