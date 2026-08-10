@@ -14,7 +14,10 @@ import type { BrowserRunRecord } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
 
 import { useRuntime } from "../../lib/runtime";
-import { INLINE_RESULT_ICON_CLASS } from "./inline-result-card";
+import {
+  INLINE_RESULT_CARD_CLASS,
+  INLINE_RESULT_ICON_CLASS,
+} from "./inline-result-card";
 
 const BrowserSessionViewer = lazy(async () => {
   const module = await import("./browser-session-viewer");
@@ -158,7 +161,7 @@ function BrowserSessionCard({
   url: string;
 }) {
   return (
-    <div className="bg-muted/30 hover:bg-muted/45 flex w-96 max-w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_9%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_72%,transparent)] transition-colors">
+    <div className={INLINE_RESULT_CARD_CLASS}>
       <BrowserFavicon key={url} url={url} />
       <div className="min-w-0 flex-1">
         <strong className="block truncate text-[13px] leading-5 font-medium">
