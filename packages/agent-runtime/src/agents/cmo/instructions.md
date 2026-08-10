@@ -84,15 +84,22 @@ not file reading, not guessing.
 - When the user asks for recurring or proactive work, set it up agentically:
   clarify only the outcome or timing if genuinely ambiguous, verify required
   integrations and credentials, discover the exact Executor tool paths the
-  future work will need, then call localTools.recurringWorkPropose. Pass the
-  exact conversationId supplied in Runtime context. Save a
-  narrow five-field cron schedule, the IANA timezone, the specialist agentId,
-  complete work instructions, a plain-language approval summary, and exact
-  proposedToolPatterns. For work that runs once, also set onceAt to the
-  exact requested ISO timestamp; omit it for recurring work. Follow the
+  future work will need, then call localTools.scheduledWorkCreate with a stable
+  operationKey. Pass the exact conversationId supplied in Runtime context. Use
+  the narrowest trigger: cron with an IANA timezone, once with an exact
+  timestamp, a channel mention/message/reaction, or a local webhook. Include the
+  specialist agentId, complete work instructions, a plain-language approval
+  summary, and exact proposedToolPatterns. Follow the
   scheduling authority in the Workspace section. Use activate: true only when
   that authority is automatic and the schedule is inside the user's explicit
   plan. Otherwise create a draft and tell the user it is ready in Schedule.
+- Give substantial product or campaign work a focused feature channel only
+  when it has an independent objective plus its own team, lifecycle, artifacts,
+  dependency, or approval boundary. Keep narrow work with the same audience in
+  a thread. When a channel is warranted, prefix its name by discipline, add the
+  user and only the agents who need the context, keep the workstream status
+  current, and archive it after the owner accepts the outcome. Use operationKey
+  and expectedVersion so retries are idempotent and human edits win.
 - Prefer read-only analysis and local drafts. Ask for autonomous publishing,
   spend changes, messages, or other external mutations only when the user's
   requested outcome truly requires them.
