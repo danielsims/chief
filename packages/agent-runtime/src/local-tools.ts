@@ -1147,65 +1147,67 @@ export function localToolsOpenApi(origin: string) {
   };
 }
 
+export type LocalToolContext = BrowserLocalToolContext &
+  IntegrationSetupLocalToolContext & {
+    channels?: ChannelLocalToolContext;
+    scheduledWork?: ScheduledWorkRunner;
+    conversationId?: string;
+    onActivity?: () => void | Promise<void>;
+    onFilesChanged?: () => void | Promise<void>;
+    activateIntegrationSetup?: (
+      sessionId: string,
+      attemptId: string,
+      domain: string,
+    ) => void | Promise<void>;
+    startSetup?: (
+      sessionId: string,
+      domain: string,
+    ) => Promise<{
+      attemptId: string;
+      domain: string;
+      label: string;
+      instructions: string;
+      available: { id: string; domain: string; label: string }[];
+    }>;
+    listSetupTasks?: () => Promise<
+      { id: string; domain: string; label: string }[]
+    >;
+    googleOAuth?: {
+      provisionClient?: (
+        sessionId: string,
+        attemptId: string,
+      ) => Promise<unknown>;
+      captureClient?: (
+        sessionId: string,
+        attemptId: string,
+      ) => Promise<unknown>;
+    };
+    googleAnalytics?: {
+      startAuthorization: (
+        sessionId: string,
+        attemptId: string,
+      ) => Promise<{
+        authorizationUrl: string;
+        state: string;
+      }>;
+      completeAuthorization: (
+        sessionId: string,
+        attemptId: string,
+        state?: string,
+      ) => Promise<unknown>;
+      selectProperty: (
+        sessionId: string,
+        attemptId: string,
+        propertyId: string,
+      ) => Promise<unknown>;
+    };
+  };
+
 export async function handleLocalTool(
   request: Request,
   workspaceId: string,
   manager: SessionManager,
-  context: BrowserLocalToolContext &
-    IntegrationSetupLocalToolContext & {
-      channels?: ChannelLocalToolContext;
-      scheduledWork?: ScheduledWorkRunner;
-      conversationId?: string;
-      onActivity?: () => void | Promise<void>;
-      onFilesChanged?: () => void | Promise<void>;
-      activateIntegrationSetup?: (
-        sessionId: string,
-        attemptId: string,
-        domain: string,
-      ) => void | Promise<void>;
-      startSetup?: (
-        sessionId: string,
-        domain: string,
-      ) => Promise<{
-        attemptId: string;
-        domain: string;
-        label: string;
-        instructions: string;
-        available: { id: string; domain: string; label: string }[];
-      }>;
-      listSetupTasks?: () => Promise<
-        { id: string; domain: string; label: string }[]
-      >;
-      googleOAuth?: {
-        provisionClient?: (
-          sessionId: string,
-          attemptId: string,
-        ) => Promise<unknown>;
-        captureClient?: (
-          sessionId: string,
-          attemptId: string,
-        ) => Promise<unknown>;
-      };
-      googleAnalytics?: {
-        startAuthorization: (
-          sessionId: string,
-          attemptId: string,
-        ) => Promise<{
-          authorizationUrl: string;
-          state: string;
-        }>;
-        completeAuthorization: (
-          sessionId: string,
-          attemptId: string,
-          state?: string,
-        ) => Promise<unknown>;
-        selectProperty: (
-          sessionId: string,
-          attemptId: string,
-          propertyId: string,
-        ) => Promise<unknown>;
-      };
-    } = {},
+  context: LocalToolContext = {},
 ) {
   const path = new URL(request.url).pathname;
   const data = await manager.workspaceData(workspaceId);
