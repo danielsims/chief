@@ -379,8 +379,8 @@ export async function handleBootstrapOnboardingWork({
                 )
               : [
                   `Start by sending this exact text as the first message, followed immediately by [message:send]:\n\n${ONBOARDING_OPENING_MESSAGE}\n\nDo not add another acknowledgement. Continue working in this same turn as soon as that message is sent.`,
-                  "Read onboarding/getting-started.md from the current working directory. Launch its independent specialist jobs immediately without waiting for one job before starting another.",
-                  "Once the independent specialists are visibly working, send one short, friendly milestone naming who is underway and what you are handling next. End that milestone with [message:send], then keep working.",
+                  "Read onboarding/getting-started.md from the current working directory. Launch the independent specialists concurrently and exactly once by issuing the direct localTools.specialistsDelegate calls together before waiting for either. Omit waitSeconds so they continue in the background, and never search Executor for Chief-local tools.",
+                  "Only after every independent delegation call returns working or completed, send one short, friendly milestone naming exactly who is underway and what you are handling next. End that milestone with [message:send], then keep working. Never claim two jobs started when only one call has been made.",
                   "Do useful public-source and workspace work immediately. When credentials, consent, or account selection are genuinely required, explain the exact next step in #getting-started and use Setup for the secure browser flow.",
                   "Keep all user-facing progress and the final synthesis in this channel. Do not treat agent activity as a user-facing message.",
                 ].join("\n\n");

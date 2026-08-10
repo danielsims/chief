@@ -14,6 +14,7 @@ import {
   readWorkspaceContext,
   writeWorkspaceBrandProfile,
 } from "./workspace-context.js";
+import { isInitialReviewConversation } from "./workspace-data.js";
 
 const DELEGATION_INACTIVITY_TIMEOUT_MS = 6 * 60_000;
 type DelegationOutcome =
@@ -65,13 +66,6 @@ function delegationIdentity(
     )
     .digest("hex")
     .slice(0, 32);
-}
-
-function isInitialReview(parentId: string, title: string) {
-  return (
-    parentId.startsWith("workspace-kickoff-") ||
-    title === "Initial business review"
-  );
 }
 
 export function terminalOutcome(
@@ -205,7 +199,7 @@ export async function runSpecialistDelegation(input: {
     );
   }
 
-  const initialReview = isInitialReview(
+  const initialReview = isInitialReviewConversation(
     input.conversationId,
     parent.chat.title,
   );
@@ -350,7 +344,7 @@ async function executeSpecialistDelegationAttempt(
       specialist.instructions,
       "# Private delegation",
       input.agentId === "prospector"
-        ? "You are working privately for Chief, not speaking directly to the user. Complete only the bounded prospecting task below. Use native web research and the workspace tools. Save every qualified prospect with prospectsSave before returning; include its direct HTTP source URL, evidence-based rationale, relevance, and a useful reply angle. Do not leave a prospect only in chat. Do not ask the user questions."
+        ? "You are working privately for Chief, not speaking directly to the user. Complete only the bounded prospecting task below. Use native web research and make at most three deliberate search passes. If a platform blocks direct access, try one accessible search fallback, then use indexed snippets or other sources rather than brute-forcing mirrors, captchas, or Chief internals. Save every qualified prospect with the direct localTools.prospectsSave tool before returning; include its direct HTTP source URL, evidence-based rationale, relevance, and a useful reply angle. Never search Executor for Chief-local tools. Return fewer qualified findings when the evidence is sparse instead of looping. Do not leave a prospect only in chat or ask the user questions."
         : input.agentId === "setup"
           ? input.setupDomain && input.setupAttemptId
             ? "You are working privately for Chief after onboarding, not speaking directly to the user. Inspect existing Executor connections and complete only the bounded source setup task below. Use the supplied setupDomain and setupAttemptId with this current session ID when calling Chief-local setup tools. When an authorization tool returns a consent URL, open it with localTools.browserOpen using the owning Chief conversation ID from the runtime context. Never invent a successful connection. Complete safe setup steps, then return each distinct credential, consent, or account-selection requirement with its provider identity so Chief can present one structured action per requirement. Do not ask the user questions in this private thread."
@@ -360,7 +354,7 @@ async function executeSpecialistDelegationAttempt(
             : input.agentId === "brand"
               ? initialReview
                 ? "You are working privately for Chief, not speaking directly to the user. Complete the bounded brand research and return the complete Markdown profile. Chief's runtime will save your returned Markdown automatically, so do not discover or call persistence tools. Do not inspect runtime source, environment variables, processes, ports, or Executor internals. Do not create an ad hoc handoff file or ask the user questions."
-                : 'You are working privately for Chief, not speaking directly to the user. Complete the bounded brand research, then use Executor operation localTools.brandProfileSave exactly once with input {"markdown":"<complete profile>"}. If it is not already visible, search once for the exact operation name; do not inspect runtime source, environment variables, processes, ports, or Executor internals. Return the complete Markdown to Chief and do not ask the user questions.'
+                : 'You are working privately for Chief, not speaking directly to the user. Complete the bounded brand research, then call the direct localTools.brandProfileSave tool exactly once with input {"markdown":"<complete profile>"}. Never search Executor for Chief-local tools, and do not inspect runtime source, environment variables, processes, ports, or Executor internals. Return the complete Markdown to Chief and do not ask the user questions.'
               : "You are working privately for Chief, not speaking directly to the user. Complete only the bounded task below. Return concise evidence, analysis, or draft material for Chief to verify and synthesize. You have no durable product-write tools in this session, but you may inspect work or verify behavior by opening Chief's embedded browser with localTools.browserOpen using the owning Chief conversation ID from the runtime context. Do not ask the user questions.",
       workspace ? `# Workspace\n\n${workspace}` : undefined,
     ]

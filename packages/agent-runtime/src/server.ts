@@ -38,6 +38,7 @@ import type {
   ServerMessage,
 } from "./types.js";
 import { AgentDeploymentManager } from "./agent-deployments.js";
+import { createAgentLocalMcpHandler } from "./agent-local-mcp.js";
 import { AgentSessionCapabilityRegistry } from "./agent-session-capabilities.js";
 import { combinedAgentToolPermissionCeiling } from "./agent-tool-permissions.js";
 import {
@@ -1926,10 +1927,16 @@ export function startServer(port = PORT) {
       await localToolsRoute(req, res);
       return;
     }
+    if (await handleAgentLocalMcp(req, res)) return;
     if (await handleMcp(req, res)) return;
     res.writeHead(204, { "access-control-allow-origin": "*" });
     res.end();
   };
+  const handleAgentLocalMcp = createAgentLocalMcpHandler({
+    authenticate: (token) => localToolCapabilities.authenticate(token),
+    openApi: () => localToolsOpenApi(`http://127.0.0.1:${port}`),
+    origin: `http://127.0.0.1:${port}`,
+  });
   const handleMcp = createChiefMcpHandler({
     manager,
     authorize: authorizeWorkspace,

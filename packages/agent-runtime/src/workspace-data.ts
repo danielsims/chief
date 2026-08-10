@@ -8,6 +8,14 @@ export const INITIAL_REVIEW_SINGLETON_AGENTS = new Set([
   "setup",
 ]);
 
+export function isInitialReviewConversation(id: string, title: string) {
+  return (
+    id.startsWith("workspace-kickoff-") ||
+    title === "Initial business review" ||
+    title === "Getting started"
+  );
+}
+
 function sessionRank(status: SessionRecord["status"]) {
   return status === "completed"
     ? 4
@@ -54,8 +62,7 @@ export async function workspaceData(store: LocalStore, workspaceId: string) {
       .filter(
         (session) =>
           !session.parentId &&
-          (session.id.startsWith("workspace-kickoff-") ||
-            session.title === "Initial business review"),
+          isInitialReviewConversation(session.id, session.title),
       )
       .map((session) => session.id),
   );
