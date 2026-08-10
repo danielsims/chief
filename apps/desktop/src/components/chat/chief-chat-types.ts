@@ -10,6 +10,7 @@ import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { ConversationAuxiliaryPanelSizing } from "./conversation-auxiliary-panel";
 import type { ConversationProfileSelection } from "./conversation-profile";
 
+/** Configuration and host callbacks for the composed Chief chat surface. */
 export interface ChiefChatProps {
   chatId: string;
   /** True for a draft chat with no persisted transcript to replay. */

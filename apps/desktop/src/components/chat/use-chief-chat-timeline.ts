@@ -27,6 +27,11 @@ type TimelineEntry =
 type ReadState = ReturnType<typeof useChannelReadState>;
 type Runtime = ReturnType<typeof useRuntime>;
 
+/**
+ * Derives the ordered main and thread timelines from messages, specialist
+ * tasks, and browser runs. It also owns thread read tracking and durable browser
+ * anchoring, but does not send messages or render conversation controls.
+ */
 export function useChiefChatTimeline({
   activeChild,
   anchorBrowserSession,

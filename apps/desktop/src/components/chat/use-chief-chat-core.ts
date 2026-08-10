@@ -28,6 +28,11 @@ import { channelActivityState } from "./channel-activity-state";
 import { channelRecipients } from "./channel-thread-audience";
 import { conversationActivityTurns } from "./conversation-activity-history";
 
+/**
+ * Connects a Chief conversation to runtime, authentication, workspace, and
+ * channel services. It owns execution selection, message routing, mentions,
+ * pending input, and activity state, but no composer or rendering concerns.
+ */
 export function useChiefChatCore({
   channel,
   chatId,
