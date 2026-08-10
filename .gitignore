@@ -43,6 +43,8 @@ packages/email/.react-email/
 
 # local agent working notes
 docs/
+!apps/web/app/docs/
+!apps/web/app/docs/**
 .codex/
 .claude/
 
