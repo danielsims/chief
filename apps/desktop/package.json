@@ -18,6 +18,7 @@
     "runtime:bundle": "pnpm --dir ../.. --filter @chief/agent-runtime build:desktop-sidecar"
   },
   "dependencies": {
+    "@chief/channel-api": "workspace:*",
     "@ai-sdk/react": "4.0.33",
     "@browser-ui/react": "0.2.0",
     "@chief/agent-runtime": "workspace:*",

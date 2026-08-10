@@ -149,6 +149,11 @@ export function Sidebar({
             topic: channel.topic,
             description: channel.description,
             agentIds: channel.agentIds,
+            kind: channel.kind,
+            lifecycle: channel.lifecycle,
+            agentPermissions: channel.agentPermissions,
+            workstream: channel.workstream,
+            version: channel.version,
             createdAt: channel.createdAt,
           }))
       : WORKSPACE_CHANNELS.map((channel) => ({
@@ -157,6 +162,10 @@ export function Sidebar({
           topic: "",
           description: channel.description,
           agentIds: [...channel.agentIds],
+          kind: "standard" as const,
+          lifecycle: "active" as const,
+          agentPermissions: [],
+          version: 1,
         }));
   const normalizedPinnedItems = pinnedItems.flatMap<SidebarPinnedItem>(
     (item) => {
@@ -175,7 +184,8 @@ export function Sidebar({
     },
   );
   const visiblePublicChannels = publicChannels.filter(
-    (channel) => !leftIds.includes(channel.id),
+    (channel) =>
+      channel.lifecycle !== "archived" && !leftIds.includes(channel.id),
   );
   const directMessageIds = directMessageIdsForChats(
     localChats.chats,
@@ -298,6 +308,8 @@ export function Sidebar({
           }
           onCreateChannel={workspaceChannels.createChannel}
           onDeleteChannel={deleteChannel}
+          onSetChannelArchived={workspaceChannels.setChannelArchived}
+          onSetChannelPolicy={workspaceChannels.setChannelPolicy}
           onUpdateChannel={workspaceChannels.updateChannel}
           onLeaveChannel={leaveChannel}
           onPinnedChange={updatePinned}

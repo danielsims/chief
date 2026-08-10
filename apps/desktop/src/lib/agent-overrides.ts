@@ -6,6 +6,7 @@
 import type {
   AgentApprovalMode,
   AgentCapabilityId,
+  AgentToolPermission,
   DriverType,
 } from "@chief/agent-runtime/types";
 
@@ -16,6 +17,7 @@ export interface AgentOverride {
   approvals?: AgentApprovalMode;
   capabilities?: AgentCapabilityId[];
   integrations?: string[];
+  toolPermissions?: AgentToolPermission[];
 }
 
 export type AgentOverrides = Record<string, AgentOverride>;

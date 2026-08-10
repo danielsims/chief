@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { ArrowLeft, Hash, Plus, Search } from "lucide-react";
 
+import type {
+  ChannelAgentPermission,
+  ChannelKind,
+  ChannelLifecycleState,
+  ChannelWorkstream,
+} from "@chief/channel-api";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +22,11 @@ export interface SidebarChannel {
   topic: string;
   description: string;
   agentIds: string[];
+  kind?: ChannelKind;
+  lifecycle?: ChannelLifecycleState;
+  agentPermissions?: ChannelAgentPermission[];
+  workstream?: ChannelWorkstream;
+  version?: number;
   createdAt?: number;
 }
 

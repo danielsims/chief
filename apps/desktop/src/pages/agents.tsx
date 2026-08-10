@@ -2,19 +2,14 @@
 
 import { useState } from "react";
 import { useConvexAuth, useQuery } from "convex/react";
-import { ChevronRight, Cloud, MessageCircle, X } from "lucide-react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { ChevronRight, X } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router";
 
 import type {
-  AgentApprovalMode,
-  AgentCapabilityId,
   AgentDefinition,
   AgentPreference,
-  DriverType,
-  WorkspaceChannel,
 } from "@chief/agent-runtime/types";
 import { defaultAgents } from "@chief/agent-runtime/agent-roster";
-import { availableCapabilities } from "@chief/agent-runtime/capabilities";
 import { api } from "@chief/backend/convex/_generated/api";
 import { Button } from "@chief/ui/components/button";
 import {
@@ -25,23 +20,17 @@ import {
   SelectLabel,
   SelectTrigger,
 } from "@chief/ui/components/select";
-import { Switch } from "@chief/ui/components/switch";
 import { cn } from "@chief/ui/lib/utils";
 
-import type { AgentOverride as LocalAgentOverride } from "../lib/agent-overrides";
+import type { AgentIntegrationOption } from "../components/agents/agent-detail";
 import type { PlaybookCategory } from "../lib/playbooks";
-import type { Provider } from "../lib/providers";
 import { AgentAvatar as ChiefAgentAvatar } from "../components/agent-avatar";
 import { AgentDeploymentPanel } from "../components/agents/agent-deployment-panel";
+import { AgentDetail } from "../components/agents/agent-detail";
 import { IntegrationAvatarStack } from "../components/integrations/integration-avatar-stack";
 import { PageTitle } from "../components/page-title";
 import { PlaybookDocument } from "../components/playbooks/playbook-document";
-import {
-  getToolApprovals,
-  getWorkspaceProvider,
-  setAgentOverride,
-  setWorkspaceProvider,
-} from "../lib/agent-overrides";
+import { getWorkspaceProvider } from "../lib/agent-overrides";
 import { useAuth } from "../lib/auth/auth-context";
 import { createChat } from "../lib/chat-log";
 import {
@@ -53,47 +42,11 @@ import {
 import { PROVIDER_META } from "../lib/providers";
 import {
   useAgentPreferences,
-  useProviderModels,
   useRuntime,
   useWorkspaceChannels,
 } from "../lib/runtime";
 
 type AgentOverride = AgentPreference;
-
-interface IntegrationOption {
-  provider: string;
-  displayName: string;
-}
-
-const capabilityDetails: Record<
-  AgentCapabilityId,
-  { label: string; description: string }
-> = {
-  "analytics-chart": {
-    label: "Analytics charts",
-    description: "Turn reliable data into visual analysis.",
-  },
-  "prospect-memory": {
-    label: "Prospect memory",
-    description: "Keep useful prospects and their source evidence.",
-  },
-  "trend-memory": {
-    label: "Trend memory",
-    description: "Save supported market and audience signals.",
-  },
-  "content-calendar": {
-    label: "Content calendar",
-    description: "Create and track content drafts and schedules.",
-  },
-  "campaign-memory": {
-    label: "Campaign memory",
-    description: "Maintain durable campaign plans and status.",
-  },
-  "schedule-manager": {
-    label: "Schedule manager",
-    description: "Turn goals into recurring specialist work.",
-  },
-};
 
 /**
  * Agents a registry backend will offer later. Shown here so the page reads
@@ -157,469 +110,6 @@ function AgentAvatar({
         )}
       />
     </span>
-  );
-}
-
-function ProviderOption({ provider }: { provider: Provider }) {
-  const { label, Icon } = PROVIDER_META[provider];
-  return (
-    <span className="flex items-center gap-2">
-      <Icon size={14} />
-      {label}
-    </span>
-  );
-}
-
-function InstalledAgentCard({
-  agent,
-  workspaceId,
-  override,
-  integrations,
-  channels,
-  ready,
-  onSave,
-  onClose,
-  onDeploy,
-  onUpdateChannelAgents,
-}: {
-  agent: AgentDefinition;
-  workspaceId: string | null;
-  override: AgentOverride | undefined;
-  integrations: IntegrationOption[];
-  channels: readonly WorkspaceChannel[];
-  ready: boolean;
-  onSave: (preference: AgentPreference) => void;
-  onClose?: () => void;
-  onDeploy?: () => void;
-  onUpdateChannelAgents: (channelId: string, agentIds: string[]) => void;
-}) {
-  const enabled = override?.enabled ?? true;
-  // Per-agent override wins; otherwise the workspace's chosen agent app.
-  // Null means neither exists yet — the select asks instead of assuming.
-  const driver = override?.driver ?? getWorkspaceProvider(workspaceId);
-  const models = useProviderModels(driver);
-  const model = override?.model ?? "";
-  const approvals = override?.approvals ?? getToolApprovals(workspaceId);
-  const capabilities = override?.capabilities ?? agent.capabilities ?? [];
-  const assignedIntegrations =
-    override?.integrations ?? integrations.map((item) => item.provider);
-  const [editing, setEditing] = useState(false);
-
-  const save = (patch: {
-    enabled?: boolean;
-    driver?: DriverType;
-    model?: string;
-    approvals?: AgentApprovalMode;
-    capabilities?: AgentCapabilityId[];
-    integrations?: string[];
-  }) => {
-    // The runtime-owned libSQL database is durable; this localStorage mirror
-    // keeps session opening synchronous. Keep both in sync.
-    const mirror: LocalAgentOverride = {};
-    if ("enabled" in patch) mirror.enabled = patch.enabled;
-    if (patch.driver) mirror.driver = patch.driver;
-    if (patch.model !== undefined) mirror.model = patch.model || undefined;
-    if (patch.approvals) mirror.approvals = patch.approvals;
-    if (patch.capabilities) mirror.capabilities = patch.capabilities;
-    if (patch.integrations) mirror.integrations = patch.integrations;
-    if (workspaceId && Object.keys(mirror).length > 0) {
-      setAgentOverride(workspaceId, agent.id, mirror);
-    }
-    // The first explicit driver choice becomes the workspace default so new
-    // chats for every agent open resolved instead of asking.
-    if (workspaceId && patch.driver && !getWorkspaceProvider(workspaceId)) {
-      setWorkspaceProvider(workspaceId, patch.driver);
-    }
-
-    onSave({
-      agentId: agent.id,
-      enabled: patch.enabled ?? enabled,
-      driver: patch.driver ?? driver ?? undefined,
-      model: (patch.model ?? model) || undefined,
-      approvals: patch.approvals ?? approvals,
-      capabilities: patch.capabilities ?? capabilities,
-      integrations: patch.integrations ?? assignedIntegrations,
-    });
-  };
-
-  const meta = driver ? PROVIDER_META[driver] : null;
-  const sharedChannels = channels.filter(
-    (channel) => channel.visibility !== "direct",
-  );
-  const visibleChannels = editing
-    ? sharedChannels
-    : sharedChannels.filter((channel) => channel.agentIds.includes(agent.id));
-
-  return (
-    <div className={cn("flex min-h-full flex-col", !enabled && "opacity-60")}>
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-3.5">
-          <AgentAvatar name={agent.name} enabled={enabled} size="lg" />
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="truncate text-xl font-semibold tracking-[-0.025em]">
-                {agent.name}
-              </h2>
-              {agent.delegates ? (
-                <span className="bg-foreground/[0.045] text-muted-foreground rounded-full px-2 py-1 text-[9px] font-medium">
-                  Orchestrator
-                </span>
-              ) : null}
-            </div>
-            <p className="text-muted-foreground mt-0.5 truncate text-xs">
-              {agent.role}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="text-muted-foreground flex items-center gap-2 text-[10px]">
-            {enabled ? "Active" : "Paused"}
-            <Switch
-              checked={enabled}
-              disabled={!ready}
-              onCheckedChange={(checked) => save({ enabled: checked })}
-            />
-          </label>
-          {onClose ? (
-            <button
-              type="button"
-              aria-label="Close agent details"
-              onClick={onClose}
-              className="text-muted-foreground hover:bg-accent hover:text-foreground flex size-7 items-center justify-center rounded-lg transition-colors"
-            >
-              <X size={13} />
-            </button>
-          ) : null}
-        </div>
-      </div>
-
-      <p className="text-muted-foreground mt-5 max-w-3xl text-sm leading-6">
-        {agent.description}
-      </p>
-
-      <section className="mt-5 rounded-xl shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-3">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold">Agent app &amp; model</p>
-            <p className="text-muted-foreground mt-0.5 text-[10px]">
-              {meta
-                ? `Runs with ${meta.label}.`
-                : "Choose which model powers this agent."}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={driver ?? undefined}
-              disabled={!ready}
-              onValueChange={(value) =>
-                save({ driver: value as DriverType, model: "" })
-              }
-            >
-              <SelectTrigger className="h-8 w-auto min-w-36 gap-1.5 px-2 text-xs">
-                {meta ? (
-                  <span className="flex items-center gap-1.5">
-                    <meta.Icon size={13} />
-                    {meta.label}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">
-                    Choose agent app
-                  </span>
-                )}
-              </SelectTrigger>
-              <SelectContent className="min-w-36">
-                <SelectGroup>
-                  <SelectLabel>Local</SelectLabel>
-                  <SelectItem value="claude">
-                    <ProviderOption provider="claude" />
-                  </SelectItem>
-                  <SelectItem value="codex">
-                    <ProviderOption provider="codex" />
-                  </SelectItem>
-                  <SelectItem value="opencode">
-                    <ProviderOption provider="opencode" />
-                  </SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            {driver ? (
-              <Select
-                value={model || "__auto__"}
-                disabled={!ready}
-                onValueChange={(value) =>
-                  save({ model: value === "__auto__" ? "" : value })
-                }
-              >
-                <SelectTrigger className="h-8 w-auto max-w-48 gap-1.5 px-2 text-xs">
-                  <span className="truncate">
-                    {models.loading
-                      ? "Loading…"
-                      : (models.models.find((item) => item.value === model)
-                          ?.label ??
-                          model) ||
-                        "Auto"}
-                  </span>
-                </SelectTrigger>
-                <SelectContent className="max-h-72 min-w-52">
-                  {(models.models.length
-                    ? models.models
-                    : [{ value: "", label: "Auto" }]
-                  ).map((item) => (
-                    <SelectItem
-                      key={item.value || "auto"}
-                      value={item.value || "__auto__"}
-                    >
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : null}
-          </div>
-        </div>
-      </section>
-
-      <div className="mt-5 grid grid-cols-2 gap-2">
-        <div className="bg-background/55 rounded-xl px-3 py-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
-          <p className="text-muted-foreground text-[9px]">Capabilities</p>
-          <p className="mt-1 text-xs font-semibold">{capabilities.length}</p>
-        </div>
-        <div className="bg-background/55 rounded-xl px-3 py-2.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
-          <p className="text-muted-foreground text-[9px]">Connections</p>
-          <p className="mt-1 text-xs font-semibold">
-            {assignedIntegrations.length}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-6 pt-4 shadow-[inset_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold">Configuration</p>
-            <p className="text-muted-foreground mt-0.5 text-[10px]">
-              What this agent can use and remember.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setEditing((current) => !current)}
-            className="text-muted-foreground hover:bg-accent hover:text-foreground rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors"
-          >
-            {editing ? "Done" : "Edit"}
-          </button>
-        </div>
-        <div className="grid gap-3 xl:grid-cols-2">
-          <section>
-            <p className="text-muted-foreground mb-2 text-[11px]">
-              Capabilities
-            </p>
-            <div className="bg-background/55 divide-y divide-black/[0.055] overflow-hidden rounded-xl shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)] dark:divide-white/[0.055]">
-              {(editing
-                ? availableCapabilities
-                : availableCapabilities.filter((capability) =>
-                    capabilities.includes(capability.id),
-                  )
-              ).map((capability) => {
-                const checked = capabilities.includes(capability.id);
-                const detail = capabilityDetails[capability.id];
-                return (
-                  <label
-                    key={capability.id}
-                    className="flex min-h-14 items-center justify-between gap-4 px-3 py-2.5"
-                  >
-                    <span className="min-w-0">
-                      <span className="block text-xs font-medium">
-                        {detail.label}
-                      </span>
-                      <span className="text-muted-foreground mt-0.5 block text-[11px] leading-4">
-                        {detail.description}
-                      </span>
-                    </span>
-                    {editing ? (
-                      <Switch
-                        checked={checked}
-                        disabled={!ready}
-                        onCheckedChange={(next) =>
-                          save({
-                            capabilities: next
-                              ? [...capabilities, capability.id]
-                              : capabilities.filter(
-                                  (id) => id !== capability.id,
-                                ),
-                          })
-                        }
-                      />
-                    ) : (
-                      <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
-                    )}
-                  </label>
-                );
-              })}
-              {!editing && capabilities.length === 0 ? (
-                <p className="text-muted-foreground px-3 py-4 text-xs">
-                  No optional capabilities
-                </p>
-              ) : null}
-            </div>
-          </section>
-
-          <section>
-            <p className="text-muted-foreground mb-2 text-[11px]">
-              Connections
-            </p>
-            <div className="bg-background/55 divide-y divide-black/[0.055] overflow-hidden rounded-xl shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)] dark:divide-white/[0.055]">
-              {(editing
-                ? integrations
-                : integrations.filter((integration) =>
-                    assignedIntegrations.includes(integration.provider),
-                  )
-              ).map((integration) => {
-                const checked = assignedIntegrations.includes(
-                  integration.provider,
-                );
-                return (
-                  <label
-                    key={integration.provider}
-                    className="flex min-h-14 items-center justify-between gap-4 px-3 py-2.5"
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate text-xs font-medium">
-                        {integration.displayName}
-                      </span>
-                      <span className="text-muted-foreground mt-0.5 block text-[11px]">
-                        Connected service access
-                      </span>
-                    </span>
-                    {editing ? (
-                      <Switch
-                        checked={checked}
-                        disabled={!ready}
-                        onCheckedChange={(next) =>
-                          save({
-                            integrations: next
-                              ? [...assignedIntegrations, integration.provider]
-                              : assignedIntegrations.filter(
-                                  (provider) =>
-                                    provider !== integration.provider,
-                                ),
-                          })
-                        }
-                      />
-                    ) : (
-                      <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
-                    )}
-                  </label>
-                );
-              })}
-              {(!editing && assignedIntegrations.length === 0) ||
-              integrations.length === 0 ? (
-                <p className="text-muted-foreground px-3 py-4 text-xs">
-                  No connected services
-                </p>
-              ) : null}
-            </div>
-          </section>
-
-          <section>
-            <p className="text-muted-foreground mb-2 text-[11px]">Channels</p>
-            <div className="bg-background/55 divide-y divide-black/[0.055] overflow-hidden rounded-xl shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)] dark:divide-white/[0.055]">
-              {visibleChannels.map((channel) => {
-                const assigned = channel.agentIds.includes(agent.id);
-                return (
-                  <label
-                    key={channel.id}
-                    className="flex min-h-14 items-center justify-between gap-4 px-3 py-2.5"
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate text-xs font-medium">
-                        #{channel.name}
-                      </span>
-                      <span className="text-muted-foreground mt-0.5 line-clamp-1 block text-[11px] leading-4">
-                        {channel.description}
-                      </span>
-                    </span>
-                    {editing ? (
-                      <Switch
-                        checked={assigned}
-                        disabled={!ready}
-                        onCheckedChange={(next) =>
-                          onUpdateChannelAgents(
-                            channel.id,
-                            next
-                              ? [...channel.agentIds, agent.id]
-                              : channel.agentIds.filter(
-                                  (agentId) => agentId !== agent.id,
-                                ),
-                          )
-                        }
-                      />
-                    ) : assigned ? (
-                      <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
-                    ) : null}
-                  </label>
-                );
-              })}
-              {visibleChannels.length === 0 ? (
-                <p className="text-muted-foreground px-3 py-4 text-xs">
-                  {editing ? "No shared channels" : "No assigned channels"}
-                </p>
-              ) : null}
-            </div>
-          </section>
-
-          <section>
-            <p className="text-muted-foreground mb-2 text-[11px]">
-              Approval level
-            </p>
-            <div className="bg-background/55 rounded-xl p-3 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
-              <p className="text-xs font-medium">Tool use</p>
-              <p className="text-muted-foreground mt-0.5 text-[11px] leading-4">
-                Choose whether this agent can act immediately or asks before
-                making changes.
-              </p>
-              <div className="bg-muted/45 mt-3 grid grid-cols-2 rounded-lg p-0.5">
-                {(
-                  [
-                    { mode: "auto", label: "Automatic" },
-                    { mode: "ask", label: "Ask first" },
-                  ] as const
-                ).map(({ mode, label }) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    disabled={!editing || !ready}
-                    onClick={() => save({ approvals: mode })}
-                    className={cn(
-                      "text-muted-foreground h-8 rounded-[7px] text-[11px] font-medium transition-[background-color,box-shadow,color] disabled:cursor-default",
-                      approvals === mode &&
-                        "bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06),inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_5%,transparent)]",
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </section>
-        </div>
-      </div>
-
-      <div className="mt-auto flex items-center justify-end gap-2 pt-4 shadow-[inset_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
-        <Link
-          to={`/conversations?dm=${encodeURIComponent(agent.id)}`}
-          className="text-muted-foreground hover:bg-accent hover:text-foreground flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_10%,transparent)] transition-colors"
-        >
-          <MessageCircle size={12} />
-          Message {agent.name}
-        </Link>
-        {onDeploy ? (
-          <Button size="sm" onClick={onDeploy}>
-            <Cloud size={12} />
-            Deploy {agent.name}
-          </Button>
-        ) : null}
-      </div>
-    </div>
   );
 }
 
@@ -748,7 +238,7 @@ function AvailableAgentDetail({
 
 // Last resolved integrations, so revisiting the page renders the access
 // section in the first frame instead of popping it in after the query.
-let integrationsCache: IntegrationOption[] | undefined;
+let integrationsCache: AgentIntegrationOption[] | undefined;
 
 function PlaybooksCatalogue() {
   const navigate = useNavigate();
@@ -910,7 +400,7 @@ export function AgentsPage() {
       displayName: integration.displayName,
     }));
   }
-  const integrations: IntegrationOption[] = integrationsCache ?? [];
+  const integrations: AgentIntegrationOption[] = integrationsCache ?? [];
   const agents = runtimeAgents.length > 0 ? runtimeAgents : defaultAgents;
   const agentPreferences = useAgentPreferences(cloudOrganizationId);
   const workspaceChannels = useWorkspaceChannels();
@@ -1059,7 +549,7 @@ export function AgentsPage() {
                     {selectedAgent.name}
                   </span>
                 </nav>
-                <InstalledAgentCard
+                <AgentDetail
                   key={selectedAgent.id}
                   agent={selectedAgent}
                   workspaceId={cloudOrganizationId}
