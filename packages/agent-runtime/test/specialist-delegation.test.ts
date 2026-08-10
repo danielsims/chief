@@ -347,6 +347,7 @@ void test("specialist timeout follows progress and interrupts a stalled turn", a
       agentId: "analyst",
       title: "Analyze performance",
       timeoutMs: 18,
+      retryDelaysMs: [],
     };
     const progressing = await runSpecialistDelegation({
       ...base,

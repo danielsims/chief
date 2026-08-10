@@ -380,7 +380,6 @@ void test("narration between tool calls streams as its own messages", async () =
     access: "guarded",
     workspaceId: "workspace",
   });
-  await session.start("/tmp");
   const driver = (
     session as unknown as {
       driver: {
