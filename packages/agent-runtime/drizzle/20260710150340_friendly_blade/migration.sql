@@ -1,1 +1,0 @@
-ALTER TABLE `recurring_work` ADD `skip_dates` text;

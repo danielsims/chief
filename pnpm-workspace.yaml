@@ -3,8 +3,14 @@ packages:
   - "packages/*"
   - "tooling/*"
 
+useNodeVersion: 24.14.0
+nodeVersion: 24.14.0
+engineStrict: true
+packageManagerStrict: true
+packageManagerStrictVersion: true
+
 catalog:
-  "@types/node": ^22.15.0
+  "@types/node": ^24.13.0
   "@types/react": ^19.1.8
   "@types/react-dom": ^19.1.6
   eslint: ^9.38.0
@@ -23,3 +29,8 @@ onlyBuiltDependencies:
 
 overrides:
   "better-auth>zod": 4.3.6
+
+packageExtensions:
+  "drizzle-kit@1.0.0-rc.4":
+    peerDependencies:
+      drizzle-orm: 1.0.0-rc.4

@@ -15,7 +15,6 @@ import type * as billing from "../billing.js";
 import type * as debug from "../debug.js";
 import type * as dev from "../dev.js";
 import type * as env from "../env.js";
-import type * as googleAnalytics from "../googleAnalytics.js";
 import type * as http from "../http.js";
 import type * as imageAssets from "../imageAssets.js";
 import type * as integrations from "../integrations.js";
@@ -36,7 +35,6 @@ declare const fullApi: ApiFromModules<{
   debug: typeof debug;
   dev: typeof dev;
   env: typeof env;
-  googleAnalytics: typeof googleAnalytics;
   http: typeof http;
   imageAssets: typeof imageAssets;
   integrations: typeof integrations;

@@ -1,6 +1,6 @@
 import type { ErrorInfo, ReactNode } from "react";
-import { Component, useEffect, useRef, useState } from "react";
-import { useAction, useConvexAuth, useQuery } from "convex/react";
+import { Component, useEffect, useState } from "react";
+import { useConvexAuth } from "convex/react";
 import {
   BrowserRouter,
   Navigate,
@@ -10,46 +10,54 @@ import {
 } from "react-router";
 import { Toaster } from "sonner";
 
-import { api } from "@chief/backend/convex/_generated/api";
 import { Button } from "@chief/ui/components/button";
 
 import { EntryState } from "./components/entry-state";
 import { Layout } from "./components/layout";
+import { MessageDeepLinkHandler } from "./components/message-deep-link-handler";
+import { PageTitle } from "./components/page-title";
 import { AgentConfigProvider } from "./lib/agent-config";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
 import {
   listAuthOrganizations,
   parseOrganizationMetadata,
 } from "./lib/auth/better-auth-client";
-import { hasWorkspaceAccess, openWorkspaceCheckout } from "./lib/billing";
+import { ChannelReadStateProvider } from "./lib/channel-read-state-context";
 import { missingDesktopConfiguration } from "./lib/config";
 import { ConvexClientProvider } from "./lib/convex";
 import { RuntimeProvider } from "./lib/runtime";
+import { ThemeProvider, useTheme } from "./lib/theme";
 import { AgentsPage } from "./pages/agents";
 import { AnalyticsPage } from "./pages/analytics";
+import { ArtifactsPage } from "./pages/artifacts";
 import { CampaignsPage } from "./pages/campaigns";
 import { ConversationsPage } from "./pages/conversations";
 import { DashboardPage } from "./pages/dashboard";
 import { OnboardingPage } from "./pages/onboarding";
 import { ProspectsPage } from "./pages/prospects";
-import { ResultsPage } from "./pages/results";
 import { SchedulePage } from "./pages/schedule";
+import { AppearanceSettings } from "./pages/settings/appearance";
+import { DiagnosticsSettings } from "./pages/settings/diagnostics";
+import { EnvironmentSettings } from "./pages/settings/environment";
 import {
   IntegrationSettingsDetail,
   IntegrationsSettings,
 } from "./pages/settings/integrations";
 import { SettingsLayout } from "./pages/settings/layout";
+import { NotificationsSettings } from "./pages/settings/notifications";
 import { ProfileSettings } from "./pages/settings/profile";
 import { WorkspaceSettings } from "./pages/settings/workspace";
 import { SignInScreen } from "./pages/sign-in";
 import { TrendingPage } from "./pages/trending";
+import { WorkspaceFilePage } from "./pages/workspace-file";
+import { WorkspaceFilesPage } from "./pages/workspace-files";
 import { CreateWorkspacePage } from "./pages/workspace-new";
 
 function ConfigurationRequired() {
   return (
     <main className="bg-background text-foreground flex min-h-screen items-center justify-center px-6">
-      <section className="bg-card w-full max-w-lg border p-8">
-        <h1 className="font-serif text-3xl">Configure this build</h1>
+      <section className="bg-card w-full max-w-lg rounded-xl border p-8">
+        <PageTitle>Configure this build</PageTitle>
         <p className="text-muted-foreground mt-3 text-sm leading-6">
           This copy of Chief is not connected to a backend. Add the missing
           development values, then restart the app.
@@ -66,121 +74,49 @@ function ConfigurationRequired() {
   );
 }
 
-function WorkspaceAccessRequired() {
-  const [opening, setOpening] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const openCheckout = async () => {
-    setOpening(true);
-    setError(null);
-    const result = await openWorkspaceCheckout("monthly");
-    if (result.status === "error") setError(result.message);
-    if (result.status === "unavailable") {
-      setError("Checkout is not available right now.");
-    }
-    setOpening(false);
-  };
-
-  return (
-    <div className="bg-background text-foreground flex min-h-screen items-center justify-center px-6">
-      <div className="bg-card w-full max-w-md border p-8 text-center">
-        <h1 className="font-serif text-3xl">Continue with Chief</h1>
-        <p className="text-muted-foreground mt-3 text-sm leading-6">
-          Your workspace is already set up. Renew access to return to it.
-        </p>
-        <Button
-          className="mt-6"
-          onClick={() => void openCheckout()}
-          disabled={opening}
-        >
-          {opening ? "Opening checkout..." : "Continue to checkout"}
-        </Button>
-        {error ? (
-          <p className="text-destructive mt-3 text-xs">{error}</p>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 function OnboardingGate({ children }: { children: ReactNode }) {
   const location = useLocation();
   const { cloudOrganizationId } = useAuth();
   const { isAuthenticated: convexReady } = useConvexAuth();
   const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
-  const subscriptionQuery = useQuery(
-    api.billing.getSubscription,
-    // A cached Better Auth session can outlive its server-side session. Never
-    // let an authenticated query race Convex's token confirmation: a rejected
-    // query throws before the auth provider can return the user to sign-in.
-    cloudOrganizationId && convexReady ? {} : "skip",
-  );
-  const reconcileSubscription = useAction(api.billing.reconcileSubscription);
-  const reconciledWorkspaceRef = useRef<string | null>(null);
-  // Latch the last resolved subscription so a re-subscribe (auth refresh,
-  // org revalidation) revalidates behind the mounted app instead of tearing
-  // the whole tree down to a loading screen. Convex pushes real status
-  // changes reactively, so access enforcement stays server-driven.
-  const [knownSubscription, setKnownSubscription] =
-    useState<typeof subscriptionQuery>(undefined);
-  useEffect(() => {
-    if (subscriptionQuery !== undefined) {
-      setKnownSubscription(subscriptionQuery);
-    }
-  }, [subscriptionQuery]);
-  const subscription =
-    subscriptionQuery === undefined ? knownSubscription : subscriptionQuery;
-
-  useEffect(() => {
-    if (!cloudOrganizationId || !convexReady) return;
-
-    const reconcile = (sessionId?: string | null) => {
-      void reconcileSubscription({
-        ...(sessionId ? { sessionId } : {}),
-      }).catch((error) => {
-        console.warn("[Billing] Subscription reconciliation failed", error);
-      });
-    };
-    const onBillingSuccess = (event: Event) => {
-      // A new Checkout may complete after startup reconciliation, so always
-      // run again when the browser returns through the desktop deep link.
-      const detail = (event as CustomEvent<{ sessionId?: string | null }>)
-        .detail;
-      reconcile(detail?.sessionId);
-    };
-
-    window.addEventListener("chief:billing-success", onBillingSuccess);
-    if (reconciledWorkspaceRef.current !== cloudOrganizationId) {
-      reconciledWorkspaceRef.current = cloudOrganizationId;
-      reconcile();
-    }
-    return () => {
-      window.removeEventListener("chief:billing-success", onBillingSuccess);
-    };
-  }, [cloudOrganizationId, convexReady, reconcileSubscription]);
-
   useEffect(() => {
     let cancelled = false;
+    let retryTimer: number | undefined;
     // No reset here: keep the last onboarding decision mounted while the
     // fresh answer loads. Only the first resolution shows the entry state.
-    void listAuthOrganizations().then((orgs) => {
-      if (cancelled) return;
-      const active =
-        orgs.find((candidate) => candidate.id === cloudOrganizationId) ??
-        orgs[0] ??
-        null;
-      if (!active) {
-        setNeedsOnboarding(true);
-        return;
+    const resolveOnboarding = async () => {
+      try {
+        const orgs = await listAuthOrganizations(false, { throwOnError: true });
+        if (cancelled) return;
+        const active =
+          orgs.find((candidate) => candidate.id === cloudOrganizationId) ??
+          orgs[0] ??
+          null;
+        if (!active) {
+          setNeedsOnboarding(true);
+          return;
+        }
+        const metadata = parseOrganizationMetadata(active);
+        const onboarding =
+          metadata.onboarding && typeof metadata.onboarding === "object"
+            ? (metadata.onboarding as Record<string, unknown>)
+            : {};
+        setNeedsOnboarding(typeof onboarding.completedAt !== "string");
+      } catch (error) {
+        if (cancelled) return;
+        console.warn("[Auth] Workspace metadata unavailable; retrying", error);
+        // A server-issued active organization is enough to keep an existing
+        // workspace usable while its metadata is revalidated in the background.
+        if (cloudOrganizationId) setNeedsOnboarding(false);
+        retryTimer = window.setTimeout(() => {
+          void resolveOnboarding();
+        }, 3_000);
       }
-      const metadata = parseOrganizationMetadata(active);
-      const onboarding =
-        metadata.onboarding && typeof metadata.onboarding === "object"
-          ? (metadata.onboarding as Record<string, unknown>)
-          : {};
-      setNeedsOnboarding(typeof onboarding.completedAt !== "string");
-    });
+    };
+    void resolveOnboarding();
     return () => {
       cancelled = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
   }, [cloudOrganizationId]);
 
@@ -196,11 +132,7 @@ function OnboardingGate({ children }: { children: ReactNode }) {
     return children;
   }
 
-  const billingLoading =
-    Boolean(cloudOrganizationId) &&
-    (!convexReady || subscription === undefined);
-
-  if (needsOnboarding === null || billingLoading) {
+  if (needsOnboarding === null || (cloudOrganizationId && !convexReady)) {
     return <EntryState />;
   }
 
@@ -211,8 +143,6 @@ function OnboardingGate({ children }: { children: ReactNode }) {
   if (needsOnboarding) {
     return <Navigate to="/onboarding" replace />;
   }
-
-  if (!hasWorkspaceAccess(subscription)) return <WorkspaceAccessRequired />;
 
   return children;
 }
@@ -257,8 +187,8 @@ class AppErrorBoundary extends Component<
     if (!this.state.error) return this.props.children;
     return (
       <main className="bg-background text-foreground flex min-h-screen items-center justify-center px-6">
-        <section className="bg-card w-full max-w-md border p-8">
-          <h1 className="font-serif text-3xl">Chief hit a problem</h1>
+        <section className="bg-card w-full max-w-md rounded-xl border p-8">
+          <PageTitle>Chief hit a problem</PageTitle>
           <p className="text-muted-foreground mt-3 text-sm leading-6">
             Your work is safe. Reload the app to reconnect to this workspace.
           </p>
@@ -291,6 +221,7 @@ function AuthSessionBoundary({ children }: { children: ReactNode }) {
 
 function AuthenticatedApp() {
   const { isAuthenticated, isLoading } = useAuth();
+  const { resolved } = useTheme();
 
   if (isLoading) {
     return <EntryState />;
@@ -303,49 +234,76 @@ function AuthenticatedApp() {
   return (
     <RuntimeProvider>
       <Toaster
+        closeButton
         position="bottom-right"
-        theme="dark"
-        toastOptions={{ style: { borderRadius: 0 } }}
+        theme={resolved}
+        toastOptions={{
+          classNames: {
+            actionButton: "chief-toast-action",
+            closeButton: "chief-toast-close",
+            description: "chief-toast-description",
+            toast: "chief-toast",
+            title: "chief-toast-title",
+          },
+          style: { borderRadius: 10 },
+        }}
       />
       <AgentConfigProvider>
         <BrowserRouter>
-          <OnboardingGate>
-            <Routes>
-              <Route path="workspaces/new" element={<CreateWorkspacePage />} />
-              <Route path="onboarding" element={<OnboardingPage />} />
-              <Route element={<Layout />}>
-                <Route index element={<DashboardPage />} />
-                <Route path="analytics" element={<AnalyticsPage />} />
-                <Route path="campaigns" element={<CampaignsPage />} />
-                <Route path="schedule" element={<SchedulePage />} />
-                <Route path="schedule/history" element={<ResultsPage />} />
-                <Route path="prospects" element={<ProspectsPage />} />
-                <Route path="trending" element={<TrendingPage />} />
-                <Route path="conversations" element={<ConversationsPage />} />
-                <Route path="agents" element={<AgentsPage />} />
-                <Route path="settings" element={<SettingsLayout />}>
-                  <Route
-                    index
-                    element={<Navigate to="/settings/profile" replace />}
-                  />
-                  <Route path="profile" element={<ProfileSettings />} />
-                  <Route path="workspace" element={<WorkspaceSettings />} />
-                  <Route
-                    path="deployment"
-                    element={<Navigate to="/agents" replace />}
-                  />
-                  <Route
-                    path="integrations"
-                    element={<IntegrationsSettings />}
-                  />
-                  <Route
-                    path="integrations/:provider"
-                    element={<IntegrationSettingsDetail />}
-                  />
+          <MessageDeepLinkHandler />
+          <ChannelReadStateProvider>
+            <OnboardingGate>
+              <Routes>
+                <Route
+                  path="workspaces/new"
+                  element={<CreateWorkspacePage />}
+                />
+                <Route path="onboarding" element={<OnboardingPage />} />
+                <Route element={<Layout />}>
+                  <Route index element={<DashboardPage />} />
+                  <Route path="analytics" element={<AnalyticsPage />} />
+                  <Route path="artifacts" element={<ArtifactsPage />} />
+                  <Route path="campaigns" element={<CampaignsPage />} />
+                  <Route path="schedule" element={<SchedulePage />} />
+                  <Route path="prospects" element={<ProspectsPage />} />
+                  <Route path="trending" element={<TrendingPage />} />
+                  <Route path="conversations" element={<ConversationsPage />} />
+                  <Route path="agents" element={<AgentsPage />} />
+                  <Route path="files" element={<WorkspaceFilesPage />} />
+                  <Route path="files/:fileId" element={<WorkspaceFilePage />} />
+                  <Route path="settings" element={<SettingsLayout />}>
+                    <Route
+                      index
+                      element={<Navigate to="/settings/profile" replace />}
+                    />
+                    <Route path="profile" element={<ProfileSettings />} />
+                    <Route path="workspace" element={<WorkspaceSettings />} />
+                    <Route path="appearance" element={<AppearanceSettings />} />
+                    <Route
+                      path="notifications"
+                      element={<NotificationsSettings />}
+                    />
+                    <Route
+                      path="diagnostics"
+                      element={<DiagnosticsSettings />}
+                    />
+                    <Route
+                      path="environment"
+                      element={<EnvironmentSettings />}
+                    />
+                    <Route
+                      path="integrations"
+                      element={<IntegrationsSettings />}
+                    />
+                    <Route
+                      path="integrations/:provider"
+                      element={<IntegrationSettingsDetail />}
+                    />
+                  </Route>
                 </Route>
-              </Route>
-            </Routes>
-          </OnboardingGate>
+              </Routes>
+            </OnboardingGate>
+          </ChannelReadStateProvider>
         </BrowserRouter>
       </AgentConfigProvider>
     </RuntimeProvider>
@@ -359,13 +317,15 @@ export default function App() {
 
   return (
     <AppErrorBoundary>
-      <AuthProvider>
-        <AuthSessionBoundary>
-          <ConvexClientProvider>
-            <AuthenticatedApp />
-          </ConvexClientProvider>
-        </AuthSessionBoundary>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <AuthSessionBoundary>
+            <ConvexClientProvider>
+              <AuthenticatedApp />
+            </ConvexClientProvider>
+          </AuthSessionBoundary>
+        </AuthProvider>
+      </ThemeProvider>
     </AppErrorBoundary>
   );
 }

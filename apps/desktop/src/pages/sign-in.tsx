@@ -18,7 +18,7 @@ export function SignInScreen() {
       <main className="flex flex-1 items-center justify-center px-8 pb-[92px]">
         <div className="flex w-full max-w-xs flex-col items-center text-center">
           <ChiefMark className="text-foreground h-10 w-10" />
-          <h1 className="mt-12 font-serif text-3xl leading-tight">
+          <h1 className="mt-12 text-3xl leading-tight font-normal">
             Sign in to Chief
           </h1>
           <p className="text-muted-foreground mt-4 text-sm leading-relaxed">

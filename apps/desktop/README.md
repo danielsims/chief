@@ -25,12 +25,26 @@ app during development and is required for packaged builds.
 `VITE_WORKSPACE_APP_PATH` is optional. It points local deployment work at a
 different Eve workspace.
 
+Chief deploys one Eve project per workspace, containing the root Chief agent
+and all declared specialists. Vercel deployment also requires workspace-vault
+values for `VERCEL_TOKEN`, a hosted HTTPS `EXECUTOR_MCP_URL`, and
+`EXECUTOR_MCP_TOKEN`. Localhost Executor URLs are rejected for cloud deploys,
+and recurring schedules remain on the local scheduler.
+
 ## Build
 
 Install the platform prerequisites from the [Tauri documentation](https://v2.tauri.app/start/prerequisites/), then run:
 
 ```bash
 pnpm --filter @chief/desktop build:app
+```
+
+On the Chief release Mac, the local development packaging loop is available
+from the repository root. It selects the Developer ID identity, builds the
+app and DMG, verifies the app signature, and reveals the DMG in Finder:
+
+```bash
+pnpm desktop:dmg
 ```
 
 Tauri writes installers to `src-tauri/target/release/bundle`. Official signing and notarization values are supplied by the private release environment, not stored in this repository.

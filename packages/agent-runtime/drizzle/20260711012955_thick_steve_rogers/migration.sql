@@ -1,1 +1,0 @@
-ALTER TABLE `recurring_work_runs` ADD `blocked_tools` text;

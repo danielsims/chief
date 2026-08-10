@@ -17,6 +17,10 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 import type { StoredSession } from "./session";
+import {
+  dispatchMessageDeepLink,
+  parseMessageDeepLink,
+} from "../message-deep-links";
 import { AUTH_BASE_URL } from "./better-auth-client";
 import { clearPkceVerifier, getPkceVerifier } from "./pkce";
 
@@ -112,6 +116,12 @@ async function handleDeepLink(url: string, options: SetupOptions) {
     void activateAppWindow();
 
     const parsedUrl = new URL(url);
+
+    const messageTarget = parseMessageDeepLink(url);
+    if (messageTarget) {
+      dispatchMessageDeepLink(messageTarget);
+      return;
+    }
 
     // Billing completion links do not carry an auth token and must not enter
     // the PKCE path below. Notify the mounted billing gate so it can reconcile

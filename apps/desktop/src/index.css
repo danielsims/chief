@@ -1,7 +1,118 @@
 @import "@chief/ui/globals.css";
+
+@import "@browser-ui/react/styles.css";
 @import "streamdown/styles.css";
 @source "../../../packages/ui/src";
 @source "../node_modules/streamdown/dist/*.js";
+
+@keyframes chief-message-notification-pulse {
+  0%,
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+  }
+  18%,
+  72% {
+    background-color: color-mix(in srgb, var(--foreground) 5%, transparent);
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--foreground) 3%, transparent);
+  }
+}
+
+.chief-message-notification-target {
+  border-radius: 0.75rem;
+  animation: chief-message-notification-pulse 2.2s ease-out;
+}
+
+@font-face {
+  font-family: "Geist Pixel Square";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("./assets/fonts/GeistPixel-Square.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Pixel Line";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("./assets/fonts/GeistPixel-Line.woff2") format("woff2");
+}
+
+:root {
+  --font-pixel: "Geist Pixel Square", "Geist Variable", system-ui, sans-serif;
+  --font-pixel-line:
+    "Geist Pixel Line", "Geist Variable", system-ui, sans-serif;
+}
+
+.chief-browser,
+.chief-browser > .bui-browser-inline-host,
+.chief-browser .bui-browser-frame,
+.chief-browser .bui-surface {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.chief-browser > .bui-browser-inline-host,
+.chief-browser .bui-browser-frame,
+.chief-browser .bui-surface,
+.chief-browser .bui-agent-viewport {
+  border-radius: inherit;
+}
+
+.chief-browser[data-mode="inline"] {
+  aspect-ratio: auto;
+  border-radius: 14px;
+}
+
+.chief-browser .bui-browser-frame--bare,
+.chief-browser .bui-browser-frame--bare > .bui-surface,
+.chief-browser .bui-agent-viewport {
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+/* browser-ui's bare variant intentionally resets its surface radius to zero.
+ * Restore a slightly inset radius for embedded chat sessions so the live
+ * canvas clips concentrically inside the rounded result card. */
+.chief-browser[data-mode="inline"] .bui-browser-frame--bare {
+  border-radius: 14px;
+}
+
+.chief-browser[data-mode="inline"] .bui-browser-surface,
+.chief-browser[data-mode="inline"] .bui-agent-viewport,
+.chief-browser[data-mode="inline"] .bui-agent-viewport > canvas {
+  border-radius: 13px;
+}
+
+.chief-browser[data-mode="inline"] .bui-browser-surface {
+  overflow: hidden;
+  clip-path: inset(0 round 13px);
+}
+
+/* Keep the same concentric clipping if browser-ui promotes an inline session
+ * to its floating presentation. Its bare variant otherwise resets PiP to
+ * square corners even though the embedded session is rounded. */
+.chief-browser .bui-browser-frame--pip {
+  overflow: hidden;
+  border-radius: 14px;
+}
+
+.chief-browser .bui-browser-frame--pip .bui-browser-surface,
+.chief-browser .bui-browser-frame--pip .bui-agent-viewport,
+.chief-browser .bui-browser-frame--pip .bui-agent-viewport > canvas {
+  border-radius: 13px;
+}
+
+.chief-browser .bui-browser-frame--pip .bui-browser-surface {
+  overflow: hidden;
+  clip-path: inset(0 round 13px);
+}
+
+.chief-browser .bui-toolbar {
+  border-bottom: 1px solid var(--border);
+}
 
 /* Startup entry state: a thin line sweeping under the wordmark. */
 @keyframes entry-sweep {
@@ -24,10 +135,200 @@
   }
 }
 
-.chat-markdown > *:first-child {
+.chat-markdown .streamdown-root > *:first-child {
   margin-top: 0;
 }
 
-.chat-markdown > *:last-child {
+.chat-markdown .streamdown-root > *:last-child {
   margin-bottom: 0;
+}
+
+.chief-document-editor {
+  min-height: 520px;
+  padding: 8px 0 120px;
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--foreground);
+  caret-color: var(--foreground);
+}
+
+.chief-document-editor:focus {
+  outline: none;
+}
+
+.chief-document-editor p {
+  margin: 0.8em 0;
+}
+
+.chief-document-editor h1,
+.chief-document-editor h2,
+.chief-document-editor h3 {
+  margin: 1.7em 0 0.55em;
+  font-family: var(--font-sans);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.chief-document-editor h1 {
+  font-size: 2rem;
+}
+
+.chief-document-editor h2 {
+  font-size: 1.5rem;
+}
+
+.chief-document-editor h3 {
+  font-size: 1.18rem;
+}
+
+.chief-document-editor ul:not([data-type="taskList"]),
+.chief-document-editor ol {
+  margin: 0.8em 0;
+  padding-left: 1.5rem;
+}
+
+.chief-document-editor ul:not([data-type="taskList"]) {
+  list-style: disc;
+}
+
+.chief-document-editor ol {
+  list-style: decimal;
+}
+
+.chief-document-editor blockquote {
+  margin: 1.25em 0;
+  border-left: 2px solid var(--border);
+  padding-left: 1rem;
+  color: var(--muted-foreground);
+}
+
+.chief-document-editor code {
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 0.08rem 0.28rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.88em;
+}
+
+.chief-document-editor pre {
+  margin: 1.2em 0;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 1rem;
+}
+
+.chief-document-editor pre code {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.chief-document-editor hr {
+  margin: 2rem 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.chief-document-editor ul[data-type="taskList"] {
+  margin: 0.8em 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chief-document-editor ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.chief-document-editor ul[data-type="taskList"] li > div {
+  flex: 1;
+}
+
+.chief-document-editor p.is-editor-empty:first-child::before {
+  float: left;
+  height: 0;
+  color: var(--muted-foreground);
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+
+@keyframes chief-shimmer-text {
+  from {
+    background-position: 180% 0;
+  }
+
+  to {
+    background-position: -80% 0;
+  }
+}
+
+.chief-shimmer-text {
+  width: fit-content;
+  color: transparent;
+  background: linear-gradient(
+    100deg,
+    var(--muted-foreground) 24%,
+    var(--foreground) 46%,
+    var(--muted-foreground) 68%
+  );
+  background-size: 240% 100%;
+  background-clip: text;
+  animation: chief-shimmer-text 2.2s linear infinite;
+}
+
+.chief-browser-operating-shader {
+  opacity: 0.9;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chief-shimmer-text {
+    color: var(--foreground);
+    background: none;
+    animation: none;
+  }
+
+  .chief-browser-operating-shader {
+    opacity: 0.72;
+  }
+}
+
+/* Sonner notifications use the same softened active surface as the app. */
+.chief-toast[data-sonner-toast] {
+  border: 1px solid color-mix(in srgb, var(--foreground) 14%, var(--border));
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--muted) 94%, var(--background));
+  box-shadow: 0 18px 50px rgb(0 0 0 / 28%);
+}
+
+.chief-toast-title {
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.chief-toast-description {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.chief-toast-action[data-button] {
+  border-radius: 0;
+  color: var(--primary-foreground);
+  background: var(--primary);
+  font-size: 10px;
+}
+
+.chief-toast-close[data-close-button] {
+  border: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--muted-foreground);
+  background: var(--muted);
+  box-shadow: none;
+}
+
+.chief-toast-close[data-close-button]:hover {
+  color: var(--foreground);
+  background: var(--accent);
 }

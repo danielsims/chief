@@ -53,6 +53,7 @@ function parseQuestions(input: Record<string, unknown>): AgentQuestion[] {
  * inference bills to their existing subscription.
  */
 export class ClaudeDriver extends BaseDriver {
+  protected override promptCompletesFromEvents = true;
   private q: Query | null = null;
   private sessionId: string | undefined;
   private abort = new AbortController();
@@ -68,10 +69,14 @@ export class ClaudeDriver extends BaseDriver {
     (answers: Record<string, string> | null) => void
   >();
   private access: StartOptions["access"] = "guarded";
+  private generation = 0;
 
   async start(opts: StartOptions): Promise<void> {
+    this.startOptions = opts;
     this.sessionId = opts.resumeSessionId;
     this.access = opts.access;
+    this.closed = false;
+    if (this.abort.signal.aborted) this.abort = new AbortController();
 
     const driver = this;
     async function* input(): AsyncGenerator<SDKUserMessage> {
@@ -91,7 +96,7 @@ export class ClaudeDriver extends BaseDriver {
     delete env.CLAUDE_CODE_ENTRYPOINT;
     delete env.CLAUDE_CODE_SESSION_ID;
 
-    this.q = query({
+    const activeQuery = query({
       prompt: input(),
       options: {
         env,
@@ -131,22 +136,25 @@ export class ClaudeDriver extends BaseDriver {
         abortController: this.abort,
       },
     });
-
-    void this.pump();
+    this.q = activeQuery;
+    const generation = ++this.generation;
+    void this.pump(activeQuery, generation);
   }
 
-  private async pump() {
-    if (!this.q) return;
+  private async pump(activeQuery: Query, generation: number) {
     try {
-      for await (const msg of this.q) {
+      for await (const msg of activeQuery) {
+        if (generation !== this.generation) return;
         this.handle(msg);
       }
     } catch (err) {
-      if (!this.closed) {
+      if (!this.closed && generation === this.generation) {
         this.emitEvent({ type: "error", message: String(err) });
       }
     }
-    this.emitEvent({ type: "exit", code: 0 });
+    if (generation === this.generation) {
+      this.emitEvent({ type: "exit", code: 0 });
+    }
   }
 
   private handle(msg: SDKMessage) {
@@ -329,7 +337,7 @@ export class ClaudeDriver extends BaseDriver {
     pending(answers);
   }
 
-  async sendPrompt(text: string): Promise<void> {
+  async sendPromptOnce(text: string): Promise<void> {
     this.inputQueue.push({
       type: "user",
       message: { role: "user", content: text },
@@ -340,14 +348,38 @@ export class ClaudeDriver extends BaseDriver {
     this.wake?.();
   }
 
+  /** Recover from a failed prompt by restarting the Claude SDK session. */
+  async restart(): Promise<void> {
+    const options = this.startOptions;
+    if (!options) return;
+    const previous = this.q;
+    this.generation += 1;
+    this.closed = true;
+    this.wake?.();
+    this.abort.abort();
+    await previous?.interrupt().catch(() => undefined);
+    this.q = null;
+    this.inputQueue = [];
+    this.wake = null;
+    this.pendingApprovals.clear();
+    this.pendingQuestions.clear();
+    this.abort = new AbortController();
+    this.closed = false;
+    await this.start({ ...options, resumeSessionId: this.sessionId });
+  }
+
   async interrupt(): Promise<void> {
+    this.interrupted = true;
     await this.q?.interrupt();
     this.emitEvent({ type: "status", status: "idle" });
   }
 
   async stop(): Promise<void> {
+    this.generation += 1;
     this.closed = true;
     this.wake?.();
     this.abort.abort();
+    await this.q?.interrupt().catch(() => undefined);
+    this.q = null;
   }
 }

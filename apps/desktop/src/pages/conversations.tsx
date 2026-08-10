@@ -1,22 +1,50 @@
-import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, MoreVertical, Plus, Trash2 } from "lucide-react";
-import { useSearchParams } from "react-router";
+import { startTransition, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 
-import type { AgentDefinition } from "@chief/agent-runtime/types";
-import { defaultAgents } from "@chief/agent-runtime/agents";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@chief/ui/components/popover";
+import { defaultAgents } from "@chief/agent-runtime/agent-roster";
 import { cn } from "@chief/ui/lib/utils";
 
-import type { ChatLogEntry } from "../lib/chat-log";
-import { AgentChat } from "../components/chat/agent-chat";
-import { getAgentOverride } from "../lib/agent-overrides";
+import type { AgentPresence } from "../components/chat/agent-profile-panel";
+import type { ConversationProfileSelection } from "../components/chat/conversation-profile";
+import {
+  AgentProfilePanel,
+  UserProfilePanel,
+} from "../components/chat/agent-profile-panel";
+import { ChannelCanvas } from "../components/chat/channel-canvas";
+import { ChiefChat } from "../components/chat/chief-chat";
+import {
+  clearComposerHandoff,
+  composerHandoff,
+} from "../components/chat/composer-handoff";
+import { useConversationAuxiliaryPanelSizing } from "../components/chat/conversation-auxiliary-panel";
+import { ConversationErrorBoundary } from "../components/chat/conversation-error-boundary";
+import { ConversationHeader } from "../components/chat/conversation-header";
 import { useAuth } from "../lib/auth/auth-context";
-import { clearLegacyChatCache, createChat } from "../lib/chat-log";
-import { useAgentPreferences, useLocalChats, useRuntime } from "../lib/runtime";
+import { INTEGRATION_CATALOG } from "../lib/integration-catalog";
+import {
+  googleAnalyticsActionIdFromChat,
+  integrationSetupChannelPath,
+  integrationSetupDomainFromChat,
+} from "../lib/integration-setup";
+import {
+  useLocalChats,
+  useRuntime,
+  useWorkspaceChannels,
+  useWorkspaceData,
+} from "../lib/runtime";
+import {
+  channelIdFromChatId,
+  resolvedChannelChatId,
+  WORKSPACE_AGENT_IDENTITIES,
+  WORKSPACE_CHANNELS,
+  workspaceChannel,
+  workspaceDirectMessage,
+} from "../lib/workspace-channels";
+import { isWorkspaceAgentId, requestedDriver } from "./conversation-routing";
+
+const DEFAULT_WORKSPACE_CHANNEL =
+  WORKSPACE_CHANNELS.find((channel) => channel.id === "general") ??
+  WORKSPACE_CHANNELS[0];
 
 function useRunningChats(): Record<string, boolean> {
   const { client } = useRuntime();
@@ -24,19 +52,26 @@ function useRunningChats(): Record<string, boolean> {
 
   useEffect(() => {
     const unsubscribe = client.subscribe((message) => {
+      if (message.type === "message" && message.message.role === "user") {
+        setRunning((current) => ({
+          ...current,
+          [message.chatId]: true,
+        }));
+        return;
+      }
       if (message.type !== "event") return;
       const event = message.event;
-      let next: boolean | undefined;
-      if (event.type === "stream") next = true;
-      else if (event.type === "message" && event.role === "user") next = true;
-      else if (event.type === "status") next = event.status === "running";
-      else if (
-        event.type === "result" ||
-        event.type === "error" ||
-        event.type === "exit"
-      ) {
-        next = false;
-      }
+      const next =
+        event.type === "stream" ||
+        (event.type === "message" && event.role === "user") ||
+        (event.type === "status" && event.status === "running")
+          ? true
+          : event.type === "result" ||
+              event.type === "error" ||
+              event.type === "exit" ||
+              (event.type === "status" && event.status !== "running")
+            ? false
+            : undefined;
       if (next === undefined) return;
       setRunning((current) =>
         current[message.chatId] === next
@@ -52,337 +87,399 @@ function useRunningChats(): Record<string, boolean> {
   return running;
 }
 
-function ConversationRow({
-  entry,
-  active,
-  running,
-  onSelect,
-  onDelete,
-}: {
-  entry: ChatLogEntry;
-  active: boolean;
-  running: boolean;
-  onSelect: () => void;
-  onDelete: () => void;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  return (
-    <div
-      className={cn(
-        "group/row hover:bg-accent flex w-full items-center text-sm transition-colors",
-        active && "bg-accent text-foreground",
-      )}
-    >
-      <button
-        type="button"
-        onClick={onSelect}
-        className="min-w-0 flex-1 truncate py-2 pr-2 pl-8 text-left"
-      >
-        {entry.title}
-      </button>
-      {running ? (
-        <span className="size-1.5 shrink-0 animate-pulse bg-emerald-500" />
-      ) : null}
-      <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-        <PopoverTrigger
-          aria-label={`Manage ${entry.title}`}
-          className="text-muted-foreground hover:text-foreground mr-1 flex size-7 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover/row:opacity-100 data-[state=open]:opacity-100"
-        >
-          <MoreVertical size={14} />
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-40 p-1">
-          <button
-            type="button"
-            onClick={() => {
-              setMenuOpen(false);
-              onDelete();
-            }}
-            className="text-destructive hover:bg-destructive/10 flex w-full items-center gap-2 px-2 py-2 text-left text-xs transition-colors"
-          >
-            <Trash2 size={13} />
-            Delete chat
-          </button>
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-}
-
-function AgentGroup({
-  agent,
-  entries,
-  activeChatId,
-  running,
-  onCreate,
-  onSelect,
-  onDelete,
-}: {
-  agent: AgentDefinition;
-  entries: ChatLogEntry[];
-  activeChatId: string | null;
-  running: Record<string, boolean>;
-  onCreate: () => void;
-  onSelect: (entry: ChatLogEntry) => void;
-  onDelete: (entry: ChatLogEntry) => void;
-}) {
-  const [collapsed, setCollapsed] = useState(false);
-  return (
-    <section>
-      <div className="group flex items-center gap-2 px-2 py-1.5">
-        <button
-          type="button"
-          onClick={() => setCollapsed((current) => !current)}
-          className="text-muted-foreground hover:text-foreground flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-medium transition-colors"
-        >
-          <ChevronRight
-            size={12}
-            className={cn(
-              "shrink-0 transition-transform",
-              !collapsed && "rotate-90",
-            )}
-          />
-          <span className="truncate">{agent.name}</span>
-        </button>
-        <button
-          type="button"
-          aria-label={`New ${agent.name} conversation`}
-          onClick={onCreate}
-          className="text-muted-foreground hover:text-foreground p-1 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
-        >
-          <Plus size={13} />
-        </button>
-      </div>
-      <div className={cn("space-y-0.5", collapsed && "hidden")}>
-        {entries.map((entry) => (
-          <ConversationRow
-            key={entry.id}
-            entry={entry}
-            active={entry.id === activeChatId}
-            running={running[entry.id] ?? false}
-            onSelect={() => onSelect(entry)}
-            onDelete={() => onDelete(entry)}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function NewConversationMenu({
-  agents,
-  onPick,
-}: {
-  agents: AgentDefinition[];
-  onPick: (agent: AgentDefinition) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        aria-label="New conversation"
-        className="text-muted-foreground hover:bg-accent hover:text-foreground border p-2 transition-colors"
-      >
-        <Plus size={14} />
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-60 p-1">
-        {agents.map((agent) => (
-          <button
-            key={agent.id}
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              onPick(agent);
-            }}
-            className="hover:bg-accent w-full px-2 py-2 text-left transition-colors"
-          >
-            <span className="block text-sm">{agent.name}</span>
-            <span className="text-muted-foreground block text-xs">
-              {agent.role}
-            </span>
-          </button>
-        ))}
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 export function ConversationsPage() {
-  const { agents: runtimeAgents } = useRuntime();
-  const { cloudOrganizationId } = useAuth();
+  const { cloudOrganizationId, user } = useAuth();
   const localChats = useLocalChats(cloudOrganizationId);
-  const agentPreferences = useAgentPreferences(cloudOrganizationId);
-  const preferences = useMemo(
-    () =>
-      new Map(
-        agentPreferences.preferences.map((preference) => [
-          preference.agentId,
-          preference,
-        ]),
-      ),
-    [agentPreferences.preferences],
-  );
-  const agents = (runtimeAgents.length > 0 ? runtimeAgents : defaultAgents).map(
-    (agent) => ({
-      ...agent,
-      capabilities:
-        preferences.get(agent.id)?.capabilities ?? agent.capabilities,
-    }),
-  );
-  const enabledAgents = agents.filter(
-    (agent) =>
-      preferences.get(agent.id)?.enabled !== false &&
-      getAgentOverride(cloudOrganizationId, agent.id).enabled !== false,
-  );
+  const workspaceChannels = useWorkspaceChannels();
+  const workspaceData = useWorkspaceData(cloudOrganizationId);
   const [params, setParams] = useSearchParams();
-  // The runtime database is the sole transcript index. Its chat query is
-  // workspace-scoped; never merge the old browser-global cache here because
-  // that exposes one organization's conversation titles in another.
-  const log = localChats.chats;
+  const location = useLocation();
+  const navigate = useNavigate();
+  const handoffId = params.get("handoff");
+  const initialHandoff = useMemo(() => composerHandoff(handoffId), [handoffId]);
+  const panelSizing = useConversationAuxiliaryPanelSizing();
   const running = useRunningChats();
-
-  useEffect(() => clearLegacyChatCache(), []);
-
-  const activeAgentId = params.get("agent");
-  const activeChatId = params.get("chat");
-  const initialPrompt = params.get("prompt") ?? undefined;
-  const initialDraft = params.get("draft") ?? undefined;
-  const activeAgent = agents.find((agent) => agent.id === activeAgentId);
-  const activeEntry = log.find(
-    (entry) => entry.id === activeChatId && entry.agentId === activeAgentId,
+  const { agents: runtimeAgents, status: runtimeStatus } = useRuntime();
+  const requestedChatId = params.get("chat");
+  const requestedChannelId = channelIdFromChatId(requestedChatId);
+  const staticRequestedChannel = workspaceChannel(params.get("channel"));
+  const runtimeRequestedChannel = workspaceChannels.channels.find(
+    (channel) =>
+      channel.visibility !== "direct" &&
+      (channel.id === params.get("channel") ||
+        channel.slug === params.get("channel")),
   );
-  const isDraftChat = params.get("new") === "1";
-
-  useEffect(() => {
-    if (!activeEntry || !isDraftChat) return;
-    setParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        next.delete("new");
-        next.delete("prompt");
-        return next;
+  const channelRequestedByChat = workspaceChannels.channels.find(
+    (channel) =>
+      channel.visibility !== "direct" && channel.id === requestedChannelId,
+  );
+  const resolvedRuntimeChannel =
+    runtimeRequestedChannel ?? channelRequestedByChat;
+  const staticChannelRequestedByChat = WORKSPACE_CHANNELS.find(
+    (channel) => channel.relayId === requestedChannelId,
+  );
+  const requestedChannel = resolvedRuntimeChannel
+    ? {
+        id: resolvedRuntimeChannel.id,
+        relayId: resolvedRuntimeChannel.id,
+        label: resolvedRuntimeChannel.name,
+        description: resolvedRuntimeChannel.description,
+        agentIds: resolvedRuntimeChannel.agentIds,
+      }
+    : (staticRequestedChannel ?? staticChannelRequestedByChat);
+  const requestedDirectMessage = workspaceDirectMessage(params.get("dm"));
+  const directIdentity = requestedDirectMessage
+    ? WORKSPACE_AGENT_IDENTITIES[requestedDirectMessage.id]
+    : null;
+  const defaultRuntimeChannel = workspaceChannels.channels.find(
+    (channel) => channel.slug === "general",
+  );
+  const activeChannel =
+    requestedChannel ??
+    (defaultRuntimeChannel
+      ? {
+          id: defaultRuntimeChannel.id,
+          relayId: defaultRuntimeChannel.id,
+          label: defaultRuntimeChannel.name,
+          description: defaultRuntimeChannel.description,
+          agentIds: defaultRuntimeChannel.agentIds,
+        }
+      : DEFAULT_WORKSPACE_CHANNEL);
+  const isDefaultChannelRoute =
+    requestedChatId === null &&
+    requestedDirectMessage === null &&
+    params.get("channel") === null;
+  const activeConversationChannel =
+    requestedChannel ?? (isDefaultChannelRoute ? activeChannel : undefined);
+  const navigationState =
+    typeof location.state === "object" && location.state !== null
+      ? (location.state as { focusComposerFor?: unknown })
+      : null;
+  const focusComposer =
+    navigationState?.focusComposerFor === activeConversationChannel?.id;
+  const activeChatId = activeConversationChannel
+    ? resolvedChannelChatId(
+        activeConversationChannel.id,
+        cloudOrganizationId,
+        localChats.chats,
+      )
+    : requestedDirectMessage
+      ? resolvedChannelChatId(
+          requestedDirectMessage.relayId,
+          cloudOrganizationId,
+          localChats.chats,
+        )
+      : requestedChatId;
+  const activeChildId = params.get("child");
+  const activeSetupActionId = googleAnalyticsActionIdFromChat(activeChatId);
+  const activeSetupDomain =
+    params.get("setup") ?? integrationSetupDomainFromChat(activeChatId);
+  const legacySetupPath = (() => {
+    if (!activeSetupDomain || !activeSetupActionId) return null;
+    const integration = INTEGRATION_CATALOG.flatMap(
+      (group) => group.integrations,
+    ).find((candidate) => candidate.domain === activeSetupDomain);
+    return integrationSetupChannelPath(
+      {
+        domain: activeSetupDomain,
+        name: integration?.name ?? activeSetupDomain,
       },
-      { replace: true },
+      activeSetupActionId,
     );
-  }, [activeEntry, isDraftChat, setParams]);
+  })();
+  const activeEntry = localChats.chats.find(
+    (entry) => entry.id === activeChatId,
+  );
+  const directPresence: AgentPresence =
+    activeChatId && (running[activeChatId] ?? activeEntry?.running ?? false)
+      ? "working"
+      : runtimeStatus === "connected"
+        ? "online"
+        : "offline";
+  const profileParam = params.get("profile");
+  const activeProfileAgentId =
+    profileParam === "agent" && requestedDirectMessage
+      ? requestedDirectMessage.id
+      : isWorkspaceAgentId(profileParam)
+        ? profileParam
+        : null;
+  const activeProfileAgent = activeProfileAgentId
+    ? (runtimeAgents.find((agent) => agent.id === activeProfileAgentId) ??
+      defaultAgents.find((agent) => agent.id === activeProfileAgentId) ??
+      null)
+    : null;
+  const activeProfileIdentity = activeProfileAgentId
+    ? WORKSPACE_AGENT_IDENTITIES[activeProfileAgentId]
+    : null;
+  const activeProfileDirectMessage =
+    workspaceDirectMessage(activeProfileAgentId);
+  const activeProfileChatId = activeProfileDirectMessage
+    ? resolvedChannelChatId(
+        activeProfileDirectMessage.relayId,
+        cloudOrganizationId,
+        localChats.chats,
+      )
+    : null;
+  const activeProfilePresence: AgentPresence = activeProfileAgentId
+    ? activeProfileChatId && running[activeProfileChatId]
+      ? "working"
+      : runtimeStatus === "connected"
+        ? "online"
+        : "offline"
+    : "offline";
+  const activeProfileChannels = activeProfileAgent
+    ? workspaceChannels.channels
+        .filter(
+          (channel) =>
+            channel.visibility !== "direct" &&
+            channel.agentIds.includes(activeProfileAgent.id),
+        )
+        .map((channel) => ({
+          id: channel.id,
+          name: channel.name,
+          description: channel.description,
+        }))
+    : [];
+  const userProfileOpen = profileParam === "user" && user !== null;
+  const activityOpen = params.get("activity") === "1";
+  const userProfileChannels = userProfileOpen
+    ? workspaceChannels.channels
+        .filter((channel) => channel.visibility !== "direct")
+        .map((channel) => ({
+          id: channel.id,
+          name: channel.name,
+          description: channel.description,
+        }))
+    : [];
+  const isNew = Boolean(activeChatId && !localChats.loading && !activeEntry);
+  const activeView =
+    !directIdentity && params.get("view") === "canvas" ? "canvas" : "messages";
 
   useEffect(() => {
-    if (activeAgent && (activeEntry || (activeChatId && isDraftChat))) return;
-    if (activeAgent && !activeChatId) {
-      const existing = log.find((entry) => entry.agentId === activeAgent.id);
-      const entry = existing ?? createChat(activeAgent.id);
-      setParams(
-        (current) => {
-          const next = new URLSearchParams(current);
-          next.set("agent", activeAgent.id);
-          next.set("chat", entry.id);
-          if (!existing) next.set("new", "1");
-          return next;
-        },
-        { replace: true },
-      );
-      return;
-    }
-    const first = log[0];
-    if (first) {
-      setParams({ agent: first.agentId, chat: first.id }, { replace: true });
-    }
-  }, [activeAgent, activeChatId, activeEntry, isDraftChat, log, setParams]);
+    if (!legacySetupPath) return;
+    void navigate(legacySetupPath, { replace: true });
+  }, [legacySetupPath, navigate]);
 
-  const grouped = useMemo(
-    () =>
-      enabledAgents
-        .map((agent) => ({
-          agent,
-          entries: log.filter((entry) => entry.agentId === agent.id),
-        }))
-        .filter((group) => group.entries.length > 0),
-    [enabledAgents, log],
+  useEffect(() => {
+    if (!focusComposer) return;
+    let clearFrame = 0;
+    const focusFrame = window.requestAnimationFrame(() => {
+      clearFrame = window.requestAnimationFrame(() => {
+        void navigate(`${location.pathname}${location.search}`, {
+          replace: true,
+          state: null,
+        });
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.cancelAnimationFrame(clearFrame);
+    };
+  }, [focusComposer, location.pathname, location.search, navigate]);
+  const activeChild = workspaceData.activity.find(
+    (session) =>
+      session.id === activeChildId && session.parentId === activeChatId,
   );
-
-  const openNew = (agent: AgentDefinition) => {
-    const entry = createChat(agent.id);
-    setParams({ agent: agent.id, chat: entry.id, new: "1" });
-  };
-
-  const removeChat = (entry: ChatLogEntry) => {
-    const remaining = log.filter((candidate) => candidate.id !== entry.id);
-    localChats.remove(entry.id);
-    if (entry.id !== activeChatId) return;
-    const next = remaining[0];
-    setParams(next ? { agent: next.agentId, chat: next.id } : {}, {
-      replace: true,
+  const hasAuxiliaryPanel = userProfileOpen || activeProfileAgent !== null;
+  const openProfile = (selection: ConversationProfileSelection) => {
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("activity");
+      next.delete("child");
+      next.set(
+        "profile",
+        selection.kind === "user" ? "user" : selection.agentId,
+      );
+      return next;
     });
   };
+  const closeProfile = () => {
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("profile");
+      return next;
+    });
+  };
+  const openInternalPanel = () => {
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("child");
+      next.delete("profile");
+      return next;
+    });
+  };
+  const setActivityPanel = (open: boolean) => {
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      if (open) {
+        next.delete("child");
+        next.delete("profile");
+        next.set("activity", "1");
+      } else {
+        next.delete("activity");
+      }
+      return next;
+    });
+  };
+  const continueArtifact = (artifact: { id: string; title: string }) => {
+    startTransition(() =>
+      setParams({
+        channel: activeChannel.id,
+        prompt: `Open the output “${artifact.title}” (${artifact.id}) and help me improve it.`,
+      }),
+    );
+  };
+  const setConversationView = (view: "messages" | "canvas") => {
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("activity");
+      next.delete("child");
+      next.delete("profile");
+      if (view === "canvas") next.set("view", "canvas");
+      else next.delete("view");
+      return next;
+    });
+  };
+  const conversationHeader = (
+    <ConversationHeader
+      channel={activeChannel}
+      directAgentId={requestedDirectMessage?.id ?? null}
+      directIdentity={directIdentity}
+      directPresence={directPresence}
+      onContinueArtifact={continueArtifact}
+      onOpenActivity={() => setActivityPanel(true)}
+      onOpenProfile={openProfile}
+      activeView={activeView}
+      onViewChange={setConversationView}
+      user={user}
+    />
+  );
 
   return (
-    <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)]">
-      <aside className="flex w-72 shrink-0 flex-col border-r px-5">
-        <div className="shrink-0 pt-10">
-          <div className="flex items-center justify-between">
-            <h1 className="font-serif text-3xl">Conversations</h1>
-            <NewConversationMenu agents={enabledAgents} onPick={openNew} />
-          </div>
-        </div>
-        <div className="mt-6 flex-1 space-y-5 overflow-y-auto pb-5">
-          {grouped.map(({ agent, entries }) => (
-            <AgentGroup
-              key={agent.id}
-              agent={agent}
-              entries={entries}
-              activeChatId={activeChatId}
-              running={running}
-              onCreate={() => openNew(agent)}
-              onSelect={(entry) =>
-                setParams({ agent: agent.id, chat: entry.id })
-              }
-              onDelete={removeChat}
-            />
-          ))}
-        </div>
-      </aside>
-      <main className="min-w-0 flex-1 pb-6 pl-6">
-        {activeAgent && activeChatId && (activeEntry || isDraftChat) ? (
-          <AgentChat
-            key={activeChatId}
-            agent={activeAgent}
-            chatId={activeChatId}
-            isNew={isDraftChat && !activeEntry}
-            composer={
-              params.get("compose") === "recurring"
-                ? "recurring"
-                : params.get("compose") === "oneoff"
-                  ? "oneoff"
-                  : undefined
-            }
-            composerDate={params.get("date") ?? undefined}
-            composerPlaybookId={params.get("playbook") ?? undefined}
-            observeOnly={params.get("observe") === "1"}
-            initialPrompt={initialPrompt}
-            initialDraft={initialDraft}
-            initialDriver={
-              activeEntry?.driver ?? preferences.get(activeAgent.id)?.driver
-            }
-            initialModel={
-              activeEntry?.model ?? preferences.get(activeAgent.id)?.model
-            }
-            integrations={preferences.get(activeAgent.id)?.integrations}
-            onInitialPromptSent={() => {
-              setParams(
-                (current) => {
-                  const next = new URLSearchParams(current);
-                  next.delete("prompt");
-                  return next;
-                },
-                { replace: true },
-              );
-            }}
-          />
-        ) : (
-          <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-            Start a conversation with an agent.
-          </div>
+    <main className="bg-background relative flex h-full min-w-0 flex-col overflow-hidden min-[901px]:flex-row">
+      <section
+        className={cn(
+          "flex min-h-0 min-w-0 flex-1 flex-col",
+          hasAuxiliaryPanel && "min-[901px]:min-w-[300px]",
         )}
-      </main>
-    </div>
+      >
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {activeChatId && activeView === "canvas" && !directIdentity ? (
+            <>
+              {conversationHeader}
+              <ChannelCanvas
+                channelName={activeChannel.label}
+                onContinueArtifact={continueArtifact}
+              />
+            </>
+          ) : activeChatId ? (
+            <ConversationErrorBoundary resetKey={activeChatId}>
+              <ChiefChat
+                key={`${activeChatId}:${params.get("thread") ?? ""}:${params.get("message") ?? ""}`}
+                chatId={activeChatId}
+                initialMessageId={params.get("message") ?? undefined}
+                initialThreadRootId={params.get("thread") ?? undefined}
+                isNew={isNew}
+                channel={activeConversationChannel}
+                directAgent={
+                  directIdentity && requestedDirectMessage
+                    ? {
+                        id: requestedDirectMessage.id,
+                        name: directIdentity.name,
+                        role: directIdentity.role,
+                      }
+                    : undefined
+                }
+                destinationChannelId={
+                  requestedDirectMessage?.relayId ??
+                  activeConversationChannel?.relayId
+                }
+                integrationDomain={activeSetupDomain ?? undefined}
+                activeChild={activeChild}
+                initialDriver={
+                  activeEntry?.driver ??
+                  (isNew ? requestedDriver(params.get("driver")) : undefined)
+                }
+                initialModel={
+                  activeEntry?.model ??
+                  (isNew ? (params.get("model") ?? undefined) : undefined)
+                }
+                composer={
+                  params.get("compose") === "recurring"
+                    ? "recurring"
+                    : params.get("compose") === "oneoff"
+                      ? "oneoff"
+                      : undefined
+                }
+                composerDate={params.get("date") ?? undefined}
+                composerPlaybookId={params.get("playbook") ?? undefined}
+                initialPrompt={
+                  initialHandoff?.text ?? params.get("prompt") ?? undefined
+                }
+                initialAttachments={initialHandoff?.attachments}
+                initialDraft={params.get("draft") ?? undefined}
+                focusComposer={focusComposer}
+                onInitialPromptSent={() => {
+                  clearComposerHandoff(handoffId);
+                  setParams(
+                    (current) => {
+                      const next = new URLSearchParams(current);
+                      next.delete("handoff");
+                      next.delete("prompt");
+                      next.delete("driver");
+                      next.delete("model");
+                      return next;
+                    },
+                    { replace: true },
+                  );
+                }}
+                onCloseChild={() =>
+                  setParams((current) => {
+                    const next = new URLSearchParams(current);
+                    next.delete("child");
+                    return next;
+                  })
+                }
+                onOpenChild={(childId) =>
+                  setParams((current) => {
+                    const next = new URLSearchParams(current);
+                    next.set("channel", activeChannel.id);
+                    next.set("chat", activeChatId);
+                    next.delete("profile");
+                    next.set("child", childId);
+                    return next;
+                  })
+                }
+                onOpenInternalPanel={openInternalPanel}
+                activityOpen={activityOpen}
+                onActivityOpenChange={setActivityPanel}
+                onOpenProfile={openProfile}
+                panelSizing={panelSizing}
+                profileOpen={userProfileOpen || activeProfileAgent !== null}
+                header={conversationHeader}
+              />
+            </ConversationErrorBoundary>
+          ) : null}
+        </div>
+      </section>
+      {activeChatId && userProfileOpen ? (
+        <UserProfilePanel
+          user={user}
+          channels={userProfileChannels}
+          onClose={closeProfile}
+          sizing={panelSizing}
+        />
+      ) : activeChatId && activeProfileAgent ? (
+        <AgentProfilePanel
+          key={activeProfileAgent.id}
+          agent={activeProfileAgent}
+          channels={activeProfileChannels}
+          displayName={activeProfileIdentity?.name}
+          presence={activeProfilePresence}
+          onClose={closeProfile}
+          sizing={panelSizing}
+        />
+      ) : null}
+    </main>
   );
 }

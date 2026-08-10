@@ -14,8 +14,6 @@ const APP_TABLES: TableNames[] = [
   "socialAccount",
   "channel",
   "analyticsSnapshot",
-  "oauthState",
-  "credential",
   "agentCapability",
   "subscription",
   "stripeWebhookEvent",
@@ -41,9 +39,7 @@ export const clearConnections = internalMutation({
     const tables: TableNames[] = [
       "channel",
       "analyticsSnapshot",
-      "credential",
       "agentCapability",
-      "oauthState",
     ];
     const deleted: Record<string, number> = {};
     for (const table of tables) {

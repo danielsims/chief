@@ -66,6 +66,13 @@ export const baseConfig = defineConfig(
       ],
       "@typescript-eslint/no-non-null-assertion": "error",
       "import/consistent-type-specifier-style": ["error", "prefer-top-level"],
+      "max-lines": [
+        // The repository lint script enforces the hard 500-line limit and an
+        // explicit no-growth baseline for legacy files. Keep editor feedback
+        // here without making every package lint permanently red on old debt.
+        "warn",
+        { max: 500, skipBlankLines: false, skipComments: false },
+      ],
     },
   },
   {

@@ -8,3 +8,4 @@ agent/lib/roster.ts
 .vercel/
 .vercel
 .env*
+.env*.local

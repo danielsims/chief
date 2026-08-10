@@ -1,15 +1,17 @@
-import type { MouseEvent } from "react";
+/* eslint-disable max-lines */
+
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarPlus,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   FilePlus2,
+  Inbox,
   MessageSquare,
   Pause,
   Pencil,
-  Play,
   Plus,
   Repeat2,
   ShieldCheck,
@@ -19,11 +21,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useNavigate } from "react-router";
 
-import type {
-  ContentDraftRecord,
-  RecurringWorkRecord,
-  RecurringWorkRunRecord,
-} from "@chief/agent-runtime/types";
+import type { RecurringWorkRecord } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 import {
   Dialog,
@@ -47,84 +45,51 @@ import {
 } from "@chief/ui/components/select";
 import { cn } from "@chief/ui/lib/utils";
 
-import type { RunReview } from "../components/run-review-dialog";
-import { RunReviewDialog } from "../components/run-review-dialog";
+import type {
+  CalendarView,
+  ScheduledDraft,
+  ScheduleKind,
+} from "./schedule-calendar-core";
+import { AgentWorkingIndicator } from "../components/chat/agent-working-indicator";
+import { PageTitle } from "../components/page-title";
 import { useAgentConfig } from "../lib/agent-config";
 import { useAuth } from "../lib/auth/auth-context";
 import { createChat } from "../lib/chat-log";
-import { useAgentChat, useWorkspaceData } from "../lib/runtime";
+import { messageBlocks, useChiefChat, useWorkspaceData } from "../lib/runtime";
+import {
+  addDays,
+  addMonths,
+  agentName,
+  buildMonthCells,
+  CALENDAR_HEADER_HEIGHT,
+  dayKey,
+  DraftEventContent,
+  eventSurface,
+  monthKey,
+  monthLabel,
+  MONTHS_AFTER,
+  MONTHS_BEFORE,
+  sameMonth,
+  startOfDay,
+  startOfMonth,
+  startOfWeek,
+  TIMELINE_END_HOUR,
+  TIMELINE_ROW_HEIGHT,
+  TIMELINE_START_HOUR,
+  WEEKDAYS,
+  WorkEventContent,
+  workStatusLabel,
+} from "./schedule-calendar-core";
 
-type ScheduledDraft = ContentDraftRecord;
-type CalendarView = "month" | "week" | "day";
-type ScheduleKind = "post" | "agent-work";
-
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const MONTHS_BEFORE = 12;
-const MONTHS_AFTER = 24;
-const WEEKDAY_HEADER_HEIGHT = 36;
-const CALENDAR_HEADER_HEIGHT = WEEKDAY_HEADER_HEIGHT;
-
-function startOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function startOfMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
-
-function startOfWeek(date: Date) {
-  const result = startOfDay(date);
-  result.setDate(result.getDate() - ((result.getDay() + 6) % 7));
-  return result;
-}
-
-function addDays(date: Date, count: number) {
-  const result = new Date(date);
-  result.setDate(result.getDate() + count);
-  return result;
-}
-
-function addMonths(date: Date, count: number) {
-  return new Date(date.getFullYear(), date.getMonth() + count, 1);
-}
-
-function dayKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function monthKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function sameMonth(left: Date, right: Date) {
-  return monthKey(left) === monthKey(right);
-}
-
-function monthLabel(date: Date) {
-  return date.toLocaleDateString([], { month: "long", year: "numeric" });
-}
-
-function buildMonthCells(month: Date): (Date | null)[] {
-  const first = new Date(month.getFullYear(), month.getMonth(), 1);
-  const leading = (first.getDay() + 6) % 7;
-  const days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
-  const count = Math.ceil((leading + days) / 7) * 7;
-  return Array.from({ length: count }, (_, index) => {
-    const day = index - leading + 1;
-    return day > 0 && day <= days
-      ? new Date(month.getFullYear(), month.getMonth(), day)
-      : null;
-  });
-}
-
-function statusClass(status: ScheduledDraft["status"]) {
-  if (status === "published") return "bg-emerald-500";
-  if (status === "scheduled") return "bg-sky-500";
-  if (status === "approved") return "bg-amber-400";
-  return "bg-muted-foreground";
-}
-
-function DraftChip({ draft }: { draft: ScheduledDraft }) {
+function DraftChip({
+  draft,
+  onOpen,
+  past = false,
+}: {
+  draft: ScheduledDraft;
+  onOpen: (draft: ScheduledDraft) => void;
+  past?: boolean;
+}) {
   const time = draft.scheduledFor
     ? new Date(draft.scheduledFor).toLocaleTimeString([], {
         hour: "numeric",
@@ -132,241 +97,59 @@ function DraftChip({ draft }: { draft: ScheduledDraft }) {
       })
     : "";
   return (
-    <div className="bg-background min-w-0 border px-2 py-1.5 select-none">
-      <div className="flex min-w-0 items-center gap-1.5">
-        <span className={cn("size-1.5 shrink-0", statusClass(draft.status))} />
-        <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
-          {draft.title}
-        </span>
-      </div>
-      <p className="text-muted-foreground mt-1 truncate text-[10px]">
-        {time} · {draft.platform}
-      </p>
-    </div>
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen(draft);
+      }}
+      className={cn(
+        "block min-h-11 w-full min-w-0 overflow-hidden rounded-[10px] px-2.5 py-2 text-left transition-colors select-none",
+        eventSurface(past),
+      )}
+    >
+      <DraftEventContent draft={draft} time={time || undefined} muted={past} />
+    </button>
   );
 }
 
 function RecurringWorkChip({
   work,
+  onOpen,
   onContextMenu,
+  past = false,
 }: {
   work: RecurringWorkRecord;
+  onOpen?: (work: RecurringWorkRecord) => void;
   onContextMenu?: (work: RecurringWorkRecord, x: number, y: number) => void;
+  past?: boolean;
 }) {
-  const approvalNeeded =
-    work.status === "draft" || work.status === "needs_approval";
   return (
     <div
+      role={onOpen ? "button" : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      onClick={(event) => {
+        if (!onOpen) return;
+        event.stopPropagation();
+        onOpen(work);
+      }}
+      onKeyDown={(event) => {
+        if (!onOpen || (event.key !== "Enter" && event.key !== " ")) return;
+        event.preventDefault();
+        onOpen(work);
+      }}
       onContextMenu={(event) => {
         if (!onContextMenu) return;
         event.preventDefault();
         event.stopPropagation();
         onContextMenu(work, event.clientX, event.clientY);
       }}
-      className="bg-card min-w-0 border px-2 py-1.5 select-none"
-    >
-      <div className="flex min-w-0 items-center gap-1.5">
-        <span
-          className={cn(
-            "size-1.5 shrink-0",
-            approvalNeeded ? "bg-amber-400" : "bg-foreground",
-          )}
-        />
-        <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
-          {work.title}
-        </span>
-      </div>
-      <p className="text-muted-foreground mt-1 truncate text-[10px]">
-        {work.status === "draft" ? "Approval needed" : work.agentId}
-      </p>
-    </div>
-  );
-}
-
-interface PastRunEntry {
-  id: string;
-  workId: string;
-  agentId: string;
-  title: string;
-  status: "running" | "completed" | "failed" | "needs_approval";
-  scheduledFor: number;
-  summary?: string;
-  blockedTools?: string[];
-}
-
-function previewText(markdown: string) {
-  return markdown
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/^\s{0,3}(?:#{1,6}|>|[-+*]|\d+\.)\s+/gm, "")
-    .replace(/[*_~`]+/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** A finished occurrence stays on the calendar, quietly greyed. */
-function PastRunChip({
-  run,
-  onOpen,
-  onContextMenu,
-}: {
-  run: PastRunEntry;
-  onOpen?: (run: PastRunEntry) => void;
-  onContextMenu?: (run: PastRunEntry, x: number, y: number) => void;
-}) {
-  const running = run.status === "running";
-  return (
-    <div
-      onClick={(event) => {
-        if (!onOpen) return;
-        event.preventDefault();
-        event.stopPropagation();
-        onOpen(run);
-      }}
-      onContextMenu={(event) => {
-        if (!onContextMenu) return;
-        event.preventDefault();
-        event.stopPropagation();
-        onContextMenu(run, event.clientX, event.clientY);
-      }}
       className={cn(
-        "min-w-0 border px-2 py-1.5 select-none",
-        running
-          ? "border-border bg-card"
-          : "border-border/60 bg-card/50 opacity-60",
+        "min-h-11 min-w-0 overflow-hidden rounded-[10px] px-2.5 py-2 transition-colors select-none",
+        eventSurface(past),
       )}
     >
-      <div className="flex min-w-0 items-center gap-1.5">
-        <span
-          className={cn(
-            "size-1.5 shrink-0",
-            running
-              ? "animate-pulse bg-emerald-500"
-              : run.status === "completed"
-                ? "bg-muted-foreground"
-                : run.status === "failed"
-                  ? "bg-destructive"
-                  : "bg-amber-400",
-          )}
-        />
-        <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
-          {run.title}
-        </span>
-      </div>
-      <p className="text-muted-foreground mt-1 truncate text-[10px]">
-        {running
-          ? "Running…"
-          : run.status === "completed"
-            ? "Completed"
-            : run.status === "failed"
-              ? "Failed"
-              : "Needs approval"}
-      </p>
-    </div>
-  );
-}
-
-function PastRunContextMenu({
-  context,
-  onClose,
-  onReview,
-  onRemove,
-  onEditSeries,
-  onCancelSeries,
-}: {
-  context: { run: PastRunEntry; x: number; y: number } | null;
-  onClose: () => void;
-  onReview: (run: PastRunEntry) => void;
-  onRemove: (run: PastRunEntry) => void;
-  onEditSeries: (run: PastRunEntry) => void;
-  onCancelSeries: (run: PastRunEntry) => void;
-}) {
-  useEffect(() => {
-    if (!context) return;
-    const close = () => onClose();
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("pointerdown", close);
-    window.addEventListener("keydown", escape);
-    return () => {
-      window.removeEventListener("pointerdown", close);
-      window.removeEventListener("keydown", escape);
-    };
-  }, [context, onClose]);
-
-  if (!context) return null;
-  const { run } = context;
-  const items: {
-    label: string;
-    detail: string;
-    action: () => void;
-    destructive?: boolean;
-  }[] = [
-    {
-      label: "Review",
-      detail: "Outcome and follow-up",
-      action: () => onReview(run),
-    },
-    {
-      label: "Edit schedule",
-      detail: "Change the series timing",
-      action: () => onEditSeries(run),
-    },
-    {
-      label: "Remove from history",
-      detail: "Deletes this record only",
-      action: () => onRemove(run),
-      destructive: true,
-    },
-    {
-      label: "Cancel series",
-      detail: "Removes the automation and its history",
-      action: () => onCancelSeries(run),
-      destructive: true,
-    },
-  ];
-  return (
-    <div
-      role="menu"
-      onPointerDown={(event) => event.stopPropagation()}
-      className="bg-popover text-popover-foreground fixed z-50 w-64 border p-1.5 shadow-md"
-      style={{
-        left: Math.min(context.x, window.innerWidth - 272),
-        top: Math.min(context.y, window.innerHeight - 200),
-      }}
-    >
-      <p className="text-muted-foreground truncate px-2 py-1.5 text-[10px]">
-        {run.title}
-      </p>
-      {items.map((item, index) => (
-        <button
-          key={item.label}
-          type="button"
-          role="menuitem"
-          onClick={() => {
-            item.action();
-            onClose();
-          }}
-          className={cn(
-            "hover:bg-accent flex w-full flex-col px-2 py-2 text-left transition-colors",
-            item.destructive && index === 2 && "mt-1 border-t pt-2.5",
-          )}
-        >
-          <span
-            className={cn(
-              "text-xs font-medium",
-              item.destructive && "text-destructive",
-            )}
-          >
-            {item.label}
-          </span>
-          <span className="text-muted-foreground mt-0.5 text-[10px]">
-            {item.detail}
-          </span>
-        </button>
-      ))}
+      <WorkEventContent work={work} muted={past} />
     </div>
   );
 }
@@ -375,33 +158,33 @@ function DayCell({
   date,
   drafts,
   recurringWork,
-  pastRuns = [],
   today,
+  now,
   selected,
   onSelect,
   onContextMenu,
+  onWorkOpen,
+  onDraftOpen,
   onWorkContext,
-  onPastRunOpen,
-  onPastRunContext,
   boundaryRow = false,
   tall = false,
 }: {
   date: Date;
   drafts: ScheduledDraft[];
   recurringWork: RecurringWorkRecord[];
-  pastRuns?: PastRunEntry[];
   today: Date;
+  now: number;
   selected: Date;
   onSelect: (date: Date) => void;
   onContextMenu?: (date: Date, x: number, y: number) => void;
+  onWorkOpen?: (work: RecurringWorkRecord) => void;
+  onDraftOpen: (draft: ScheduledDraft) => void;
   onWorkContext?: (
     work: RecurringWorkRecord,
     date: Date,
     x: number,
     y: number,
   ) => void;
-  onPastRunContext?: (run: PastRunEntry, x: number, y: number) => void;
-  onPastRunOpen?: (run: PastRunEntry) => void;
   boundaryRow?: boolean;
   tall?: boolean;
 }) {
@@ -409,46 +192,45 @@ function DayCell({
   const isToday = key === dayKey(today);
   const isSelected = key === dayKey(selected);
   const visibleLimit = tall ? 8 : boundaryRow ? 2 : 3;
-  const workLimit = Math.max(0, visibleLimit - pastRuns.length);
-  const draftLimit = Math.max(0, workLimit - recurringWork.length);
+  const draftLimit = Math.max(0, visibleLimit - recurringWork.length);
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => onSelect(date)}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onSelect(date);
+      }}
       onContextMenu={(event) => {
         if (!onContextMenu) return;
         event.preventDefault();
         onContextMenu(date, event.clientX, event.clientY);
       }}
       className={cn(
-        "hover:bg-accent/30 min-h-28 min-w-0 border-r border-b p-2 text-left align-top transition-colors",
+        "hover:bg-accent/25 focus-visible:bg-accent/35 min-h-28 min-w-0 border-r border-b border-black/[0.055] p-2 text-left align-top transition-colors outline-none dark:border-white/[0.055]",
         tall && "min-h-[420px]",
-        isSelected && "bg-accent/40",
+        isSelected && "bg-accent/30",
       )}
     >
       <span
         className={cn(
-          "relative block text-right text-xs leading-none",
-          isToday &&
-            "after:bg-foreground font-medium after:absolute after:right-0 after:-bottom-1 after:h-px after:w-3",
+          "ml-auto flex size-6 items-center justify-center rounded-full text-[11px] leading-none",
+          isToday && "bg-foreground text-background font-semibold",
+          isSelected && !isToday && "bg-accent font-semibold",
         )}
       >
         {date.getDate()}
       </span>
       <div className={cn("min-w-0 space-y-1", boundaryRow ? "mt-8" : "mt-2")}>
-        {pastRuns.slice(0, visibleLimit).map((run) => (
-          <PastRunChip
-            key={run.id}
-            run={run}
-            onOpen={onPastRunOpen}
-            onContextMenu={onPastRunContext}
-          />
-        ))}
-        {recurringWork.slice(0, workLimit).map((work) => (
+        {recurringWork.slice(0, visibleLimit).map((work) => (
           <RecurringWorkChip
             key={work.id}
             work={work}
+            onOpen={onWorkOpen}
+            past={date < today}
             onContextMenu={
               onWorkContext
                 ? (item, x, y) => onWorkContext(item, date, x, y)
@@ -457,21 +239,20 @@ function DayCell({
           />
         ))}
         {drafts.slice(0, draftLimit).map((draft) => (
-          <DraftChip key={draft.id} draft={draft} />
+          <DraftChip
+            key={draft.id}
+            draft={draft}
+            onOpen={onDraftOpen}
+            past={draft.scheduledFor !== undefined && draft.scheduledFor < now}
+          />
         ))}
-        {drafts.length + recurringWork.length + pastRuns.length >
-        visibleLimit ? (
+        {drafts.length + recurringWork.length > visibleLimit ? (
           <p className="text-muted-foreground px-1 text-[10px]">
-            +
-            {drafts.length +
-              recurringWork.length +
-              pastRuns.length -
-              visibleLimit}{" "}
-            more
+            +{drafts.length + recurringWork.length - visibleLimit} more
           </p>
         ) : null}
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -521,7 +302,7 @@ function ScheduleFilters({
               key={option.kind}
               type="button"
               onClick={() => onToggle(option.kind)}
-              className="hover:bg-accent flex w-full items-center gap-3 px-2 py-2 text-left transition-colors"
+              className="hover:bg-accent flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors"
             >
               <span className={cn("size-2 shrink-0", option.color)} />
               <span className="min-w-0 flex-1">
@@ -532,7 +313,7 @@ function ScheduleFilters({
                   {option.detail}
                 </span>
               </span>
-              <span className="flex size-4 shrink-0 items-center justify-center border">
+              <span className="flex size-4 shrink-0 items-center justify-center rounded-md shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_12%,transparent)]">
                 {checked ? <Check size={11} /> : null}
               </span>
             </button>
@@ -548,15 +329,15 @@ function ContinuousMonthView({
   activeMonth,
   onActiveMonthChange,
   today,
+  now,
   selected,
   onSelect,
   onDateContext,
+  onWorkOpen,
+  onDraftOpen,
   onWorkContext,
-  onPastRunOpen,
-  onPastRunContext,
   byDay,
   recurringByDay,
-  pastRunsByDay,
   showPosts,
   showAgentWork,
   scrollRequest,
@@ -565,20 +346,20 @@ function ContinuousMonthView({
   activeMonth: Date;
   onActiveMonthChange: (month: Date) => void;
   today: Date;
+  now: number;
   selected: Date;
   onSelect: (date: Date) => void;
   onDateContext: (date: Date, x: number, y: number) => void;
+  onWorkOpen: (work: RecurringWorkRecord) => void;
+  onDraftOpen: (draft: ScheduledDraft) => void;
   onWorkContext: (
     work: RecurringWorkRecord,
     date: Date,
     x: number,
     y: number,
   ) => void;
-  onPastRunContext: (run: PastRunEntry, x: number, y: number) => void;
-  onPastRunOpen: (run: PastRunEntry) => void;
   byDay: ReadonlyMap<string, ScheduledDraft[]>;
   recurringByDay: ReadonlyMap<string, RecurringWorkRecord[]>;
-  pastRunsByDay: ReadonlyMap<string, PastRunEntry[]>;
   showPosts: boolean;
   showAgentWork: boolean;
   scrollRequest: { month: Date; token: number };
@@ -593,19 +374,31 @@ function ContinuousMonthView({
   const calendarRef = useRef<HTMLDivElement>(null);
   const monthSections = useRef(new Map<string, HTMLElement>());
   const scrollFrame = useRef<number | null>(null);
+  const programmaticMonth = useRef<string | null>(null);
+  const scrollEndTimer = useRef<number | null>(null);
 
   const scrollToMonth = (month: Date, behavior: ScrollBehavior) => {
     const container = calendarRef.current;
-    const section = monthSections.current.get(monthKey(month));
+    const key = monthKey(month);
+    const section = monthSections.current.get(key);
     if (!container || !section) return;
+    programmaticMonth.current = behavior === "smooth" ? key : null;
+    const top =
+      container.scrollTop +
+      section.getBoundingClientRect().top -
+      container.getBoundingClientRect().top -
+      CALENDAR_HEADER_HEIGHT;
     container.scrollTo({
-      top: section.offsetTop - CALENDAR_HEADER_HEIGHT,
+      top,
       behavior,
     });
   };
 
   useLayoutEffect(() => {
-    scrollToMonth(scrollRequest.month, "auto");
+    scrollToMonth(
+      scrollRequest.month,
+      scrollRequest.token === 0 ? "auto" : "smooth",
+    );
     onActiveMonthChange(scrollRequest.month);
   }, [scrollRequest.token]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -614,26 +407,43 @@ function ContinuousMonthView({
       if (scrollFrame.current !== null) {
         window.cancelAnimationFrame(scrollFrame.current);
       }
+      if (scrollEndTimer.current !== null) {
+        window.clearTimeout(scrollEndTimer.current);
+      }
     },
     [],
   );
 
+  const syncActiveMonthFromScroll = () => {
+    const container = calendarRef.current;
+    if (!container) return;
+    const threshold =
+      container.getBoundingClientRect().top + CALENDAR_HEADER_HEIGHT + 4;
+    let nextMonth = months[0]!;
+    for (const month of months) {
+      const section = monthSections.current.get(monthKey(month));
+      if (!section || section.getBoundingClientRect().top > threshold) break;
+      nextMonth = month;
+    }
+    if (!sameMonth(nextMonth, activeMonth)) {
+      onActiveMonthChange(nextMonth);
+    }
+  };
+
   const handleScroll = () => {
+    if (scrollEndTimer.current !== null) {
+      window.clearTimeout(scrollEndTimer.current);
+    }
+    scrollEndTimer.current = window.setTimeout(() => {
+      programmaticMonth.current = null;
+      scrollEndTimer.current = null;
+      syncActiveMonthFromScroll();
+    }, 120);
     if (scrollFrame.current !== null) return;
     scrollFrame.current = window.requestAnimationFrame(() => {
       scrollFrame.current = null;
-      const container = calendarRef.current;
-      if (!container) return;
-      const threshold = container.scrollTop + CALENDAR_HEADER_HEIGHT + 2;
-      let nextMonth = months[0]!;
-      for (const month of months) {
-        const section = monthSections.current.get(monthKey(month));
-        if (!section || section.offsetTop > threshold) break;
-        nextMonth = month;
-      }
-      if (!sameMonth(nextMonth, activeMonth)) {
-        onActiveMonthChange(nextMonth);
-      }
+      if (programmaticMonth.current !== null) return;
+      syncActiveMonthFromScroll();
     });
   };
 
@@ -641,13 +451,13 @@ function ContinuousMonthView({
     <div
       ref={calendarRef}
       onScroll={handleScroll}
-      className="relative h-full min-w-0 overflow-y-auto overscroll-contain"
+      className="relative h-full min-w-0 touch-pan-y [scrollbar-width:thin] [scrollbar-gutter:stable] overflow-y-scroll overscroll-contain scroll-smooth"
     >
-      <div className="bg-background/95 sticky top-0 z-30 grid h-9 grid-cols-7 border-b backdrop-blur-lg">
+      <div className="bg-card/90 sticky top-0 z-30 grid h-10 grid-cols-7 border-b border-black/[0.055] backdrop-blur-xl dark:border-white/[0.055]">
         {WEEKDAYS.map((weekday) => (
           <div
             key={weekday}
-            className="text-muted-foreground border-r px-3 py-2 text-[11px] last:border-r-0"
+            className="text-muted-foreground border-r border-black/[0.055] px-3 py-2.5 text-[11px] font-medium last:border-r-0 dark:border-white/[0.055]"
           >
             {weekday}
           </div>
@@ -664,18 +474,24 @@ function ContinuousMonthView({
               if (node) monthSections.current.set(key, node);
               else monthSections.current.delete(key);
             }}
-            className="relative grid grid-cols-7 border-l"
+            className="relative grid grid-cols-7 border-l border-black/[0.055] dark:border-white/[0.055]"
           >
-            <p
+            <button
+              type="button"
+              onClick={() => {
+                scrollToMonth(month, "smooth");
+                onActiveMonthChange(month);
+              }}
               className={cn(
-                "pointer-events-none absolute top-2 left-3 z-10 font-serif text-xl transition-opacity duration-300",
+                "hover:text-muted-foreground absolute top-2.5 left-3 z-10 text-left text-lg font-semibold tracking-[-0.025em] transition-[color,opacity] duration-200",
                 // The page header already names the active month; the in-grid
                 // label fades away instead of duplicating it.
-                sameMonth(month, activeMonth) && "opacity-0",
+                sameMonth(month, activeMonth) &&
+                  "pointer-events-none opacity-0",
               )}
             >
               {monthLabel(month)}
-            </p>
+            </button>
             {cells.map((date, index) =>
               date ? (
                 <DayCell
@@ -687,23 +503,21 @@ function ContinuousMonthView({
                       ? (recurringByDay.get(dayKey(date)) ?? [])
                       : []
                   }
-                  pastRuns={
-                    showAgentWork ? (pastRunsByDay.get(dayKey(date)) ?? []) : []
-                  }
                   today={today}
+                  now={now}
                   selected={selected}
                   onSelect={onSelect}
                   onContextMenu={onDateContext}
+                  onWorkOpen={onWorkOpen}
+                  onDraftOpen={onDraftOpen}
                   onWorkContext={onWorkContext}
-                  onPastRunOpen={onPastRunOpen}
-                  onPastRunContext={onPastRunContext}
                   boundaryRow={index < 7}
                 />
               ) : (
                 <div
                   key={`empty-${index}`}
                   aria-hidden="true"
-                  className="bg-muted/[0.025] min-h-28 border-r border-b"
+                  className="bg-muted/[0.025] min-h-28 border-r border-b border-black/[0.055] dark:border-white/[0.055]"
                 />
               ),
             )}
@@ -718,33 +532,33 @@ function FocusedCalendarView({
   view,
   selected,
   today,
+  now,
   onSelect,
   onDateContext,
+  onWorkOpen,
+  onDraftOpen,
   onWorkContext,
-  onPastRunOpen,
-  onPastRunContext,
   byDay,
   recurringByDay,
-  pastRunsByDay,
   showPosts,
   showAgentWork,
 }: {
   view: Exclude<CalendarView, "month">;
   selected: Date;
   today: Date;
+  now: number;
   onSelect: (date: Date) => void;
   onDateContext: (date: Date, x: number, y: number) => void;
+  onWorkOpen: (work: RecurringWorkRecord) => void;
+  onDraftOpen: (draft: ScheduledDraft) => void;
   onWorkContext: (
     work: RecurringWorkRecord,
     date: Date,
     x: number,
     y: number,
   ) => void;
-  onPastRunContext: (run: PastRunEntry, x: number, y: number) => void;
-  onPastRunOpen: (run: PastRunEntry) => void;
   byDay: ReadonlyMap<string, ScheduledDraft[]>;
   recurringByDay: ReadonlyMap<string, RecurringWorkRecord[]>;
-  pastRunsByDay: ReadonlyMap<string, PastRunEntry[]>;
   showPosts: boolean;
   showAgentWork: boolean;
 }) {
@@ -754,51 +568,226 @@ function FocusedCalendarView({
           addDays(startOfWeek(selected), index),
         )
       : [selected];
+  const timelineHeight =
+    (TIMELINE_END_HOUR - TIMELINE_START_HOUR) * TIMELINE_ROW_HEIGHT;
+  const hours = Array.from(
+    { length: TIMELINE_END_HOUR - TIMELINE_START_HOUR + 1 },
+    (_, index) => TIMELINE_START_HOUR + index,
+  );
+
+  const eventTop = (timestamp: number) => {
+    const date = new Date(timestamp);
+    const elapsedMinutes =
+      date.getHours() * 60 + date.getMinutes() - TIMELINE_START_HOUR * 60;
+    return Math.max(
+      5,
+      Math.min(
+        timelineHeight - 47,
+        (elapsedMinutes / 60) * TIMELINE_ROW_HEIGHT,
+      ),
+    );
+  };
 
   return (
-    <div className="h-full min-w-0 overflow-y-auto">
-      <div
-        className={cn(
-          "bg-background/95 sticky top-0 z-20 grid h-9 border-b backdrop-blur-lg",
-          view === "week" ? "grid-cols-7" : "grid-cols-1",
-        )}
-      >
-        {dates.map((date) => (
+    <div className="h-full min-w-0 touch-pan-y [scrollbar-width:thin] [scrollbar-gutter:stable] overflow-y-scroll overscroll-contain">
+      <div className="bg-card/90 sticky top-0 z-30 backdrop-blur-xl">
+        <div
+          className="grid border-b border-black/[0.055] dark:border-white/[0.055]"
+          style={{
+            gridTemplateColumns: `64px repeat(${dates.length}, minmax(0, 1fr))`,
+          }}
+        >
+          <div />
+          {dates.map((date) => {
+            const isToday = dayKey(date) === dayKey(today);
+            const isSelected = dayKey(date) === dayKey(selected);
+            return (
+              <button
+                key={dayKey(date)}
+                type="button"
+                onClick={() => onSelect(date)}
+                className="hover:bg-accent/25 flex min-w-0 items-center justify-center gap-2 border-l border-black/[0.055] px-2 py-2.5 transition-colors dark:border-white/[0.055]"
+              >
+                <span className="text-muted-foreground truncate text-[11px] font-medium">
+                  {date.toLocaleDateString([], { weekday: "short" })}
+                </span>
+                <span
+                  className={cn(
+                    "flex size-7 items-center justify-center rounded-full text-xs font-semibold",
+                    isToday && "bg-foreground text-background",
+                    isSelected && !isToday && "bg-accent",
+                  )}
+                >
+                  {date.getDate()}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div
+          className="grid min-h-14 border-b border-black/[0.055] dark:border-white/[0.055]"
+          style={{
+            gridTemplateColumns: `64px repeat(${dates.length}, minmax(0, 1fr))`,
+          }}
+        >
+          <div className="text-muted-foreground px-2 pt-2.5 text-right text-[9px]">
+            Unscheduled
+          </div>
+          {dates.map((date) => {
+            const unscheduled = showPosts
+              ? (byDay.get(dayKey(date)) ?? []).filter(
+                  (draft) => draft.scheduledFor === undefined,
+                )
+              : [];
+            return (
+              <div
+                key={dayKey(date)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  onDateContext(date, event.clientX, event.clientY);
+                }}
+                className="min-w-0 border-l border-black/[0.055] p-1.5 dark:border-white/[0.055]"
+              >
+                {unscheduled.slice(0, 1).map((draft) => (
+                  <DraftChip
+                    key={draft.id}
+                    draft={draft}
+                    onOpen={onDraftOpen}
+                  />
+                ))}
+                {unscheduled.length > 1 ? (
+                  <p className="text-muted-foreground px-2 py-1 text-[9px]">
+                    +{unscheduled.length - 1} awaiting a time
+                  </p>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="relative" style={{ height: timelineHeight }}>
+        {hours.map((hour, index) => (
           <div
-            key={dayKey(date)}
-            className="text-muted-foreground border-r px-3 py-2 text-[11px] last:border-r-0"
+            key={hour}
+            className="absolute right-0 left-0 flex items-start"
+            style={{ top: index * TIMELINE_ROW_HEIGHT }}
           >
-            {date.toLocaleDateString([], { weekday: "short" })}
+            <span
+              className={cn(
+                "text-muted-foreground pr-2 text-right text-[9px] tabular-nums",
+                index > 0 && "-translate-y-1.5",
+              )}
+              style={{ width: 64 }}
+            >
+              {new Date(2000, 0, 1, hour).toLocaleTimeString([], {
+                hour: "numeric",
+              })}
+            </span>
+            <span className="h-px flex-1 bg-black/[0.055] dark:bg-white/[0.055]" />
           </div>
         ))}
-      </div>
-      <div
-        className={cn(
-          "grid min-h-[calc(100%-36px)] border-l",
-          view === "week" ? "grid-cols-7" : "grid-cols-1",
-        )}
-      >
-        {dates.map((date) => (
-          <DayCell
-            key={dayKey(date)}
-            date={date}
-            drafts={showPosts ? (byDay.get(dayKey(date)) ?? []) : []}
-            recurringWork={
-              showAgentWork ? (recurringByDay.get(dayKey(date)) ?? []) : []
-            }
-            pastRuns={
-              showAgentWork ? (pastRunsByDay.get(dayKey(date)) ?? []) : []
-            }
-            today={today}
-            selected={selected}
-            onSelect={onSelect}
-            onContextMenu={onDateContext}
-            onWorkContext={onWorkContext}
-            onPastRunOpen={onPastRunOpen}
-            onPastRunContext={onPastRunContext}
-            tall
-          />
-        ))}
+
+        <div
+          className="absolute inset-0 grid"
+          style={{
+            gridTemplateColumns: `64px repeat(${dates.length}, minmax(0, 1fr))`,
+          }}
+        >
+          <div />
+          {dates.map((date) => {
+            const key = dayKey(date);
+            const drafts = showPosts
+              ? (byDay.get(key) ?? []).filter(
+                  (draft): draft is ScheduledDraft & { scheduledFor: number } =>
+                    draft.scheduledFor !== undefined,
+                )
+              : [];
+            const recurring = showAgentWork
+              ? (recurringByDay.get(key) ?? []).flatMap((work) => {
+                  const timestamp = work.upcomingRuns?.find(
+                    (run) => dayKey(new Date(run)) === key,
+                  );
+                  return timestamp === undefined ? [] : [{ work, timestamp }];
+                })
+              : [];
+            return (
+              <div
+                key={key}
+                onClick={() => onSelect(date)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  onDateContext(date, event.clientX, event.clientY);
+                }}
+                className={cn(
+                  "relative min-w-0 border-l border-black/[0.055] dark:border-white/[0.055]",
+                  key === dayKey(selected) && "bg-foreground/[0.012]",
+                )}
+              >
+                {recurring.map(({ work, timestamp }) => (
+                  <button
+                    key={`${work.id}-${timestamp}`}
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onWorkOpen(work);
+                    }}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onWorkContext(work, date, event.clientX, event.clientY);
+                    }}
+                    className={cn(
+                      "absolute right-1.5 left-1.5 overflow-hidden rounded-[10px] px-2.5 py-2 text-left transition-colors",
+                      eventSurface(timestamp < now),
+                    )}
+                    style={{ top: eventTop(timestamp), minHeight: 42 }}
+                  >
+                    <WorkEventContent
+                      work={work}
+                      time={new Date(timestamp).toLocaleTimeString([], {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                      muted={timestamp < now}
+                    />
+                  </button>
+                ))}
+                {drafts.map((draft) => (
+                  <button
+                    key={draft.id}
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDraftOpen(draft);
+                    }}
+                    className={cn(
+                      "absolute right-1.5 left-1.5 overflow-hidden rounded-[10px] px-2.5 py-2 text-left transition-colors",
+                      eventSurface(draft.scheduledFor < now),
+                    )}
+                    style={{
+                      top: eventTop(draft.scheduledFor),
+                      minHeight: 42,
+                    }}
+                  >
+                    <DraftEventContent
+                      draft={draft}
+                      time={new Date(draft.scheduledFor).toLocaleTimeString(
+                        [],
+                        {
+                          hour: "numeric",
+                          minute: "2-digit",
+                        },
+                      )}
+                      muted={draft.scheduledFor < now}
+                    />
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -866,7 +855,7 @@ function CalendarContextMenu({
     <div
       role="menu"
       onPointerDown={(event) => event.stopPropagation()}
-      className="bg-popover text-popover-foreground fixed z-50 w-64 border p-1.5 shadow-md"
+      className="bg-popover/95 text-popover-foreground fixed z-50 w-64 rounded-xl p-1.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent),0_16px_48px_rgba(0,0,0,0.14)] backdrop-blur-xl"
       style={{
         left: Math.min(context.x, window.innerWidth - 272),
         top: Math.min(context.y, window.innerHeight - 238),
@@ -888,7 +877,7 @@ function CalendarContextMenu({
             onAction(id, context.date);
             onClose();
           }}
-          className="hover:bg-accent flex w-full items-start gap-3 px-2 py-2 text-left transition-colors"
+          className="hover:bg-accent flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors"
         >
           <Icon size={14} className="mt-0.5 shrink-0" />
           <span>
@@ -942,7 +931,7 @@ function RecurringWorkContextMenu({
     <div
       role="menu"
       onPointerDown={(event) => event.stopPropagation()}
-      className="bg-popover text-popover-foreground fixed z-50 w-64 border p-1.5 shadow-md"
+      className="bg-popover/95 text-popover-foreground fixed z-50 w-64 rounded-xl p-1.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent),0_16px_48px_rgba(0,0,0,0.14)] backdrop-blur-xl"
       style={{
         left: Math.min(context.x, window.innerWidth - 272),
         top: Math.min(context.y, window.innerHeight - 190),
@@ -959,7 +948,7 @@ function RecurringWorkContextMenu({
             onSkip(work, date);
             onClose();
           }}
-          className="hover:bg-accent flex w-full items-start gap-3 px-2 py-2 text-left transition-colors"
+          className="hover:bg-accent flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors"
         >
           <Pause size={14} className="mt-0.5 shrink-0" />
           <span>
@@ -984,7 +973,7 @@ function RecurringWorkContextMenu({
           onEdit(work);
           onClose();
         }}
-        className="hover:bg-accent flex w-full items-start gap-3 px-2 py-2 text-left transition-colors"
+        className="hover:bg-accent flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors"
       >
         <Pencil size={14} className="mt-0.5 shrink-0" />
         <span>
@@ -1001,7 +990,7 @@ function RecurringWorkContextMenu({
           onCancelSeries(work);
           onClose();
         }}
-        className="hover:bg-accent flex w-full items-start gap-3 px-2 py-2 text-left transition-colors"
+        className="hover:bg-accent flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors"
       >
         <Trash2 size={14} className="text-destructive mt-0.5 shrink-0" />
         <span>
@@ -1009,7 +998,7 @@ function RecurringWorkContextMenu({
             Cancel series
           </span>
           <span className="text-muted-foreground mt-0.5 block text-[10px]">
-            Removes the automation and its history
+            Removes the automation and upcoming occurrences
           </span>
         </span>
       </button>
@@ -1087,6 +1076,33 @@ function cronFromFields(fields: ScheduleFields): string {
   return `${m} ${h} ${Number(fields.dayOfMonth)} * *`;
 }
 
+function friendlySchedule(work: RecurringWorkRecord) {
+  if (work.onceAt !== undefined) {
+    return new Date(work.onceAt).toLocaleString([], {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+  const fields = fieldsFromCron(work.cron);
+  if (fields.frequency === "custom") return work.cron;
+  const time = new Date(`2000-01-01T${fields.time}:00`).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  if (fields.frequency === "daily") return `Every day at ${time}`;
+  if (fields.frequency === "weekdays") return `Weekdays at ${time}`;
+  if (fields.frequency === "weekly") {
+    const weekday = WEEKDAY_OPTIONS.find(
+      (option) => option.value === fields.weekday,
+    )?.label;
+    return `Every ${weekday ?? "week"} at ${time}`;
+  }
+  return `Monthly on day ${fields.dayOfMonth} at ${time}`;
+}
+
 function RecurringWorkEditDialog({
   work,
   onClose,
@@ -1107,6 +1123,8 @@ function RecurringWorkEditDialog({
 
   useEffect(() => {
     if (!work) return;
+    // This form remains mounted behind the dialog and resets when its record changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTitle(work.title);
     setTimezone(work.timezone);
     setFields(fieldsFromCron(work.cron));
@@ -1147,7 +1165,7 @@ function RecurringWorkEditDialog({
         {work ? (
           <>
             <DialogHeader>
-              <DialogTitle className="font-serif text-2xl">
+              <DialogTitle className="text-2xl font-normal">
                 Edit schedule
               </DialogTitle>
               <DialogDescription>
@@ -1285,12 +1303,14 @@ function RecurringWorkEditDialog({
 
 function RecurringWorkApprovalDialog({
   work,
+  now,
   onClose,
   onApprove,
   onReject,
   revision,
 }: {
   work: RecurringWorkRecord | null;
+  now: number;
   onClose: () => void;
   onApprove: (work: RecurringWorkRecord) => void;
   onReject: (work: RecurringWorkRecord) => void;
@@ -1303,7 +1323,7 @@ function RecurringWorkApprovalDialog({
 }) {
   const [feedback, setFeedback] = useState("");
   const missedOneOff = Boolean(
-    work?.runOnceAt !== undefined && work.runOnceAt <= Date.now(),
+    work?.onceAt !== undefined && work.onceAt <= now,
   );
   const submitFeedback = () => {
     const text = feedback.trim();
@@ -1317,15 +1337,15 @@ function RecurringWorkApprovalDialog({
         {work ? (
           <>
             <DialogHeader>
-              <DialogTitle className="font-serif text-2xl">
-                {work.runOnceAt === undefined
+              <DialogTitle className="text-2xl font-normal">
+                {work.onceAt === undefined
                   ? "Approve recurring work"
                   : "Approve task"}
               </DialogTitle>
               <DialogDescription>
                 {missedOneOff
                   ? "Its scheduled time has passed. Approving will run it now."
-                  : work.runOnceAt === undefined
+                  : work.onceAt === undefined
                     ? `Approve this once and ${work.agentId} will keep running it until you pause or revoke it.`
                     : `Approve this once and ${work.agentId} will run it at the scheduled time.`}
               </DialogDescription>
@@ -1337,7 +1357,10 @@ function RecurringWorkApprovalDialog({
                   {work.approvalSummary}
                 </p>
                 <p className="text-muted-foreground mt-3 font-mono text-[11px]">
-                  {work.cron} · {work.timezone}
+                  {work.onceAt === undefined
+                    ? work.cron
+                    : new Date(work.onceAt).toLocaleString()}{" "}
+                  · {work.timezone}
                 </p>
               </div>
               <div>
@@ -1402,9 +1425,7 @@ function RecurringWorkApprovalDialog({
                     </Button>
                   </div>
                   {revision.busy ? (
-                    <p className="agent-working mt-2 font-mono text-xs">
-                      updating the plan…
-                    </p>
+                    <AgentWorkingIndicator className="mt-2" />
                   ) : revision.note ? (
                     <p className="text-muted-foreground mt-2 text-xs leading-5">
                       {revision.note}
@@ -1444,95 +1465,244 @@ function RecurringWorkApprovalDialog({
   );
 }
 
-function RecurringWorkDetail({
+function ScheduleEventDetailDialog({
   work,
-  onReview,
-  onToggle,
-  onRun,
-  onPlacement,
-  onContextMenu,
+  draft,
+  onClose,
+  onEditWork,
+  onOpenDraft,
 }: {
-  work: RecurringWorkRecord;
-  onReview: () => void;
-  onToggle: () => void;
-  onRun: () => void;
-  onPlacement?: (placement: RecurringWorkRecord["placement"]) => void;
-  onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void;
+  work: RecurringWorkRecord | null;
+  draft: ScheduledDraft | null;
+  onClose: () => void;
+  onEditWork: (work: RecurringWorkRecord) => void;
+  onOpenDraft: (draft: ScheduledDraft) => void;
 }) {
-  const approvalNeeded =
-    work.status === "draft" || work.status === "needs_approval";
+  const open = Boolean(work ?? draft);
+  const source = work ? agentName(work.agentId) : draft?.platform;
+  const status = work
+    ? workStatusLabel(work.status)
+    : draft
+      ? draft.status[0]?.toUpperCase() + draft.status.slice(1)
+      : "";
+  const timing = work
+    ? friendlySchedule(work)
+    : draft?.scheduledFor
+      ? new Date(draft.scheduledFor).toLocaleString([], {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })
+      : "Awaiting a time";
+
   return (
-    <div className="border p-3" onContextMenu={onContextMenu}>
-      <div className="flex items-start gap-2">
-        <span className="bg-foreground mt-1 size-1.5 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium">{work.title}</p>
-          <p className="text-muted-foreground mt-1 text-[10px] capitalize">
-            {work.agentId} · {work.status.replace("_", " ")}
-          </p>
-        </div>
-      </div>
-      {work.lastResult ? (
-        <p className="text-muted-foreground mt-3 line-clamp-3 text-xs leading-5">
-          {work.lastResult}
-        </p>
-      ) : null}
-      <div className="mt-3 flex gap-1.5">
-        {approvalNeeded ? (
-          <Button size="sm" className="flex-1" onClick={onReview}>
-            {work.status === "needs_approval"
-              ? "Review run"
-              : "Review approval"}
-          </Button>
-        ) : (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-w-lg overflow-hidden p-0">
+        {work || draft ? (
           <>
-            <Button variant="outline" size="sm" onClick={onRun}>
-              <Play size={12} />
-              Run now
-            </Button>
-            <Button variant="outline" size="sm" onClick={onToggle}>
-              {work.status === "active" ? (
-                <Pause size={12} />
-              ) : (
-                <Play size={12} />
-              )}
-              {work.status === "active" ? "Pause" : "Resume"}
-            </Button>
+            <DialogHeader className="px-6 pt-6 pb-4 text-left">
+              <div className="flex items-start gap-3.5 pr-8">
+                <span className="bg-foreground/[0.06] flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
+                  {source?.slice(0, 1).toUpperCase()}
+                </span>
+                <div className="min-w-0 pt-0.5">
+                  <DialogTitle className="text-lg leading-6 font-semibold tracking-[-0.02em]">
+                    {work?.title ?? draft?.title}
+                  </DialogTitle>
+                  <DialogDescription className="mt-1 text-xs">
+                    {source} · {timing}
+                  </DialogDescription>
+                </div>
+              </div>
+            </DialogHeader>
+
+            <div className="space-y-4 px-6 pb-6">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-foreground/[0.035] rounded-xl px-3 py-2.5">
+                  <p className="text-muted-foreground text-[10px]">Status</p>
+                  <p className="mt-0.5 text-xs font-medium">{status}</p>
+                </div>
+                <div className="bg-foreground/[0.035] rounded-xl px-3 py-2.5">
+                  <p className="text-muted-foreground text-[10px]">
+                    {work ? "Runs" : "Destination"}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs font-medium">
+                    {work ? friendlySchedule(work) : draft?.platform}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-muted-foreground mb-1.5 text-[10px]">
+                  {work ? "Brief" : "Content"}
+                </p>
+                <div className="bg-foreground/[0.025] max-h-56 overflow-y-auto rounded-xl px-3.5 py-3 text-xs leading-5 whitespace-pre-wrap shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_5%,transparent)]">
+                  {work
+                    ? work.instructions.length > 0
+                      ? work.instructions
+                      : "No additional instructions."
+                    : draft && draft.body.length > 0
+                      ? draft.body
+                      : "No draft content yet."}
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="bg-foreground/[0.018] border-t border-black/[0.055] px-6 py-4 dark:border-white/[0.055]">
+              <Button variant="outline" onClick={onClose}>
+                Close
+              </Button>
+              {work ? (
+                <Button onClick={() => onEditWork(work)}>Edit schedule</Button>
+              ) : draft?.fileId ? (
+                <Button onClick={() => onOpenDraft(draft)}>Open draft</Button>
+              ) : null}
+            </DialogFooter>
           </>
-        )}
-      </div>
-      {!approvalNeeded && onPlacement ? (
-        <div className="mt-3 flex items-center justify-between gap-2 border-t pt-2.5">
-          <span className="text-muted-foreground text-[10px]">Runs on</span>
-          <div className="flex border p-0.5">
-            {(
-              [
-                { value: "local", label: "This Mac" },
-                { value: "cloud", label: "Cloud" },
-              ] as const
-            ).map((option) => (
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MonthJump({
+  month,
+  onSelect,
+}: {
+  month: Date;
+  onSelect: (month: Date) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [year, setYear] = useState(month.getFullYear());
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) setYear(month.getFullYear());
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="hover:bg-accent/45 group flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-1.5 text-xl font-semibold tracking-[-0.025em] transition-colors"
+        >
+          <span className="truncate">{monthLabel(month)}</span>
+          <ChevronDown
+            size={14}
+            className="text-muted-foreground shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+          />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72 rounded-2xl p-2.5">
+        <div className="mb-2 flex items-center justify-between px-1">
+          <button
+            type="button"
+            onClick={() => setYear((value) => value - 1)}
+            className="hover:bg-accent flex size-7 items-center justify-center rounded-lg transition-colors"
+            aria-label="Previous year"
+          >
+            <ChevronLeft size={14} />
+          </button>
+          <span className="text-xs font-semibold tabular-nums">{year}</span>
+          <button
+            type="button"
+            onClick={() => setYear((value) => value + 1)}
+            className="hover:bg-accent flex size-7 items-center justify-center rounded-lg transition-colors"
+            aria-label="Next year"
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-1">
+          {Array.from({ length: 12 }, (_, index) => {
+            const candidate = new Date(year, index, 1);
+            const active = sameMonth(candidate, month);
+            return (
               <button
-                key={option.value}
+                key={index}
                 type="button"
-                onClick={() => onPlacement(option.value)}
+                onClick={() => {
+                  onSelect(candidate);
+                  setOpen(false);
+                }}
                 className={cn(
-                  "text-muted-foreground hover:text-foreground px-2 py-0.5 text-[10px] transition-colors",
-                  work.placement === option.value &&
-                    "bg-accent text-foreground",
+                  "hover:bg-accent rounded-lg px-2 py-2 text-xs transition-colors",
+                  active && "bg-foreground text-background hover:bg-foreground",
                 )}
               >
-                {option.label}
+                {candidate.toLocaleDateString([], { month: "short" })}
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ScheduleInbox({
+  work,
+  onOpen,
+}: {
+  work: RecurringWorkRecord[];
+  onOpen: (work: RecurringWorkRecord) => void;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm">
+          <Inbox size={13} />
+          Review
+          {work.length > 0 ? (
+            <span className="ml-0.5 rounded-full bg-amber-500/12 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 tabular-nums dark:text-amber-300">
+              {work.length}
+            </span>
+          ) : null}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 rounded-2xl p-2">
+        <div className="px-2 pt-1 pb-2">
+          <p className="text-xs font-semibold">Schedule inbox</p>
+          <p className="text-muted-foreground mt-0.5 text-[10px]">
+            Agent work waiting for your judgment.
+          </p>
+        </div>
+        {work.length > 0 ? (
+          <div className="space-y-1">
+            {work.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onOpen(item)}
+                className="hover:bg-accent flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors"
+              >
+                <span className="size-1.5 shrink-0 rounded-full bg-amber-400" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-semibold">
+                    {item.title}
+                  </span>
+                  <span className="text-muted-foreground mt-0.5 block truncate text-[10px]">
+                    {agentName(item.agentId)} · {friendlySchedule(item)}
+                  </span>
+                </span>
+                <ChevronRight
+                  size={12}
+                  className="text-muted-foreground shrink-0"
+                />
               </button>
             ))}
           </div>
-        </div>
-      ) : null}
-      {work.placement === "cloud" && !approvalNeeded ? (
-        <p className="text-muted-foreground mt-1.5 text-[10px]">
-          Takes effect on the next workspace deploy.
-        </p>
-      ) : null}
-    </div>
+        ) : (
+          <p className="text-muted-foreground rounded-xl bg-emerald-500/[0.05] px-3 py-3 text-[10px] shadow-[inset_0_0_0_1px_rgba(16,185,129,0.1)]">
+            Nothing is waiting for review.
+          </p>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1540,9 +1710,10 @@ export function SchedulePage() {
   const navigate = useNavigate();
   const reduceMotion = useReducedMotion();
   const today = useMemo(() => startOfDay(new Date()), []);
+  const [now, setNow] = useState(Date.now);
   const currentMonth = useMemo(() => startOfMonth(today), [today]);
   const [selected, setSelected] = useState(today);
-  const [view, setView] = useState<CalendarView>("month");
+  const [view, setView] = useState<CalendarView>("week");
   const [activeMonth, setActiveMonth] = useState(currentMonth);
   const [monthDirection, setMonthDirection] = useState<1 | -1>(1);
   const [scrollRequest, setScrollRequest] = useState({
@@ -1553,7 +1724,8 @@ export function SchedulePage() {
     () => new Set<ScheduleKind>(["post", "agent-work"]),
   );
   const [approvalWorkId, setApprovalWorkId] = useState<string | null>(null);
-  const [runReview, setRunReview] = useState<RunReview | null>(null);
+  const [detailWorkId, setDetailWorkId] = useState<string | null>(null);
+  const [detailDraftId, setDetailDraftId] = useState<string | null>(null);
   const [dateMenu, setDateMenu] = useState<{
     date: Date;
     x: number;
@@ -1565,66 +1737,48 @@ export function SchedulePage() {
     x: number;
     y: number;
   } | null>(null);
-  const [pastRunMenu, setPastRunMenu] = useState<{
-    run: PastRunEntry;
-    x: number;
-    y: number;
-  } | null>(null);
   const [editWorkId, setEditWorkId] = useState<string | null>(null);
   const { cloudOrganizationId } = useAuth();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const agentConfig = useAgentConfig();
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   // Derived from live workspace data so an agent revision streams straight
   // into the open approval card.
   const approvalWork = approvalWorkId
     ? (workspaceData.recurringWork.find((work) => work.id === approvalWorkId) ??
       null)
     : null;
+  const detailWork = detailWorkId
+    ? (workspaceData.recurringWork.find((work) => work.id === detailWorkId) ??
+      null)
+    : null;
+  const detailDraft = detailDraftId
+    ? (workspaceData.drafts.find((draft) => draft.id === detailDraftId) ?? null)
+    : null;
   const revisionDriver = agentConfig.forAgent("cmo").driver;
-  const revisionChat = useAgentChat(
-    approvalWorkId ? "cmo" : null,
-    revisionDriver,
-    approvalWorkId ? `revise-recurring-${approvalWorkId}` : undefined,
-    "full",
-  );
+  const revisionChat = useChiefChat(approvalWork?.conversationId ?? null);
   const revisionNote = useMemo(() => {
-    for (let i = revisionChat.chat.items.length - 1; i >= 0; i -= 1) {
-      const item = revisionChat.chat.items[i]!;
-      if (item.kind !== "assistant") continue;
-      const text = item.event.content
+    for (let i = revisionChat.messages.length - 1; i >= 0; i -= 1) {
+      const item = revisionChat.messages[i]!;
+      if (item.role !== "assistant") continue;
+      const text = messageBlocks(item)
         .flatMap((block) => (block.type === "text" ? [block.text] : []))
         .join(" ")
         .trim();
       if (text) return text;
     }
     return null;
-  }, [revisionChat.chat.items]);
+  }, [revisionChat.messages]);
   const openWorkReview = (work: RecurringWorkRecord) => {
-    if (work.status !== "needs_approval") {
+    if (work.status === "draft" || work.status === "needs_approval") {
       setApprovalWorkId(work.id);
       return;
     }
-    const latest = workspaceData.recurringWorkRuns
-      .filter((run) => run.recurringWorkId === work.id)
-      .sort((a, b) => b.startedAt - a.startedAt)[0];
-    const attentionItem = workspaceData.attentionItems.find(
-      (item) => item.sourceId === `automation-${work.id}`,
-    );
-    setRunReview({
-      title: work.title,
-      agentId: work.agentId,
-      recurringWorkId: work.id,
-      runId: latest?.id,
-      attentionItemId: attentionItem?.id,
-      detail:
-        latest?.summary ??
-        latest?.error ??
-        work.lastResult ??
-        "The last run stopped before finishing.",
-      status: latest?.status ?? "needs_approval",
-      at: latest?.startedAt ?? work.lastRunAt,
-      blockedTools: latest?.blockedTools ?? [],
-    });
+    setDetailWorkId(work.id);
   };
 
   const requestRevision = (feedback: string) => {
@@ -1635,20 +1789,20 @@ export function SchedulePage() {
       title: approvalWork.title,
       cron: approvalWork.cron,
       timezone: approvalWork.timezone,
-      runOnceAt: approvalWork.runOnceAt,
+      onceAt: approvalWork.onceAt,
       instructions: approvalWork.instructions,
       approvalSummary: approvalWork.approvalSummary,
       proposedToolPatterns: approvalWork.proposedToolPatterns,
     };
-    revisionChat.send(
-      [
+    void revisionChat.sendMessage({
+      text: [
         "The user is reviewing a draft recurring-work approval and asked for a change before approving.",
         `Current draft (JSON): ${JSON.stringify(draft)}`,
         `Feedback: "${feedback}"`,
         `Right now it is ${new Date().toString()}.`,
-        "Apply the feedback by calling the recurringWorkPropose local tool with the SAME id and ALL fields (id, title, agentId, cron, timezone, runOnceAt when present, instructions, approvalSummary, proposedToolPatterns), changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
+        "Apply the feedback by calling the recurringWorkPropose local tool with the SAME id and ALL fields (id, title, agentId, cron, timezone, onceAt when present, instructions, approvalSummary, proposedToolPatterns), changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
       ].join("\n"),
-    );
+    });
   };
 
   const workDateKeyIn = (timestamp: number, timezone: string) => {
@@ -1687,8 +1841,11 @@ export function SchedulePage() {
   const byDay = useMemo(() => {
     const map = new Map<string, ScheduledDraft[]>();
     for (const draft of workspaceData.drafts) {
-      if (!draft.scheduledFor) continue;
-      const key = dayKey(new Date(draft.scheduledFor));
+      // Drafts are review work even before a publishing time is chosen. Put
+      // them on the day they were prepared, then move them to the scheduled
+      // date once the user approves a concrete slot.
+      const calendarTime = draft.scheduledFor ?? draft.createdAt;
+      const key = dayKey(new Date(calendarTime));
       const items = map.get(key) ?? [];
       items.push(draft);
       map.set(key, items);
@@ -1699,73 +1856,27 @@ export function SchedulePage() {
     return map;
   }, [workspaceData.drafts]);
 
-  const pastRunsByDay = useMemo(() => {
-    const works = new Map(
-      workspaceData.recurringWork.map((work) => [work.id, work]),
-    );
-    const latestByOccurrence = new Map<string, RecurringWorkRunRecord>();
-    for (const run of workspaceData.recurringWorkRuns) {
-      const occurrenceKey = `${run.recurringWorkId}:${dayKey(new Date(run.scheduledFor))}`;
-      const current = latestByOccurrence.get(occurrenceKey);
-      if (!current || run.startedAt > current.startedAt) {
-        latestByOccurrence.set(occurrenceKey, run);
-      }
-    }
-    const map = new Map<string, PastRunEntry[]>();
-    for (const run of latestByOccurrence.values()) {
-      const key = dayKey(new Date(run.scheduledFor));
-      const items = map.get(key) ?? [];
-      items.push({
-        id: run.id,
-        workId: run.recurringWorkId,
-        agentId: works.get(run.recurringWorkId)?.agentId ?? "cmo",
-        title: works.get(run.recurringWorkId)?.title ?? "Automation",
-        status: run.status,
-        scheduledFor: run.scheduledFor,
-        summary: run.summary ?? run.error ?? undefined,
-        blockedTools: run.blockedTools,
-      });
-      map.set(key, items);
-    }
-    return map;
-  }, [workspaceData.recurringWork, workspaceData.recurringWorkRuns]);
-
   const recurringByDay = useMemo(() => {
-    const occupiedOccurrences = new Set<string>();
-    for (const [key, runs] of pastRunsByDay) {
-      for (const run of runs) {
-        occupiedOccurrences.add(`${run.workId}:${key}`);
-      }
-    }
     const map = new Map<string, RecurringWorkRecord[]>();
     for (const work of workspaceData.recurringWork) {
       for (const timestamp of work.upcomingRuns ?? []) {
         const key = dayKey(new Date(timestamp));
-        if (occupiedOccurrences.has(`${work.id}:${key}`)) continue;
         const items = map.get(key) ?? [];
         if (!items.some((item) => item.id === work.id)) items.push(work);
         map.set(key, items);
       }
     }
     return map;
-  }, [pastRunsByDay, workspaceData.recurringWork]);
+  }, [workspaceData.recurringWork]);
 
   const showPosts = visibleKinds.has("post");
   const showAgentWork = visibleKinds.has("agent-work");
-  const selectedDrafts = showPosts ? (byDay.get(dayKey(selected)) ?? []) : [];
-  const selectedRecurringWork = showAgentWork
-    ? (recurringByDay.get(dayKey(selected)) ?? [])
-    : [];
-  const selectedPastRuns = showAgentWork
-    ? [...(pastRunsByDay.get(dayKey(selected)) ?? [])].sort(
-        (a, b) => a.scheduledFor - b.scheduledFor,
-      )
-    : [];
-  // Initial proposals only. A run that stopped mid-flight is reviewed from
-  // the Overview digest or the automation's own card, not this list.
   const pendingApprovals = workspaceData.recurringWork.filter(
-    (work) => work.status === "draft",
+    (work) => work.status === "draft" || work.status === "needs_approval",
   );
+  const activeScheduleCount = workspaceData.recurringWork.filter(
+    (work) => work.status === "active",
+  ).length;
 
   const requestMonth = (month: Date) => {
     setMonthDirection(month > activeMonth ? 1 : -1);
@@ -1773,33 +1884,17 @@ export function SchedulePage() {
     setActiveMonth(month);
   };
 
-  const openAgentForDate = (
-    agentId: string,
+  const openChiefForDate = (
+    specialist: string,
     title: string,
     text: string,
     send = false,
   ) => {
-    const chat = createChat(agentId, title);
-    navigate(
-      `/conversations?agent=${agentId}&chat=${chat.id}&new=1&${send ? "prompt" : "draft"}=${encodeURIComponent(text)}`,
+    const chat = createChat(title);
+    const prompt = `Consult the ${specialist} specialist. ${text}`;
+    void navigate(
+      `/conversations?chat=${chat.id}&${send ? "prompt" : "draft"}=${encodeURIComponent(prompt)}`,
     );
-  };
-
-  const openPastRun = (run: PastRunEntry) => {
-    if (run.status === "running") {
-      navigate(`/schedule/history?run=${encodeURIComponent(run.id)}`);
-      return;
-    }
-    setRunReview({
-      title: run.title,
-      agentId: run.agentId,
-      recurringWorkId: run.workId,
-      runId: run.id,
-      detail: run.summary ?? "No summary was recorded.",
-      status: run.status,
-      at: run.scheduledFor,
-      blockedTools: run.blockedTools ?? [],
-    });
   };
 
   const handleDateAction = (action: DateMenuAction, date: Date) => {
@@ -1810,30 +1905,28 @@ export function SchedulePage() {
       day: "numeric",
     });
     if (action === "content") {
-      openAgentForDate(
-        "content",
+      openChiefForDate(
+        "Content Writer",
         `Content for ${dateText}`,
         `Draft and schedule a piece of content for ${dateText}.`,
       );
       return;
     }
     if (action === "recurring") {
-      const chat = createChat("cmo", "Set up recurring work");
-      navigate(
-        `/conversations?agent=cmo&chat=${chat.id}&new=1&compose=recurring`,
-      );
+      const chat = createChat("Set up recurring work");
+      void navigate(`/conversations?chat=${chat.id}&compose=recurring`);
       return;
     }
     if (action === "event") {
       const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-      const chat = createChat("cmo", `Event on ${dateText}`);
-      navigate(
-        `/conversations?agent=cmo&chat=${chat.id}&new=1&compose=oneoff&date=${iso}`,
+      const chat = createChat(`Event on ${dateText}`);
+      void navigate(
+        `/conversations?chat=${chat.id}&compose=oneoff&date=${iso}`,
       );
       return;
     }
-    openAgentForDate(
-      "cmo",
+    openChiefForDate(
+      "appropriate marketing",
       `Plan ${dateText}`,
       `Help me plan the marketing work and content for ${dateText}.`,
     );
@@ -1859,11 +1952,11 @@ export function SchedulePage() {
 
   return (
     <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
-      <header className="flex shrink-0 flex-wrap items-end justify-between gap-5 border-b px-8 pt-4 pb-5">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-4 px-6 pt-5 pb-4">
         <div>
-          <h1 className="font-serif text-3xl">Schedule</h1>
-          <p className="text-muted-foreground mt-2 text-sm">
-            Planned content and recurring agent work.
+          <PageTitle>Schedule</PageTitle>
+          <p className="text-muted-foreground mt-1 text-[13px]">
+            Direct when agents work and review what they have planned.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -1871,96 +1964,102 @@ export function SchedulePage() {
             variant="outline"
             size="sm"
             onClick={() => {
-              const chat = createChat("cmo", "Set up recurring work");
-              navigate(
-                `/conversations?agent=cmo&chat=${chat.id}&new=1&compose=recurring`,
-              );
+              const chat = createChat("Set up recurring work");
+              void navigate(`/conversations?chat=${chat.id}&compose=recurring`);
             }}
           >
             <Plus size={13} />
-            New recurring work
+            New agent work
           </Button>
-          <ScheduleFilters
-            visibleKinds={visibleKinds}
-            onToggle={(kind) => {
-              setVisibleKinds((current) => {
-                const next = new Set(current);
-                if (next.has(kind)) next.delete(kind);
-                else next.add(kind);
-                return next;
-              });
-            }}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setSelected(today);
-              if (view === "month") requestMonth(currentMonth);
-            }}
-          >
-            Today
-          </Button>
-          <div className="flex border p-0.5">
-            {(["month", "week", "day"] as const).map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => setView(option)}
-                className={cn(
-                  "text-muted-foreground hover:text-foreground px-3 py-1.5 text-xs capitalize transition-colors",
-                  view === option && "bg-accent text-foreground",
-                )}
-              >
-                {option}
-              </button>
-            ))}
-          </div>
         </div>
       </header>
 
-      <div className="flex min-h-0 shrink-0 items-center justify-between border-b px-4 py-2">
-        <div className="relative h-7 min-w-0 flex-1 overflow-hidden">
-          <AnimatePresence
-            initial={false}
-            mode="popLayout"
-            custom={monthDirection}
-          >
-            <motion.p
-              key={view === "month" ? monthKey(activeMonth) : focusedHeading}
-              initial={
-                reduceMotion ? false : { y: monthDirection * 20, opacity: 0 }
-              }
-              animate={{ y: 0, opacity: 1 }}
-              exit={
-                reduceMotion
-                  ? { opacity: 0 }
-                  : { y: monthDirection * -20, opacity: 0 }
-              }
-              transition={{
-                type: "spring",
-                stiffness: 440,
-                damping: 38,
-                mass: 0.7,
+      <section className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 shrink-0 items-center justify-between gap-4 border-b border-black/[0.055] px-6 pb-3 dark:border-white/[0.055]">
+          <div className="relative h-8 min-w-0 flex-1 overflow-hidden">
+            {view === "month" ? (
+              <MonthJump month={activeMonth} onSelect={requestMonth} />
+            ) : (
+              <AnimatePresence
+                initial={false}
+                mode="popLayout"
+                custom={monthDirection}
+              >
+                <motion.p
+                  key={focusedHeading}
+                  initial={
+                    reduceMotion
+                      ? false
+                      : { y: monthDirection * 18, opacity: 0 }
+                  }
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={
+                    reduceMotion
+                      ? { opacity: 0 }
+                      : { y: monthDirection * -18, opacity: 0 }
+                  }
+                  transition={{
+                    type: "spring",
+                    stiffness: 440,
+                    damping: 38,
+                    mass: 0.7,
+                  }}
+                  className="absolute inset-x-0 min-w-0 truncate text-xl font-semibold tracking-[-0.025em]"
+                >
+                  {focusedHeading}
+                </motion.p>
+              </AnimatePresence>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <ScheduleInbox work={pendingApprovals} onOpen={openWorkReview} />
+            <ScheduleFilters
+              visibleKinds={visibleKinds}
+              onToggle={(kind) => {
+                setVisibleKinds((current) => {
+                  const next = new Set(current);
+                  if (next.has(kind)) next.delete(kind);
+                  else next.add(kind);
+                  return next;
+                });
               }}
-              className="absolute inset-x-0 min-w-0 truncate font-serif text-xl"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSelected(today);
+                if (view === "month") requestMonth(currentMonth);
+              }}
             >
-              {view === "month" ? monthLabel(activeMonth) : focusedHeading}
-            </motion.p>
-          </AnimatePresence>
+              Today
+            </Button>
+            <Button variant="outline" size="icon-sm" onClick={() => move(-1)}>
+              <ChevronLeft size={14} />
+            </Button>
+            <Button variant="outline" size="icon-sm" onClick={() => move(1)}>
+              <ChevronRight size={14} />
+            </Button>
+            <div className="bg-muted/45 flex rounded-lg p-0.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]">
+              {(["month", "week", "day"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setView(option)}
+                  className={cn(
+                    "text-muted-foreground hover:text-foreground rounded-md px-3 py-1.5 text-[11px] font-medium capitalize transition-[background-color,box-shadow,color]",
+                    view === option &&
+                      "bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.07),inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]",
+                  )}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon" onClick={() => move(-1)}>
-            <ChevronLeft size={15} />
-          </Button>
-          <Button variant="outline" size="icon" onClick={() => move(1)}>
-            <ChevronRight size={15} />
-          </Button>
-        </div>
-      </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_280px]">
-        <section className="min-w-0 overflow-hidden">
+        <div className="bg-background min-h-0 min-w-0 flex-1 overflow-hidden border-b border-black/[0.055] dark:border-white/[0.055]">
           {view === "month" ? (
             <ContinuousMonthView
               currentMonth={currentMonth}
@@ -1970,20 +2069,20 @@ export function SchedulePage() {
                 setActiveMonth(month);
               }}
               today={today}
+              now={now}
               selected={selected}
               onSelect={setSelected}
+              onWorkOpen={openWorkReview}
+              onDraftOpen={(draft) => setDetailDraftId(draft.id)}
               onWorkContext={(work, date, x, y) =>
                 setWorkMenu({ work, date, x, y })
               }
-              onPastRunContext={(run, x, y) => setPastRunMenu({ run, x, y })}
-              onPastRunOpen={openPastRun}
               onDateContext={(date, x, y) => {
                 setSelected(date);
                 setDateMenu({ date, x, y });
               }}
               byDay={byDay}
               recurringByDay={recurringByDay}
-              pastRunsByDay={pastRunsByDay}
               showPosts={showPosts}
               showAgentWork={showAgentWork}
               scrollRequest={scrollRequest}
@@ -1993,173 +2092,50 @@ export function SchedulePage() {
               view={view}
               selected={selected}
               today={today}
+              now={now}
               onSelect={setSelected}
+              onWorkOpen={openWorkReview}
+              onDraftOpen={(draft) => setDetailDraftId(draft.id)}
               onWorkContext={(work, date, x, y) =>
                 setWorkMenu({ work, date, x, y })
               }
-              onPastRunContext={(run, x, y) => setPastRunMenu({ run, x, y })}
-              onPastRunOpen={openPastRun}
               onDateContext={(date, x, y) => {
                 setSelected(date);
                 setDateMenu({ date, x, y });
               }}
               byDay={byDay}
               recurringByDay={recurringByDay}
-              pastRunsByDay={pastRunsByDay}
               showPosts={showPosts}
               showAgentWork={showAgentWork}
             />
           )}
-        </section>
-
-        <aside className="min-h-0 overflow-y-auto border-l p-5">
-          {pendingApprovals.length > 0 ? (
-            <div className="mb-6 space-y-2 border-b pb-5">
-              <p className="text-muted-foreground text-xs">
-                Needs your approval
-              </p>
-              {pendingApprovals.map((work) => (
-                <RecurringWorkDetail
-                  key={work.id}
-                  work={work}
-                  onReview={() => setApprovalWorkId(work.id)}
-                  onRun={() => {}}
-                  onToggle={() => {}}
-                />
-              ))}
-            </div>
-          ) : null}
-          <p className="text-muted-foreground text-xs">
-            {selected.toLocaleDateString([], { weekday: "long" })}
-          </p>
-          <h2 className="mt-1 font-serif text-2xl">
-            {selected.toLocaleDateString([], { month: "long", day: "numeric" })}
-          </h2>
-          <div className="mt-6 space-y-2">
-            {selectedPastRuns.map((run) => (
-              <button
-                key={run.id}
-                type="button"
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  setPastRunMenu({ run, x: event.clientX, y: event.clientY });
-                }}
-                onClick={() => openPastRun(run)}
-                className={cn(
-                  "w-full border p-3 text-left",
-                  run.status === "running"
-                    ? "opacity-100"
-                    : "opacity-60 transition-opacity hover:opacity-100",
-                )}
-              >
-                <div className="flex items-start gap-2">
-                  <span
-                    className={cn(
-                      "mt-1 size-1.5 shrink-0",
-                      run.status === "running"
-                        ? "animate-pulse bg-emerald-500"
-                        : run.status === "completed"
-                          ? "bg-muted-foreground"
-                          : run.status === "failed"
-                            ? "bg-destructive"
-                            : "bg-amber-400",
-                    )}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="truncate text-xs font-medium">
-                        {run.title}
-                      </p>
-                      <p className="text-muted-foreground shrink-0 text-[10px]">
-                        {new Date(run.scheduledFor).toLocaleTimeString([], {
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
-                      </p>
-                    </div>
-                    {run.summary ? (
-                      <p className="text-muted-foreground mt-1 line-clamp-2 text-[11px] leading-4">
-                        {previewText(run.summary)}
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-              </button>
-            ))}
-            {selectedDrafts.map((draft) => (
-              <DraftChip key={draft.id} draft={draft} />
-            ))}
-            {selectedRecurringWork.map((work) => (
-              <RecurringWorkDetail
-                key={work.id}
-                work={work}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setWorkMenu({
-                    work,
-                    date: selected,
-                    x: event.clientX,
-                    y: event.clientY,
-                  });
-                }}
-                onReview={() => openWorkReview(work)}
-                onRun={() => workspaceData.runRecurringWorkNow(work.id)}
-                onToggle={() =>
-                  workspaceData.saveRecurringWork({
-                    ...work,
-                    status: work.status === "active" ? "paused" : "active",
-                    updatedAt: Date.now(),
-                  })
-                }
-                onPlacement={(placement) =>
-                  workspaceData.saveRecurringWork({
-                    ...work,
-                    placement,
-                    updatedAt: Date.now(),
-                  })
-                }
-              />
-            ))}
-            {selectedPastRuns.length === 0 &&
-            selectedDrafts.length === 0 &&
-            selectedRecurringWork.length === 0 ? (
-              <div className="flex min-h-[420px] items-center justify-center text-center">
-                <p className="text-muted-foreground text-sm">
-                  Nothing scheduled
-                </p>
-              </div>
-            ) : null}
+        </div>
+        <footer className="text-muted-foreground flex h-11 shrink-0 items-center justify-between px-6 text-[10px]">
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-2">
+              <span className="size-1.5 rounded-full bg-violet-500" />
+              Prospecting
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="size-1.5 rounded-full bg-sky-500" />
+              Analytics
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="size-1.5 rounded-full bg-rose-500" />
+              Content
+            </span>
           </div>
-        </aside>
-      </div>
-      <RunReviewDialog
-        review={runReview}
-        onClose={() => setRunReview(null)}
-        onDismiss={(target) => {
-          if (target.attentionItemId) {
-            workspaceData.dismissAttentionItem(target.attentionItemId);
-          }
-        }}
-        onAllowAndRerun={(target) => {
-          if (target.recurringWorkId) {
-            workspaceData.expandRecurringWorkGrant(
-              target.recurringWorkId,
-              target.blockedTools,
-              true,
-            );
-          }
-        }}
-        onRerun={(target) => {
-          if (target.recurringWorkId) {
-            workspaceData.runRecurringWorkNow(target.recurringWorkId);
-          }
-        }}
-      />
+          <span className="flex items-center gap-2 tabular-nums">
+            <span className="size-1.5 rounded-full bg-emerald-500" />
+            {activeScheduleCount} active schedules
+          </span>
+        </footer>
+      </section>
       <RecurringWorkApprovalDialog
         work={approvalWork}
+        now={now}
         onClose={() => setApprovalWorkId(null)}
-        onApprove={(work) =>
+        onApprove={(work) => {
           workspaceData.saveRecurringWork({
             ...work,
             status: "active",
@@ -2169,42 +2145,50 @@ export function SchedulePage() {
               toolPatterns: work.proposedToolPatterns,
             },
             updatedAt: Date.now(),
-          })
-        }
-        onReject={(work) => workspaceData.deleteRecurringWork(work.id)}
+          });
+          const actionItem = workspaceData.actionItems.find(
+            (item) => item.id === `action-${work.id}-approval`,
+          );
+          if (actionItem) workspaceData.dismissActionItem(actionItem.id);
+        }}
+        onReject={(work) => {
+          workspaceData.deleteRecurringWork(work.id);
+          const actionItem = workspaceData.actionItems.find(
+            (item) => item.id === `action-${work.id}-approval`,
+          );
+          if (actionItem) workspaceData.dismissActionItem(actionItem.id);
+        }}
         revision={{
           available: Boolean(revisionDriver),
-          busy: revisionChat.chat.status === "running",
+          busy:
+            !revisionChat.chatReady ||
+            revisionChat.controls.status === "running",
           note: revisionNote,
           onRequest: requestRevision,
+        }}
+      />
+      <ScheduleEventDetailDialog
+        work={detailWork}
+        draft={detailDraft}
+        onClose={() => {
+          setDetailWorkId(null);
+          setDetailDraftId(null);
+        }}
+        onEditWork={(work) => {
+          setDetailWorkId(null);
+          setEditWorkId(work.id);
+        }}
+        onOpenDraft={(draft) => {
+          setDetailDraftId(null);
+          if (draft.fileId) {
+            void navigate(`/files/${encodeURIComponent(draft.fileId)}`);
+          }
         }}
       />
       <CalendarContextMenu
         context={dateMenu}
         onClose={() => setDateMenu(null)}
         onAction={handleDateAction}
-      />
-      <PastRunContextMenu
-        context={pastRunMenu}
-        onClose={() => setPastRunMenu(null)}
-        onReview={(run) =>
-          setRunReview({
-            title: run.title,
-            agentId: run.agentId,
-            recurringWorkId: run.workId,
-            runId: run.id,
-            detail:
-              run.status === "running"
-                ? "Running now…"
-                : (run.summary ?? "No summary was recorded."),
-            status: run.status,
-            at: run.scheduledFor,
-            blockedTools: run.blockedTools ?? [],
-          })
-        }
-        onRemove={(run) => workspaceData.deleteRecurringWorkRun(run.id)}
-        onEditSeries={(run) => setEditWorkId(run.workId)}
-        onCancelSeries={(run) => workspaceData.deleteRecurringWork(run.workId)}
       />
       <RecurringWorkContextMenu
         context={workMenu}

@@ -28,7 +28,7 @@ export function ProviderLogo({
       {isGoogle ? (
         <GoogleLogo className="h-full w-full" />
       ) : failed ? (
-        <span className="font-serif text-xs">{label.charAt(0)}</span>
+        <span className="text-xs font-normal">{label.charAt(0)}</span>
       ) : (
         <img
           src={integrationLogoUrl(domain)}

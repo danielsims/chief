@@ -2,9 +2,6 @@
   "src/channels/slack-gateway.ts": {
     "@typescript-eslint/no-empty-function": {
       "count": 2
-    },
-    "@typescript-eslint/no-non-null-assertion": {
-      "count": 2
     }
   },
   "src/drivers/claude.ts": {
@@ -24,7 +21,7 @@
       "count": 17
     },
     "@typescript-eslint/require-await": {
-      "count": 3
+      "count": 2
     }
   },
   "src/drivers/codex.ts": {
@@ -32,25 +29,22 @@
       "count": 1
     },
     "@typescript-eslint/no-explicit-any": {
-      "count": 8
+      "count": 4
     },
     "@typescript-eslint/no-non-null-assertion": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unnecessary-condition": {
       "count": 1
     },
     "@typescript-eslint/no-unsafe-argument": {
       "count": 1
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 17
+      "count": 7
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 23
+      "count": 16
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 3
+      "count": 1
     },
     "@typescript-eslint/require-await": {
       "count": 1
@@ -63,13 +57,7 @@
   },
   "src/drivers/opencode.ts": {
     "@typescript-eslint/no-base-to-string": {
-      "count": 9
-    },
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 2
-    },
-    "@typescript-eslint/prefer-optional-chain": {
-      "count": 1
+      "count": 8
     },
     "@typescript-eslint/require-await": {
       "count": 2
@@ -78,41 +66,6 @@
   "src/generative-ui.ts": {
     "@typescript-eslint/no-non-null-assertion": {
       "count": 3
-    }
-  },
-  "src/google-analytics-local.ts": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 3
-    },
-    "@typescript-eslint/no-non-null-assertion": {
-      "count": 3
-    },
-    "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 1
-    }
-  },
-  "src/local-store.ts": {
-    "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 1
-    }
-  },
-  "src/local-tools.ts": {
-    "@typescript-eslint/no-non-null-assertion": {
-      "count": 22
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
-  "src/manager.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 11
-    },
-    "@typescript-eslint/prefer-optional-chain": {
-      "count": 1
     }
   },
   "src/mcp-server.ts": {
@@ -133,9 +86,6 @@
     "@typescript-eslint/no-non-null-assertion": {
       "count": 1
     },
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 3
-    },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     },
@@ -146,29 +96,17 @@
       "count": 1
     },
     "@typescript-eslint/prefer-promise-reject-errors": {
-      "count": 2
+      "count": 1
     }
   },
   "src/scheduler.ts": {
-    "@typescript-eslint/no-empty-function": {
-      "count": 2
-    },
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    },
     "@typescript-eslint/no-non-null-assertion": {
-      "count": 6
+      "count": 5
     },
     "@typescript-eslint/no-unnecessary-condition": {
-      "count": 8
-    },
-    "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 3
+      "count": 4
     },
     "@typescript-eslint/prefer-promise-reject-errors": {
-      "count": 1
-    },
-    "no-async-promise-executor": {
       "count": 1
     }
   },
@@ -176,25 +114,7 @@
     "@typescript-eslint/no-base-to-string": {
       "count": 1
     },
-    "@typescript-eslint/no-empty-function": {
-      "count": 5
-    },
-    "@typescript-eslint/no-misused-promises": {
-      "count": 7
-    },
-    "@typescript-eslint/no-non-null-assertion": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/prefer-optional-chain": {
       "count": 1
     }
   },
@@ -204,9 +124,6 @@
     }
   },
   "src/tools/control-plane.ts": {
-    "@typescript-eslint/no-non-null-assertion": {
-      "count": 1
-    },
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 2
     },

@@ -1,28 +1,37 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
 
-import { BrandMark } from "./brand-mark";
+import { LandingAppShell } from "./landing-app-shell";
+
+export { ProactiveDemo } from "./proactive-demo";
 
 const calendarPosts = [
-  { day: 2, title: "Founder story", platform: "LinkedIn", tone: "blue" },
-  { day: 4, title: "Behind the scenes", platform: "Instagram", tone: "pink" },
-  { day: 8, title: "Launch teaser", platform: "TikTok", tone: "cyan" },
-  { day: 10, title: "Customer proof", platform: "X", tone: "white" },
-  { day: 16, title: "Product walkthrough", platform: "YouTube", tone: "red" },
-  { day: 18, title: "Campaign recap", platform: "LinkedIn", tone: "blue" },
-  { day: 23, title: "Customer story", platform: "Instagram", tone: "pink" },
+  {
+    day: 2,
+    title: "Customer interview synthesis",
+    owner: "Researcher",
+    tone: "blue",
+  },
+  {
+    day: 4,
+    title: "Release readiness review",
+    owner: "Engineer",
+    tone: "pink",
+  },
+  { day: 8, title: "Weekly performance brief", owner: "Analyst", tone: "cyan" },
+  { day: 10, title: "Customer update", owner: "Writer", tone: "white" },
+  { day: 16, title: "Dependency audit", owner: "Operations", tone: "red" },
+  { day: 18, title: "Market signal scan", owner: "Researcher", tone: "blue" },
+  { day: 23, title: "Release notes", owner: "Writer", tone: "pink" },
   {
     day: 25,
-    title: "Monthly results",
-    platform: "LinkedIn",
+    title: "Monthly operating review",
+    owner: "Chief",
     tone: "blue",
     creating: true,
   },
 ];
-
-const days = Array.from({ length: 28 }, (_, index) => index + 1);
 
 function MiniIcon({ path }: { path: string }) {
   return (
@@ -45,6 +54,21 @@ export function SocialCalendarDemo() {
     month: "long",
     year: "numeric",
   }).format(new Date());
+  const monthDate = new Date();
+  const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  const leadingDays = (monthStart.getDay() + 6) % 7;
+  const daysInMonth = new Date(
+    monthDate.getFullYear(),
+    monthDate.getMonth() + 1,
+    0,
+  ).getDate();
+  const calendarCells = Array.from(
+    { length: Math.ceil((leadingDays + daysInMonth) / 7) * 7 },
+    (_, index) => {
+      const day = index - leadingDays + 1;
+      return day > 0 && day <= daysInMonth ? day : null;
+    },
+  );
 
   useEffect(() => {
     const calendar = calendarRef.current;
@@ -70,103 +94,124 @@ export function SocialCalendarDemo() {
       }
       ref={calendarRef}
     >
-      <aside className="calendar-sidebar">
-        <BrandMark className="calendar-brand-mark" size={20} />
-        <nav>
-          <span>
-            <MiniIcon path="M4 4h4v4H4zM12 4h4v4h-4zM4 12h4v4H4zM12 12h4v4h-4z" />
-          </span>
-          <span>
-            <MiniIcon path="M4 5h12v8H9l-4 3v-3H4z" />
-          </span>
-          <span>
-            <MiniIcon path="M10 3v4M5 9h10M5 9v5M15 9v5M8 14H3v3h5zM17 14h-5v3h5z" />
-          </span>
-          <span className="active">
-            <MiniIcon path="M4 6h12v10H4zM6 3v5M14 3v5M4 9h12" />
-          </span>
-          <span>
-            <MiniIcon path="M4 15l3-4 3 2 5-7M4 17h12" />
-          </span>
-        </nav>
-        <i />
-      </aside>
-      <div className="calendar-main">
-        <header className="calendar-toolbar">
-          <strong>{currentMonth}</strong>
-          <div>
-            <button type="button">＋ New recurring work</button>
-            <button type="button">Filters</button>
-            <button type="button">Today</button>
-            <span>
-              <b>Month</b>
-              <b>Week</b>
-              <b>Day</b>
-            </span>
+      <LandingAppShell
+        activeNav="Schedule"
+        label="Chief desktop app schedule with recurring work from a team of specialist agents"
+      >
+        <div className="calendar-main">
+          <header className="calendar-page-heading">
+            <div>
+              <strong>Schedule</strong>
+              <small>
+                Direct when agents work and review what they have planned.
+              </small>
+            </div>
+            <button type="button">
+              <span>＋</span> New agent work
+            </button>
+          </header>
+          <div className="calendar-toolbar">
+            <strong>{currentMonth}</strong>
+            <div>
+              <button className="calendar-review-trigger" type="button">
+                <MiniIcon path="M4 6h12v10H4zM7 4h6v3H7" />
+                Review <em>2</em>
+              </button>
+              <button type="button">
+                <MiniIcon path="M4 5h12M6 10h8M8 15h4" />
+                Filters
+              </button>
+              <button type="button">Today</button>
+              <button aria-label="Previous" type="button">
+                ‹
+              </button>
+              <button aria-label="Next" type="button">
+                ›
+              </button>
+              <span>
+                <b>Month</b>
+                <b>Week</b>
+                <b>Day</b>
+              </span>
+            </div>
           </div>
-        </header>
-        <div className="calendar-body">
-          <section>
-            <div className="calendar-weekdays">
-              {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => (
-                <span key={day}>{day}</span>
-              ))}
-            </div>
-            <div className="calendar-grid">
-              {days.map((day) => {
-                const post = calendarPosts.find((item) => item.day === day);
-                const postIndex = post ? calendarPosts.indexOf(post) : 0;
-                return (
-                  <div className="calendar-day" key={day}>
-                    <span>{day}</span>
-                    {post ? (
-                      <div
-                        className={`calendar-post post-${post.tone}`}
-                        style={{ animationDelay: `${postIndex * 140}ms` }}
-                      >
-                        <i />
-                        <div>
-                          <strong>{post.title}</strong>
-                          <small>9:30 AM · {post.platform}</small>
+          <div className="calendar-body">
+            <section>
+              <div className="calendar-weekdays">
+                {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
+                  (day) => (
+                    <span key={day}>{day}</span>
+                  ),
+                )}
+              </div>
+              <div className="calendar-grid">
+                {calendarCells.map((day, cellIndex) => {
+                  const post = calendarPosts.find((item) => item.day === day);
+                  const postIndex = post ? calendarPosts.indexOf(post) : 0;
+                  return (
+                    <div
+                      className={`calendar-day${day === null ? "is-outside" : ""}`}
+                      key={`${day ?? "outside"}-${cellIndex}`}
+                    >
+                      {day !== null ? <span>{day}</span> : null}
+                      {post ? (
+                        <div
+                          className={`calendar-post post-${post.tone}`}
+                          style={{ animationDelay: `${postIndex * 140}ms` }}
+                        >
+                          <i />
+                          <div>
+                            <strong>{post.title}</strong>
+                            <small>9:30 AM · {post.owner}</small>
+                          </div>
                         </div>
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-          <aside>
-            <p>Needs your approval</p>
-            <div className="approval-post">
-              <Image
-                src="/social/creator-fashion.jpg"
-                alt="Creator preparing a launch video"
-                width={220}
-                height={150}
-              />
-              <strong>Launch teaser</strong>
-              <span>Instagram · Thursday</span>
-              <button type="button">Review</button>
-            </div>
-            <p>Recurring work</p>
-            <div className="recurring-mini">
-              <i />
-              <div>
-                <strong>Audience research</strong>
-                <span>prospector · active</span>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
-            </div>
-            <div className="recurring-mini">
-              <i />
-              <div>
-                <strong>Weekly review</strong>
-                <span>analyst · completed</span>
-              </div>
-            </div>
-          </aside>
+            </section>
+            <aside className="calendar-review-popover">
+              <header>
+                <div>
+                  <strong>Schedule inbox</strong>
+                  <span>Agent work waiting for your judgment.</span>
+                </div>
+              </header>
+              <button type="button">
+                <i />
+                <div>
+                  <strong>Customer update</strong>
+                  <span>Writer · Thursday at 10:00 am</span>
+                </div>
+                <b>›</b>
+              </button>
+              <button type="button">
+                <i />
+                <div>
+                  <strong>Release readiness review</strong>
+                  <span>Engineer · Friday at 9:30 am</span>
+                </div>
+                <b>›</b>
+              </button>
+            </aside>
+          </div>
+          <footer className="calendar-footer">
+            <span>
+              <i className="violet" /> Prospecting
+            </span>
+            <span>
+              <i className="sky" /> Analytics
+            </span>
+            <span>
+              <i className="rose" /> Content
+            </span>
+            <span>
+              <i className="green" /> 5 active schedules
+            </span>
+          </footer>
         </div>
-      </div>
+      </LandingAppShell>
     </div>
   );
 }
@@ -403,84 +448,5 @@ export function RuntimeDemo() {
         </div>
       </div>
     </div>
-  );
-}
-
-function RecurringCard({
-  title,
-  meta,
-  result,
-  approval,
-}: {
-  title: string;
-  meta: string;
-  result?: string;
-  approval?: boolean;
-}) {
-  return (
-    <div className="recurring-card">
-      <div>
-        <i />
-        <p>
-          <strong>{title}</strong>
-          <span>{meta}</span>
-        </p>
-      </div>
-      {result ? <p>{result}</p> : null}
-      {approval ? (
-        <button type="button">Review run</button>
-      ) : (
-        <footer>
-          <button type="button">Run now</button>
-          <button type="button">Pause</button>
-          <span>
-            Runs on <b>This Mac</b>
-            <b>Cloud</b>
-          </span>
-        </footer>
-      )}
-    </div>
-  );
-}
-
-export function ProactiveDemo() {
-  return (
-    <div className="proactive-demo">
-      <div className="proactive-schedule">
-        <header>
-          <strong>Recurring work</strong>
-          <button type="button">New recurring work</button>
-        </header>
-        <RecurringCard
-          title="Weekly performance review"
-          meta="analyst · needs approval"
-          result="Traffic increased 18%. Two actions are ready for review."
-          approval
-        />
-        <RecurringCard
-          title="Content gap scan"
-          meta="content writer · active"
-        />
-      </div>
-      <div className="proactive-notification">
-        <ChiefNotificationMark />
-        <div className="notification-copy">
-          <div className="notification-app">
-            <strong>Chief</strong>
-            <time>now</time>
-          </div>
-          <b>Your weekly review is ready</b>
-          <p>Traffic is up 18%. Two actions need your approval.</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ChiefNotificationMark() {
-  return (
-    <span className="notification-mark">
-      <BrandMark className="notification-brand-mark" size={22} tone="black" />
-    </span>
   );
 }

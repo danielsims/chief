@@ -27,7 +27,7 @@ function lintWorkspaceFiles(files) {
 
     if (workspaceFiles.length === 0) return [];
 
-    return `pnpm --dir ${quote(directory)} exec eslint --fix ${workspaceFiles.map(quote).join(" ")}`;
+    return `pnpm --dir ${quote(directory)} exec eslint --fix --no-warn-ignored ${workspaceFiles.map(quote).join(" ")}`;
   });
 }
 

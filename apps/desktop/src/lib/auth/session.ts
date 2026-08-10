@@ -10,6 +10,15 @@
 
 const SESSION_KEY = "chief-auth-session";
 const LEGACY_SESSION_KEY = "marketer-auth-session";
+export const AUTH_SESSION_CHANGED_EVENT = "chief:auth-session-changed";
+
+function notifySessionChanged() {
+  if (typeof window !== "undefined") {
+    queueMicrotask(() =>
+      window.dispatchEvent(new Event(AUTH_SESSION_CHANGED_EVENT)),
+    );
+  }
+}
 
 export interface StoredSession {
   /** BetterAuth session token */
@@ -48,6 +57,7 @@ export function getStoredSession(): StoredSession | null {
 
 export function setStoredSession(session: StoredSession): void {
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  notifySessionChanged();
 
   // TODO: mirror the session into a cli-identity.json file for background
   // workers once a `write_cli_identity` Tauri command exists (see the
@@ -57,6 +67,7 @@ export function setStoredSession(session: StoredSession): void {
 export function clearStoredSession(): void {
   localStorage.removeItem(SESSION_KEY);
   localStorage.removeItem(LEGACY_SESSION_KEY);
+  notifySessionChanged();
 
   // TODO: clear the cli-identity.json file once a `clear_cli_identity`
   // Tauri command exists. No-op for now.

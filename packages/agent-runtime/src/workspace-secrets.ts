@@ -108,6 +108,22 @@ async function keychainWrite(accountName: string, value: string) {
   );
 }
 
+async function keychainDelete(accountName: string) {
+  await Promise.all(
+    [KEYCHAIN_SERVICE, LEGACY_KEYCHAIN_SERVICE].map(async (service) => {
+      try {
+        await execFileAsync(
+          "/usr/bin/security",
+          ["delete-generic-password", "-a", accountName, "-s", service],
+          { encoding: "utf8", maxBuffer: 2 * 1024 * 1024 },
+        );
+      } catch {
+        // Missing entries are already in the requested state.
+      }
+    }),
+  );
+}
+
 function shellValue(value: string) {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
@@ -148,6 +164,26 @@ class WorkspaceSecrets {
     return readIndex(workspaceId).env;
   }
 
+  async readEnv(workspaceId: string, keys: string[]) {
+    const available = new Set(readIndex(workspaceId).env);
+    const entries = await Promise.all(
+      keys
+        .filter((key) => available.has(key))
+        .map(
+          async (key) =>
+            [
+              key,
+              await keychainRead(account(workspaceId, "env", key)),
+            ] as const,
+        ),
+    );
+    return Object.fromEntries(
+      entries.filter((entry): entry is readonly [string, string] =>
+        Boolean(entry[1]),
+      ),
+    );
+  }
+
   async storeEnv(workspaceId: string, key: string, value: string) {
     if (!ENV_KEY_PATTERN.test(key)) throw new Error("Invalid environment key.");
     await keychainWrite(account(workspaceId, "env", key), value);
@@ -157,6 +193,17 @@ class WorkspaceSecrets {
       index.env.sort();
       writeIndex(workspaceId, index);
     }
+  }
+
+  async deleteEnv(workspaceId: string, key: string) {
+    if (!ENV_KEY_PATTERN.test(key)) throw new Error("Invalid environment key.");
+    await keychainDelete(account(workspaceId, "env", key));
+    const index = readIndex(workspaceId);
+    if (index.env.includes(key)) {
+      index.env = index.env.filter((candidate) => candidate !== key);
+      writeIndex(workspaceId, index);
+    }
+    await this.refresh(workspaceId);
   }
 
   async storeFile(workspaceId: string, requestedPath: string, value: string) {
@@ -204,6 +251,15 @@ class WorkspaceSecrets {
       if (key.startsWith("MARKETER_")) {
         environment[`CHIEF_${key.slice("MARKETER_".length)}`] ??= value;
       }
+    }
+    for (const [target, source] of [
+      ["GOOGLE_ANALYTICS_CLIENT_ID", "CHIEF_GOOGLE_OAUTH_CLIENT_ID"],
+      ["GOOGLE_ANALYTICS_CLIENT_SECRET", "CHIEF_GOOGLE_OAUTH_CLIENT_SECRET"],
+      ["CHIEF_GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_ANALYTICS_CLIENT_ID"],
+      ["CHIEF_GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_ANALYTICS_CLIENT_SECRET"],
+    ] as const) {
+      const value = environment[source];
+      if (!environment[target] && value) environment[target] = value;
     }
     const envPath = join(runtime, "secrets.env");
     const temporary = `${envPath}.tmp`;

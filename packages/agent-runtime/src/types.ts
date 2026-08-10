@@ -1,7 +1,23 @@
+/* eslint-disable max-lines */
+
 import type { UIMessage } from "ai";
 
-// Normalized event vocabulary across all drivers (claude, codex, ...).
-// Content blocks mirror the shape both the Claude Agent SDK and the UI expect.
+import type { ScheduledWorkTrigger } from "@chief/channel-api";
+
+import type * as Artifacts from "./artifact-types.js";
+import type { ChannelServerMessage } from "./channel-types.js";
+import type { IntegrationSetupPhase } from "./integration-setup-recipes.js";
+
+export type {
+  ChannelActor,
+  ChannelEvent,
+  WorkspaceChannel,
+} from "./channel-types.js";
+export type {
+  BrowserAutomationCommand,
+  BrowserAutomationResult,
+  BrowserPageSnapshot,
+} from "./browser-types.js";
 
 export interface GenerativeChartPoint {
   x: string;
@@ -30,14 +46,166 @@ export interface GenerativeTableData {
   rows: Record<string, string | number | boolean | null>[];
 }
 
+export type AnalyticsMetricFormat =
+  "number" | "currency" | "percent" | "duration";
+
+export interface AnalyticsMetricDefinition {
+  key: string;
+  label: string;
+  format: AnalyticsMetricFormat;
+  unit?: string;
+  currency?: string;
+}
+
+export interface AnalyticsDimensionDefinition {
+  key: string;
+  label: string;
+}
+
+export interface AnalyticsMetricValue {
+  metric: string;
+  value: number;
+}
+
+export interface AnalyticsDatasetPeriod {
+  key: string;
+  label: string;
+  startDate: string;
+  endDate: string;
+  values: AnalyticsMetricValue[];
+}
+
+export interface AnalyticsDatasetRow {
+  dimensions: { dimension: string; value: string }[];
+  values: AnalyticsMetricValue[];
+}
+
+export interface AnalyticsDatasetSeries extends GenerativeChartSeries {
+  metric: string;
+}
+
+export interface AnalyticsDatasetChart {
+  kind: "line";
+  title: string;
+  subtitle?: string;
+  xLabel?: string;
+  yLabel: string;
+  series: string[];
+}
+
+export interface AnalyticsDataset {
+  provider: string;
+  key: string;
+  sourceId?: string;
+  title: string;
+  description?: string;
+  metrics: AnalyticsMetricDefinition[];
+  dimensions: AnalyticsDimensionDefinition[];
+  periods: AnalyticsDatasetPeriod[];
+  rows?: AnalyticsDatasetRow[];
+  series?: AnalyticsDatasetSeries[];
+  charts?: AnalyticsDatasetChart[];
+  provenance?: {
+    operation?: string;
+    query?: { key: string; value: string }[];
+    notes?: string;
+  };
+  capturedAt: number;
+}
+
+export interface WorkspaceFileRecord {
+  id: string;
+  name: string;
+  path: string;
+  mimeType: string;
+  kind: "document" | "email";
+  provider: "local";
+  currentVersionId: string;
+  createdBy: "agent" | "user";
+  sourceAgentId?: string;
+  sourceSessionId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkspaceFileSnapshot extends WorkspaceFileRecord {
+  content: string;
+}
+
+export interface WorkspaceFileWrite {
+  id?: string;
+  name: string;
+  path?: string;
+  mimeType?: string;
+  kind?: "document" | "email";
+  content: string;
+  expectedVersionId?: string;
+  createdBy: "agent" | "user";
+  sourceAgentId?: string;
+  sourceSessionId?: string;
+}
+
+export interface GenerativeDocumentData {
+  fileId: string;
+  title: string;
+  path: string;
+  kind: "document" | "email";
+  versionId: string;
+}
+
 /**
  * Chief's persistent custom UI parts follow AI SDK 7's typed `data-*`
  * contract. The websocket transport remains provider-neutral; every driver
  * can emit the same chart part and every client can render it consistently.
  */
+export type ChiefMessageEventMetadata =
+  | {
+      type: "result";
+      ok: boolean;
+      costUsd?: number;
+      durationMs?: number;
+      error?: string;
+    }
+  | {
+      type: "error";
+      message: string;
+      code?: "deployment_not_found";
+    }
+  | {
+      type: "permissionResolved";
+      requestId: string;
+      behavior: "allow" | "deny";
+    };
+
+export interface ChiefMessageMetadata {
+  createdAt: number;
+  event?: ChiefMessageEventMetadata;
+  /** The top-level channel message this reply belongs to. */
+  threadRootId?: string;
+  /** Stable user or agent identities explicitly addressed by this message. */
+  mentions?: string[];
+  /** Ephemeral desktop delivery intent. It is not copied into durable agent
+   * events, but keeps a busy-turn follow-up attached to its own message while
+   * the transport sends it. */
+  interruptActive?: boolean;
+  /** Durable channel lifecycle event rendered separately from authored chat. */
+  channelAction?: {
+    type: "member-added";
+    actorName: string;
+    actorId?: string;
+    actorType?: "user" | "agent";
+    agentIds: string[];
+    userIds?: string[];
+  };
+}
+
 export type ChiefUIMessage = UIMessage<
-  unknown,
-  { chart: GenerativeChartData; table: GenerativeTableData }
+  ChiefMessageMetadata,
+  {
+    chart: GenerativeChartData;
+    table: GenerativeTableData;
+    document: GenerativeDocumentData;
+  }
 >;
 
 export type GenerativeChartBlock = Extract<
@@ -50,11 +218,24 @@ export type GenerativeTableBlock = Extract<
   { type: "data-table" }
 >;
 
+export type GenerativeDocumentBlock = Extract<
+  ChiefUIMessage["parts"][number],
+  { type: "data-document" }
+>;
+
+export interface MessageAttachment {
+  name: string;
+  mediaType: string;
+  url: string;
+}
+
 export type ContentBlock =
   | { type: "text"; text: string }
+  | ({ type: "image" } & MessageAttachment)
   | { type: "thinking"; thinking: string }
   | GenerativeChartBlock
   | GenerativeTableBlock
+  | GenerativeDocumentBlock
   | {
       type: "tool_use";
       id: string;
@@ -76,7 +257,15 @@ export type AgentEvent =
       toolUseId: string;
       text: string;
     }
-  | { type: "message"; role: "assistant" | "user"; content: ContentBlock[] }
+  | {
+      type: "message";
+      id?: string;
+      role: "assistant" | "user";
+      content: ContentBlock[];
+      threadRootId?: string;
+      mentions?: string[];
+      channelAction?: ChiefMessageMetadata["channelAction"];
+    }
   | {
       type: "result";
       ok: boolean;
@@ -89,6 +278,8 @@ export type AgentEvent =
       requestId: string;
       toolName: string;
       input: unknown;
+      /** Channel thread whose turn requested this decision. */
+      threadRootId?: string;
     }
   /** Emitted once a permission request has been answered, so replayed
    * transcripts don't resurrect stale approval prompts. */
@@ -97,8 +288,8 @@ export type AgentEvent =
       requestId: string;
       behavior: "allow" | "deny";
     }
-  /** The agent asked the user structured questions (Claude's
-   * AskUserQuestion); the UI renders them and answers via respondQuestion. */
+  /** The agent asked the user structured questions; the UI renders them and
+   * answers via respondQuestion for any supported driver. */
   | {
       type: "question";
       requestId: string;
@@ -120,14 +311,25 @@ export interface AgentQuestion {
   question: string;
   header?: string;
   multiSelect?: boolean;
+  allowFreeform?: boolean;
+  dismissible?: boolean;
   options: AgentQuestionOption[];
 }
 
-export type DriverType = "claude" | "codex" | "opencode";
+export type DriverType = "claude" | "codex" | "opencode" | "remote";
 
 export interface ProviderModelOption {
   value: string;
   label: string;
+  description?: string;
+  contextWindow?: number;
+  tags?: string[];
+  pricing?: { input?: string; output?: string };
+}
+
+export interface ChatExecutionSelection {
+  driver: DriverType;
+  model?: string;
 }
 
 export interface ProspectRecord {
@@ -159,6 +361,8 @@ export interface ContentDraftRecord {
   title: string;
   body: string;
   platform: string;
+  /** Editable workspace document containing the canonical draft body. */
+  fileId?: string;
   status: "draft" | "approved" | "scheduled" | "published";
   scheduledFor?: number;
   createdAt: number;
@@ -177,24 +381,32 @@ export interface AutomationGrant {
 
 export interface RecurringWorkRecord {
   id: string;
+  /** User-visible conversation that owns this schedule's concise outcomes. */
+  conversationId?: string;
+  /** Optional specialist routing hint. The CMO still owns and executes work. */
   agentId: string;
   title: string;
   instructions: string;
   cron: string;
   timezone: string;
+  /** Durable trigger definition. Older records derive this from cron/onceAt. */
+  trigger?: ScheduledWorkTrigger;
+  /** Stable caller key used to make create retries idempotent. */
+  operationKey?: string;
+  version?: number;
   /** Exact occurrence for work that runs once rather than recurring. */
-  runOnceAt?: number;
+  onceAt?: number;
   status: RecurringWorkStatus;
-  /** Where approved runs execute: this Mac's scheduler or the deployment. */
+  /** Where approved sessions execute: this Mac's scheduler or the deployment. */
   placement: "local" | "cloud";
   /** Occurrence dates (YYYY-MM-DD in the work's timezone) the user skipped. */
   skipDates?: string[];
   approvalSummary: string;
   proposedToolPatterns: string[];
   grant?: AutomationGrant;
-  nextRunAt?: number;
-  lastRunAt?: number;
-  lastResult?: string;
+  nextAt?: number;
+  lastCompletedAt?: number;
+  lastSummary?: string;
   createdAt: number;
   updatedAt: number;
   /** Computed by the runtime for calendar rendering, never persisted. */
@@ -209,6 +421,8 @@ export interface OnboardingWorkJob {
   runAt: number;
   timezone: string;
   proposedToolPatterns: string[];
+  setupDomain?: string;
+  setupAttemptId?: string;
   attachments?: {
     name: string;
     type: string;
@@ -229,30 +443,61 @@ export interface OnboardingSchedule {
   proposedToolPatterns: string[];
 }
 
-export interface RecurringWorkRunRecord {
+export interface SessionRecord {
   id: string;
-  recurringWorkId: string;
-  status: "running" | "completed" | "failed" | "needs_approval";
-  scheduledFor: number;
-  startedAt: number;
+  parentId?: string;
+  triggerId?: string;
+  triggerContext?: Record<string, unknown>;
+  scheduleId?: string;
+  kind: "conversation" | "task";
+  visibility: "user" | "private";
+  agent: string;
+  title: string;
+  /** Included only in diagnostic session snapshots. */
+  lastText?: string;
+  provider: string;
+  model?: string;
+  status:
+    "idle" | "running" | "waiting" | "completed" | "failed" | "needs_approval";
+  scheduledFor?: number;
+  startedAt?: number;
   finishedAt?: number;
+  attempt: number;
   summary?: string;
   error?: string;
-  artifacts?: RunResultArtifact[];
-  /** Executor addresses the grant declined during this run. */
+  artifacts?: SessionArtifact[];
   blockedTools?: string[];
+  createdAt: number;
+  updatedAt: number;
 }
 
-export type RunResultArtifact = GenerativeChartBlock | GenerativeTableBlock;
+export interface DiagnosticEventRecord {
+  id: string;
+  sessionId: string;
+  position: number;
+  type: string;
+  level: "debug" | "info" | "warn" | "error";
+  data: unknown;
+  createdAt: number;
+}
 
-export interface AttentionItem {
+export type SessionArtifact =
+  GenerativeChartBlock | GenerativeTableBlock | GenerativeDocumentBlock;
+
+export interface ActionItem {
   id: string;
   agentId: string;
   title: string;
   reason: string;
   sourceId?: string;
+  request?: InputRequest;
   status: "open" | "dismissed";
   createdAt: number;
+}
+
+export interface ScheduleSessionActionTransition {
+  upsert?: ActionItem;
+  dismissIds?: string[];
 }
 
 export type CampaignStatus =
@@ -277,9 +522,34 @@ export interface AgentPreference {
   enabled: boolean;
   driver?: DriverType;
   model?: string;
+  approvals?: AgentApprovalMode;
   capabilities?: AgentCapabilityId[];
   integrations?: string[];
+  /** Exact Chief-local capabilities granted to this agent identity. */
+  toolPermissions?: AgentToolPermission[];
 }
+
+export type AgentToolPermission =
+  | "workspace.read"
+  | "workspace.write"
+  | "channels.read"
+  | "channels.create"
+  | "channels.update"
+  | "channels.archive"
+  | "members.read"
+  | "members.manage"
+  | "messages.read"
+  | "messages.send"
+  | "messages.manage"
+  | "schedules.read"
+  | "schedules.manage"
+  | "schedules.run"
+  | "webhooks.manage"
+  | "browser.use"
+  | "integrations.manage"
+  | "agents.delegate";
+
+export type AgentApprovalMode = "auto" | "ask";
 
 export type AgentCapabilityId =
   | "analytics-chart"
@@ -320,7 +590,7 @@ export interface ExecutorCapability {
 
 /**
  * A provider-agnostic persona. Which driver/model executes it is workspace
- * state, resolved per session at openSession time — never part of the
+ * state, resolved when the runtime opens a chat, never part of the
  * definition.
  */
 export interface AgentDefinition {
@@ -341,12 +611,22 @@ export interface AgentDefinition {
 
 export interface StartOptions {
   cwd: string;
+  /** Extra workspace roots the provider may read without an approval prompt. */
+  additionalDirectories?: string[];
+  /** Stable provider storage identity for this Chief chat. */
+  storageKey?: string;
   instructions: string;
+  /** Dynamic identifiers for this runtime session, separate from deployed grounding. */
+  runtimeContext?: string;
   access: AccessMode;
   /** Workspace-scoped execution environment, including ephemeral secrets. */
   env?: Record<string, string>;
   model?: string;
   resumeSessionId?: string;
+  /** Driver-owned durable continuation state (Eve cursor, transport target). */
+  resumeState?: unknown;
+  /** Normalized transcript available when a remote session starts fresh. */
+  history?: AgentEvent[];
   mcpServers?: McpServerSpec[];
   /** Durable, user-authored delegation used only by unattended runs. */
   automationGrant?: AutomationGrant;
@@ -357,14 +637,14 @@ export interface StartOptions {
 /**
  * One value the user pastes. `save` tells the runtime where to store it:
  * a file path (secrets never enter the model transcript; agents read them
- * from disk) or a workspace-scoped Keychain entry. A future deployment
- * target (e.g. Vercel env) slots in as another save variant.
+ * from disk), a workspace-scoped Keychain entry, or durable non-secret
+ * workspace context. A future deployment target slots in as another variant.
  */
 export interface InputField {
   key: string;
   label: string;
   type?: "text" | "secret" | "multiline";
-  save: { file: string } | { envKey: string };
+  save: { file: string } | { envKey: string } | { contextKey: string };
 }
 
 /**
@@ -377,207 +657,261 @@ export interface InputRequest {
   title: string;
   reason?: string;
   steps?: { text: string; url?: string }[];
+  questions?: AgentQuestion[];
   fields: InputField[];
+  /** Runtime signature for context writes. Models cannot authorize these. */
+  contextAuthorization?: string;
+}
+
+/** Metadata only. Secret values never cross the runtime protocol. */
+export interface WorkspaceEnvironmentVariable {
+  key: string;
+  sensitive: true;
+}
+
+export interface LocalIntegrationStatus {
+  provider: string;
+  category: string;
+  status: "connected" | "needs-authorization" | "unavailable";
+  displayName?: string;
+  externalId?: string;
+  needsCredentials?: boolean;
+}
+
+export type AgentDeploymentTarget = "vercel" | "convex";
+
+export type AgentDeploymentPhase =
+  | "authenticating"
+  | "preparing"
+  | "linking"
+  | "configuring"
+  | "building"
+  | "deploying"
+  | "verifying";
+
+export type AgentDeploymentStatus =
+  "needs_configuration" | "running" | "ready" | "failed" | "canceled";
+
+export interface AgentDeploymentRecord {
+  id: string;
+  workspaceId: string;
+  agentId: string;
+  target: AgentDeploymentTarget;
+  projectName: string;
+  teamId?: string;
+  status: AgentDeploymentStatus;
+  phase?: AgentDeploymentPhase;
+  detail?: string;
+  logs: string[];
+  url?: string;
+  projectId?: string;
+  model?: string;
+  channels?: AgentDeploymentChannel[];
+  activated?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AgentDeploymentPlaybook {
+  id: string;
+  title: string;
+  summary: string;
+  instructions: string;
+}
+
+export interface AgentDeploymentChannel {
+  kind: "slack";
+}
+
+export interface SlackChannelSettings {
+  enabled: boolean;
+  driver: Exclude<DriverType, "remote">;
+  model?: string;
+  allowedUserIds: string[];
+  allowedChannelIds: string[];
+}
+
+export interface SlackChannelState extends SlackChannelSettings {
+  configured: boolean;
+  connected: boolean;
+  error?: string;
 }
 
 // ---- WebSocket protocol between clients (desktop app, future Slack bridge) and the service ----
 
-export type ClientMessage =
-  | { type: "listAgents" }
-  | {
-      type: "listChats";
-      workspaceId: string;
-      executorCapability: ExecutorCapability;
-    }
-  | { type: "listModels"; driver: DriverType }
-  | {
-      type: "listWorkspaceData";
-      workspaceId: string;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "bootstrapOnboardingWork";
-      workspaceId: string;
-      jobs: OnboardingWorkJob[];
-      schedules: OnboardingSchedule[];
-      workspaceContext?: string;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "listAgentPreferences";
-      workspaceId: string;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "saveCampaign";
-      workspaceId: string;
-      campaign: CampaignRecord;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "saveRecurringWork";
-      workspaceId: string;
-      work: RecurringWorkRecord;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "runRecurringWorkNow";
-      workspaceId: string;
-      recurringWorkId: string;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "dismissAttentionItem";
-      workspaceId: string;
-      attentionItemId: string;
-      executorCapability: ExecutorCapability;
-    }
-  /** The user explicitly allows the exact tools a run was blocked on. */
-  | {
-      type: "expandRecurringWorkGrant";
-      workspaceId: string;
-      recurringWorkId: string;
-      addTools: string[];
-      rerun?: boolean;
-      executorCapability: ExecutorCapability;
-    }
-  /** Removes one historical run record from the calendar. */
-  | {
-      type: "deleteRecurringWorkRun";
-      workspaceId: string;
-      runId: string;
-      executorCapability: ExecutorCapability;
-    }
-  /** Rejecting a proposal removes the record and its run history. */
-  | {
-      type: "deleteRecurringWork";
-      workspaceId: string;
-      recurringWorkId: string;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "saveAgentPreference";
-      workspaceId: string;
-      preference: AgentPreference;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "setChatPreferences";
-      workspaceId: string;
-      chatId: string;
-      driver: DriverType;
-      model?: string;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "openSession";
-      /** Brand/setup context markdown composed into the system prompt. */
-      workspaceContext?: string;
-      agentId: string;
-      chatId: string;
-      resumeSessionId?: string;
-      /** Resolved by the client: per-chat choice > per-agent override > workspace provider. Never defaulted by the runtime. */
-      driver: DriverType;
-      model?: string;
-      capabilities?: AgentCapabilityId[];
-      /** Connected integration ids assigned to this agent. */
-      integrations?: string[];
-      /** Defaults to "guarded" (approval policy applies). */
-      access?: AccessMode;
-      /** Better Auth organization id used to isolate Executor's workspace. */
-      workspaceId?: string;
-      /** Opaque workspace credential stored by Executor, never sent to a model. */
-      executorCapability?: ExecutorCapability;
-    }
-  | {
-      type: "observeSession";
-      agentId: string;
-      chatId: string;
-      workspaceId: string;
-      executorCapability: ExecutorCapability;
-    }
-  | { type: "prompt"; chatId: string; text: string }
-  | { type: "closeSession"; chatId: string }
-  | {
-      type: "deleteSession";
-      chatId: string;
-      workspaceId: string;
-      executorCapability: ExecutorCapability;
-    }
-  | { type: "interrupt"; chatId: string }
-  | {
-      type: "respondPermission";
-      chatId: string;
-      requestId: string;
-      behavior: "allow" | "deny";
-    }
-  /** Answers for an agent question, keyed by question text; null dismisses. */
-  | {
-      type: "respondQuestion";
-      chatId: string;
-      requestId: string;
-      answers: Record<string, string> | null;
-    }
-  /** User submitted values for an agent's input request; the runtime stores
-   * them per each field's `save` target and tells the agent where. */
-  | {
-      type: "provideInput";
-      chatId: string;
-      request: InputRequest;
-      values: Record<string, string>;
-    }
-  /** Which of these secret env keys already exist for this workspace?
-   * Answered with inputsStatus. Lets the app collect required credentials
-   * BEFORE any agent session starts. */
-  | {
-      type: "queryInputs";
-      workspaceId: string;
-      keys: string[];
-      executorCapability: ExecutorCapability;
-    }
-  /** Store values with no agent session involved (pre-connect requirement
-   * forms). Runtime stores them and broadcasts a fresh inputsStatus. */
-  | {
-      type: "storeInput";
-      workspaceId: string;
-      request: InputRequest;
-      values: Record<string, string>;
-      executorCapability: ExecutorCapability;
-    };
+interface BrowserConversationMessage<T extends string> {
+  type: T;
+  workspaceId: string;
+  conversationId: string;
+}
+
+export interface BrowserRunConversationMessage<
+  T extends string,
+> extends BrowserConversationMessage<T> {
+  browserRunId: string;
+}
+
+export interface BrowserRunRecord {
+  id: string;
+  workspaceId: string;
+  conversationId: string;
+  parentConversationId?: string;
+  threadRootId?: string;
+  anchorMessageId?: string;
+  url: string;
+  title?: string;
+  status: "active" | "complete";
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type BrowserPresentationMode = "inline" | "picture-in-picture";
+
+export type { ClientMessage } from "./client-message.js";
 
 /** A short-lived event the app surfaces as a toast or OS notification. */
 export interface RuntimeNotice {
   kind:
-    | "run-started"
-    | "run-completed"
-    | "run-blocked"
-    | "run-failed"
-    | "attention";
+    | "work-started"
+    | "work-completed"
+    | "setup-required"
+    | "work-blocked"
+    | "work-failed"
+    | "action";
   title: string;
   detail?: string;
-  /** Deep-link target, e.g. `automation-<id>`. */
+  /** Optional deep-link target for the surfaced notice. */
   sourceId?: string;
   agentId?: string;
-  chatId?: string;
-  runId?: string;
+  sessionId?: string;
   recurringWorkId?: string;
+}
+
+export interface IntegrationSetupProgress {
+  recipeId: string;
+  phase: IntegrationSetupPhase;
+  instruction: string;
+  service?: string;
+  status: "active" | "complete" | "error";
 }
 
 export type ServerMessage =
   | { type: "agents"; agents: AgentDefinition[] }
+  | ChannelServerMessage
   | { type: "models"; driver: DriverType; models: ProviderModelOption[] }
+  | Artifacts.ArtifactsMessage
+  | {
+      type: "browserNavigate";
+      browserRunId: string;
+      workspaceId: string;
+      conversationId: string;
+      parentConversationId?: string;
+      threadRootId?: string;
+      anchorMessageId?: string;
+      url: string;
+      streamUrl: string;
+    }
+  | {
+      type: "browserPrepare";
+      browserRunId: string;
+      workspaceId: string;
+      conversationId: string;
+      parentConversationId?: string;
+      threadRootId?: string;
+      anchorMessageId?: string;
+      url: string;
+    }
+  | {
+      type: "browserActivity";
+      browserRunId: string;
+      workspaceId: string;
+      conversationId: string;
+      phase: "started" | "completed";
+      label: string;
+      cursor?: {
+        x: number;
+        y: number;
+        pressed?: boolean;
+        typing?: boolean;
+        visible?: boolean;
+      };
+    }
+  | {
+      type: "browserPresentation";
+      browserRunId: string;
+      workspaceId: string;
+      conversationId: string;
+      mode: BrowserPresentationMode;
+    }
+  | (BrowserConversationMessage<"browserClosed"> & { browserRunId: string })
+  | {
+      type: "browserRuns";
+      workspaceId: string;
+      runs: BrowserRunRecord[];
+    }
   | { type: "runtimeNotice"; workspaceId: string; notice: RuntimeNotice }
-  | { type: "onboardingWorkBootstrapped"; workspaceId: string }
+  | {
+      type: "integrationSetupProgress";
+      workspaceId: string;
+      conversationId: string;
+      progress: IntegrationSetupProgress;
+    }
+  | {
+      type: "onboardingWorkBootstrapped";
+      workspaceId: string;
+      requestId: string;
+      chatId: string;
+    }
+  | {
+      type: "workspaceFiles";
+      workspaceId: string;
+      files: WorkspaceFileRecord[];
+    }
+  | {
+      type: "workspaceFile";
+      workspaceId: string;
+      file: WorkspaceFileSnapshot;
+      requestId: string;
+    }
+  | {
+      type: "workspaceFileSaved";
+      workspaceId: string;
+      file: WorkspaceFileSnapshot;
+      requestId: string;
+    }
+  | {
+      type: "workspaceFileDeleted";
+      workspaceId: string;
+      fileId: string;
+      requestId: string;
+    }
+  | {
+      type: "workspaceEmailPreview";
+      workspaceId: string;
+      fileId: string;
+      requestId: string;
+      versionId: string;
+      html: string;
+      text: string;
+    }
   | {
       type: "workspaceData";
       workspaceId: string;
+      revision: number;
       prospects: ProspectRecord[];
       trends: TrendRecord[];
+      analyticsDatasets: AnalyticsDataset[];
       drafts: ContentDraftRecord[];
       campaigns: CampaignRecord[];
       recurringWork: RecurringWorkRecord[];
-      recurringWorkRuns: RecurringWorkRunRecord[];
-      attentionItems: AttentionItem[];
+      activity: SessionRecord[];
+      actionItems: ActionItem[];
+    }
+  | {
+      type: "diagnostics";
+      workspaceId: string;
+      sessions: SessionRecord[];
+      events: DiagnosticEventRecord[];
     }
   | {
       type: "agentPreferences";
@@ -589,18 +923,91 @@ export type ServerMessage =
       workspaceId: string;
       chats: {
         id: string;
-        agentId: string;
+        agent: string;
         title: string;
         lastText: string;
         lastAt: number;
         driver?: DriverType;
         model?: string;
+        running: boolean;
       }[];
     }
-  | { type: "sessionOpened"; chatId: string; agentId: string }
-  | { type: "event"; chatId: string; event: AgentEvent }
+  | {
+      type: "chatOpened";
+      workspaceId: string;
+      chatId: string;
+      visibility: "user" | "private";
+      parentId?: string;
+      execution?: ChatExecutionSelection;
+    }
+  | { type: "event"; workspaceId: string; chatId: string; event: AgentEvent }
   /** Buffered transcript replayed on (re)open so clients resume mid-run. */
-  | { type: "history"; chatId: string; events: AgentEvent[] }
+  | {
+      type: "history";
+      workspaceId: string;
+      chatId: string;
+      messages: ChiefUIMessage[];
+      events: AgentEvent[];
+      running: boolean;
+    }
+  | {
+      type: "message";
+      workspaceId: string;
+      chatId: string;
+      message: ChiefUIMessage;
+    }
   /** Secret env keys currently present for the authenticated workspace. */
   | { type: "inputsStatus"; workspaceId: string; present: string[] }
-  | { type: "error"; message: string; chatId?: string };
+  | {
+      type: "workspaceEnvironmentVariables";
+      workspaceId: string;
+      variables: WorkspaceEnvironmentVariable[];
+    }
+  | {
+      type: "localIntegrationStatus";
+      workspaceId: string;
+      integrations: LocalIntegrationStatus[];
+    }
+  | {
+      type: "integrationDisconnected";
+      workspaceId: string;
+      provider: "google-analytics";
+      requestId: string;
+    }
+  | {
+      type: "integrationVerified";
+      workspaceId: string;
+      provider: string;
+      category: string;
+      displayName: string;
+      externalId?: string;
+    }
+  | {
+      type: "agentDeployments";
+      workspaceId: string;
+      deployments: AgentDeploymentRecord[];
+    }
+  | {
+      type: "agentDeploymentUpdated";
+      workspaceId: string;
+      deployment: AgentDeploymentRecord;
+    }
+  | {
+      type: "slackChannel";
+      workspaceId: string;
+      state: SlackChannelState;
+    }
+  | {
+      type: "actionRequestResolved";
+      workspaceId: string;
+      actionItemId: string;
+      requestId: string;
+      action?: ActionItem;
+    }
+  | {
+      type: "error";
+      message: string;
+      code?: "deployment_not_found";
+      chatId?: string;
+      requestId?: string;
+    };

@@ -1,0 +1,229 @@
+import type { IncomingMessage, ServerResponse } from "node:http";
+
+import type { AgentSessionCapability } from "./agent-session-capabilities.js";
+import type { AgentToolPermission, ExecutorCapability } from "./types.js";
+import {
+  effectiveAgentToolPermissions,
+  permissionForLocalTool,
+} from "./agent-tool-permissions.js";
+import { localToolRequest } from "./http-runtime.js";
+
+interface ActiveLocalToolCaller {
+  agentId: string;
+  chatId: string;
+}
+
+interface LocalToolRouteManager {
+  activeAgentSession(
+    workspaceId: string,
+    requestedSessionId?: string,
+    requestedSessionIsCredentialBound?: boolean,
+  ): ActiveLocalToolCaller | undefined;
+  agentPreference(
+    workspaceId: string,
+    agentId: string,
+  ): Promise<
+    | {
+        enabled?: boolean;
+        toolPermissions?: readonly AgentToolPermission[];
+      }
+    | undefined
+  >;
+}
+
+export interface LocalToolRouteRequest {
+  body: Record<string, unknown>;
+  caller: ActiveLocalToolCaller;
+  capability: ExecutorCapability;
+  requestedSessionId?: string;
+  workspaceId: string;
+}
+
+interface LocalToolRouteResult {
+  path: string;
+  workspaceId: string;
+}
+
+interface LocalToolRouteDependencies<Context> {
+  capabilities: {
+    authenticate(token: string): AgentSessionCapability | undefined;
+  };
+  createContext(request: LocalToolRouteRequest): Context | Promise<Context>;
+  invoke(
+    request: Request,
+    workspaceId: string,
+    context: Context,
+  ): Promise<Response>;
+  manager: LocalToolRouteManager;
+  onSuccess?(result: LocalToolRouteResult): void;
+  openApi(): unknown;
+  origin: string;
+  prepareBody?(request: LocalToolRouteRequest): void | Promise<void>;
+  workspaceCapabilities: ReadonlyMap<string, ExecutorCapability>;
+}
+
+/**
+ * Creates the loopback local-tools gateway. This is the single HTTP boundary
+ * that authenticates host-issued capabilities, resolves the live agent caller,
+ * and enforces that agent's tool permission before any tool implementation runs.
+ */
+export function createLocalToolsRoute<Context>(
+  dependencies: LocalToolRouteDependencies<Context>,
+) {
+  return async function handleLocalToolsRoute(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<boolean> {
+    const url = new URL(request.url ?? "/", dependencies.origin);
+    const path = url.pathname;
+    if (request.method === "GET" && path === "/local-tools/openapi.json") {
+      writeJson(response, 200, dependencies.openApi());
+      return true;
+    }
+    if (!path.startsWith("/local-tools/")) return false;
+
+    const token = bearerToken(request.headers.authorization);
+    const issuedCapability = token
+      ? dependencies.capabilities.authenticate(token)
+      : undefined;
+    const workspaceId = issuedCapability?.workspaceId;
+    if (!workspaceId) {
+      writeJson(response, 401, { error: "Unauthorized" });
+      return true;
+    }
+    const workspaceCapability =
+      dependencies.workspaceCapabilities.get(workspaceId);
+    if (!workspaceCapability) {
+      writeJson(response, 401, {
+        error: "Workspace authorization expired",
+      });
+      return true;
+    }
+
+    const body = await readJsonBody(request);
+    const requestedSessionId = requestedSession(url, body);
+    const credentialSessionId =
+      issuedCapability.kind === "agent-session"
+        ? issuedCapability.sessionId
+        : undefined;
+    const caller = dependencies.manager.activeAgentSession(
+      workspaceId,
+      credentialSessionId,
+      issuedCapability.kind === "agent-session",
+    );
+    if (
+      !caller ||
+      (issuedCapability.kind === "agent-session" &&
+        (caller.chatId !== issuedCapability.sessionId ||
+          caller.agentId !== issuedCapability.agentId))
+    ) {
+      writeJson(response, 401, {
+        error: "This agent session is no longer active.",
+        code: "agent_session_inactive",
+      });
+      return true;
+    }
+
+    const permission = permissionForLocalTool(request.method ?? "GET", path);
+    if (!permission) {
+      writeJson(response, 403, {
+        error: "This local tool has no declared agent permission.",
+        code: "agent_tool_permission_unmapped",
+      });
+      return true;
+    }
+    const preference = await dependencies.manager.agentPreference(
+      workspaceId,
+      caller.agentId,
+    );
+    const grantedPermissions = effectiveAgentToolPermissions(
+      caller.agentId,
+      preference?.toolPermissions,
+    );
+    if (
+      preference?.enabled === false ||
+      !grantedPermissions.includes(permission)
+    ) {
+      writeJson(response, 403, {
+        error:
+          preference?.enabled === false
+            ? "This agent is paused."
+            : `This agent does not have ${permission} permission.`,
+        code: "agent_permission_denied",
+        permission,
+      });
+      return true;
+    }
+
+    const routeRequest = {
+      body,
+      caller,
+      capability: workspaceCapability,
+      requestedSessionId,
+      workspaceId,
+    } satisfies LocalToolRouteRequest;
+    await dependencies.prepareBody?.(routeRequest);
+    const toolRequest = localToolRequest({
+      origin: dependencies.origin,
+      url: request.url,
+      method: request.method,
+      headers: request.headers,
+      body,
+    });
+    const context = await dependencies.createContext(routeRequest);
+    const toolResponse = await dependencies.invoke(
+      toolRequest,
+      workspaceId,
+      context,
+    );
+    response.writeHead(
+      toolResponse.status,
+      Object.fromEntries(toolResponse.headers),
+    );
+    response.end(await toolResponse.text());
+    if (request.method === "POST" && toolResponse.ok) {
+      dependencies.onSuccess?.({
+        path,
+        workspaceId,
+      });
+    }
+    return true;
+  };
+}
+
+function bearerToken(authorization: string | undefined) {
+  return /^Bearer (.+)$/.exec(authorization ?? "")?.[1];
+}
+
+async function readJsonBody(request: IncomingMessage) {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.from(chunk as Uint8Array));
+  }
+  const raw = Buffer.concat(chunks);
+  if (raw.length === 0) return {};
+  try {
+    const value: unknown = JSON.parse(raw.toString("utf8"));
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function requestedSession(url: URL, body: Readonly<Record<string, unknown>>) {
+  return typeof body.sessionId === "string"
+    ? body.sessionId
+    : typeof body.conversationId === "string"
+      ? body.conversationId
+      : (url.searchParams.get("sessionId") ?? undefined);
+}
+
+function writeJson(response: ServerResponse, status: number, body: unknown) {
+  response.writeHead(status, {
+    "content-type": "application/json",
+    "cache-control": "no-store",
+  });
+  response.end(JSON.stringify(body));
+}

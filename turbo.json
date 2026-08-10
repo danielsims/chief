@@ -8,14 +8,18 @@
     "CLOUDFLARE_*",
     "CODEX_PATH",
     "CONVEX_SITE_URL",
+    "DEV",
     "EXECUTOR_*",
     "GOOGLE_*",
+    "LOCALAPPDATA",
+    "AI_GATEWAY_API_KEY",
     "MARKETER_*",
     "OPENCODE_PATH",
     "STRIPE_*",
     "TAURI_*",
     "VITE_*",
-    "WORKSPACE_MODEL"
+    "WORKSPACE_MODEL",
+    "XDG_CACHE_HOME"
   ],
   "globalPassThroughEnv": [
     "APPLE_SIGNING_IDENTITY",
@@ -47,6 +51,10 @@
     "lint": {
       "dependsOn": ["topo", "^build"],
       "outputs": [".cache/.eslintcache"]
+    },
+    "test": {
+      "dependsOn": ["topo", "^build"],
+      "outputs": []
     },
     "typecheck": {
       "dependsOn": ["topo", "^build"],
