@@ -2,9 +2,13 @@
 
 import { createHash, randomUUID } from "node:crypto";
 
+import { channelOpenApiPaths, channelOpenApiSchemas } from "@chief/channel-api";
+
 import type { BrowserLocalToolContext } from "./browser-local-tools.js";
+import type { ChannelLocalToolContext } from "./channel-local-tools.js";
 import type { IntegrationSetupLocalToolContext } from "./integration-setup-local-tools.js";
 import type { SessionManager } from "./manager.js";
+import type { ScheduledWorkRunner } from "./scheduled-work-local-tools.js";
 import type {
   AnalyticsDataset,
   CampaignRecord,
@@ -19,6 +23,7 @@ import {
   browserOpenApiSchemas,
   handleBrowserLocalTool,
 } from "./browser-local-tools.js";
+import { handleChannelLocalTool } from "./channel-local-tools.js";
 import { assertSafeInputRequest } from "./input-values.js";
 import {
   handleIntegrationSetupLocalTool,
@@ -26,6 +31,7 @@ import {
   integrationSetupOpenApiSchemas,
 } from "./integration-setup-local-tools.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
+import { handleScheduledWorkLocalTool } from "./scheduled-work-local-tools.js";
 import { runSpecialistDelegation } from "./specialist-delegation.js";
 import {
   readWorkspaceBrandProfile,
@@ -405,6 +411,7 @@ export function localToolsOpenApi(origin: string) {
           responses: saveResponse,
         },
       },
+      ...channelOpenApiPaths(body),
       "/local-tools/trends": {
         get: {
           operationId: "trends.list",
@@ -858,6 +865,7 @@ export function localToolsOpenApi(origin: string) {
           },
         },
         ...integrationSetupOpenApiSchemas,
+        ...channelOpenApiSchemas,
         ProspectInput: {
           type: "object",
           additionalProperties: false,
@@ -1145,6 +1153,8 @@ export async function handleLocalTool(
   manager: SessionManager,
   context: BrowserLocalToolContext &
     IntegrationSetupLocalToolContext & {
+      channels?: ChannelLocalToolContext;
+      scheduledWork?: ScheduledWorkRunner;
       conversationId?: string;
       onActivity?: () => void | Promise<void>;
       onFilesChanged?: () => void | Promise<void>;
@@ -1199,6 +1209,40 @@ export async function handleLocalTool(
 ) {
   const path = new URL(request.url).pathname;
   const data = await manager.workspaceData(workspaceId);
+  const rawChannelBody: unknown =
+    request.method === "GET"
+      ? {}
+      : await request
+          .clone()
+          .json()
+          .catch(() => ({}));
+  const channelBody =
+    rawChannelBody &&
+    typeof rawChannelBody === "object" &&
+    !Array.isArray(rawChannelBody)
+      ? (rawChannelBody as Record<string, unknown>)
+      : {};
+  const channelResult = await handleChannelLocalTool(
+    request,
+    workspaceId,
+    channelBody,
+    context.channels,
+  );
+  if (channelResult.handled) {
+    return json(channelResult.value, channelResult.status);
+  }
+  const scheduledWorkResult = await handleScheduledWorkLocalTool({
+    request,
+    workspaceId,
+    body: channelBody,
+    manager,
+    runner: context.scheduledWork,
+    conversationId: context.conversationId,
+    origin: new URL(request.url).origin,
+  });
+  if (scheduledWorkResult.handled) {
+    return json(scheduledWorkResult.value, scheduledWorkResult.status);
+  }
   if (request.method === "GET") {
     if (path === "/local-tools/prospects")
       return json({ prospects: data.prospects });

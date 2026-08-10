@@ -2,6 +2,8 @@
 
 import type { UIMessage } from "ai";
 
+import type { ScheduledWorkTrigger } from "@chief/channel-api";
+
 import type * as Artifacts from "./artifact-types.js";
 import type {
   ChannelClientMessage,
@@ -193,7 +195,10 @@ export interface ChiefMessageMetadata {
   channelAction?: {
     type: "member-added";
     actorName: string;
+    actorId?: string;
+    actorType?: "user" | "agent";
     agentIds: string[];
+    userIds?: string[];
   };
 }
 
@@ -387,6 +392,11 @@ export interface RecurringWorkRecord {
   instructions: string;
   cron: string;
   timezone: string;
+  /** Durable trigger definition. Older records derive this from cron/onceAt. */
+  trigger?: ScheduledWorkTrigger;
+  /** Stable caller key used to make create retries idempotent. */
+  operationKey?: string;
+  version?: number;
   /** Exact occurrence for work that runs once rather than recurring. */
   onceAt?: number;
   status: RecurringWorkStatus;
@@ -440,6 +450,7 @@ export interface SessionRecord {
   id: string;
   parentId?: string;
   triggerId?: string;
+  triggerContext?: Record<string, unknown>;
   scheduleId?: string;
   kind: "conversation" | "task";
   visibility: "user" | "private";
@@ -517,7 +528,29 @@ export interface AgentPreference {
   approvals?: AgentApprovalMode;
   capabilities?: AgentCapabilityId[];
   integrations?: string[];
+  /** Exact Chief-local capabilities granted to this agent identity. */
+  toolPermissions?: AgentToolPermission[];
 }
+
+export type AgentToolPermission =
+  | "workspace.read"
+  | "workspace.write"
+  | "channels.read"
+  | "channels.create"
+  | "channels.update"
+  | "channels.archive"
+  | "members.read"
+  | "members.manage"
+  | "messages.read"
+  | "messages.send"
+  | "messages.manage"
+  | "schedules.read"
+  | "schedules.manage"
+  | "schedules.run"
+  | "webhooks.manage"
+  | "browser.use"
+  | "integrations.manage"
+  | "agents.delegate";
 
 export type AgentApprovalMode = "auto" | "ask";
 

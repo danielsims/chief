@@ -53,6 +53,7 @@ import type {
   WorkspaceFileRecord,
   WorkspaceFileSnapshot,
 } from "./types.js";
+import { ensureChannelManagementSchema } from "./channels/schema-migration.js";
 import { ChannelStore } from "./channels/store.js";
 import * as schema from "./db/schema.js";
 import { TRANSIENT_RETRY_DELAY_MS } from "./retry-policy.js";
@@ -101,6 +102,7 @@ export interface LocalChatRecord {
   organizationId: string;
   parentId?: string;
   triggerId?: string;
+  triggerContext?: Record<string, unknown>;
   scheduleId?: string;
   kind: SessionRecord["kind"];
   visibility: ChatVisibility;
@@ -543,6 +545,7 @@ function localChatRecord(
     organizationId: row.organizationId,
     parentId: row.parentId ?? undefined,
     triggerId: row.triggerId ?? undefined,
+    triggerContext: row.triggerContext ?? undefined,
     scheduleId: row.scheduleId ?? undefined,
     kind: row.kind,
     visibility: row.visibility,
@@ -575,6 +578,7 @@ function sessionRecord(
     id: chat.id,
     parentId: chat.parentId,
     triggerId: chat.triggerId,
+    triggerContext: chat.triggerContext,
     scheduleId: chat.scheduleId,
     kind: chat.kind,
     visibility: chat.visibility,
@@ -737,6 +741,7 @@ export class LocalStore {
         await migrate(db, {
           migrationsFolder: migrationFolder(),
         });
+        await ensureChannelManagementSchema(client);
       };
       try {
         await initialize();
@@ -1931,6 +1936,9 @@ export class LocalStore {
       cron: work.cron,
       timezone: work.timezone,
       onceAt: work.onceAt ?? undefined,
+      trigger: work.trigger ?? undefined,
+      operationKey: work.operationKey ?? undefined,
+      version: work.version,
       status: work.status,
       placement: work.placement,
       grant: work.grant ?? undefined,
@@ -1967,6 +1975,9 @@ export class LocalStore {
           cron: row.cron,
           timezone: row.timezone,
           onceAt: row.onceAt ?? undefined,
+          trigger: row.trigger ?? undefined,
+          operationKey: row.operationKey ?? undefined,
+          version: row.version,
           status: row.status,
           placement: row.placement,
           grant: row.grant ?? undefined,
@@ -1980,6 +1991,98 @@ export class LocalStore {
           updatedAt: row.updatedAt,
         } satisfies RecurringWorkRecord)
       : undefined;
+  }
+
+  async recurringWorkByOperationKey(workspaceId: string, operationKey: string) {
+    await this.ready;
+    const row = await this.db
+      .select({ id: schema.schedules.id })
+      .from(schema.schedules)
+      .where(
+        and(
+          eq(schema.schedules.organizationId, workspaceId),
+          eq(schema.schedules.operationKey, operationKey),
+        ),
+      )
+      .get();
+    return row ? this.recurringWorkById(workspaceId, row.id) : undefined;
+  }
+
+  async recurringWorkWorkspaceId(id: string) {
+    await this.ready;
+    return this.db
+      .select({ workspaceId: schema.schedules.organizationId })
+      .from(schema.schedules)
+      .where(eq(schema.schedules.id, id))
+      .get()
+      .then((row) => row?.workspaceId);
+  }
+
+  async scheduleRuns(workspaceId: string, scheduleId: string) {
+    await this.ready;
+    const rows = await this.db
+      .select()
+      .from(schema.sessions)
+      .where(
+        and(
+          eq(schema.sessions.organizationId, workspaceId),
+          eq(schema.sessions.scheduleId, scheduleId),
+        ),
+      )
+      .orderBy(desc(schema.sessions.createdAt))
+      .all();
+    return rows.map(sessionRecord);
+  }
+
+  async scheduleRun(workspaceId: string, scheduleId: string, runId: string) {
+    await this.ready;
+    const row = await this.db
+      .select()
+      .from(schema.sessions)
+      .where(
+        and(
+          eq(schema.sessions.organizationId, workspaceId),
+          eq(schema.sessions.scheduleId, scheduleId),
+          eq(schema.sessions.id, runId),
+        ),
+      )
+      .get();
+    return row ? sessionRecord(row) : undefined;
+  }
+
+  async scheduleWebhookSecretHash(workspaceId: string, scheduleId: string) {
+    await this.ready;
+    return this.db
+      .select({ hash: schema.schedules.webhookSecretHash })
+      .from(schema.schedules)
+      .where(
+        and(
+          eq(schema.schedules.organizationId, workspaceId),
+          eq(schema.schedules.id, scheduleId),
+        ),
+      )
+      .get()
+      .then((row) => row?.hash ?? undefined);
+  }
+
+  async setScheduleWebhookSecretHash(
+    workspaceId: string,
+    scheduleId: string,
+    hash: string | undefined,
+  ) {
+    await this.ready;
+    const result = await this.db
+      .update(schema.schedules)
+      .set({ webhookSecretHash: hash ?? null, updatedAt: Date.now() })
+      .where(
+        and(
+          eq(schema.schedules.organizationId, workspaceId),
+          eq(schema.schedules.id, scheduleId),
+        ),
+      )
+      .run();
+    if (result.rowsAffected === 0)
+      throw new Error("Scheduled work was not found.");
   }
 
   async saveRecurringWork(workspaceId: string, work: RecurringWorkRecord) {
@@ -2028,6 +2131,9 @@ export class LocalStore {
         cron: work.cron,
         timezone: work.timezone,
         onceAt: work.onceAt,
+        trigger: work.trigger,
+        operationKey: work.operationKey,
+        version: work.version ?? 1,
         status: work.status,
         placement: work.placement,
         skipDates: work.skipDates,
@@ -2050,6 +2156,9 @@ export class LocalStore {
           cron: work.cron,
           timezone: work.timezone,
           onceAt: work.onceAt ?? null,
+          trigger: work.trigger ?? null,
+          operationKey: work.operationKey ?? null,
+          version: work.version ?? 1,
           status: work.status,
           placement: work.placement,
           skipDates: work.skipDates ?? null,
@@ -3095,6 +3204,8 @@ export class LocalStore {
       capabilities: preference.capabilities as
         AgentPreference["capabilities"] | undefined,
       integrations: preference.integrations ?? undefined,
+      toolPermissions: preference.toolPermissions as
+        AgentPreference["toolPermissions"] | undefined,
     }));
   }
 
@@ -3116,6 +3227,7 @@ export class LocalStore {
         approvals: preference.approvals,
         capabilities: preference.capabilities,
         integrations: preference.integrations,
+        toolPermissions: preference.toolPermissions,
         updatedAt: Date.now(),
       })
       .onConflictDoUpdate({
@@ -3130,6 +3242,7 @@ export class LocalStore {
           approvals: preference.approvals,
           capabilities: preference.capabilities,
           integrations: preference.integrations,
+          toolPermissions: preference.toolPermissions,
           updatedAt: Date.now(),
         },
       })

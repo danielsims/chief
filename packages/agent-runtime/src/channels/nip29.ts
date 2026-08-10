@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type {
   ChannelActor,
+  ChannelDeletionEvent,
+  ChannelMessageEditEvent,
   ChannelMessageEvent,
   ChannelReactionEvent,
   WorkspaceChannel,
@@ -112,6 +114,11 @@ export function defaultWorkspaceChannels(now = Date.now()): WorkspaceChannel[] {
     topic: "",
     agentIds: [...channel.agentIds],
     protocol: "nip29",
+    kind: "standard",
+    lifecycle: "active",
+    createdBy: { type: "user", id: "workspace", name: "Workspace" },
+    agentPermissions: [],
+    version: 1,
     createdAt: now + index,
     updatedAt: now + index,
   }));
@@ -173,6 +180,102 @@ export function createChannelReaction(input: {
   };
 }
 
+function eventId(input: {
+  pubkey: string;
+  createdAt: number;
+  kind: number;
+  tags: string[][];
+  content: string;
+  nonce?: string;
+}) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        0,
+        input.pubkey,
+        Math.floor(input.createdAt / 1000),
+        input.kind,
+        input.tags,
+        input.content,
+        input.nonce ?? randomUUID(),
+      ]),
+    )
+    .digest("hex");
+}
+
+export function createChannelMessageEdit(input: {
+  workspaceId: string;
+  channelId: string;
+  targetEventId: string;
+  actor: ChannelActor;
+  content: string;
+  sourceId?: string;
+  createdAt?: number;
+}): ChannelMessageEditEvent {
+  const createdAt = input.createdAt ?? Date.now();
+  const pubkey = actorPubkey(input.workspaceId, input.actor);
+  const tags = [
+    ["h", input.channelId],
+    ["e", input.targetEventId, "", "edit"],
+    ...(input.sourceId ? [["client", input.sourceId]] : []),
+  ];
+  return {
+    protocol: "nip29",
+    id: eventId({
+      pubkey,
+      createdAt,
+      kind: 40003,
+      tags,
+      content: input.content,
+      nonce: input.sourceId,
+    }),
+    channelId: input.channelId,
+    kind: 40003,
+    pubkey,
+    tags,
+    content: input.content,
+    actor: input.actor,
+    createdAt,
+  };
+}
+
+export function createChannelDeletion(input: {
+  workspaceId: string;
+  channelId: string;
+  targetEventId: string;
+  actor: ChannelActor;
+  reason?: string;
+  sourceId?: string;
+  createdAt?: number;
+}): ChannelDeletionEvent {
+  const createdAt = input.createdAt ?? Date.now();
+  const pubkey = actorPubkey(input.workspaceId, input.actor);
+  const tags = [
+    ["h", input.channelId],
+    ["e", input.targetEventId],
+    ...(input.sourceId ? [["client", input.sourceId]] : []),
+  ];
+  const content = input.reason?.trim().slice(0, 240) ?? "";
+  return {
+    protocol: "nip29",
+    id: eventId({
+      pubkey,
+      createdAt,
+      kind: 5,
+      tags,
+      content,
+      nonce: input.sourceId,
+    }),
+    channelId: input.channelId,
+    kind: 5,
+    pubkey,
+    tags,
+    content,
+    actor: input.actor,
+    createdAt,
+  };
+}
+
 /**
  * Create Chief's local NIP-29 envelope. The local runtime is the authority, so
  * it does not forge a Nostr signature; a remote relay adapter signs the same
@@ -188,6 +291,7 @@ export function createChannelEvent(input: {
   channelAction?: {
     type: "member-added";
     agentIds: string[];
+    userIds?: string[];
   };
   threadRootId?: string;
   sourceId?: string;
@@ -209,6 +313,10 @@ export function createChannelEvent(input: {
       ? [
           ["action", input.channelAction.type],
           ...input.channelAction.agentIds.map((agentId) => ["agent", agentId]),
+          ...(input.channelAction.userIds ?? []).map((userId) => [
+            "user",
+            userId,
+          ]),
         ]
       : []),
     ...(input.threadRootId
@@ -220,19 +328,14 @@ export function createChannelEvent(input: {
     ...(input.sourceId ? [["client", input.sourceId]] : []),
   ];
   const nonce = input.sourceId ?? randomUUID();
-  const id = createHash("sha256")
-    .update(
-      JSON.stringify([
-        0,
-        pubkey,
-        Math.floor(createdAt / 1000),
-        9,
-        tags,
-        input.content,
-        nonce,
-      ]),
-    )
-    .digest("hex");
+  const id = eventId({
+    pubkey,
+    createdAt,
+    kind: 9,
+    tags,
+    content: input.content,
+    nonce,
+  });
   return {
     protocol: "nip29",
     id,

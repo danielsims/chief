@@ -14,7 +14,7 @@ import type {
 } from "../src/types.js";
 import { LocalStore } from "../src/local-store.js";
 import { handleLocalTool, localToolsOpenApi } from "../src/local-tools.js";
-import { SessionManager } from "../src/manager.js";
+import { resolveActiveAgentSession, SessionManager } from "../src/manager.js";
 import { scheduledAgentConfig } from "../src/scheduled-agent-config.js";
 import { AgentSession } from "../src/session.js";
 
@@ -28,6 +28,21 @@ const cmo: AgentDefinition = {
   description: "Runs marketing work.",
   instructions: "Run the requested work.",
 };
+
+void test("a workspace gateway cannot select another concurrent agent session", () => {
+  const busy = [
+    { chatId: "engineer-chat", agentId: "engineer" },
+    { chatId: "research-chat", agentId: "researcher" },
+  ];
+  assert.equal(
+    resolveActiveAgentSession(busy, "research-chat", false),
+    undefined,
+  );
+  assert.deepEqual(resolveActiveAgentSession(busy, "research-chat", true), {
+    chatId: "research-chat",
+    agentId: "researcher",
+  });
+});
 
 void test("browser run history survives restart as resumable state", async () => {
   const directory = mkdtempSync(join(tmpdir(), "chief-browser-history-"));
@@ -362,6 +377,7 @@ void test("schedule execution always resolves the CMO provider", async () => {
       driver: "codex",
       model: "root-model",
       approvals: "ask",
+      toolPermissions: ["channels.read", "messages.send"],
     });
     await manager.saveAgentPreference("workspace", {
       agentId: "analyst",
@@ -379,6 +395,10 @@ void test("schedule execution always resolves the CMO provider", async () => {
     assert.equal(config.preference.driver, "codex");
     assert.equal(config.preference.model, "root-model");
     assert.equal(config.preference.approvals, "ask");
+    assert.deepEqual(config.preference.toolPermissions, [
+      "channels.read",
+      "messages.send",
+    ]);
   } finally {
     await manager.stopAll();
     rmSync(directory, { recursive: true, force: true });

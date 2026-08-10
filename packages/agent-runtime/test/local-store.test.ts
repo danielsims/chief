@@ -555,6 +555,7 @@ void test("baseline contains only the required singular one-word tables", async 
       }),
       [
         "action",
+        "audit",
         "browser",
         "campaign",
         "channel",
@@ -616,6 +617,81 @@ void test("baseline contains only the required singular one-word tables", async 
     }
   } finally {
     client.close();
+    await store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+void test("an interrupted additive channel migration resumes without data loss", async () => {
+  const {
+    directory,
+    path,
+    store: initialStore,
+  } = fixture("interrupted-channel-migration");
+  let store = initialStore;
+  try {
+    await store.createChat({
+      id: "preserved-chat",
+      organizationId: "workspace",
+      visibility: "user",
+      agent: "general",
+      provider: "codex",
+    });
+    await store.close();
+
+    const client = createClient({ url: `file:${path}`, encryptionKey });
+    await client.execute("DROP TABLE audit");
+    await client.execute("ALTER TABLE channel DROP COLUMN workstream");
+    client.close();
+
+    store = new LocalStore(path);
+    await store.health();
+    assert.ok(await store.chatRecord("workspace", "preserved-chat"));
+
+    const repairedClient = createClient({
+      url: `file:${path}`,
+      encryptionKey,
+    });
+    const channelColumns = await repairedClient.execute(
+      "PRAGMA table_info(channel)",
+    );
+    const channelColumnNames = channelColumns.rows.map((row) => row.name);
+    for (const name of [
+      "visibility",
+      "kind",
+      "lifecycle",
+      "archived_at",
+      "created_by",
+      "agent_permissions",
+      "workstream",
+      "operation_key",
+      "version",
+    ]) {
+      assert.ok(channelColumnNames.includes(name), `channel.${name}`);
+    }
+    for (const [table, expected] of [
+      [
+        "schedule",
+        ["trigger", "operation_key", "version", "webhook_secret_hash"],
+      ],
+      ["session", ["trigger_context"]],
+      ["audit", ["sequence", "previous_hash", "hash"]],
+      ["preference", ["tool_permissions"]],
+    ] as const) {
+      const columns = await repairedClient.execute(
+        `PRAGMA table_info(${table})`,
+      );
+      const names = columns.rows.map((row) => row.name);
+      for (const name of expected) {
+        assert.ok(names.includes(name), `${table}.${name}`);
+      }
+    }
+    const audit = await repairedClient.execute(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'audit'",
+    );
+    assert.equal(audit.rows.length, 1);
+    repairedClient.close();
+  } finally {
     await store.close();
     rmSync(directory, { recursive: true, force: true });
   }
