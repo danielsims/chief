@@ -72,6 +72,9 @@ importers:
       "@chief/browser":
         specifier: workspace:*
         version: link:../../packages/browser
+      "@chief/channel-api":
+        specifier: workspace:*
+        version: link:../../packages/channel-api
       "@chief/google-oauth-connector":
         specifier: workspace:*
         version: link:../../packages/google-oauth-connector
@@ -253,6 +256,9 @@ importers:
       "@chief/backend":
         specifier: workspace:*
         version: link:../../packages/backend
+      "@chief/channel-api":
+        specifier: workspace:*
+        version: link:../../packages/channel-api
       "@chief/ui":
         specifier: workspace:*
         version: link:../../packages/ui
@@ -366,6 +372,9 @@ importers:
       "@chief/browser":
         specifier: workspace:*
         version: link:../browser
+      "@chief/channel-api":
+        specifier: workspace:*
+        version: link:../channel-api
       "@chief/email":
         specifier: workspace:*
         version: link:../email
@@ -573,6 +582,27 @@ importers:
       tsx:
         specifier: ^4.20.3
         version: 4.23.0
+      typescript:
+        specifier: "catalog:"
+        version: 5.9.3
+
+  packages/channel-api:
+    devDependencies:
+      "@chief/eslint-config":
+        specifier: workspace:*
+        version: link:../../tooling/eslint
+      "@chief/prettier-config":
+        specifier: workspace:*
+        version: link:../../tooling/prettier
+      "@chief/tsconfig":
+        specifier: workspace:*
+        version: link:../../tooling/typescript
+      eslint:
+        specifier: "catalog:"
+        version: 9.39.5(jiti@2.7.0)
+      prettier:
+        specifier: "catalog:"
+        version: 3.9.4
       typescript:
         specifier: "catalog:"
         version: 5.9.3

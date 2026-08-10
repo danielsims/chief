@@ -10,7 +10,11 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import type { PreparedIntegrationSetup } from "../integration-setup-recipes.js";
-import type { ExecutorCapability } from "../types.js";
+import type { AgentToolPermission, ExecutorCapability } from "../types.js";
+import {
+  executorPermissionPolicyAction,
+  permissionForExecutorTool,
+} from "../agent-tool-permissions.js";
 import {
   configureBrowserCredentialIntegration,
   configureIntegrationSetupPolicies,
@@ -107,6 +111,26 @@ export interface ExecutorWorkspace {
 }
 
 const pending = new Map<string, Promise<ExecutorWorkspace>>();
+const localWorkspaceCapabilities = new Map<string, ExecutorCapability>();
+const localWorkspacePermissionCeilings = new Map<
+  string,
+  ReadonlySet<AgentToolPermission>
+>();
+const permissionCeilingSyncs = new Map<string, Promise<void>>();
+
+export function registerLocalWorkspaceCapability(
+  workspaceId: string,
+  capability: ExecutorCapability,
+) {
+  localWorkspaceCapabilities.set(workspaceId, capability);
+}
+
+export function registerExecutorAgentPermissionCeiling(
+  workspaceId: string,
+  permissions: readonly AgentToolPermission[],
+) {
+  localWorkspacePermissionCeilings.set(workspaceId, new Set(permissions));
+}
 const preparedGoogleAnalytics = new Set<string>();
 
 const GOOGLE_ANALYTICS_INTEGRATION = "google_analytics";
@@ -575,7 +599,10 @@ async function replaceConnection(
   });
 }
 
-async function configureToolPolicies(manifest: ServerManifest) {
+async function configureToolPolicies(
+  manifest: ServerManifest,
+  permissionCeiling?: ReadonlySet<AgentToolPermission>,
+) {
   const [cloudTools, localTools] = await Promise.all([
     request<Tool[]>(
       manifest,
@@ -625,14 +652,46 @@ async function configureToolPolicies(manifest: ServerManifest) {
       "localTools.recurringWorkPropose",
     ].map((name) => [name, "approve"] as const),
   ]);
-  const governedTools = [...cloudTools, ...localTools].filter((tool) =>
-    actions.has(tool.name),
+  const governedTools = [...cloudTools, ...localTools].filter(
+    (tool) => actions.has(tool.name) || permissionForExecutorTool(tool.name),
   );
 
   for (const tool of governedTools) {
     const pattern = tool.address.replace(/^tools\./, "");
-    const action = actions.get(tool.name);
+    const permission = permissionForExecutorTool(tool.name);
+    const action = permissionCeiling
+      ? (executorPermissionPolicyAction(tool.name, permissionCeiling) ??
+        actions.get(tool.name))
+      : permission
+        ? "approve"
+        : actions.get(tool.name);
     if (!action) continue;
+    if (permissionCeiling && permission) {
+      const existing = policies.filter(
+        (item) => item.owner === "org" && item.pattern === pattern,
+      );
+      const keep = existing.find(
+        (item) => item.owner === "org" && item.action === action,
+      );
+      // Install the desired rule before removing stale rules. A failed sync
+      // therefore preserves the prior ceiling instead of briefly leaving the
+      // tool without an organization policy. Widening remains fail-closed
+      // until the stale block is removed on this or a later retry.
+      if (!keep) {
+        await request(manifest, "/policies", {
+          method: "POST",
+          body: JSON.stringify({ owner: "org", pattern, action }),
+        });
+      }
+      for (const policy of existing) {
+        if (policy === keep) continue;
+        await request(manifest, `/policies/${encodeURIComponent(policy.id)}`, {
+          method: "DELETE",
+          body: JSON.stringify({ owner: policy.owner }),
+        });
+      }
+      continue;
+    }
     if (
       !policies.some(
         (policy) =>
@@ -761,17 +820,50 @@ async function provision(
       );
     }
   }
+  const localCapability =
+    localWorkspaceCapabilities.get(workspaceId) ?? capability;
   await configureIntegration(manifest, capability);
-  await configureLocalIntegration(manifest, capability);
+  await configureLocalIntegration(manifest, localCapability);
   await replaceConnection(manifest, capability);
   await replaceConnection(
     manifest,
-    capability,
+    localCapability,
     LOCAL_INTEGRATION,
     LOCAL_CONNECTION_NAME,
   );
-  await configureToolPolicies(manifest);
+  await configureToolPolicies(
+    manifest,
+    localWorkspacePermissionCeilings.get(workspaceId),
+  );
   return workspace;
+}
+
+export async function syncExecutorAgentPermissionCeiling(
+  workspaceId: string,
+  permissions: readonly AgentToolPermission[],
+) {
+  registerExecutorAgentPermissionCeiling(workspaceId, permissions);
+  const previous = permissionCeilingSyncs.get(workspaceId) ?? Promise.resolve();
+  const sync = previous
+    .catch(() => undefined)
+    .then(async () => {
+      const manifest = await readManifest(
+        pathsForWorkspace(workspaceId).dataDir,
+      );
+      if (!manifest) return;
+      await configureToolPolicies(
+        manifest,
+        localWorkspacePermissionCeilings.get(workspaceId) ?? new Set(),
+      );
+    });
+  permissionCeilingSyncs.set(workspaceId, sync);
+  try {
+    await sync;
+  } finally {
+    if (permissionCeilingSyncs.get(workspaceId) === sync) {
+      permissionCeilingSyncs.delete(workspaceId);
+    }
+  }
 }
 
 export async function executorHandoffUrl(workspaceId: string, url: string) {

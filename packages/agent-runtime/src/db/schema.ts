@@ -11,11 +11,21 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 import type {
+  ChannelActorIdentity,
+  ChannelAgentPermission,
+  ChannelAuditAction,
+  ChannelWorkstream,
+} from "@chief/channel-api";
+
+import type {
   AnalyticsDataset,
   ChannelActor,
   InputRequest,
   SessionArtifact,
 } from "../types.js";
+import { schedules } from "./schedule-schema.js";
+
+export { schedules } from "./schedule-schema.js";
 
 export const channels = sqliteTable(
   "channel",
@@ -28,6 +38,25 @@ export const channels = sqliteTable(
     topic: text().notNull().default(""),
     description: text().notNull(),
     agentIds: text("agent_ids", { mode: "json" }).$type<string[]>().notNull(),
+    visibility: text({ enum: ["public", "private"] })
+      .notNull()
+      .default("public"),
+    kind: text({ enum: ["standard", "feature"] })
+      .notNull()
+      .default("standard"),
+    lifecycle: text({ enum: ["active", "archived"] })
+      .notNull()
+      .default("active"),
+    archivedAt: integer("archived_at"),
+    createdBy: text("created_by", {
+      mode: "json",
+    }).$type<ChannelActorIdentity>(),
+    agentPermissions: text("agent_permissions", { mode: "json" }).$type<
+      ChannelAgentPermission[]
+    >(),
+    workstream: text({ mode: "json" }).$type<ChannelWorkstream>(),
+    operationKey: text("operation_key"),
+    version: integer().notNull().default(1),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
@@ -36,6 +65,33 @@ export const channels = sqliteTable(
     uniqueIndex("channel_organization_slug").on(
       table.organizationId,
       table.slug,
+    ),
+    uniqueIndex("channel_organization_operation").on(
+      table.organizationId,
+      table.operationKey,
+    ),
+  ],
+);
+
+export const channelAudit = sqliteTable(
+  "audit",
+  {
+    id: text().primaryKey(),
+    organizationId: text("organization_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    action: text().$type<ChannelAuditAction>().notNull(),
+    actor: text({ mode: "json" }).$type<ChannelActorIdentity>().notNull(),
+    detail: text({ mode: "json" }).$type<Record<string, unknown>>().notNull(),
+    sequence: integer().notNull().default(1),
+    previousHash: text("previous_hash"),
+    hash: text(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("audit_channel_timeline").on(
+      table.organizationId,
+      table.channelId,
+      table.createdAt,
     ),
   ],
 );
@@ -64,46 +120,6 @@ export const channelEvents = sqliteTable(
   ],
 );
 
-export const schedules = sqliteTable(
-  "schedule",
-  {
-    id: text().primaryKey(),
-    organizationId: text("organization_id").notNull(),
-    conversationId: text("conversation_id"),
-    agentId: text("agent_id").notNull(),
-    title: text().notNull(),
-    instructions: text().notNull(),
-    cron: text().notNull(),
-    timezone: text().notNull(),
-    onceAt: integer("once_at"),
-    status: text({
-      enum: ["draft", "active", "paused", "needs_approval", "error"],
-    }).notNull(),
-    placement: text({ enum: ["local", "cloud"] })
-      .notNull()
-      .default("local"),
-    skipDates: text("skip_dates", { mode: "json" }).$type<string[]>(),
-    approvalSummary: text("approval_summary").notNull(),
-    proposedToolPatterns: text("proposed_tool_patterns", { mode: "json" })
-      .$type<string[]>()
-      .notNull(),
-    grant: text({ mode: "json" }).$type<{
-      version: 1;
-      approvedAt: number;
-      toolPatterns: string[];
-    }>(),
-    nextAt: integer("next_at"),
-    lastCompletedAt: integer("last_completed_at"),
-    lastSummary: text("last_summary"),
-    createdAt: integer("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-  },
-  (table) => [
-    index("schedule_organization_next").on(table.organizationId, table.nextAt),
-    index("schedule_conversation").on(table.conversationId),
-  ],
-);
-
 export const sessions = sqliteTable(
   "session",
   {
@@ -113,6 +129,9 @@ export const sessions = sqliteTable(
       onDelete: "cascade",
     }),
     triggerId: text("trigger_id"),
+    triggerContext: text("trigger_context", { mode: "json" }).$type<
+      Record<string, unknown>
+    >(),
     scheduleId: text("schedule_id").references(() => schedules.id, {
       onDelete: "cascade",
     }),
@@ -158,6 +177,10 @@ export const sessions = sqliteTable(
     uniqueIndex("session_schedule_occurrence").on(
       table.scheduleId,
       table.scheduledFor,
+    ),
+    uniqueIndex("session_schedule_trigger").on(
+      table.scheduleId,
+      table.triggerId,
     ),
     uniqueIndex("session_one_active_per_schedule")
       .on(table.scheduleId)
@@ -418,6 +441,9 @@ export const agentPreferences = sqliteTable(
     approvals: text({ enum: ["auto", "ask"] }),
     capabilities: text({ mode: "json" }).$type<string[]>(),
     integrations: text({ mode: "json" }).$type<string[]>(),
+    toolPermissions: text("tool_permissions", { mode: "json" }).$type<
+      string[]
+    >(),
     updatedAt: integer("updated_at").notNull(),
   },
   (table) => [primaryKey({ columns: [table.organizationId, table.agentId] })],

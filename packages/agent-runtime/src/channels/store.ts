@@ -1,21 +1,48 @@
 import { randomUUID } from "node:crypto";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 
-import type { ChannelEvent, WorkspaceChannel } from "../types.js";
+import type {
+  ChannelActorIdentity,
+  ChannelAgentPermission,
+  ChannelKind,
+  ChannelWorkstream,
+} from "@chief/channel-api";
+
+import type { WorkspaceChannel } from "../types.js";
 import * as schema from "../db/schema.js";
+import { ChannelHistoryStore } from "./history-store.js";
 import {
   defaultWorkspaceChannels,
   GETTING_STARTED_CHANNEL_ID,
 } from "./nip29.js";
 
-export class ChannelStore {
+export class ChannelStore extends ChannelHistoryStore {
   private readonly seededWorkspaces = new Map<string, Promise<void>>();
+  private readonly lifecycleMutations = new Map<string, Promise<void>>();
 
-  constructor(
-    private readonly database: () => LibSQLDatabase,
-    private readonly ready: Promise<void>,
-  ) {}
+  constructor(database: () => LibSQLDatabase, ready: Promise<void>) {
+    super(database, ready);
+  }
+
+  private withLifecycleLock<T>(
+    workspaceId: string,
+    mutation: () => Promise<T>,
+  ) {
+    const previous =
+      this.lifecycleMutations.get(workspaceId) ?? Promise.resolve();
+    const result = previous.catch(() => undefined).then(mutation);
+    const settled = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.lifecycleMutations.set(workspaceId, settled);
+    return result.finally(() => {
+      if (this.lifecycleMutations.get(workspaceId) === settled) {
+        this.lifecycleMutations.delete(workspaceId);
+      }
+    });
+  }
 
   private seedWorkspace(workspaceId: string) {
     const existing = this.seededWorkspaces.get(workspaceId);
@@ -46,9 +73,13 @@ export class ChannelStore {
         await this.database()
           .insert(schema.channels)
           .values(
-            channelsToSeed.map((channel) => ({
+            channelsToSeed.map(({ visibility, ...channel }) => ({
               organizationId: workspaceId,
               ...channel,
+              visibility:
+                visibility === "private"
+                  ? ("private" as const)
+                  : ("public" as const),
             })),
           )
           .onConflictDoNothing()
@@ -75,6 +106,14 @@ export class ChannelStore {
         topic: schema.channels.topic,
         description: schema.channels.description,
         agentIds: schema.channels.agentIds,
+        storedVisibility: schema.channels.visibility,
+        kind: schema.channels.kind,
+        lifecycle: schema.channels.lifecycle,
+        archivedAt: schema.channels.archivedAt,
+        createdBy: schema.channels.createdBy,
+        agentPermissions: schema.channels.agentPermissions,
+        workstream: schema.channels.workstream,
+        version: schema.channels.version,
         createdAt: schema.channels.createdAt,
         updatedAt: schema.channels.updatedAt,
       })
@@ -83,13 +122,21 @@ export class ChannelStore {
       .orderBy(asc(schema.channels.createdAt), asc(schema.channels.slug))
       .all()
       .then((channels) =>
-        channels.map((channel) => ({
+        channels.map(({ storedVisibility, ...channel }) => ({
           ...channel,
+          archivedAt: channel.archivedAt ?? undefined,
+          createdBy: channel.createdBy ?? {
+            type: "user" as const,
+            id: "workspace",
+            name: "Workspace",
+          },
+          agentPermissions: channel.agentPermissions ?? [],
+          workstream: channel.workstream ?? undefined,
           visibility: channel.slug.startsWith("dm-")
             ? ("direct" as const)
             : channel.slug === "getting-started"
               ? ("private" as const)
-              : ("public" as const),
+              : storedVisibility,
         })),
       );
   }
@@ -102,7 +149,19 @@ export class ChannelStore {
 
   async create(
     workspaceId: string,
-    input: { name: string; description?: string },
+    input: {
+      name: string;
+      description?: string;
+      topic?: string;
+      visibility?: "public" | "private";
+      kind?: ChannelKind;
+      actor?: ChannelActorIdentity;
+      agentIds?: readonly string[];
+      agentPermissions?: readonly ChannelAgentPermission[];
+      workstream?: ChannelWorkstream;
+      operationKey?: string;
+      strictName?: boolean;
+    },
   ) {
     const name = input.name.trim().slice(0, 60);
     if (!name) throw new Error("Channel name is required.");
@@ -112,6 +171,28 @@ export class ChannelStore {
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "") || "channel";
     const existing = await this.list(workspaceId);
+    if (input.operationKey) {
+      const prior = await this.database()
+        .select({ id: schema.channels.id })
+        .from(schema.channels)
+        .where(
+          and(
+            eq(schema.channels.organizationId, workspaceId),
+            eq(schema.channels.operationKey, input.operationKey),
+          ),
+        )
+        .get();
+      if (prior) {
+        const channel = await this.get(workspaceId, prior.id);
+        if (channel) return channel;
+      }
+    }
+    if (
+      input.strictName &&
+      existing.some((channel) => channel.slug === baseSlug)
+    ) {
+      throw new Error(`A channel named #${baseSlug} already exists.`);
+    }
     let slug = baseSlug;
     let suffix = 2;
     while (existing.some((channel) => channel.slug === slug)) {
@@ -125,33 +206,67 @@ export class ChannelStore {
       id: randomUUID(),
       slug,
       name,
-      topic: "",
+      topic: input.topic?.trim().slice(0, 250) ?? "",
       description: description ?? `Work and conversation in #${name}`,
-      agentIds: ["cmo"],
-      visibility: "public",
+      agentIds: [...new Set(input.agentIds ?? ["cmo"])],
+      visibility: input.visibility ?? "public",
+      kind: input.kind ?? "standard",
+      lifecycle: "active",
+      createdBy: input.actor ?? {
+        type: "user",
+        id: "workspace-owner",
+        name: "Workspace owner",
+      },
+      agentPermissions: [...new Set(input.agentPermissions ?? [])],
+      workstream: input.workstream,
+      version: 1,
       createdAt: now,
       updatedAt: now,
     };
     await this.database()
       .insert(schema.channels)
-      .values({ organizationId: workspaceId, ...channel })
+      .values({
+        organizationId: workspaceId,
+        ...channel,
+        visibility: channel.visibility === "private" ? "private" : "public",
+        operationKey: input.operationKey,
+      })
       .run();
+    await this.audit(
+      workspaceId,
+      channel.id,
+      "channel.created",
+      channel.createdBy,
+      {
+        name: channel.name,
+        kind: channel.kind,
+        visibility: channel.visibility,
+      },
+    );
     return channel;
   }
 
   async update(
     workspaceId: string,
     channelId: string,
-    input: { name: string; topic: string; description: string },
+    input: {
+      name?: string;
+      topic?: string;
+      description?: string;
+      workstream?: ChannelWorkstream;
+      expectedVersion?: number;
+      actor?: ChannelActorIdentity;
+    },
   ) {
     const channel = await this.get(workspaceId, channelId);
     if (!channel) throw new Error("Channel was not found in this workspace.");
     if (channel.visibility === "direct") {
       throw new Error("Direct messages cannot be edited as channels.");
     }
-    const name = input.name.trim();
-    const topic = input.topic.trim();
-    const description = input.description.trim();
+    this.assertVersion(channel, input.expectedVersion);
+    const name = input.name?.trim() ?? channel.name;
+    const topic = input.topic?.trim() ?? channel.topic;
+    const description = input.description?.trim() ?? channel.description;
     if (!name) throw new Error("Channel name is required.");
     if (name.length > 60) {
       throw new Error("Channel names can be at most 60 characters.");
@@ -163,18 +278,163 @@ export class ChannelStore {
       throw new Error("Channel topics can be at most 250 characters.");
     }
     const updatedAt = Date.now();
-    await this.database()
+    const version = channel.version + 1;
+    const result = await this.database()
       .update(schema.channels)
-      .set({ name, topic, description, updatedAt })
+      .set({
+        name,
+        topic,
+        description,
+        workstream: input.workstream ?? channel.workstream,
+        version,
+        updatedAt,
+      })
       .where(
         and(
           eq(schema.channels.organizationId, workspaceId),
           eq(schema.channels.id, channel.id),
+          eq(schema.channels.version, channel.version),
         ),
       )
       .run();
+    this.assertWriteApplied(result.rowsAffected);
     // The stable slug is deliberately retained so existing links keep working.
-    return { ...channel, name, topic, description, updatedAt };
+    const updated = {
+      ...channel,
+      name,
+      topic,
+      description,
+      workstream: input.workstream ?? channel.workstream,
+      version,
+      updatedAt,
+    };
+    await this.audit(
+      workspaceId,
+      channel.id,
+      "channel.updated",
+      input.actor ?? {
+        type: "user",
+        id: "workspace-owner",
+        name: "Workspace owner",
+      },
+      { version },
+    );
+    return updated;
+  }
+
+  async setPolicy(
+    workspaceId: string,
+    channelId: string,
+    agentPermissions: readonly ChannelAgentPermission[],
+    actor: ChannelActorIdentity,
+  ) {
+    const channel = await this.get(workspaceId, channelId);
+    if (!channel) throw new Error("Channel was not found in this workspace.");
+    if (channel.visibility === "direct") {
+      throw new Error(
+        "Direct messages do not have channel management policies.",
+      );
+    }
+    const nextPermissions = [...new Set(agentPermissions)];
+    const updatedAt = Date.now();
+    const version = channel.version + 1;
+    const result = await this.database()
+      .update(schema.channels)
+      .set({ agentPermissions: nextPermissions, version, updatedAt })
+      .where(
+        and(
+          eq(schema.channels.organizationId, workspaceId),
+          eq(schema.channels.id, channel.id),
+          eq(schema.channels.version, channel.version),
+        ),
+      )
+      .run();
+    this.assertWriteApplied(result.rowsAffected);
+    await this.audit(workspaceId, channel.id, "policy.updated", actor, {
+      agentPermissions: nextPermissions,
+    });
+    return {
+      ...channel,
+      agentPermissions: nextPermissions,
+      version,
+      updatedAt,
+    };
+  }
+
+  async setArchived(
+    workspaceId: string,
+    channelId: string,
+    archived: boolean,
+    input: { expectedVersion?: number; actor: ChannelActorIdentity },
+  ) {
+    return this.withLifecycleLock(workspaceId, () =>
+      this.setArchivedLocked(workspaceId, channelId, archived, input),
+    );
+  }
+
+  private async setArchivedLocked(
+    workspaceId: string,
+    channelId: string,
+    archived: boolean,
+    input: { expectedVersion?: number; actor: ChannelActorIdentity },
+  ) {
+    const channel = await this.assertRemovable(workspaceId, channelId);
+    this.assertVersion(channel, input.expectedVersion);
+    if ((channel.lifecycle === "archived") === archived) return channel;
+    const updatedAt = Date.now();
+    const archivedAt = archived ? updatedAt : undefined;
+    const lifecycle = archived ? "archived" : "active";
+    const version = channel.version + 1;
+    const result = await this.database()
+      .update(schema.channels)
+      .set({
+        lifecycle,
+        archivedAt: archivedAt ?? null,
+        version,
+        updatedAt,
+      })
+      .where(
+        and(
+          eq(schema.channels.organizationId, workspaceId),
+          eq(schema.channels.id, channel.id),
+          eq(schema.channels.version, channel.version),
+          archived && channel.visibility === "public"
+            ? sql`EXISTS (
+                SELECT 1 FROM channel AS remaining
+                WHERE remaining.organization_id = ${workspaceId}
+                  AND remaining.id <> ${channel.id}
+                  AND remaining.visibility = 'public'
+                  AND remaining.lifecycle = 'active'
+              )`
+            : undefined,
+        ),
+      )
+      .run();
+    if (result.rowsAffected === 0) {
+      const current = await this.get(workspaceId, channel.id);
+      if (current?.version !== channel.version) {
+        this.assertWriteApplied(result.rowsAffected);
+      }
+      if (archived && channel.visibility === "public") {
+        throw new Error("A workspace must keep at least one channel active.");
+      }
+      this.assertWriteApplied(result.rowsAffected);
+    }
+    const updated = {
+      ...channel,
+      lifecycle,
+      archivedAt,
+      version,
+      updatedAt,
+    } as WorkspaceChannel;
+    await this.audit(
+      workspaceId,
+      channel.id,
+      archived ? "channel.archived" : "channel.unarchived",
+      input.actor,
+      { version },
+    );
+    return updated;
   }
 
   async assertRemovable(workspaceId: string, channelId: string) {
@@ -186,18 +446,40 @@ export class ChannelStore {
     if (channel.id === GETTING_STARTED_CHANNEL_ID) {
       throw new Error("The getting-started channel belongs to the workspace.");
     }
-    const publicChannels = (await this.list(workspaceId)).filter(
-      (candidate) => candidate.visibility === "public",
+    const remainingActivePublicChannels = (await this.list(workspaceId)).filter(
+      (candidate) =>
+        candidate.visibility === "public" &&
+        candidate.lifecycle === "active" &&
+        candidate.id !== channel.id,
     );
-    if (publicChannels.length <= 1) {
-      throw new Error("A workspace must keep at least one channel.");
+    if (
+      channel.visibility === "public" &&
+      channel.lifecycle === "active" &&
+      remainingActivePublicChannels.length === 0
+    ) {
+      throw new Error("A workspace must keep at least one channel active.");
     }
     return channel;
   }
 
   async remove(workspaceId: string, channelId: string) {
+    return this.withLifecycleLock(workspaceId, () =>
+      this.removeLocked(workspaceId, channelId),
+    );
+  }
+
+  private async removeLocked(workspaceId: string, channelId: string) {
     const channel = await this.assertRemovable(workspaceId, channelId);
     await this.database().transaction(async (tx) => {
+      await tx
+        .delete(schema.channelAudit)
+        .where(
+          and(
+            eq(schema.channelAudit.organizationId, workspaceId),
+            eq(schema.channelAudit.channelId, channel.id),
+          ),
+        )
+        .run();
       await tx
         .delete(schema.channelEvents)
         .where(
@@ -218,124 +500,5 @@ export class ChannelStore {
         .run();
     });
     return channel;
-  }
-
-  async appendEvent(workspaceId: string, event: ChannelEvent) {
-    await this.ready;
-    if (!(await this.get(workspaceId, event.channelId))) {
-      throw new Error("Channel was not found in this workspace.");
-    }
-    await this.database()
-      .insert(schema.channelEvents)
-      .values({ organizationId: workspaceId, ...event })
-      .onConflictDoNothing()
-      .run();
-    return event;
-  }
-
-  async removeEvent(workspaceId: string, eventId: string) {
-    await this.ready;
-    await this.database()
-      .delete(schema.channelEvents)
-      .where(
-        and(
-          eq(schema.channelEvents.organizationId, workspaceId),
-          eq(schema.channelEvents.id, eventId),
-        ),
-      )
-      .run();
-  }
-
-  async addAgents(
-    workspaceId: string,
-    channelId: string,
-    agentIds: readonly string[],
-  ) {
-    const channel = await this.get(workspaceId, channelId);
-    if (!channel || channel.visibility === "direct" || agentIds.length === 0) {
-      return channel;
-    }
-    const nextAgentIds = [...new Set([...channel.agentIds, ...agentIds])];
-    if (nextAgentIds.length === channel.agentIds.length) return channel;
-    const updatedAt = Date.now();
-    await this.database()
-      .update(schema.channels)
-      .set({ agentIds: nextAgentIds, updatedAt })
-      .where(
-        and(
-          eq(schema.channels.organizationId, workspaceId),
-          eq(schema.channels.id, channel.id),
-        ),
-      )
-      .run();
-    return { ...channel, agentIds: nextAgentIds, updatedAt };
-  }
-
-  async setAgents(
-    workspaceId: string,
-    channelId: string,
-    agentIds: readonly string[],
-  ) {
-    const channel = await this.get(workspaceId, channelId);
-    if (!channel || channel.visibility === "direct") return channel;
-    const nextAgentIds = [...new Set(agentIds)];
-    const updatedAt = Date.now();
-    await this.database()
-      .update(schema.channels)
-      .set({ agentIds: nextAgentIds, updatedAt })
-      .where(
-        and(
-          eq(schema.channels.organizationId, workspaceId),
-          eq(schema.channels.id, channel.id),
-        ),
-      )
-      .run();
-    return { ...channel, agentIds: nextAgentIds, updatedAt };
-  }
-
-  async events(
-    workspaceId: string,
-    channelId: string,
-  ): Promise<ChannelEvent[]> {
-    await this.ready;
-    return this.database()
-      .select({
-        protocol: schema.channelEvents.protocol,
-        id: schema.channelEvents.id,
-        channelId: schema.channelEvents.channelId,
-        kind: schema.channelEvents.kind,
-        pubkey: schema.channelEvents.pubkey,
-        tags: schema.channelEvents.tags,
-        content: schema.channelEvents.content,
-        parts: schema.channelEvents.parts,
-        actor: schema.channelEvents.actor,
-        createdAt: schema.channelEvents.createdAt,
-      })
-      .from(schema.channelEvents)
-      .where(
-        and(
-          eq(schema.channelEvents.organizationId, workspaceId),
-          eq(schema.channelEvents.channelId, channelId),
-        ),
-      )
-      .orderBy(asc(schema.channelEvents.createdAt))
-      .all()
-      .then((events) =>
-        events.flatMap((event): ChannelEvent[] => {
-          if (event.kind === 7) {
-            return [{ ...event, kind: 7 }];
-          }
-          if (event.kind === 9) {
-            return [
-              {
-                ...event,
-                kind: 9,
-                parts: event.parts ?? undefined,
-              },
-            ];
-          }
-          return [];
-        }),
-      );
   }
 }

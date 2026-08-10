@@ -40,6 +40,12 @@ import type {
   ServerMessage,
 } from "./types.js";
 import { AgentDeploymentManager } from "./agent-deployments.js";
+import { AgentSessionCapabilityRegistry } from "./agent-session-capabilities.js";
+import {
+  combinedAgentToolPermissionCeiling,
+  effectiveAgentToolPermissions,
+  permissionForLocalTool,
+} from "./agent-tool-permissions.js";
 import {
   composeWorkspaceInstructions,
   defaultAgents,
@@ -60,6 +66,8 @@ import {
   channelReplyThreadRoot,
   channelRespondingAgentId,
 } from "./channel-reply-routing.js";
+import { handleGovernanceRequest } from "./channels/governance-bridge.js";
+import { createChannelLocalToolContext } from "./channels/local-tool-context.js";
 import { channelChatId, GETTING_STARTED_CHANNEL_ID } from "./channels/nip29.js";
 import * as channelBridge from "./channels/server-bridge.js";
 import {
@@ -110,6 +118,8 @@ import { authorizeOrganizationRole } from "./organization-authorization.js";
 import { ProviderAuthentication } from "./provider-authentication.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
 import { resumeDriverBlockedWork } from "./scheduled-agent-config.js";
+import { dispatchScheduledWorkEvent } from "./scheduled-work-triggers.js";
+import { handleScheduledWorkWebhook } from "./scheduled-work-webhook.js";
 import { RecurringWorkScheduler } from "./scheduler.js";
 import { setupSkillFromPrompt, setupTaskCatalog } from "./setup-skills.js";
 import { executorArtifactsMessage } from "./tools/artifacts.js";
@@ -120,9 +130,12 @@ import {
   executorHandoffUrl,
   inspectGoogleAnalyticsConfiguration,
   prepareIntegrationSetup,
+  registerExecutorAgentPermissionCeiling,
+  registerLocalWorkspaceCapability,
   startGoogleAnalyticsAuthorization,
   storeGeneratedCredentialConnection,
   storeGoogleAnalyticsOAuthClient,
+  syncExecutorAgentPermissionCeiling,
   verifyGoogleAnalyticsConnection,
 } from "./tools/control-plane.js";
 import { redactExecutorHandoffCredentials } from "./tools/redaction.js";
@@ -333,6 +346,7 @@ const PORT = Number(process.env.CHIEF_RUNTIME_PORT ?? 4318);
  * protocol. Designed to run anywhere node runs — laptop, Raspberry Pi.
  */
 export function startServer(port = PORT) {
+  const localToolCapabilities = new AgentSessionCapabilityRegistry();
   const manager = new SessionManager();
   const localCapabilities = new Map<
     string,
@@ -408,6 +422,33 @@ export function startServer(port = PORT) {
     integrationSetups.require.bind(integrationSetups);
   const assertActiveIntegrationSetup =
     integrationSetups.requireDomain.bind(integrationSetups);
+  const ensureLocalToolCapability = (workspaceId: string) => {
+    const token = localToolCapabilities.workspaceGateway(workspaceId);
+    registerLocalWorkspaceCapability(workspaceId, {
+      apiBaseUrl: `http://127.0.0.1:${port}`,
+      token,
+    });
+    return token;
+  };
+  manager.setSessionEnvironmentProvider((identity) => ({
+    CHIEF_LOCAL_CAPABILITY: localToolCapabilities.agentSession(identity),
+    CHIEF_LOCAL_URL: `http://127.0.0.1:${port}`,
+  }));
+  const executorPermissionCeiling = async (workspaceId: string) => {
+    const preferences = await manager.listAgentPreferences(workspaceId);
+    const byAgent = new Map(
+      preferences.map((preference) => [preference.agentId, preference]),
+    );
+    return combinedAgentToolPermissionCeiling(
+      defaultAgents
+        .filter((agent) => agent.id !== "setup")
+        .map((agent) => ({
+          agentId: agent.id,
+          enabled: byAgent.get(agent.id)?.enabled !== false,
+          toolPermissions: byAgent.get(agent.id)?.toolPermissions,
+        })),
+    );
+  };
   const authorizeWorkspace = async (
     workspaceId: string,
     capability: ExecutorCapability,
@@ -427,10 +468,15 @@ export function startServer(port = PORT) {
       throw new Error("Workspace capability endpoint changed for this token.");
     }
     if (cached && Date.now() - cached.verifiedAt < 30_000) {
+      ensureLocalToolCapability(workspaceId);
       workspaceCapabilities.set(workspaceId, {
         apiBaseUrl: cached.apiBaseUrl,
         token: capability.token,
       });
+      registerExecutorAgentPermissionCeiling(
+        workspaceId,
+        await executorPermissionCeiling(workspaceId),
+      );
       return;
     }
     const response = await fetch(url, {
@@ -448,10 +494,15 @@ export function startServer(port = PORT) {
       workspaceId,
     };
     localCapabilities.set(capability.token, verified);
+    ensureLocalToolCapability(workspaceId);
     workspaceCapabilities.set(workspaceId, {
       apiBaseUrl: verified.apiBaseUrl,
       token: capability.token,
     });
+    registerExecutorAgentPermissionCeiling(
+      workspaceId,
+      await executorPermissionCeiling(workspaceId),
+    );
     void ensureSlackGateway(workspaceId);
   };
 
@@ -517,6 +568,7 @@ export function startServer(port = PORT) {
     undefined;
   let broadcastChannelEvent = (_workspaceId: string, _event: ChannelEvent) =>
     undefined;
+  let broadcastChannels = (_workspaceId: string) => Promise.resolve();
   const channelMirrorBindings = new Map<
     string,
     {
@@ -1556,22 +1608,59 @@ export function startServer(port = PORT) {
       res.end(JSON.stringify(localToolsOpenApi(`http://127.0.0.1:${port}`)));
       return;
     }
+    if (req.method === "POST" && path.startsWith("/hooks/scheduled-runs/")) {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const chunk of req) {
+        const buffer = Buffer.from(chunk as Uint8Array);
+        size += buffer.length;
+        if (size > 256_000) {
+          res.writeHead(413, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "Webhook payload is too large." }));
+          return;
+        }
+        chunks.push(buffer);
+      }
+      let body: unknown = {};
+      try {
+        const raw = Buffer.concat(chunks).toString("utf8");
+        body = raw ? JSON.parse(raw) : {};
+      } catch {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "Webhook payload must be JSON." }));
+        return;
+      }
+      const result = await handleScheduledWorkWebhook({
+        path,
+        body,
+        idempotencyKey:
+          typeof req.headers["idempotency-key"] === "string"
+            ? req.headers["idempotency-key"]
+            : undefined,
+        manager,
+        runner: scheduler,
+      });
+      res.writeHead(result.status ?? 404, {
+        "content-type": "application/json",
+        "cache-control": "no-store",
+      });
+      res.end(JSON.stringify(result.value ?? { error: "Not found" }));
+      return;
+    }
     if (path.startsWith("/local-tools/")) {
       const authorization = req.headers.authorization ?? "";
       const token = /^Bearer (.+)$/.exec(authorization)?.[1];
-      const cachedCapability = token ? localCapabilities.get(token) : undefined;
+      const cachedCapability = token
+        ? localToolCapabilities.authenticate(token)
+        : undefined;
       const workspaceId = cachedCapability?.workspaceId;
       if (!workspaceId || !token) {
         res.writeHead(401, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: "Unauthorized" }));
         return;
       }
-      try {
-        await authorizeWorkspace(workspaceId, {
-          apiBaseUrl: cachedCapability.apiBaseUrl,
-          token,
-        });
-      } catch {
+      const externalCapability = workspaceCapabilities.get(workspaceId);
+      if (!externalCapability) {
         res.writeHead(401, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: "Workspace authorization expired" }));
         return;
@@ -1599,7 +1688,73 @@ export function startServer(port = PORT) {
           ? body.sessionId
           : typeof body.conversationId === "string"
             ? body.conversationId
-            : undefined;
+            : (new URL(
+                req.url ?? "/",
+                `http://127.0.0.1:${port}`,
+              ).searchParams.get("sessionId") ?? undefined);
+      const credentialSession =
+        cachedCapability.kind === "agent-session"
+          ? cachedCapability.sessionId
+          : undefined;
+      const activeCaller = manager.activeAgentSession(
+        workspaceId,
+        credentialSession,
+        cachedCapability.kind === "agent-session",
+      );
+      if (
+        !activeCaller ||
+        (cachedCapability.kind === "agent-session" &&
+          (activeCaller.chatId !== cachedCapability.sessionId ||
+            activeCaller.agentId !== cachedCapability.agentId))
+      ) {
+        res.writeHead(401, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            error: "This agent session is no longer active.",
+            code: "agent_session_inactive",
+          }),
+        );
+        return;
+      }
+      const requiredPermission = permissionForLocalTool(
+        req.method ?? "GET",
+        path,
+      );
+      if (!requiredPermission) {
+        res.writeHead(403, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            error: "This local tool has no declared agent permission.",
+            code: "agent_tool_permission_unmapped",
+          }),
+        );
+        return;
+      }
+      const preference = await manager.agentPreference(
+        workspaceId,
+        activeCaller.agentId,
+      );
+      const grantedPermissions = effectiveAgentToolPermissions(
+        activeCaller.agentId,
+        preference?.toolPermissions,
+      );
+      if (
+        preference?.enabled === false ||
+        !grantedPermissions.includes(requiredPermission)
+      ) {
+        res.writeHead(403, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            error:
+              preference?.enabled === false
+                ? "This agent is paused."
+                : `This agent does not have ${requiredPermission} permission.`,
+            code: "agent_permission_denied",
+            permission: requiredPermission,
+          }),
+        );
+        return;
+      }
       const activeSetupSession =
         manager
           .activeSessionIds(workspaceId)
@@ -1624,6 +1779,17 @@ export function startServer(port = PORT) {
       const response = await handleLocalTool(request, workspaceId, manager, {
         onActivity: () => broadcastWorkspaceData(workspaceId),
         onFilesChanged: () => broadcastWorkspaceFiles(workspaceId),
+        channels: await createChannelLocalToolContext({
+          manager,
+          workspaceId,
+          requestedSession: activeCaller.chatId,
+          broadcastChannels: () => broadcastChannels(workspaceId),
+          broadcastEvent: (event) => broadcastChannelEvent(workspaceId, event),
+          broadcastWorkspaceData: () => broadcastWorkspaceData(workspaceId),
+          notifyDeletionRequest: (title) =>
+            broadcastNotice(workspaceId, { kind: "action", title }),
+        }),
+        scheduledWork: scheduler,
         openBrowser: async (conversationId, url, fresh) => {
           // The model may pass a stale or wrong conversationId (it sometimes
           // reuses a remembered channel id). Resolve to the live interactive
@@ -1682,7 +1848,7 @@ export function startServer(port = PORT) {
         activateIntegrationSetup: async (sessionId, attemptId, domain) => {
           const prepared = await prepareIntegrationSetup(
             workspaceId,
-            { apiBaseUrl: cachedCapability.apiBaseUrl, token },
+            externalCapability,
             domain,
           );
           integrationSetups.assignDomain(workspaceId, sessionId, domain);
@@ -1727,7 +1893,7 @@ export function startServer(port = PORT) {
           }
           const prepared = await prepareIntegrationSetup(
             workspaceId,
-            { apiBaseUrl: cachedCapability.apiBaseUrl, token },
+            externalCapability,
             task.domain,
           );
           const attemptId = `chat:${randomUUID().slice(0, 12)}`;
@@ -1776,8 +1942,8 @@ export function startServer(port = PORT) {
             attemptId,
             rawTargetUrl,
             capability: {
-              apiBaseUrl: cachedCapability.apiBaseUrl,
-              token,
+              apiBaseUrl: externalCapability.apiBaseUrl,
+              token: externalCapability.token,
             },
             setup,
           });
@@ -1802,7 +1968,7 @@ export function startServer(port = PORT) {
             store: async (credential, integrationSlug) => {
               const stored = await storeGeneratedCredentialConnection(
                 workspaceId,
-                { apiBaseUrl: cachedCapability.apiBaseUrl, token },
+                externalCapability,
                 { domain: setup.domain, integrationSlug, credential },
               );
               const environmentKey =
@@ -1859,8 +2025,8 @@ export function startServer(port = PORT) {
               {
                 attemptId,
                 capability: {
-                  apiBaseUrl: cachedCapability.apiBaseUrl,
-                  token,
+                  apiBaseUrl: externalCapability.apiBaseUrl,
+                  token: externalCapability.token,
                 },
               },
             );
@@ -1906,7 +2072,7 @@ export function startServer(port = PORT) {
             );
             await storeGoogleAnalyticsOAuthClientForWorkspace(
               workspaceId,
-              { apiBaseUrl: cachedCapability.apiBaseUrl, token },
+              externalCapability,
               { clientId: client.clientId, clientSecret: client.clientSecret },
             );
             broadcastIntegrationSetupProgress(workspaceId, sessionId, {
@@ -1936,8 +2102,8 @@ export function startServer(port = PORT) {
             const authorization = await startGoogleAnalyticsAuthorization(
               workspaceId,
               {
-                apiBaseUrl: cachedCapability.apiBaseUrl,
-                token,
+                apiBaseUrl: externalCapability.apiBaseUrl,
+                token: externalCapability.token,
               },
               clientId && clientSecret ? { clientId, clientSecret } : undefined,
             );
@@ -1964,8 +2130,8 @@ export function startServer(port = PORT) {
               status: "active",
             });
             const capability = {
-              apiBaseUrl: cachedCapability.apiBaseUrl,
-              token,
+              apiBaseUrl: externalCapability.apiBaseUrl,
+              token: externalCapability.token,
             };
             if (state) {
               await awaitGoogleAnalyticsAuthorization(workspaceId, state);
@@ -2008,8 +2174,8 @@ export function startServer(port = PORT) {
               status: "active",
             });
             const capability = {
-              apiBaseUrl: cachedCapability.apiBaseUrl,
-              token,
+              apiBaseUrl: externalCapability.apiBaseUrl,
+              token: externalCapability.token,
             };
             const verification = await verifyGoogleAnalyticsConnection(
               workspaceId,
@@ -2109,6 +2275,21 @@ export function startServer(port = PORT) {
       }
     }
   };
+  broadcastChannels = async (workspaceId) => {
+    const message = JSON.stringify({
+      type: "channels",
+      workspaceId,
+      channels: await manager.store.channelStore().list(workspaceId),
+    } satisfies ServerMessage);
+    for (const client of new Set([...wss.clients, ...wss6.clients])) {
+      if (
+        client.readyState === WebSocket.OPEN &&
+        socketAuthorization.canReceive(client, workspaceId)
+      ) {
+        client.send(message);
+      }
+    }
+  };
   broadcastNotice = (workspaceId, notice) => {
     const message = JSON.stringify({
       type: "runtimeNotice",
@@ -2138,6 +2319,14 @@ export function startServer(port = PORT) {
         client.send(message);
       }
     }
+    void dispatchScheduledWorkEvent({
+      workspaceId,
+      event,
+      manager,
+      runner: scheduler,
+    }).catch((error) =>
+      console.error("[scheduled-work] channel trigger failed:", error),
+    );
   };
   broadcastBrowserNavigate = (workspaceId, conversationId, url, streamUrl) => {
     const key = browserKey(workspaceId, conversationId);
@@ -2625,6 +2814,15 @@ export function startServer(port = PORT) {
           }
           return;
         }
+        if (
+          await handleGovernanceRequest(msg, {
+            manager,
+            send,
+            capability: (token) => localCapabilities.get(token),
+            broadcastChannels,
+          })
+        )
+          return;
         if (msg.type === "deleteChannel") {
           const channelStore = manager.store.channelStore();
           try {
@@ -3636,6 +3834,12 @@ export function startServer(port = PORT) {
           case "saveAgentPreference":
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             await manager.saveAgentPreference(msg.workspaceId, msg.preference);
+            await syncExecutorAgentPermissionCeiling(
+              msg.workspaceId,
+              await executorPermissionCeiling(msg.workspaceId),
+            ).catch((error: unknown) =>
+              console.error("[executor] permission sync failed:", error),
+            );
             if (msg.preference.driver) {
               await resumeDriverBlockedWork(
                 manager,
@@ -4259,6 +4463,8 @@ export function startServer(port = PORT) {
                 channelAction: {
                   type: "member-added",
                   actorName,
+                  actorId: "workspace-owner",
+                  actorType: "user",
                   agentIds: newAgentIds,
                 },
               } satisfies AgentEvent;
@@ -4277,6 +4483,8 @@ export function startServer(port = PORT) {
                 channelAction: {
                   type: "member-added",
                   actorName,
+                  actorId: "workspace-owner",
+                  actorType: "user",
                   agentIds: newAgentIds,
                 },
               });

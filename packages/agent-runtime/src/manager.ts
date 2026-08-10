@@ -37,6 +37,26 @@ import {
 } from "./workspace-files.js";
 import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
 
+export interface ActiveAgentSessionIdentity {
+  chatId: string;
+  agentId: string;
+}
+
+/**
+ * A workspace-scoped gateway cannot prove which concurrent agent invoked it.
+ * Only an agent-bound capability may select a particular live session.
+ */
+export function resolveActiveAgentSession(
+  busy: readonly ActiveAgentSessionIdentity[],
+  requestedSessionId?: string,
+  requestedSessionIsCredentialBound = false,
+): ActiveAgentSessionIdentity | undefined {
+  if (requestedSessionIsCredentialBound && requestedSessionId) {
+    return busy.find((candidate) => candidate.chatId === requestedSessionId);
+  }
+  return busy.length === 1 ? busy[0] : undefined;
+}
+
 function workspaceChatKey(workspaceId: string, chatId: string) {
   return `${workspaceId}\0${chatId}`;
 }
@@ -92,8 +112,23 @@ export class SessionManager {
   /** Workspaces with a session mid-open, so their secrets must not lock. */
   private startingWorkspaces = new Map<string, number>();
   private readonly repairedFileWorkspaces = new Set<string>();
+  private sessionEnvironmentProvider?: (input: {
+    workspaceId: string;
+    agentId: string;
+    sessionId: string;
+  }) => Record<string, string>;
 
   constructor(readonly store = new LocalStore()) {}
+
+  /**
+   * Supplies host-owned, short-lived session material. The runtime uses this
+   * for agent-bound Chief CLI credentials; callers never persist the secret.
+   */
+  setSessionEnvironmentProvider(
+    provider: NonNullable<SessionManager["sessionEnvironmentProvider"]>,
+  ) {
+    this.sessionEnvironmentProvider = provider;
+  }
 
   get(workspaceId: string, chatId: string) {
     return this.sessions.get(workspaceChatKey(workspaceId, chatId));
@@ -240,6 +275,25 @@ export class SessionManager {
       fallback ??= session.chatId;
     }
     return fallback;
+  }
+
+  /** Resolve identity from the live execution, never from model-authored input. */
+  activeAgentSession(
+    workspaceId: string,
+    requestedSessionId?: string,
+    requestedSessionIsCredentialBound = false,
+  ): { chatId: string; agentId: string } | undefined {
+    const busy = [...this.sessions.values()].filter(
+      (session) => session.config.workspaceId === workspaceId && session.isBusy,
+    );
+    return resolveActiveAgentSession(
+      busy.map((session) => ({
+        chatId: session.chatId,
+        agentId: session.agent.id,
+      })),
+      requestedSessionId,
+      requestedSessionIsCredentialBound,
+    );
   }
 
   /**
@@ -573,7 +627,7 @@ export class SessionManager {
     const conversationId =
       storedChat.kind === "conversation" ? storedChat.id : storedChat.parentId;
     const runtimeContext = [
-      `Runtime context: the current Chief session ID is ${chatId}. Pass this exact value as sourceId whenever you call action.raise.`,
+      `Runtime context: the current Chief session ID is ${chatId}. Pass this exact value as sourceId whenever you call action.raise and as sessionId whenever you call a chief-local operation.`,
       conversationId
         ? `The owning Chief conversation ID is ${conversationId}. Pass this exact value as conversationId whenever you propose scheduled work or open Chief's embedded browser. Chief's local Executor integration is named exactly chief-local: search for an operation such as localTools.browserOpen, copy the returned path byte-for-byte without camel-casing it, and invoke its OpenAPI operation with the schema's { body: { ... } } envelope rather than bare input fields.`
         : undefined,
@@ -638,7 +692,16 @@ export class SessionManager {
     const scopedConfig = {
       ...config,
       additionalDirectories: [workspaceRoot(config.workspaceId)],
-      env: scopeRemoteAgentEnvironment(env, agent.id),
+      env: {
+        ...scopeRemoteAgentEnvironment(env, agent.id),
+        ...this.sessionEnvironmentProvider?.({
+          workspaceId: config.workspaceId,
+          agentId: agent.id,
+          sessionId: chatId,
+        }),
+        CHIEF_AGENT_ID: agent.id,
+        CHIEF_SESSION_ID: chatId,
+      },
       runtimeContext,
     };
     const archivedKey = workspaceChatKey(config.workspaceId, chatId);
@@ -1290,6 +1353,38 @@ export class SessionManager {
 
   recurringWorkById(workspaceId: string, id: string) {
     return this.store.recurringWorkById(workspaceId, id);
+  }
+
+  recurringWorkByOperationKey(workspaceId: string, operationKey: string) {
+    return this.store.recurringWorkByOperationKey(workspaceId, operationKey);
+  }
+
+  recurringWorkWorkspaceId(id: string) {
+    return this.store.recurringWorkWorkspaceId(id);
+  }
+
+  scheduleRuns(workspaceId: string, scheduleId: string) {
+    return this.store.scheduleRuns(workspaceId, scheduleId);
+  }
+
+  scheduleRun(workspaceId: string, scheduleId: string, runId: string) {
+    return this.store.scheduleRun(workspaceId, scheduleId, runId);
+  }
+
+  scheduleWebhookSecretHash(workspaceId: string, scheduleId: string) {
+    return this.store.scheduleWebhookSecretHash(workspaceId, scheduleId);
+  }
+
+  setScheduleWebhookSecretHash(
+    workspaceId: string,
+    scheduleId: string,
+    hash: string | undefined,
+  ) {
+    return this.store.setScheduleWebhookSecretHash(
+      workspaceId,
+      scheduleId,
+      hash,
+    );
   }
 
   saveRecurringWork(workspaceId: string, work: RecurringWorkRecord) {
