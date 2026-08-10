@@ -16,32 +16,13 @@ import {
   defaultWorkspaceChannels,
   GETTING_STARTED_CHANNEL_ID,
 } from "./nip29.js";
+import { WorkspaceLifecycleLock } from "./workspace-lifecycle-lock.js";
 
 export class ChannelStore extends ChannelHistoryStore {
   private readonly seededWorkspaces = new Map<string, Promise<void>>();
-  private readonly lifecycleMutations = new Map<string, Promise<void>>();
-
+  private readonly lifecycle = new WorkspaceLifecycleLock();
   constructor(database: () => LibSQLDatabase, ready: Promise<void>) {
     super(database, ready);
-  }
-
-  private withLifecycleLock<T>(
-    workspaceId: string,
-    mutation: () => Promise<T>,
-  ) {
-    const previous =
-      this.lifecycleMutations.get(workspaceId) ?? Promise.resolve();
-    const result = previous.catch(() => undefined).then(mutation);
-    const settled = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    this.lifecycleMutations.set(workspaceId, settled);
-    return result.finally(() => {
-      if (this.lifecycleMutations.get(workspaceId) === settled) {
-        this.lifecycleMutations.delete(workspaceId);
-      }
-    });
   }
 
   private seedWorkspace(workspaceId: string) {
@@ -367,7 +348,7 @@ export class ChannelStore extends ChannelHistoryStore {
     archived: boolean,
     input: { expectedVersion?: number; actor: ChannelActorIdentity },
   ) {
-    return this.withLifecycleLock(workspaceId, () =>
+    return this.lifecycle.run(workspaceId, () =>
       this.setArchivedLocked(workspaceId, channelId, archived, input),
     );
   }
@@ -463,7 +444,7 @@ export class ChannelStore extends ChannelHistoryStore {
   }
 
   async remove(workspaceId: string, channelId: string) {
-    return this.withLifecycleLock(workspaceId, () =>
+    return this.lifecycle.run(workspaceId, () =>
       this.removeLocked(workspaceId, channelId),
     );
   }

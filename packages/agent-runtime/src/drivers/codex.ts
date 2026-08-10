@@ -15,7 +15,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { ChildProcess } from "node:child_process";
 
-import type { AgentQuestion, ContentBlock, StartOptions } from "../types.js";
+import type { AgentQuestion, StartOptions } from "../types.js";
 import {
   executorAddressesFromCode,
   executorAddressFromElicitation,
@@ -23,7 +23,13 @@ import {
   grantAllowsAddress,
 } from "../recurring-work.js";
 import { BaseDriver } from "./base.js";
+import {
+  codexItemStartedToBlocks,
+  codexItemToBlocks,
+} from "./codex-item-mapper.js";
 import { agentEnvironment } from "./environment.js";
+
+export { codexMcpResultText } from "./codex-item-mapper.js";
 
 const moduleDirectory =
   typeof __dirname === "string"
@@ -95,6 +101,15 @@ export class CodexDriver extends BaseDriver {
   >();
   private activeToolUseIds = new Set<string>();
   private currentStream = "";
+  private readonly itemMappingState = {
+    activeToolUseIds: this.activeToolUseIds,
+    nextId: () => String(this.rpcId++),
+    takeStream: () => {
+      const stream = this.currentStream;
+      this.currentStream = "";
+      return stream;
+    },
+  };
   private activeTurn: ActiveTurn | null = null;
   private opts: StartOptions | null = null;
   private stopping = false;
@@ -544,7 +559,7 @@ export class CodexDriver extends BaseDriver {
       }
       case "item/started": {
         const item = (p.item ?? p) as Record<string, any>;
-        const blocks = this.itemStartedToBlocks(item);
+        const blocks = codexItemStartedToBlocks(item, this.itemMappingState);
         if (blocks.length > 0) {
           this.emitEvent({
             type: "message",
@@ -557,7 +572,7 @@ export class CodexDriver extends BaseDriver {
       case "item/completed": {
         const item = p.item as Record<string, any> | undefined;
         if (!item) break;
-        const blocks = this.itemToBlocks(item);
+        const blocks = codexItemToBlocks(item, this.itemMappingState);
         if (blocks.length > 0) {
           this.emitEvent({
             type: "message",
@@ -785,174 +800,6 @@ export class CodexDriver extends BaseDriver {
     }
   }
 
-  private itemToBlocks(item: Record<string, any>): ContentBlock[] {
-    switch (item.type) {
-      case "agentMessage":
-      case "agent_message": {
-        const text =
-          typeof item.text === "string"
-            ? item.text
-            : typeof item.content === "string"
-              ? item.content
-              : this.currentStream;
-        this.currentStream = "";
-        return text ? [{ type: "text", text }] : [];
-      }
-      case "reasoning": {
-        const text =
-          typeof item.text === "string"
-            ? item.text
-            : typeof item.summary === "string"
-              ? item.summary
-              : Array.isArray(item.summary)
-                ? item.summary.map((part: any) => part?.text ?? "").join("\n")
-                : "";
-        return text ? [{ type: "thinking", thinking: text }] : [];
-      }
-      case "commandExecution":
-      case "command_execution": {
-        const id = String(item.id ?? this.rpcId++);
-        const blocks: ContentBlock[] = [
-          {
-            type: "tool_use",
-            id,
-            name: "bash",
-            input: { command: item.command },
-          },
-        ];
-        // Completed executions carry their output; surface it so the UI can
-        // render a real terminal view instead of a spinner.
-        const output =
-          item.output ?? item.aggregatedOutput ?? item.aggregated_output;
-        const exitCode = item.exitCode ?? item.exit_code;
-        blocks.push({
-          type: "tool_result",
-          tool_use_id: id,
-          content:
-            typeof output === "string" && output.trim()
-              ? output
-              : `Command completed${typeof exitCode === "number" ? ` with exit code ${exitCode}` : ""}.`,
-          is_error: typeof exitCode === "number" && exitCode !== 0,
-        });
-        return blocks;
-      }
-      case "fileChange":
-      case "file_change": {
-        const id = String(item.id ?? this.rpcId++);
-        return [
-          {
-            type: "tool_use",
-            id,
-            name: "editFile",
-            input: {
-              file: item.filePath ?? item.file,
-              changes: item.changes,
-            },
-          },
-          {
-            type: "tool_result",
-            tool_use_id: id,
-            content:
-              item.diff ??
-              `Updated ${item.filePath ?? item.file ?? "workspace files"}.`,
-          },
-        ];
-      }
-      case "mcpToolCall":
-      case "mcp_tool_call": {
-        const id = String(item.id ?? this.rpcId++);
-        const result = this.extractMcpResult(item);
-        const status = String(item.status ?? "").toLowerCase();
-        const failed =
-          Boolean(item.error) ||
-          [
-            "failed",
-            "aborted",
-            "cancelled",
-            "canceled",
-            "declined",
-            "interrupted",
-          ].includes(status);
-        this.activeToolUseIds.delete(id);
-        return [
-          {
-            type: "tool_result",
-            tool_use_id: id,
-            content:
-              result ||
-              (failed ? "Tool stopped before completing." : "Tool completed."),
-            is_error: failed,
-          },
-        ];
-      }
-      case "webSearch":
-      case "web_search": {
-        const id = String(item.id ?? this.rpcId++);
-        this.activeToolUseIds.delete(id);
-        return [
-          {
-            type: "tool_result",
-            tool_use_id: id,
-            content:
-              item.result ??
-              item.output ??
-              (item.query ? `Searched for ${item.query}` : "Search complete"),
-          },
-        ];
-      }
-      default:
-        return [];
-    }
-  }
-
-  private itemStartedToBlocks(item: Record<string, any>): ContentBlock[] {
-    if (item.type === "commandExecution" || item.type === "command_execution") {
-      return [
-        {
-          type: "tool_use",
-          id: String(item.id ?? this.rpcId++),
-          name: "bash",
-          input: { command: item.command ?? "" },
-        },
-      ];
-    }
-    if (item.type === "fileChange" || item.type === "file_change") {
-      return [
-        {
-          type: "tool_use",
-          id: String(item.id ?? this.rpcId++),
-          name: "editFile",
-          input: { file: item.filePath ?? item.file ?? "" },
-        },
-      ];
-    }
-    if (
-      item.type === "mcpToolCall" ||
-      item.type === "mcp_tool_call" ||
-      item.type === "webSearch" ||
-      item.type === "web_search"
-    ) {
-      const id = String(item.id ?? this.rpcId++);
-      this.activeToolUseIds.add(id);
-      const isSearch = item.type === "webSearch" || item.type === "web_search";
-      return [
-        {
-          type: "tool_use",
-          id,
-          name: isSearch ? "web_search" : String(item.tool ?? "tool"),
-          input: isSearch
-            ? { query: item.query ?? item.action?.query ?? "" }
-            : (item.arguments ?? item.input ?? {}),
-        },
-      ];
-    }
-    return [];
-  }
-
-  private extractMcpResult(item: Record<string, any>): string {
-    return codexMcpResultText(item);
-  }
-
   async sendPromptOnce(text: string): Promise<void> {
     if (this.activeTurn) {
       throw new Error("Codex already has an active turn");
@@ -1121,38 +968,4 @@ export class CodexDriver extends BaseDriver {
   private write(obj: unknown) {
     this.proc?.stdin?.write(JSON.stringify(obj) + "\n");
   }
-}
-
-function record(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object"
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-export function codexMcpResultText(item: Record<string, unknown>): string {
-  if (item.error) {
-    return `Error: ${typeof item.error === "string" ? item.error : JSON.stringify(item.error)}`;
-  }
-  const result = record(item.result);
-  if (result?.structuredContent !== undefined) {
-    return JSON.stringify(result.structuredContent, null, 2);
-  }
-  if (Array.isArray(result?.content)) {
-    return result.content
-      .map((part) => {
-        const value = record(part);
-        return typeof part === "string"
-          ? part
-          : typeof value?.text === "string"
-            ? value.text
-            : JSON.stringify(part);
-      })
-      .join("\n");
-  }
-  const value = item.result ?? item.output ?? item.content;
-  return value === undefined
-    ? ""
-    : typeof value === "string"
-      ? value
-      : JSON.stringify(value, null, 2);
 }
