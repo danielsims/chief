@@ -138,12 +138,17 @@ export function ordinaryToolMessageGroups<
     { ownerId: string; messageIds: string[]; blocks: TBlock[] } | undefined;
 
   for (const message of messages) {
+    const activityBlocks = message.blocks.filter(
+      (block) => block.type === "tool_use" || block.type === "tool_result",
+    );
     const ordinaryToolsOnly =
       message.role === "assistant" &&
-      message.blocks.length > 0 &&
+      activityBlocks.length > 0 &&
       message.blocks.every(
         (block) =>
-          (block.type === "tool_use" || block.type === "tool_result") &&
+          (block.type === "thinking" ||
+            block.type === "tool_use" ||
+            block.type === "tool_result") &&
           (block.type !== "tool_use" ||
             specialistTasksForInput(block.input, tasks).length === 0),
       );
@@ -153,7 +158,7 @@ export function ordinaryToolMessageGroups<
     }
     current ??= { ownerId: message.id, messageIds: [], blocks: [] };
     current.messageIds.push(message.id);
-    current.blocks.push(...message.blocks);
+    current.blocks.push(...activityBlocks);
     groups.set(message.id, current);
   }
   return groups;
