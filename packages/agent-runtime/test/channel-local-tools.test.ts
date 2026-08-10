@@ -51,7 +51,7 @@ void test("agent channel tools provide a reversible feature workflow", async () 
       agentIds: ["analyst"],
       workstream: {
         status: "active",
-        repository: "danielsims/pets",
+        repository: "chief-example/chief",
         branch: "feature/sharing",
         pullRequestUrls: [],
       },
