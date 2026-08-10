@@ -2366,7 +2366,11 @@ function useRuntimeChat(
   };
 }
 
-/** A user-composable top-level Chief chat with a per-conversation backend. */
+/**
+ * Opens the low-level runtime connection for one interactive Chief
+ * conversation. UI-specific draft, timeline, and presentation state belongs to
+ * the composed chat hooks rather than this transport-facing hook.
+ */
 export function useChiefChat(
   chatId: string | null,
   initialExecution?: ChatExecutionSelection,

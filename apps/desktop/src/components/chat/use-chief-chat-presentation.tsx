@@ -25,6 +25,11 @@ type Core = ReturnType<typeof useChiefChatCore>;
 type Composer = ReturnType<typeof useChiefChatComposer>;
 type Timeline = ReturnType<typeof useChiefChatTimeline>;
 
+/**
+ * Adapts core messages and timeline data into render-ready conversation
+ * details, including visible blocks, thread summaries, reactions, agent
+ * attribution, attachments, and per-message controls. It owns no persistence.
+ */
 export function useChiefChatPresentation({
   channel,
   composer,

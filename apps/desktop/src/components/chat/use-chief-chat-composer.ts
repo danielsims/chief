@@ -9,6 +9,11 @@ import type { useChiefChatCore } from "./use-chief-chat-core";
 
 type Core = ReturnType<typeof useChiefChatCore>;
 
+/**
+ * Owns transient conversation interaction state: drafts, attachments, thread
+ * selection, composer submission, profile navigation, and scroll refs. It uses
+ * the core hook for runtime operations and leaves message ordering to timeline.
+ */
 export function useChiefChatComposer({
   core,
   props,

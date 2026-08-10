@@ -45,6 +45,10 @@ interface ThreadSummary {
   visibleReplies: ChiefUIMessage[];
 }
 
+/**
+ * Renders the conversation's mutually exclusive secondary surfaces, including
+ * threads, agent activity, specialist work, and profiles, beside the main feed.
+ */
 export function ChiefChatAuxiliaryPanels({
   activeThreadSummary,
   browserAttachmentNode,

@@ -35,6 +35,10 @@ import { useChiefChatPresentation } from "./use-chief-chat-presentation";
 import { useChiefChatTimeline } from "./use-chief-chat-timeline";
 import { UserMessage } from "./user-message";
 
+/**
+ * Composes the core, composer, timeline, and presentation hooks into the full
+ * Chief conversation surface, including its main feed and auxiliary panels.
+ */
 export function ChiefChat({
   chatId,
   isNew,
