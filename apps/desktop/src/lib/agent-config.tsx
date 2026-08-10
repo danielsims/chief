@@ -6,6 +6,7 @@ import type {
   AgentApprovalMode,
   AgentCapabilityId,
   AgentPreference,
+  AgentToolPermission,
   DriverType,
 } from "@chief/agent-runtime/types";
 
@@ -28,6 +29,7 @@ export interface ResolvedAgentConfig {
   access: AccessMode;
   capabilities?: AgentCapabilityId[];
   integrations?: string[];
+  toolPermissions?: AgentToolPermission[];
 }
 
 interface AgentConfigValue {
@@ -90,6 +92,12 @@ export function AgentConfigProvider({ children }: { children: ReactNode }) {
       ) {
         patch.integrations = preference.integrations;
       }
+      if (
+        JSON.stringify(local.toolPermissions ?? []) !==
+        JSON.stringify(preference.toolPermissions ?? [])
+      ) {
+        patch.toolPermissions = preference.toolPermissions;
+      }
       if (Object.keys(patch).length > 0) {
         setAgentOverride(cloudOrganizationId, preference.agentId, patch);
       }
@@ -121,6 +129,7 @@ export function AgentConfigProvider({ children }: { children: ReactNode }) {
           access: approvals === "ask" ? "guarded" : "full",
           capabilities: durable?.capabilities ?? mirror.capabilities,
           integrations: durable?.integrations ?? mirror.integrations,
+          toolPermissions: durable?.toolPermissions ?? mirror.toolPermissions,
         };
       },
       savePreference: save,

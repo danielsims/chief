@@ -33,6 +33,10 @@ import type { SchedulingDraft } from "./recurring-work-composer";
 import { useAgentConfig } from "../../lib/agent-config";
 import { useAuth } from "../../lib/auth/auth-context";
 import { browserOpenResultContent } from "../../lib/browser-sessions";
+import {
+  channelMembershipTargetNames,
+  formatMembershipTargets,
+} from "../../lib/channel-actions";
 import { useChannelReadState } from "../../lib/channel-read-state-context";
 import {
   findPendingInputRequest,
@@ -305,26 +309,35 @@ function ChannelMembershipMessage({
   action: NonNullable<ChiefMessageMetadata["channelAction"]>;
   userImage?: string;
 }) {
-  const agentNames = action.agentIds.map((agentId) => {
+  const targetNames = channelMembershipTargetNames(action, (agentId) => {
     if (!Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)) return agentId;
     return WORKSPACE_AGENT_IDENTITIES[agentId as WorkspaceAgentId].name;
   });
+  const actorIsAgent = action.actorType === "agent";
   return (
     <div className="text-muted-foreground mx-auto flex w-full max-w-3xl items-center gap-2.5 py-2 pl-11 text-xs">
-      <span className="bg-muted flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-full text-[8px] font-semibold">
-        {userImage ? (
-          <img src={userImage} alt="" className="size-full object-cover" />
-        ) : (
-          action.actorName.charAt(0).toUpperCase()
-        )}
-      </span>
+      {actorIsAgent ? (
+        <AgentAvatar
+          className="size-5"
+          markClassName="size-2.5"
+          label={action.actorName}
+        />
+      ) : (
+        <span className="bg-muted flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-full text-[8px] font-semibold">
+          {userImage ? (
+            <img src={userImage} alt="" className="size-full object-cover" />
+          ) : (
+            action.actorName.charAt(0).toUpperCase()
+          )}
+        </span>
+      )}
       <span>
         <strong className="text-foreground font-medium">
           {action.actorName}
         </strong>{" "}
         added{" "}
         <strong className="text-foreground font-medium">
-          {agentNames.join(", ")}
+          {formatMembershipTargets(targetNames)}
         </strong>{" "}
         to the channel
       </span>

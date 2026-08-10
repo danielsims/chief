@@ -3,6 +3,8 @@ import { useState } from "react";
 import { Copy, Hash } from "lucide-react";
 import { useNavigate } from "react-router";
 
+import type { ChannelAgentPermission } from "@chief/channel-api";
+import { channelAgentPermissions } from "@chief/channel-api";
 import { Button } from "@chief/ui/components/button";
 import {
   Dialog,
@@ -11,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@chief/ui/components/dialog";
+import { Switch } from "@chief/ui/components/switch";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { WorkspaceChannelId } from "../lib/workspace-channels";
@@ -48,12 +51,22 @@ export function ChannelDetailsDialog({
   channel,
   onClose,
   onLeave,
+  onSetArchived,
+  onSetPolicy,
   onUpdate,
 }: {
   canManage: boolean;
   channel: SidebarChannel | null;
   onClose: () => void;
   onLeave: (channelId: WorkspaceChannelId) => Promise<void>;
+  onSetArchived: (
+    channelId: WorkspaceChannelId,
+    archived: boolean,
+  ) => Promise<void>;
+  onSetPolicy: (
+    channelId: WorkspaceChannelId,
+    agentPermissions: ChannelAgentPermission[],
+  ) => Promise<void>;
   onUpdate: (
     channelId: WorkspaceChannelId,
     input: { name: string; topic: string; description: string },
@@ -68,8 +81,53 @@ export function ChannelDetailsDialog({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [savingPolicy, setSavingPolicy] = useState(false);
+  const [savingLifecycle, setSavingLifecycle] = useState(false);
   const agentIds = details ? [...new Set(details.agentIds)] : [];
   const memberCount = agentIds.length + (user ? 1 : 0);
+  const agentsCanManage = (details?.agentPermissions?.length ?? 0) > 0;
+
+  const setAgentManagement = async (enabled: boolean) => {
+    if (!details || savingPolicy) return;
+    setSavingPolicy(true);
+    setError(null);
+    const agentPermissions = enabled ? [...channelAgentPermissions] : [];
+    try {
+      await onSetPolicy(details.id, agentPermissions);
+      setDetails({ ...details, agentPermissions });
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Chief could not update agent access.",
+      );
+    } finally {
+      setSavingPolicy(false);
+    }
+  };
+
+  const setArchived = async () => {
+    if (!details || savingLifecycle) return;
+    const archived = details.lifecycle !== "archived";
+    setSavingLifecycle(true);
+    setError(null);
+    try {
+      await onSetArchived(details.id, archived);
+      setDetails({
+        ...details,
+        lifecycle: archived ? "archived" : "active",
+      });
+      if (archived) onClose();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Chief could not update this channel.",
+      );
+    } finally {
+      setSavingLifecycle(false);
+    }
+  };
 
   const beginEdit = (field: EditableField) => {
     if (!details) return;
@@ -285,6 +343,42 @@ export function ChannelDetailsDialog({
                       {created}
                     </p>
                   </section>
+                ) : null}
+                {canManage ? (
+                  <section className="flex items-center gap-4 px-5 py-4">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-sm font-semibold">
+                        Agent channel management
+                      </h3>
+                      <p className="text-muted-foreground mt-1 text-sm leading-5">
+                        Let agents update details, invite teammates, track
+                        feature work and archive this channel when the work is
+                        done.
+                      </p>
+                    </div>
+                    <Switch
+                      aria-label="Allow agents to manage this channel"
+                      checked={agentsCanManage}
+                      disabled={savingPolicy}
+                      onCheckedChange={(checked) =>
+                        void setAgentManagement(checked)
+                      }
+                    />
+                  </section>
+                ) : null}
+                {canManage ? (
+                  <button
+                    type="button"
+                    disabled={savingLifecycle}
+                    className="text-foreground hover:bg-foreground/[0.035] w-full px-5 py-4 text-left text-sm font-semibold disabled:opacity-50"
+                    onClick={() => void setArchived()}
+                  >
+                    {savingLifecycle
+                      ? "Updating…"
+                      : details?.lifecycle === "archived"
+                        ? "Restore channel"
+                        : "Archive channel"}
+                  </button>
                 ) : null}
                 <button
                   type="button"

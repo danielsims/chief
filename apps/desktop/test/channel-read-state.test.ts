@@ -112,3 +112,19 @@ void test("a stale history snapshot cannot erase a newer live message", () => {
     [[live.id, live]],
   );
 });
+
+void test("an agent adding the owner is notification-worthy channel activity", () => {
+  const invite = observedChannelMessage({
+    ...message({ id: "invite", createdAt: 300, actorId: "engineer" }),
+    tags: [
+      ["action", "member-added"],
+      ["user", "workspace-owner"],
+    ],
+    content: "Engineer added you to the channel.",
+  });
+  assert.ok(invite);
+  assert.deepEqual(
+    [...unreadCountsByChannel(parseChannelReadState(null), [invite])],
+    [["analytics", 1]],
+  );
+});

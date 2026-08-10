@@ -305,6 +305,8 @@ export function SidebarChannels({
   onOpenDirectMessage,
   onCreateChannel,
   onDeleteChannel,
+  onSetChannelArchived,
+  onSetChannelPolicy,
   onUpdateChannel,
   onLeaveChannel,
   onPinnedChange,
@@ -329,6 +331,14 @@ export function SidebarChannels({
     description?: string,
   ) => Promise<WorkspaceChannelId | null>;
   onDeleteChannel: (channelId: WorkspaceChannelId) => Promise<void>;
+  onSetChannelArchived: (
+    channelId: WorkspaceChannelId,
+    archived: boolean,
+  ) => Promise<void>;
+  onSetChannelPolicy: (
+    channelId: WorkspaceChannelId,
+    agentPermissions: NonNullable<SidebarChannel["agentPermissions"]>,
+  ) => Promise<void>;
   onUpdateChannel: (
     channelId: WorkspaceChannelId,
     input: { name: string; topic: string; description: string },
@@ -618,6 +628,8 @@ export function SidebarChannels({
         channel={detailsTarget}
         onClose={() => setDetailsTarget(null)}
         onLeave={onLeaveChannel}
+        onSetArchived={onSetChannelArchived}
+        onSetPolicy={onSetChannelPolicy}
         onUpdate={onUpdateChannel}
       />
     </DndContext>

@@ -68,6 +68,7 @@ import {
   upsertBrowserSession,
   upsertBrowserRun as upsertRuntimeBrowserRun,
 } from "./browser-sessions";
+import { channelActionFromEvent } from "./channel-actions";
 import {
   applyOptimisticChannelReaction,
   foldChannelReactions,
@@ -1016,6 +1017,16 @@ export function useWorkspaceChannels() {
       }
     >(),
   );
+  const pendingPolicies = useRef(
+    new Map<
+      string,
+      {
+        reject: (error: Error) => void;
+        resolve: () => void;
+        timeout: number;
+      }
+    >(),
+  );
   const [channels, setChannels] = useState<WorkspaceChannel[]>(() =>
     cloudOrganizationId ? (channelCache.get(cloudOrganizationId) ?? []) : [],
   );
@@ -1076,6 +1087,35 @@ export function useWorkspaceChannels() {
         if (pending) {
           window.clearTimeout(pending.timeout);
           pendingUpdates.current.delete(message.requestId);
+          pending.reject(new Error(message.message));
+        }
+      }
+      if (
+        message.type === "channelPolicyUpdated" &&
+        message.workspaceId === cloudOrganizationId
+      ) {
+        setChannels((current) => {
+          const next = current.map((channel) =>
+            channel.id === message.channel.id ? message.channel : channel,
+          );
+          channelCache.set(cloudOrganizationId, next);
+          return next;
+        });
+        const pending = pendingPolicies.current.get(message.requestId);
+        if (pending) {
+          window.clearTimeout(pending.timeout);
+          pendingPolicies.current.delete(message.requestId);
+          pending.resolve();
+        }
+      }
+      if (
+        message.type === "channelPolicyUpdateFailed" &&
+        message.workspaceId === cloudOrganizationId
+      ) {
+        const pending = pendingPolicies.current.get(message.requestId);
+        if (pending) {
+          window.clearTimeout(pending.timeout);
+          pendingPolicies.current.delete(message.requestId);
           pending.reject(new Error(message.message));
         }
       }
@@ -1230,10 +1270,75 @@ export function useWorkspaceChannels() {
     [capability, client, cloudOrganizationId, sessionToken],
   );
 
+  const setChannelPolicy = useCallback(
+    (
+      channelId: string,
+      agentPermissions: WorkspaceChannel["agentPermissions"],
+    ): Promise<void> => {
+      if (!cloudOrganizationId || !capability || !sessionToken) {
+        return Promise.reject(
+          new Error("Chief is still authorizing this workspace."),
+        );
+      }
+      const requestId = crypto.randomUUID();
+      return new Promise((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          pendingPolicies.current.delete(requestId);
+          reject(
+            new Error("Chief couldn't update agent access. Please try again."),
+          );
+        }, 8_000);
+        pendingPolicies.current.set(requestId, { reject, resolve, timeout });
+        client.send({
+          type: "setChannelPolicy",
+          requestId,
+          workspaceId: cloudOrganizationId,
+          channelId,
+          agentPermissions,
+          sessionToken,
+          executorCapability: capability,
+        });
+      });
+    },
+    [capability, client, cloudOrganizationId, sessionToken],
+  );
+
+  const setChannelArchived = useCallback(
+    (channelId: string, archived: boolean): Promise<void> => {
+      if (!cloudOrganizationId || !capability || !sessionToken) {
+        return Promise.reject(
+          new Error("Chief is still authorizing this workspace."),
+        );
+      }
+      const requestId = crypto.randomUUID();
+      return new Promise((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          pendingUpdates.current.delete(requestId);
+          reject(
+            new Error("Chief couldn't update that channel. Please try again."),
+          );
+        }, 8_000);
+        pendingUpdates.current.set(requestId, { reject, resolve, timeout });
+        client.send({
+          type: "setChannelArchived",
+          requestId,
+          workspaceId: cloudOrganizationId,
+          channelId,
+          archived,
+          sessionToken,
+          executorCapability: capability,
+        });
+      });
+    },
+    [capability, client, cloudOrganizationId, sessionToken],
+  );
+
   return {
     channels,
     createChannel,
     deleteChannel,
+    setChannelArchived,
+    setChannelPolicy,
     updateChannel,
     updateChannelAgents,
   };
@@ -3221,6 +3326,7 @@ function useRuntimeChat(
       const id = channelEventSourceId(event) ?? event.id;
       if (id.endsWith("-welcome") || seenIds.has(id)) continue;
       const direct = directById.get(id);
+      const channelAction = channelActionFromEvent(event);
       const protocolRootId = channelEventThreadRootId(event);
       const threadRootId = protocolRootId
         ? (sourceIdsByEventId.get(protocolRootId) ?? protocolRootId)
@@ -3233,6 +3339,7 @@ function useRuntimeChat(
         Boolean(
           threadRootId && threadRootId !== direct.metadata?.threadRootId,
         ) ||
+        Boolean(channelAction && !direct.metadata?.channelAction) ||
         Boolean(direct.metadata && !direct.metadata.createdAt);
       canonicalMessages.push(
         !needsEnrichment
@@ -3244,6 +3351,7 @@ function useRuntimeChat(
                   ...direct.metadata,
                   createdAt: direct.metadata?.createdAt ?? event.createdAt,
                   ...(threadRootId ? { threadRootId } : {}),
+                  ...(channelAction ? { channelAction } : {}),
                 },
               }
             : {
@@ -3253,6 +3361,7 @@ function useRuntimeChat(
                 metadata: {
                   createdAt: event.createdAt,
                   ...(threadRootId ? { threadRootId } : {}),
+                  ...(channelAction ? { channelAction } : {}),
                 },
               },
       );
