@@ -170,8 +170,9 @@ export function buildOnboardingWorkJobs(
       "Launch this as one independent delegation in the initial concurrent Chief kickoff. Do not wait for brand research, integration setup, or analytics.",
       "Use the workspace ideal customer, monitored channels, product, and public website as the qualification brief.",
       "Find five to eight recent, high-confidence people, companies, or public conversations with a concrete reason to care now. Search public Reddit and other accessible web communities even when no connector is installed.",
+      "Make at most three deliberate search passes. If a site blocks direct access or a search engine rate-limits, use one accessible fallback and then continue with indexed snippets or other public sources. Do not brute-force mirrors, retry captchas, or inspect Chief's connections and runtime internals.",
       "Every result must have a direct HTTP source URL, quoted or specific evidence, relevance, and a useful value-first reply or outreach angle.",
-      "Save every qualified result with prospectsSave before returning it to Chief. Do not return an unsaved list and do not invent people, posts, or URLs.",
+      "Save every qualified result with the direct localTools.prospectsSave tool before returning it to Chief. Return fewer results when the evidence is genuinely sparse rather than looping. Do not return an unsaved list and do not invent people, posts, or URLs.",
     ].join("\n\n"),
   };
 

@@ -152,12 +152,8 @@ void test("switching a channel responder keeps its transcript and adopts the tag
 
     assert.notEqual(first, second);
     assert.equal(second.agent.id, "analyst");
-    assert.match(second.agent.instructions, /named exactly chief-local/);
-    assert.match(
-      second.agent.instructions,
-      /copy the returned path byte-for-byte/,
-    );
-    assert.match(second.agent.instructions, /\{ body: \{ \.\.\. \} \}/);
+    assert.match(second.agent.instructions, /direct localTools\.\* tools/);
+    assert.match(second.agent.instructions, /never search Executor/);
     assert.ok(
       second.events.some(
         (event) =>
@@ -178,6 +174,57 @@ void test("switching a channel responder keeps its transcript and adopts the tag
     if (originalStop) {
       Object.defineProperty(AgentSession.prototype, "stop", originalStop);
     }
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+void test("agent-bound local tools do not replace an unchanged live session", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "chief-manager-local-mcp-"));
+  const store = new LocalStore(join(directory, "chief.sqlite"));
+  const manager = new SessionManager(store);
+  const originalStart = Object.getOwnPropertyDescriptor(
+    AgentSession.prototype,
+    "start",
+  );
+  let startCount = 0;
+  Object.defineProperty(AgentSession.prototype, "start", {
+    configurable: true,
+    value() {
+      startCount += 1;
+      return Promise.resolve();
+    },
+  });
+  manager.setSessionEnvironmentProvider(() => ({
+    CHIEF_LOCAL_URL: "http://127.0.0.1:4318",
+    CHIEF_LOCAL_CAPABILITY: "stable-agent-capability",
+  }));
+  try {
+    const config = {
+      driver: "codex" as const,
+      access: "guarded" as const,
+      workspaceId: "workspace",
+      executionOwner: "interactive" as const,
+    };
+    const first = await manager.ensureRootChat(cmo, "root", config, "Review");
+    const second = await manager.ensureRootChat(cmo, "root", config, "Review");
+
+    assert.equal(first, second);
+    assert.equal(startCount, 1);
+    assert.deepEqual(first.config.mcpServers, [
+      {
+        name: "chief_local",
+        command: "",
+        args: [],
+        url: "http://127.0.0.1:4318/agent-local-mcp",
+        headers: { Authorization: "Bearer stable-agent-capability" },
+      },
+    ]);
+  } finally {
+    if (originalStart) {
+      Object.defineProperty(AgentSession.prototype, "start", originalStart);
+    }
+    await manager.stopAll();
+    await store.close();
     rmSync(directory, { recursive: true, force: true });
   }
 });

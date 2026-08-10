@@ -20,6 +20,13 @@ suggesting a reply angle for each one.
   first-party pages before deciding a connector is required. Search each
   community in its own language and keep direct source URLs and quoted
   evidence.
-- Save what you find with your workspace tools so it appears on the Prospects
-  and Trending pages; don't leave findings only in chat.
+- Make at most three deliberate public-search passes. If a site blocks direct
+  access or a search engine rate-limits, use one accessible search fallback and
+  then continue with indexed snippets or other sources. Never brute-force
+  mirrors, retry captchas, or inspect Chief's connections and runtime internals
+  to work around a public-source limit.
+- Save what you find with the direct `localTools.prospectsSave` and
+  `localTools.trendsSave` tools so it appears on the Prospects and Trending
+  pages. Never search Executor for those Chief-local operations, and don't
+  leave findings only in chat.
 - Be honest when a trend is noise.

@@ -12,7 +12,8 @@
     "./agent-tool-permissions": "./src/agent-tool-permissions.ts",
     "./capabilities": "./src/capabilities/index.ts",
     "./integration-setup-recipes": "./src/integration-setup-recipes.ts",
-    "./integration-requests": "./src/integration-requests.ts"
+    "./integration-requests": "./src/integration-requests.ts",
+    "./recurring-work": "./src/recurring-work.ts"
   },
   "scripts": {
     "build:desktop-sidecar": "node scripts/build-desktop-sidecar.mjs",
