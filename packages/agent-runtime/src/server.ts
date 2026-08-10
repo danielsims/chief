@@ -21,6 +21,7 @@ import {
 } from "@chief/google-oauth-connector";
 
 import type { ChannelEvent } from "./channel-types.js";
+import type { LocalToolContext } from "./local-tools.js";
 import type { AgentSession } from "./session.js";
 import type {
   AgentDeploymentRecord,
@@ -38,11 +39,7 @@ import type {
 } from "./types.js";
 import { AgentDeploymentManager } from "./agent-deployments.js";
 import { AgentSessionCapabilityRegistry } from "./agent-session-capabilities.js";
-import {
-  combinedAgentToolPermissionCeiling,
-  effectiveAgentToolPermissions,
-  permissionForLocalTool,
-} from "./agent-tool-permissions.js";
+import { combinedAgentToolPermissionCeiling } from "./agent-tool-permissions.js";
 import {
   composeWorkspaceInstructions,
   defaultAgents,
@@ -76,7 +73,7 @@ import {
 import { captureAndStoreGeneratedCredential } from "./generated-credential-capture.js";
 import { googleAnalyticsBrowserProgress } from "./google-browser-progress.js";
 import { googleOAuthAuthenticatedBrowserPrompt } from "./google-oauth-browser-prompt.js";
-import { guardedRequestHandler, localToolRequest } from "./http-runtime.js";
+import { guardedRequestHandler } from "./http-runtime.js";
 import { hasInputReceipt, inputReceipt } from "./input-receipt.js";
 import { verifyContextRequest } from "./input-values.js";
 import { GOOGLE_ANALYTICS_DOMAIN } from "./integration-requests.js";
@@ -99,6 +96,7 @@ import {
   handleExpandRecurringWorkGrant,
   handleResolveActionRequest,
 } from "./server-action-handlers.js";
+import { createLocalToolsRoute } from "./server-local-tools-route.js";
 import {
   chatControlEvents,
   equivalentInputKeys,
@@ -1373,6 +1371,8 @@ export function startServer(port = PORT) {
     progress: (...args) => broadcastIntegrationSetupProgress(...args),
   });
   let schedulerReady = false;
+  let localToolsRoute:
+    ReturnType<typeof createLocalToolsRoute<LocalToolContext>> | undefined;
   // Bind both loopback families — macOS clients resolving "localhost" may
   // dial ::1 or 127.0.0.1. Never bind non-loopback interfaces here.
   const handler = async (req: IncomingMessage, res: ServerResponse) => {
@@ -1394,14 +1394,6 @@ export function startServer(port = PORT) {
         res.writeHead(503, { "content-type": "text/plain" });
         res.end("chief-runtime-starting");
       }
-      return;
-    }
-    if (req.method === "GET" && path === "/local-tools/openapi.json") {
-      res.writeHead(200, {
-        "content-type": "application/json",
-        "cache-control": "no-store",
-      });
-      res.end(JSON.stringify(localToolsOpenApi(`http://127.0.0.1:${port}`)));
       return;
     }
     if (req.method === "POST" && path.startsWith("/hooks/scheduled-runs/")) {
@@ -1444,579 +1436,494 @@ export function startServer(port = PORT) {
       return;
     }
     if (path.startsWith("/local-tools/")) {
-      const authorization = req.headers.authorization ?? "";
-      const token = /^Bearer (.+)$/.exec(authorization)?.[1];
-      const cachedCapability = token
-        ? localToolCapabilities.authenticate(token)
-        : undefined;
-      const workspaceId = cachedCapability?.workspaceId;
-      if (!workspaceId || !token) {
-        res.writeHead(401, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: "Unauthorized" }));
-        return;
-      }
-      const externalCapability = workspaceCapabilities.get(workspaceId);
-      if (!externalCapability) {
-        res.writeHead(401, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: "Workspace authorization expired" }));
-        return;
-      }
-      const chunks: Buffer[] = [];
-      for await (const chunk of req) {
-        chunks.push(Buffer.from(chunk as Uint8Array));
-      }
-      // The model cannot be trusted to supply the correct sessionId/attemptId —
-      // it repeatedly passes a remembered or invented channel id. Resolve the
-      // active setup session for this workspace and inject the authoritative
-      // ids into browser/OAuth/setup calls so the runtime always operates on the
-      // conversation the user is actually watching.
-      const rawBody = Buffer.concat(chunks);
-      let body: Record<string, unknown> = {};
-      try {
-        body = rawBody.length
-          ? (JSON.parse(rawBody.toString("utf8")) as Record<string, unknown>)
-          : {};
-      } catch {
-        body = {};
-      }
-      const requestedSession =
-        typeof body.sessionId === "string"
-          ? body.sessionId
-          : typeof body.conversationId === "string"
-            ? body.conversationId
-            : (new URL(
-                req.url ?? "/",
-                `http://127.0.0.1:${port}`,
-              ).searchParams.get("sessionId") ?? undefined);
-      const credentialSession =
-        cachedCapability.kind === "agent-session"
-          ? cachedCapability.sessionId
-          : undefined;
-      const activeCaller = manager.activeAgentSession(
-        workspaceId,
-        credentialSession,
-        cachedCapability.kind === "agent-session",
-      );
-      if (
-        !activeCaller ||
-        (cachedCapability.kind === "agent-session" &&
-          (activeCaller.chatId !== cachedCapability.sessionId ||
-            activeCaller.agentId !== cachedCapability.agentId))
-      ) {
-        res.writeHead(401, { "content-type": "application/json" });
-        res.end(
-          JSON.stringify({
-            error: "This agent session is no longer active.",
-            code: "agent_session_inactive",
-          }),
-        );
-        return;
-      }
-      const requiredPermission = permissionForLocalTool(
-        req.method ?? "GET",
-        path,
-      );
-      if (!requiredPermission) {
-        res.writeHead(403, { "content-type": "application/json" });
-        res.end(
-          JSON.stringify({
-            error: "This local tool has no declared agent permission.",
-            code: "agent_tool_permission_unmapped",
-          }),
-        );
-        return;
-      }
-      const preference = await manager.agentPreference(
-        workspaceId,
-        activeCaller.agentId,
-      );
-      const grantedPermissions = effectiveAgentToolPermissions(
-        activeCaller.agentId,
-        preference?.toolPermissions,
-      );
-      if (
-        preference?.enabled === false ||
-        !grantedPermissions.includes(requiredPermission)
-      ) {
-        res.writeHead(403, { "content-type": "application/json" });
-        res.end(
-          JSON.stringify({
-            error:
-              preference?.enabled === false
-                ? "This agent is paused."
-                : `This agent does not have ${requiredPermission} permission.`,
-            code: "agent_permission_denied",
-            permission: requiredPermission,
-          }),
-        );
-        return;
-      }
-      const activeSetupSession =
-        manager
-          .activeSessionIds(workspaceId)
-          .find((sessionId) => integrationSetups.get(workspaceId, sessionId)) ??
-        manager.activeSetupSessionId(workspaceId, requestedSession);
-      if (activeSetupSession) {
-        const activeSetup = integrationSetups.get(
-          workspaceId,
-          activeSetupSession,
-        );
-        body.sessionId = activeSetupSession;
-        body.conversationId = activeSetupSession;
-        if (activeSetup) body.attemptId = activeSetup.attemptId;
-      }
-      const request = localToolRequest({
+      localToolsRoute ??= createLocalToolsRoute({
         origin: `http://127.0.0.1:${port}`,
-        url: req.url,
-        method: req.method,
-        headers: req.headers,
-        body,
-      });
-      const response = await handleLocalTool(request, workspaceId, manager, {
-        onActivity: () => broadcastWorkspaceData(workspaceId),
-        onFilesChanged: () => broadcastWorkspaceFiles(workspaceId),
-        channels: await createChannelLocalToolContext({
-          manager,
+        capabilities: localToolCapabilities,
+        workspaceCapabilities,
+        manager,
+        openApi: () => localToolsOpenApi(`http://127.0.0.1:${port}`),
+        prepareBody: ({ body, requestedSessionId, workspaceId }) => {
+          // Model-authored session identifiers are not authoritative. Bind
+          // setup calls to the live setup conversation the user is watching.
+          const activeSetupSession =
+            manager
+              .activeSessionIds(workspaceId)
+              .find((sessionId) =>
+                integrationSetups.get(workspaceId, sessionId),
+              ) ??
+            manager.activeSetupSessionId(workspaceId, requestedSessionId);
+          if (!activeSetupSession) return;
+          const activeSetup = integrationSetups.get(
+            workspaceId,
+            activeSetupSession,
+          );
+          body.sessionId = activeSetupSession;
+          body.conversationId = activeSetupSession;
+          if (activeSetup) body.attemptId = activeSetup.attemptId;
+        },
+        createContext: async ({
+          caller: activeCaller,
+          capability: externalCapability,
           workspaceId,
-          requestedSession: activeCaller.chatId,
-          broadcastChannels: () => broadcastChannels(workspaceId),
-          broadcastEvent: (event) => broadcastChannelEvent(workspaceId, event),
-          broadcastWorkspaceData: () => broadcastWorkspaceData(workspaceId),
-          notifyDeletionRequest: (title) =>
-            broadcastNotice(workspaceId, { kind: "action", title }),
-        }),
-        scheduledWork: scheduler,
-        openBrowser: async (conversationId, url, fresh) => {
-          // The model may pass a stale or wrong conversationId (it sometimes
-          // reuses a remembered channel id). Resolve to the live interactive
-          // chat so the browser opens in the conversation the user is watching.
-          const resolvedConversationId =
-            (await manager
-              .rootChat(workspaceId, conversationId)
-              .then(() => conversationId)
-              .catch(() => undefined)) ?? manager.activeChatId(workspaceId);
-          const root = await manager.rootChat(
+        }): Promise<LocalToolContext> => ({
+          onActivity: () => broadcastWorkspaceData(workspaceId),
+          onFilesChanged: () => broadcastWorkspaceFiles(workspaceId),
+          channels: await createChannelLocalToolContext({
+            manager,
             workspaceId,
-            resolvedConversationId ?? conversationId,
-          );
-          if (fresh) {
-            await resetBrowserSession(
+            requestedSession: activeCaller.chatId,
+            broadcastChannels: () => broadcastChannels(workspaceId),
+            broadcastEvent: (event) =>
+              broadcastChannelEvent(workspaceId, event),
+            broadcastWorkspaceData: () => broadcastWorkspaceData(workspaceId),
+            notifyDeletionRequest: (title) =>
+              broadcastNotice(workspaceId, { kind: "action", title }),
+          }),
+          scheduledWork: scheduler,
+          openBrowser: async (conversationId, url, fresh) => {
+            // The model may pass a stale or wrong conversationId (it sometimes
+            // reuses a remembered channel id). Resolve to the live interactive
+            // chat so the browser opens in the conversation the user is watching.
+            const resolvedConversationId =
+              (await manager
+                .rootChat(workspaceId, conversationId)
+                .then(() => conversationId)
+                .catch(() => undefined)) ?? manager.activeChatId(workspaceId);
+            const root = await manager.rootChat(
               workspaceId,
               resolvedConversationId ?? conversationId,
             );
-          } else {
-            // A new browser.open call is new conversation content even when it
-            // reuses the same authenticated Chromium context. Settle the old
-            // transcript block and create a new run at this turn's insertion
-            // point without destroying cookies, auth, or the physical browser.
-            await completeBrowserRunPresentation(
-              workspaceId,
-              resolvedConversationId ?? conversationId,
-            );
-          }
-          browserThreadRoots.set(
-            browserKey(workspaceId, resolvedConversationId ?? conversationId),
-            root.session?.activeThreadRootId,
-          );
-          await openBrowserSession(
-            workspaceId,
-            resolvedConversationId ?? conversationId,
-            url,
-            undefined,
-            root.session?.activeThreadRootId,
-          );
-        },
-        closeBrowser: async (conversationId) => {
-          await manager.rootChat(workspaceId, conversationId);
-          await closeBrowserSession(workspaceId, conversationId);
-        },
-        presentBrowser: async (conversationId, mode) => {
-          await manager.rootChat(workspaceId, conversationId);
-          if (!browserRunIds.has(browserKey(workspaceId, conversationId))) {
-            throw new Error("There is no active embedded browser to present.");
-          }
-          broadcastBrowserPresentation(workspaceId, conversationId, mode);
-        },
-        browserCommand: async (conversationId, command) => {
-          await manager.rootChat(workspaceId, conversationId);
-          return requestBrowserCommand(workspaceId, conversationId, command);
-        },
-        activateIntegrationSetup: async (sessionId, attemptId, domain) => {
-          const prepared = await prepareIntegrationSetup(
-            workspaceId,
-            externalCapability,
-            domain,
-          );
-          integrationSetups.assignDomain(workspaceId, sessionId, domain);
-          integrationSetups.activate(workspaceId, sessionId, {
-            attemptId,
-            domain,
-            integrationSlug: prepared.integrationSlug,
-            recipeId: prepared.recipeId,
-          });
-          broadcastIntegrationSetupProgress(workspaceId, sessionId, {
-            recipeId: prepared.recipeId,
-            phase:
-              domain === GOOGLE_ANALYTICS_DOMAIN
-                ? "authenticated-session"
-                : "prepare-connection",
-            instruction:
-              domain === GOOGLE_ANALYTICS_DOMAIN
-                ? "Preparing Google sign-in…"
-                : "The provider connection is ready. Opening sign-in…",
-            status: "active",
-          });
-        },
-        listSetupTasks: () => {
-          return Promise.resolve(
-            setupTaskCatalog().map(({ id, domain, label }) => ({
-              id,
-              domain,
-              label,
-            })),
-          );
-        },
-        startSetup: async (sessionId, domain) => {
-          const task = setupTaskCatalog().find(
-            (candidate) =>
-              candidate.domain === domain.toLowerCase() ||
-              candidate.id === domain.toLowerCase(),
-          );
-          if (!task) {
-            throw new Error(
-              `No setup task for "${domain}". Call setup.list to see available integrations.`,
-            );
-          }
-          const prepared = await prepareIntegrationSetup(
-            workspaceId,
-            externalCapability,
-            task.domain,
-          );
-          const attemptId = `chat:${randomUUID().slice(0, 12)}`;
-          integrationSetups.assignDomain(workspaceId, sessionId, task.domain);
-          integrationSetups.activate(workspaceId, sessionId, {
-            attemptId,
-            domain: task.domain,
-            integrationSlug: prepared.integrationSlug,
-            recipeId: prepared.recipeId,
-          });
-          broadcastIntegrationSetupProgress(workspaceId, sessionId, {
-            recipeId: prepared.recipeId,
-            phase:
-              task.domain === GOOGLE_ANALYTICS_DOMAIN
-                ? "authenticated-session"
-                : "prepare-connection",
-            instruction: `Setup started: ${task.label}.`,
-            status: "active",
-          });
-          return {
-            attemptId,
-            domain: task.domain,
-            label: task.label,
-            instructions: task.instructions,
-            available: setupTaskCatalog().map(({ id, domain, label }) => ({
-              id,
-              domain,
-              label,
-            })),
-          };
-        },
-        openIntegrationHandoff: async (sessionId, attemptId, url) => {
-          activeIntegrationSetup(workspaceId, sessionId, attemptId);
-          const handoffUrl = await executorHandoffUrl(workspaceId, url);
-          await openBrowserSession(workspaceId, sessionId, handoffUrl);
-        },
-        openProviderPage: async (sessionId, attemptId, rawTargetUrl) => {
-          const setup = activeIntegrationSetup(
-            workspaceId,
-            sessionId,
-            attemptId,
-          );
-          return providerAuthentication.open({
-            workspaceId,
-            sessionId,
-            attemptId,
-            rawTargetUrl,
-            capability: {
-              apiBaseUrl: externalCapability.apiBaseUrl,
-              token: externalCapability.token,
-            },
-            setup,
-          });
-        },
-        captureGeneratedCredential: async (sessionId, attemptId) => {
-          const setup = activeIntegrationSetup(
-            workspaceId,
-            sessionId,
-            attemptId,
-          );
-          return captureAndStoreGeneratedCredential({
-            browser: browserSession(workspaceId, sessionId),
-            domain: setup.domain,
-            integrationSlug: setup.integrationSlug,
-            progress: (phase, instruction) =>
-              broadcastIntegrationSetupProgress(workspaceId, sessionId, {
-                recipeId: setup.recipeId,
-                phase,
-                instruction,
-                status: "active",
-              }),
-            store: async (credential, integrationSlug) => {
-              const stored = await storeGeneratedCredentialConnection(
+            if (fresh) {
+              await resetBrowserSession(
                 workspaceId,
-                externalCapability,
-                { domain: setup.domain, integrationSlug, credential },
+                resolvedConversationId ?? conversationId,
               );
-              const environmentKey =
-                setup.domain === "github.com"
-                  ? "GITHUB_TOKEN"
-                  : setup.domain === "vercel.com"
-                    ? "VERCEL_TOKEN"
-                    : undefined;
-              if (environmentKey) {
-                await workspaceSecrets.storeEnv(
-                  workspaceId,
-                  environmentKey,
-                  credential,
-                );
-                await workspaceSecrets.refresh(workspaceId);
-              }
-              return stored;
-            },
-          });
-        },
-        googleOAuth: {
-          provisionClient: async (sessionId, attemptId) => {
-            // The model may pass a stale sessionId through the executor's
-            // generic `execute` tool. Fall back to the live interactive chat so
-            // the browser opens in the conversation the user is watching.
-            const resolvedSessionId =
-              (integrationSetups.get(workspaceId, sessionId)
-                ? sessionId
-                : undefined) ??
-              manager.activeChatId(workspaceId) ??
-              sessionId;
-            const setup = activeIntegrationSetup(
-              workspaceId,
-              resolvedSessionId,
-              attemptId,
-            );
-            if (setup.domain !== "analytics.googleapis.com") {
-              throw new Error(
-                `Google OAuth client provisioning is not configured for ${setup.domain}.`,
+            } else {
+              // A new browser.open call is new conversation content even when it
+              // reuses the same authenticated Chromium context. Settle the old
+              // transcript block and create a new run at this turn's insertion
+              // point without destroying cookies, auth, or the physical browser.
+              await completeBrowserRunPresentation(
+                workspaceId,
+                resolvedConversationId ?? conversationId,
               );
             }
-            const existing = await workspaceSecrets.readEnv(workspaceId, [
-              "GOOGLE_ANALYTICS_CLIENT_ID",
-              "GOOGLE_ANALYTICS_CLIENT_SECRET",
-            ]);
-            if (
-              existing.GOOGLE_ANALYTICS_CLIENT_ID &&
-              existing.GOOGLE_ANALYTICS_CLIENT_SECRET
-            ) {
-              return { status: "configured" as const };
-            }
-            pendingGoogleAuthentication.set(
-              `${workspaceId}\0${resolvedSessionId}`,
-              {
-                attemptId,
-                capability: {
-                  apiBaseUrl: externalCapability.apiBaseUrl,
-                  token: externalCapability.token,
-                },
-              },
+            browserThreadRoots.set(
+              browserKey(workspaceId, resolvedConversationId ?? conversationId),
+              root.session?.activeThreadRootId,
             );
-            broadcastIntegrationSetupProgress(workspaceId, resolvedSessionId, {
-              recipeId: "google-analytics",
-              phase: "authenticated-session",
-              instruction:
-                "Sign in with the Google account that administers the Analytics property you want to connect. Chief will take control again automatically.",
-              status: "active",
-            });
-            const firstService = googleAnalyticsRecipe.services[0];
-            if (!firstService) throw new Error("Google API recipe is empty.");
             await openBrowserSession(
               workspaceId,
-              resolvedSessionId,
-              googleAccountChooserUrl(googleApiLibraryUrl(firstService)),
+              resolvedConversationId ?? conversationId,
+              url,
+              undefined,
+              root.session?.activeThreadRootId,
             );
-            return {
-              status: "authentication-required" as const,
+          },
+          closeBrowser: async (conversationId) => {
+            await manager.rootChat(workspaceId, conversationId);
+            await closeBrowserSession(workspaceId, conversationId);
+          },
+          presentBrowser: async (conversationId, mode) => {
+            await manager.rootChat(workspaceId, conversationId);
+            if (!browserRunIds.has(browserKey(workspaceId, conversationId))) {
+              throw new Error(
+                "There is no active embedded browser to present.",
+              );
+            }
+            broadcastBrowserPresentation(workspaceId, conversationId, mode);
+          },
+          browserCommand: async (conversationId, command) => {
+            await manager.rootChat(workspaceId, conversationId);
+            return requestBrowserCommand(workspaceId, conversationId, command);
+          },
+          activateIntegrationSetup: async (sessionId, attemptId, domain) => {
+            const prepared = await prepareIntegrationSetup(
+              workspaceId,
+              externalCapability,
+              domain,
+            );
+            integrationSetups.assignDomain(workspaceId, sessionId, domain);
+            integrationSetups.activate(workspaceId, sessionId, {
+              attemptId,
+              domain,
+              integrationSlug: prepared.integrationSlug,
+              recipeId: prepared.recipeId,
+            });
+            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+              recipeId: prepared.recipeId,
+              phase:
+                domain === GOOGLE_ANALYTICS_DOMAIN
+                  ? "authenticated-session"
+                  : "prepare-connection",
               instruction:
-                "The user only needs to complete Google sign-in. Chief will resume this same agent automatically and operate the browser from there.",
+                domain === GOOGLE_ANALYTICS_DOMAIN
+                  ? "Preparing Google sign-in…"
+                  : "The provider connection is ready. Opening sign-in…",
+              status: "active",
+            });
+          },
+          listSetupTasks: () => {
+            return Promise.resolve(
+              setupTaskCatalog().map(({ id, domain, label }) => ({
+                id,
+                domain,
+                label,
+              })),
+            );
+          },
+          startSetup: async (sessionId, domain) => {
+            const task = setupTaskCatalog().find(
+              (candidate) =>
+                candidate.domain === domain.toLowerCase() ||
+                candidate.id === domain.toLowerCase(),
+            );
+            if (!task) {
+              throw new Error(
+                `No setup task for "${domain}". Call setup.list to see available integrations.`,
+              );
+            }
+            const prepared = await prepareIntegrationSetup(
+              workspaceId,
+              externalCapability,
+              task.domain,
+            );
+            const attemptId = `chat:${randomUUID().slice(0, 12)}`;
+            integrationSetups.assignDomain(workspaceId, sessionId, task.domain);
+            integrationSetups.activate(workspaceId, sessionId, {
+              attemptId,
+              domain: task.domain,
+              integrationSlug: prepared.integrationSlug,
+              recipeId: prepared.recipeId,
+            });
+            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+              recipeId: prepared.recipeId,
+              phase:
+                task.domain === GOOGLE_ANALYTICS_DOMAIN
+                  ? "authenticated-session"
+                  : "prepare-connection",
+              instruction: `Setup started: ${task.label}.`,
+              status: "active",
+            });
+            return {
+              attemptId,
+              domain: task.domain,
+              label: task.label,
+              instructions: task.instructions,
+              available: setupTaskCatalog().map(({ id, domain, label }) => ({
+                id,
+                domain,
+                label,
+              })),
             };
           },
-          captureClient: async (sessionId, attemptId) => {
+          openIntegrationHandoff: async (sessionId, attemptId, url) => {
+            activeIntegrationSetup(workspaceId, sessionId, attemptId);
+            const handoffUrl = await executorHandoffUrl(workspaceId, url);
+            await openBrowserSession(workspaceId, sessionId, handoffUrl);
+          },
+          openProviderPage: async (sessionId, attemptId, rawTargetUrl) => {
             const setup = activeIntegrationSetup(
               workspaceId,
               sessionId,
               attemptId,
             );
-            if (setup.domain !== "analytics.googleapis.com") {
-              throw new Error(
-                `Google OAuth credential storage is not configured for ${setup.domain}.`,
-              );
-            }
-            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
-              recipeId: "google-analytics",
-              phase: "save-client",
-              instruction: "Capturing Google's OAuth client securely…",
-              status: "active",
-            });
-            const client = await captureGoogleDesktopOAuthClient(
-              browserSession(workspaceId, sessionId),
-            );
-            await storeGoogleAnalyticsOAuthClientForWorkspace(
-              workspaceId,
-              externalCapability,
-              { clientId: client.clientId, clientSecret: client.clientSecret },
-            );
-            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
-              recipeId: "google-analytics",
-              phase: "authorize",
-              instruction:
-                "The user-owned OAuth client is stored. Starting Google Analytics authorization…",
-              status: "active",
-            });
-            return { status: "configured" as const };
-          },
-        },
-        googleAnalytics: {
-          startAuthorization: async (sessionId, attemptId) => {
-            assertActiveIntegrationSetup(
+            return providerAuthentication.open({
               workspaceId,
               sessionId,
               attemptId,
-              "analytics.googleapis.com",
-            );
-            const legacy = await workspaceSecrets.readEnv(workspaceId, [
-              "GOOGLE_ANALYTICS_CLIENT_ID",
-              "GOOGLE_ANALYTICS_CLIENT_SECRET",
-            ]);
-            const clientId = legacy.GOOGLE_ANALYTICS_CLIENT_ID;
-            const clientSecret = legacy.GOOGLE_ANALYTICS_CLIENT_SECRET;
-            const authorization = await startGoogleAnalyticsAuthorization(
-              workspaceId,
-              {
+              rawTargetUrl,
+              capability: {
                 apiBaseUrl: externalCapability.apiBaseUrl,
                 token: externalCapability.token,
               },
-              clientId && clientSecret ? { clientId, clientSecret } : undefined,
-            );
-            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
-              recipeId: "google-analytics",
-              phase: "authorize",
-              instruction:
-                "One final Google step: sign in again if asked, then approve read-only access to the Analytics account you want Chief to use. Chief will verify the connection automatically.",
-              status: "active",
+              setup,
             });
-            return authorization;
           },
-          completeAuthorization: async (sessionId, attemptId, state) => {
-            assertActiveIntegrationSetup(
+          captureGeneratedCredential: async (sessionId, attemptId) => {
+            const setup = activeIntegrationSetup(
               workspaceId,
               sessionId,
               attemptId,
-              "analytics.googleapis.com",
             );
-            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
-              recipeId: "google-analytics",
-              phase: "verify",
-              instruction: "Verifying the Google Analytics connection…",
-              status: "active",
+            return captureAndStoreGeneratedCredential({
+              browser: browserSession(workspaceId, sessionId),
+              domain: setup.domain,
+              integrationSlug: setup.integrationSlug,
+              progress: (phase, instruction) =>
+                broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+                  recipeId: setup.recipeId,
+                  phase,
+                  instruction,
+                  status: "active",
+                }),
+              store: async (credential, integrationSlug) => {
+                const stored = await storeGeneratedCredentialConnection(
+                  workspaceId,
+                  externalCapability,
+                  { domain: setup.domain, integrationSlug, credential },
+                );
+                const environmentKey =
+                  setup.domain === "github.com"
+                    ? "GITHUB_TOKEN"
+                    : setup.domain === "vercel.com"
+                      ? "VERCEL_TOKEN"
+                      : undefined;
+                if (environmentKey) {
+                  await workspaceSecrets.storeEnv(
+                    workspaceId,
+                    environmentKey,
+                    credential,
+                  );
+                  await workspaceSecrets.refresh(workspaceId);
+                }
+                return stored;
+              },
             });
-            const capability = {
-              apiBaseUrl: externalCapability.apiBaseUrl,
-              token: externalCapability.token,
-            };
-            if (state) {
-              await awaitGoogleAnalyticsAuthorization(workspaceId, state);
-            }
-            const verification = await verifyGoogleAnalyticsConnection(
-              workspaceId,
-              capability,
-            );
-            if (verification.status === "selection-required") {
-              return verification;
-            }
-            await persistGoogleAnalyticsConnection(
-              workspaceId,
-              verification.property,
-            );
-            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
-              recipeId: "google-analytics",
-              phase: "complete",
-              instruction: "Google Analytics is connected.",
-              status: "complete",
-            });
-            integrationSetups.remove(workspaceId, sessionId);
-            return {
-              status: "connected" as const,
-              provider: "google-analytics",
-              ...verification.property,
-            };
           },
-          selectProperty: async (sessionId, attemptId, propertyId) => {
-            assertActiveIntegrationSetup(
-              workspaceId,
-              sessionId,
-              attemptId,
-              "analytics.googleapis.com",
-            );
-            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
-              recipeId: "google-analytics",
-              phase: "verify",
-              instruction: "Verifying the selected Analytics property…",
-              status: "active",
-            });
-            const capability = {
-              apiBaseUrl: externalCapability.apiBaseUrl,
-              token: externalCapability.token,
-            };
-            const verification = await verifyGoogleAnalyticsConnection(
-              workspaceId,
-              capability,
-              propertyId,
-            );
-            if (verification.status !== "connected") {
-              throw new Error("Select a Google Analytics property.");
-            }
-            await persistGoogleAnalyticsConnection(
-              workspaceId,
-              verification.property,
-            );
-            broadcastIntegrationSetupProgress(workspaceId, sessionId, {
-              recipeId: "google-analytics",
-              phase: "complete",
-              instruction: "Google Analytics is connected.",
-              status: "complete",
-            });
-            integrationSetups.remove(workspaceId, sessionId);
-            return {
-              status: "connected" as const,
-              provider: "google-analytics",
-              ...verification.property,
-            };
+          googleOAuth: {
+            provisionClient: async (sessionId, attemptId) => {
+              // The model may pass a stale sessionId through the executor's
+              // generic `execute` tool. Fall back to the live interactive chat so
+              // the browser opens in the conversation the user is watching.
+              const resolvedSessionId =
+                (integrationSetups.get(workspaceId, sessionId)
+                  ? sessionId
+                  : undefined) ??
+                manager.activeChatId(workspaceId) ??
+                sessionId;
+              const setup = activeIntegrationSetup(
+                workspaceId,
+                resolvedSessionId,
+                attemptId,
+              );
+              if (setup.domain !== "analytics.googleapis.com") {
+                throw new Error(
+                  `Google OAuth client provisioning is not configured for ${setup.domain}.`,
+                );
+              }
+              const existing = await workspaceSecrets.readEnv(workspaceId, [
+                "GOOGLE_ANALYTICS_CLIENT_ID",
+                "GOOGLE_ANALYTICS_CLIENT_SECRET",
+              ]);
+              if (
+                existing.GOOGLE_ANALYTICS_CLIENT_ID &&
+                existing.GOOGLE_ANALYTICS_CLIENT_SECRET
+              ) {
+                return { status: "configured" as const };
+              }
+              pendingGoogleAuthentication.set(
+                `${workspaceId}\0${resolvedSessionId}`,
+                {
+                  attemptId,
+                  capability: {
+                    apiBaseUrl: externalCapability.apiBaseUrl,
+                    token: externalCapability.token,
+                  },
+                },
+              );
+              broadcastIntegrationSetupProgress(
+                workspaceId,
+                resolvedSessionId,
+                {
+                  recipeId: "google-analytics",
+                  phase: "authenticated-session",
+                  instruction:
+                    "Sign in with the Google account that administers the Analytics property you want to connect. Chief will take control again automatically.",
+                  status: "active",
+                },
+              );
+              const firstService = googleAnalyticsRecipe.services[0];
+              if (!firstService) throw new Error("Google API recipe is empty.");
+              await openBrowserSession(
+                workspaceId,
+                resolvedSessionId,
+                googleAccountChooserUrl(googleApiLibraryUrl(firstService)),
+              );
+              return {
+                status: "authentication-required" as const,
+                instruction:
+                  "The user only needs to complete Google sign-in. Chief will resume this same agent automatically and operate the browser from there.",
+              };
+            },
+            captureClient: async (sessionId, attemptId) => {
+              const setup = activeIntegrationSetup(
+                workspaceId,
+                sessionId,
+                attemptId,
+              );
+              if (setup.domain !== "analytics.googleapis.com") {
+                throw new Error(
+                  `Google OAuth credential storage is not configured for ${setup.domain}.`,
+                );
+              }
+              broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+                recipeId: "google-analytics",
+                phase: "save-client",
+                instruction: "Capturing Google's OAuth client securely…",
+                status: "active",
+              });
+              const client = await captureGoogleDesktopOAuthClient(
+                browserSession(workspaceId, sessionId),
+              );
+              await storeGoogleAnalyticsOAuthClientForWorkspace(
+                workspaceId,
+                externalCapability,
+                {
+                  clientId: client.clientId,
+                  clientSecret: client.clientSecret,
+                },
+              );
+              broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+                recipeId: "google-analytics",
+                phase: "authorize",
+                instruction:
+                  "The user-owned OAuth client is stored. Starting Google Analytics authorization…",
+                status: "active",
+              });
+              return { status: "configured" as const };
+            },
           },
+          googleAnalytics: {
+            startAuthorization: async (sessionId, attemptId) => {
+              assertActiveIntegrationSetup(
+                workspaceId,
+                sessionId,
+                attemptId,
+                "analytics.googleapis.com",
+              );
+              const legacy = await workspaceSecrets.readEnv(workspaceId, [
+                "GOOGLE_ANALYTICS_CLIENT_ID",
+                "GOOGLE_ANALYTICS_CLIENT_SECRET",
+              ]);
+              const clientId = legacy.GOOGLE_ANALYTICS_CLIENT_ID;
+              const clientSecret = legacy.GOOGLE_ANALYTICS_CLIENT_SECRET;
+              const authorization = await startGoogleAnalyticsAuthorization(
+                workspaceId,
+                {
+                  apiBaseUrl: externalCapability.apiBaseUrl,
+                  token: externalCapability.token,
+                },
+                clientId && clientSecret
+                  ? { clientId, clientSecret }
+                  : undefined,
+              );
+              broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+                recipeId: "google-analytics",
+                phase: "authorize",
+                instruction:
+                  "One final Google step: sign in again if asked, then approve read-only access to the Analytics account you want Chief to use. Chief will verify the connection automatically.",
+                status: "active",
+              });
+              return authorization;
+            },
+            completeAuthorization: async (sessionId, attemptId, state) => {
+              assertActiveIntegrationSetup(
+                workspaceId,
+                sessionId,
+                attemptId,
+                "analytics.googleapis.com",
+              );
+              broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+                recipeId: "google-analytics",
+                phase: "verify",
+                instruction: "Verifying the Google Analytics connection…",
+                status: "active",
+              });
+              const capability = {
+                apiBaseUrl: externalCapability.apiBaseUrl,
+                token: externalCapability.token,
+              };
+              if (state) {
+                await awaitGoogleAnalyticsAuthorization(workspaceId, state);
+              }
+              const verification = await verifyGoogleAnalyticsConnection(
+                workspaceId,
+                capability,
+              );
+              if (verification.status === "selection-required") {
+                return verification;
+              }
+              await persistGoogleAnalyticsConnection(
+                workspaceId,
+                verification.property,
+              );
+              broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+                recipeId: "google-analytics",
+                phase: "complete",
+                instruction: "Google Analytics is connected.",
+                status: "complete",
+              });
+              integrationSetups.remove(workspaceId, sessionId);
+              return {
+                status: "connected" as const,
+                provider: "google-analytics",
+                ...verification.property,
+              };
+            },
+            selectProperty: async (sessionId, attemptId, propertyId) => {
+              assertActiveIntegrationSetup(
+                workspaceId,
+                sessionId,
+                attemptId,
+                "analytics.googleapis.com",
+              );
+              broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+                recipeId: "google-analytics",
+                phase: "verify",
+                instruction: "Verifying the selected Analytics property…",
+                status: "active",
+              });
+              const capability = {
+                apiBaseUrl: externalCapability.apiBaseUrl,
+                token: externalCapability.token,
+              };
+              const verification = await verifyGoogleAnalyticsConnection(
+                workspaceId,
+                capability,
+                propertyId,
+              );
+              if (verification.status !== "connected") {
+                throw new Error("Select a Google Analytics property.");
+              }
+              await persistGoogleAnalyticsConnection(
+                workspaceId,
+                verification.property,
+              );
+              broadcastIntegrationSetupProgress(workspaceId, sessionId, {
+                recipeId: "google-analytics",
+                phase: "complete",
+                instruction: "Google Analytics is connected.",
+                status: "complete",
+              });
+              integrationSetups.remove(workspaceId, sessionId);
+              return {
+                status: "connected" as const,
+                provider: "google-analytics",
+                ...verification.property,
+              };
+            },
+          },
+        }),
+        invoke: (request, workspaceId, context) =>
+          handleLocalTool(request, workspaceId, manager, context),
+        onSuccess: ({ path: completedPath, workspaceId }) => {
+          void broadcastWorkspaceData(workspaceId);
+          if (
+            completedPath === "/local-tools/files/write" ||
+            completedPath === "/local-tools/content"
+          ) {
+            void broadcastWorkspaceFiles(workspaceId);
+          }
+          if (completedPath === "/local-tools/action") {
+            broadcastNotice(workspaceId, {
+              kind: "action",
+              title: "An agent flagged something for you",
+            });
+          }
         },
       });
-      res.writeHead(response.status, Object.fromEntries(response.headers));
-      res.end(await response.text());
-      if (req.method === "POST" && response.ok) {
-        void broadcastWorkspaceData(workspaceId);
-        if (
-          path === "/local-tools/files/write" ||
-          path === "/local-tools/content"
-        ) {
-          void broadcastWorkspaceFiles(workspaceId);
-        }
-        if (path === "/local-tools/action") {
-          broadcastNotice(workspaceId, {
-            kind: "action",
-            title: "An agent flagged something for you",
-          });
-        }
-      }
+      await localToolsRoute(req, res);
       return;
     }
     if (await handleMcp(req, res)) return;
