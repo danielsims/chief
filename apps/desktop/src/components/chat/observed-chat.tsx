@@ -81,16 +81,23 @@ export function ObservedChat({
           if (message.role !== "assistant" || blocks.length === 0) return null;
           const toolGroup = ordinaryToolGroups.get(message.id);
           if (toolGroup) {
-            if (toolGroup.ownerId !== message.id) return null;
+            const commentaryBlocks = blocks.filter(
+              (block) => block.type === "thinking",
+            );
             return (
               <div
                 key={message.id}
-                className="mx-auto w-full max-w-3xl min-w-0"
+                className="mx-auto w-full max-w-3xl min-w-0 space-y-3"
               >
-                <ToolActivityGroup
-                  blocks={toolGroup.blocks}
-                  active={controls.status === "running"}
-                />
+                {commentaryBlocks.length > 0 ? (
+                  <Blocks blocks={commentaryBlocks} active={false} />
+                ) : null}
+                {toolGroup.ownerId === message.id ? (
+                  <ToolActivityGroup
+                    blocks={toolGroup.blocks}
+                    active={controls.status === "running"}
+                  />
+                ) : null}
               </div>
             );
           }

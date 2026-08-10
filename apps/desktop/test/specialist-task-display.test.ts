@@ -89,6 +89,36 @@ void test("consecutive ordinary tool messages collapse into one owner", () => {
   assert.equal(groups.has("three"), false);
 });
 
+void test("reasoning does not split one specialist activity group", () => {
+  const messages = [
+    {
+      id: "one",
+      role: "assistant",
+      blocks: [
+        { type: "thinking" },
+        { type: "tool_use", input: { query: "first" } },
+      ],
+    },
+    {
+      id: "two",
+      role: "assistant",
+      blocks: [
+        { type: "tool_result" },
+        { type: "thinking" },
+        { type: "tool_use", input: { query: "second" } },
+      ],
+    },
+  ];
+
+  const groups = ordinaryToolMessageGroups(messages, []);
+  assert.equal(groups.get("one")?.ownerId, "one");
+  assert.equal(groups.get("two")?.ownerId, "one");
+  assert.deepEqual(
+    groups.get("one")?.blocks.map((block) => block.type),
+    ["tool_use", "tool_result", "tool_use"],
+  );
+});
+
 void test("agent fallback stays ambiguous when separate tasks exist", () => {
   const tasks = [
     { id: "one", agent: "brand", triggerId: "one" },

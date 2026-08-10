@@ -1,8 +1,9 @@
 /* eslint-disable max-lines */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
+  CalendarDays,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -238,8 +239,6 @@ function scheduleDate(timestamp: number, timezone: string, now: number) {
 export function DashboardPage() {
   const navigate = useNavigate();
   const prefersReducedMotion = useReducedMotion();
-  const scheduleScrollRef = useRef<HTMLDivElement>(null);
-  const scheduleFocusRef = useRef<HTMLButtonElement>(null);
   const [ask, setAsk] = useState("");
   const [askAttachments, setAskAttachments] = useState<
     ComposerImageAttachment[]
@@ -353,7 +352,9 @@ export function DashboardPage() {
   ]);
   const preparationRoot = workspaceData.activity.find(
     (session) =>
-      session.id.startsWith("workspace-kickoff-") &&
+      (session.id.startsWith("workspace-kickoff-") ||
+        session.title === "Initial business review" ||
+        session.title === "Getting started") &&
       session.kind === "conversation" &&
       session.visibility === "user",
   );
@@ -413,11 +414,12 @@ export function DashboardPage() {
     if (
       cloudOrganizationId &&
       preparationRoot &&
-      preparationRoot.status !== "idle"
+      preparationRoot.status !== "idle" &&
+      preparationChildren.length > 0
     ) {
       sessionStorage.removeItem(`chief:getting-started:${cloudOrganizationId}`);
     }
-  }, [cloudOrganizationId, preparationRoot]);
+  }, [cloudOrganizationId, preparationChildren.length, preparationRoot]);
   const requestedOverviewActionIndex = selectedActionId
     ? overviewActions.findIndex((item) => item.id === selectedActionId)
     : 0;
@@ -519,26 +521,6 @@ export function DashboardPage() {
     workspaceData.now,
     workspaceData.recurringWork,
   ]);
-  const focusedTimelineItemId =
-    agentWorkTimeline.find((item) => item.kind === "active")?.id ??
-    agentWorkTimeline.find((item) => item.kind === "upcoming")?.id ??
-    agentWorkTimeline.at(-1)?.id;
-
-  useEffect(() => {
-    const container = scheduleScrollRef.current;
-    const target = scheduleFocusRef.current;
-    if (!container || !target || !focusedTimelineItemId) return;
-    const frame = window.requestAnimationFrame(() => {
-      const top =
-        target.offsetTop - container.clientHeight / 2 + target.clientHeight / 2;
-      container.scrollTo({
-        top: Math.max(0, top),
-        behavior: prefersReducedMotion ? "auto" : "smooth",
-      });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [focusedTimelineItemId, prefersReducedMotion]);
-
   const analyticsSlides = useMemo<AnalyticsSlide[]>(() => {
     const currentTraffic = periodMetric(analytics30, [
       "activeUsers",
@@ -861,7 +843,7 @@ export function DashboardPage() {
           <WorkspaceIndicator organization={organization} />
         </header>
 
-        <section className="grid max-h-[min(640px,calc(100vh-250px))] min-h-0 w-full flex-none grid-cols-[minmax(0,1.7fr)_minmax(310px,0.9fr)] gap-3.5 max-[930px]:grid-cols-[minmax(0,1fr)_300px] max-[760px]:max-h-none max-[760px]:grid-cols-1">
+        <section className="grid h-[clamp(500px,calc(100vh-250px),560px)] min-h-0 w-full flex-none grid-cols-[minmax(0,1.7fr)_minmax(310px,0.9fr)] gap-3.5 max-[930px]:grid-cols-[minmax(0,1fr)_300px] max-[760px]:h-auto max-[760px]:grid-cols-1">
           <section
             className={cn(
               overviewSurface,
@@ -1135,7 +1117,7 @@ export function DashboardPage() {
             ) : null}
           </section>
 
-          <aside className="grid min-h-0 min-w-0 grid-rows-[minmax(230px,1fr)_minmax(190px,1fr)] gap-2.5 max-[760px]:grid-cols-2 max-[760px]:grid-rows-none">
+          <aside className="grid min-h-0 min-w-0 grid-rows-[minmax(210px,0.85fr)_minmax(270px,1.15fr)] gap-2.5 max-[760px]:grid-cols-2 max-[760px]:grid-rows-none">
             <section
               aria-label="Workspace analytics"
               className={cn(
@@ -1238,26 +1220,30 @@ export function DashboardPage() {
                 overviewSurface,
                 "relative flex min-h-0 min-w-0 flex-col overflow-hidden p-4",
               )}
-              aria-label="Agent work"
+              aria-label="Upcoming work"
             >
-              <header className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground text-[11px] font-medium">
-                  Agent work
-                </span>
+              <header className="flex shrink-0 items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="truncate text-[13px] leading-4 font-semibold">
+                    Upcoming work
+                  </h2>
+                  <p className="text-muted-foreground mt-0.5 truncate text-[11px] leading-4 font-normal">
+                    Scheduled and in progress
+                  </p>
+                </div>
                 <button
-                  className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-[10px] transition-colors"
+                  aria-label="Open schedule"
+                  className="border-border/60 text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground grid size-8 shrink-0 place-items-center rounded-lg border transition-colors"
                   onClick={() => navigate("/schedule")}
+                  title="Open schedule"
                   type="button"
                 >
-                  View schedule <ArrowRight size={11} />
+                  <CalendarDays size={14} />
                 </button>
               </header>
-              <div
-                className="min-h-0 flex-1 [scrollbar-gutter:stable_both-edges] overflow-y-auto overscroll-contain pr-1"
-                ref={scheduleScrollRef}
-              >
+              <div className="mt-2 min-h-0 flex-1 [scrollbar-gutter:stable_both-edges] overflow-y-auto overscroll-contain pr-1">
                 {agentWorkTimeline.length > 0 ? (
-                  <div className="before:bg-foreground/[0.1] relative py-2 before:absolute before:top-8 before:bottom-8 before:left-[62px] before:w-px">
+                  <div className="before:bg-foreground/[0.1] relative py-1 before:absolute before:top-7 before:bottom-7 before:left-[66px] before:w-px">
                     {agentWorkTimeline.map((item) => {
                       const when = scheduleDate(
                         item.timestamp,
@@ -1283,11 +1269,6 @@ export function DashboardPage() {
                       return (
                         <button
                           key={item.id}
-                          ref={
-                            item.id === focusedTimelineItemId
-                              ? scheduleFocusRef
-                              : undefined
-                          }
                           onClick={() =>
                             navigate(
                               item.kind === "active"
@@ -1298,13 +1279,13 @@ export function DashboardPage() {
                             )
                           }
                           type="button"
-                          className="hover:bg-foreground/[0.025] grid min-h-12 w-full grid-cols-[48px_13px_minmax(0,1fr)_12px] items-center gap-2 rounded-lg px-1 text-left transition-colors"
+                          className="hover:bg-foreground/[0.025] grid min-h-12 w-full grid-cols-[52px_20px_minmax(0,1fr)_12px] items-center gap-x-0 rounded-lg px-1 text-left transition-colors"
                         >
                           <time className="grid min-w-0 gap-0.5">
-                            <strong className="text-muted-foreground text-[10px] font-medium">
+                            <strong className="text-foreground/85 text-[10px] leading-4 font-semibold">
                               {item.kind === "active" ? "Now" : when.day}
                             </strong>
-                            <span className="text-muted-foreground/70 text-[9px]">
+                            <span className="text-muted-foreground text-[9px] leading-3 font-normal">
                               {when.time}
                             </span>
                           </time>
@@ -1331,10 +1312,10 @@ export function DashboardPage() {
                             ) : null}
                           </i>
                           <span className="grid min-w-0 gap-0.5">
-                            <strong className="truncate text-[11px] font-medium">
+                            <strong className="truncate text-[11px] leading-4 font-semibold">
                               {item.title}
                             </strong>
-                            <small className="text-muted-foreground/70 truncate text-[9px]">
+                            <small className="text-muted-foreground truncate text-[9px] leading-3 font-normal">
                               {state} ·{" "}
                               {AGENT_NAMES[item.agentId] ?? item.agentId}
                             </small>

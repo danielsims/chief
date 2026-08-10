@@ -2313,14 +2313,15 @@ function AutomationControl({
                   <div className="flex min-w-0 items-start gap-3">
                     <button
                       type="button"
+                      aria-pressed={item.enabled}
                       aria-label={`${item.enabled ? "Remove" : "Add"} ${item.title}`}
                       onClick={() =>
                         updateItem(item.playbookId, { enabled: !item.enabled })
                       }
                       className={cn(
-                        "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors",
+                        "border-border/80 bg-background hover:border-foreground/60 mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-[6px] border text-transparent shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_4%,transparent)] transition-[border-color,background-color,color,box-shadow] focus-visible:ring-2 focus-visible:ring-white/25 focus-visible:outline-none",
                         item.enabled &&
-                          "border-foreground bg-foreground text-background",
+                          "border-foreground bg-foreground text-background shadow-none",
                       )}
                     >
                       {item.enabled ? <Check size={12} /> : null}

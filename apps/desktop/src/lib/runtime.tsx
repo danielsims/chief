@@ -72,6 +72,13 @@ import {
   channelEventThreadRootId,
 } from "./channel-read-state";
 import { navigateApp, notifySystem } from "./notifications";
+import {
+  clearPendingOnboardingWorkWhenPersisted,
+  mergePendingOnboardingSchedules,
+  pendingOnboardingSchedules,
+  pendingOnboardingWorkStorageKey,
+  readPendingOnboardingWork,
+} from "./pending-onboarding-work";
 /** Durable NIP-29 events for channel timelines and message search. */
 import { reactionIntentKey, useChannelEvents } from "./runtime-channels";
 import {
@@ -997,25 +1004,17 @@ export function useProviderModels(driver: DriverType | null) {
 
 const workspaceDataCache = new Map<string, WorkspaceDataState>();
 
-function onboardingJobsStorageKey(workspaceId: string) {
-  return `chief:onboarding-work:${workspaceId}`;
-}
-
-function readOnboardingJobs(workspaceId: string) {
-  return window.localStorage.getItem(onboardingJobsStorageKey(workspaceId));
-}
-
 export function updatePendingOnboardingDriver(
   workspaceId: string,
   driver: DriverType,
   model: string | null,
 ) {
-  const stored = readOnboardingJobs(workspaceId);
+  const stored = readPendingOnboardingWork(workspaceId);
   if (!stored) return false;
   try {
     const pending = JSON.parse(stored) as Record<string, unknown>;
     window.localStorage.setItem(
-      onboardingJobsStorageKey(workspaceId),
+      pendingOnboardingWorkStorageKey(workspaceId),
       JSON.stringify({ ...pending, driver, model }),
     );
     return true;
@@ -1036,7 +1035,10 @@ function useWorkspaceDataSource(workspaceId: string | null) {
   // and revalidates in place instead of flashing empty or placeholder frames.
   const [data, setData] = useState<WorkspaceDataState>(() =>
     workspaceId
-      ? (workspaceDataCache.get(workspaceId) ?? emptyWorkspaceData)
+      ? mergePendingOnboardingSchedules(
+          workspaceId,
+          workspaceDataCache.get(workspaceId) ?? emptyWorkspaceData,
+        )
       : emptyWorkspaceData,
   );
   const [loading, setLoading] = useState(
@@ -1078,7 +1080,14 @@ function useWorkspaceDataSource(workspaceId: string | null) {
       const cached = workspaceId
         ? workspaceDataCache.get(workspaceId)
         : undefined;
-      setData(cached ?? emptyWorkspaceData);
+      setData(
+        workspaceId
+          ? mergePendingOnboardingSchedules(
+              workspaceId,
+              cached ?? emptyWorkspaceData,
+            )
+          : emptyWorkspaceData,
+      );
       setLoading(!cached);
     }
     if (
@@ -1101,7 +1110,7 @@ function useWorkspaceDataSource(workspaceId: string | null) {
     };
     const replayPendingOnboarding = () => {
       clearPendingOnboardingRetry();
-      const stored = readOnboardingJobs(workspaceId);
+      const stored = readPendingOnboardingWork(workspaceId);
       if (!stored) {
         pendingOnboardingRequestId = null;
         return;
@@ -1134,7 +1143,9 @@ function useWorkspaceDataSource(workspaceId: string | null) {
           120_000,
         );
       } catch {
-        window.localStorage.removeItem(onboardingJobsStorageKey(workspaceId));
+        window.localStorage.removeItem(
+          pendingOnboardingWorkStorageKey(workspaceId),
+        );
         pendingOnboardingRequestId = null;
       }
     };
@@ -1157,7 +1168,14 @@ function useWorkspaceDataSource(workspaceId: string | null) {
       ) {
         if (message.revision <= workspaceRevisionRef.current) return;
         workspaceRevisionRef.current = message.revision;
-        const next = normalizeWorkspaceData(message);
+        const normalized = normalizeWorkspaceData(message);
+        const persisted = clearPendingOnboardingWorkWhenPersisted(
+          workspaceId,
+          normalized.recurringWork,
+        );
+        const next = persisted
+          ? normalized
+          : mergePendingOnboardingSchedules(workspaceId, normalized);
         workspaceDataCache.set(workspaceId, next);
         setData(next);
         setLoading(false);
@@ -1208,7 +1226,8 @@ function useWorkspaceDataSource(workspaceId: string | null) {
         clearPendingOnboardingRetry();
         pendingOnboardingRequestId = null;
         pendingOnboardingRetryAttempt = 0;
-        window.localStorage.removeItem(onboardingJobsStorageKey(workspaceId));
+        // The queued schedules stay visible until a workspace snapshot proves
+        // they are durable. The next refresh clears the handoff.
       }
       if (
         message.type === "error" &&
@@ -1291,9 +1310,14 @@ function useWorkspaceDataSource(workspaceId: string | null) {
     ) => {
       if (workspaceId) {
         window.localStorage.setItem(
-          onboardingJobsStorageKey(workspaceId),
+          pendingOnboardingWorkStorageKey(workspaceId),
           JSON.stringify({ jobs, schedules, workspaceContext, driver, model }),
         );
+        setData((current) => {
+          const next = mergePendingOnboardingSchedules(workspaceId, current);
+          workspaceDataCache.set(workspaceId, next);
+          return next;
+        });
       }
       if (
         !workspaceId ||
@@ -1319,9 +1343,13 @@ function useWorkspaceDataSource(workspaceId: string | null) {
           ) {
             window.clearTimeout(timeout);
             unsubscribe();
-            window.localStorage.removeItem(
-              onboardingJobsStorageKey(workspaceId),
-            );
+            // A workspace-data refresh removes the durable handoff after the
+            // saved schedules are present in the returned snapshot.
+            if (pendingOnboardingSchedules(workspaceId).length === 0) {
+              window.localStorage.removeItem(
+                pendingOnboardingWorkStorageKey(workspaceId),
+              );
+            }
             resolve(message.chatId);
           }
           if (message.type === "error" && message.requestId === requestId) {
