@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { ExternalLink } from "lucide-react";
 import { Link } from "react-router";
 
@@ -28,7 +29,7 @@ export function ProspectsPage() {
     <div className="-mx-8 -mb-8 min-h-[calc(100vh-48px)]">
       <header className="flex items-end justify-between gap-6 border-b px-8 pt-4 pb-5">
         <div>
-          <h1 className="font-serif text-3xl">Prospects</h1>
+          <h1 className="text-3xl font-normal">Prospects</h1>
           <p className="text-muted-foreground mt-2 text-sm">
             People and conversations worth a considered response.
           </p>
@@ -79,15 +80,18 @@ export function ProspectsPage() {
                 </div>
                 <div>
                   {prospect.sourceUrl ? (
-                    <a
-                      href={prospect.sourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (prospect.sourceUrl) {
+                          void openUrl(prospect.sourceUrl);
+                        }
+                      }}
+                      className="text-muted-foreground hover:text-foreground inline-flex cursor-pointer items-center gap-1 text-left text-xs underline-offset-2 hover:underline"
                     >
                       {prospect.source}
                       <ExternalLink size={11} />
-                    </a>
+                    </button>
                   ) : (
                     <span className="text-muted-foreground text-xs">
                       {prospect.source}
@@ -124,16 +128,16 @@ export function ProspectsPage() {
       ) : (
         <div className="flex min-h-[calc(100vh-170px)] items-center justify-center px-8 text-center">
           <div className="max-w-sm">
-            <p className="font-serif text-2xl">No prospects yet</p>
+            <p className="text-2xl font-normal">No prospects yet</p>
             <p className="text-muted-foreground mt-2 text-sm leading-6">
-              The Prospector saves relevant people and public conversations here
-              as it finds them.
+              Chief saves relevant people and public conversations here after
+              consulting the Prospector.
             </p>
             <Link
-              to="/conversations?agent=prospector"
+              to="/conversations"
               className="hover:bg-accent mt-5 inline-block border px-3 py-2 text-xs transition-colors"
             >
-              Open Prospector
+              Ask Chief about prospects
             </Link>
           </div>
         </div>

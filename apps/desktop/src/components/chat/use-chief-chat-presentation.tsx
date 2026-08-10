@@ -1,0 +1,187 @@
+import { useCallback, useMemo } from "react";
+
+import type {
+  ChiefUIMessage,
+  MessageAttachment,
+} from "@chief/agent-runtime/types";
+
+import type { WorkspaceAgentId } from "../../lib/workspace-channels";
+import type { ThreadParticipant } from "./channel-message-controls";
+import type { ChiefChatProps } from "./chief-chat-types";
+import type { useChiefChatComposer } from "./use-chief-chat-composer";
+import type { useChiefChatCore } from "./use-chief-chat-core";
+import type { useChiefChatTimeline } from "./use-chief-chat-timeline";
+import { withoutMarkerLines } from "../../lib/integration-setup";
+import { messageBlocks } from "../../lib/runtime";
+import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import {
+  ChannelMessageActions,
+  ChannelMessageMeta,
+} from "./channel-message-controls";
+import { conversationVisibleBlocks } from "./conversation-visible-blocks";
+import { summarizeThreadReplyCandidates } from "./thread-reply-summary";
+
+type Core = ReturnType<typeof useChiefChatCore>;
+type Composer = ReturnType<typeof useChiefChatComposer>;
+type Timeline = ReturnType<typeof useChiefChatTimeline>;
+
+/**
+ * Adapts core messages and timeline data into render-ready conversation
+ * details, including visible blocks, thread summaries, reactions, agent
+ * attribution, attachments, and per-message controls. It owns no persistence.
+ */
+export function useChiefChatPresentation({
+  channel,
+  composer,
+  core,
+  directAgent,
+  onOpenInternalPanel,
+  timeline,
+}: Pick<ChiefChatProps, "channel" | "directAgent" | "onOpenInternalPanel"> & {
+  composer: Composer;
+  core: Core;
+  timeline: Timeline;
+}) {
+  const { channelReactions, controls, messages, setActivityOpen, userAuthor } =
+    core;
+  const { setThreadRootId } = composer;
+  const { activeThreadReplies, threadReplies } = timeline;
+  const visibleConversationBlocks = useCallback(
+    (message: ChiefUIMessage) =>
+      conversationVisibleBlocks(withoutMarkerLines(messageBlocks(message))),
+    [],
+  );
+  const summarizeThreadReplies = (replies: readonly ChiefUIMessage[]) => {
+    const summary = summarizeThreadReplyCandidates(
+      replies.map((reply) => ({
+        role: reply.role,
+        createdAt: reply.metadata?.createdAt,
+        blocks: withoutMarkerLines(messageBlocks(reply)),
+        visibleBlocks: visibleConversationBlocks(reply),
+      })),
+    );
+    return {
+      ...summary,
+      visibleReplies: summary.visibleIndexes.flatMap((index) =>
+        replies[index] ? [replies[index]] : [],
+      ),
+    };
+  };
+  const respondingAgentFor = (message: ChiefUIMessage) => {
+    if (directAgent) return directAgent;
+    const mentionedId = message.metadata?.mentions?.find((agentId) =>
+      Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId),
+    ) as WorkspaceAgentId | undefined;
+    const identity = mentionedId
+      ? WORKSPACE_AGENT_IDENTITIES[mentionedId]
+      : undefined;
+    return mentionedId && identity
+      ? { id: mentionedId, name: identity.name, role: identity.role }
+      : undefined;
+  };
+  const controlsForMessage = (message: ChiefUIMessage) => {
+    if (!channel) return {};
+    const replySummary = summarizeThreadReplies(
+      threadReplies.get(message.id) ?? [],
+    );
+    const text = messageBlocks(message)
+      .flatMap((part) => (part.type === "text" ? [part.text] : []))
+      .join("\n");
+    const openThread = () => {
+      setActivityOpen(false);
+      setThreadRootId(message.id);
+      onOpenInternalPanel?.();
+    };
+    const toggleReaction = (emoji: string) =>
+      channelReactions.toggleReaction(message.id, emoji);
+    const participants = replySummary.visibleReplies.flatMap(
+      (reply): ThreadParticipant[] => {
+        if (reply.role === "user") {
+          return [
+            {
+              id: "current-user",
+              kind: "user",
+              name: userAuthor.name,
+              ...(userAuthor.image ? { image: userAuthor.image } : {}),
+            },
+          ];
+        }
+        if (reply.role !== "assistant") return [];
+        const agent = respondingAgentFor(reply) ?? {
+          id: "cmo" as const,
+          name: "Chief",
+        };
+        return [
+          {
+            id: `agent:${agent.id}`,
+            kind: "agent",
+            name: agent.name,
+          },
+        ];
+      },
+    );
+    return {
+      actions: (
+        <ChannelMessageActions
+          text={text}
+          onReply={openThread}
+          onToggleReaction={toggleReaction}
+        />
+      ),
+      footer: (
+        <ChannelMessageMeta
+          replies={replySummary.visibleReplies}
+          replyCount={replySummary.count}
+          lastReplyAt={replySummary.lastReplyAt}
+          participants={participants}
+          reactions={channelReactions.reactions.get(message.id) ?? []}
+          onOpenThread={openThread}
+          onToggleReaction={toggleReaction}
+        />
+      ),
+    };
+  };
+  const acknowledgedDmMessageId = useMemo(() => {
+    if (channel || controls.status !== "running") return undefined;
+    let userIndex = messages.length - 1;
+    while (
+      userIndex >= 0 &&
+      (messages[userIndex]?.role !== "user" ||
+        messages[userIndex]?.metadata?.threadRootId)
+    ) {
+      userIndex -= 1;
+    }
+    if (userIndex < 0) return undefined;
+    const visibleReplyStarted = messages
+      .slice(userIndex + 1)
+      .some(
+        (message) =>
+          message.role === "assistant" &&
+          !message.metadata?.threadRootId &&
+          visibleConversationBlocks(message).length > 0,
+      );
+    return visibleReplyStarted ? undefined : messages[userIndex]?.id;
+  }, [channel, controls.status, messages, visibleConversationBlocks]);
+  const imageParts = (message: ChiefUIMessage): MessageAttachment[] =>
+    messageBlocks(message).flatMap((block) =>
+      block.type === "image"
+        ? [
+            {
+              name: block.name,
+              mediaType: block.mediaType,
+              url: block.url,
+            },
+          ]
+        : [],
+    );
+
+  return {
+    acknowledgedDmMessageId,
+    activeThreadSummary: summarizeThreadReplies(activeThreadReplies),
+    controlsForMessage,
+    imageParts,
+    respondingAgentFor,
+    threadBlocks: visibleConversationBlocks,
+    visibleConversationBlocks,
+  };
+}

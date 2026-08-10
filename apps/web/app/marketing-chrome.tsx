@@ -40,7 +40,7 @@ export function MarketingHeader() {
 
 export function MarketingFooter() {
   return (
-    <footer>
+    <footer className="site-footer">
       <Wordmark />
       <div>
         <Link href="/#product">Product</Link>

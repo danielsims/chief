@@ -31,6 +31,7 @@ export function executorBinary(): string {
  */
 function executorHttpEndpoint(
   workspace: ExecutorWorkspace,
+  elicitationMode: "browser" | "model",
 ): { url: string; headers: Record<string, string> } | null {
   try {
     const manifest = JSON.parse(
@@ -50,8 +51,10 @@ function executorHttpEndpoint(
         ? manifest.connection.auth.token
         : undefined;
     if (!origin || !token) return null;
+    const url = new URL("/mcp", origin);
+    url.searchParams.set("elicitation_mode", elicitationMode);
     return {
-      url: `${origin}/mcp`,
+      url: url.toString(),
       headers: { Authorization: `Bearer ${token}` },
     };
   } catch {
@@ -67,13 +70,23 @@ function executorHttpEndpoint(
  */
 export function executorToolServer(
   workspace: ExecutorWorkspace,
+  elicitationMode: "browser" | "model" = "browser",
 ): McpServerSpec {
-  const http = executorHttpEndpoint(workspace);
+  const http = executorHttpEndpoint(workspace, elicitationMode);
   return {
     name: "executor",
     command: executorBinary(),
-    args: ["mcp", "--scope", workspace.scopeDir, "--elicitation-mode", "model"],
-    env: { EXECUTOR_DATA_DIR: workspace.dataDir },
+    args: [
+      "mcp",
+      "--scope",
+      workspace.scopeDir,
+      "--elicitation-mode",
+      elicitationMode,
+    ],
+    env: {
+      EXECUTOR_DATA_DIR: workspace.dataDir,
+      EXECUTOR_KEYCHAIN_SERVICE_NAME: workspace.keychainServiceName,
+    },
     ...(http ?? {}),
   };
 }

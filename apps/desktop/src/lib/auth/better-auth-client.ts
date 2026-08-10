@@ -3,8 +3,11 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { organizationClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 
+import type { OrganizationRole } from "./organization-role";
 import type { StoredSession } from "./session";
 import { AUTH_BASE_URL } from "../config";
+import { fetchWithTimeout } from "../fetch-with-timeout";
+import { primaryOrganizationRole } from "./organization-role";
 import { getStoredSession, setStoredSession } from "./session";
 
 export { AUTH_BASE_URL } from "../config";
@@ -79,9 +82,11 @@ export async function validateStoredSession(
 ): Promise<SessionValidationResult> {
   try {
     const fetcher = isTauri() ? tauriFetch : fetch;
-    const response = await fetcher(`${AUTH_BASE_URL!}/api/auth/get-session`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const response = await fetchWithTimeout(
+      fetcher,
+      `${AUTH_BASE_URL!}/api/auth/get-session`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
 
     // 401 means the token was rejected outright.
     if (response.status === 401) return { status: "invalid" };
@@ -114,6 +119,49 @@ export interface AuthOrganization {
   logo?: string | null;
   /** JSON string (better-auth stores metadata stringified) or object. */
   metadata?: string | Record<string, unknown> | null;
+}
+
+export interface AuthOrganizationMember {
+  id: string;
+  organizationId: string;
+  userId: string;
+  role: OrganizationRole;
+}
+
+/** Resolve the signed-in user's live role in their active Better Auth organization. */
+export async function getActiveAuthOrganizationMember(
+  expectedOrganizationId: string,
+): Promise<AuthOrganizationMember | null> {
+  const storedSession = getStoredSession();
+  if (!storedSession?.token || !AUTH_BASE_URL) return null;
+  const fetcher = isTauri() ? tauriFetch : fetch;
+  const response = await fetchWithTimeout(
+    fetcher,
+    `${AUTH_BASE_URL}/api/auth/organization/get-active-member`,
+    { headers: { Authorization: `Bearer ${storedSession.token}` } },
+  );
+  if (!response.ok) return null;
+  const member = (await response.json().catch(() => null)) as {
+    id?: unknown;
+    organizationId?: unknown;
+    userId?: unknown;
+    role?: unknown;
+  } | null;
+  const role = primaryOrganizationRole(member?.role);
+  if (
+    typeof member?.id !== "string" ||
+    typeof member.userId !== "string" ||
+    member.organizationId !== expectedOrganizationId ||
+    !role
+  ) {
+    return null;
+  }
+  return {
+    id: member.id,
+    organizationId: expectedOrganizationId,
+    userId: member.userId,
+    role,
+  };
 }
 
 function normalizeOrganizations(value: unknown): AuthOrganization[] {
@@ -161,14 +209,87 @@ let organizationCache:
   | undefined;
 let organizationRequest:
   { token: string; promise: Promise<AuthOrganization[]> } | undefined;
+const ORGANIZATION_CACHE_KEY = "chief-auth-organizations";
+
+function persistOrganizationCache() {
+  const session = getStoredSession();
+  if (!session || organizationCache?.token !== session.token) return;
+  localStorage.setItem(
+    ORGANIZATION_CACHE_KEY,
+    JSON.stringify({
+      userId: session.user.id,
+      organizations: organizationCache.organizations,
+      cachedAt: organizationCache.cachedAt,
+    }),
+  );
+}
+
+function restoreOrganizationCache() {
+  const session = getStoredSession();
+  if (!session || organizationCache?.token === session.token) return;
+  try {
+    const stored = JSON.parse(
+      localStorage.getItem(ORGANIZATION_CACHE_KEY) ?? "null",
+    ) as {
+      userId?: unknown;
+      organizations?: unknown;
+      cachedAt?: unknown;
+    } | null;
+    if (
+      stored?.userId === session.user.id &&
+      Array.isArray(stored.organizations) &&
+      typeof stored.cachedAt === "number"
+    ) {
+      organizationCache = {
+        token: session.token,
+        organizations: stored.organizations as AuthOrganization[],
+        cachedAt: stored.cachedAt,
+      };
+    }
+  } catch {
+    localStorage.removeItem(ORGANIZATION_CACHE_KEY);
+  }
+}
 
 function invalidateOrganizationCache() {
   organizationCache = undefined;
   organizationRequest = undefined;
+  localStorage.removeItem(ORGANIZATION_CACHE_KEY);
+}
+
+function cacheOrganization(organization: AuthOrganization) {
+  const token = getStoredSession()?.token;
+  if (!token) return;
+  const organizations =
+    organizationCache?.token === token
+      ? organizationCache.organizations.filter(
+          (candidate) => candidate.id !== organization.id,
+        )
+      : [];
+  organizationCache = {
+    token,
+    organizations: [...organizations, organization],
+    cachedAt: Date.now(),
+  };
+  persistOrganizationCache();
+}
+
+export function cachedAuthOrganization(organizationId: string | null) {
+  restoreOrganizationCache();
+  const token = getStoredSession()?.token;
+  if (!organizationId || !token || organizationCache?.token !== token) {
+    return null;
+  }
+  return (
+    organizationCache.organizations.find(
+      (organization) => organization.id === organizationId,
+    ) ?? null
+  );
 }
 
 export async function listAuthOrganizations(
   force = false,
+  options: { throwOnError?: boolean } = {},
 ): Promise<AuthOrganization[]> {
   // Use direct fetch to the BetterAuth org list endpoint
   // rather than the authClient's organization plugin, which has
@@ -176,6 +297,7 @@ export async function listAuthOrganizations(
   const storedSession = getStoredSession();
   if (!storedSession?.token) return [];
   const token = storedSession.token;
+  restoreOrganizationCache();
   if (
     !force &&
     organizationCache?.token === token &&
@@ -183,41 +305,48 @@ export async function listAuthOrganizations(
   ) {
     return organizationCache.organizations;
   }
-  if (!force && organizationRequest?.token === token) {
-    return organizationRequest.promise;
+  let promise =
+    !force && organizationRequest?.token === token
+      ? organizationRequest.promise
+      : undefined;
+
+  if (!promise) {
+    promise = (async () => {
+      try {
+        const url = `${AUTH_BASE_URL!}/api/auth/organization/list`;
+        const fetcher = isTauri() ? tauriFetch : fetch;
+        const response = await fetchWithTimeout(fetcher, url, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Organization request failed (${response.status})`);
+        }
+
+        const organizations = normalizeOrganizations(await response.json());
+        organizationCache = {
+          token,
+          organizations,
+          cachedAt: Date.now(),
+        };
+        persistOrganizationCache();
+        return organizations;
+      } finally {
+        if (organizationRequest?.token === token) {
+          organizationRequest = undefined;
+        }
+      }
+    })();
+    organizationRequest = { token, promise };
   }
 
-  const promise = (async () => {
-    try {
-      const url = `${AUTH_BASE_URL!}/api/auth/organization/list`;
-      const fetcher = isTauri() ? tauriFetch : fetch;
-      const response = await fetcher(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        console.error("[Auth] listOrganizations failed:", response.status);
-        return [];
-      }
-
-      const organizations = normalizeOrganizations(await response.json());
-      organizationCache = {
-        token,
-        organizations,
-        cachedAt: Date.now(),
-      };
-      return organizations;
-    } catch (error) {
-      console.error("[Auth] listOrganizations error:", error);
-      return [];
-    } finally {
-      if (organizationRequest?.token === token) organizationRequest = undefined;
-    }
-  })();
-  organizationRequest = { token, promise };
-  return promise;
+  try {
+    return await promise;
+  } catch (error) {
+    console.error("[Auth] listOrganizations error:", error);
+    if (options.throwOnError) throw error;
+    return [];
+  }
 }
 
 export async function setActiveAuthOrganization(
@@ -243,8 +372,6 @@ export async function setActiveAuthOrganization(
       `Failed to switch organization: ${response.status} ${text}`,
     );
   }
-  invalidateOrganizationCache();
-
   setStoredSession({
     ...storedSession,
     organizationId,
@@ -280,7 +407,9 @@ export async function updateAuthOrganization(
       `Failed to update organization: ${response.status} ${text}`,
     );
   }
-  invalidateOrganizationCache();
+  const cached = cachedAuthOrganization(organizationId);
+  if (cached) cacheOrganization({ ...cached, ...data });
+  else invalidateOrganizationCache();
 }
 
 export async function deleteAuthOrganization(
@@ -361,6 +490,6 @@ export async function createAuthOrganization(input: {
 
   const responseData = (await response.json()) as AuthOrganization | null;
   if (!responseData) throw new Error("No organization returned");
-  invalidateOrganizationCache();
+  cacheOrganization(responseData);
   return responseData;
 }

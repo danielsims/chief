@@ -11,22 +11,30 @@ function workspaceBrandProfilePath(workspaceId: string) {
   return join(workspaceRoot(workspaceId), "brand-profile.md");
 }
 
-/** Last brand context the app sent, kept for unattended recurring runs. */
-export function readWorkspaceContext(workspaceId: string): string | undefined {
+export function readWorkspaceBrandProfile(
+  workspaceId: string,
+): string | undefined {
   try {
-    const context = readFileSync(workspaceContextPath(workspaceId), "utf8");
-    try {
-      const brandProfile = readFileSync(
-        workspaceBrandProfilePath(workspaceId),
-        "utf8",
-      );
-      return `${context}\n\n# Approved brand profile\n\n${brandProfile}`;
-    } catch {
-      return context;
-    }
+    return readFileSync(workspaceBrandProfilePath(workspaceId), "utf8");
   } catch {
     return undefined;
   }
+}
+
+/** Last brand context the app sent, kept for unattended recurring runs. */
+export function readWorkspaceContext(workspaceId: string): string | undefined {
+  let context: string | undefined;
+  try {
+    context = readFileSync(workspaceContextPath(workspaceId), "utf8");
+  } catch {
+    // A profile can be the first durable context in a workspace.
+  }
+  const brandProfile = readWorkspaceBrandProfile(workspaceId);
+  const sections = [
+    context,
+    brandProfile ? `# Workspace brand profile\n\n${brandProfile}` : undefined,
+  ].filter((value): value is string => Boolean(value?.trim()));
+  return sections.length > 0 ? sections.join("\n\n") : undefined;
 }
 
 export function writeWorkspaceBrandProfile(
@@ -46,4 +54,41 @@ export function writeWorkspaceContext(workspaceId: string, context: string) {
   } catch (error) {
     console.error("[runtime] could not persist workspace context:", error);
   }
+}
+
+/**
+ * Saves one user-supplied business fact without replacing onboarding context.
+ * Stable markers make a later answer an update rather than an accumulating
+ * duplicate, while keeping the result readable to both people and agents.
+ */
+export function writeWorkspaceContextValue(
+  workspaceId: string,
+  key: string,
+  value: string,
+) {
+  const safeKey = key
+    .trim()
+    .replaceAll(/[^a-zA-Z0-9 _-]/g, "")
+    .slice(0, 80);
+  const normalizedValue = value.trim();
+  if (!safeKey || !normalizedValue) return;
+
+  let current = "";
+  try {
+    current = readFileSync(workspaceContextPath(workspaceId), "utf8");
+  } catch {
+    // A direct question can be the first durable context in a workspace.
+  }
+
+  const slug = safeKey.toLowerCase().replaceAll(/\s+/g, "-");
+  const start = `<!-- chief-context:${slug}:start -->`;
+  const end = `<!-- chief-context:${slug}:end -->`;
+  const block = `${start}\n## ${safeKey}\n\n${normalizedValue}\n${end}`;
+  const startIndex = current.indexOf(start);
+  const endIndex = current.indexOf(end, startIndex + start.length);
+  const next =
+    startIndex >= 0 && endIndex >= 0
+      ? `${current.slice(0, startIndex)}${block}${current.slice(endIndex + end.length)}`
+      : `${current.trim()}${current.trim() ? "\n\n" : ""}# User-provided context\n\n${block}\n`;
+  writeWorkspaceContext(workspaceId, next);
 }

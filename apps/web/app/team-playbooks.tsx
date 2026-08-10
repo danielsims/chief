@@ -16,13 +16,14 @@ export interface LandingPlaybook {
 const agents = [
   {
     id: "cmo",
-    name: "Chief Marketing Officer",
-    role: "Strategy and coordination",
+    name: "Chief",
+    role: "Coordination and decisions",
   },
+  { id: "engineer", name: "Engineer", role: "Code and product delivery" },
+  { id: "ads", name: "Marketer", role: "Campaigns and growth execution" },
   { id: "analyst", name: "Analyst", role: "Analytics and reporting" },
-  { id: "content", name: "Content Writer", role: "Content and social" },
-  { id: "prospector", name: "Prospector", role: "Prospecting and research" },
-  { id: "ads", name: "Ads Manager", role: "Paid acquisition" },
+  { id: "content", name: "Writer", role: "Writing and communication" },
+  { id: "prospector", name: "Researcher", role: "Research and discovery" },
 ] as const;
 
 type AgentId = (typeof agents)[number]["id"];
@@ -97,7 +98,7 @@ export function TeamPlaybooks({ playbooks }: { playbooks: LandingPlaybook[] }) {
   return (
     <section className="team" id="team">
       <div className="team-intro">
-        <h2>A small team of experts, already briefed.</h2>
+        <h2>A small team of specialists, working as one.</h2>
         <div
           className="agent-selector"
           role="tablist"

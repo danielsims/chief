@@ -1,13 +1,21 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ChildProcess } from "node:child_process";
 
 import type { ContentBlock, StartOptions } from "../types.js";
+import type { OpenCodeTerminalState } from "./opencode-support.js";
 import { BaseDriver } from "./base.js";
 import { agentEnvironment } from "./environment.js";
+import {
+  findOpenCode,
+  initializeOpenCodeSession,
+  OpenCodeHostServices,
+  openCodeRecord as record,
+  openCodeTextContent as textContent,
+} from "./opencode-support.js";
 
 interface PendingRpc {
   resolve: (value: unknown) => void;
@@ -15,48 +23,6 @@ interface PendingRpc {
   timer?: NodeJS.Timeout;
 }
 
-interface TerminalState {
-  process: ChildProcess;
-  output: string;
-  exitCode: number | null;
-  signal: NodeJS.Signals | null;
-  pendingWaitId?: number | string;
-}
-
-function findOpenCode() {
-  const candidates = [
-    process.env.OPENCODE_PATH,
-    join(homedir(), ".opencode", "bin", "opencode"),
-    join(homedir(), ".local", "bin", "opencode"),
-    "/opt/homebrew/bin/opencode",
-    "/usr/local/bin/opencode",
-  ].filter((value): value is string => Boolean(value));
-  return candidates.find(existsSync) ?? "opencode";
-}
-
-function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function textContent(value: unknown) {
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) {
-    return value
-      .flatMap((item) => {
-        const part = record(item);
-        if (typeof part.text === "string") return [part.text];
-        const nested = record(part.content);
-        return typeof nested.text === "string" ? [nested.text] : [];
-      })
-      .join("\n");
-  }
-  const item = record(value);
-  return typeof item.text === "string" ? item.text : "";
-}
-
-/** OpenCode adapter over ACP JSON-RPC on stdio. */
 export class OpenCodeDriver extends BaseDriver {
   private process: ChildProcess | null = null;
   private sessionId: string | undefined;
@@ -68,42 +34,78 @@ export class OpenCodeDriver extends BaseDriver {
     { rpcId: number | string; allow: string; deny: string }
   >();
   private activeTools = new Map<string, { name: string; input: unknown }>();
-  private terminals = new Map<string, TerminalState>();
-  private nextTerminalId = 0;
+  private terminals = new Map<string, OpenCodeTerminalState>();
   private stream = "";
   private thinking = "";
   private stopping = false;
   private access: StartOptions["access"] = "guarded";
   private cwd = homedir();
   private environment: NodeJS.ProcessEnv = { ...process.env };
+  private readonly hostServices = new OpenCodeHostServices({
+    cwd: () => this.cwd,
+    environment: () => this.environment,
+    respond: (id, result) => this.respond(id, result),
+    terminals: this.terminals,
+  });
+  private suppressReplay = false;
 
   async start(options: StartOptions) {
+    this.startOptions = options;
+    this.stopping = false;
     this.access = options.access;
     this.cwd = options.cwd;
     this.sessionId = options.resumeSessionId;
+    this.suppressReplay = true;
+    this.buffer = "";
     writeFileSync(join(options.cwd, "AGENTS.md"), options.instructions);
     const env = agentEnvironment(options.env);
     this.environment = env;
+    // Never let a repo command block on an interactive prompt (git credentials,
+    // pager, etc.) — that is what made agents look stuck mid-`Run`. Fail fast
+    // so the model sees an error and can adapt instead of hanging forever.
+    env.GIT_TERMINAL_PROMPT = "0";
+    env.GIT_ASKPASS = "/bin/true";
+    env.GIT_PAGER = "cat";
+    env.PAGER = "cat";
     if (options.model) {
       env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ model: options.model });
     }
-    this.process = spawn(findOpenCode(), ["acp"], {
+    const child = spawn(findOpenCode(), ["acp"], {
       cwd: options.cwd,
       env,
       stdio: ["pipe", "pipe", "pipe"],
       detached: true,
     });
-    this.process.stdout?.on("data", (chunk) => this.consume(String(chunk)));
-    this.process.stderr?.on("data", (chunk) => {
+    this.process = child;
+    child.stdout.on("data", (chunk) => {
+      if (this.process === child) this.consume(String(chunk));
+    });
+    child.stderr.on("data", (chunk) => {
+      if (this.process !== child) return;
       const message = String(chunk).trim();
       if (message) console.error(`[opencode] ${message.slice(0, 800)}`);
     });
-    this.process.on("error", (error) => {
+    child.on("error", (error) => {
+      if (this.process !== child) return;
+      if (this.pending.size > 0) {
+        this.rejectPending(error.message);
+        return;
+      }
       this.emitEvent({ type: "error", message: error.message });
     });
-    this.process.on("exit", (code) => {
+    child.on("exit", (code) => {
+      // A forced retry can overlap the old process exit with initialization of
+      // the replacement. Ignore every stale callback from the old generation.
+      if (this.process !== child) return;
+      this.process = null;
+      const hadPending = this.pending.size > 0;
       this.rejectPending("OpenCode exited.");
-      if (!this.stopping && code !== 0) {
+      this.permissions.clear();
+      this.activeTools.clear();
+      // A pending prompt is still owned by BaseDriver while it retries. Do not
+      // mark the chat idle or release its execution lock between attempts.
+      if (hadPending && !this.promptWasInterrupted()) return;
+      if (!this.stopping && !this.promptWasInterrupted() && code !== 0) {
         this.emitEvent({
           type: "error",
           message: `OpenCode exited unexpectedly${code === null ? "." : ` with code ${code}.`}`,
@@ -113,100 +115,30 @@ export class OpenCodeDriver extends BaseDriver {
       this.emitEvent({ type: "status", status: "idle" });
     });
 
-    const initialized = record(
-      await this.rpc("initialize", {
-        protocolVersion: 1,
-        clientCapabilities: {
-          fs: { readTextFile: true, writeTextFile: true },
-          terminal: true,
-        },
-        clientInfo: { name: "chief", version: "0.1.0" },
-      }),
+    const initialized = await initializeOpenCodeSession(
+      options,
+      this.sessionId,
+      (method, params) => this.rpc(method, params),
     );
-    const capabilities = record(initialized.agentCapabilities);
-    // OpenCode's ACP accepts only http/sse MCP servers (1.17 rejects
-    // command-based entries with -32602, killing session/new). Tool servers
-    // carrying an HTTP endpoint connect through it; stdio-only ones can be
-    // passed natively only when the agent declares stdio support.
-    const mcpCapabilities = record(capabilities.mcpCapabilities);
-    const supportsStdio = mcpCapabilities.stdio === true;
-    const mcpServers: Record<string, unknown>[] = (
-      options.mcpServers ?? []
-    ).flatMap((server): Record<string, unknown>[] => {
-      if (server.url) {
-        return [
-          {
-            type: "http",
-            name: server.name,
-            url: server.url,
-            headers: Object.entries(server.headers ?? {}).map(
-              ([name, value]) => ({ name, value }),
-            ),
-          },
-        ];
-      }
-      if (supportsStdio) {
-        return [
-          {
-            name: server.name,
-            command: server.command,
-            args: server.args,
-            env: server.env ?? {},
-          },
-        ];
-      }
-      console.error(
-        `[opencode] Dropping stdio MCP server "${server.name}" — this OpenCode version only accepts http/sse MCP over ACP.`,
-      );
-      return [];
-    });
-    let session: Record<string, unknown>;
-    if (
-      this.sessionId &&
-      (capabilities.loadSession ||
-        record(capabilities.sessionCapabilities).loadSession)
-    ) {
-      try {
-        session = record(
-          await this.rpc("session/load", {
-            sessionId: this.sessionId,
-            cwd: options.cwd,
-            mcpServers,
-          }),
-        );
-      } catch {
-        session = record(
-          await this.rpc("session/new", { cwd: options.cwd, mcpServers }),
-        );
-      }
-    } else {
-      session = record(
-        await this.rpc("session/new", { cwd: options.cwd, mcpServers }),
-      );
-    }
-    // session/new returns the id; session/load returns only configOptions —
-    // a successful load keeps the id we asked to load.
-    const sessionId = session.sessionId ?? session.id ?? this.sessionId;
-    if (typeof sessionId !== "string") {
-      throw new Error("OpenCode returned no ACP session id.");
-    }
-    this.sessionId = sessionId;
-    const currentModelId = record(session.models).currentModelId;
+    this.sessionId = initialized.sessionId;
     this.emitEvent({
       type: "init",
-      sessionId,
-      model:
-        typeof currentModelId === "string" ? currentModelId : options.model,
+      sessionId: initialized.sessionId,
+      model: initialized.model,
     });
     this.emitEvent({ type: "status", status: "idle" });
   }
 
-  async sendPrompt(text: string) {
+  async sendPromptOnce(text: string) {
     if (!this.sessionId) throw new Error("OpenCode session is not ready.");
+    await this.restartIfNeeded();
+    // A real prompt is running now; anything opencode streams belongs to it.
+    this.suppressReplay = false;
     this.stream = "";
     this.thinking = "";
     this.activeTools.clear();
     this.emitEvent({ type: "status", status: "running" });
+    let completed = false;
     try {
       const result = record(
         await this.rpc(
@@ -222,7 +154,9 @@ export class OpenCodeDriver extends BaseDriver {
       if (this.thinking) {
         content.push({ type: "thinking", thinking: this.thinking });
       }
-      if (this.stream) content.push({ type: "text", text: this.stream });
+      if (this.stream) {
+        content.push({ type: "text", text: this.stream });
+      }
       if (content.length > 0) {
         this.emitEvent({ type: "message", role: "assistant", content });
       }
@@ -235,38 +169,81 @@ export class OpenCodeDriver extends BaseDriver {
             ? String(stopReason)
             : undefined,
       });
-    } catch (error) {
-      this.emitEvent({
-        type: "error",
-        message: error instanceof Error ? error.message : String(error),
-      });
+      completed = true;
     } finally {
       this.stream = "";
       this.thinking = "";
-      this.emitEvent({ type: "status", status: "idle" });
+      // Keep the session busy while BaseDriver backs off and retries a thrown
+      // transport failure. Only a terminal attempt should release execution.
+      if (completed) this.emitEvent({ type: "status", status: "idle" });
     }
   }
 
   async interrupt() {
+    this.interrupted = true;
+    // A hung child command is the usual reason an agent looks stuck; kill the
+    // terminals too so SIGINT to the host actually frees the turn.
+    for (const terminal of this.terminals.values()) {
+      terminal.process.kill("SIGKILL");
+    }
     this.process?.kill("SIGINT");
+  }
+
+  async restart(): Promise<void> {
+    const options = this.startOptions;
+    if (!options) throw new Error("OpenCode session is not ready.");
+    this.terminateProcess("OpenCode is restarting.");
+    await this.start({ ...options, resumeSessionId: this.sessionId });
+  }
+
+  private async restartIfNeeded() {
+    if (this.process?.stdin && this.process.exitCode === null) return;
+    this.process = null;
+    if (!this.startOptions) {
+      throw new Error("OpenCode session is not ready.");
+    }
+    await this.start({
+      ...this.startOptions,
+      resumeSessionId: this.sessionId,
+    });
   }
 
   async stop() {
     this.stopping = true;
+    this.terminateProcess("OpenCode stopped.");
+  }
+
+  private terminateProcess(reason: string) {
+    this.permissions.clear();
+    this.activeTools.clear();
     for (const terminal of this.terminals.values()) {
+      if (terminal.pendingWaitTimer) clearTimeout(terminal.pendingWaitTimer);
+      terminal.pendingWaitId = undefined;
+      terminal.pendingWaitTimer = undefined;
       terminal.process.kill("SIGTERM");
     }
     this.terminals.clear();
-    const pid = this.process?.pid;
+    const child = this.process;
+    this.process = null;
+    this.rejectPending(reason);
+    const pid = child?.pid;
     if (pid) {
       try {
         process.kill(-pid, "SIGTERM");
       } catch {
-        this.process?.kill("SIGTERM");
+        child.kill("SIGTERM");
       }
+      const force = setTimeout(() => {
+        if (child.exitCode !== null) return;
+        try {
+          process.kill(-pid, "SIGKILL");
+        } catch {
+          child.kill("SIGKILL");
+        }
+      }, 2_000);
+      force.unref();
+      child.once("exit", () => clearTimeout(force));
     }
-    this.rejectPending("OpenCode stopped.");
-    this.process = null;
   }
 
   override respondPermission(requestId: string, behavior: "allow" | "deny") {
@@ -312,17 +289,28 @@ export class OpenCodeDriver extends BaseDriver {
     else if (method === "session/request_permission" && id !== undefined) {
       this.permission(id, params);
     } else if (method === "fs/read_text_file" && id !== undefined) {
-      this.readFile(id, params);
+      this.hostServices.readFile(id, params);
     } else if (method === "fs/write_text_file" && id !== undefined) {
-      this.writeFile(id, params);
+      this.hostServices.writeFile(id, params);
     } else if (method.startsWith("terminal/") && id !== undefined) {
-      this.terminal(id, method, params);
+      this.hostServices.terminal(id, method, params);
     }
   }
 
   private sessionUpdate(params: Record<string, unknown>) {
     const update = record(params.update ?? params);
     const type = update.type ?? update.sessionUpdate;
+    if (
+      this.suppressReplay &&
+      (type === "agent_message_chunk" ||
+        type === "agent_thought_chunk" ||
+        type === "tool_call" ||
+        type === "tool_call_start" ||
+        type === "tool_call_update" ||
+        type === "tool_call_end")
+    ) {
+      return;
+    }
     if (type === "agent_message_chunk") {
       const text = textContent(update.content);
       if (text) {
@@ -369,6 +357,28 @@ export class OpenCodeDriver extends BaseDriver {
       } catch {
         input = { value: input };
       }
+    }
+    // An empty input object can shadow the raw code the model wrote (opencode
+    // reports both). Prefer the raw code so the UI can label the actual tool
+    // the agent called instead of a generic "Run connected tool".
+    if (
+      (!input ||
+        (typeof input === "object" &&
+          !Array.isArray(input) &&
+          Object.keys(input).length === 0)) &&
+      typeof update.rawInput === "string" &&
+      update.rawInput.trim()
+    ) {
+      input = { code: update.rawInput };
+    }
+    if (process.env.CHIEF_DEBUG_SESSION_FORCE === "1") {
+      console.error(
+        `[opencode-tool] ${eventType} name=${name} id=${id} inputKeys=${JSON.stringify(
+          Object.keys(update),
+        )} nestedKeys=${JSON.stringify(Object.keys(nested))} input=${JSON.stringify(
+          input,
+        ).slice(0, 300)}`,
+      );
     }
     if (!this.activeTools.has(id)) {
       this.activeTools.set(id, { name, input });
@@ -440,97 +450,6 @@ export class OpenCodeDriver extends BaseDriver {
       input: toolCall.input ?? params.input ?? params.description ?? {},
     });
     this.emitEvent({ type: "status", status: "waiting" });
-  }
-
-  private readFile(id: number | string, params: Record<string, unknown>) {
-    const path = params.path ?? params.filePath;
-    try {
-      if (typeof path !== "string") throw new Error("No file path provided.");
-      this.respond(id, { content: readFileSync(path, "utf8") });
-    } catch (error) {
-      this.respond(id, {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  private writeFile(id: number | string, params: Record<string, unknown>) {
-    const path = params.path ?? params.filePath;
-    try {
-      if (typeof path !== "string") throw new Error("No file path provided.");
-      if (typeof params.content !== "string") {
-        throw new Error("No file content provided.");
-      }
-      writeFileSync(path, params.content, "utf8");
-      this.respond(id, {});
-    } catch (error) {
-      this.respond(id, {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  private terminal(
-    id: number | string,
-    method: string,
-    params: Record<string, unknown>,
-  ) {
-    const terminalId = String(
-      params.terminalId ?? `terminal-${++this.nextTerminalId}`,
-    );
-    if (method === "terminal/create") {
-      if (typeof params.command !== "string") {
-        this.respond(id, { error: "No command provided." });
-        return;
-      }
-      const args = Array.isArray(params.args) ? params.args.map(String) : [];
-      const child = spawn(params.command, args, {
-        cwd: typeof params.cwd === "string" ? params.cwd : this.cwd,
-        env: this.environment,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-      const state: TerminalState = {
-        process: child,
-        output: "",
-        exitCode: null,
-        signal: null,
-      };
-      this.terminals.set(terminalId, state);
-      child.stdout?.on("data", (chunk) => (state.output += String(chunk)));
-      child.stderr?.on("data", (chunk) => (state.output += String(chunk)));
-      child.on("exit", (code, signal) => {
-        state.exitCode = code;
-        state.signal = signal;
-        if (state.pendingWaitId !== undefined) {
-          this.respond(state.pendingWaitId, { exitCode: code, signal });
-          state.pendingWaitId = undefined;
-        }
-      });
-      this.respond(id, { terminalId });
-      return;
-    }
-    const state = this.terminals.get(terminalId);
-    if (method === "terminal/output") {
-      this.respond(id, {
-        output: state?.output ?? "",
-        truncated: false,
-        exitStatus:
-          state && state.exitCode !== null
-            ? { exitCode: state.exitCode, signal: state.signal }
-            : null,
-      });
-    } else if (method === "terminal/wait_for_exit") {
-      if (!state || state.exitCode !== null) {
-        this.respond(id, {
-          exitCode: state?.exitCode ?? null,
-          signal: state?.signal ?? null,
-        });
-      } else state.pendingWaitId = id;
-    } else if (method === "terminal/kill" || method === "terminal/release") {
-      state?.process.kill("SIGTERM");
-      if (method === "terminal/release") this.terminals.delete(terminalId);
-      this.respond(id, {});
-    }
   }
 
   private rpc(

@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import { Button } from "@chief/ui/components/button";
@@ -64,24 +65,36 @@ export function CreateWorkspacePage() {
 
   return (
     <div className="bg-background text-foreground flex min-h-screen flex-col">
-      {/* Drag strip under the macOS window controls */}
-      <header data-tauri-drag-region className="h-[92px] shrink-0" />
+      <header data-tauri-drag-region className="h-12 shrink-0" />
 
-      <main className="flex flex-1 items-center justify-center px-8 pb-[92px]">
-        <div className="w-full max-w-sm">
-          <h1 className="font-serif text-3xl leading-tight">
-            Create a workspace
-          </h1>
-          <p className="text-muted-foreground mt-2 text-sm">
-            A workspace holds one company and its agents.
-          </p>
+      <main className="flex min-h-0 flex-1 overflow-y-auto px-6 pb-12">
+        <div className="mx-auto flex min-h-full w-full max-w-[480px] flex-col justify-center py-10">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            disabled={isCreating}
+            className="text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-ring/30 mb-7 flex h-8 w-fit items-center gap-1.5 rounded-lg px-2 text-xs font-medium transition-colors outline-none focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-50"
+          >
+            <ArrowLeft size={14} />
+            Back
+          </button>
+
+          <div>
+            <h1 className="text-[30px] leading-[1.08] font-normal tracking-[-0.04em]">
+              Create a workspace
+            </h1>
+            <p className="text-muted-foreground mt-2 max-w-md text-[13px] leading-5">
+              Give your company, channels, agents, and shared work a home.
+            </p>
+          </div>
+
           <form
             onSubmit={handleSubmit}
-            className="bg-card mt-8 space-y-5 border p-5"
+            className="bg-background mt-8 space-y-5 rounded-2xl p-6 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_9%,transparent),0_12px_32px_color-mix(in_srgb,var(--foreground)_3%,transparent)] dark:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_12%,transparent),0_12px_32px_rgba(0,0,0,0.14)]"
           >
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <label
-                className="text-muted-foreground text-xs"
+                className="text-[13px] font-medium"
                 htmlFor="new-workspace-name"
               >
                 Company name
@@ -93,11 +106,12 @@ export function CreateWorkspacePage() {
                 onChange={(event) => setName(event.target.value)}
                 placeholder="Acme Inc"
                 disabled={isCreating}
+                className="bg-background h-10 rounded-xl border-0 px-3.5 shadow-[inset_0_0_0_1px_var(--input),inset_0_1px_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.025)]"
               />
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <label
-                className="text-muted-foreground text-xs"
+                className="text-[13px] font-medium"
                 htmlFor="new-workspace-website"
               >
                 Company website
@@ -108,30 +122,37 @@ export function CreateWorkspacePage() {
                 onChange={(event) => setWebsite(event.target.value)}
                 placeholder="acme.com"
                 disabled={isCreating}
+                className="bg-background h-10 rounded-xl border-0 px-3.5 shadow-[inset_0_0_0_1px_var(--input),inset_0_1px_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.025)]"
               />
-              <p className="text-muted-foreground text-xs">
-                The workspace logo defaults to this site's favicon.
+              <p className="text-muted-foreground text-[11px] leading-4">
+                Chief will use the website favicon as the workspace image when
+                one is available.
               </p>
             </div>
             {error ? (
-              <p className="text-destructive text-xs break-words">{error}</p>
+              <p className="text-destructive text-xs leading-5 break-words">
+                {error}
+              </p>
             ) : null}
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={!name.trim() || isCreating}
-            >
-              {isCreating ? "Creating..." : "Create workspace"}
-            </Button>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => navigate(-1)}
+                disabled={isCreating}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="min-w-36"
+                disabled={!name.trim() || isCreating}
+                loading={isCreating}
+              >
+                {isCreating ? "Creating workspace" : "Create workspace"}
+              </Button>
+            </div>
           </form>
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            disabled={isCreating}
-            className="text-muted-foreground hover:text-foreground mt-4 text-xs transition-colors"
-          >
-            Cancel
-          </button>
         </div>
       </main>
     </div>

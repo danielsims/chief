@@ -3,14 +3,21 @@
  * settings UI (writes) and the chat runtime (reads). The runtime libSQL store
  * is durable; this tiny localStorage mirror keeps session opening synchronous.
  */
-import type { AgentCapabilityId, DriverType } from "@chief/agent-runtime/types";
+import type {
+  AgentApprovalMode,
+  AgentCapabilityId,
+  AgentToolPermission,
+  DriverType,
+} from "@chief/agent-runtime/types";
 
 export interface AgentOverride {
   driver?: DriverType;
   model?: string;
   enabled?: boolean;
+  approvals?: AgentApprovalMode;
   capabilities?: AgentCapabilityId[];
   integrations?: string[];
+  toolPermissions?: AgentToolPermission[];
 }
 
 export type AgentOverrides = Record<string, AgentOverride>;
@@ -45,7 +52,7 @@ function migratedValue(
  * full access so agents work without permission prompts; "ask" keeps the
  * guarded approval seam for every mutating tool call.
  */
-export type ApprovalMode = "auto" | "ask";
+export type ApprovalMode = AgentApprovalMode;
 
 export function getToolApprovals(
   workspaceId: string | null | undefined,
@@ -83,7 +90,10 @@ export function getWorkspaceProvider(
   if (!workspaceId) return null;
   retireLegacyGlobalState();
   const value = migratedValue(PROVIDER_KEY, LEGACY_PROVIDER_KEY, workspaceId);
-  return value === "claude" || value === "codex" || value === "opencode"
+  return value === "claude" ||
+    value === "codex" ||
+    value === "opencode" ||
+    value === "remote"
     ? value
     : null;
 }
@@ -91,6 +101,12 @@ export function getWorkspaceProvider(
 export function setWorkspaceProvider(workspaceId: string, driver: DriverType) {
   retireLegacyGlobalState();
   localStorage.setItem(workspaceKey(PROVIDER_KEY, workspaceId), driver);
+  window.dispatchEvent(new CustomEvent(EVENT));
+}
+
+export function clearWorkspaceProvider(workspaceId: string) {
+  retireLegacyGlobalState();
+  localStorage.removeItem(workspaceKey(PROVIDER_KEY, workspaceId));
   window.dispatchEvent(new CustomEvent(EVENT));
 }
 

@@ -1,15 +1,21 @@
 import { httpRouter } from "convex/server";
 
 import {
-  runAnalyticsReport as agentToolAnalyticsReport,
+  listAnalyticsDatasets as agentToolAnalyticsDatasets,
   capabilityIdentity as agentToolCapabilityIdentity,
+  listCloudRecords as agentToolCloudRecords,
+  dismissCloudActionHttp as agentToolDismissCloudAction,
+  markIntegrationConnected as agentToolMarkIntegrationConnected,
   presentChart as agentToolPresentChart,
+  saveAnalyticsDatasetHttp as agentToolSaveAnalyticsDataset,
+  saveCloudActionHttp as agentToolSaveCloudAction,
+  saveCloudFileHttp as agentToolSaveCloudFile,
+  saveCloudProspectHttp as agentToolSaveCloudProspect,
   openApiSpec as agentToolsOpenApi,
   listSources as agentToolSources,
 } from "./agentTools";
 import { authComponent, createAuth } from "./auth";
 import { billingReturnPage, stripeWebhook } from "./billing";
-import { oauthCallback as googleAnalyticsOauthCallback } from "./googleAnalytics";
 
 const http = httpRouter();
 
@@ -23,15 +29,39 @@ http.route({
 });
 
 http.route({
-  path: "/billing/return",
+  path: "/agent-tools/records",
   method: "GET",
-  handler: billingReturnPage,
+  handler: agentToolCloudRecords,
 });
 
 http.route({
-  path: "/google-analytics/callback",
+  path: "/agent-tools/prospects",
+  method: "POST",
+  handler: agentToolSaveCloudProspect,
+});
+
+http.route({
+  path: "/agent-tools/files",
+  method: "POST",
+  handler: agentToolSaveCloudFile,
+});
+
+http.route({
+  path: "/agent-tools/actions",
+  method: "POST",
+  handler: agentToolSaveCloudAction,
+});
+
+http.route({
+  path: "/agent-tools/actions/dismiss",
+  method: "POST",
+  handler: agentToolDismissCloudAction,
+});
+
+http.route({
+  path: "/billing/return",
   method: "GET",
-  handler: googleAnalyticsOauthCallback,
+  handler: billingReturnPage,
 });
 
 http.route({
@@ -53,9 +83,21 @@ http.route({
 });
 
 http.route({
-  path: "/agent-tools/analytics/report",
+  path: "/agent-tools/integrations/connected",
   method: "POST",
-  handler: agentToolAnalyticsReport,
+  handler: agentToolMarkIntegrationConnected,
+});
+
+http.route({
+  path: "/agent-tools/analytics/datasets",
+  method: "GET",
+  handler: agentToolAnalyticsDatasets,
+});
+
+http.route({
+  path: "/agent-tools/analytics/datasets",
+  method: "POST",
+  handler: agentToolSaveAnalyticsDataset,
 });
 
 http.route({

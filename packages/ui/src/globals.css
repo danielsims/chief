@@ -1,12 +1,11 @@
 @import "tailwindcss";
 @import "@fontsource-variable/geist";
-@import "@fontsource-variable/newsreader";
 
 /*
  * Chief design tokens.
  * Structure follows the Midday convention — warm neutrals in light mode,
- * cool near-black in dark mode, flat square surfaces, 1px token borders,
- * no shadows. Values are our own.
+ * cool near-black in dark mode, quiet rounded surfaces, and restrained depth.
+ * Values are our own.
  */
 :root {
   --background: hsl(0 0% 100%);
@@ -24,10 +23,15 @@
   --accent: hsl(40 9% 94%);
   --accent-foreground: hsl(240 6% 10%);
   --destructive: hsl(0 84% 60%);
-  --destructive-foreground: hsl(0 0% 98%);
+  --destructive-foreground: var(--color-red-700);
   --border: hsl(42 6% 85%);
   --input: hsl(42 6% 85%);
   --ring: hsl(240 6% 10%);
+  --sidebar: hsl(42 18% 94%);
+  --sidebar-foreground: hsl(0 0% 16%);
+  --sidebar-accent: hsl(40 11% 88%);
+  --sidebar-muted: hsl(0 0% 43%);
+  --sidebar-border: hsl(42 8% 82%);
 
   --chart-grid: #e6e6e6;
   --chart-axis-text: #707070;
@@ -41,23 +45,28 @@
 .dark {
   --background: hsl(0 0% 5%);
   --foreground: hsl(0 0% 98%);
-  --card: hsl(0 0% 7%);
+  --card: hsl(0 0% 9%);
   --card-foreground: hsl(0 0% 98%);
-  --popover: hsl(0 0% 7%);
+  --popover: hsl(0 0% 9%);
   --popover-foreground: hsl(0 0% 98%);
   --primary: hsl(0 0% 98%);
   --primary-foreground: hsl(240 6% 10%);
-  --secondary: hsl(0 0% 7%);
+  --secondary: hsl(0 0% 11%);
   --secondary-foreground: hsl(0 0% 98%);
-  --muted: hsl(0 0% 11%);
-  --muted-foreground: hsl(0 0% 55%);
-  --accent: hsl(0 0% 11%);
+  --muted: hsl(0 0% 13%);
+  --muted-foreground: hsl(0 0% 60%);
+  --accent: hsl(0 0% 13%);
   --accent-foreground: hsl(0 0% 98%);
   --destructive: hsl(359 100% 61%);
-  --destructive-foreground: hsl(0 0% 100%);
-  --border: hsl(0 0% 11%);
-  --input: hsl(0 0% 11%);
+  --destructive-foreground: var(--color-red-400);
+  --border: hsl(0 0% 15%);
+  --input: hsl(0 0% 15%);
   --ring: hsl(240 5% 84%);
+  --sidebar: hsl(0 0% 7%);
+  --sidebar-foreground: hsl(0 0% 92%);
+  --sidebar-accent: hsl(0 0% 13%);
+  --sidebar-muted: hsl(0 0% 56%);
+  --sidebar-border: hsl(0 0% 14%);
 
   --chart-grid: #1d1d1d;
   --chart-axis-text: #666666;
@@ -88,13 +97,16 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-border: var(--sidebar-border);
 
   --font-sans: "Geist Variable", system-ui, sans-serif;
-  --font-serif: "Newsreader Variable", Georgia, serif;
   --font-mono: "Geist Variable", monospace;
 
-  /* Sharp by default. */
-  --radius: 0rem;
+  --radius: 0.625rem;
 }
 
 @layer base {
@@ -121,6 +133,44 @@
   100% {
     background-position: -40% 0;
   }
+}
+
+@keyframes matrix-loader-pulse {
+  0%,
+  100% {
+    opacity: 0.14;
+  }
+  40% {
+    opacity: 0.78;
+  }
+}
+
+.matrix-loader-cell {
+  border-radius: 14%;
+  background: currentColor;
+  opacity: 0.18;
+  animation: matrix-loader-pulse var(--matrix-loader-duration, 1.35s)
+    ease-in-out infinite;
+}
+
+.matrix-loader-cell:nth-child(2),
+.matrix-loader-cell:nth-child(4) {
+  animation-delay: calc(var(--matrix-loader-duration, 1.35s) * -0.7778);
+}
+
+.matrix-loader-cell:nth-child(3),
+.matrix-loader-cell:nth-child(5),
+.matrix-loader-cell:nth-child(7) {
+  animation-delay: calc(var(--matrix-loader-duration, 1.35s) * -0.5556);
+}
+
+.matrix-loader-cell:nth-child(6),
+.matrix-loader-cell:nth-child(8) {
+  animation-delay: calc(var(--matrix-loader-duration, 1.35s) * -0.3333);
+}
+
+.matrix-loader-cell:nth-child(9) {
+  animation-delay: calc(var(--matrix-loader-duration, 1.35s) * -0.1111);
 }
 
 @layer utilities {
@@ -173,6 +223,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .matrix-loader-cell {
+    animation: none;
+    opacity: 0.45;
+  }
   .success-ring,
   .success-check {
     animation: none;

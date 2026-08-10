@@ -4,7 +4,7 @@
 #
 #   CHIEF_ORG_ID=<better-auth org id> ./scripts/dev-local.sh
 #
-# Requires Node >= 24 on PATH (eve's requirement) and jq.
+# Requires pnpm 10.17.1 and jq. pnpm provisions the pinned Node runtime.
 set -euo pipefail
 
 if [ -z "${CHIEF_ORG_ID:-}" ]; then
@@ -12,7 +12,8 @@ if [ -z "${CHIEF_ORG_ID:-}" ]; then
   exit 1
 fi
 
-WS_HASH="$(node -e 'const c=require("node:crypto");console.log(c.createHash("sha256").update(process.argv[1]).digest("hex").slice(0,24))' "$CHIEF_ORG_ID")"
+pnpm run check:node
+WS_HASH="$(pnpm exec node -e 'const c=require("node:crypto");console.log(c.createHash("sha256").update(process.argv[1]).digest("hex").slice(0,24))' "$CHIEF_ORG_ID")"
 MANIFEST="$HOME/.chief/executor/workspaces/$WS_HASH/data/server-control/server.json"
 if [ ! -f "$MANIFEST" ]; then
   echo "No Executor daemon manifest at $MANIFEST — open the workspace in Chief once first." >&2

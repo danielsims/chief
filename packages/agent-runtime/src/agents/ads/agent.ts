@@ -1,15 +1,10 @@
-import {
-  campaignMemoryCapability,
-  defineAgent,
-} from "../../capabilities/index.js";
-import { instructions } from "./instructions.js";
+import type { AgentManifest } from "../manifest.js";
 
-export const ads = defineAgent({
+export const ads = {
   id: "ads",
   name: "Ads Manager",
   role: "Paid Acquisition",
   description:
     "Reviews Google Ads performance and ad content; proposes budget and creative changes.",
-  capabilities: [campaignMemoryCapability],
-  instructions,
-});
+  capabilities: ["campaign-memory"],
+} satisfies AgentManifest;

@@ -7,7 +7,7 @@ import { PricingOffer } from "./pricing-offer";
 export const metadata: Metadata = {
   title: "Pricing | Chief",
   description:
-    "Simple pricing for a proactive marketing team of specialist agents.",
+    "Simple pricing for a proactive team of specialist agents, free during beta.",
 };
 
 export default function PricingPage() {

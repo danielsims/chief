@@ -1,39 +1,84 @@
+import { useState } from "react";
 import {
+  BarChart3,
   CalendarClock,
-  ChartLine,
-  Flame,
+  FolderOpen,
   LayoutGrid,
-  Megaphone,
-  MessagesSquare,
   Network,
-  Settings,
-  Users,
 } from "lucide-react";
-import { NavLink, useLocation } from "react-router";
+import { NavLink, useLocation, useNavigate } from "react-router";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@chief/ui/components/tooltip";
 import { cn } from "@chief/ui/lib/utils";
 
-import { ChiefMark } from "./chief-mark";
-import { UpdateAvailable } from "./update-available";
-import { WorkspaceSwitcher } from "./workspace-switcher";
+import type {
+  SidebarPinnedItem,
+  WorkspaceAgentId,
+  WorkspaceChannelId,
+} from "../lib/workspace-channels";
+import { useAuth } from "../lib/auth/auth-context";
+import {
+  canDeleteChannels,
+  canManageChannels,
+} from "../lib/auth/organization-role";
+import { useChannelReadState } from "../lib/channel-read-state-context";
+import { useLocalChats, useWorkspaceChannels } from "../lib/runtime";
+import {
+  directMessageIdsForChats,
+  isSidebarPinnedItem,
+  sidebarPinnedItemKey,
+  WORKSPACE_CHANNELS,
+  WORKSPACE_DIRECT_MESSAGES,
+  workspaceChannel,
+  workspaceDirectMessage,
+} from "../lib/workspace-channels";
+import { SidebarChannels } from "./sidebar-channels";
+import { SidebarProfileMenu } from "./sidebar-profile-menu";
+import { WorkspaceSearch } from "./workspace-search";
 
-const items = [
+const PRIMARY_ITEMS = [
   { to: "/", label: "Overview", icon: LayoutGrid },
-  { to: "/conversations", label: "Conversations", icon: MessagesSquare },
-  { to: "/agents", label: "Agents", icon: Network },
   { to: "/schedule", label: "Schedule", icon: CalendarClock },
-  { to: "/analytics", label: "Analytics", icon: ChartLine },
-  { to: "/campaigns", label: "Campaigns", icon: Megaphone },
-  { to: "/prospects", label: "Prospects", icon: Users },
-  { to: "/trending", label: "Trending", icon: Flame },
-];
+  { to: "/agents", label: "Agents", icon: Network },
+  { to: "/analytics", label: "Analytics", icon: BarChart3 },
+  { to: "/files", label: "Files", icon: FolderOpen },
+] as const;
 
-function RailItem({
+function pinnedStorageKey(workspaceId: string | null) {
+  return `chief:pinned-channels:${workspaceId ?? "local"}`;
+}
+
+function readPinnedItems(workspaceId: string | null): SidebarPinnedItem[] {
+  try {
+    const stored = JSON.parse(
+      window.localStorage.getItem(pinnedStorageKey(workspaceId)) ?? "[]",
+    ) as unknown;
+    if (!Array.isArray(stored)) return [];
+    return stored.flatMap((value): SidebarPinnedItem[] => {
+      if (typeof value === "string") return [{ kind: "channel", id: value }];
+      return isSidebarPinnedItem(value) ? [value] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function leftStorageKey(workspaceId: string | null) {
+  return `chief:left-channels:${workspaceId ?? "local"}`;
+}
+
+function readLeftChannels(workspaceId: string | null): WorkspaceChannelId[] {
+  try {
+    const stored = JSON.parse(
+      window.localStorage.getItem(leftStorageKey(workspaceId)) ?? "[]",
+    ) as unknown;
+    if (!Array.isArray(stored)) return [];
+    return stored.filter((value): value is string => typeof value === "string");
+  } catch {
+    return [];
+  }
+}
+
+function NavItem({
   to,
   label,
   icon: Icon,
@@ -43,48 +88,244 @@ function RailItem({
   icon: typeof LayoutGrid;
 }) {
   const { pathname } = useLocation();
-  const isActive = to === "/" ? pathname === "/" : pathname.startsWith(to);
-  // NavLink's function-style className can't be used here: TooltipTrigger's
-  // Slot merges className as a string and would stringify the function into
-  // the DOM. Compute active state ourselves and pass a plain string.
+  const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
   return (
-    <Tooltip delayDuration={0}>
-      <TooltipTrigger asChild>
-        <NavLink
-          to={to}
-          className={cn(
-            "text-muted-foreground hover:text-foreground flex h-10 w-10 items-center justify-center border border-transparent transition-colors",
-            isActive && "border-border bg-accent text-foreground",
-          )}
-        >
-          <Icon size={18} strokeWidth={1.75} />
-        </NavLink>
-      </TooltipTrigger>
-      <TooltipContent side="right">{label}</TooltipContent>
-    </Tooltip>
+    <NavLink
+      to={to}
+      className={cn(
+        "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 items-center gap-2.5 rounded-lg px-2 text-[13px] transition-colors",
+        active && "bg-sidebar-accent text-sidebar-foreground font-medium",
+      )}
+    >
+      <Icon size={15} strokeWidth={1.8} className="shrink-0" />
+      <span className="truncate">{label}</span>
+    </NavLink>
   );
 }
 
-export function Sidebar() {
+export function Sidebar({
+  width,
+  onResizeStart,
+}: {
+  width: number;
+  onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void;
+}) {
+  const { cloudOrganizationId, organizationRole } = useAuth();
+  const localChats = useLocalChats(cloudOrganizationId);
+  const workspaceChannels = useWorkspaceChannels();
+  const { unreadChannelCounts } = useChannelReadState();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [pinnedItems, setPinnedItems] = useState(() =>
+    readPinnedItems(cloudOrganizationId),
+  );
+  const [leftChannelState, setLeftChannelState] = useState(() => ({
+    workspaceId: cloudOrganizationId,
+    ids: readLeftChannels(cloudOrganizationId),
+  }));
+  const leftIds =
+    leftChannelState.workspaceId === cloudOrganizationId
+      ? leftChannelState.ids
+      : readLeftChannels(cloudOrganizationId);
+  const params = new URLSearchParams(location.search);
+  const requestedChannel = workspaceChannel(params.get("channel"));
+  const requestedRuntimeChannel = workspaceChannels.channels.find(
+    (channel) =>
+      channel.visibility !== "direct" &&
+      (channel.id === params.get("channel") ||
+        channel.slug === params.get("channel")),
+  );
+  const requestedDirectMessage = workspaceDirectMessage(params.get("dm"));
+  const activeChannelId = location.pathname.startsWith("/conversations")
+    ? (requestedRuntimeChannel?.id ?? requestedChannel?.id ?? null)
+    : null;
+  const publicChannels =
+    workspaceChannels.channels.length > 0
+      ? workspaceChannels.channels
+          .filter((channel) => channel.visibility !== "direct")
+          .map((channel) => ({
+            id: channel.id,
+            label: channel.name,
+            topic: channel.topic,
+            description: channel.description,
+            agentIds: channel.agentIds,
+            kind: channel.kind,
+            lifecycle: channel.lifecycle,
+            agentPermissions: channel.agentPermissions,
+            workstream: channel.workstream,
+            version: channel.version,
+            createdAt: channel.createdAt,
+          }))
+      : WORKSPACE_CHANNELS.map((channel) => ({
+          id: channel.id,
+          label: channel.label,
+          topic: "",
+          description: channel.description,
+          agentIds: [...channel.agentIds],
+          kind: "standard" as const,
+          lifecycle: "active" as const,
+          agentPermissions: [],
+          version: 1,
+        }));
+  const normalizedPinnedItems = pinnedItems.flatMap<SidebarPinnedItem>(
+    (item) => {
+      if (item.kind === "agent") return [item];
+      if (publicChannels.some((channel) => channel.id === item.id))
+        return [item];
+      const legacy = WORKSPACE_CHANNELS.find(
+        (channel) => channel.id === item.id,
+      );
+      const runtime = legacy
+        ? workspaceChannels.channels.find(
+            (channel) => channel.id === legacy.relayId,
+          )
+        : undefined;
+      return runtime ? [{ kind: "channel" as const, id: runtime.id }] : [];
+    },
+  );
+  const visiblePublicChannels = publicChannels.filter(
+    (channel) =>
+      channel.lifecycle !== "archived" && !leftIds.includes(channel.id),
+  );
+  const directMessageIds = directMessageIdsForChats(
+    localChats.chats,
+    cloudOrganizationId,
+  );
+  const unreadDirectMessageCounts = new Map(
+    WORKSPACE_DIRECT_MESSAGES.map((message) => [
+      message.id,
+      unreadChannelCounts.get(message.relayId) ?? 0,
+    ]),
+  );
+
+  const updateLeftChannels = (next: WorkspaceChannelId[]) => {
+    window.localStorage.setItem(
+      leftStorageKey(cloudOrganizationId),
+      JSON.stringify(next),
+    );
+    setLeftChannelState({ workspaceId: cloudOrganizationId, ids: next });
+  };
+
+  const openChannel = (
+    channelId: WorkspaceChannelId,
+    options?: { focusComposer?: boolean },
+  ) => {
+    if (leftIds.includes(channelId)) {
+      const next = leftIds.filter((id) => id !== channelId);
+      updateLeftChannels(next);
+    }
+    void navigate(`/conversations?channel=${channelId}`, {
+      state: options?.focusComposer ? { focusComposerFor: channelId } : null,
+    });
+  };
+
+  const updatePinned = (nextItems: SidebarPinnedItem[]) => {
+    const keys = new Set<string>();
+    const next = nextItems.filter((item) => {
+      const valid =
+        item.kind === "agent"
+          ? directMessageIds.includes(item.id)
+          : publicChannels.some((channel) => channel.id === item.id);
+      const key = sidebarPinnedItemKey(item);
+      if (!valid || keys.has(key)) return false;
+      keys.add(key);
+      return true;
+    });
+    window.localStorage.setItem(
+      pinnedStorageKey(cloudOrganizationId),
+      JSON.stringify(next),
+    );
+    setPinnedItems(next);
+  };
+
+  const deleteChannel = async (channelId: WorkspaceChannelId) => {
+    if (activeChannelId === channelId) {
+      const fallback = publicChannels.find(
+        (channel) => channel.id !== channelId,
+      );
+      await navigate(fallback ? `/conversations?channel=${fallback.id}` : "/", {
+        replace: true,
+      });
+    }
+    await workspaceChannels.deleteChannel(channelId);
+    updatePinned(
+      normalizedPinnedItems.filter(
+        (item) => item.kind !== "channel" || item.id !== channelId,
+      ),
+    );
+  };
+
+  const leaveChannel = async (channelId: WorkspaceChannelId) => {
+    if (activeChannelId === channelId) {
+      const fallback = visiblePublicChannels.find(
+        (channel) => channel.id !== channelId,
+      );
+      await navigate(fallback ? `/conversations?channel=${fallback.id}` : "/", {
+        replace: true,
+      });
+    }
+    updatePinned(
+      normalizedPinnedItems.filter(
+        (item) => item.kind !== "channel" || item.id !== channelId,
+      ),
+    );
+    const next = [...new Set([...leftIds, channelId])];
+    updateLeftChannels(next);
+  };
+
   return (
-    <aside className="bg-background fixed inset-y-0 left-0 z-40 flex w-[70px] flex-col items-center border-r">
-      {/* Taller drag strip with the wordmark pushed below the macOS window
-          controls. data-tauri-drag-region only fires when the mousedown
-          target is the element itself, so the strip stays empty and the
-          wordmark is a pointer-events-none overlay. */}
-      <div className="relative h-[92px] w-full shrink-0 border-b">
-        <div data-tauri-drag-region className="absolute inset-0" />
-        <ChiefMark className="text-foreground pointer-events-none absolute bottom-[21px] left-1/2 h-6 w-6 -translate-x-1/2" />
+    <aside
+      style={{ width }}
+      className="bg-sidebar text-sidebar-foreground relative z-30 flex h-full shrink-0 flex-col"
+    >
+      <div className="shrink-0 px-3 pt-3 pb-2">
+        <WorkspaceSearch />
       </div>
-      <nav className="flex flex-1 flex-col items-center gap-2 pt-4">
-        {items.map((item) => (
-          <RailItem key={item.to} {...item} />
-        ))}
+      <nav className="min-h-0 flex-1 [scrollbar-width:thin] [scrollbar-color:color-mix(in_srgb,var(--sidebar-muted)_22%,transparent)_transparent] overflow-y-auto px-2 pb-5">
+        <div className="space-y-0.5 px-0.5 pb-1">
+          {PRIMARY_ITEMS.map((item) => (
+            <NavItem key={item.to} {...item} />
+          ))}
+        </div>
+        <SidebarChannels
+          canDeleteChannels={canDeleteChannels(organizationRole)}
+          canManageChannels={canManageChannels(organizationRole)}
+          channels={visiblePublicChannels}
+          allChannels={publicChannels}
+          activeChannelId={activeChannelId}
+          activeAgentId={
+            location.pathname.startsWith("/conversations")
+              ? (requestedDirectMessage?.id ?? null)
+              : null
+          }
+          directMessageIds={directMessageIds}
+          pinnedItems={normalizedPinnedItems}
+          unreadChannelCounts={unreadChannelCounts}
+          unreadDirectMessageCounts={unreadDirectMessageCounts}
+          onOpen={openChannel}
+          onOpenDirectMessage={(agentId: WorkspaceAgentId) =>
+            void navigate(`/conversations?dm=${agentId}`)
+          }
+          onCreateChannel={workspaceChannels.createChannel}
+          onDeleteChannel={deleteChannel}
+          onSetChannelArchived={workspaceChannels.setChannelArchived}
+          onSetChannelPolicy={workspaceChannels.setChannelPolicy}
+          onUpdateChannel={workspaceChannels.updateChannel}
+          onLeaveChannel={leaveChannel}
+          onPinnedChange={updatePinned}
+        />
       </nav>
-      <div className="flex flex-col items-center gap-2 pb-4">
-        <UpdateAvailable />
-        <WorkspaceSwitcher />
-        <RailItem to="/settings" label="Settings" icon={Settings} />
+      <div className="shrink-0 px-2.5 pt-1 pb-3">
+        <SidebarProfileMenu />
+      </div>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        onPointerDown={onResizeStart}
+        className="group absolute inset-y-0 -right-1 z-50 w-2 cursor-col-resize"
+      >
+        <span className="bg-foreground/30 absolute inset-y-0 left-[3px] w-px opacity-0 transition-opacity group-hover:opacity-100" />
       </div>
     </aside>
   );

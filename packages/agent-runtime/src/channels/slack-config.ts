@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { DriverType } from "../types.js";
+import type { SlackChannelSettings } from "../types.js";
 import type { SlackGatewayConfig } from "./slack-gateway.js";
 import { workspaceRoot, workspaceSecrets } from "../workspace-secrets.js";
 
@@ -11,11 +11,7 @@ import { workspaceRoot, workspaceSecrets } from "../workspace-secrets.js";
  * the workspace's Keychain-backed secrets vault and are read through
  * workspaceSecrets.materialize at start time.
  */
-export interface SlackGatewaySettings {
-  enabled: boolean;
-  driver: DriverType;
-  model?: string;
-}
+export type SlackGatewaySettings = SlackChannelSettings;
 
 function settingsPath(workspaceId: string) {
   return join(workspaceRoot(workspaceId), "slack.json");
@@ -54,7 +50,10 @@ export async function loadSlackGatewayConfig(
 ): Promise<SlackGatewayConfig | null> {
   const settings = readSlackGatewaySettings(workspaceId);
   if (!settings?.enabled) return null;
-  const env = await workspaceSecrets.materialize(workspaceId);
+  const env = await workspaceSecrets.readEnv(workspaceId, [
+    "SLACK_BOT_TOKEN",
+    "SLACK_APP_TOKEN",
+  ]);
   const botToken = env.SLACK_BOT_TOKEN;
   const appToken = env.SLACK_APP_TOKEN;
   if (!botToken || !appToken) return null;
@@ -64,5 +63,7 @@ export async function loadSlackGatewayConfig(
     appToken,
     driver: settings.driver,
     model: settings.model,
+    allowedUserIds: settings.allowedUserIds,
+    allowedChannelIds: settings.allowedChannelIds,
   };
 }

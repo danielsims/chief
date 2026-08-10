@@ -1,8 +1,5 @@
 {
   "convex/agentTools.ts": {
-    "@typescript-eslint/no-base-to-string": {
-      "count": 2
-    },
     "@typescript-eslint/require-await": {
       "count": 1
     }
@@ -22,14 +19,6 @@
   },
   "convex/dev.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
-  "convex/googleAnalytics.ts": {
-    "@typescript-eslint/prefer-nullish-coalescing": {
-      "count": 1
-    },
-    "@typescript-eslint/prefer-optional-chain": {
       "count": 1
     }
   },

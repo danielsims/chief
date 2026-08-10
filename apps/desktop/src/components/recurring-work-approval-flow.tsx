@@ -13,8 +13,8 @@ import {
 } from "@chief/ui/components/dialog";
 import { Input } from "@chief/ui/components/input";
 
-import { useAgentConfig } from "../lib/agent-config";
-import { useAgentChat } from "../lib/runtime";
+import { messageBlocks, useChiefChat } from "../lib/runtime";
+import { AgentWorkingIndicator } from "./chat/agent-working-indicator";
 
 /**
  * The one approval surface for proposed recurring work, usable from any
@@ -32,27 +32,21 @@ export function RecurringWorkApprovalFlow({
   onApprove: (work: RecurringWorkRecord) => void;
   onReject: (work: RecurringWorkRecord) => void;
 }) {
-  const agentConfig = useAgentConfig();
-  const revisionDriver = agentConfig.forAgent("cmo").driver;
-  const revisionChat = useAgentChat(
-    work ? "cmo" : null,
-    revisionDriver,
-    work ? `revise-recurring-${work.id}` : undefined,
-    "full",
-  );
+  const revisionChat = useChiefChat(work?.conversationId ?? null);
   const revisionNote = useMemo(() => {
-    for (let i = revisionChat.chat.items.length - 1; i >= 0; i -= 1) {
-      const item = revisionChat.chat.items[i]!;
-      if (item.kind !== "assistant") continue;
-      const text = item.event.content
+    for (let i = revisionChat.messages.length - 1; i >= 0; i -= 1) {
+      const item = revisionChat.messages[i]!;
+      if (item.role !== "assistant") continue;
+      const text = messageBlocks(item)
         .flatMap((block) => (block.type === "text" ? [block.text] : []))
         .join(" ")
         .trim();
       if (text) return text;
     }
     return null;
-  }, [revisionChat.chat.items]);
-  const busy = revisionChat.chat.status === "running";
+  }, [revisionChat.messages]);
+  const busy =
+    !revisionChat.chatReady || revisionChat.controls.status === "running";
   const [feedback, setFeedback] = useState("");
 
   const requestRevision = () => {
@@ -65,19 +59,20 @@ export function RecurringWorkApprovalFlow({
       title: work.title,
       cron: work.cron,
       timezone: work.timezone,
+      onceAt: work.onceAt,
       instructions: work.instructions,
       approvalSummary: work.approvalSummary,
       proposedToolPatterns: work.proposedToolPatterns,
     };
-    revisionChat.send(
-      [
+    void revisionChat.sendMessage({
+      text: [
         "The user is reviewing a draft recurring-work approval and asked for a change before approving.",
         `Current draft (JSON): ${JSON.stringify(draft)}`,
         `Feedback: "${text}"`,
         `Right now it is ${new Date().toString()}.`,
-        "Apply the feedback by calling the recurringWorkPropose local tool with the SAME id and ALL fields (id, title, agentId, cron, timezone, instructions, approvalSummary, proposedToolPatterns), changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
+        "Apply the feedback by calling the recurringWorkPropose local tool with the SAME id and ALL fields (id, title, agentId, cron, timezone, onceAt when present, instructions, approvalSummary, proposedToolPatterns), changing only what the feedback requires. Then reply with one short sentence stating exactly what changed. Do not ask questions.",
       ].join("\n"),
-    );
+    });
   };
 
   return (
@@ -86,12 +81,15 @@ export function RecurringWorkApprovalFlow({
         {work ? (
           <>
             <DialogHeader>
-              <DialogTitle className="font-serif text-2xl">
-                Approve recurring work
+              <DialogTitle className="text-2xl font-normal">
+                {work.onceAt === undefined
+                  ? "Approve recurring work"
+                  : "Approve task"}
               </DialogTitle>
               <DialogDescription>
-                Approve this once and {work.agentId} will keep running it until
-                you pause or revoke it.
+                {work.onceAt === undefined
+                  ? `Approve this once and ${work.agentId} will keep running it until you pause or revoke it.`
+                  : `Approve this once and ${work.agentId} will run it at the scheduled time.`}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -101,7 +99,10 @@ export function RecurringWorkApprovalFlow({
                   {work.approvalSummary}
                 </p>
                 <p className="text-muted-foreground mt-3 font-mono text-[11px]">
-                  {work.cron} · {work.timezone}
+                  {work.onceAt === undefined
+                    ? work.cron
+                    : new Date(work.onceAt).toLocaleString()}{" "}
+                  · {work.timezone}
                 </p>
               </div>
               <div>
@@ -161,9 +162,7 @@ export function RecurringWorkApprovalFlow({
                   </Button>
                 </div>
                 {busy ? (
-                  <p className="agent-working mt-2 font-mono text-xs">
-                    updating the plan…
-                  </p>
+                  <AgentWorkingIndicator className="mt-2" />
                 ) : revisionNote ? (
                   <p className="text-muted-foreground mt-2 text-xs leading-5">
                     {revisionNote}

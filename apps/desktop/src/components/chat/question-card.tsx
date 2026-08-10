@@ -55,55 +55,73 @@ function QuestionBlock({
         ) : null}
         <p className="mt-0.5 text-sm font-medium">{question.question}</p>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {question.options.map((option) => {
-          const active = state.selected.has(option.label);
-          return (
-            <button
-              key={option.label}
-              type="button"
-              onClick={() => toggle(option.label)}
+      {question.options.length > 0 ? (
+        <>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {question.options.map((option) => {
+              const active = state.selected.has(option.label);
+              return (
+                <button
+                  key={option.label}
+                  type="button"
+                  onClick={() => toggle(option.label)}
+                  className={cn(
+                    "hover:bg-accent border px-3 py-2 text-left transition-colors",
+                    active && "border-foreground/40 bg-accent",
+                  )}
+                >
+                  <span className="block text-sm">{option.label}</span>
+                  {option.description ? (
+                    <span className="text-muted-foreground mt-0.5 block text-xs">
+                      {option.description}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+          {question.allowFreeform !== false ? (
+            <Input
+              value={state.other}
+              placeholder="Other…"
+              onFocus={() => {
+                if (!state.selected.has(OTHER)) {
+                  const selected = new Set(state.selected);
+                  if (!question.multiSelect) selected.clear();
+                  selected.add(OTHER);
+                  onChange({ ...state, selected });
+                }
+              }}
+              onChange={(e) => {
+                const selected = new Set(state.selected);
+                if (e.target.value) {
+                  if (!question.multiSelect) selected.clear();
+                  selected.add(OTHER);
+                } else {
+                  selected.delete(OTHER);
+                }
+                onChange({ selected, other: e.target.value });
+              }}
               className={cn(
-                "hover:bg-accent border px-3 py-2 text-left transition-colors",
-                active && "border-foreground/40 bg-accent",
+                "h-9 text-sm",
+                state.selected.has(OTHER) && "border-foreground/40",
               )}
-            >
-              <span className="block text-sm">{option.label}</span>
-              {option.description ? (
-                <span className="text-muted-foreground mt-0.5 block text-xs">
-                  {option.description}
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
-      <Input
-        value={state.other}
-        placeholder="Other…"
-        onFocus={() => {
-          if (!state.selected.has(OTHER)) {
-            const selected = new Set(state.selected);
-            if (!question.multiSelect) selected.clear();
-            selected.add(OTHER);
-            onChange({ ...state, selected });
-          }
-        }}
-        onChange={(e) => {
-          const selected = new Set(state.selected);
-          if (e.target.value) {
-            if (!question.multiSelect) selected.clear();
-            selected.add(OTHER);
-          } else {
-            selected.delete(OTHER);
-          }
-          onChange({ selected, other: e.target.value });
-        }}
-        className={cn(
-          "h-9 text-sm",
-          state.selected.has(OTHER) && "border-foreground/40",
-        )}
-      />
+            />
+          ) : null}
+        </>
+      ) : (
+        <Input
+          value={state.other}
+          placeholder="Type your answer…"
+          aria-label="Type your answer"
+          onChange={(e) => {
+            const selected = new Set<string>();
+            if (e.target.value) selected.add(OTHER);
+            onChange({ selected, other: e.target.value });
+          }}
+          className="h-9 text-sm"
+        />
+      )}
     </div>
   );
 }
@@ -127,7 +145,7 @@ export function QuestionCard({
   const complete = answers.every((answer) => answer.length > 0);
 
   return (
-    <div className="bg-card space-y-5 border p-5">
+    <div className="bg-card space-y-5 rounded-xl border p-5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_4%,transparent)]">
       {pending.questions.map((question, index) => (
         <QuestionBlock
           key={`${pending.requestId}-${index}`}
@@ -141,13 +159,19 @@ export function QuestionCard({
         />
       ))}
       <div className="flex items-center justify-between border-t pt-3">
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="text-muted-foreground hover:text-foreground text-xs transition-colors"
-        >
-          Skip these questions
-        </button>
+        {pending.questions.every(
+          (question) => question.dismissible !== false,
+        ) ? (
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="text-muted-foreground hover:text-foreground text-xs transition-colors"
+          >
+            Skip these questions
+          </button>
+        ) : (
+          <span />
+        )}
         <Button
           size="sm"
           disabled={!complete}

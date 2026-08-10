@@ -46,7 +46,7 @@
     "createUpdaterArtifacts": true,
     "externalBin": ["binaries/chief-agent-runtime"],
     "resources": {
-      "resources/agent-runtime.tar.gz": "agent-runtime.tar.gz",
+      "resources/agent-runtime": "agent-runtime",
       "resources/agent-runtime.version": "agent-runtime.version"
     },
     "macOS": {

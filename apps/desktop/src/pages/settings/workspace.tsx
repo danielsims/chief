@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 
 import { api } from "@chief/backend/convex/_generated/api";
@@ -35,6 +35,17 @@ import {
 import { removeImageAsset, uploadImageAsset } from "../../lib/image-upload";
 import { SOCIAL_PLATFORMS } from "../../lib/social-platforms";
 
+// Vite replaces `import.meta.hot` with undefined in production. Production
+// never imports the isolated replay module, so this shortcut cannot appear in
+// releases and removing the dev module removes the feature completely.
+const DevelopmentOnboardingReplay = import.meta.hot
+  ? lazy(() =>
+      import("../../dev/onboarding-replay-card").then((module) => ({
+        default: module.DevelopmentOnboardingReplay,
+      })),
+    )
+  : null;
+
 function LogoPreview({
   logo,
   website,
@@ -51,6 +62,7 @@ function LogoPreview({
       website={website}
       className="h-12 w-12 shrink-0 text-lg"
       imgClassName="h-8 w-8 object-contain"
+      transparentWhenLoaded
     />
   );
 }
@@ -354,20 +366,22 @@ export function WorkspaceSettings() {
             <LogoPreview logo={logo} website={website} name={name} />
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button asChild variant="outline" size="sm">
-                  <label className="cursor-pointer">
-                    {processingLogo ? "Processing..." : "Upload image"}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      disabled={processingLogo || !org}
-                      onChange={(event) => {
-                        void uploadLogo(event.target.files?.[0]);
-                        event.currentTarget.value = "";
-                      }}
-                    />
-                  </label>
+                <Button
+                  render={<label className="cursor-pointer" />}
+                  variant="outline"
+                  size="sm"
+                >
+                  {processingLogo ? "Processing..." : "Upload image"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={processingLogo || !org}
+                    onChange={(event) => {
+                      void uploadLogo(event.target.files?.[0]);
+                      event.currentTarget.value = "";
+                    }}
+                  />
                 </Button>
                 {logoSource === "upload" ? (
                   <Button
@@ -460,6 +474,12 @@ export function WorkspaceSettings() {
           )}
         </CardContent>
       </Card>
+
+      {org && DevelopmentOnboardingReplay ? (
+        <Suspense fallback={null}>
+          <DevelopmentOnboardingReplay organization={org} />
+        </Suspense>
+      ) : null}
 
       {org && <DeleteWorkspaceCard org={org} />}
     </>

@@ -15,6 +15,7 @@
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.3",
     "@chief/backend": "workspace:*",
+    "@chief/channel-api": "workspace:*",
     "@chief/ui": "workspace:*",
     "@t3-oss/env-nextjs": "^0.13.8",
     "better-auth": "1.6.16",

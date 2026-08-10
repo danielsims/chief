@@ -1,10 +1,12 @@
+/* eslint-disable max-lines */
+
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -13,14 +15,21 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { ChildProcess } from "node:child_process";
 
-import type { ContentBlock, StartOptions } from "../types.js";
+import type { AgentQuestion, StartOptions } from "../types.js";
 import {
   executorAddressesFromCode,
   executorAddressFromElicitation,
+  executorCodeUsesOnlyCatalogHelpers,
   grantAllowsAddress,
 } from "../recurring-work.js";
 import { BaseDriver } from "./base.js";
+import {
+  codexItemStartedToBlocks,
+  codexItemToBlocks,
+} from "./codex-item-mapper.js";
 import { agentEnvironment } from "./environment.js";
+
+export { codexMcpResultText } from "./codex-item-mapper.js";
 
 const moduleDirectory =
   typeof __dirname === "string"
@@ -55,6 +64,11 @@ interface RpcRequest {
   timer: NodeJS.Timeout;
 }
 
+interface ActiveTurn {
+  resolve: () => void;
+  reject: (error: Error) => void;
+}
+
 /**
  * Drives the Codex CLI via `codex app-server` — JSON-RPC 2.0 over
  * stdin/stdout (JSONL). Uses the user's existing `codex auth login`
@@ -74,10 +88,33 @@ export class CodexDriver extends BaseDriver {
     string,
     { rpcId: number; kind: "codex" | "mcp" }
   >();
+  private pendingQuestions = new Map<
+    string,
+    {
+      rpcId: number;
+      questions: {
+        id: string;
+        question: string;
+        optionLabels: Set<string>;
+      }[];
+    }
+  >();
   private activeToolUseIds = new Set<string>();
   private currentStream = "";
+  private readonly itemMappingState = {
+    activeToolUseIds: this.activeToolUseIds,
+    nextId: () => String(this.rpcId++),
+    takeStream: () => {
+      const stream = this.currentStream;
+      this.currentStream = "";
+      return stream;
+    },
+  };
+  private activeTurn: ActiveTurn | null = null;
   private opts: StartOptions | null = null;
   private stopping = false;
+  private stderrTail = "";
+  private lineReader: ReturnType<typeof createInterface> | null = null;
 
   private finishActiveTools(content: string, isError = false) {
     if (this.activeToolUseIds.size === 0) return;
@@ -95,8 +132,18 @@ export class CodexDriver extends BaseDriver {
   }
 
   async start(opts: StartOptions): Promise<void> {
+    this.stopping = false;
     this.opts = opts;
+    this.startOptions = opts;
     this.threadId = opts.resumeSessionId;
+    this.turnId = undefined;
+    this.approvals.clear();
+    this.pendingQuestions.clear();
+    this.activeToolUseIds.clear();
+    this.currentStream = "";
+    this.stderrTail = "";
+    this.lineReader?.close();
+    this.lineReader = null;
     // Codex reads per-directory instructions from AGENTS.md (same approach
     // as orbit): materialize the agent persona into the working dir.
     try {
@@ -106,7 +153,11 @@ export class CodexDriver extends BaseDriver {
     }
     const codexHome = this.prepareCodexHome(opts);
     const environment = agentEnvironment(opts.env);
-    this.proc = spawn(findCodex(), ["app-server"], {
+    // Read-only native web search is part of every Chief agent's research
+    // surface. Without it, a scheduled writer or prospector can only inspect
+    // already-connected records and turns a missing optional connector into a
+    // dead end. Provider mutations remain governed by Executor separately.
+    const proc = spawn(findCodex(), ["--search", "app-server"], {
       cwd: opts.cwd,
       env: {
         ...environment,
@@ -125,13 +176,32 @@ export class CodexDriver extends BaseDriver {
       // spawned. Killing only the wrapper leaks app-server/Executor processes.
       detached: true,
     });
+    this.proc = proc;
 
-    this.proc.on("exit", (code) => {
-      this.rejectPending("Codex exited");
+    proc.on("exit", (code, signal) => {
+      if (this.proc !== proc) return;
+      this.proc = null;
+      this.lineReader?.close();
+      this.lineReader = null;
+      const detail = this.stderrTail
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .at(-1);
+      const reason = `Codex exited${code === null ? "" : ` with code ${code}`}${signal ? ` (${signal})` : ""}${detail ? `: ${detail}` : "."}`;
+      this.rejectPending(reason);
+      const promptWasActive = this.activeTurn !== null;
+      this.rejectActiveTurn(reason);
       this.finishActiveTools(
         "Tool stopped because the agent runtime exited.",
         true,
       );
+      // Let BaseDriver own an in-flight prompt failure so it can restart and
+      // retry when no output was produced. Emitting exit here would mark a
+      // private specialist terminal before that retry gets a chance to run.
+      if (promptWasActive && !this.stopping && !this.promptWasInterrupted()) {
+        return;
+      }
       if (!this.stopping && code !== 0) {
         this.emitEvent({
           type: "error",
@@ -141,18 +211,32 @@ export class CodexDriver extends BaseDriver {
       this.emitEvent({ type: "exit", code });
       this.emitEvent({ type: "status", status: "idle" });
     });
-    this.proc.on("error", (err) =>
-      this.emitEvent({ type: "error", message: err.message }),
-    );
+    proc.on("error", (err) => {
+      if (this.proc !== proc) return;
+      this.proc = null;
+      this.lineReader?.close();
+      this.lineReader = null;
+      this.rejectPending(`Could not start Codex: ${err.message}`);
+      const promptWasActive = this.activeTurn !== null;
+      this.rejectActiveTurn(`Could not start Codex: ${err.message}`);
+      if (promptWasActive && !this.promptWasInterrupted()) return;
+      this.emitEvent({ type: "error", message: err.message });
+    });
     // Codex writes diagnostics to stderr. Always drain it so a full pipe can
     // never stall the app-server while a turn is streaming.
-    this.proc.stderr?.on("data", (chunk) => {
+    proc.stderr.on("data", (chunk) => {
+      if (this.proc !== proc) return;
       const text = String(chunk).trim();
-      if (text) console.error(`[codex] ${text.slice(0, 800)}`);
+      if (text) {
+        this.stderrTail = `${this.stderrTail}\n${text}`.slice(-4_000);
+        console.error(`[codex] ${text.slice(0, 800)}`);
+      }
     });
 
-    const rl = createInterface({ input: this.proc.stdout! });
+    const rl = createInterface({ input: proc.stdout });
+    this.lineReader = rl;
     rl.on("line", (line) => {
+      if (this.proc !== proc) return;
       if (!line.trim()) return;
       try {
         this.handleMessage(JSON.parse(line));
@@ -161,9 +245,20 @@ export class CodexDriver extends BaseDriver {
       }
     });
 
-    await this.rpc("initialize", {
-      clientInfo: { name: "chief", version: "0.1.0" },
-    });
+    await this.rpc(
+      "initialize",
+      {
+        clientInfo: { name: "chief", version: "0.1.0" },
+        // Required by the current app-server protocol. Omitting this field
+        // leaves initialize unanswered on Codex 0.144+, which surfaces as an
+        // RPC timeout even though the child process started successfully.
+        capabilities: null,
+      },
+      // A fresh CODEX_HOME may perform a state-store backfill before replying.
+      // Codex itself waits up to 30 seconds before retrying that migration, so
+      // the host must not race it with the normal request timeout.
+      90_000,
+    );
     this.notify("initialized", {});
 
     // Response carries the thread object: { thread: { id, ... } } on current
@@ -226,31 +321,22 @@ export class CodexDriver extends BaseDriver {
   }
 
   private prepareCodexHome(opts: StartOptions) {
-    const safeName = opts.cwd.replace(/[^a-z0-9_-]/gi, "-").slice(-80);
-    const target = join(homedir(), ".chief", "codex", safeName);
+    const storageKey = opts.storageKey ?? opts.cwd;
+    const storageId = createHash("sha256")
+      .update(storageKey)
+      .digest("hex")
+      .slice(0, 32);
+    const target = join(homedir(), ".chief", "codex", storageId);
     mkdirSync(target, { recursive: true });
     const userHome = join(homedir(), ".codex");
     const auth = join(userHome, "auth.json");
     if (existsSync(auth)) copyFileSync(auth, join(target, "auth.json"));
 
-    // Reuse the user's transcript store so persisted thread ids can resume,
-    // while keeping Chief's MCP configuration isolated from global Codex.
-    for (const name of ["sessions", "session_index.jsonl"]) {
-      const source = join(userHome, name);
-      const destination = join(target, name);
-      if (existsSync(source) && !existsSync(destination)) {
-        try {
-          symlinkSync(source, destination);
-        } catch {
-          // A concurrent session may have created it first.
-        }
-      }
-    }
-
     const lines: string[] = [];
     const model = opts.model ?? this.readUserCodexSetting("model");
     if (model) lines.push(`model = ${JSON.stringify(model)}`);
     lines.push('model_reasoning_effort = "medium"');
+    lines.push("", "[features]", "default_mode_request_user_input = true");
     for (const server of opts.mcpServers ?? []) {
       lines.push("", `[mcp_servers.${server.name}]`);
       if (server.url) {
@@ -318,6 +404,85 @@ export class CodexDriver extends BaseDriver {
       Boolean(msg.method) &&
       msg.result === undefined &&
       !msg.error;
+
+    if (
+      msg.id !== undefined &&
+      msg.method === "item/tool/requestUserInput" &&
+      isServerRequest
+    ) {
+      const rawQuestions = Array.isArray(p.questions) ? p.questions : [];
+      const parsed = rawQuestions.flatMap((candidate: unknown) => {
+        if (!candidate || typeof candidate !== "object") return [];
+        const question = candidate as Record<string, unknown>;
+        if (
+          typeof question.id !== "string" ||
+          typeof question.question !== "string" ||
+          question.isSecret === true
+        ) {
+          return [];
+        }
+        const options = Array.isArray(question.options)
+          ? question.options.flatMap((candidateOption: unknown) => {
+              if (!candidateOption || typeof candidateOption !== "object") {
+                return [];
+              }
+              const option = candidateOption as Record<string, unknown>;
+              return typeof option.label === "string"
+                ? [
+                    {
+                      label: option.label,
+                      description:
+                        typeof option.description === "string"
+                          ? option.description
+                          : undefined,
+                    },
+                  ]
+                : [];
+            })
+          : [];
+        if (options.length === 0) return [];
+        return [
+          {
+            driver: {
+              id: question.id,
+              question: question.question,
+              optionLabels: new Set(options.map((option) => option.label)),
+            },
+            ui: {
+              question: question.question,
+              header:
+                typeof question.header === "string"
+                  ? question.header
+                  : undefined,
+              multiSelect: false,
+              allowFreeform: question.isOther !== false,
+              dismissible: false,
+              options,
+            } satisfies AgentQuestion,
+          },
+        ];
+      });
+      if (parsed.length !== rawQuestions.length || parsed.length === 0) {
+        this.write({
+          jsonrpc: "2.0",
+          id: msg.id,
+          result: { answers: {} },
+        });
+        return;
+      }
+      const requestId = `codex-input-${msg.id}`;
+      this.pendingQuestions.set(requestId, {
+        rpcId: msg.id,
+        questions: parsed.map((question) => question.driver),
+      });
+      this.emitEvent({
+        type: "question",
+        requestId,
+        questions: parsed.map((question) => question.ui),
+      });
+      this.emitEvent({ type: "status", status: "waiting" });
+      return;
+    }
 
     // Server -> client approval requests (RPC with id)
     if (
@@ -394,7 +559,7 @@ export class CodexDriver extends BaseDriver {
       }
       case "item/started": {
         const item = (p.item ?? p) as Record<string, any>;
-        const blocks = this.itemStartedToBlocks(item);
+        const blocks = codexItemStartedToBlocks(item, this.itemMappingState);
         if (blocks.length > 0) {
           this.emitEvent({
             type: "message",
@@ -407,7 +572,7 @@ export class CodexDriver extends BaseDriver {
       case "item/completed": {
         const item = p.item as Record<string, any> | undefined;
         if (!item) break;
-        const blocks = this.itemToBlocks(item);
+        const blocks = codexItemToBlocks(item, this.itemMappingState);
         if (blocks.length > 0) {
           this.emitEvent({
             type: "message",
@@ -433,32 +598,58 @@ export class CodexDriver extends BaseDriver {
               : "Tool completed.",
             failed || interrupted,
           );
-          this.emitEvent({
-            type: "result",
-            ok: !failed && !interrupted,
-            error: failed
+          if (failed || interrupted) {
+            const message = failed
               ? String(turn.error?.message ?? turn.error ?? "turn failed")
-              : interrupted
-                ? "Turn interrupted"
-                : undefined,
-          });
+              : "Turn interrupted";
+            const promptWasActive = this.activeTurn !== null;
+            this.rejectActiveTurn(message);
+            if (!promptWasActive) {
+              this.emitEvent({ type: "result", ok: false, error: message });
+            }
+            if (!promptWasActive || interrupted) {
+              this.emitEvent({ type: "status", status: "idle" });
+            }
+          } else {
+            this.emitEvent({ type: "result", ok: true });
+            this.resolveActiveTurn();
+            this.emitEvent({ type: "status", status: "idle" });
+          }
         }
+        this.turnId = undefined;
+        this.approvals.clear();
         this.currentStream = "";
-        this.emitEvent({ type: "status", status: "idle" });
+        this.pendingQuestions.clear();
         break;
-      case "turn/failed":
+      case "turn/failed": {
+        this.turnId = undefined;
+        this.approvals.clear();
+        this.pendingQuestions.clear();
         this.finishActiveTools("Tool stopped before completing.", true);
-        this.emitEvent({
-          type: "result",
-          ok: false,
-          error: String(
-            typeof p.error === "string"
-              ? p.error
-              : (p.error?.message ?? "turn failed"),
-          ),
-        });
-        this.emitEvent({ type: "status", status: "idle" });
+        const message = String(
+          typeof p.error === "string"
+            ? p.error
+            : (p.error?.message ?? "turn failed"),
+        );
+        const promptWasActive = this.activeTurn !== null;
+        this.rejectActiveTurn(message);
+        if (!promptWasActive) {
+          this.emitEvent({ type: "result", ok: false, error: message });
+          this.emitEvent({ type: "status", status: "idle" });
+        }
         break;
+      }
+      case "serverRequest/resolved": {
+        const resolvedId = String(p.requestId ?? "");
+        const pending = [...this.pendingQuestions.entries()].find(
+          ([, question]) => String(question.rpcId) === resolvedId,
+        );
+        if (pending) {
+          this.pendingQuestions.delete(pending[0]);
+          this.emitEvent({ type: "questionResolved", requestId: pending[0] });
+        }
+        break;
+      }
       case "mcpServer/elicitation/request":
         if (isServerRequest) {
           const requestId = `mcp-${msg.id}`;
@@ -467,16 +658,23 @@ export class CodexDriver extends BaseDriver {
           // carry the tool and its params in _meta rather than Executor's
           // "Approve tools.…" phrasing. For granted runs, evaluate the actual
           // execute snippet: every referenced address must be delegated.
-          const meta = (p as { _meta?: Record<string, unknown> })?._meta;
+          const meta = (p as { _meta?: Record<string, unknown> })._meta;
           if (grant && meta?.codex_approval_kind === "mcp_tool_call") {
-            const toolName = String(
-              (p as { message?: string }).message?.match(
-                /run tool "([^"]+)"/,
-              )?.[1] ?? "",
-            );
             const params = meta.tool_params as
               Record<string, unknown> | undefined;
             const code = typeof params?.code === "string" ? params.code : "";
+            const metadataToolName =
+              typeof meta.tool_name === "string"
+                ? meta.tool_name
+                : typeof meta.toolName === "string"
+                  ? meta.toolName
+                  : undefined;
+            const toolName =
+              metadataToolName ??
+              (p as { message?: string }).message?.match(
+                /run tool ["'`]([^"'`]+)["'`]/i,
+              )?.[1] ??
+              (code ? "execute" : "");
             const addresses =
               toolName === "execute" ? executorAddressesFromCode(code) : [];
             const readOnlyCatalog = [
@@ -488,8 +686,12 @@ export class CodexDriver extends BaseDriver {
               // against this automation's narrow grant.
               "resume",
             ].includes(toolName);
+            const catalogDiscovery =
+              toolName === "execute" &&
+              executorCodeUsesOnlyCatalogHelpers(code);
             const allowed =
               readOnlyCatalog ||
+              catalogDiscovery ||
               (toolName === "execute" &&
                 addresses.length > 0 &&
                 addresses.every((address) =>
@@ -528,10 +730,17 @@ export class CodexDriver extends BaseDriver {
               result: { action: "accept", content: {} },
             });
           } else {
+            const meta = (p as { _meta?: Record<string, unknown> })._meta;
+            const suggestedToolName =
+              typeof meta?.tool_name === "string"
+                ? meta.tool_name
+                : typeof meta?.toolName === "string"
+                  ? meta.toolName
+                  : undefined;
             this.emitEvent({
               type: "permission",
               requestId,
-              toolName: address ?? "Executor tool",
+              toolName: address ?? suggestedToolName ?? "Executor tool",
               input: p,
             });
             if (grant) {
@@ -569,219 +778,60 @@ export class CodexDriver extends BaseDriver {
       case "error":
       case "codex/event/error": {
         const error = p.error ?? p.event?.error ?? p.message ?? p;
+        const message =
+          typeof error === "string"
+            ? error
+            : String(error?.message ?? JSON.stringify(error));
         this.finishActiveTools(
           "Tool stopped because the agent encountered an error.",
           true,
         );
-        this.emitEvent({
-          type: "error",
-          message:
-            typeof error === "string"
-              ? error
-              : String(error?.message ?? JSON.stringify(error)),
-        });
-        this.emitEvent({ type: "status", status: "idle" });
+        this.turnId = undefined;
+        this.approvals.clear();
+        this.pendingQuestions.clear();
+        const promptWasActive = this.activeTurn !== null;
+        this.rejectActiveTurn(message);
+        if (!promptWasActive) {
+          this.emitEvent({ type: "error", message });
+          this.emitEvent({ type: "status", status: "idle" });
+        }
         break;
       }
     }
   }
 
-  private itemToBlocks(item: Record<string, any>): ContentBlock[] {
-    switch (item.type) {
-      case "agentMessage":
-      case "agent_message": {
-        const text =
-          typeof item.text === "string"
-            ? item.text
-            : typeof item.content === "string"
-              ? item.content
-              : this.currentStream;
-        this.currentStream = "";
-        return text ? [{ type: "text", text }] : [];
-      }
-      case "reasoning": {
-        const text =
-          typeof item.text === "string"
-            ? item.text
-            : typeof item.summary === "string"
-              ? item.summary
-              : Array.isArray(item.summary)
-                ? item.summary.map((part: any) => part?.text ?? "").join("\n")
-                : "";
-        return text ? [{ type: "thinking", thinking: text }] : [];
-      }
-      case "commandExecution":
-      case "command_execution": {
-        const id = String(item.id ?? this.rpcId++);
-        const blocks: ContentBlock[] = [
-          {
-            type: "tool_use",
-            id,
-            name: "bash",
-            input: { command: item.command },
-          },
-        ];
-        // Completed executions carry their output; surface it so the UI can
-        // render a real terminal view instead of a spinner.
-        const output =
-          item.output ?? item.aggregatedOutput ?? item.aggregated_output;
-        const exitCode = item.exitCode ?? item.exit_code;
-        blocks.push({
-          type: "tool_result",
-          tool_use_id: id,
-          content:
-            typeof output === "string" && output.trim()
-              ? output
-              : `Command completed${typeof exitCode === "number" ? ` with exit code ${exitCode}` : ""}.`,
-          is_error: typeof exitCode === "number" && exitCode !== 0,
-        });
-        return blocks;
-      }
-      case "fileChange":
-      case "file_change": {
-        const id = String(item.id ?? this.rpcId++);
-        return [
-          {
-            type: "tool_use",
-            id,
-            name: "editFile",
-            input: {
-              file: item.filePath ?? item.file,
-              changes: item.changes,
-            },
-          },
-          {
-            type: "tool_result",
-            tool_use_id: id,
-            content:
-              item.diff ??
-              `Updated ${item.filePath ?? item.file ?? "workspace files"}.`,
-          },
-        ];
-      }
-      case "mcpToolCall":
-      case "mcp_tool_call": {
-        const id = String(item.id ?? this.rpcId++);
-        const result = this.extractMcpResult(item);
-        const status = String(item.status ?? "").toLowerCase();
-        const failed =
-          Boolean(item.error) ||
-          [
-            "failed",
-            "aborted",
-            "cancelled",
-            "canceled",
-            "declined",
-            "interrupted",
-          ].includes(status);
-        this.activeToolUseIds.delete(id);
-        return [
-          {
-            type: "tool_result",
-            tool_use_id: id,
-            content:
-              result ||
-              (failed ? "Tool stopped before completing." : "Tool completed."),
-            is_error: failed,
-          },
-        ];
-      }
-      case "webSearch":
-      case "web_search": {
-        const id = String(item.id ?? this.rpcId++);
-        this.activeToolUseIds.delete(id);
-        return [
-          {
-            type: "tool_result",
-            tool_use_id: id,
-            content:
-              item.result ??
-              item.output ??
-              (item.query ? `Searched for ${item.query}` : "Search complete"),
-          },
-        ];
-      }
-      default:
-        return [];
+  async sendPromptOnce(text: string): Promise<void> {
+    if (this.activeTurn) {
+      throw new Error("Codex already has an active turn");
     }
-  }
-
-  private itemStartedToBlocks(item: Record<string, any>): ContentBlock[] {
-    if (item.type === "commandExecution" || item.type === "command_execution") {
-      return [
-        {
-          type: "tool_use",
-          id: String(item.id ?? this.rpcId++),
-          name: "bash",
-          input: { command: item.command ?? "" },
-        },
-      ];
-    }
-    if (item.type === "fileChange" || item.type === "file_change") {
-      return [
-        {
-          type: "tool_use",
-          id: String(item.id ?? this.rpcId++),
-          name: "editFile",
-          input: { file: item.filePath ?? item.file ?? "" },
-        },
-      ];
-    }
-    if (
-      item.type === "mcpToolCall" ||
-      item.type === "mcp_tool_call" ||
-      item.type === "webSearch" ||
-      item.type === "web_search"
-    ) {
-      const id = String(item.id ?? this.rpcId++);
-      this.activeToolUseIds.add(id);
-      const isSearch = item.type === "webSearch" || item.type === "web_search";
-      return [
-        {
-          type: "tool_use",
-          id,
-          name: isSearch ? "web_search" : String(item.tool ?? "tool"),
-          input: isSearch
-            ? { query: item.query ?? item.action?.query ?? "" }
-            : (item.arguments ?? item.input ?? {}),
-        },
-      ];
-    }
-    return [];
-  }
-
-  private extractMcpResult(item: Record<string, any>): string {
-    if (item.error) {
-      return `Error: ${typeof item.error === "string" ? item.error : JSON.stringify(item.error)}`;
-    }
-    const content = item.result?.content;
-    if (Array.isArray(content)) {
-      return content
-        .map((part) =>
-          typeof part === "string"
-            ? part
-            : typeof part?.text === "string"
-              ? part.text
-              : JSON.stringify(part),
-        )
-        .join("\n");
-    }
-    if (item.result?.structuredContent) {
-      return JSON.stringify(item.result.structuredContent, null, 2);
-    }
-    const value = item.result ?? item.output ?? item.content;
-    return value === undefined
-      ? ""
-      : typeof value === "string"
-        ? value
-        : JSON.stringify(value, null, 2);
-  }
-
-  async sendPrompt(text: string): Promise<void> {
-    await this.rpc("turn/start", {
-      threadId: this.threadId,
-      input: [{ type: "text", text }],
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
     });
+    const activeTurn = { resolve, reject };
+    this.activeTurn = activeTurn;
+    try {
+      await this.rpc("turn/start", {
+        threadId: this.threadId,
+        input: [{ type: "text", text }],
+      });
+    } catch (error) {
+      if (this.activeTurn === activeTurn) this.activeTurn = null;
+      throw error;
+    }
+    await promise;
+  }
+
+  /** Recover from a failed prompt by restarting the codex thread. */
+  async restart(): Promise<void> {
+    if (this.stopping) return;
+    if (this.proc?.exitCode === null) return;
+    this.proc = null;
+    if (this.opts) {
+      await this.start({ ...this.opts, resumeSessionId: this.threadId });
+    }
   }
 
   override respondPermission(requestId: string, behavior: "allow" | "deny") {
@@ -799,7 +849,39 @@ export class CodexDriver extends BaseDriver {
     this.emitEvent({ type: "status", status: "running" });
   }
 
+  override respondQuestion(
+    requestId: string,
+    answers: Record<string, string> | null,
+  ) {
+    const pending = this.pendingQuestions.get(requestId);
+    if (!pending) return;
+    this.pendingQuestions.delete(requestId);
+    this.write({
+      jsonrpc: "2.0",
+      id: pending.rpcId,
+      result: {
+        answers: Object.fromEntries(
+          pending.questions.flatMap((question) => {
+            const answer = answers?.[question.question]?.trim();
+            if (!answer) return [];
+            const values = answer
+              .split(", ")
+              .map((value) =>
+                question.optionLabels.has(value)
+                  ? value
+                  : `user_note: ${value}`,
+              );
+            return [[question.id, { answers: values }]];
+          }),
+        ),
+      },
+    });
+    this.emitEvent({ type: "questionResolved", requestId });
+    this.emitEvent({ type: "status", status: "running" });
+  }
+
   async interrupt(): Promise<void> {
+    this.interrupted = true;
     if (this.threadId && this.turnId) {
       await this.rpc("turn/interrupt", {
         threadId: this.threadId,
@@ -809,11 +891,19 @@ export class CodexDriver extends BaseDriver {
   }
 
   async stop(): Promise<void> {
-    const proc = this.proc;
-    if (!proc) return;
+    this.interrupted = true;
     this.stopping = true;
+    const proc = this.proc;
     this.proc = null;
+    this.lineReader?.close();
+    this.lineReader = null;
+    this.approvals.clear();
+    this.pendingQuestions.clear();
+    this.activeToolUseIds.clear();
+    this.currentStream = "";
     this.rejectPending("Codex stopped");
+    this.rejectActiveTurn("Codex stopped");
+    if (!proc) return;
     proc.stdin?.end();
     const pid = proc.pid;
     if (!pid) return;
@@ -832,13 +922,17 @@ export class CodexDriver extends BaseDriver {
     force.unref();
   }
 
-  private rpc(method: string, params: unknown): Promise<unknown> {
+  private rpc(
+    method: string,
+    params: unknown,
+    timeoutMs = 30_000,
+  ): Promise<unknown> {
     const id = ++this.rpcId;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.pending.delete(id))
           reject(new Error(`RPC timeout: ${method}`));
-      }, 30_000);
+      }, timeoutMs);
       timer.unref();
       this.pending.set(id, { resolve, reject, timer });
       this.write({ jsonrpc: "2.0", id, method, params });
@@ -851,6 +945,20 @@ export class CodexDriver extends BaseDriver {
       request.reject(new Error(reason));
     }
     this.pending.clear();
+  }
+
+  private resolveActiveTurn() {
+    const activeTurn = this.activeTurn;
+    if (!activeTurn) return;
+    this.activeTurn = null;
+    activeTurn.resolve();
+  }
+
+  private rejectActiveTurn(reason: string) {
+    const activeTurn = this.activeTurn;
+    if (!activeTurn) return;
+    this.activeTurn = null;
+    activeTurn.reject(new Error(reason));
   }
 
   private notify(method: string, params: unknown) {

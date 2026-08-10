@@ -1,0 +1,192 @@
+import type { ChannelApiOperation } from "./types";
+
+export const scheduledWorkApiPrinciples = [
+  "Scheduled work has one trigger and one approved tool grant. A trigger never widens what the run may do.",
+  "Cron and one-off triggers run locally or in a Chief cloud deployment. Public webhook URLs require a reachable cloud deployment or an explicitly configured gateway.",
+  "Message and reaction triggers only observe channels the assigned agent can already read.",
+  "Every delivery has an idempotency key. Retries can resume a failed run without starting the same event twice.",
+  "Pausing stops new runs without deleting configuration or history.",
+  "Webhook secrets are returned only when created or rotated and are never written into chat or activity logs.",
+] as const;
+
+export const scheduledWorkApiOperations: readonly ChannelApiOperation[] = [
+  {
+    operationId: "scheduledWork.list",
+    method: "GET",
+    path: "/local-tools/scheduled-work",
+    group: "Scheduled work",
+    summary: "List scheduled work",
+    description:
+      "Lists visible scheduled work with trigger, status, next run, placement and the most recent outcome.",
+    permission: "Workspace member",
+    toolPermission: "schedules.read",
+    reversible: true,
+  },
+  {
+    operationId: "scheduledWork.get",
+    method: "GET",
+    path: "/local-tools/scheduled-work/{scheduledWorkId}",
+    group: "Scheduled work",
+    summary: "Get scheduled work",
+    description:
+      "Returns one schedule and its conflict-safe version without exposing webhook credentials.",
+    permission: "Workspace member",
+    toolPermission: "schedules.read",
+    reversible: true,
+  },
+  {
+    operationId: "scheduledWork.create",
+    method: "POST",
+    path: "/local-tools/scheduled-work",
+    group: "Scheduled work",
+    summary: "Create scheduled work",
+    description:
+      "Creates a reviewable scheduled-run definition and safely deduplicates retries with operationKey. Activation still follows workspace scheduling authority.",
+    permission: "Schedule management enabled",
+    toolPermission: "schedules.manage",
+    reversible: true,
+  },
+  {
+    operationId: "scheduledWork.update",
+    method: "PATCH",
+    path: "/local-tools/scheduled-work/{scheduledWorkId}",
+    group: "Scheduled work",
+    summary: "Update scheduled work",
+    description:
+      "Updates instructions, trigger, placement or proposed access. A wider tool grant returns the schedule to review instead of silently expanding authority.",
+    permission: "Schedule management enabled",
+    toolPermission: "schedules.manage",
+    reversible: true,
+  },
+  {
+    operationId: "scheduledWork.pause",
+    method: "POST",
+    path: "/local-tools/scheduled-work/{scheduledWorkId}/pause",
+    group: "Scheduled work",
+    summary: "Pause scheduled work",
+    description:
+      "Stops new trigger deliveries while retaining configuration and run history.",
+    permission: "Schedule management enabled",
+    toolPermission: "schedules.manage",
+    reversible: true,
+  },
+  {
+    operationId: "scheduledWork.resume",
+    method: "POST",
+    path: "/local-tools/scheduled-work/{scheduledWorkId}/resume",
+    group: "Scheduled work",
+    summary: "Resume scheduled work",
+    description:
+      "Reactivates approved work and recalculates its next time-based occurrence when necessary.",
+    permission: "Schedule management enabled",
+    toolPermission: "schedules.manage",
+    reversible: true,
+  },
+  {
+    operationId: "scheduledWork.delete",
+    method: "DELETE",
+    path: "/local-tools/scheduled-work/{scheduledWorkId}",
+    group: "Scheduled work",
+    summary: "Delete scheduled work",
+    description:
+      "Permanently removes the definition after owner authorization while retaining immutable audit records for prior runs.",
+    permission: "Workspace owner",
+    toolPermission: "schedules.manage",
+    reversible: false,
+  },
+  {
+    operationId: "scheduledWork.run",
+    method: "POST",
+    path: "/local-tools/scheduled-work/{scheduledWorkId}/runs",
+    group: "Runs",
+    summary: "Run now",
+    description:
+      "Queues an approved run immediately with optional event context and an idempotency key.",
+    permission: "Schedule management enabled",
+    toolPermission: "schedules.run",
+    reversible: false,
+  },
+  {
+    operationId: "scheduledWork.runs.list",
+    method: "GET",
+    path: "/local-tools/scheduled-work/{scheduledWorkId}/runs",
+    group: "Runs",
+    summary: "List runs",
+    description:
+      "Returns cursor-paginated run history including trigger attribution, attempt, status, summary and action requirements.",
+    permission: "Workspace member",
+    toolPermission: "schedules.read",
+    reversible: true,
+  },
+  {
+    operationId: "scheduledWork.runs.get",
+    method: "GET",
+    path: "/local-tools/scheduled-work/{scheduledWorkId}/runs/{runId}",
+    group: "Runs",
+    summary: "Get a run",
+    description:
+      "Returns one run with its trigger envelope, artifacts, blocked access and terminal outcome.",
+    permission: "Workspace member",
+    toolPermission: "schedules.read",
+    reversible: true,
+  },
+  {
+    operationId: "scheduledWork.runs.cancel",
+    method: "POST",
+    path: "/local-tools/scheduled-work/{scheduledWorkId}/runs/{runId}/cancel",
+    group: "Runs",
+    summary: "Cancel a run",
+    description:
+      "Interrupts an active run and records who cancelled it without pausing future deliveries.",
+    permission: "Schedule management enabled",
+    toolPermission: "schedules.run",
+    reversible: false,
+  },
+  {
+    operationId: "scheduledWork.runs.retry",
+    method: "POST",
+    path: "/local-tools/scheduled-work/{scheduledWorkId}/runs/{runId}/retry",
+    group: "Runs",
+    summary: "Retry a run",
+    description:
+      "Queues a new attempt linked to a terminal failed run while preserving the original trigger context.",
+    permission: "Schedule management enabled",
+    toolPermission: "schedules.run",
+    reversible: false,
+  },
+  {
+    operationId: "scheduledWork.webhook.get",
+    method: "GET",
+    path: "/local-tools/scheduled-work/{scheduledWorkId}/webhook",
+    group: "Triggers",
+    summary: "Inspect webhook readiness",
+    description:
+      "Reports whether the webhook is local-only or publicly reachable. It never returns the secret URL after creation.",
+    permission: "Schedule management enabled",
+    toolPermission: "webhooks.manage",
+    reversible: true,
+  },
+  {
+    operationId: "scheduledWork.webhook.rotate",
+    method: "POST",
+    path: "/local-tools/scheduled-work/{scheduledWorkId}/webhook/rotate",
+    group: "Triggers",
+    summary: "Rotate a webhook URL",
+    description:
+      "Invalidates the previous secret and returns the new trigger URL exactly once.",
+    permission: "Schedule management enabled",
+    toolPermission: "webhooks.manage",
+    reversible: false,
+  },
+  {
+    operationId: "scheduledWork.webhook.deliver",
+    method: "POST",
+    path: "/hooks/scheduled-runs/{scheduledWorkId}/{secret}",
+    group: "Triggers",
+    summary: "Deliver a webhook event",
+    description:
+      "Accepts a JSON event, acknowledges it quickly and queues one run. Idempotency-Key makes provider retries safe.",
+    permission: "Webhook secret",
+    reversible: false,
+  },
+];

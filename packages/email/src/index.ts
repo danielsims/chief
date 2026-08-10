@@ -5,3 +5,5 @@ export * from "./templates/chief-email";
 export * from "./templates/digest/chief-digest-email";
 export * from "./templates/nurture/founder-welcome-email";
 export * from "./templates/transactional/account-created-email";
+export * from "./templates/editable-document-email";
+export * from "./render";

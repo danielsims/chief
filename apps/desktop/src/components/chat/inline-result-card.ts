@@ -1,0 +1,5 @@
+export const INLINE_RESULT_CARD_CLASS =
+  "bg-muted/30 hover:bg-muted/45 flex w-96 max-w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_9%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_72%,transparent)] transition-colors";
+
+export const INLINE_RESULT_ICON_CLASS =
+  "bg-background flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[9px] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent)]";

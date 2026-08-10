@@ -3,6 +3,7 @@ import type {
   ContentBlock,
   GenerativeChartBlock,
   GenerativeChartData,
+  GenerativeDocumentBlock,
 } from "./types.js";
 
 interface ReportColumn {
@@ -242,6 +243,49 @@ function chartFromContent(
   return { type: "data-chart", id: `chart-${toolUseId}`, data };
 }
 
+function documentFromContent(content: unknown): GenerativeDocumentBlock | null {
+  const visit = (value: unknown): GenerativeDocumentBlock | null => {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = visit(item);
+        if (found) return found;
+      }
+      return null;
+    }
+    if (!isRecord(value)) return null;
+    const file = isRecord(value.file) ? value.file : value;
+    if (
+      typeof file.id === "string" &&
+      typeof file.name === "string" &&
+      typeof file.path === "string" &&
+      typeof file.currentVersionId === "string" &&
+      (file.kind === "document" || file.kind === "email")
+    ) {
+      return {
+        type: "data-document",
+        id: `document-${file.id}`,
+        data: {
+          fileId: file.id,
+          title: file.name,
+          path: file.path,
+          kind: file.kind,
+          versionId: file.currentVersionId,
+        },
+      };
+    }
+    for (const child of Object.values(value)) {
+      const found = visit(child);
+      if (found) return found;
+    }
+    return null;
+  };
+  for (const candidate of parseJsonCandidates(toolResultText(content))) {
+    const found = visit(candidate);
+    if (found) return found;
+  }
+  return null;
+}
+
 /** Add AI SDK-style data parts once, after provider messages are normalized. */
 export function withGenerativeDataParts(event: AgentEvent): AgentEvent {
   if (event.type !== "message") return event;
@@ -250,12 +294,25 @@ export function withGenerativeDataParts(event: AgentEvent): AgentEvent {
       block.type === "data-chart" && block.id ? [block.id] : [],
     ),
   );
+  const existingDocumentIds = new Set(
+    event.content.flatMap((block) =>
+      block.type === "data-document" && block.id ? [block.id] : [],
+    ),
+  );
   const content: ContentBlock[] = [];
   for (const block of event.content) {
     content.push(block);
     if (block.type !== "tool_result" || block.is_error) continue;
     const chart = chartFromContent(block.tool_use_id, block.content);
-    if (chart && !existingChartIds.has(chart.id ?? "")) content.push(chart);
+    if (chart && !existingChartIds.has(chart.id ?? "")) {
+      content.push(chart);
+      if (chart.id) existingChartIds.add(chart.id);
+    }
+    const document = documentFromContent(block.content);
+    if (document && !existingDocumentIds.has(document.id ?? "")) {
+      content.push(document);
+      if (document.id) existingDocumentIds.add(document.id);
+    }
   }
   return content.length === event.content.length
     ? event

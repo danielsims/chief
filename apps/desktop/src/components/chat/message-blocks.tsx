@@ -1,13 +1,25 @@
+import type { ReactNode } from "react";
 import { Fragment, useEffect, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ArrowRight, Check, ChevronDown } from "lucide-react";
 
 import type {
   AgentCapabilityId,
   ContentBlock,
+  SessionRecord,
 } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
 
 import { renderGenerativePart } from "../generative-ui/registry";
+import { executorToolLabel } from "./executor-tool-label";
+import {
+  INLINE_RESULT_CARD_CLASS,
+  INLINE_RESULT_ICON_CLASS,
+} from "./inline-result-card";
+import {
+  specialistIsStartingOrWorking,
+  SpecialistStatusIndicator,
+} from "./specialist-status-indicator";
+import { specialistTasksForInput } from "./specialist-task-display";
 import { StreamingMarkdown } from "./streaming-markdown";
 
 const MAX_RESULT_CHARS = 3000;
@@ -38,7 +50,14 @@ function canonicalTool(name: string) {
   if (clean === "skill" || clean === "skills" || clean.includes("skill")) {
     return "skill";
   }
-  if (clean === "execute" || clean.endsWith("__execute")) return "integration";
+  if (
+    clean === "execute" ||
+    clean.endsWith("__execute") ||
+    clean.endsWith(".execute") ||
+    clean.includes("executor")
+  ) {
+    return "integration";
+  }
   if (clean.includes("search")) return "search";
   if (clean.includes("web") || clean.includes("fetch")) return "web";
   if (clean.includes("read")) return "read";
@@ -56,28 +75,7 @@ function skillName(input: unknown) {
   return null;
 }
 
-function executorToolLabel(input: unknown) {
-  if (!input || typeof input !== "object") return null;
-  const code = (input as Record<string, unknown>).code;
-  if (typeof code !== "string") return null;
-  const calls = Array.from(
-    code.matchAll(/agentTools\.([A-Za-z0-9_]+)\s*\(/g),
-    (match) => match[1],
-  );
-  if (calls.includes("uiPresentChart")) return "Present chart";
-  const reports = calls.filter((call) => call === "analyticsRunReport");
-  if (reports.length > 1) return "Compare analytics periods";
-  if (reports.length === 1) return "Fetch analytics report";
-  if (calls.includes("sourcesList")) return "Check connected sources";
-  const first = calls[0];
-  return first
-    ? first
-        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-        .replace(/^./, (character) => character.toUpperCase())
-    : null;
-}
-
-function toolPresentation(name: string, input: unknown) {
+export function toolPresentation(name: string, input: unknown) {
   const kind = canonicalTool(name);
   if (kind === "skill") return skillName(input) ?? "Skill";
   if (kind === "integration") {
@@ -88,7 +86,9 @@ function toolPresentation(name: string, input: unknown) {
   if (kind === "web") return "Browse";
   if (kind === "read") return "Read";
   if (kind === "edit") return "Edit";
-  return name.replace(/_/g, " ");
+  // Fall back to the executor operation label when the tool name is generic
+  // but the input carries a recognizable connected-tool call.
+  return executorToolLabel(input) ?? name.replace(/_/g, " ");
 }
 
 export function toolSummary(input: unknown): string {
@@ -96,6 +96,7 @@ export function toolSummary(input: unknown): string {
   for (const key of [
     "description",
     "file_path",
+    "file",
     "path",
     "command",
     "query",
@@ -110,16 +111,81 @@ export function toolSummary(input: unknown): string {
   return "";
 }
 
+export function SpecialistTaskCard({
+  task,
+  onOpenTask,
+}: {
+  task: SessionRecord;
+  onOpenTask?: (taskId: string) => void;
+}) {
+  const working = specialistIsStartingOrWorking(task.status);
+  const agent =
+    task.agent === "brand"
+      ? "Brand Researcher"
+      : task.agent === "content"
+        ? "Content Writer"
+        : task.agent === "analyst"
+          ? "Analyst"
+          : task.agent === "prospector"
+            ? "Prospector"
+            : task.agent === "ads"
+              ? "Ads Manager"
+              : task.agent;
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenTask?.(task.id)}
+      className={cn(INLINE_RESULT_CARD_CLASS, "text-xs")}
+    >
+      <span className={INLINE_RESULT_ICON_CLASS}>
+        {working || task.status === "failed" ? (
+          <SpecialistStatusIndicator agent={task.agent} status={task.status} />
+        ) : (
+          <Check
+            aria-hidden
+            className="text-muted-foreground shrink-0"
+            size={15}
+          />
+        )}
+      </span>
+      <span className="min-w-0 flex-1">
+        <strong className="block truncate font-medium">{task.title}</strong>
+        <small className="text-muted-foreground mt-0.5 block text-[11px]">
+          {agent} ·{" "}
+          {working
+            ? task.status === "idle"
+              ? "Starting"
+              : "Working"
+            : task.status === "completed"
+              ? "Complete"
+              : task.status === "failed"
+                ? "Failed"
+                : "Stopped"}
+        </small>
+      </span>
+      <ArrowRight
+        aria-hidden
+        className="text-muted-foreground/55 shrink-0"
+        size={12}
+      />
+    </button>
+  );
+}
+
 function ToolCard({
   block,
   result,
   progress,
   active,
+  task,
+  onOpenTask,
 }: {
   block: Extract<ContentBlock, { type: "tool_use" }>;
   result?: Extract<ContentBlock, { type: "tool_result" }>;
   progress?: string;
   active: boolean;
+  task?: SessionRecord;
+  onOpenTask?: (taskId: string) => void;
 }) {
   const kind = canonicalTool(block.name);
   const label = toolPresentation(block.name, block.input);
@@ -150,9 +216,13 @@ function ToolCard({
     return () => window.clearInterval(timer);
   }, [active, result]);
 
+  if (task) {
+    return <SpecialistTaskCard task={task} onOpenTask={onOpenTask} />;
+  }
+
   if (kind === "skill") {
     return (
-      <div className="bg-card/50 flex max-w-full min-w-0 items-center gap-2.5 border px-3 py-2 text-xs">
+      <div className="bg-card/50 flex min-h-14 w-96 max-w-full min-w-0 items-center gap-2.5 rounded-2xl border px-3 py-2.5 text-[13px] leading-5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_72%,transparent)]">
         <span
           className={cn(
             "size-2 shrink-0 rounded-full",
@@ -167,7 +237,7 @@ function ToolCard({
         </span>
         <span
           className={cn(
-            "text-muted-foreground shrink-0 text-[10px]",
+            "text-muted-foreground shrink-0 text-[11px] leading-4",
             result?.is_error && "text-red-500",
           )}
         >
@@ -184,8 +254,8 @@ function ToolCard({
   }
 
   return (
-    <details className="group bg-card/50 max-w-full min-w-0 overflow-hidden border">
-      <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3 py-2 text-xs [&::-webkit-details-marker]:hidden">
+    <details className="group bg-card/50 w-96 max-w-full min-w-0 overflow-hidden rounded-2xl border shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_72%,transparent)]">
+      <summary className="flex min-h-14 cursor-pointer list-none items-center gap-2.5 px-3 py-2.5 text-[13px] leading-5 [&::-webkit-details-marker]:hidden">
         <span
           className={cn(
             "size-2 shrink-0 rounded-full",
@@ -247,11 +317,32 @@ export function Blocks({
   progress = {},
   capabilities = [],
   active = true,
+  tasks = [],
+  taskOwners,
+  ownerId,
+  onOpenTask,
+  toolAttachment,
 }: {
   blocks: ContentBlock[];
   progress?: Record<string, string>;
   capabilities?: readonly AgentCapabilityId[];
   active?: boolean;
+  tasks?: readonly SessionRecord[];
+  taskOwners?: ReadonlyMap<string, string>;
+  ownerId?: string;
+  onOpenTask?: (taskId: string) => void;
+  /**
+   * A generic hook for tools that carry a rich inline UI (Chief's embedded
+   * browser, etc.). A tool block can render a live attachment at its exact
+   * position in the message stream instead of a plain tool card — the same way
+   * the channel feed embeds an attachment into the message body. Position is
+   * inherent to the message, so the attachment never floats or re-anchors.
+   */
+  toolAttachment?: (
+    block: Extract<ContentBlock, { type: "tool_use" }>,
+    ownerId?: string,
+    result?: Extract<ContentBlock, { type: "tool_result" }>,
+  ) => ReactNode | undefined;
 }) {
   const results = new Map(
     blocks
@@ -261,6 +352,7 @@ export function Blocks({
       )
       .map((block) => [block.tool_use_id, block]),
   );
+  const renderedTasks = new Set<string>();
 
   return (
     <div className="max-w-full min-w-0 space-y-3 overflow-hidden">
@@ -302,7 +394,35 @@ export function Blocks({
                 </p>
               </details>
             );
-          case "tool_use":
+          case "tool_use": {
+            const attachment = toolAttachment?.(
+              block,
+              ownerId,
+              results.get(block.id),
+            );
+            if (attachment !== undefined) {
+              return <Fragment key={block.id}>{attachment}</Fragment>;
+            }
+            const blockTasks = specialistTasksForInput(block.input, tasks);
+            const visibleTasks = blockTasks.filter(
+              (task) =>
+                taskOwners?.get(task.id) === ownerId &&
+                !renderedTasks.has(task.id),
+            );
+            for (const task of visibleTasks) renderedTasks.add(task.id);
+            if (blockTasks.length > 0) {
+              return visibleTasks.map((task) => (
+                <ToolCard
+                  key={`${block.id}-${task.id}`}
+                  block={block}
+                  result={results.get(block.id)}
+                  progress={progress[block.id]}
+                  active={active}
+                  task={task}
+                  onOpenTask={onOpenTask}
+                />
+              ));
+            }
             return (
               <ToolCard
                 key={block.id}
@@ -310,8 +430,10 @@ export function Blocks({
                 result={results.get(block.id)}
                 progress={progress[block.id]}
                 active={active}
+                onOpenTask={onOpenTask}
               />
             );
+          }
           case "tool_result": {
             if (
               blocks.some(

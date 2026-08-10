@@ -23,7 +23,11 @@ import {
 } from "../lib/auth/better-auth-client";
 import { OrgLogo } from "./org-logo";
 
-export function WorkspaceSwitcher() {
+export function WorkspaceSwitcher({
+  variant = "default",
+}: {
+  variant?: "default" | "rail";
+}) {
   const { isAuthenticated, cloudOrganizationId } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -75,7 +79,14 @@ export function WorkspaceSwitcher() {
         <TooltipTrigger asChild>
           {/* PopoverTrigger renders a plain button; keep className a plain
               string (Radix Slot/asChild stringifies function classNames). */}
-          <PopoverTrigger className="text-muted-foreground hover:text-foreground data-[state=open]:border-border data-[state=open]:text-foreground block h-10 w-10 border border-transparent transition-colors">
+          <PopoverTrigger
+            className={cn(
+              "text-muted-foreground hover:text-foreground data-[state=open]:text-foreground block border border-transparent transition-all",
+              variant === "rail"
+                ? "bg-sidebar-accent/70 hover:bg-sidebar-accent size-9 overflow-hidden rounded-2xl hover:rounded-xl data-[state=open]:rounded-xl"
+                : "data-[state=open]:border-border h-10 w-10",
+            )}
+          >
             {activeOrg ? (
               <OrgLogo
                 name={activeOrg.name}
@@ -86,7 +97,12 @@ export function WorkspaceSwitcher() {
                 className="h-full w-full text-base"
               />
             ) : (
-              <span className="bg-accent flex h-full w-full items-center justify-center border">
+              <span
+                className={cn(
+                  "bg-accent flex h-full w-full items-center justify-center",
+                  variant === "default" && "border",
+                )}
+              >
                 <Plus size={16} strokeWidth={1.75} />
               </span>
             )}
@@ -96,7 +112,11 @@ export function WorkspaceSwitcher() {
           {activeOrg ? activeOrg.name : "Create workspace"}
         </TooltipContent>
       </Tooltip>
-      <PopoverContent side="right" align="end" sideOffset={14}>
+      <PopoverContent
+        side="right"
+        align={variant === "rail" ? "start" : "end"}
+        sideOffset={14}
+      >
         <div className="flex flex-col">
           {organizations.length > 0 ? (
             <>
@@ -109,7 +129,7 @@ export function WorkspaceSwitcher() {
                     onClick={() => void handleSwitch(org)}
                     disabled={switchingTo !== null}
                     className={cn(
-                      "hover:bg-accent flex w-full items-center gap-2.5 px-2 py-1.5 text-left text-sm transition-colors disabled:opacity-50",
+                      "hover:bg-accent flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors disabled:opacity-50",
                       switchingTo === org.id && "opacity-50",
                     )}
                   >
@@ -141,9 +161,9 @@ export function WorkspaceSwitcher() {
               setOpen(false);
               navigate("/workspaces/new");
             }}
-            className="text-muted-foreground hover:bg-accent hover:text-foreground flex w-full items-center gap-2.5 px-2 py-1.5 text-left text-sm transition-colors"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors"
           >
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center border">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border">
               <Plus size={13} strokeWidth={1.75} />
             </span>
             Create workspace

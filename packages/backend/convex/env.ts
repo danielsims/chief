@@ -4,6 +4,19 @@ import { z } from "zod/v4";
 const skipValidation =
   Boolean(process.env.CI) || process.env.npm_lifecycle_event === "lint";
 
+const authEnvironmentKeys = [
+  "AUTH_SECRET",
+  "AUTH_GOOGLE_ID",
+  "AUTH_GOOGLE_SECRET",
+  "BASE_URL",
+] as const;
+
+// Convex analyzes every module before deployment without exposing deployment
+// environment variables. Better Auth constructs its adapter during that pass,
+// so give T3 Env valid, inert values only when the entire auth environment is
+// absent. A partially configured runtime still fails strict validation.
+const isConvexAnalysis = authEnvironmentKeys.every((key) => !process.env[key]);
+
 export function convexEnv() {
   return createEnv({
     server: {
@@ -12,7 +25,20 @@ export function convexEnv() {
       AUTH_GOOGLE_SECRET: z.string().min(1),
       BASE_URL: z.url(),
     },
-    runtimeEnv: process.env,
+    runtimeEnv: {
+      AUTH_SECRET:
+        process.env.AUTH_SECRET ??
+        (isConvexAnalysis ? "convex-analysis-only" : undefined),
+      AUTH_GOOGLE_ID:
+        process.env.AUTH_GOOGLE_ID ??
+        (isConvexAnalysis ? "convex-analysis-only" : undefined),
+      AUTH_GOOGLE_SECRET:
+        process.env.AUTH_GOOGLE_SECRET ??
+        (isConvexAnalysis ? "convex-analysis-only" : undefined),
+      BASE_URL:
+        process.env.BASE_URL ??
+        (isConvexAnalysis ? "https://analysis.invalid" : undefined),
+    },
     emptyStringAsUndefined: true,
     skipValidation,
   });
@@ -38,22 +64,6 @@ export function convexSiteUrl(): string {
     emptyStringAsUndefined: true,
     skipValidation,
   }).CONVEX_SITE_URL;
-}
-
-export function googleAnalyticsEnv() {
-  return createEnv({
-    server: {
-      AUTH_GOOGLE_ID: z.string().min(1).optional(),
-      AUTH_GOOGLE_SECRET: z.string().min(1).optional(),
-      CONVEX_SITE_URL: z.url().optional(),
-      GOOGLE_ANALYTICS_CLIENT_ID: z.string().min(1).optional(),
-      GOOGLE_ANALYTICS_CLIENT_SECRET: z.string().min(1).optional(),
-      GOOGLE_ANALYTICS_REDIRECT_URI: z.url().optional(),
-    },
-    runtimeEnv: process.env,
-    emptyStringAsUndefined: true,
-    skipValidation,
-  });
 }
 
 export function stripeSecretKey(): string {

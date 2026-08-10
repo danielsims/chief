@@ -35,13 +35,13 @@ export const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "bg-popover text-popover-foreground fixed top-1/2 left-1/2 z-50 grid w-full max-w-md -translate-x-1/2 -translate-y-1/2 gap-4 border p-5",
+        "bg-popover text-popover-foreground fixed top-1/2 left-1/2 z-50 grid w-full max-w-md -translate-x-1/2 -translate-y-1/2 gap-4 rounded-2xl border p-5 shadow-2xl",
         className,
       )}
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="text-muted-foreground hover:text-foreground absolute top-4 right-4 transition-colors focus-visible:outline-none disabled:pointer-events-none">
+      <DialogPrimitive.Close className="text-muted-foreground hover:bg-accent hover:text-foreground absolute top-3.5 right-3.5 flex size-7 items-center justify-center rounded-md transition-colors focus-visible:outline-none disabled:pointer-events-none">
         <X size={15} />
         <span className="sr-only">Close</span>
       </DialogPrimitive.Close>
