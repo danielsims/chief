@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   BarChart3,
   CalendarClock,
@@ -20,8 +20,13 @@ import {
   canDeleteChannels,
   canManageChannels,
 } from "../lib/auth/organization-role";
+import { channelIdsNeedingUser } from "../lib/channel-action-items";
 import { useChannelReadState } from "../lib/channel-read-state-context";
-import { useLocalChats, useWorkspaceChannels } from "../lib/runtime";
+import {
+  useLocalChats,
+  useWorkspaceChannels,
+  useWorkspaceData,
+} from "../lib/runtime";
 import {
   directMessageIdsForChats,
   isSidebarPinnedItem,
@@ -113,6 +118,7 @@ export function Sidebar({
   const { cloudOrganizationId, organizationRole } = useAuth();
   const localChats = useLocalChats(cloudOrganizationId);
   const workspaceChannels = useWorkspaceChannels();
+  const workspaceData = useWorkspaceData(cloudOrganizationId);
   const { unreadChannelCounts } = useChannelReadState();
   const location = useLocation();
   const navigate = useNavigate();
@@ -139,34 +145,54 @@ export function Sidebar({
   const activeChannelId = location.pathname.startsWith("/conversations")
     ? (requestedRuntimeChannel?.id ?? requestedChannel?.id ?? null)
     : null;
-  const publicChannels =
-    workspaceChannels.channels.length > 0
-      ? workspaceChannels.channels
-          .filter((channel) => channel.visibility !== "direct")
-          .map((channel) => ({
+  const publicChannels = useMemo(
+    () =>
+      workspaceChannels.channels.length > 0
+        ? workspaceChannels.channels
+            .filter((channel) => channel.visibility !== "direct")
+            .map((channel) => ({
+              id: channel.id,
+              label: channel.name,
+              topic: channel.topic,
+              description: channel.description,
+              agentIds: channel.agentIds,
+              userIds: channel.userIds,
+              kind: channel.kind,
+              lifecycle: channel.lifecycle,
+              agentPermissions: channel.agentPermissions,
+              workstream: channel.workstream,
+              version: channel.version,
+              createdAt: channel.createdAt,
+            }))
+        : WORKSPACE_CHANNELS.map((channel) => ({
             id: channel.id,
-            label: channel.name,
-            topic: channel.topic,
+            label: channel.label,
+            topic: "",
             description: channel.description,
-            agentIds: channel.agentIds,
-            kind: channel.kind,
-            lifecycle: channel.lifecycle,
-            agentPermissions: channel.agentPermissions,
-            workstream: channel.workstream,
-            version: channel.version,
-            createdAt: channel.createdAt,
-          }))
-      : WORKSPACE_CHANNELS.map((channel) => ({
-          id: channel.id,
-          label: channel.label,
-          topic: "",
-          description: channel.description,
-          agentIds: [...channel.agentIds],
-          kind: "standard" as const,
-          lifecycle: "active" as const,
-          agentPermissions: [],
-          version: 1,
-        }));
+            agentIds: [...channel.agentIds],
+            userIds: [...channel.userIds],
+            kind: "standard" as const,
+            lifecycle: "active" as const,
+            agentPermissions: [],
+            version: 1,
+          })),
+    [workspaceChannels.channels],
+  );
+  const channelsNeedingUser = useMemo(
+    () =>
+      channelIdsNeedingUser({
+        actionItems: workspaceData.actionItems,
+        sessions: workspaceData.activity,
+        recurringWork: workspaceData.recurringWork,
+        channelIds: publicChannels.map((channel) => channel.id),
+      }),
+    [
+      publicChannels,
+      workspaceData.actionItems,
+      workspaceData.activity,
+      workspaceData.recurringWork,
+    ],
+  );
   const normalizedPinnedItems = pinnedItems.flatMap<SidebarPinnedItem>(
     (item) => {
       if (item.kind === "agent") return [item];
@@ -185,7 +211,9 @@ export function Sidebar({
   );
   const visiblePublicChannels = publicChannels.filter(
     (channel) =>
-      channel.lifecycle !== "archived" && !leftIds.includes(channel.id),
+      channel.lifecycle !== "archived" &&
+      channel.userIds.includes("workspace-owner") &&
+      !leftIds.includes(channel.id),
   );
   const directMessageIds = directMessageIdsForChats(
     localChats.chats,
@@ -300,6 +328,7 @@ export function Sidebar({
           }
           directMessageIds={directMessageIds}
           pinnedItems={normalizedPinnedItems}
+          channelsNeedingUser={channelsNeedingUser}
           unreadChannelCounts={unreadChannelCounts}
           unreadDirectMessageCounts={unreadDirectMessageCounts}
           onOpen={openChannel}

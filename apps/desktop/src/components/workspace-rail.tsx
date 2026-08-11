@@ -16,6 +16,7 @@ import {
   parseOrganizationMetadata,
   setActiveAuthOrganization,
 } from "../lib/auth/better-auth-client";
+import { useChannelReadState } from "../lib/channel-read-state-context";
 import { activeFirstOrganizations } from "../lib/workspace-organizations";
 import { OrgLogo } from "./org-logo";
 import {
@@ -26,6 +27,7 @@ import {
 export function WorkspaceRail() {
   const { cloudOrganizationId, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const { workspaceUnreadCounts } = useChannelReadState();
   const [organizations, setOrganizations] = useState<AuthOrganization[] | null>(
     null,
   );
@@ -103,6 +105,7 @@ export function WorkspaceRail() {
         {orderedOrganizations.map((organization) => {
           const active = organization.id === cloudOrganizationId;
           const metadata = parseOrganizationMetadata(organization);
+          const unreadCount = workspaceUnreadCounts.get(organization.id) ?? 0;
           return (
             <Popover
               key={organization.id}
@@ -153,6 +156,14 @@ export function WorkspaceRail() {
                         imgClassName="object-contain"
                         transparentWhenLoaded
                       />
+                      {unreadCount > 0 ? (
+                        <span
+                          aria-label={`${unreadCount} unread ${unreadCount === 1 ? "message" : "messages"}`}
+                          className="bg-destructive text-destructive-foreground ring-sidebar absolute -top-1 -right-1 flex min-w-4 items-center justify-center rounded-full px-1 text-[9px] leading-4 font-semibold tabular-nums ring-2"
+                        >
+                          {unreadCount > 99 ? "99+" : unreadCount}
+                        </span>
+                      ) : null}
                     </button>
                   </TooltipTrigger>
                 </PopoverAnchor>

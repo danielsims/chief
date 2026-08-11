@@ -30,6 +30,7 @@ interface ChannelRowProps {
   channel: SidebarChannel;
   active: boolean;
   pinned: boolean;
+  needsUser: boolean;
   unreadCount: number;
   dragKind: "source" | "sortable";
   onOpen: () => void;
@@ -45,6 +46,7 @@ export function ChannelRow({
   channel,
   active,
   pinned,
+  needsUser,
   unreadCount,
   dragKind,
   onDelete,
@@ -107,12 +109,21 @@ export function ChannelRow({
           >
             <Hash size={14} strokeWidth={1.8} className="shrink-0 opacity-70" />
             <span className="min-w-0 flex-1 truncate">{channel.label}</span>
-            {unreadCount > 0 ? (
-              <span
-                aria-label={`${unreadCount} unread ${unreadCount === 1 ? "message" : "messages"}`}
-                className="bg-sidebar-foreground/10 text-sidebar-foreground ml-auto min-w-5 rounded-full px-1.5 text-center text-[10px] leading-5 font-semibold tabular-nums"
-              >
-                {unreadCount > 99 ? "99+" : unreadCount}
+            {needsUser || unreadCount > 0 ? (
+              <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                {needsUser ? (
+                  <span className="text-[11px] font-medium text-amber-300">
+                    Needs you
+                  </span>
+                ) : null}
+                {unreadCount > 0 ? (
+                  <span
+                    aria-label={`${unreadCount} unread ${unreadCount === 1 ? "message" : "messages"}`}
+                    className="bg-sidebar-foreground/10 text-sidebar-foreground min-w-5 rounded-full px-1.5 text-center text-[10px] leading-5 font-semibold tabular-nums"
+                  >
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                ) : null}
               </span>
             ) : null}
           </button>
