@@ -1,5 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 
+import type { AgentToolPermission } from "./types.js";
+
 export type AgentSessionCapability =
   | { kind: "workspace-gateway"; workspaceId: string }
   | {
@@ -8,6 +10,7 @@ export type AgentSessionCapability =
       agentId: string;
       sessionId: string;
       expiresAt: number;
+      localToolPermissions?: readonly AgentToolPermission[];
     };
 
 interface IssuedSessionToken {
@@ -15,6 +18,7 @@ interface IssuedSessionToken {
   digest: string;
   expiresAt: number;
   agentId: string;
+  permissionKey: string;
 }
 
 /**
@@ -43,13 +47,23 @@ export class AgentSessionCapabilityRegistry {
   }
 
   agentSession(
-    input: { workspaceId: string; agentId: string; sessionId: string },
+    input: {
+      workspaceId: string;
+      agentId: string;
+      sessionId: string;
+      localToolPermissions?: readonly AgentToolPermission[];
+    },
     now = Date.now(),
   ) {
     const key = `${input.workspaceId}\0${input.sessionId}`;
+    const localToolPermissions = input.localToolPermissions
+      ? [...new Set(input.localToolPermissions)].sort()
+      : undefined;
+    const permissionKey = localToolPermissions?.join("\0") ?? "interactive";
     const existing = this.sessionTokens.get(key);
     if (
       existing?.agentId === input.agentId &&
+      existing.permissionKey === permissionKey &&
       existing.expiresAt > now + 60_000
     ) {
       return existing.token;
@@ -63,10 +77,14 @@ export class AgentSessionCapabilityRegistry {
       digest,
       expiresAt,
       agentId: input.agentId,
+      permissionKey,
     });
     this.capabilities.set(digest, {
       kind: "agent-session",
-      ...input,
+      workspaceId: input.workspaceId,
+      agentId: input.agentId,
+      sessionId: input.sessionId,
+      ...(localToolPermissions ? { localToolPermissions } : {}),
       expiresAt,
     });
     return token;

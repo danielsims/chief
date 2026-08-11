@@ -6,7 +6,10 @@ import type { LocalToolRouteRequest } from "../src/server-local-tools-route.js";
 import type { AgentToolPermission } from "../src/types.js";
 import { AgentSessionCapabilityRegistry } from "../src/agent-session-capabilities.js";
 import { guardedRequestHandler } from "../src/http-runtime.js";
-import { createLocalToolsRoute } from "../src/server-local-tools-route.js";
+import {
+  createLocalToolsRoute,
+  prepareCallerScopedToolBody,
+} from "../src/server-local-tools-route.js";
 
 const workspaceId = "workspace-route-test";
 const capability = { apiBaseUrl: "https://executor.test", token: "executor" };
@@ -137,6 +140,33 @@ void test("enforces the resolved agent permission before invoking a local tool",
   });
 });
 
+void test("scheduled credentials cannot exceed their local permission ceiling", async () => {
+  const state: RouteState = {
+    caller: { agentId: "chief", chatId: "scheduled-run" },
+    enabled: true,
+  };
+  const fixture = routeFixture(state);
+  const token = fixture.capabilities.agentSession({
+    workspaceId,
+    agentId: "chief",
+    sessionId: "scheduled-run",
+    localToolPermissions: ["channels.read"],
+  });
+  await serveRoute(fixture.route, async (origin) => {
+    const response = await fetch(`${origin}/local-tools/action`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), {
+      error: "This scheduled run does not have workspace.write permission.",
+      code: "automation_permission_denied",
+      permission: "workspace.write",
+    });
+    assert.equal(fixture.invocations.length, 0);
+  });
+});
+
 void test("injects authoritative context and invokes an authorized local tool", async () => {
   const state: RouteState = {
     caller: { agentId: "engineer", chatId: "chat-engineering" },
@@ -169,5 +199,79 @@ void test("injects authoritative context and invokes an authorized local tool", 
       title: "Review",
       authoritative: true,
     });
+  });
+});
+
+void test("caller scope preserves public delegation but owns browser, setup, and files", () => {
+  const delegation = {
+    conversationId: "channel:mission-control",
+    sessionId: "model-authored",
+  };
+  prepareCallerScopedToolBody({
+    path: "/local-tools/specialists/delegate",
+    body: delegation,
+    callerAgentId: "setup",
+    callerChatId: "specialist-setup",
+    attemptId: "attempt-1",
+  });
+  assert.deepEqual(delegation, {
+    conversationId: "channel:mission-control",
+    sessionId: "model-authored",
+  });
+
+  const integration = {
+    conversationId: "channel:mission-control",
+    sessionId: "model-authored",
+  };
+  prepareCallerScopedToolBody({
+    path: "/local-tools/integrations/google-analytics/authorize",
+    body: integration,
+    callerAgentId: "setup",
+    callerChatId: "specialist-setup",
+    attemptId: "attempt-1",
+  });
+  assert.deepEqual(integration, {
+    conversationId: "channel:mission-control",
+    sessionId: "specialist-setup",
+    attemptId: "attempt-1",
+  });
+
+  const setup = { conversationId: "channel:mission-control" };
+  prepareCallerScopedToolBody({
+    path: "/local-tools/setup/start",
+    body: setup,
+    callerAgentId: "setup",
+    callerChatId: "specialist-setup",
+  });
+  assert.deepEqual(setup, { conversationId: "specialist-setup" });
+
+  const browser = {
+    conversationId: "channel:mission-control",
+    url: "https://accounts.google.com/",
+  };
+  prepareCallerScopedToolBody({
+    path: "/local-tools/browser/open",
+    body: browser,
+    callerAgentId: "setup",
+    callerChatId: "specialist-setup",
+  });
+  assert.deepEqual(browser, {
+    conversationId: "specialist-setup",
+    url: "https://accounts.google.com/",
+  });
+
+  const file = {
+    agentId: "chief",
+    sourceSessionId: "channel:mission-control",
+  };
+  prepareCallerScopedToolBody({
+    path: "/local-tools/files/write",
+    body: file,
+    callerAgentId: "brand",
+    callerChatId: "specialist-brand",
+  });
+  assert.deepEqual(file, {
+    agentId: "brand",
+    sourceSessionId: "specialist-brand",
   });
 });

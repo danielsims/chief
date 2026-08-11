@@ -28,11 +28,39 @@ void test("agent-bound MCP exposes Chief local operations with resolved schemas"
   assert.ok(listProspects);
   assert.equal(listProspects.method, "GET");
   assert.equal(listProspects.inputSchema.type, "object");
+
+  const postMessage = operations.get("localTools.channelsMessagesPost");
+  assert.ok(postMessage);
+  assert.deepEqual(postMessage.inputSchema.required, ["content", "channelId"]);
+  assert.deepEqual(
+    (postMessage.inputSchema.properties as Record<string, unknown>).channelId,
+    { type: "string" },
+  );
+  assert.equal(
+    (postMessage.inputSchema.properties as Record<string, unknown>).content !==
+      undefined,
+    true,
+  );
+
+  const listMessages = operations.get("localTools.channelsMessagesList");
+  assert.ok(listMessages);
+  assert.deepEqual(listMessages.inputSchema.required, ["channelId"]);
+  assert.deepEqual(
+    (listMessages.inputSchema.properties as Record<string, unknown>).channelId,
+    { type: "string" },
+  );
+  assert.equal(
+    (listMessages.inputSchema.properties as Record<string, unknown>).cursor !==
+      undefined,
+    true,
+  );
   assert.equal(operations.has("localTools.specialistsDelegate"), true);
 });
 
 void test("agent-bound MCP rejects workspace tokens and forwards the session capability", async () => {
   let observedAuthorization = "";
+  let observedMessageBody = "";
+  let observedMessagePath = "";
   const server = createServer();
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -58,6 +86,17 @@ void test("agent-bound MCP rejects workspace tokens and forwards the session cap
       observedAuthorization = request.headers.authorization ?? "";
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ saved: true }));
+      return;
+    }
+    if (request.url === "/local-tools/channels/channel-a/messages") {
+      observedMessagePath = request.url;
+      request.on("data", (chunk: unknown) => {
+        observedMessageBody += String(chunk);
+      });
+      request.on("end", () => {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ posted: true }));
+      });
       return;
     }
     void handleMcp(request, response);
@@ -99,6 +138,18 @@ void test("agent-bound MCP rejects workspace tokens and forwards the session cap
     assert.equal(result.isError, false);
     assert.equal(observedAuthorization, "Bearer live-agent-token");
     assert.match(JSON.stringify(result.content), /saved/);
+    const posted = await client.callTool({
+      name: "localTools.channelsMessagesPost",
+      arguments: { channelId: "channel-a", content: "Thread update" },
+    });
+    assert.equal(posted.isError, false);
+    assert.equal(
+      observedMessagePath,
+      "/local-tools/channels/channel-a/messages",
+    );
+    assert.deepEqual(JSON.parse(observedMessageBody), {
+      content: "Thread update",
+    });
     await client.close();
   } finally {
     server.close();

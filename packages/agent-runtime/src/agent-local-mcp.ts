@@ -8,6 +8,7 @@ import {
 
 import type { AgentSessionCapability } from "./agent-session-capabilities.js";
 import type { McpServerSpec } from "./types.js";
+import { permissionForLocalTool } from "./agent-tool-permissions.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -61,6 +62,63 @@ function resolveSchema(
   );
 }
 
+function operationInputSchema(
+  pathItem: JsonObject,
+  operation: JsonObject,
+  schemas: JsonObject,
+) {
+  const media = object(
+    object(object(operation.requestBody).content)["application/json"],
+  );
+  const resolvedBody = resolveSchema(media.schema, schemas);
+  const body =
+    resolvedBody &&
+    typeof resolvedBody === "object" &&
+    !Array.isArray(resolvedBody)
+      ? (resolvedBody as JsonObject)
+      : {};
+  const pathParameters = Array.isArray(pathItem.parameters)
+    ? (pathItem.parameters as unknown[])
+    : [];
+  const operationParameters = Array.isArray(operation.parameters)
+    ? (operation.parameters as unknown[])
+    : [];
+  const parameters = [...pathParameters, ...operationParameters];
+  const parameterProperties: JsonObject = {};
+  const parameterRequired: string[] = [];
+  for (const value of parameters) {
+    const parameter = object(value);
+    const name = typeof parameter.name === "string" ? parameter.name : "";
+    const location = typeof parameter.in === "string" ? parameter.in : "";
+    if (!name || (location !== "path" && location !== "query")) continue;
+    parameterProperties[name] = resolveSchema(parameter.schema, schemas);
+    if (location === "path" || parameter.required === true) {
+      parameterRequired.push(name);
+    }
+  }
+  const properties = {
+    ...object(body.properties),
+    ...parameterProperties,
+  };
+  const required = [
+    ...(Array.isArray(body.required)
+      ? body.required.filter(
+          (value): value is string => typeof value === "string",
+        )
+      : []),
+    ...parameterRequired,
+  ];
+  return {
+    ...body,
+    type: "object",
+    properties,
+    ...(required.length > 0 ? { required: [...new Set(required)] } : {}),
+    ...(body.additionalProperties === undefined
+      ? { additionalProperties: false }
+      : {}),
+  } satisfies JsonObject;
+}
+
 export function agentLocalOperations(openApi: unknown) {
   const specification = object(openApi);
   const paths = object(specification.paths);
@@ -72,10 +130,7 @@ export function agentLocalOperations(openApi: unknown) {
       const operation = object(pathItem[method]);
       const operationId = operation.operationId;
       if (typeof operationId !== "string" || !operationId) continue;
-      const media = object(
-        object(object(operation.requestBody).content)["application/json"],
-      );
-      const inputSchema = resolveSchema(media.schema, schemas);
+      const inputSchema = operationInputSchema(pathItem, operation, schemas);
       operations.set(operationName(operationId), {
         description:
           typeof operation.description === "string"
@@ -83,10 +138,7 @@ export function agentLocalOperations(openApi: unknown) {
             : typeof operation.summary === "string"
               ? operation.summary
               : operationId,
-        inputSchema:
-          inputSchema && typeof inputSchema === "object"
-            ? (inputSchema as JsonObject)
-            : { type: "object", additionalProperties: false },
+        inputSchema,
         method: method.toUpperCase() as "GET" | "POST",
         path,
         title:
@@ -198,13 +250,25 @@ export function createAgentLocalMcpHandler(dependencies: {
     }
 
     const operations = agentLocalOperations(dependencies.openApi());
+    const visibleOperations = [...operations.entries()].filter(
+      ([, operation]) => {
+        if (!capability.localToolPermissions) return true;
+        const permission = permissionForLocalTool(
+          operation.method,
+          operation.path,
+        );
+        return Boolean(
+          permission && capability.localToolPermissions.includes(permission),
+        );
+      },
+    );
     const server = new Server(
       { name: "chief-local", version: "0.1.0" },
       { capabilities: { tools: {} } },
     );
     server.setRequestHandler(ListToolsRequestSchema, () =>
       Promise.resolve({
-        tools: [...operations.entries()].map(([name, operation]) => ({
+        tools: visibleOperations.map(([name, operation]) => ({
           name,
           title: operation.title,
           description: operation.description,
