@@ -32,19 +32,17 @@ import {
   recordSeenChannelEvent,
   writeChannelState,
 } from "./channel-read-state-storage";
-import {
-  messageNotificationTarget,
-  notifySystem,
-  syncDesktopUnreadBadge,
-} from "./notifications";
+import { messageNotificationTarget, notifySystem } from "./notifications";
 import {
   useRuntime,
   useWorkspaceCapability,
   useWorkspaceChannels,
 } from "./runtime";
+import { useWorkspaceUnreadCounts } from "./workspace-unread-counts";
 
 interface ChannelReadStateValue {
   unreadChannelCounts: ReadonlyMap<string, number>;
+  workspaceUnreadCounts: ReadonlyMap<string, number>;
   markChannelRead: (channelId: string) => void;
   markThreadRead: (channelId: string, rootId: string) => void;
   setVisibleThread: (channelId: string, rootId: string | null) => void;
@@ -65,6 +63,7 @@ export function ChannelReadStateProvider({
       <ChannelReadStateContext.Provider
         value={{
           unreadChannelCounts: new Map(),
+          workspaceUnreadCounts: new Map(),
           markChannelRead: () => undefined,
           markThreadRead: () => undefined,
           setVisibleThread: () => undefined,
@@ -455,17 +454,26 @@ function ScopedChannelReadStateProvider({
     for (const count of unreadChannelCounts.values()) total += count;
     return total;
   }, [unreadChannelCounts]);
-  useEffect(() => {
-    void syncDesktopUnreadBadge(totalUnread);
-  }, [totalUnread]);
+  const workspaceUnreadCounts = useWorkspaceUnreadCounts(
+    readerId,
+    workspaceId,
+    totalUnread,
+  );
   const value = useMemo<ChannelReadStateValue>(
     () => ({
       unreadChannelCounts,
+      workspaceUnreadCounts,
       markChannelRead,
       markThreadRead,
       setVisibleThread,
     }),
-    [markChannelRead, markThreadRead, setVisibleThread, unreadChannelCounts],
+    [
+      markChannelRead,
+      markThreadRead,
+      setVisibleThread,
+      unreadChannelCounts,
+      workspaceUnreadCounts,
+    ],
   );
 
   return (
