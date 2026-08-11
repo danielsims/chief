@@ -67,16 +67,29 @@ export function Button({
     : "button";
 
   const defaultProps = {
+    "aria-busy": loading || undefined,
     "aria-disabled": loading || undefined,
     children: (
       <>
-        {children}
+        <span
+          aria-hidden={loading || undefined}
+          className={cn(
+            "inline-flex items-center gap-[inherit]",
+            loading && "invisible",
+          )}
+          data-slot="button-content"
+        >
+          {children}
+        </span>
         {loading ? (
-          <LoaderCircle
-            aria-hidden
-            className="absolute size-4 animate-spin"
-            data-slot="button-loading-indicator"
-          />
+          <>
+            <LoaderCircle
+              aria-hidden
+              className="absolute size-4 animate-spin"
+              data-slot="button-loading-indicator"
+            />
+            <span className="sr-only">Loading</span>
+          </>
         ) : null}
       </>
     ),
