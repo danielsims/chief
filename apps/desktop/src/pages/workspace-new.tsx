@@ -149,7 +149,7 @@ export function CreateWorkspacePage() {
                 disabled={!name.trim() || isCreating}
                 loading={isCreating}
               >
-                {isCreating ? "Creating workspace" : "Create workspace"}
+                Create workspace
               </Button>
             </div>
           </form>
