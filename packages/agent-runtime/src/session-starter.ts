@@ -3,7 +3,11 @@ import { join } from "node:path";
 
 import type { LocalStore } from "./local-store.js";
 import type { SessionConfig } from "./session.js";
-import type { AgentDefinition, AgentEvent } from "./types.js";
+import type {
+  AgentDefinition,
+  AgentEvent,
+  AgentToolPermission,
+} from "./types.js";
 import { agentLocalToolServer } from "./agent-local-mcp.js";
 import { scopeRemoteAgentEnvironment } from "./remote-agent-environment.js";
 import { AgentSession } from "./session.js";
@@ -19,6 +23,7 @@ export interface ManagedSessionContext {
     workspaceId: string;
     agentId: string;
     sessionId: string;
+    localToolPermissions?: readonly AgentToolPermission[];
   }) => Record<string, string>;
   sessions: Map<string, AgentSession>;
   startingWorkspaces: Map<string, number>;
@@ -62,9 +67,13 @@ export async function startManagedSession(
     workspaceId: config.workspaceId,
     agentId: agent.id,
     sessionId: chatId,
+    localToolPermissions: config.automationGrant?.localToolPermissions,
   });
+  const scheduledLocalTools =
+    config.executionOwner === "schedule" &&
+    (config.automationGrant?.localToolPermissions?.length ?? 0) > 0;
   const agentLocalServer =
-    config.executionOwner !== "schedule" &&
+    (config.executionOwner !== "schedule" || scheduledLocalTools) &&
     sessionEnvironment?.CHIEF_LOCAL_URL &&
     sessionEnvironment.CHIEF_LOCAL_CAPABILITY
       ? agentLocalToolServer(
