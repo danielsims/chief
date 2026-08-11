@@ -44,7 +44,7 @@ void test("delegation follows the calling agent pack instead of a hardcoded pers
   }
 });
 
-void test("an initial review creates one Brand Researcher despite rewritten concurrent calls", async () => {
+void test("an initial review creates one Marketer despite rewritten concurrent calls", async () => {
   const directory = mkdtempSync(join(tmpdir(), "chief-specialist-"));
   const store = new LocalStore(join(directory, "chief.sqlite"));
   const manager = new SessionManager(store);
@@ -129,7 +129,6 @@ void test("an initial review creates one Brand Researcher despite rewritten conc
     assert.ok(brandResult);
     assert.equal(brandResult.file?.path, "brand/working-brand-profile.md");
     assert.equal((await manager.listWorkspaceFiles("workspace")).length, 1);
-
     const prospectResults = await Promise.all([
       runSpecialistDelegation({
         ...base,
@@ -390,7 +389,7 @@ void test("restart reconciliation fails only orphaned local specialists", async 
       organizationId: "workspace",
       kind: "conversation",
       visibility: "user",
-      agent: "cmo",
+      agent: "chief",
       provider: "codex",
       title: "Root",
     });
@@ -411,7 +410,6 @@ void test("restart reconciliation fails only orphaned local specialists", async 
         updatedAt: 1,
       });
     }
-
     assert.equal(
       await store.reconcileInterruptedSpecialistSessions(Date.now()),
       1,

@@ -8,6 +8,7 @@ import type {
   AgentEvent,
   AutomationGrant,
   ChiefMessageMetadata,
+  ContentBlock,
   DriverType,
   McpServerSpec,
   MessageAttachment,
@@ -461,19 +462,24 @@ export class AgentSession extends EventEmitter {
       channelAction: context?.channelAction,
     });
   }
-
-  recordAssistantMessage(text: string) {
+  recordAssistantMessage(
+    content: string | ContentBlock[],
+    options: { id?: string; threadRootId?: string; mentions?: string[] } = {},
+  ) {
     this.record({
       type: "message",
+      id: options.id,
       role: "assistant",
-      content: [{ type: "text", text }],
+      content:
+        typeof content === "string"
+          ? [{ type: "text", text: content }]
+          : content,
+      threadRootId: options.threadRootId,
+      mentions: options.mentions,
     });
   }
-
   respondPermission(requestId: string, behavior: "allow" | "deny") {
     this.driver.respondPermission(requestId, behavior);
-    // Record the resolution in the buffer so replayed transcripts don't
-    // resurrect an approval prompt that was already answered.
     const event: AgentEvent = {
       type: "permissionResolved",
       requestId,
@@ -482,16 +488,12 @@ export class AgentSession extends EventEmitter {
     this.events.push(event);
     this.emit("event", event);
   }
-
   respondQuestion(requestId: string, answers: Record<string, string> | null) {
-    // The driver emits questionResolved itself, so the buffer stays correct.
     this.driver.respondQuestion(requestId, answers);
   }
-
   interrupt() {
     return this.driver.interrupt();
   }
-
   async stop() {
     this.clearStallWatchdog();
     await this.driver.stop();

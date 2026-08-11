@@ -12,8 +12,8 @@ import { runSpecialistDelegation } from "../src/specialist-delegation.js";
 process.env.CHIEF_DATABASE_ENCRYPTION_KEY =
   "chief-runtime-integration-test-encryption-key";
 
-void test("the Getting started channel uses initial-review delegation rules", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "chief-getting-started-"));
+void test("mission control onboarding uses initial-review delegation rules", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "chief-onboarding-"));
   const store = new LocalStore(join(directory, "chief.sqlite"));
   const manager = new SessionManager(store);
   const originalStart = Object.getOwnPropertyDescriptor(
@@ -47,14 +47,14 @@ void test("the Getting started channel uses initial-review delegation rules", as
   try {
     await manager.createRootChat(
       "workspace",
-      "getting-started",
-      "Getting started",
+      "mission-control",
+      "Initial business review",
       "codex",
     );
     const result = await runSpecialistDelegation({
       manager,
       workspaceId: "workspace",
-      conversationId: "getting-started",
+      conversationId: "mission-control",
       delegationId: "brand-onboarding",
       agentId: "brand",
       title: "Research the brand",

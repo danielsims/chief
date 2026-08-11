@@ -287,6 +287,7 @@ export class LocalStore {
       Pick<
         BrowserRunRecord,
         | "anchorMessageId"
+        | "conversationId"
         | "parentConversationId"
         | "status"
         | "threadRootId"
@@ -301,6 +302,9 @@ export class LocalStore {
       .set({
         ...(patch.anchorMessageId !== undefined
           ? { anchorMessageId: patch.anchorMessageId }
+          : {}),
+        ...(patch.conversationId !== undefined
+          ? { conversationId: patch.conversationId }
           : {}),
         ...(patch.parentConversationId !== undefined
           ? { parentConversationId: patch.parentConversationId }
@@ -470,12 +474,12 @@ export class LocalStore {
     }
     if (
       chat.scheduleId &&
-      (chat.agent !== "cmo" ||
+      (chat.agent !== "chief" ||
         chat.scheduledFor === undefined ||
         chat.startedAt === undefined)
     ) {
       throw new Error(
-        "Schedule sessions require a scheduled time, start time, and CMO agent.",
+        "Schedule sessions require a scheduled time, start time, and Chief agent.",
       );
     }
     await this.db
@@ -485,6 +489,7 @@ export class LocalStore {
         organizationId: chat.organizationId,
         parentId: chat.parentId,
         triggerId: chat.triggerId,
+        triggerContext: chat.triggerContext,
         scheduleId: chat.scheduleId,
         kind,
         visibility: chat.visibility,
@@ -559,6 +564,10 @@ export class LocalStore {
       eveState?: unknown;
       status?: ChatStatus;
       startedAt?: number;
+      finishedAt?: number | null;
+      summary?: string;
+      error?: string | null;
+      triggerContext?: Record<string, unknown>;
     },
   ) {
     await this.ready;
@@ -770,12 +779,12 @@ export class LocalStore {
           );
         }
         if (
-          context.agentId !== "cmo" ||
+          context.agentId !== "chief" ||
           context.scheduledFor === undefined ||
           context.startedAt === undefined
         ) {
           throw new Error(
-            "Schedule sessions require a scheduled time, start time, and CMO agent.",
+            "Schedule sessions require a scheduled time, start time, and Chief agent.",
           );
         }
       }
@@ -1571,10 +1580,10 @@ export class LocalStore {
         conversation.parentId !== null ||
         conversation.kind !== "conversation" ||
         conversation.visibility !== "user" ||
-        conversation.agent !== "cmo"
+        conversation.agent !== "chief"
       ) {
         throw new Error(
-          "Schedule conversations must be top-level user-visible CMO conversations in this workspace.",
+          "Schedule conversations must be top-level user-visible Chief conversations in this workspace.",
         );
       }
     }
@@ -1935,7 +1944,7 @@ export class LocalStore {
             .values({
               id: actionId,
               organizationId: session.organizationId,
-              agentId: "cmo",
+              agentId: "chief",
               title: "Review interrupted work",
               reason: summary,
               sourceId: session.id,
@@ -1979,7 +1988,7 @@ export class LocalStore {
           isNotNull(schema.sessions.parentId),
           isNull(schema.sessions.scheduleId),
           inArray(schema.sessions.provider, ["claude", "codex", "opencode"]),
-          inArray(schema.sessions.status, ["running", "waiting"]),
+          eq(schema.sessions.status, "running"),
           lte(schema.sessions.updatedAt, cutoff),
         ),
       )
@@ -2001,7 +2010,7 @@ export class LocalStore {
       })
       .where(
         and(
-          inArray(schema.sessions.status, ["running", "waiting"]),
+          eq(schema.sessions.status, "running"),
           lte(schema.sessions.updatedAt, cutoff),
           or(
             and(
@@ -2287,11 +2296,11 @@ export class LocalStore {
           session.startedAt === undefined ||
           session.kind !== "task" ||
           session.visibility !== "private" ||
-          session.agent !== "cmo" ||
+          session.agent !== "chief" ||
           session.status !== "running"
         ) {
           throw new Error(
-            "Schedule occurrences must be running private CMO task sessions.",
+            "Schedule occurrences must be running private Chief task sessions.",
           );
         }
         if (session.parentId && session.parentId !== work.conversationId) {

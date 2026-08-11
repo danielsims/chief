@@ -14,8 +14,8 @@ process.env.CHIEF_DATABASE_ENCRYPTION_KEY =
   "chief-runtime-integration-test-encryption-key";
 
 const cmo: AgentDefinition = {
-  id: "cmo",
-  name: "CMO",
+  id: "chief",
+  name: "Chief",
   role: "Chief marketing officer",
   description: "Runs marketing work.",
   instructions: "Run the requested work.",
