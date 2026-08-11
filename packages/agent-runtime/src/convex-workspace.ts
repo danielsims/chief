@@ -31,7 +31,7 @@ export function materializeConvexWorkspace(
   root: string,
   input: EveWorkspaceInput,
 ) {
-  const rootAgent = getAgent(input.agentId ?? "cmo");
+  const rootAgent = getAgent(input.agentId ?? "chief");
   if (!rootAgent) throw new Error("Deployment agent missing from roster.");
   const specialistIds = rootAgent.delegates ?? [];
   const activeCloudAutomations = (input.automations ?? []).filter(

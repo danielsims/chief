@@ -284,10 +284,11 @@ for (const entry of readdirSync(agentDefinitionsRoot, {
   const targetDirectory = join(bundledAgentDefinitionsRoot, entry.name);
   mkdirSync(targetDirectory, { recursive: true });
   cpSync(instructions, join(targetDirectory, "instructions.md"));
+  const skills = join(agentDefinitionsRoot, entry.name, "skills");
+  if (existsSync(skills)) {
+    cpSync(skills, join(targetDirectory, "skills"), { recursive: true });
+  }
 }
-
-const setupSkillsRoot = join(packageRoot, "setup-skills");
-cpSync(setupSkillsRoot, join(runtimeRoot, "setup-skills"), { recursive: true });
 
 // App-managed deployments use a bundled, deterministic Eve workspace. The
 // desktop runtime materializes the selected canonical agent into a private

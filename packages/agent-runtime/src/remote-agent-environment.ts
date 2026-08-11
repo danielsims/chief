@@ -29,7 +29,7 @@ export function scopeRemoteAgentEnvironment(
   for (const key of REMOTE_KEYS) {
     const agentValue = environment[agentEnvironmentKey(key, agentId)];
     if (agentValue) scoped[key] = agentValue;
-    else if (agentId !== "cmo") delete scoped[key];
+    else if (agentId !== "chief") delete scoped[key];
   }
   return scoped;
 }

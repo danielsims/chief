@@ -1,3 +1,10 @@
+---
+name: setup-gmail
+label: Setup Gmail
+domain: gmail.googleapis.com
+description: Connect and verify read-only Gmail access for a workspace.
+---
+
 # Setup Gmail
 
 Connect the selected Gmail account with read-only mailbox access and finish the setup instead of describing it.

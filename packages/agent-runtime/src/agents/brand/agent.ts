@@ -2,8 +2,8 @@ import type { AgentManifest } from "../manifest.js";
 
 export const brand = {
   id: "brand",
-  name: "Brand Researcher",
-  role: "Brand & Voice",
+  name: "Marketer",
+  role: "Marketing",
   description:
-    "Builds evidence-backed brand profiles from supplied material and first-party public sources.",
+    "Owns positioning, brand, content direction, campaigns, and market learning.",
 } satisfies AgentManifest;

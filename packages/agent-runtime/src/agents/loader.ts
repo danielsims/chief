@@ -7,7 +7,7 @@ import { availableCapabilities } from "../capabilities/index.js";
 import { composeAgentCapabilities } from "../capabilities/types.js";
 import { agentManifests } from "./manifest.js";
 
-function definitionsRoot(): string {
+export function agentDefinitionsRoot(): string {
   const bundledOrSourceRoot = fileURLToPath(
     new URL("../agents/", import.meta.url),
   );
@@ -18,7 +18,7 @@ function definitionsRoot(): string {
   ].filter((candidate): candidate is string => Boolean(candidate));
 
   const root = candidates.find((candidate) =>
-    existsSync(join(candidate, "cmo", "instructions.md")),
+    existsSync(join(candidate, "chief", "instructions.md")),
   );
   if (!root) {
     throw new Error(
@@ -33,7 +33,7 @@ const capabilityById = new Map(
 );
 
 export function loadAgentDefinitions(): AgentDefinition[] {
-  const root = definitionsRoot();
+  const root = agentDefinitionsRoot();
   return agentManifests.map((manifest) => {
     const baseInstructions = readFileSync(
       join(root, manifest.id, "instructions.md"),

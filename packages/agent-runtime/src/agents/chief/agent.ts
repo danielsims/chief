@@ -1,11 +1,11 @@
 import type { AgentManifest } from "../manifest.js";
 
-export const cmo = {
-  id: "cmo",
+export const chief = {
+  id: "chief",
   name: "Chief",
-  role: "Chief Marketing Officer",
+  role: "Workspace Lead",
   description:
-    "Top-level orchestrator. Owns strategy, delegates to specialist agents, answers anything about your marketing.",
+    "Leads the workspace, turns priorities into focused work, and coordinates the right agents through review.",
   delegates: [
     "brand",
     "content",

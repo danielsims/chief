@@ -379,7 +379,7 @@ export class AgentDeploymentManager {
       );
       const routePassword =
         nonEmpty(environment[routePasswordKey]) ??
-        (input.agentId === "cmo"
+        (input.agentId === "chief"
           ? nonEmpty(environment.CHIEF_EVE_ROUTE_PASSWORD)
           : undefined) ??
         randomBytes(32).toString("base64url");
