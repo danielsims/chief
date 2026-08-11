@@ -44,6 +44,7 @@ import {
   IntegrationsSettings,
 } from "./pages/settings/integrations";
 import { SettingsLayout } from "./pages/settings/layout";
+import { MissionsSettings } from "./pages/settings/missions";
 import { NotificationsSettings } from "./pages/settings/notifications";
 import { ProfileSettings } from "./pages/settings/profile";
 import { WorkspaceSettings } from "./pages/settings/workspace";
@@ -278,6 +279,7 @@ function AuthenticatedApp() {
                     />
                     <Route path="profile" element={<ProfileSettings />} />
                     <Route path="workspace" element={<WorkspaceSettings />} />
+                    <Route path="missions" element={<MissionsSettings />} />
                     <Route path="appearance" element={<AppearanceSettings />} />
                     <Route
                       path="notifications"

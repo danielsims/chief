@@ -7,6 +7,7 @@ import type {
   RecurringWorkRecord,
   SessionRecord,
   TrendRecord,
+  WorkspaceWaysOfWorking,
 } from "@chief/agent-runtime/types";
 
 export interface WorkspaceDataState {
@@ -18,6 +19,7 @@ export interface WorkspaceDataState {
   recurringWork: RecurringWorkRecord[];
   activity: SessionRecord[];
   actionItems: ActionItem[];
+  waysOfWorking: WorkspaceWaysOfWorking;
 }
 
 export const emptyWorkspaceData: WorkspaceDataState = {
@@ -29,7 +31,15 @@ export const emptyWorkspaceData: WorkspaceDataState = {
   recurringWork: [],
   activity: [],
   actionItems: [],
+  waysOfWorking: {
+    mode: "mission-control",
+    missionControlChannelId: "ce83fa02-5d8d-4fc1-9e31-f670676b0741",
+    updatedAt: 0,
+  },
 };
+
+const DEFAULT_MISSION_CONTROL_CHANNEL_ID =
+  "ce83fa02-5d8d-4fc1-9e31-f670676b0741";
 
 function arrayValue<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
@@ -50,5 +60,20 @@ export function normalizeWorkspaceData(value: unknown): WorkspaceDataState {
     recurringWork: arrayValue<RecurringWorkRecord>(snapshot.recurringWork),
     activity: arrayValue<SessionRecord>(snapshot.activity),
     actionItems: arrayValue<ActionItem>(snapshot.actionItems),
+    waysOfWorking: (() => {
+      if (
+        !snapshot.waysOfWorking ||
+        typeof snapshot.waysOfWorking !== "object"
+      ) {
+        return emptyWorkspaceData.waysOfWorking;
+      }
+      const value = snapshot.waysOfWorking as Partial<WorkspaceWaysOfWorking>;
+      return {
+        mode: value.mode ?? "mission-control",
+        missionControlChannelId:
+          value.missionControlChannelId ?? DEFAULT_MISSION_CONTROL_CHANNEL_ID,
+        updatedAt: value.updatedAt ?? 0,
+      };
+    })(),
   };
 }

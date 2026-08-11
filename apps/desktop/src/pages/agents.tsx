@@ -272,13 +272,6 @@ function PlaybooksCatalogue() {
     );
   };
 
-  const schedule = () => {
-    const chat = createChat(`Schedule ${selected.title}`);
-    navigate(
-      `/conversations?chat=${chat.id}&compose=recurring&playbook=${selected.id}`,
-    );
-  };
-
   const checkSetup = () => {
     const chat = createChat(`Prepare ${selected.title}`);
     navigate(
@@ -352,9 +345,6 @@ function PlaybooksCatalogue() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={schedule}>
-                Schedule
-              </Button>
               <Button size="sm" onClick={runNow}>
                 Run now
               </Button>
@@ -429,7 +419,7 @@ export function AgentsPage() {
   ).length;
   const deploymentAgent =
     selectedAgent ??
-    agents.find((agent) => agent.id === "cmo") ??
+    agents.find((agent) => agent.id === "chief") ??
     agents[0] ??
     null;
   const detailMode =
