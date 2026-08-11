@@ -20,6 +20,11 @@ import { useConversationAuxiliaryPanelSizing } from "../components/chat/conversa
 import { ConversationErrorBoundary } from "../components/chat/conversation-error-boundary";
 import { ConversationHeader } from "../components/chat/conversation-header";
 import { useAuth } from "../lib/auth/auth-context";
+import {
+  withConversationChild,
+  withConversationThread,
+  withoutConversationChild,
+} from "../lib/conversation-navigation";
 import { INTEGRATION_CATALOG } from "../lib/integration-catalog";
 import {
   googleAnalyticsActionIdFromChat,
@@ -433,22 +438,26 @@ export function ConversationsPage() {
                     { replace: true },
                   );
                 }}
-                onCloseChild={() =>
-                  setParams((current) => {
-                    const next = new URLSearchParams(current);
-                    next.delete("child");
-                    return next;
-                  })
+                onCloseChild={(returnThreadRootId) =>
+                  setParams((current) =>
+                    withoutConversationChild(current, returnThreadRootId),
+                  )
                 }
                 onOpenChild={(childId) =>
-                  setParams((current) => {
-                    const next = new URLSearchParams(current);
-                    next.set("channel", activeChannel.id);
-                    next.set("chat", activeChatId);
-                    next.delete("profile");
-                    next.set("child", childId);
-                    return next;
-                  })
+                  setParams((current) =>
+                    withConversationChild(
+                      current,
+                      childId,
+                      activeChatId,
+                      activeConversationChannel?.id,
+                    ),
+                  )
+                }
+                onThreadRootChange={(threadRootId) =>
+                  setParams(
+                    (current) => withConversationThread(current, threadRootId),
+                    { replace: true },
+                  )
                 }
                 onOpenInternalPanel={openInternalPanel}
                 activityOpen={activityOpen}

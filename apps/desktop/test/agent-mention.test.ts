@@ -13,10 +13,18 @@ void test("splits known Chief agent mentions into semantic inline tokens", () =>
       { type: "text", value: "Can " },
       { type: "mention", agentId: "analyst", label: "Analyst" },
       { type: "text", value: " review this with " },
-      { type: "mention", agentId: "brand", label: "Brand" },
+      { type: "mention", agentId: "brand", label: "Marketer" },
       { type: "text", value: "?" },
     ],
   );
+});
+
+void test("normalizes lowercase agent ids to display names", () => {
+  assert.deepEqual(splitAgentMentions("@brand and @prospector"), [
+    { type: "mention", agentId: "brand", label: "Marketer" },
+    { type: "text", value: " and " },
+    { type: "mention", agentId: "prospector", label: "Prospector" },
+  ]);
 });
 
 void test("does not style email addresses or partial agent names", () => {

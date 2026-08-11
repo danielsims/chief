@@ -9,6 +9,7 @@ import {
   SmilePlus,
 } from "lucide-react";
 
+import type { SessionRecord } from "@chief/agent-runtime/types";
 import {
   Popover,
   PopoverContent,
@@ -24,6 +25,7 @@ import { cn } from "@chief/ui/lib/utils";
 import type { ChannelReactionSummary } from "../../lib/channel-reactions";
 import { AgentAvatar } from "../agent-avatar";
 import { EMOJI_OPTIONS } from "./emoji-catalog";
+import { SpecialistStatusIndicator } from "./specialist-status-indicator";
 
 const QUICK_REACTIONS = [
   { emoji: "💬", label: "React with speech balloon" },
@@ -205,6 +207,7 @@ export function ChannelMessageMeta({
   reactions,
   onOpenThread,
   onToggleReaction,
+  specialist,
 }: {
   replies: readonly {
     role: "system" | "user" | "assistant";
@@ -216,10 +219,13 @@ export function ChannelMessageMeta({
   reactions: readonly ChannelReactionSummary[];
   onOpenThread: () => void;
   onToggleReaction: (emoji: string) => void;
+  specialist?: SessionRecord;
 }) {
-  if (replyCount === 0 && reactions.length === 0) return null;
+  if (replyCount === 0 && reactions.length === 0 && !specialist) return null;
   const lastReply = replies.at(-1);
-  const latestReplyAt = lastReplyAt ?? lastReply?.metadata?.createdAt;
+  const effectiveReplyCount = Math.max(replyCount, specialist ? 1 : 0);
+  const latestReplyAt =
+    lastReplyAt ?? lastReply?.metadata?.createdAt ?? specialist?.updatedAt;
   const uniqueParticipants = participants.filter(
     (participant, index) =>
       participants.findIndex((candidate) => candidate.id === participant.id) ===
@@ -254,25 +260,34 @@ export function ChannelMessageMeta({
           ))}
         </div>
       ) : null}
-      {replyCount > 0 ? (
+      {effectiveReplyCount > 0 ? (
         <button
           type="button"
           onClick={onOpenThread}
           className="hover:bg-accent flex h-8 items-center gap-2 rounded-lg px-1.5 pr-2.5 text-left transition-colors"
         >
           <span className="flex -space-x-1">
+            {specialist ? (
+              <span className="bg-background ring-background relative z-[1] grid size-5 place-items-center rounded-md ring-2">
+                <SpecialistStatusIndicator
+                  agent={specialist.agent}
+                  status={specialist.status}
+                  className="size-4"
+                />
+              </span>
+            ) : null}
             {uniqueParticipants.slice(0, 3).map((participant) =>
               participant.kind === "agent" ? (
                 <AgentAvatar
                   key={participant.id}
                   label={participant.name}
-                  className="ring-background size-5 ring-2"
+                  className="ring-background size-5 rounded-md ring-2"
                 />
               ) : (
                 <span
                   key={participant.id}
                   title={participant.name}
-                  className="bg-muted text-muted-foreground ring-background flex size-5 items-center justify-center overflow-hidden rounded-full text-[7px] font-semibold ring-2"
+                  className="bg-muted text-muted-foreground ring-background flex size-5 items-center justify-center overflow-hidden rounded-md text-[7px] font-semibold ring-2"
                 >
                   {participant.image ? (
                     <img
@@ -292,17 +307,23 @@ export function ChannelMessageMeta({
               ),
             )}
             {uniqueParticipants.length > 3 ? (
-              <span className="bg-muted text-muted-foreground ring-background flex size-5 items-center justify-center rounded-full text-[7px] font-medium ring-2">
+              <span className="bg-muted text-muted-foreground ring-background flex size-5 items-center justify-center rounded-md text-[7px] font-medium ring-2">
                 +{uniqueParticipants.length - 3}
               </span>
             ) : null}
           </span>
           <span className="text-xs font-medium">
-            {replyCount} {replyCount === 1 ? "reply" : "replies"}
+            {effectiveReplyCount}{" "}
+            {effectiveReplyCount === 1 ? "reply" : "replies"}
           </span>
           <span className="text-muted-foreground text-xs">
             Last reply {relativeReplyTime(latestReplyAt)}
           </span>
+          {specialist?.status === "waiting" ? (
+            <span className="text-xs font-medium text-amber-300">
+              Needs you
+            </span>
+          ) : null}
         </button>
       ) : null}
     </div>

@@ -9,6 +9,11 @@ import {
   normalizeLocalFileLinks,
 } from "../../lib/markdown-link-target";
 import { AgentMentionText } from "./agent-mention";
+import {
+  messageSkill,
+  MessageSkillChip,
+  splitSkillReferences,
+} from "./message-skill-chip";
 
 // Start loading as soon as the chat bundle is evaluated, but keep Streamdown's
 // parser and highlighting code out of the desktop entry chunk.
@@ -63,16 +68,28 @@ function MarkdownImage({
   );
 }
 
-function highlightMentions(
+function highlightReferences(
   children: ReactNode,
   onOpenMention?: (agentId: WorkspaceAgentId) => void,
 ) {
   return Children.map(children, (child) =>
-    typeof child === "string" ? (
-      <AgentMentionText text={child} onOpenMention={onOpenMention} />
-    ) : (
-      child
-    ),
+    typeof child === "string"
+      ? splitSkillReferences(child).map((segment, index) =>
+          segment.type === "skill" ? (
+            <MessageSkillChip
+              id={segment.id}
+              key={`${index}:${segment.id}`}
+              label={segment.label}
+            />
+          ) : (
+            <AgentMentionText
+              key={`${index}:${segment.value}`}
+              text={segment.value}
+              onOpenMention={onOpenMention}
+            />
+          ),
+        )
+      : child,
   );
 }
 
@@ -85,6 +102,7 @@ export function StreamingMarkdown({
   streaming?: boolean;
   onOpenMention?: (agentId: WorkspaceAgentId) => void;
 }) {
+  const { inlineText } = messageSkill(children);
   const components = useMemo(
     () => ({
       a: MarkdownLink,
@@ -93,13 +111,15 @@ export function StreamingMarkdown({
         children: paragraphChildren,
         ...props
       }: ComponentPropsWithoutRef<"p">) => (
-        <p {...props}>{highlightMentions(paragraphChildren, onOpenMention)}</p>
+        <p {...props}>
+          {highlightReferences(paragraphChildren, onOpenMention)}
+        </p>
       ),
       li: ({
         children: itemChildren,
         ...props
       }: ComponentPropsWithoutRef<"li">) => (
-        <li {...props}>{highlightMentions(itemChildren, onOpenMention)}</li>
+        <li {...props}>{highlightReferences(itemChildren, onOpenMention)}</li>
       ),
     }),
     [onOpenMention],
@@ -109,7 +129,7 @@ export function StreamingMarkdown({
       <Suspense
         fallback={
           <div className="max-w-full [overflow-wrap:anywhere] break-all whitespace-pre-wrap">
-            {children}
+            {highlightReferences(inlineText, onOpenMention)}
           </div>
         }
       >
@@ -120,7 +140,7 @@ export function StreamingMarkdown({
           isAnimating={streaming}
           linkSafety={{ enabled: false }}
         >
-          {normalizeLocalFileLinks(children)}
+          {normalizeLocalFileLinks(inlineText)}
         </Streamdown>
       </Suspense>
     </div>

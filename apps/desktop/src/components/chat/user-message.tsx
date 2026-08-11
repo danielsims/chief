@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Wrench } from "lucide-react";
 
 import type { MessageAttachment } from "@chief/agent-runtime/types";
 
@@ -31,24 +30,10 @@ export function UserMessage({
    * when the surrounding channel already makes authorship clear. */
   metadata?: ReactNode;
 }) {
-  const skillId = /^\[chief-skill:([a-z0-9-]+)]$/im.exec(text)?.[1];
-  const skillLabel = skillId
-    ? ({
-        "setup-github": "Setup GitHub",
-        "setup-vercel": "Setup Vercel",
-        "setup-google-analytics": "Setup Google Analytics",
-        "setup-integration": "Setup Integration",
-      }[skillId] ?? skillId)
-    : null;
   const visibleText = stripPrivateSetupInstructions(text)
     .split("\n")
-    .filter(
-      (line) =>
-        !/^\[chief-integration-setup:[^\]]+]$/.test(line.trim()) &&
-        !/^\[chief-skill:[a-z0-9-]+]$/.test(line.trim()),
-    )
-    .join("\n")
-    .trim();
+    .filter((line) => !/^\[chief-integration-setup:[^\]]+]$/.test(line.trim()))
+    .join("\n");
   const initials = author.name
     .split(/\s+/u)
     .map((part) => part.charAt(0))
@@ -66,7 +51,7 @@ export function UserMessage({
         title={`Open ${author.name} profile`}
         disabled={!onOpenProfile}
         onClick={onOpenProfile}
-        className="bg-muted text-muted-foreground focus-visible:ring-ring/30 flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full text-[10px] font-semibold shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)] transition-opacity outline-none enabled:hover:opacity-85 enabled:focus-visible:ring-2 disabled:cursor-default"
+        className="bg-muted text-muted-foreground focus-visible:ring-ring/30 flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg text-[10px] font-semibold shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)] transition-opacity outline-none enabled:hover:opacity-85 enabled:focus-visible:ring-2 disabled:cursor-default"
       >
         {author.image ? (
           <img src={author.image} alt="" className="size-full object-cover" />
@@ -84,11 +69,6 @@ export function UserMessage({
           ) : null}
         </div>
         <div className="chat-markdown overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]">
-          {skillLabel ? (
-            <span className="bg-muted text-foreground mb-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium">
-              <Wrench className="size-3" /> {skillLabel}
-            </span>
-          ) : null}
           <StreamingMarkdown onOpenMention={onOpenMention}>
             {visibleText}
           </StreamingMarkdown>

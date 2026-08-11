@@ -19,7 +19,7 @@ void test("channel reactions resolve protocol targets to chat message ids", () =
         ["client", "message-1"],
       ],
       content: "Ready",
-      actor: { type: "agent", id: "cmo", name: "Chief" },
+      actor: { type: "agent", id: "chief", name: "Chief" },
       createdAt: 1,
     },
     {
