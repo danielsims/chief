@@ -64,7 +64,7 @@ void test("schedule occurrences are private task sessions under an optional conv
       id: "root",
       organizationId: "workspace",
       visibility: "user",
-      agent: "cmo",
+      agent: "chief",
       provider: "codex",
     });
     await store.createChat({
@@ -103,7 +103,7 @@ void test("schedule occurrences are private task sessions under an optional conv
       scheduleId: work.id,
       kind: "task" as const,
       visibility: "private" as const,
-      agent: "cmo",
+      agent: "chief",
       title: "Weekly report",
       provider: "codex",
       status: "running" as const,
@@ -125,7 +125,7 @@ void test("schedule occurrences are private task sessions under an optional conv
     assert.equal(stored.parentId, "root");
     assert.equal(stored.visibility, "private");
     assert.equal(stored.kind, "task");
-    assert.equal(stored.agent, "cmo");
+    assert.equal(stored.agent, "chief");
     await assert.rejects(
       store.deleteChat("workspace", "root"),
       /Workspace conversation is used by a Schedule/,
@@ -138,11 +138,56 @@ void test("schedule occurrences are private task sessions under an optional conv
         id: "child-work",
         conversationId: "child",
       }),
-      /top-level user-visible CMO conversation/,
+      /top-level user-visible Chief conversation/,
     );
     await store.deleteRecurringWork("workspace", work.id);
     assert.deepEqual(await store.listScheduleSessions("workspace"), []);
     assert.ok(await store.chatRecord("workspace", "root"));
+  } finally {
+    await store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+void test("a workspace schedule can migrate to its replacement channel conversation", async () => {
+  const { directory, store } = fixture("schedule-conversation-migration");
+  try {
+    for (const id of ["retired-setup", "mission-control"]) {
+      await store.createChat({
+        id,
+        organizationId: "workspace",
+        visibility: "user",
+        agent: "chief",
+        provider: "codex",
+      });
+    }
+    const work = {
+      id: "workspace-onboarding-weekly-review",
+      conversationId: "retired-setup",
+      agentId: "chief",
+      title: "Weekly review",
+      instructions: "Review current work.",
+      cron: "0 9 * * 1",
+      timezone: "UTC",
+      status: "active" as const,
+      placement: "local" as const,
+      approvalSummary: "Review workspace activity.",
+      proposedToolPatterns: [],
+      grant: { version: 1 as const, approvedAt: 1, toolPatterns: [] },
+      nextAt: 2,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    await store.saveRecurringWork("workspace", work);
+    await store.saveRecurringWork("workspace", {
+      ...work,
+      conversationId: "mission-control",
+      updatedAt: 2,
+    });
+    assert.equal(
+      (await store.listRecurringWork("workspace"))[0]?.conversationId,
+      "mission-control",
+    );
   } finally {
     await store.close();
     rmSync(directory, { recursive: true, force: true });

@@ -275,7 +275,7 @@ void test("scheduled work run commands expose history, cancellation, retry, and 
     triggerContext: { type: "channel_message", eventId: "event-1" },
     kind: "task",
     visibility: "private",
-    agent: "cmo",
+    agent: "chief",
     title: scheduledWork.title,
     provider: "codex",
     status: "failed",
