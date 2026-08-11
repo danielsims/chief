@@ -149,7 +149,7 @@ export const channelApiOperations: readonly ChannelApiOperation[] = [
     group: "Messages",
     summary: "Post a message",
     description:
-      "Posts a concise progress update, decision request, result or pull-request link as the calling agent.",
+      "Publishes a concise progress update, decision request, result or pull-request link as the calling agent. Ordinary working output stays private.",
     permission: "Channel member",
     toolPermission: "messages.send",
     reversible: false,

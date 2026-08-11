@@ -1,5 +1,3 @@
-import { GETTING_STARTED_CHANNEL_ID } from "./channels/nip29.js";
-
 const MAIN_CHANNEL_REPLY_PATTERNS = [
   /\b(?:reply|respond|answer|post)\b[\s\S]{0,64}\b(?:in|to)\s+(?:the\s+)?main\s+(?:chat|channel|conversation|timeline|feed)\b/i,
   /\b(?:reply|respond|answer|post)\b[\s\S]{0,64}\b(?:not|don['’]?t)\b[\s\S]{0,32}\b(?:in|inside|to)\s+(?:a\s+|the\s+|this\s+)?thread\b/i,
@@ -12,12 +10,13 @@ export function requestsMainChannelReply(text: string) {
 export function channelRespondingAgentId(input: {
   channelId?: string;
   isSharedChannel: boolean;
+  missionControlChannelId?: string;
   mentions?: readonly string[];
 }) {
   if (!input.isSharedChannel) return undefined;
   return (
     input.mentions?.[0] ??
-    (input.channelId === GETTING_STARTED_CHANNEL_ID ? "cmo" : undefined)
+    (input.channelId === input.missionControlChannelId ? "chief" : undefined)
   );
 }
 

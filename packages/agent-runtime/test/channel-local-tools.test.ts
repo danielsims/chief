@@ -26,7 +26,7 @@ void test("agent channel tools provide a reversible feature workflow", async () 
   const context = {
     actor: { type: "agent" as const, id: "engineer", name: "Engineer" },
     channelStore: store.channelStore(),
-    availableAgentIds: ["cmo", "engineer", "analyst"],
+    availableAgentIds: ["chief", "engineer", "analyst"],
     onChannelEvent: (event: { id: string }) => {
       events.push(event.id);
     },
@@ -137,7 +137,7 @@ void test("agent invitations identify the caller and notify through a durable ch
   const context = {
     actor: { type: "agent" as const, id: "engineer", name: "Engineer" },
     channelStore: store.channelStore(),
-    availableAgentIds: ["cmo", "engineer", "analyst"],
+    availableAgentIds: ["chief", "engineer", "analyst"],
     onChannelEvent: (event: ChannelEvent) => {
       events.push(event);
     },
@@ -201,7 +201,7 @@ void test("channel message commands project threads, edits, reactions, and tombs
   const context = {
     actor: { type: "agent" as const, id: "engineer", name: "Engineer" },
     channelStore: store.channelStore(),
-    availableAgentIds: ["cmo", "engineer", "analyst"],
+    availableAgentIds: ["chief", "engineer", "analyst"],
   };
   const call = (
     path: string,
@@ -254,6 +254,24 @@ void test("channel message commands project threads, edits, reactions, and tombs
       ),
       [rootId],
     );
+    const recentReplies = (
+      timeline.value as {
+        messages: {
+          recentReplies: {
+            id: string;
+            content: string;
+            threadRootId?: string;
+          }[];
+        }[];
+      }
+    ).messages[0]?.recentReplies;
+    assert.ok(recentReplies);
+    assert.equal(recentReplies.length, 1);
+    const recentReply = recentReplies[0];
+    assert.ok(recentReply);
+    assert.equal(recentReply.id, replyId);
+    assert.equal(recentReply.content, "I verified the storage layer.");
+    assert.equal(recentReply.threadRootId, rootId);
     const thread = await call(
       `/local-tools/channels/${channel.id}/messages/${rootId}/replies`,
       "GET",
@@ -322,6 +340,18 @@ void test("channel message commands project threads, edits, reactions, and tombs
       "GET",
     );
     assert.equal((search.value as { messages: unknown[] }).messages.length, 1);
+    const replySearch = await call(
+      "/local-tools/messages/search?query=verified",
+      "GET",
+    );
+    const replyMatch = (
+      replySearch.value as {
+        messages: { id: string; threadRoot?: { id: string } }[];
+      }
+    ).messages[0];
+    assert.ok(replyMatch);
+    assert.equal(replyMatch.id, replyId);
+    assert.equal(replyMatch.threadRoot?.id, rootId);
     const deleted = await call(
       `/local-tools/channels/${channel.id}/messages/${rootId}`,
       "DELETE",
@@ -369,7 +399,7 @@ void test("channel membership, lifecycle, and policy commands remain conflict sa
   const context = {
     actor: { type: "agent" as const, id: "engineer", name: "Engineer" },
     channelStore: store.channelStore(),
-    availableAgentIds: ["cmo", "engineer", "analyst"],
+    availableAgentIds: ["chief", "engineer", "analyst"],
     requestDeletion: () => Promise.resolve({ id: "owner-review" }),
   };
   const call = (
@@ -399,13 +429,16 @@ void test("channel membership, lifecycle, and policy commands remain conflict sa
       (members.value as { members: { id: string }[] }).members.map(
         (member) => member.id,
       ),
-      ["workspace-owner", "engineer"],
+      ["engineer"],
     );
     const added = await call(
       `/local-tools/channels/${channel.id}/members`,
       "POST",
       {
-        members: [{ type: "agent", id: "analyst" }],
+        members: [
+          { type: "user", id: "workspace-owner" },
+          { type: "agent", id: "analyst" },
+        ],
         expectedVersion: channel.version,
       },
     );

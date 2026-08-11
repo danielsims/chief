@@ -21,6 +21,7 @@ import {
 } from "./tools/control-plane.js";
 import { executorToolServer } from "./tools/spec.js";
 import { readWorkspaceContext } from "./workspace-context.js";
+import { readWorkspaceWaysOfWorking } from "./workspace-ways-of-working.js";
 
 type Message = Extract<ClientMessage, { type: "sendMessage" }>;
 
@@ -166,6 +167,8 @@ export async function handleSendMessage({
   const respondingAgentId = channelRespondingAgentId({
     channelId: destinationChannel?.id,
     isSharedChannel,
+    missionControlChannelId: readWorkspaceWaysOfWorking(msg.workspaceId)
+      .missionControlChannelId,
     mentions: msg.mentions,
   });
   // Follow-ups are durable before any interruption or execution
@@ -371,7 +374,7 @@ export async function handleSendMessage({
       }
       const preference =
         (await manager.agentPreference(msg.workspaceId, respondingAgentId)) ??
-        (await manager.agentPreference(msg.workspaceId, "cmo"));
+        (await manager.agentPreference(msg.workspaceId, "chief"));
       const effectiveAgent = channelBridge.agentForChannel(
         respondingAgent,
         undefined,
@@ -379,6 +382,7 @@ export async function handleSendMessage({
           .channelStore()
           .get(msg.workspaceId, destinationChannel.id),
         readWorkspaceContext(msg.workspaceId),
+        readWorkspaceWaysOfWorking(msg.workspaceId).missionControlChannelId,
       );
       session = await manager.switchRootChatAgent(effectiveAgent, msg.chatId, {
         ...session.config,
@@ -443,9 +447,20 @@ export async function handleSendMessage({
         threadRootId: replyThreadRootId,
         mentions: msg.mentions,
         attachments,
-        privateInstructions: setupSkill
-          ? `Setup skill ${setupSkill.id}:\n${setupSkill.instructions}`
-          : undefined,
+        privateInstructions:
+          [
+            ...(setupSkill
+              ? [`Setup skill ${setupSkill.id}:\n${setupSkill.instructions}`]
+              : []),
+            ...(destinationChannel && destinationChannel.visibility !== "direct"
+              ? [
+                  channelBridge.channelPublicationInstructions(
+                    destinationChannel.id,
+                    replyThreadRootId,
+                  ),
+                ]
+              : []),
+          ].join("\n\n") || undefined,
       },
     );
   } catch (error) {

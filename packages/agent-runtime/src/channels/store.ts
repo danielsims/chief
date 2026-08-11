@@ -11,11 +11,13 @@ import type {
 
 import type { WorkspaceChannel } from "../types.js";
 import * as schema from "../db/schema.js";
-import { ChannelHistoryStore } from "./history-store.js";
 import {
-  defaultWorkspaceChannels,
-  GETTING_STARTED_CHANNEL_ID,
-} from "./nip29.js";
+  readWorkspaceWaysOfWorking,
+  requiredWorkspaceChannelIds,
+} from "../workspace-ways-of-working.js";
+import { reconcileDefaultChannelPolicies } from "./default-channel-policy.js";
+import { ChannelHistoryStore } from "./history-store.js";
+import { defaultWorkspaceChannels } from "./nip29.js";
 import { WorkspaceLifecycleLock } from "./workspace-lifecycle-lock.js";
 
 export class ChannelStore extends ChannelHistoryStore {
@@ -36,11 +38,13 @@ export class ChannelStore extends ChannelHistoryStore {
           .where(eq(schema.channels.organizationId, workspaceId))
           .all();
         const defaults = defaultWorkspaceChannels();
+        await reconcileDefaultChannelPolicies(this.database(), workspaceId);
+        const requiredChannelIds = requiredWorkspaceChannelIds(workspaceId);
         const channelsToSeed =
           existing.length === 0
             ? defaults
             : defaults
-                .filter((channel) => channel.id === GETTING_STARTED_CHANNEL_ID)
+                .filter((channel) => requiredChannelIds.has(channel.id))
                 .filter(
                   (channel) =>
                     !existing.some((candidate) => candidate.id === channel.id),
@@ -87,6 +91,7 @@ export class ChannelStore extends ChannelHistoryStore {
         topic: schema.channels.topic,
         description: schema.channels.description,
         agentIds: schema.channels.agentIds,
+        userIds: schema.channels.userIds,
         storedVisibility: schema.channels.visibility,
         kind: schema.channels.kind,
         lifecycle: schema.channels.lifecycle,
@@ -112,12 +117,11 @@ export class ChannelStore extends ChannelHistoryStore {
             name: "Workspace",
           },
           agentPermissions: channel.agentPermissions ?? [],
+          userIds: channel.userIds,
           workstream: channel.workstream ?? undefined,
           visibility: channel.slug.startsWith("dm-")
             ? ("direct" as const)
-            : channel.slug === "getting-started"
-              ? ("private" as const)
-              : storedVisibility,
+            : storedVisibility,
         })),
       );
   }
@@ -138,6 +142,7 @@ export class ChannelStore extends ChannelHistoryStore {
       kind?: ChannelKind;
       actor?: ChannelActorIdentity;
       agentIds?: readonly string[];
+      userIds?: readonly string[];
       agentPermissions?: readonly ChannelAgentPermission[];
       workstream?: ChannelWorkstream;
       operationKey?: string;
@@ -189,7 +194,13 @@ export class ChannelStore extends ChannelHistoryStore {
       name,
       topic: input.topic?.trim().slice(0, 250) ?? "",
       description: description ?? `Work and conversation in #${name}`,
-      agentIds: [...new Set(input.agentIds ?? ["cmo"])],
+      agentIds: [...new Set(input.agentIds ?? ["chief"])],
+      userIds: [
+        ...new Set(
+          input.userIds ??
+            (input.actor?.type === "agent" ? [] : ["workspace-owner"]),
+        ),
+      ],
       visibility: input.visibility ?? "public",
       kind: input.kind ?? "standard",
       lifecycle: "active",
@@ -424,8 +435,12 @@ export class ChannelStore extends ChannelHistoryStore {
     if (channel.visibility === "direct") {
       throw new Error("Direct messages cannot be deleted as channels.");
     }
-    if (channel.id === GETTING_STARTED_CHANNEL_ID) {
-      throw new Error("The getting-started channel belongs to the workspace.");
+    const waysOfWorking = readWorkspaceWaysOfWorking(workspaceId);
+    if (
+      waysOfWorking.mode === "mission-control" &&
+      waysOfWorking.missionControlChannelId === channel.id
+    ) {
+      throw new Error(`#${channel.name} is assigned in Missions settings.`);
     }
     const remainingActivePublicChannels = (await this.list(workspaceId)).filter(
       (candidate) =>
