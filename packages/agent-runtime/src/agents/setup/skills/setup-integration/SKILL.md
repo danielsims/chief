@@ -1,3 +1,9 @@
+---
+name: setup-integration
+label: Setup Integration
+description: Connect and verify a supported workspace integration safely.
+---
+
 # Setup Integration
 
 Connect the requested provider and finish the setup instead of describing it.

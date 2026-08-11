@@ -559,7 +559,7 @@ export const PLAYBOOKS: Playbook[] = [
     title: "Search opportunities",
     summary: "Queries and pages with a realistic path to traffic.",
     task: "Find high-intent search opportunities relevant to our product and current authority. Prioritize realistic queries, identify the page or content needed, and save a concise brief for the strongest opportunity.",
-    agentId: "cmo",
+    agentId: "chief",
     categories: ["Search"],
     integrations: [
       INTEGRATIONS.searchConsole,
@@ -594,7 +594,7 @@ export const PLAYBOOKS: Playbook[] = [
     title: "Comparison pages",
     summary: "Capture buyers comparing options in your category.",
     task: "Research how buyers compare products in our category. Identify one useful comparison or alternative page we can support honestly, then produce an evidence-based brief covering intent, structure, proof, and differentiation.",
-    agentId: "cmo",
+    agentId: "chief",
     categories: ["Search"],
     integrations: [
       INTEGRATIONS.searchConsole,
@@ -629,7 +629,7 @@ export const PLAYBOOKS: Playbook[] = [
     title: "AI search visibility",
     summary: "Track whether assistants mention and understand the product.",
     task: "Check how our product and category appear across relevant AI search questions. Record where we are absent or misrepresented, identify the source content likely to improve the answer, and recommend one concrete update.",
-    agentId: "cmo",
+    agentId: "chief",
     categories: ["Search"],
     integrations: [
       INTEGRATIONS.openai,
@@ -736,7 +736,7 @@ export const PLAYBOOKS: Playbook[] = [
     title: "Watch competitors",
     summary: "Product, positioning, pricing, and channel changes.",
     task: "Track meaningful competitor changes across product, positioning, pricing, content, and distribution. Ignore routine noise and report only changes that create a risk or opportunity for us, with one recommended response.",
-    agentId: "cmo",
+    agentId: "chief",
     categories: ["Research"],
     integrations: [
       INTEGRATIONS.x,
@@ -775,7 +775,7 @@ export const PLAYBOOKS: Playbook[] = [
     title: "Customer language",
     summary: "The phrases buyers use for problems and desired outcomes.",
     task: "Collect recent language used by customers and ideal prospects to describe their pain, alternatives, objections, and desired outcomes. Group repeated themes and recommend specific wording improvements for our marketing.",
-    agentId: "cmo",
+    agentId: "chief",
     categories: ["Research"],
     integrations: [
       INTEGRATIONS.hubspot,

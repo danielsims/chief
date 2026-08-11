@@ -113,7 +113,18 @@ export function clearWorkspaceProvider(workspaceId: string) {
 export function getAgentOverrides(workspaceId: string): AgentOverrides {
   retireLegacyGlobalState();
   try {
-    return JSON.parse(migratedValue(KEY, LEGACY_KEY, workspaceId) ?? "{}");
+    const value = JSON.parse(
+      migratedValue(KEY, LEGACY_KEY, workspaceId) ?? "{}",
+    ) as AgentOverrides;
+    if (!value.chief && value.cmo) {
+      value.chief = value.cmo;
+      delete value.cmo;
+      localStorage.setItem(
+        workspaceKey(KEY, workspaceId),
+        JSON.stringify(value),
+      );
+    }
+    return value;
   } catch {
     return {};
   }

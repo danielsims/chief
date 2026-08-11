@@ -1,3 +1,10 @@
+---
+name: setup-vercel
+label: Setup Vercel
+domain: vercel.com
+description: Connect and verify project-scoped Vercel access for a workspace.
+---
+
 # Setup Vercel
 
 Connect the workspace to Vercel and finish the setup instead of describing it.

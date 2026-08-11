@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { defaultAgents, getAgent } from "../src/agents/index.js";
+import {
+  composeWorkspaceInstructions,
+  defaultAgents,
+  getAgent,
+} from "../src/agents/index.js";
 
 void test("the default Chief team includes a delegated product engineer", () => {
   const engineer = getAgent("engineer");
-  const chief = getAgent("cmo");
+  const chief = getAgent("chief");
 
   assert.ok(engineer);
   assert.ok(chief);
@@ -17,4 +21,12 @@ void test("the default Chief team includes a delegated product engineer", () => 
     defaultAgents.filter((agent) => agent.id === "engineer").length,
     1,
   );
+});
+
+void test("every agent receives the mission-cell operating model", () => {
+  for (const agent of defaultAgents) {
+    const instructions = composeWorkspaceInstructions(agent.instructions);
+    assert.match(instructions, /subject channel as its mission cell/u);
+    assert.match(instructions, /private Setup conversation/u);
+  }
 });

@@ -1,3 +1,10 @@
+---
+name: setup-github
+label: Setup GitHub
+domain: github.com
+description: Connect and verify repository-scoped GitHub access for a workspace.
+---
+
 # Setup GitHub
 
 Connect the workspace to GitHub and finish the setup instead of describing it.

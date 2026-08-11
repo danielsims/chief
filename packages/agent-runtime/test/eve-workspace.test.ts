@@ -27,7 +27,7 @@ void test("materializes one Chief root with private inspect-only specialists", (
       channels: [{ kind: "slack" }],
     });
 
-    assert.equal(result.agent.id, "cmo");
+    assert.equal(result.agent.id, "chief");
     assert.deepEqual(result.specialistIds, [
       "brand",
       "content",
@@ -63,6 +63,18 @@ void test("materializes one Chief root with private inspect-only specialists", (
     assert.doesNotMatch(
       read(root, "agent/connections/executor.ts"),
       /localhost/,
+    );
+    assert.match(
+      read(root, "agent/subagents/brand/skills/build-brand-profile.md"),
+      /# Build brand profile/,
+    );
+    assert.match(
+      read(root, "agent/subagents/prospector/skills/find-buying-signals.md"),
+      /# Find buying signals/,
+    );
+    assert.match(
+      read(root, "agent/subagents/setup/skills/setup-google-analytics.md"),
+      /# Setup Google Analytics/,
     );
 
     for (const specialist of [
@@ -132,6 +144,19 @@ void test("materializes a standalone specialist as the user-visible Eve root", (
     assert.doesNotMatch(
       read(root, "agent/instructions.md"),
       /private, inspect-only specialist/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+void test("materializes a standalone agent with its filesystem skills", () => {
+  const root = mkdtempSync(join(tmpdir(), "chief-eve-marketer-"));
+  try {
+    materializeEveWorkspace(root, { agentId: "brand" });
+    assert.match(
+      read(root, "agent/skills/build-brand-profile.md"),
+      /name: build-brand-profile/,
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
