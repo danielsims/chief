@@ -71,18 +71,64 @@ export abstract class ChannelHistoryStore {
     agentIds: readonly string[],
     expectedVersion?: number,
   ) {
+    return this.addMembers(
+      workspaceId,
+      channelId,
+      agentIds,
+      [],
+      expectedVersion,
+    );
+  }
+
+  async addUsers(
+    workspaceId: string,
+    channelId: string,
+    userIds: readonly string[],
+    expectedVersion?: number,
+  ) {
+    return this.addMembers(
+      workspaceId,
+      channelId,
+      [],
+      userIds,
+      expectedVersion,
+    );
+  }
+
+  async addMembers(
+    workspaceId: string,
+    channelId: string,
+    agentIds: readonly string[],
+    userIds: readonly string[],
+    expectedVersion?: number,
+  ) {
     const channel = await this.get(workspaceId, channelId);
-    if (!channel || channel.visibility === "direct" || agentIds.length === 0) {
+    if (
+      !channel ||
+      channel.visibility === "direct" ||
+      (agentIds.length === 0 && userIds.length === 0)
+    ) {
       return channel;
     }
     this.assertVersion(channel, expectedVersion);
     const nextAgentIds = [...new Set([...channel.agentIds, ...agentIds])];
-    if (nextAgentIds.length === channel.agentIds.length) return channel;
+    const nextUserIds = [...new Set([...channel.userIds, ...userIds])];
+    if (
+      nextAgentIds.length === channel.agentIds.length &&
+      nextUserIds.length === channel.userIds.length
+    ) {
+      return channel;
+    }
     const updatedAt = Date.now();
     const version = channel.version + 1;
     const result = await this.database()
       .update(schema.channels)
-      .set({ agentIds: nextAgentIds, version, updatedAt })
+      .set({
+        agentIds: nextAgentIds,
+        userIds: nextUserIds,
+        version,
+        updatedAt,
+      })
       .where(
         and(
           eq(schema.channels.organizationId, workspaceId),
@@ -92,7 +138,13 @@ export abstract class ChannelHistoryStore {
       )
       .run();
     this.assertWriteApplied(result.rowsAffected);
-    return { ...channel, agentIds: nextAgentIds, version, updatedAt };
+    return {
+      ...channel,
+      agentIds: nextAgentIds,
+      userIds: nextUserIds,
+      version,
+      updatedAt,
+    };
   }
 
   async removeAgent(

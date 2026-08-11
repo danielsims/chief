@@ -36,13 +36,17 @@ export function messageOpenApiPaths(body: RequestBody) {
     "/local-tools/channels/{channelId}/messages": {
       get: {
         operationId: "channels.messages.list",
-        summary: "List the channel timeline",
+        summary: "List channel roots with recent thread replies",
         parameters: [channelParameter, ...paging],
-        responses: responses("Cursor-paginated root messages"),
+        responses: responses(
+          "Cursor-paginated root messages with reply counts and recent reply previews",
+        ),
       },
       post: {
         operationId: "channels.messages.post",
-        summary: "Post a message or thread reply",
+        summary: "Publish a message or thread reply",
+        description:
+          "Publishes deliberate user-facing content into a shared channel. Ordinary agent working output is private and does not appear in the channel.",
         parameters: [channelParameter],
         requestBody: body("ChannelMessageInput"),
         responses: responses("Created kind:9 channel event"),
@@ -51,9 +55,11 @@ export function messageOpenApiPaths(body: RequestBody) {
     "/local-tools/channels/{channelId}/messages/{messageId}": {
       get: {
         operationId: "channels.messages.get",
-        summary: "Get a projected message",
+        summary: "Get a message with its immediate thread context",
         parameters: [channelParameter, messageParameter],
-        responses: responses("Message with edits, reactions, and reply count"),
+        responses: responses(
+          "Message with edits, reactions, reply count, and recent thread context",
+        ),
       },
       patch: {
         operationId: "channels.messages.update",
@@ -73,7 +79,7 @@ export function messageOpenApiPaths(body: RequestBody) {
     "/local-tools/channels/{channelId}/messages/{messageId}/replies": {
       get: {
         operationId: "channels.messages.replies",
-        summary: "List one thread",
+        summary: "Read a complete thread before acting on its root",
         parameters: [channelParameter, messageParameter, ...paging],
         responses: responses("Root message and ordered replies"),
       },
@@ -114,7 +120,7 @@ export function messageOpenApiPaths(body: RequestBody) {
     "/local-tools/messages/search": {
       get: {
         operationId: "channels.messages.search",
-        summary: "Search visible messages",
+        summary: "Search visible roots and thread replies",
         parameters: [
           {
             name: "query",
@@ -128,7 +134,9 @@ export function messageOpenApiPaths(body: RequestBody) {
           { name: "before", in: "query", schema: { type: "integer" } },
           ...paging,
         ],
-        responses: responses("Matching visible messages"),
+        responses: responses(
+          "Matching roots and replies with their immediate thread context",
+        ),
       },
     },
   };
@@ -141,7 +149,12 @@ export const messageOpenApiSchemas = {
     required: ["content"],
     properties: {
       content: { type: "string", minLength: 1, maxLength: 8000 },
-      threadRootId: { type: "string", maxLength: 160 },
+      threadRootId: {
+        type: "string",
+        maxLength: 160,
+        description:
+          "Reply inside this thread. Read the current thread before following up on an existing root.",
+      },
       mentions: {
         type: "array",
         maxItems: 20,

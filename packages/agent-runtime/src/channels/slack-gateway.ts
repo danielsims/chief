@@ -279,8 +279,8 @@ export class SlackGateway {
     const existing = this.listeners.get(chatId);
     if (existing) return existing;
 
-    const cmo = getAgent("cmo");
-    if (!cmo) throw new Error("CMO persona missing from the roster.");
+    const cmo = getAgent("chief");
+    if (!cmo) throw new Error("Chief is missing from the agent roster.");
     const instructions = `${composeWorkspaceInstructions(
       cmo.instructions,
       readWorkspaceContext(this.config.workspaceId),
