@@ -39,9 +39,36 @@ import {
   readWorkspaceContext,
   writeWorkspaceContext,
 } from "./workspace-context.js";
+import { readWorkspaceWaysOfWorking } from "./workspace-ways-of-working.js";
 
 type Message = Extract<ClientMessage, { type: "openChat" }>;
 const DRIVER_TYPES = new Set<DriverType>(["codex", "opencode", "remote"]);
+
+/** Opening a timeline reuses non-interactive work instead of taking its lane. */
+export function shouldReuseLiveSessionOnOpen(
+  session: AgentSession | undefined,
+  claimedOwner?: "interactive" | "schedule" | "channel",
+): session is AgentSession {
+  return Boolean(
+    session &&
+    (session.isBusy ||
+      session.config.executionOwner !== "interactive" ||
+      (claimedOwner !== undefined && claimedOwner !== "interactive")),
+  );
+}
+
+/** An onboarding channel is identified by its durable kickoff message, not by
+ * a legacy chat-id prefix. Mission-control chats use ordinary channel IDs. */
+export function shouldRecoverOnboardingOnOpen(
+  events: readonly AgentEvent[],
+  chatId: string,
+) {
+  const kickoff = onboardingKickoffProgress(
+    events,
+    onboardingKickoffId(chatId),
+  );
+  return kickoff.started && !kickoff.completed;
+}
 
 export async function handleOpenChat({
   authorizeWorkspace,
@@ -95,25 +122,24 @@ export async function handleOpenChat({
     ? onboardingBootstraps.get(msg.workspaceId)?.ready
     : undefined;
   if (onboardingBootstrap) await onboardingBootstrap;
-  await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
   const agentId =
     msg.purpose === "integration-setup"
       ? "setup"
       : msg.purpose === "analytics-report"
         ? "analyst"
-        : (msg.agentId ?? "cmo");
+        : (msg.agentId ?? "chief");
   const agent = getAgent(agentId);
   if (!agent) throw new Error(`${agentId} persona is missing.`);
   const preference =
     (await manager.agentPreference(
       msg.workspaceId,
-      agentId === "setup" ? "cmo" : agentId,
+      agentId === "setup" ? "chief" : agentId,
     )) ??
     (agentId === "analyst"
-      ? await manager.agentPreference(msg.workspaceId, "cmo")
+      ? await manager.agentPreference(msg.workspaceId, "chief")
       : undefined);
   if (preference?.enabled === false) {
-    throw new Error("Configure the CMO agent app before opening chat.");
+    throw new Error("Configure Chief's agent app before opening chat.");
   }
   const requestedExecution =
     msg.purpose === "integration-setup" && preference?.driver
@@ -216,21 +242,29 @@ export async function handleOpenChat({
       });
     }
   }
-  if (msg.chatId.startsWith("workspace-kickoff-")) {
-    const events = await manager.transcript(msg.workspaceId, msg.chatId);
+  const onboardingEvents = await manager.transcript(
+    msg.workspaceId,
+    msg.chatId,
+  );
+  if (
+    msg.chatId.startsWith("workspace-kickoff-") ||
+    shouldRecoverOnboardingOnOpen(onboardingEvents, msg.chatId)
+  ) {
+    const events = onboardingEvents;
     const kickoffId = onboardingKickoffId(msg.chatId);
     const kickoff = onboardingKickoffProgress(events, kickoffId);
     if (!kickoff.completed) {
       recoveryPrompt = onboardingRecoveryPrompt(
         driver,
         !onboardingOpeningIsVisible(events, kickoffId),
+        readWorkspaceWaysOfWorking(msg.workspaceId).missionControlChannelId,
       );
       if (!kickoff.started) {
         await manager.saveTranscript(
           {
             id: msg.chatId,
             organizationId: msg.workspaceId,
-            agentId: "cmo",
+            agentId: "chief",
             driver,
             model,
           },
@@ -247,10 +281,38 @@ export async function handleOpenChat({
       }
     }
   }
-  const runningSession = manager.get(msg.workspaceId, msg.chatId);
-  const session = runningSession?.isBusy
+  let runningSession = manager.get(msg.workspaceId, msg.chatId);
+  const claimedOwner = manager.executionOwner(msg.workspaceId, msg.chatId);
+  if (!runningSession && claimedOwner && claimedOwner !== "interactive") {
+    const deadline = Date.now() + 500;
+    while (!runningSession && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      runningSession = manager.get(msg.workspaceId, msg.chatId);
+    }
+  }
+  if (!runningSession && claimedOwner && claimedOwner !== "interactive") {
+    send({
+      type: "chatOpened",
+      workspaceId: msg.workspaceId,
+      chatId: msg.chatId,
+      visibility: "user",
+      execution: { driver, model },
+    });
+    const events = await manager.transcript(msg.workspaceId, msg.chatId);
+    send({
+      type: "history",
+      workspaceId: msg.workspaceId,
+      chatId: msg.chatId,
+      messages: await manager.messages(msg.workspaceId, msg.chatId),
+      events: chatControlEvents(events),
+      running: true,
+    });
+    return;
+  }
+  const session = shouldReuseLiveSessionOnOpen(runningSession, claimedOwner)
     ? runningSession
     : await (async () => {
+        await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
         // Workspace tools are additive: a control-plane failure here
         // must degrade to no tools, not block chat.
         const executorWorkspace = await ensureExecutorWorkspace(
@@ -296,6 +358,7 @@ export async function handleOpenChat({
           msg.purpose,
           channel,
           workspaceContext,
+          readWorkspaceWaysOfWorking(msg.workspaceId).missionControlChannelId,
         );
         const config = {
           driver,

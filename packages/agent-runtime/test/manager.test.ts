@@ -22,8 +22,8 @@ process.env.CHIEF_DATABASE_ENCRYPTION_KEY =
   "chief-runtime-integration-test-encryption-key";
 
 const cmo: AgentDefinition = {
-  id: "cmo",
-  name: "CMO",
+  id: "chief",
+  name: "Chief",
   role: "Chief marketing officer",
   description: "Runs marketing work.",
   instructions: "Run the requested work.",
@@ -119,7 +119,7 @@ function scheduleSession(parentId: string | undefined = "root"): SessionRecord {
     scheduleId: "report",
     kind: "task",
     visibility: "private",
-    agent: "cmo",
+    agent: "chief",
     title: "Report occurrence",
     provider: "codex",
     status: "running",
@@ -229,7 +229,7 @@ void test("private tasks cannot compose as roots or appear as conversation child
     });
     await manager.raiseActionItem("workspace-a", {
       id: "review-report",
-      agentId: "cmo",
+      agentId: "chief",
       title: "Review report",
       reason: "The report needs approval.",
       sourceId: "schedule-session",
@@ -366,13 +366,13 @@ void test("Google Analytics setup tools preserve the agent-driven OAuth handoff"
   }
 });
 
-void test("schedule execution always resolves the CMO provider", async () => {
+void test("scheduled channel work resolves its assigned agent provider", async () => {
   const directory = mkdtempSync(join(tmpdir(), "chief-schedule-owner-"));
   const store = new LocalStore(join(directory, "chief.sqlite"));
   const manager = new SessionManager(store);
   try {
     await manager.saveAgentPreference("workspace", {
-      agentId: "cmo",
+      agentId: "chief",
       enabled: true,
       driver: "codex",
       model: "root-model",
@@ -387,18 +387,14 @@ void test("schedule execution always resolves the CMO provider", async () => {
     });
     const config = await scheduledAgentConfig(manager, "workspace", {
       ...recurringWork(),
+      agentId: "analyst",
       conversationId: undefined,
     });
 
     assert.ok(config);
-    assert.equal(config.agent.id, "cmo");
-    assert.equal(config.preference.driver, "codex");
-    assert.equal(config.preference.model, "root-model");
-    assert.equal(config.preference.approvals, "ask");
-    assert.deepEqual(config.preference.toolPermissions, [
-      "channels.read",
-      "messages.send",
-    ]);
+    assert.equal(config.agent.id, "analyst");
+    assert.equal(config.preference.driver, "claude");
+    assert.equal(config.preference.model, "specialist-model");
   } finally {
     await manager.stopAll();
     rmSync(directory, { recursive: true, force: true });

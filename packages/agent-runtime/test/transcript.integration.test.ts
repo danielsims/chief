@@ -26,7 +26,7 @@ void test("automation transcript metadata remains addressable and workspace-scop
       id: "schedule-chat",
       organizationId: "workspace-a",
       visibility: "user",
-      agent: "cmo",
+      agent: "chief",
       provider: "codex",
       title: "Growth report",
     });
@@ -34,7 +34,7 @@ void test("automation transcript metadata remains addressable and workspace-scop
       {
         id: "schedule-chat",
         organizationId: "workspace-a",
-        agentId: "cmo",
+        agentId: "chief",
         driver: "codex",
       },
       events,
@@ -51,7 +51,7 @@ void test("automation transcript metadata remains addressable and workspace-scop
         {
           id: "schedule-chat",
           organizationId: "workspace-b",
-          agentId: "cmo",
+          agentId: "chief",
           driver: "codex",
         },
         [
@@ -86,7 +86,7 @@ void test("provider updates with one message id coalesce before persistence", as
       id: "root",
       organizationId: "workspace-a",
       visibility: "user",
-      agent: "cmo",
+      agent: "chief",
       provider: "codex",
       title: "Review",
     });
@@ -94,7 +94,7 @@ void test("provider updates with one message id coalesce before persistence", as
       {
         id: "root",
         organizationId: "workspace-a",
-        agentId: "cmo",
+        agentId: "chief",
         driver: "codex",
       },
       [
@@ -149,7 +149,7 @@ void test("a document produced by a user-role tool result stays with its assista
       id: "root",
       organizationId: "workspace-a",
       visibility: "user",
-      agent: "cmo",
+      agent: "chief",
       provider: "codex",
       title: "Review",
     });
@@ -157,7 +157,7 @@ void test("a document produced by a user-role tool result stays with its assista
       {
         id: "root",
         organizationId: "workspace-a",
-        agentId: "cmo",
+        agentId: "chief",
         driver: "codex",
       },
       [
@@ -225,7 +225,7 @@ void test("evolving provider events never reuse a persisted message id", async (
   const context = {
     id: "root",
     organizationId: "workspace-a",
-    agentId: "cmo",
+    agentId: "chief",
     driver: "codex" as const,
   };
   try {
@@ -233,7 +233,7 @@ void test("evolving provider events never reuse a persisted message id", async (
       id: "root",
       organizationId: "workspace-a",
       visibility: "user",
-      agent: "cmo",
+      agent: "chief",
       provider: "codex",
       title: "Review",
     });

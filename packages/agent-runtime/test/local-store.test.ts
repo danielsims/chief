@@ -26,7 +26,7 @@ void test("root chat lists exclude private roots and child executions", async ()
       id: "root",
       organizationId: "workspace-a",
       visibility: "user",
-      agent: "cmo",
+      agent: "chief",
       provider: "codex",
       model: "gpt-5",
       providerState: { sessionId: "provider-thread" },
@@ -339,7 +339,7 @@ void test("UI history merges tool output into the stable assistant message", asy
   const context = {
     id: "root",
     organizationId: "workspace",
-    agentId: "cmo",
+    agentId: "chief",
     driver: "codex" as const,
   };
   try {
@@ -446,7 +446,7 @@ void test("diagnostics are workspace scoped, redacted, capped, and leveled", asy
       id: "diagnostic-session",
       organizationId: "workspace-a",
       visibility: "user",
-      agent: "cmo",
+      agent: "chief",
       provider: "codex",
       lastText: "Useful context authorization=last-text-secret",
       summary: "Useful summary Bearer summary-secret",
@@ -456,7 +456,7 @@ void test("diagnostics are workspace scoped, redacted, capped, and leveled", asy
       id: "other-session",
       organizationId: "workspace-b",
       visibility: "user",
-      agent: "cmo",
+      agent: "chief",
       provider: "codex",
     });
     await store.saveDiagnosticEvent("workspace-a", "diagnostic-session", 0, {

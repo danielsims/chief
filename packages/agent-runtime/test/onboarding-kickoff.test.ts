@@ -7,11 +7,13 @@ import {
   onboardingDirectory,
   onboardingKickoffId,
   onboardingKickoffProgress,
+  onboardingLocalKickoffInstructions,
   onboardingOpeningIsVisible,
   onboardingRecoveryPrompt,
 } from "../src/onboarding-kickoff.js";
+import { hasInitialReviewKickoff } from "../src/workspace-data.js";
 
-const kickoffId = onboardingKickoffId("getting-started");
+const kickoffId = onboardingKickoffId("mission-control");
 const kickoffPrompt: AgentEvent = {
   type: "message",
   id: kickoffId,
@@ -26,25 +28,70 @@ void test("the opening sounds conversational and avoids em dashes", () => {
   assert.doesNotMatch(ONBOARDING_OPENING_MESSAGE, /—/);
 });
 
+void test("local kickoff roots stay concise and skill-backed", () => {
+  const instructions = onboardingLocalKickoffInstructions("mission");
+  assert.match(
+    instructions,
+    /Hey @Marketer, use \[chief-skill:build-brand-profile\]/u,
+  );
+  assert.match(
+    instructions,
+    /Hey @Prospector, use \[chief-skill:find-buying-signals\]/u,
+  );
+  assert.match(
+    instructions,
+    /Hey @Setup, use \[chief-skill:setup-google-analytics\]/u,
+  );
+  assert.match(instructions, /one localTools\.channels\.members\.add call/u);
+  assert.match(instructions, /channelId "mission"/u);
+});
+
 void test("onboarding files live inside the owning agent workspace", () => {
   assert.equal(
-    onboardingDirectory("/workspaces/acme", "cmo"),
-    "/workspaces/acme/agents/cmo/onboarding",
+    onboardingDirectory("/workspaces/acme", "chief"),
+    "/workspaces/acme/agents/chief/onboarding",
+  );
+});
+
+void test("mission control retains the onboarding marker after earlier activity", () => {
+  assert.equal(
+    hasInitialReviewKickoff([
+      {
+        type: "message",
+        id: "mission-control-onboarding-kickoff",
+        role: "user",
+        content: [{ type: "text", text: "Start onboarding." }],
+      },
+    ]),
+    true,
   );
 });
 
 void test("local recovery resumes the durable plan without a second greeting", () => {
-  const prompt = onboardingRecoveryPrompt("opencode", false);
-  assert.match(prompt, /Read onboarding\/getting-started\.md/);
+  const prompt = onboardingRecoveryPrompt("opencode", false, "mission");
+  assert.match(prompt, /Read onboarding\/onboarding\.md/);
   assert.match(prompt, /do not greet the user again/);
-  assert.match(prompt, /concurrently and exactly once/);
+  assert.match(prompt, /publish one top-level kickoff/i);
+  assert.match(prompt, /selected unconnected analytics or advertising source/);
+  assert.match(prompt, /\[chief-skill:setup-google-analytics]/);
+  assert.match(prompt, /Marketer.*Prospector/);
+  assert.match(prompt, /"brand" for Marketer/);
+  assert.match(prompt, /"setup" for Setup/);
+  assert.match(prompt, /"prospector" for Prospector/);
+  assert.match(prompt, /Do not search files/);
+  assert.match(prompt, /do not also call specialistsDelegate/);
+  assert.match(prompt, /Hey @Marketer, use \[chief-skill:build-brand-profile]/);
+  assert.match(prompt, /<company>/);
+  assert.match(prompt, /single user-facing authorization alert/);
 });
 
 void test("recovery includes the exact opener only when no opener is visible", () => {
-  const prompt = onboardingRecoveryPrompt("opencode", true);
+  const prompt = onboardingRecoveryPrompt("opencode", true, "mission");
   assert.equal(prompt.includes(ONBOARDING_OPENING_MESSAGE), true);
+  assert.match(prompt, /localTools\.channelsMessagesPost/);
+  assert.match(prompt, /channelId "mission"/);
   assert.equal(
-    onboardingRecoveryPrompt("opencode", false).includes(
+    onboardingRecoveryPrompt("opencode", false, "mission").includes(
       ONBOARDING_OPENING_MESSAGE,
     ),
     false,
@@ -72,6 +119,41 @@ void test("recovery includes the exact opener only when no opener is visible", (
           type: "message",
           role: "assistant",
           content: [{ type: "text", text: ONBOARDING_OPENING_MESSAGE }],
+        },
+      ],
+      kickoffId,
+    ),
+    true,
+  );
+  assert.equal(
+    onboardingOpeningIsVisible(
+      [
+        kickoffPrompt,
+        {
+          type: "message",
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "publish-opener",
+              name: "chief_local_localTools_channelsMessagesPost",
+              input: {
+                channelId: "mission",
+                content: ONBOARDING_OPENING_MESSAGE,
+              },
+            },
+          ],
+        },
+        {
+          type: "message",
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "publish-opener",
+              content: "published",
+            },
+          ],
         },
       ],
       kickoffId,

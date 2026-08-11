@@ -113,7 +113,7 @@ export function createChiefMcpHandler(deps: {
       "ask_chief",
       {
         description:
-          "Send a message to the workspace CMO and get its reply. Chief owns the root conversation and delegates to private specialists when useful.",
+          "Send a message to Chief and get its reply. Chief owns the root conversation and delegates to private specialists when useful.",
         inputSchema: {
           message: z.string().describe("What to ask or tell the agent"),
           chatId: z
@@ -125,11 +125,11 @@ export function createChiefMcpHandler(deps: {
         },
       },
       async ({ message, chatId }) => {
-        const agent = getAgent("cmo");
-        if (!agent) return toolError("The CMO persona is unavailable.");
+        const agent = getAgent("chief");
+        if (!agent) return toolError("Chief is unavailable.");
         const preference = await deps.manager.agentPreference(
           workspaceId,
-          "cmo",
+          "chief",
         );
         if (!preference?.driver) {
           return toolError(
