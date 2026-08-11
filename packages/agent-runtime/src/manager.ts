@@ -1139,15 +1139,12 @@ export class SessionManager {
   reconcileInterruptedScheduleSessions(cutoff: number) {
     return this.store.reconcileInterruptedScheduleSessions(cutoff);
   }
-
   agentPreference(workspaceId: string, agentId: string) {
     return this.store.agentPreference(workspaceId, agentId);
   }
-
   listAgentPreferences(workspaceId: string) {
     return this.store.listAgentPreferences(workspaceId);
   }
-
   saveAgentPreference(workspaceId: string, preference: AgentPreference) {
     return this.store.saveAgentPreference(workspaceId, preference);
   }
