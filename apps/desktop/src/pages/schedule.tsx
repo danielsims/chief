@@ -7,12 +7,9 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  FilePlus2,
   Inbox,
-  MessageSquare,
   Pause,
   Pencil,
-  Plus,
   Repeat2,
   ShieldCheck,
   SlidersHorizontal,
@@ -54,7 +51,6 @@ import { AgentWorkingIndicator } from "../components/chat/agent-working-indicato
 import { PageTitle } from "../components/page-title";
 import { useAgentConfig } from "../lib/agent-config";
 import { useAuth } from "../lib/auth/auth-context";
-import { createChat } from "../lib/chat-log";
 import { messageBlocks, useChiefChat, useWorkspaceData } from "../lib/runtime";
 import {
   addDays,
@@ -162,7 +158,6 @@ function DayCell({
   now,
   selected,
   onSelect,
-  onContextMenu,
   onWorkOpen,
   onDraftOpen,
   onWorkContext,
@@ -176,7 +171,6 @@ function DayCell({
   now: number;
   selected: Date;
   onSelect: (date: Date) => void;
-  onContextMenu?: (date: Date, x: number, y: number) => void;
   onWorkOpen?: (work: RecurringWorkRecord) => void;
   onDraftOpen: (draft: ScheduledDraft) => void;
   onWorkContext?: (
@@ -203,11 +197,6 @@ function DayCell({
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
         onSelect(date);
-      }}
-      onContextMenu={(event) => {
-        if (!onContextMenu) return;
-        event.preventDefault();
-        onContextMenu(date, event.clientX, event.clientY);
       }}
       className={cn(
         "hover:bg-accent/25 focus-visible:bg-accent/35 min-h-28 min-w-0 border-r border-b border-black/[0.055] p-2 text-left align-top transition-colors outline-none dark:border-white/[0.055]",
@@ -332,7 +321,6 @@ function ContinuousMonthView({
   now,
   selected,
   onSelect,
-  onDateContext,
   onWorkOpen,
   onDraftOpen,
   onWorkContext,
@@ -349,7 +337,6 @@ function ContinuousMonthView({
   now: number;
   selected: Date;
   onSelect: (date: Date) => void;
-  onDateContext: (date: Date, x: number, y: number) => void;
   onWorkOpen: (work: RecurringWorkRecord) => void;
   onDraftOpen: (draft: ScheduledDraft) => void;
   onWorkContext: (
@@ -483,7 +470,7 @@ function ContinuousMonthView({
                 onActiveMonthChange(month);
               }}
               className={cn(
-                "hover:text-muted-foreground absolute top-2.5 left-3 z-10 text-left text-lg font-semibold tracking-[-0.025em] transition-[color,opacity] duration-200",
+                "hover:text-muted-foreground absolute top-2.5 left-3 z-10 text-left text-lg font-medium tracking-[-0.025em] transition-[color,opacity] duration-200",
                 // The page header already names the active month; the in-grid
                 // label fades away instead of duplicating it.
                 sameMonth(month, activeMonth) &&
@@ -507,7 +494,6 @@ function ContinuousMonthView({
                   now={now}
                   selected={selected}
                   onSelect={onSelect}
-                  onContextMenu={onDateContext}
                   onWorkOpen={onWorkOpen}
                   onDraftOpen={onDraftOpen}
                   onWorkContext={onWorkContext}
@@ -528,13 +514,96 @@ function ContinuousMonthView({
   );
 }
 
+const TIMELINE_EVENT_HEIGHT = 44;
+const TIMELINE_EVENT_GAP = 3;
+
+type TimelineEvent =
+  | {
+      id: string;
+      kind: "work";
+      timestamp: number;
+      work: RecurringWorkRecord;
+    }
+  | {
+      id: string;
+      kind: "draft";
+      timestamp: number;
+      draft: ScheduledDraft;
+    };
+
+type PositionedTimelineEvent = TimelineEvent & {
+  lane: number;
+  laneCount: number;
+  top: number;
+};
+
+function timelineEventTop(timestamp: number, timelineHeight: number) {
+  const date = new Date(timestamp);
+  const elapsedMinutes =
+    date.getHours() * 60 + date.getMinutes() - TIMELINE_START_HOUR * 60;
+  return Math.max(
+    5,
+    Math.min(
+      timelineHeight - TIMELINE_EVENT_HEIGHT - 5,
+      (elapsedMinutes / 60) * TIMELINE_ROW_HEIGHT,
+    ),
+  );
+}
+
+function layoutTimelineEvents(
+  events: TimelineEvent[],
+  timelineHeight: number,
+): PositionedTimelineEvent[] {
+  const positioned = events
+    .map((event) => ({
+      ...event,
+      lane: 0,
+      laneCount: 1,
+      top: timelineEventTop(event.timestamp, timelineHeight),
+    }))
+    .sort(
+      (left, right) => left.top - right.top || left.id.localeCompare(right.id),
+    );
+
+  let clusterStart = 0;
+  let clusterEnd = Number.NEGATIVE_INFINITY;
+  let laneEnds: number[] = [];
+
+  const finishCluster = (end: number) => {
+    const laneCount = Math.max(1, laneEnds.length);
+    for (let index = clusterStart; index < end; index += 1) {
+      const event = positioned[index];
+      if (event) event.laneCount = laneCount;
+    }
+  };
+
+  for (let index = 0; index < positioned.length; index += 1) {
+    const event = positioned[index];
+    if (!event) continue;
+    if (index > clusterStart && event.top >= clusterEnd) {
+      finishCluster(index);
+      clusterStart = index;
+      clusterEnd = Number.NEGATIVE_INFINITY;
+      laneEnds = [];
+    }
+
+    const availableLane = laneEnds.findIndex((end) => end <= event.top);
+    event.lane = availableLane === -1 ? laneEnds.length : availableLane;
+    const eventEnd = event.top + TIMELINE_EVENT_HEIGHT + TIMELINE_EVENT_GAP;
+    laneEnds[event.lane] = eventEnd;
+    clusterEnd = Math.max(clusterEnd, eventEnd);
+  }
+
+  finishCluster(positioned.length);
+  return positioned;
+}
+
 function FocusedCalendarView({
   view,
   selected,
   today,
   now,
   onSelect,
-  onDateContext,
   onWorkOpen,
   onDraftOpen,
   onWorkContext,
@@ -548,7 +617,6 @@ function FocusedCalendarView({
   today: Date;
   now: number;
   onSelect: (date: Date) => void;
-  onDateContext: (date: Date, x: number, y: number) => void;
   onWorkOpen: (work: RecurringWorkRecord) => void;
   onDraftOpen: (draft: ScheduledDraft) => void;
   onWorkContext: (
@@ -575,22 +643,9 @@ function FocusedCalendarView({
     (_, index) => TIMELINE_START_HOUR + index,
   );
 
-  const eventTop = (timestamp: number) => {
-    const date = new Date(timestamp);
-    const elapsedMinutes =
-      date.getHours() * 60 + date.getMinutes() - TIMELINE_START_HOUR * 60;
-    return Math.max(
-      5,
-      Math.min(
-        timelineHeight - 47,
-        (elapsedMinutes / 60) * TIMELINE_ROW_HEIGHT,
-      ),
-    );
-  };
-
   return (
     <div className="h-full min-w-0 touch-pan-y [scrollbar-width:thin] [scrollbar-gutter:stable] overflow-y-scroll overscroll-contain">
-      <div className="bg-card/90 sticky top-0 z-30 backdrop-blur-xl">
+      <div className="bg-card/92 sticky top-0 z-30 backdrop-blur-xl">
         <div
           className="grid border-b border-black/[0.055] dark:border-white/[0.055]"
           style={{
@@ -624,47 +679,6 @@ function FocusedCalendarView({
             );
           })}
         </div>
-
-        <div
-          className="grid min-h-14 border-b border-black/[0.055] dark:border-white/[0.055]"
-          style={{
-            gridTemplateColumns: `64px repeat(${dates.length}, minmax(0, 1fr))`,
-          }}
-        >
-          <div className="text-muted-foreground px-2 pt-2.5 text-right text-[9px]">
-            Unscheduled
-          </div>
-          {dates.map((date) => {
-            const unscheduled = showPosts
-              ? (byDay.get(dayKey(date)) ?? []).filter(
-                  (draft) => draft.scheduledFor === undefined,
-                )
-              : [];
-            return (
-              <div
-                key={dayKey(date)}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  onDateContext(date, event.clientX, event.clientY);
-                }}
-                className="min-w-0 border-l border-black/[0.055] p-1.5 dark:border-white/[0.055]"
-              >
-                {unscheduled.slice(0, 1).map((draft) => (
-                  <DraftChip
-                    key={draft.id}
-                    draft={draft}
-                    onOpen={onDraftOpen}
-                  />
-                ))}
-                {unscheduled.length > 1 ? (
-                  <p className="text-muted-foreground px-2 py-1 text-[9px]">
-                    +{unscheduled.length - 1} awaiting a time
-                  </p>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
       </div>
 
       <div className="relative" style={{ height: timelineHeight }}>
@@ -676,8 +690,8 @@ function FocusedCalendarView({
           >
             <span
               className={cn(
-                "text-muted-foreground pr-2 text-right text-[9px] tabular-nums",
-                index > 0 && "-translate-y-1.5",
+                "text-muted-foreground pr-2 text-right text-[12px] leading-4 font-normal tabular-nums",
+                index > 0 && "-translate-y-2",
               )}
               style={{ width: 64 }}
             >
@@ -712,182 +726,109 @@ function FocusedCalendarView({
                   return timestamp === undefined ? [] : [{ work, timestamp }];
                 })
               : [];
+            const events = layoutTimelineEvents(
+              [
+                ...recurring.map(({ work, timestamp }) => ({
+                  id: `${work.id}-${timestamp}`,
+                  kind: "work" as const,
+                  timestamp,
+                  work,
+                })),
+                ...drafts.map((draft) => ({
+                  id: draft.id,
+                  kind: "draft" as const,
+                  timestamp: draft.scheduledFor,
+                  draft,
+                })),
+              ],
+              timelineHeight,
+            );
             return (
               <div
                 key={key}
                 onClick={() => onSelect(date)}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  onDateContext(date, event.clientX, event.clientY);
-                }}
                 className={cn(
                   "relative min-w-0 border-l border-black/[0.055] dark:border-white/[0.055]",
                   key === dayKey(selected) && "bg-foreground/[0.012]",
                 )}
               >
-                {recurring.map(({ work, timestamp }) => (
-                  <button
-                    key={`${work.id}-${timestamp}`}
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onWorkOpen(work);
-                    }}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onWorkContext(work, date, event.clientX, event.clientY);
-                    }}
-                    className={cn(
-                      "absolute right-1.5 left-1.5 overflow-hidden rounded-[10px] px-2.5 py-2 text-left transition-colors",
-                      eventSurface(timestamp < now),
-                    )}
-                    style={{ top: eventTop(timestamp), minHeight: 42 }}
-                  >
-                    <WorkEventContent
-                      work={work}
-                      time={new Date(timestamp).toLocaleTimeString([], {
-                        hour: "numeric",
-                        minute: "2-digit",
-                      })}
-                      muted={timestamp < now}
-                    />
-                  </button>
-                ))}
-                {drafts.map((draft) => (
-                  <button
-                    key={draft.id}
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onDraftOpen(draft);
-                    }}
-                    className={cn(
-                      "absolute right-1.5 left-1.5 overflow-hidden rounded-[10px] px-2.5 py-2 text-left transition-colors",
-                      eventSurface(draft.scheduledFor < now),
-                    )}
-                    style={{
-                      top: eventTop(draft.scheduledFor),
-                      minHeight: 42,
-                    }}
-                  >
-                    <DraftEventContent
-                      draft={draft}
-                      time={new Date(draft.scheduledFor).toLocaleTimeString(
-                        [],
-                        {
+                {events.map((event) => {
+                  const firstLane = event.lane === 0;
+                  const lastLane = event.lane === event.laneCount - 1;
+                  const positionedStyle = {
+                    top: event.top,
+                    minHeight: TIMELINE_EVENT_HEIGHT,
+                    left: `calc(${(event.lane * 100) / event.laneCount}% + ${firstLane ? 6 : 2}px)`,
+                    right: `calc(${((event.laneCount - event.lane - 1) * 100) / event.laneCount}% + ${lastLane ? 6 : 2}px)`,
+                  };
+
+                  if (event.kind === "work") {
+                    return (
+                      <button
+                        key={event.id}
+                        type="button"
+                        onClick={(clickEvent) => {
+                          clickEvent.stopPropagation();
+                          onWorkOpen(event.work);
+                        }}
+                        onContextMenu={(contextEvent) => {
+                          contextEvent.preventDefault();
+                          contextEvent.stopPropagation();
+                          onWorkContext(
+                            event.work,
+                            date,
+                            contextEvent.clientX,
+                            contextEvent.clientY,
+                          );
+                        }}
+                        className={cn(
+                          "absolute z-10 overflow-hidden rounded-[9px] px-2.5 py-2 text-left transition-[background-color,box-shadow,filter]",
+                          eventSurface(event.timestamp < now),
+                        )}
+                        style={positionedStyle}
+                      >
+                        <WorkEventContent
+                          work={event.work}
+                          time={new Date(event.timestamp).toLocaleTimeString(
+                            [],
+                            { hour: "numeric", minute: "2-digit" },
+                          )}
+                          muted={event.timestamp < now}
+                        />
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <button
+                      key={event.id}
+                      type="button"
+                      onClick={(clickEvent) => {
+                        clickEvent.stopPropagation();
+                        onDraftOpen(event.draft);
+                      }}
+                      className={cn(
+                        "absolute z-10 overflow-hidden rounded-[9px] px-2.5 py-2 text-left transition-[background-color,box-shadow,filter]",
+                        eventSurface(event.timestamp < now),
+                      )}
+                      style={positionedStyle}
+                    >
+                      <DraftEventContent
+                        draft={event.draft}
+                        time={new Date(event.timestamp).toLocaleTimeString([], {
                           hour: "numeric",
                           minute: "2-digit",
-                        },
-                      )}
-                      muted={draft.scheduledFor < now}
-                    />
-                  </button>
-                ))}
+                        })}
+                        muted={event.timestamp < now}
+                      />
+                    </button>
+                  );
+                })}
               </div>
             );
           })}
         </div>
       </div>
-    </div>
-  );
-}
-
-type DateMenuAction = "event" | "content" | "agent" | "recurring";
-
-function CalendarContextMenu({
-  context,
-  onClose,
-  onAction,
-}: {
-  context: { date: Date; x: number; y: number } | null;
-  onClose: () => void;
-  onAction: (action: DateMenuAction, date: Date) => void;
-}) {
-  useEffect(() => {
-    if (!context) return;
-    const close = () => onClose();
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("pointerdown", close);
-    window.addEventListener("keydown", escape);
-    return () => {
-      window.removeEventListener("pointerdown", close);
-      window.removeEventListener("keydown", escape);
-    };
-  }, [context, onClose]);
-
-  if (!context) return null;
-  const actions: {
-    id: DateMenuAction;
-    label: string;
-    detail: string;
-    Icon: typeof CalendarPlus;
-  }[] = [
-    {
-      id: "event",
-      label: "Add a one-off event",
-      detail: "Place something on this date",
-      Icon: CalendarPlus,
-    },
-    {
-      id: "content",
-      label: "Schedule content",
-      detail: "Draft a post for this date",
-      Icon: FilePlus2,
-    },
-    {
-      id: "agent",
-      label: "Ask an agent to plan",
-      detail: "Open this date with your CMO",
-      Icon: MessageSquare,
-    },
-    {
-      id: "recurring",
-      label: "Set up recurring work",
-      detail: "Create an automation with approval",
-      Icon: Repeat2,
-    },
-  ];
-
-  return (
-    <div
-      role="menu"
-      onPointerDown={(event) => event.stopPropagation()}
-      className="bg-popover/95 text-popover-foreground fixed z-50 w-64 rounded-xl p-1.5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent),0_16px_48px_rgba(0,0,0,0.14)] backdrop-blur-xl"
-      style={{
-        left: Math.min(context.x, window.innerWidth - 272),
-        top: Math.min(context.y, window.innerHeight - 238),
-      }}
-    >
-      <p className="text-muted-foreground px-2 py-1.5 text-[10px]">
-        {context.date.toLocaleDateString([], {
-          weekday: "long",
-          month: "long",
-          day: "numeric",
-        })}
-      </p>
-      {actions.map(({ id, label, detail, Icon }) => (
-        <button
-          key={id}
-          type="button"
-          role="menuitem"
-          onClick={() => {
-            onAction(id, context.date);
-            onClose();
-          }}
-          className="hover:bg-accent flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors"
-        >
-          <Icon size={14} className="mt-0.5 shrink-0" />
-          <span>
-            <span className="block text-xs font-medium">{label}</span>
-            <span className="text-muted-foreground mt-0.5 block text-[10px]">
-              {detail}
-            </span>
-          </span>
-        </button>
-      ))}
     </div>
   );
 }
@@ -1087,7 +1028,7 @@ function friendlySchedule(work: RecurringWorkRecord) {
     });
   }
   const fields = fieldsFromCron(work.cron);
-  if (fields.frequency === "custom") return work.cron;
+  if (fields.frequency === "custom") return "Custom schedule";
   const time = new Date(`2000-01-01T${fields.time}:00`).toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
@@ -1101,6 +1042,46 @@ function friendlySchedule(work: RecurringWorkRecord) {
     return `Every ${weekday ?? "week"} at ${time}`;
   }
   return `Monthly on day ${fields.dayOfMonth} at ${time}`;
+}
+
+function friendlyTimezone(timezone: string) {
+  if (timezone === Intl.DateTimeFormat().resolvedOptions().timeZone) {
+    return "your time";
+  }
+  const location = timezone.split("/").at(-1)?.replaceAll("_", " ");
+  return `${location ?? timezone} time`;
+}
+
+function approvalTiming(work: RecurringWorkRecord) {
+  const timing = friendlySchedule(work);
+  return work.onceAt === undefined
+    ? `${timing} · ${friendlyTimezone(work.timezone)}`
+    : timing;
+}
+
+function conciseApprovalSummary(work: RecurringWorkRecord) {
+  const summary = work.approvalSummary.replace(/\s+/g, " ").trim();
+  if (
+    !summary ||
+    summary.toLocaleLowerCase() === work.title.toLocaleLowerCase()
+  ) {
+    return null;
+  }
+  if (summary.length <= 260) return summary;
+  const shortened = summary.slice(0, 257);
+  const lastSpace = shortened.lastIndexOf(" ");
+  return `${shortened.slice(0, lastSpace > 180 ? lastSpace : 257)}…`;
+}
+
+function friendlyPermission(pattern: string) {
+  const action = pattern.split(".").at(-1) ?? pattern;
+  const words = action
+    .replaceAll(/[_-]+/g, " ")
+    .replaceAll(/([a-z])([A-Z])/g, "$1 $2")
+    .trim();
+  return words
+    ? words.charAt(0).toLocaleUpperCase() + words.slice(1)
+    : "Use connected data";
 }
 
 function RecurringWorkEditDialog({
@@ -1322,9 +1303,19 @@ function RecurringWorkApprovalDialog({
   };
 }) {
   const [feedback, setFeedback] = useState("");
+  const [showFeedback, setShowFeedback] = useState(false);
   const missedOneOff = Boolean(
     work?.onceAt !== undefined && work.onceAt <= now,
   );
+  const summary = work ? conciseApprovalSummary(work) : null;
+  const permissions = work
+    ? [...new Set(work.proposedToolPatterns.map(friendlyPermission))]
+    : [];
+  const closeDialog = () => {
+    setFeedback("");
+    setShowFeedback(false);
+    onClose();
+  };
   const submitFeedback = () => {
     const text = feedback.trim();
     if (!text || revision.busy) return;
@@ -1332,74 +1323,109 @@ function RecurringWorkApprovalDialog({
     revision.onRequest(text);
   };
   return (
-    <Dialog open={Boolean(work)} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-lg">
+    <Dialog
+      open={Boolean(work)}
+      onOpenChange={(open) => !open && closeDialog()}
+    >
+      <DialogContent className="max-w-md overflow-hidden p-0">
         {work ? (
           <>
-            <DialogHeader>
-              <DialogTitle className="text-2xl font-normal">
-                {work.onceAt === undefined
-                  ? "Approve recurring work"
-                  : "Approve task"}
-              </DialogTitle>
-              <DialogDescription>
-                {missedOneOff
-                  ? "Its scheduled time has passed. Approving will run it now."
-                  : work.onceAt === undefined
-                    ? `Approve this once and ${work.agentId} will keep running it until you pause or revoke it.`
-                    : `Approve this once and ${work.agentId} will run it at the scheduled time.`}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="border p-4">
-                <p className="text-sm font-medium">{work.title}</p>
-                <p className="text-muted-foreground mt-2 text-sm leading-6">
-                  {work.approvalSummary}
-                </p>
-                <p className="text-muted-foreground mt-3 font-mono text-[11px]">
-                  {work.onceAt === undefined
-                    ? work.cron
-                    : new Date(work.onceAt).toLocaleString()}{" "}
-                  · {work.timezone}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-medium">Delegated actions</p>
-                <div className="mt-2 space-y-1.5">
-                  {work.proposedToolPatterns.length > 0 ? (
-                    work.proposedToolPatterns.map((pattern) => (
-                      <div
-                        key={pattern}
-                        className="flex items-center gap-2 border px-3 py-2"
-                      >
-                        <ShieldCheck
-                          size={13}
-                          className="shrink-0 text-emerald-500"
-                        />
-                        <span className="min-w-0 truncate text-xs">
-                          {pattern
-                            .split(".")
-                            .at(-1)
-                            ?.replace(/([A-Z])/g, " $1")}
-                        </span>
-                        <span className="text-muted-foreground ml-auto max-w-56 truncate font-mono text-[9px]">
-                          {pattern}
-                        </span>
-                      </div>
-                    ))
+            <DialogHeader className="px-6 pt-6 pb-4 text-left">
+              <div className="flex items-start gap-3.5 pr-8">
+                <span className="bg-foreground text-background flex size-10 shrink-0 items-center justify-center rounded-xl shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                  {work.onceAt === undefined ? (
+                    <Repeat2 size={17} />
                   ) : (
-                    <p className="text-muted-foreground border px-3 py-2 text-xs">
-                      Read connected data and save no external changes.
-                    </p>
+                    <CalendarPlus size={17} />
                   )}
+                </span>
+                <div className="min-w-0 pt-0.5">
+                  <DialogTitle className="text-xl leading-6 font-semibold tracking-[-0.02em]">
+                    {work.onceAt === undefined
+                      ? "Approve this schedule?"
+                      : "Approve this task?"}
+                  </DialogTitle>
+                  <DialogDescription className="mt-1 text-xs leading-5">
+                    {missedOneOff
+                      ? "Its planned time has passed, so approval will run it now."
+                      : work.onceAt === undefined
+                        ? "Chief will handle this automatically until you pause or remove it."
+                        : "Chief will handle this once at the planned time."}
+                  </DialogDescription>
                 </div>
               </div>
-              <p className="text-muted-foreground text-xs leading-5">
-                New integration actions are blocked automatically. Chief will
-                ask you to approve an expanded scope before they can run.
-              </p>
-              {revision.available ? (
-                <div className="border-t pt-3">
+            </DialogHeader>
+            <div className="space-y-3 px-6 pb-6">
+              <div className="bg-foreground/[0.035] rounded-2xl p-4 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent)]">
+                <p className="text-[15px] leading-5 font-semibold tracking-[-0.015em]">
+                  {work.title}
+                </p>
+                {summary ? (
+                  <p className="text-muted-foreground mt-1.5 text-xs leading-5">
+                    {summary}
+                  </p>
+                ) : null}
+                <dl className="mt-4 grid grid-cols-[52px_minmax(0,1fr)] gap-x-3 gap-y-2 border-t border-black/[0.055] pt-3 text-xs dark:border-white/[0.055]">
+                  <dt className="text-muted-foreground">When</dt>
+                  <dd className="font-medium">{approvalTiming(work)}</dd>
+                  <dt className="text-muted-foreground">Owner</dt>
+                  <dd className="font-medium">{agentName(work.agentId)}</dd>
+                </dl>
+              </div>
+
+              <div className="flex items-start gap-2.5 px-1 py-1">
+                <ShieldCheck
+                  size={15}
+                  className="mt-0.5 shrink-0 text-emerald-500"
+                />
+                <p className="text-muted-foreground text-[11px] leading-4.5">
+                  Chief cannot add new permissions without asking you again.
+                </p>
+              </div>
+
+              {permissions.length > 0 ? (
+                <details className="group rounded-xl border border-black/[0.055] px-3 py-2.5 dark:border-white/[0.055]">
+                  <summary className="text-muted-foreground hover:text-foreground flex cursor-pointer list-none items-center justify-between text-[11px] transition-colors marker:content-none">
+                    <span>What it can access</span>
+                    <span className="tabular-nums">
+                      {permissions.length}{" "}
+                      {permissions.length === 1 ? "action" : "actions"}
+                    </span>
+                  </summary>
+                  <div className="mt-2 flex flex-wrap gap-1.5 border-t border-black/[0.055] pt-2.5 dark:border-white/[0.055]">
+                    {permissions.slice(0, 4).map((permission) => (
+                      <span
+                        key={permission}
+                        className="bg-foreground/[0.045] rounded-md px-2 py-1 text-[10px]"
+                      >
+                        {permission}
+                      </span>
+                    ))}
+                    {permissions.length > 4 ? (
+                      <span className="text-muted-foreground px-1 py-1 text-[10px]">
+                        +{permissions.length - 4} more
+                      </span>
+                    ) : null}
+                  </div>
+                </details>
+              ) : null}
+
+              {revision.available && !showFeedback ? (
+                <button
+                  type="button"
+                  onClick={() => setShowFeedback(true)}
+                  className="text-muted-foreground hover:text-foreground flex items-center gap-2 px-1 py-1 text-[11px] font-medium transition-colors"
+                >
+                  <Pencil size={12} />
+                  Ask Chief to change something
+                </button>
+              ) : null}
+
+              {revision.available && showFeedback ? (
+                <div className="bg-foreground/[0.025] rounded-xl p-3 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_5%,transparent)]">
+                  <p className="mb-2 text-xs font-medium">
+                    What should Chief change?
+                  </p>
                   <div className="flex gap-2">
                     <Input
                       value={feedback}
@@ -1410,7 +1436,7 @@ function RecurringWorkApprovalDialog({
                           submitFeedback();
                         }
                       }}
-                      placeholder="Ask for a change before approving…"
+                      placeholder="For example, move it to Friday morning"
                       disabled={revision.busy}
                       className="h-8 text-sm"
                     />
@@ -1421,7 +1447,7 @@ function RecurringWorkApprovalDialog({
                       disabled={!feedback.trim() || revision.busy}
                       onClick={submitFeedback}
                     >
-                      Send
+                      Ask
                     </Button>
                   </div>
                   {revision.busy ? (
@@ -1434,28 +1460,29 @@ function RecurringWorkApprovalDialog({
                 </div>
               ) : null}
             </div>
-            <DialogFooter className="items-center">
+            <DialogFooter className="bg-foreground/[0.018] items-center border-t border-black/[0.055] px-6 py-4 dark:border-white/[0.055]">
               <button
                 type="button"
                 onClick={() => {
                   onReject(work);
-                  onClose();
+                  closeDialog();
                 }}
                 className="text-muted-foreground hover:text-destructive mr-auto text-xs transition-colors"
               >
-                Reject
+                Delete request
               </button>
-              <Button variant="outline" onClick={onClose}>
-                Not now
-              </Button>
               <Button
                 disabled={revision.busy}
                 onClick={() => {
                   onApprove(work);
-                  onClose();
+                  closeDialog();
                 }}
               >
-                {missedOneOff ? "Approve and run now" : "Approve and activate"}
+                {missedOneOff
+                  ? "Approve and run now"
+                  : work.onceAt === undefined
+                    ? "Approve schedule"
+                    : "Approve task"}
               </Button>
             </DialogFooter>
           </>
@@ -1588,7 +1615,7 @@ function MonthJump({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="hover:bg-accent/45 group flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-1.5 text-xl font-semibold tracking-[-0.025em] transition-colors"
+          className="hover:bg-accent/45 group flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-1.5 text-xl font-medium tracking-[-0.025em] transition-colors"
         >
           <span className="truncate">{monthLabel(month)}</span>
           <ChevronDown
@@ -1654,11 +1681,15 @@ function ScheduleInbox({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm">
+        <Button
+          variant={work.length > 0 ? "default" : "outline"}
+          size="sm"
+          className={cn(work.length > 0 && "pr-2")}
+        >
           <Inbox size={13} />
           Review
           {work.length > 0 ? (
-            <span className="ml-0.5 rounded-full bg-amber-500/12 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 tabular-nums dark:text-amber-300">
+            <span className="bg-primary-foreground/15 text-primary-foreground ml-0.5 flex min-w-4.5 items-center justify-center rounded-md px-1.5 py-0.5 text-[9px] leading-3 font-semibold tabular-nums shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--primary-foreground)_12%,transparent)]">
               {work.length}
             </span>
           ) : null}
@@ -1666,9 +1697,9 @@ function ScheduleInbox({
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 rounded-2xl p-2">
         <div className="px-2 pt-1 pb-2">
-          <p className="text-xs font-semibold">Schedule inbox</p>
+          <p className="text-xs font-semibold">Review queue</p>
           <p className="text-muted-foreground mt-0.5 text-[10px]">
-            Agent work waiting for your judgment.
+            Proposed agent work waiting for your approval.
           </p>
         </div>
         {work.length > 0 ? (
@@ -1678,9 +1709,11 @@ function ScheduleInbox({
                 key={item.id}
                 type="button"
                 onClick={() => onOpen(item)}
-                className="hover:bg-accent flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors"
+                className="hover:bg-accent bg-foreground/[0.025] flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors"
               >
-                <span className="size-1.5 shrink-0 rounded-full bg-amber-400" />
+                <span className="bg-foreground text-background flex size-5 shrink-0 items-center justify-center rounded-md text-[9px] font-semibold tabular-nums">
+                  {work.indexOf(item) + 1}
+                </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-xs font-semibold">
                     {item.title}
@@ -1697,7 +1730,7 @@ function ScheduleInbox({
             ))}
           </div>
         ) : (
-          <p className="text-muted-foreground rounded-xl bg-emerald-500/[0.05] px-3 py-3 text-[10px] shadow-[inset_0_0_0_1px_rgba(16,185,129,0.1)]">
+          <p className="text-muted-foreground bg-foreground/[0.025] rounded-xl px-3 py-3 text-[10px] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_5%,transparent)]">
             Nothing is waiting for review.
           </p>
         )}
@@ -1726,11 +1759,6 @@ export function SchedulePage() {
   const [approvalWorkId, setApprovalWorkId] = useState<string | null>(null);
   const [detailWorkId, setDetailWorkId] = useState<string | null>(null);
   const [detailDraftId, setDetailDraftId] = useState<string | null>(null);
-  const [dateMenu, setDateMenu] = useState<{
-    date: Date;
-    x: number;
-    y: number;
-  } | null>(null);
   const [workMenu, setWorkMenu] = useState<{
     work: RecurringWorkRecord;
     date: Date;
@@ -1759,7 +1787,7 @@ export function SchedulePage() {
   const detailDraft = detailDraftId
     ? (workspaceData.drafts.find((draft) => draft.id === detailDraftId) ?? null)
     : null;
-  const revisionDriver = agentConfig.forAgent("cmo").driver;
+  const revisionDriver = agentConfig.forAgent("chief").driver;
   const revisionChat = useChiefChat(approvalWork?.conversationId ?? null);
   const revisionNote = useMemo(() => {
     for (let i = revisionChat.messages.length - 1; i >= 0; i -= 1) {
@@ -1874,62 +1902,10 @@ export function SchedulePage() {
   const pendingApprovals = workspaceData.recurringWork.filter(
     (work) => work.status === "draft" || work.status === "needs_approval",
   );
-  const activeScheduleCount = workspaceData.recurringWork.filter(
-    (work) => work.status === "active",
-  ).length;
-
   const requestMonth = (month: Date) => {
     setMonthDirection(month > activeMonth ? 1 : -1);
     setScrollRequest((current) => ({ month, token: current.token + 1 }));
     setActiveMonth(month);
-  };
-
-  const openChiefForDate = (
-    specialist: string,
-    title: string,
-    text: string,
-    send = false,
-  ) => {
-    const chat = createChat(title);
-    const prompt = `Consult the ${specialist} specialist. ${text}`;
-    void navigate(
-      `/conversations?chat=${chat.id}&${send ? "prompt" : "draft"}=${encodeURIComponent(prompt)}`,
-    );
-  };
-
-  const handleDateAction = (action: DateMenuAction, date: Date) => {
-    const dateText = date.toLocaleDateString("en-AU", {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-    if (action === "content") {
-      openChiefForDate(
-        "Content Writer",
-        `Content for ${dateText}`,
-        `Draft and schedule a piece of content for ${dateText}.`,
-      );
-      return;
-    }
-    if (action === "recurring") {
-      const chat = createChat("Set up recurring work");
-      void navigate(`/conversations?chat=${chat.id}&compose=recurring`);
-      return;
-    }
-    if (action === "event") {
-      const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-      const chat = createChat(`Event on ${dateText}`);
-      void navigate(
-        `/conversations?chat=${chat.id}&compose=oneoff&date=${iso}`,
-      );
-      return;
-    }
-    openChiefForDate(
-      "appropriate marketing",
-      `Plan ${dateText}`,
-      `Help me plan the marketing work and content for ${dateText}.`,
-    );
   };
 
   const move = (direction: number) => {
@@ -1952,25 +1928,12 @@ export function SchedulePage() {
 
   return (
     <div className="-mx-8 -mb-8 flex h-[calc(100vh-48px)] min-w-0 flex-col overflow-hidden">
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-4 px-6 pt-5 pb-4">
+      <header className="shrink-0 px-8 pt-6 pb-5">
         <div>
           <PageTitle>Schedule</PageTitle>
           <p className="text-muted-foreground mt-1 text-[13px]">
-            Direct when agents work and review what they have planned.
+            See what is coming up and approve proposed schedules.
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const chat = createChat("Set up recurring work");
-              void navigate(`/conversations?chat=${chat.id}&compose=recurring`);
-            }}
-          >
-            <Plus size={13} />
-            New agent work
-          </Button>
         </div>
       </header>
 
@@ -2004,7 +1967,7 @@ export function SchedulePage() {
                     damping: 38,
                     mass: 0.7,
                   }}
-                  className="absolute inset-x-0 min-w-0 truncate text-xl font-semibold tracking-[-0.025em]"
+                  className="absolute inset-x-0 min-w-0 truncate text-xl font-medium tracking-[-0.025em]"
                 >
                   {focusedHeading}
                 </motion.p>
@@ -2077,10 +2040,6 @@ export function SchedulePage() {
               onWorkContext={(work, date, x, y) =>
                 setWorkMenu({ work, date, x, y })
               }
-              onDateContext={(date, x, y) => {
-                setSelected(date);
-                setDateMenu({ date, x, y });
-              }}
               byDay={byDay}
               recurringByDay={recurringByDay}
               showPosts={showPosts}
@@ -2099,10 +2058,6 @@ export function SchedulePage() {
               onWorkContext={(work, date, x, y) =>
                 setWorkMenu({ work, date, x, y })
               }
-              onDateContext={(date, x, y) => {
-                setSelected(date);
-                setDateMenu({ date, x, y });
-              }}
               byDay={byDay}
               recurringByDay={recurringByDay}
               showPosts={showPosts}
@@ -2110,26 +2065,6 @@ export function SchedulePage() {
             />
           )}
         </div>
-        <footer className="text-muted-foreground flex h-11 shrink-0 items-center justify-between px-6 text-[10px]">
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-2">
-              <span className="size-1.5 rounded-full bg-violet-500" />
-              Prospecting
-            </span>
-            <span className="flex items-center gap-2">
-              <span className="size-1.5 rounded-full bg-sky-500" />
-              Analytics
-            </span>
-            <span className="flex items-center gap-2">
-              <span className="size-1.5 rounded-full bg-rose-500" />
-              Content
-            </span>
-          </div>
-          <span className="flex items-center gap-2 tabular-nums">
-            <span className="size-1.5 rounded-full bg-emerald-500" />
-            {activeScheduleCount} active schedules
-          </span>
-        </footer>
       </section>
       <RecurringWorkApprovalDialog
         work={approvalWork}
@@ -2184,11 +2119,6 @@ export function SchedulePage() {
             void navigate(`/files/${encodeURIComponent(draft.fileId)}`);
           }
         }}
-      />
-      <CalendarContextMenu
-        context={dateMenu}
-        onClose={() => setDateMenu(null)}
-        onAction={handleDateAction}
       />
       <RecurringWorkContextMenu
         context={workMenu}
