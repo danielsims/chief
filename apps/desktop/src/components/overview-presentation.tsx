@@ -19,6 +19,7 @@ import { cn } from "@chief/ui/lib/utils";
 import type { AuthOrganization } from "../lib/auth/better-auth-client";
 import { parseOrganizationMetadata } from "../lib/auth/better-auth-client";
 import { OrgLogo } from "./org-logo";
+import { Shimmer } from "./ui/shimmer";
 
 export const overviewButton =
   "inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-3.5 text-[12px] font-medium transition-colors shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_12%,transparent),inset_0_1px_0_rgba(255,255,255,0.05)] hover:bg-accent";
@@ -217,12 +218,17 @@ export function WorkspaceLearningCard({
         fps={6}
         size={15}
       />
-      <h2 className="text-[clamp(24px,3vw,34px)] leading-tight font-normal tracking-[-0.03em]">
+      <Shimmer
+        as="h2"
+        className="text-[clamp(24px,3vw,34px)] leading-tight font-normal tracking-[-0.03em]"
+        duration={2.8}
+        spread={1.25}
+      >
         Finish setting up with Chief.
-      </h2>
+      </Shimmer>
       <p className="text-muted-foreground mt-3 mb-6 max-w-[520px] text-[13px] leading-6">
-        Open the private getting-started channel to work through connections,
-        initial research, and recurring work with Chief and Setup.
+        Open mission control to follow connections, initial research, and
+        recurring work with Chief and Setup.
       </p>
       <button
         className={cn(overviewButton, "bg-foreground text-background")}
@@ -230,7 +236,7 @@ export function WorkspaceLearningCard({
         disabled={!reviewChatId}
         onClick={onOpen}
       >
-        {reviewChatId ? "Open getting started" : "Preparing channel"}{" "}
+        {reviewChatId ? "Open mission control" : "Preparing channel"}{" "}
         <ArrowRight size={13} />
       </button>
       <OverviewActionPagination

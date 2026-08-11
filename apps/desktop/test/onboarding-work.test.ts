@@ -14,7 +14,7 @@ const base = {
   aeo: { trackAiReferrals: false },
 };
 
-void test("initial onboarding schedules one Brand Researcher and one Prospector", () => {
+void test("initial onboarding schedules one Marketer and one Prospector", () => {
   const jobs = buildOnboardingWorkJobs(base);
   assert.deepEqual(
     jobs.map((job) => job.agentId),

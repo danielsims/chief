@@ -71,11 +71,6 @@
       "count": 2
     }
   },
-  "src/lib/agent-overrides.ts": {
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    }
-  },
   "src/lib/auth/auth-context.tsx": {
     "@typescript-eslint/no-empty-function": {
       "count": 4
@@ -148,7 +143,7 @@
   },
   "src/pages/agents.tsx": {
     "@typescript-eslint/no-floating-promises": {
-      "count": 3
+      "count": 2
     },
     "@typescript-eslint/no-non-null-assertion": {
       "count": 2

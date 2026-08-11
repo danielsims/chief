@@ -2737,7 +2737,7 @@ function CompletionControl({
           </h2>
           <p className="text-muted-foreground mt-4 text-sm leading-6">
             {ready
-              ? "Your workspace is ready. Chief and Setup will meet you in a private getting-started channel."
+              ? "Your workspace is ready. Chief will meet you in mission control and bring Setup in when needed."
               : "Chief is preparing your workspace now."}
           </p>
           <Button
@@ -3102,11 +3102,11 @@ export function OnboardingPage() {
     setWorkspaceProvider(org.id, draft.provider);
     updatePendingOnboardingDriver(org.id, draft.provider, draft.model || null);
     const existing = agentPreferences.preferences.find(
-      (preference) => preference.agentId === "cmo",
+      (preference) => preference.agentId === "chief",
     );
     agentPreferences.save({
       ...existing,
-      agentId: "cmo",
+      agentId: "chief",
       enabled: true,
       driver: draft.provider,
       model: draft.model || undefined,
@@ -3123,7 +3123,7 @@ export function OnboardingPage() {
       return false;
     }
     return deploymentState.start({
-      agentId: "cmo",
+      agentId: "chief",
       target: draft.deploymentProvider,
       projectName:
         `chief-${org.id.replace(/[^a-z0-9]/gi, "").slice(-8)}`.toLowerCase(),
@@ -3157,10 +3157,7 @@ export function OnboardingPage() {
     completionStartedRef.current = true;
     setSaving(true);
     setError(null);
-    sessionStorage.setItem(
-      `chief:getting-started:${org.id}`,
-      String(Date.now()),
-    );
+    sessionStorage.setItem(`chief:onboarding:${org.id}`, String(Date.now()));
     try {
       await persistContext();
       await persistSocials();
@@ -3226,10 +3223,10 @@ export function OnboardingPage() {
       });
       // Workspace access and channel preparation have different durability
       // guarantees. Commit onboarding first, then let the runtime's persisted
-      // queue prepare or retry #getting-started without trapping the user here.
-      let gettingStarted: Promise<string> | null = null;
+      // queue prepare or retry mission control without trapping the user here.
+      let onboardingRun: Promise<string> | null = null;
       try {
-        gettingStarted = workspaceData.bootstrapOnboardingWork(
+        onboardingRun = workspaceData.bootstrapOnboardingWork(
           jobs,
           schedules,
           workspaceContextFromOrganization({
@@ -3240,23 +3237,23 @@ export function OnboardingPage() {
           draft.provider ?? undefined,
           draft.model || null,
         );
-      } catch (gettingStartedError) {
+      } catch (onboardingError) {
         console.warn(
-          "[Onboarding] Getting started could not be queued yet",
-          gettingStartedError,
+          "[Onboarding] Mission control onboarding could not be queued yet",
+          onboardingError,
         );
       }
       localStorage.removeItem(storageKey(org.id));
       window.dispatchEvent(new Event("chief:onboarding-complete"));
       navigate("/", { replace: true });
-      void gettingStarted?.catch((gettingStartedError: unknown) => {
+      void onboardingRun?.catch((onboardingError: unknown) => {
         console.warn(
-          "[Onboarding] Getting started will retry in the background",
-          gettingStartedError,
+          "[Onboarding] Mission control onboarding will retry in the background",
+          onboardingError,
         );
       });
     } catch (err) {
-      sessionStorage.removeItem(`chief:getting-started:${org.id}`);
+      sessionStorage.removeItem(`chief:onboarding:${org.id}`);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       completionStartedRef.current = false;
@@ -3652,19 +3649,15 @@ export function OnboardingPage() {
             .map((pastStep) => (
               <div key={pastStep} className="space-y-3">
                 <AgentBubble text={questionText(pastStep, draft)} />
-                {pastStep === "health" ? (
+                <EditableAnswer
+                  onEdit={() => {
+                    setNotice(null);
+                    setError(null);
+                    setEditingStep(pastStep);
+                  }}
+                >
                   <AnswerPreview step={pastStep} draft={draft} />
-                ) : (
-                  <EditableAnswer
-                    onEdit={() => {
-                      setNotice(null);
-                      setError(null);
-                      setEditingStep(pastStep);
-                    }}
-                  >
-                    <AnswerPreview step={pastStep} draft={draft} />
-                  </EditableAnswer>
-                )}
+                </EditableAnswer>
               </div>
             ))}
           <div ref={currentQuestionRef} className="space-y-4">

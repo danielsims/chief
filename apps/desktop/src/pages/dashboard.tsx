@@ -68,8 +68,6 @@ import {
 } from "../lib/runtime";
 import {
   actionConversation,
-  GETTING_STARTED_CHANNEL_ID,
-  GETTING_STARTED_CHANNEL_RELAY_ID,
   resolvedChannelChatId,
   WORKSPACE_AGENT_IDENTITIES,
 } from "../lib/workspace-channels";
@@ -77,22 +75,22 @@ import {
 const AGENT_NAMES: Record<string, string> = {
   ads: "Ads Manager",
   analyst: "Analyst",
-  brand: "Brand Researcher",
-  cmo: "Chief Marketing Officer",
+  brand: "Marketer",
+  chief: "Chief",
   content: "Content Writer",
   engineer: "Engineer",
   prospector: "Prospector",
   setup: "Setup",
 };
 
-const LEARNING_ACTION_ID = "workspace-getting-started";
+const LEARNING_ACTION_ID = "workspace-onboarding";
 
 const OVERVIEW_MENTION_CANDIDATES = Object.entries(WORKSPACE_AGENT_IDENTITIES)
   .filter(([id]) => id !== "setup")
   .map(([id, identity]) => ({
     id,
     ...identity,
-    member: id === "cmo",
+    member: id === "chief",
   }));
 
 const overviewSurface =
@@ -353,6 +351,9 @@ export function DashboardPage() {
   const preparationRoot = workspaceData.activity.find(
     (session) =>
       (session.id.startsWith("workspace-kickoff-") ||
+        session.id.endsWith(
+          `:${workspaceData.waysOfWorking.missionControlChannelId}`,
+        ) ||
         session.title === "Initial business review" ||
         session.title === "Getting started") &&
       session.kind === "conversation" &&
@@ -379,17 +380,15 @@ export function DashboardPage() {
         workspaceData.now - session.updatedAt < 10 * 60_000,
     ),
   );
-  const gettingStartedOpenedAt = cloudOrganizationId
-    ? Number(
-        sessionStorage.getItem(`chief:getting-started:${cloudOrganizationId}`),
-      )
+  const onboardingOpenedAt = cloudOrganizationId
+    ? Number(sessionStorage.getItem(`chief:onboarding:${cloudOrganizationId}`))
     : Number.NaN;
-  const gettingStartedPending = Boolean(
-    Number.isFinite(gettingStartedOpenedAt) &&
-    workspaceData.now - gettingStartedOpenedAt < 10 * 60_000 &&
+  const onboardingPending = Boolean(
+    Number.isFinite(onboardingOpenedAt) &&
+    workspaceData.now - onboardingOpenedAt < 10 * 60_000 &&
     (!preparationRoot || preparationRoot.status === "idle"),
   );
-  const showLearningCard = gettingStartedPending || preparationActive;
+  const showLearningCard = onboardingPending || preparationActive;
   const overviewActions = useMemo<OverviewAction[]>(
     () => [
       ...(showLearningCard
@@ -397,7 +396,7 @@ export function DashboardPage() {
             {
               id: LEARNING_ACTION_ID,
               title: "Finish setting up with Chief",
-              agentId: "cmo",
+              agentId: "chief",
             },
           ]
         : []),
@@ -417,7 +416,7 @@ export function DashboardPage() {
       preparationRoot.status !== "idle" &&
       preparationChildren.length > 0
     ) {
-      sessionStorage.removeItem(`chief:getting-started:${cloudOrganizationId}`);
+      sessionStorage.removeItem(`chief:onboarding:${cloudOrganizationId}`);
     }
   }, [cloudOrganizationId, preparationChildren.length, preparationRoot]);
   const requestedOverviewActionIndex = selectedActionId
@@ -467,7 +466,7 @@ export function DashboardPage() {
                 Intl.DateTimeFormat().resolvedOptions().timeZone)
               : Intl.DateTimeFormat().resolvedOptions().timeZone,
             title: "Chief is working",
-            agentId: "cmo",
+            agentId: "chief",
             taskCount: activeTasks.length,
             parentId: firstActiveTask.parentId,
             status: firstActiveTask.status,
@@ -739,7 +738,7 @@ export function DashboardPage() {
       void navigate("/analytics");
       return;
     }
-    if (action.sourceId === "agent-cmo") {
+    if (action.sourceId === "agent-chief") {
       void navigate("/agents");
       return;
     }
@@ -747,7 +746,7 @@ export function DashboardPage() {
       const prompt =
         `@Setup, help me complete “${action.title}” here with Chief. ${action.reason.trim()}`.trim();
       const params = new URLSearchParams({
-        channel: GETTING_STARTED_CHANNEL_ID,
+        channel: workspaceData.waysOfWorking.missionControlChannelId,
         prompt,
       });
       void navigate(`/conversations?${params.toString()}`);
@@ -762,7 +761,11 @@ export function DashboardPage() {
     }
     const prompt =
       `Please action “${action.title}”. ${action.reason.trim()}`.trim();
-    const destination = actionConversation(action);
+    const destination = actionConversation({
+      ...action,
+      missionControlChannelId:
+        workspaceData.waysOfWorking.missionControlChannelId,
+    });
     const params = new URLSearchParams({ prompt });
     params.set(destination.kind, destination.id);
     void navigate(`/conversations?${params.toString()}`);
@@ -792,10 +795,10 @@ export function DashboardPage() {
   const useCodexLocally = () => {
     if (!cloudOrganizationId || !currentAction) return;
     const existing = agentPreferences.preferences.find(
-      (preference) => preference.agentId === "cmo",
+      (preference) => preference.agentId === "chief",
     );
     setWorkspaceProvider(cloudOrganizationId, "codex");
-    setAgentOverride(cloudOrganizationId, "cmo", {
+    setAgentOverride(cloudOrganizationId, "chief", {
       driver: "codex",
       model: undefined,
       enabled: true,
@@ -812,7 +815,7 @@ export function DashboardPage() {
       attachments: askAttachments,
     });
     const params = new URLSearchParams({
-      dm: "cmo",
+      dm: "chief",
       handoff,
     });
     void navigate(`/conversations?${params.toString()}`);
@@ -822,7 +825,7 @@ export function DashboardPage() {
   const firstName = profileFirstName ?? "there";
   const preparingWorkspace =
     workspaceData.loading ||
-    gettingStartedPending ||
+    onboardingPending ||
     preparationActive ||
     Boolean(continuingChatId);
   const activeAnalyticsSlide =
@@ -857,12 +860,14 @@ export function DashboardPage() {
                 index={resolvedOverviewActionIndex}
                 onMove={moveAction}
                 reviewChatId={resolvedChannelChatId(
-                  GETTING_STARTED_CHANNEL_RELAY_ID,
+                  workspaceData.waysOfWorking.missionControlChannelId,
                   cloudOrganizationId,
                   localChats.chats,
                 )}
                 onOpen={() => {
-                  void navigate("/conversations?channel=getting-started");
+                  const channel =
+                    workspaceData.waysOfWorking.missionControlChannelId;
+                  void navigate(`/conversations?channel=${channel}`);
                 }}
               />
             ) : currentAction ? (
@@ -1243,8 +1248,8 @@ export function DashboardPage() {
               </header>
               <div className="mt-2 min-h-0 flex-1 [scrollbar-gutter:stable_both-edges] overflow-y-auto overscroll-contain pr-1">
                 {agentWorkTimeline.length > 0 ? (
-                  <div className="before:bg-foreground/[0.1] relative py-1 before:absolute before:top-7 before:bottom-7 before:left-[66px] before:w-px">
-                    {agentWorkTimeline.map((item) => {
+                  <div className="relative py-1">
+                    {agentWorkTimeline.map((item, index) => {
                       const when = scheduleDate(
                         item.timestamp,
                         item.timezone,
@@ -1282,40 +1287,50 @@ export function DashboardPage() {
                           className="hover:bg-foreground/[0.025] grid min-h-12 w-full grid-cols-[52px_20px_minmax(0,1fr)_12px] items-center gap-x-0 rounded-lg px-1 text-left transition-colors"
                         >
                           <time className="grid min-w-0 gap-0.5">
-                            <strong className="text-foreground/85 text-[10px] leading-4 font-semibold">
+                            <strong className="text-foreground/85 text-[11px] leading-4 font-semibold">
                               {item.kind === "active" ? "Now" : when.day}
                             </strong>
-                            <span className="text-muted-foreground text-[9px] leading-3 font-normal">
+                            <span className="text-muted-foreground text-[11px] leading-4 font-normal">
                               {when.time}
                             </span>
                           </time>
-                          <i
+                          <span
                             className={cn(
-                              "bg-muted-foreground/60 relative z-[1] grid size-[7px] place-items-center justify-self-center rounded-full shadow-[0_0_0_3px_var(--card)]",
-                              (item.kind === "upcoming" ||
-                                item.status === "completed" ||
-                                item.status === "waiting") &&
-                                "bg-emerald-500",
-                              item.status === "failed" && "bg-red-500",
-                              item.kind === "active" &&
-                                item.status === "running" &&
-                                "bg-card text-foreground size-[15px]",
+                              "before:bg-foreground/[0.1] relative grid h-full min-h-12 place-items-center before:absolute before:left-[calc(50%-0.5px)] before:w-px",
+                              index === 0 ? "before:top-1/2" : "before:top-0",
+                              index === agentWorkTimeline.length - 1
+                                ? "before:bottom-1/2"
+                                : "before:bottom-0",
                             )}
                           >
-                            {item.kind === "active" &&
-                            item.status === "running" ? (
-                              <LoaderCircle
-                                aria-hidden
-                                className="animate-spin"
-                                size={10}
-                              />
-                            ) : null}
-                          </i>
+                            <i
+                              className={cn(
+                                "bg-muted-foreground/60 relative z-[1] grid size-2 place-items-center rounded-full shadow-[0_0_0_3px_var(--card)]",
+                                (item.kind === "upcoming" ||
+                                  item.status === "completed" ||
+                                  item.status === "waiting") &&
+                                  "bg-emerald-500",
+                                item.status === "failed" && "bg-red-500",
+                                item.kind === "active" &&
+                                  item.status === "running" &&
+                                  "bg-card text-foreground size-4",
+                              )}
+                            >
+                              {item.kind === "active" &&
+                              item.status === "running" ? (
+                                <LoaderCircle
+                                  aria-hidden
+                                  className="animate-spin"
+                                  size={10}
+                                />
+                              ) : null}
+                            </i>
+                          </span>
                           <span className="grid min-w-0 gap-0.5">
                             <strong className="truncate text-[11px] leading-4 font-semibold">
                               {item.title}
                             </strong>
-                            <small className="text-muted-foreground truncate text-[9px] leading-3 font-normal">
+                            <small className="text-muted-foreground truncate text-[11px] leading-4 font-normal">
                               {state} ·{" "}
                               {AGENT_NAMES[item.agentId] ?? item.agentId}
                             </small>
