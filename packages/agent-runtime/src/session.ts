@@ -69,7 +69,6 @@ export class AgentSession extends EventEmitter {
     this.chatId = chatId;
     this.config = config;
     this.driver = createDriver(config.driver);
-
     this.events = initialEvents.map(withGenerativeDataParts).slice(-500);
     this.driver.on("event", (rawEvent: AgentEvent) => {
       const contextualEvent =
@@ -175,7 +174,6 @@ export class AgentSession extends EventEmitter {
       this.emit("state", state);
     });
   }
-
   get isBusy() {
     const driverInFlight =
       this.driverState !== null &&
