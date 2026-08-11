@@ -9,6 +9,10 @@ import type {
 
 import type { useChannelReadState } from "../../lib/channel-read-state-context";
 import type { useRuntime } from "../../lib/runtime";
+import {
+  browserRunBelongsToChat,
+  projectBrowserRunToOwnedThread,
+} from "../../lib/browser-sessions";
 import { withoutMarkerLines } from "../../lib/integration-setup";
 import { messageBlocks } from "../../lib/runtime";
 import { resolveBrowserRunAnchors } from "./browser-run-placement";
@@ -106,6 +110,7 @@ export function useChiefChatTimeline({
   const mainTimelineChildSessions = useMemo(
     () =>
       childSessions.filter((task) => {
+        if (typeof task.triggerContext?.threadRootId === "string") return false;
         const ownerId = childSessionOwners.get(task.id);
         if (!ownerId) return true;
         const owner = messages.find((message) => message.id === ownerId);
@@ -117,6 +122,9 @@ export function useChiefChatTimeline({
     () =>
       threadRootId
         ? childSessions.filter((task) => {
+            if (task.triggerContext?.threadRootId === threadRootId) return true;
+            if (task.triggerContext?.originThreadRootId === threadRootId)
+              return true;
             const ownerId = childSessionOwners.get(task.id);
             if (!ownerId) return false;
             return (
@@ -127,6 +135,23 @@ export function useChiefChatTimeline({
         : [],
     [childSessionOwners, childSessions, messages, threadRootId],
   );
+  const activeSpecialistByThread = useMemo(() => {
+    const specialists = new Map<string, SessionRecord>();
+    for (const task of childSessions) {
+      const rootIds = [
+        task.triggerContext?.threadRootId,
+        task.triggerContext?.originThreadRootId,
+      ];
+      for (const rootId of rootIds) {
+        if (typeof rootId !== "string") continue;
+        const current = specialists.get(rootId);
+        if (!current || task.updatedAt >= current.updatedAt) {
+          specialists.set(rootId, task);
+        }
+      }
+    }
+    return specialists;
+  }, [childSessions]);
   const activeChildOwnerId = activeChild
     ? childSessionOwners.get(activeChild.id)
     : undefined;
@@ -134,7 +159,9 @@ export function useChiefChatTimeline({
     ? messages.find((message) => message.id === activeChildOwnerId)
     : undefined;
   const activeChildThreadRootId =
-    activeChildOwner?.metadata?.threadRootId ?? threadRootId;
+    (typeof activeChild?.triggerContext?.threadRootId === "string"
+      ? activeChild.triggerContext.threadRootId
+      : activeChildOwner?.metadata?.threadRootId) ?? threadRootId;
   const threadReplies = useMemo(() => {
     const replies = new Map<string, ChiefUIMessage[]>();
     for (const message of messages) {
@@ -215,20 +242,23 @@ export function useChiefChatTimeline({
       ),
     [activeThreadReplies, activeThreadRoot, knownAgentIds],
   );
-  const chatBrowserRuns = useMemo(
-    () =>
-      browserRuns
-        .filter(
-          (run) =>
-            run.workspaceId === cloudOrganizationId &&
-            run.conversationId === chatId,
-        )
-        .sort(
-          (left, right) =>
-            left.createdAt - right.createdAt || left.id.localeCompare(right.id),
-        ),
-    [browserRuns, chatId, cloudOrganizationId],
-  );
+  const chatBrowserRuns = useMemo(() => {
+    const childSessionIds = new Set(
+      childSessions
+        .filter((task) => task.parentId === chatId)
+        .map((task) => task.id),
+    );
+    return browserRuns
+      .filter(
+        (run) =>
+          run.workspaceId === cloudOrganizationId &&
+          browserRunBelongsToChat(run, chatId, childSessionIds),
+      )
+      .sort(
+        (left, right) =>
+          left.createdAt - right.createdAt || left.id.localeCompare(right.id),
+      );
+  }, [browserRuns, chatId, childSessions, cloudOrganizationId]);
   const browserAnchorCandidates = useMemo(
     () =>
       messages.map((message) => ({
@@ -307,25 +337,34 @@ export function useChiefChatTimeline({
       ),
     [browserRunAnchors, chatBrowserRuns, mainTimelineChildSessions, messages],
   );
+  const activeThreadBrowserRuns = useMemo(() => {
+    const childSessionIds = new Set(
+      activeThreadChildSessions.map((task) => task.id),
+    );
+    return chatBrowserRuns.map((run) =>
+      projectBrowserRunToOwnedThread(run, threadRootId, childSessionIds),
+    );
+  }, [activeThreadChildSessions, chatBrowserRuns, threadRootId]);
   const threadReplyEntries = useMemo(
     () =>
       mergeTimelineEntries(
         activeThreadReplies,
         activeThreadChildSessions,
-        chatBrowserRuns,
+        activeThreadBrowserRuns,
         browserRunAnchors,
         threadRootId,
       ),
     [
       activeThreadChildSessions,
       activeThreadReplies,
+      activeThreadBrowserRuns,
       browserRunAnchors,
-      chatBrowserRuns,
       threadRootId,
     ],
   );
 
   return {
+    activeSpecialistByThread,
     activeChildThreadRootId,
     activeThreadAudience,
     activeThreadReplies,
@@ -370,7 +409,7 @@ function mergeTimelineEntries(
   }
   for (const run of runs) {
     if ((run.threadRootId ?? null) === threadRootId && !placed.has(run.id)) {
-      entries.push({ type: "browser", key: `browser:end:${run.id}`, run });
+      entries.push({ type: "browser", key: `browser:${run.id}`, run });
     }
   }
   return entries;

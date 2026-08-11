@@ -4,12 +4,152 @@ import test from "node:test";
 import type { ChiefUIMessage } from "@chief/agent-runtime/types";
 
 import {
+  channelActivityOnlyMessage,
+  deduplicateDocumentParts,
   dropReplayedMessages,
   dropReplayedToolMessages,
   mergeRuntimeHistory,
   mergeRuntimeMessage,
+  projectChannelTimeline,
   visibleRuntimeError,
 } from "../src/lib/runtime-messages.js";
+
+const documentMessage = (
+  id: string,
+  threadRootId?: string,
+): ChiefUIMessage => ({
+  id,
+  role: "assistant",
+  ...(threadRootId ? { metadata: { createdAt: 1, threadRootId } } : {}),
+  parts: [
+    {
+      type: "data-document",
+      id: "document-file-1",
+      data: {
+        fileId: "file-1",
+        title: "Working brand profile.md",
+        path: "brand/working-brand-profile.md",
+        kind: "document",
+        versionId: "version-1",
+      },
+    },
+  ],
+});
+
+void test("a thread-owned file wins over a later threadless replay", () => {
+  const messages = deduplicateDocumentParts([
+    documentMessage("thread-file", "brand-thread"),
+    documentMessage("replayed-file"),
+  ]);
+
+  assert.equal(messages[0]?.parts.length, 1);
+  assert.equal(messages[1]?.parts.length, 0);
+});
+
+void test("shared channels keep activity while hiding unpublished narration", () => {
+  const hidden = channelActivityOnlyMessage({
+    id: "narration",
+    role: "assistant",
+    parts: [{ type: "text", text: "Let me inspect the workspace." }],
+  });
+  assert.equal(hidden, undefined);
+
+  const activity = channelActivityOnlyMessage({
+    id: "working",
+    role: "assistant",
+    parts: [
+      { type: "text", text: "Let me open the browser." },
+      {
+        type: "tool-browser",
+        toolCallId: "browser-call",
+        state: "input-available",
+        input: {},
+      },
+    ],
+  });
+  assert.deepEqual(activity?.parts, [
+    {
+      type: "tool-browser",
+      toolCallId: "browser-call",
+      state: "input-available",
+      input: {},
+    },
+  ]);
+});
+
+void test("published channel events own visible text and keep runtime activity", () => {
+  const projected = projectChannelTimeline(
+    [
+      {
+        id: "narration",
+        role: "assistant",
+        parts: [{ type: "text", text: "Let me inspect the workspace." }],
+      },
+      {
+        id: "browser-activity",
+        role: "assistant",
+        metadata: { createdAt: 2 },
+        parts: [
+          {
+            type: "tool-browser",
+            toolCallId: "browser-call",
+            state: "input-available",
+            input: {},
+          },
+        ],
+      },
+    ],
+    [
+      {
+        protocol: "nip29",
+        kind: 9,
+        id: "published-event",
+        channelId: "mission-control",
+        pubkey: "chief",
+        actor: { type: "agent", id: "chief", name: "Chief" },
+        content: "I found something useful.",
+        parts: [],
+        tags: [],
+        createdAt: 1,
+      },
+    ],
+  );
+
+  assert.deepEqual(
+    projected.map((message) => message.id),
+    ["published-event", "browser-activity"],
+  );
+  assert.equal(
+    projected[0]?.parts.some(
+      (part) =>
+        part.type === "text" && part.text === "I found something useful.",
+    ),
+    true,
+  );
+});
+
+void test("published replies retain the agent that authored them", () => {
+  const [reply] = projectChannelTimeline(
+    [],
+    [
+      {
+        protocol: "nip29",
+        kind: 9,
+        id: "marketer-ack",
+        channelId: "mission-control",
+        pubkey: "marketer",
+        actor: { type: "agent", id: "brand", name: "Marketer" },
+        content: "I’m on it. I’ve started this in #marketing.",
+        parts: [],
+        tags: [["e", "brand-assignment", "", "root"]],
+        createdAt: 1,
+      },
+    ],
+  );
+
+  assert.equal(reply?.metadata?.agentId, "brand");
+  assert.equal(reply.metadata.threadRootId, "brand-assignment");
+});
 
 void test("hides intentional cancellation and internal runtime failures", () => {
   assert.equal(visibleRuntimeError(" Turn interrupted "), undefined);

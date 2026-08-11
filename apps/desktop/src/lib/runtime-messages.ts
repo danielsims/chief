@@ -1,4 +1,10 @@
-import type { ChiefUIMessage } from "@chief/agent-runtime/types";
+import type { ChannelEvent, ChiefUIMessage } from "@chief/agent-runtime/types";
+
+import { channelActionFromEvent } from "./channel-actions";
+import {
+  channelEventSourceId,
+  channelEventThreadRootId,
+} from "./channel-read-state";
 
 const HIDDEN_RUNTIME_ERRORS = new Set(["turn interrupted", "turn cancelled"]);
 
@@ -124,6 +130,15 @@ export function mergeRuntimeHistory(
 }
 
 export function deduplicateDocumentParts(messages: ChiefUIMessage[]) {
+  const threadedFileIds = new Set(
+    messages.flatMap((message) =>
+      message.metadata?.threadRootId
+        ? message.parts.flatMap((part) =>
+            part.type === "data-document" ? [part.data.fileId] : [],
+          )
+        : [],
+    ),
+  );
   const seen = new Set<string>();
   return [...messages]
     .reverse()
@@ -131,12 +146,117 @@ export function deduplicateDocumentParts(messages: ChiefUIMessage[]) {
       ...message,
       parts: message.parts.filter((part) => {
         if (part.type !== "data-document") return true;
+        if (
+          !message.metadata?.threadRootId &&
+          threadedFileIds.has(part.data.fileId)
+        ) {
+          return false;
+        }
         if (seen.has(part.data.fileId)) return false;
         seen.add(part.data.fileId);
         return true;
       }),
     }))
     .reverse();
+}
+
+/**
+ * Shared channels publish text through durable channel events. Until an event
+ * exists, retain only runtime activity so model narration cannot accidentally
+ * become a public chat message.
+ */
+export function channelActivityOnlyMessage(
+  message: ChiefUIMessage,
+): ChiefUIMessage | undefined {
+  if (message.role !== "assistant") return message;
+  const parts = message.parts.filter((part) => part.type !== "text");
+  return parts.length > 0 ? { ...message, parts } : undefined;
+}
+
+/**
+ * Builds one channel timeline from durable published events plus unpublished
+ * runtime activity. Channel events own visible text and thread placement.
+ */
+export function projectChannelTimeline(
+  messages: ChiefUIMessage[],
+  events: ChannelEvent[],
+) {
+  if (events.length === 0) {
+    return dropReplayedMessages(
+      messages.flatMap((message) => {
+        const visible = channelActivityOnlyMessage(message);
+        return visible ? [visible] : [];
+      }),
+    );
+  }
+
+  const sourceIdsByEventId = new Map(
+    events.flatMap((event) => {
+      const sourceId = channelEventSourceId(event);
+      return sourceId ? [[event.id, sourceId] as const] : [];
+    }),
+  );
+  const directById = new Map(messages.map((message) => [message.id, message]));
+  const seenIds = new Set<string>();
+  const canonical: ChiefUIMessage[] = [];
+
+  for (const event of events) {
+    if (event.kind !== 9 || !event.content.trim()) continue;
+    const id = channelEventSourceId(event) ?? event.id;
+    if (id.endsWith("-welcome") || seenIds.has(id)) continue;
+    const direct = directById.get(id);
+    const channelAction = channelActionFromEvent(event);
+    const agentId = event.actor.type === "agent" ? event.actor.id : undefined;
+    const protocolRootId = channelEventThreadRootId(event);
+    const threadRootId = protocolRootId
+      ? (sourceIdsByEventId.get(protocolRootId) ?? protocolRootId)
+      : direct?.metadata?.threadRootId;
+    const needsEnrichment =
+      !direct ||
+      Boolean(threadRootId && threadRootId !== direct.metadata?.threadRootId) ||
+      Boolean(channelAction && !direct.metadata?.channelAction) ||
+      Boolean(agentId && agentId !== direct.metadata?.agentId) ||
+      Boolean(direct.metadata && !direct.metadata.createdAt);
+    canonical.push(
+      !needsEnrichment
+        ? direct
+        : direct
+          ? {
+              ...direct,
+              metadata: {
+                ...direct.metadata,
+                createdAt: direct.metadata?.createdAt ?? event.createdAt,
+                ...(agentId ? { agentId } : {}),
+                ...(threadRootId ? { threadRootId } : {}),
+                ...(channelAction ? { channelAction } : {}),
+              },
+            }
+          : {
+              id,
+              role: event.actor.type === "user" ? "user" : "assistant",
+              parts: [{ type: "text", text: event.content }],
+              metadata: {
+                createdAt: event.createdAt,
+                ...(agentId ? { agentId } : {}),
+                ...(threadRootId ? { threadRootId } : {}),
+                ...(channelAction ? { channelAction } : {}),
+              },
+            },
+    );
+    seenIds.add(id);
+  }
+
+  for (const message of messages) {
+    if (seenIds.has(message.id)) continue;
+    const visible = channelActivityOnlyMessage(message);
+    if (visible) canonical.push(visible);
+  }
+  return dropReplayedMessages(
+    canonical.sort(
+      (left, right) =>
+        (left.metadata?.createdAt ?? 0) - (right.metadata?.createdAt ?? 0),
+    ),
+  );
 }
 
 /**

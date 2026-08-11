@@ -1,4 +1,5 @@
 import type { BrowserDisplayMode } from "@browser-ui/react";
+import type { RefObject } from "react";
 import { memo, useState } from "react";
 import { Browser, BrowserDisplayTrigger } from "@browser-ui/react";
 import { Maximize2, Minimize2, X } from "lucide-react";
@@ -12,11 +13,15 @@ function BrowserSessionViewerImpl({
   className,
   onCloseViewer,
   operating,
+  pictureInPictureAvoidRefs,
+  pictureInPictureContainerRef,
   runId,
 }: {
   className?: string;
   onCloseViewer?: () => void;
   operating: boolean;
+  pictureInPictureAvoidRefs?: readonly RefObject<HTMLElement | null>[];
+  pictureInPictureContainerRef?: RefObject<HTMLElement | null>;
   runId: string;
 }) {
   const {
@@ -94,15 +99,26 @@ function BrowserSessionViewerImpl({
       displayControlsClassName="[&_.bui-display-trigger]:size-7 [&_.bui-display-trigger]:rounded-lg [&_.bui-display-trigger]:border-white/15 [&_.bui-display-trigger]:bg-black/70 [&_.bui-display-trigger]:shadow-sm [&_.bui-display-trigger:hover]:scale-100 [&_.bui-display-trigger:hover]:bg-black/85"
       agentCursor={session.agentCursor ?? undefined}
       interactive
+      layoutId={`chief-browser-${runId}`}
       mode={windowFullscreen ? "fullscreen" : displayMode}
       operating={operating || session.operating}
       operatingLabel={
         session.operatingLabel ?? "Chief is working in this browser"
       }
       showPictureInPicture
+      pictureInPicture={
+        pictureInPictureContainerRef
+          ? {
+              avoidRefs: pictureInPictureAvoidRefs,
+              containerRef: pictureInPictureContainerRef,
+              defaultSnapPoint: "bottom-right",
+              inset: 16,
+            }
+          : undefined
+      }
       streamUrl={session.streamUrl}
       url={session.url}
-      variant="bare"
+      variant="framed"
       viewportSize={{ width: 1280, height: 800 }}
       onModeChange={(mode) => {
         if (windowFullscreen && mode === "inline") {
@@ -125,6 +141,8 @@ export const BrowserSessionViewer = memo(
   (prev, next) =>
     prev.runId === next.runId &&
     prev.operating === next.operating &&
+    prev.pictureInPictureAvoidRefs === next.pictureInPictureAvoidRefs &&
+    prev.pictureInPictureContainerRef === next.pictureInPictureContainerRef &&
     prev.className === next.className &&
     prev.onCloseViewer === next.onCloseViewer,
 );

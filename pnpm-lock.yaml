@@ -33,6 +33,11 @@ overrides:
 
 packageExtensionsChecksum: sha256-MUAuF02PghV0xMkieFn/2KiPdr+SojsO/pk/QuniT1Q=
 
+patchedDependencies:
+  "@browser-ui/react@0.2.0":
+    hash: ef05a754737909cdafcc6f1a702a1816560abd0261f2ee8d385adca76431e99d
+    path: patches/@browser-ui__react@0.2.0.patch
+
 importers:
   .:
     devDependencies:
@@ -62,7 +67,7 @@ importers:
         version: 4.0.33(react@19.2.7)(zod@4.4.3)
       "@browser-ui/react":
         specifier: 0.2.0
-        version: 0.2.0(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        version: 0.2.0(patch_hash=ef05a754737909cdafcc6f1a702a1816560abd0261f2ee8d385adca76431e99d)(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       "@chief/agent-runtime":
         specifier: workspace:*
         version: link:../../packages/agent-runtime
@@ -16417,7 +16422,7 @@ snapshots:
 
   "@browser-ui/core@0.2.0": {}
 
-  "@browser-ui/react@0.2.0(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)":
+  "@browser-ui/react@0.2.0(patch_hash=ef05a754737909cdafcc6f1a702a1816560abd0261f2ee8d385adca76431e99d)(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)":
     dependencies:
       "@browser-ui/core": 0.2.0
       motion: 12.42.2(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

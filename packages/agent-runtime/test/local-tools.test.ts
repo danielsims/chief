@@ -54,6 +54,7 @@ void test("embedded browser tool is discoverable and dispatches safe URLs", asyn
     {
       openBrowser: (conversationId, url, fresh) => {
         opened = { conversationId, url, fresh };
+        return "browser-run-1";
       },
     },
   );
@@ -127,6 +128,7 @@ void test("an explicit fresh browser request reaches the host lifecycle", async 
     {
       openBrowser: (_conversationId, _url, requestedFresh) => {
         fresh = requestedFresh;
+        return "browser-run-2";
       },
     },
   );
@@ -135,6 +137,7 @@ void test("an explicit fresh browser request reaches the host lifecycle", async 
   assert.equal(fresh, true);
   assert.deepEqual(await response.json(), {
     opened: true,
+    browserRunId: "browser-run-2",
     fresh: true,
     url: "https://example.com/fresh",
   });
@@ -151,11 +154,55 @@ void test("embedded browser tool rejects non-web URLs", async () => {
     }),
     "workspace-1",
     manager,
-    { openBrowser: () => undefined },
+    { openBrowser: () => "browser-run-3" },
   );
 
   assert.equal(response.status, 400);
   assert.match(await response.text(), /HTTP or HTTPS/);
+});
+
+void test("file writes notify the owning specialist publication hook", async () => {
+  const file = {
+    id: "file-1",
+    name: "Brand profile.md",
+    path: "brand/profile.md",
+    mimeType: "text/markdown",
+    kind: "document" as const,
+    content: "Grounded brand profile content",
+    currentVersionId: "version-1",
+    createdBy: "agent" as const,
+    sourceAgentId: "brand",
+    sourceSessionId: "specialist-brand",
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const published: unknown[] = [];
+  const fileManager = {
+    workspaceData: () => manager.workspaceData("workspace-1"),
+    saveWorkspaceFile: () => Promise.resolve(file),
+  } as unknown as SessionManager;
+
+  const response = await handleLocalTool(
+    new Request("http://127.0.0.1:4318/local-tools/files/write", {
+      method: "POST",
+      body: JSON.stringify({
+        name: file.name,
+        content: file.content,
+        agentId: file.sourceAgentId,
+        sourceSessionId: file.sourceSessionId,
+      }),
+    }),
+    "workspace-1",
+    fileManager,
+    {
+      onFileWritten: (written) => {
+        published.push(written);
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(published, [file]);
 });
 
 void test("embedded browser selects an exact visible option", async () => {

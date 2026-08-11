@@ -1,6 +1,7 @@
 import type { AgentBrowserSession } from "@chief/browser/node";
 
-import type { BrowserRunRecord } from "./types.js";
+import type { BrowserRunRecord, SessionRecord } from "./types.js";
+import { channelIdFromChatId } from "./channels/nip29.js";
 
 interface Viewport {
   width: number;
@@ -14,21 +15,175 @@ export function commandTargetsActiveBrowserRun(
   return activeRunId === requestedRunId;
 }
 
-/** Keep only the newest resumable run for each conversation. */
+/** Every active run is independently resumable, even inside one conversation. */
 export function resumableBrowserRuns(runs: readonly BrowserRunRecord[]) {
-  const latest = new Map<string, BrowserRunRecord>();
-  for (const run of runs) {
-    if (run.status !== "active") continue;
-    const current = latest.get(run.conversationId);
-    if (
-      !current ||
-      run.createdAt > current.createdAt ||
-      (run.createdAt === current.createdAt && run.id > current.id)
-    ) {
-      latest.set(run.conversationId, run);
-    }
+  return runs.filter((run) => run.status === "active");
+}
+
+interface LegacyBrowserOwnerCandidate {
+  id: string;
+  agent: string;
+  parentId?: string;
+  status: SessionRecord["status"];
+  triggerContext?: Record<string, unknown>;
+  createdAt: number;
+}
+
+/**
+ * Repair the one legacy handoff that can be identified without guessing.
+ *
+ * Older Setup calls trusted a model-authored parent conversation ID, which
+ * left Google sign-in attached to the channel instead of the Setup thread.
+ * Only migrate an active Google auth run when one matching Setup child existed
+ * before the run. Ambiguous runs remain untouched.
+ */
+export function legacyGoogleAuthBrowserOwner(
+  run: BrowserRunRecord,
+  candidates: readonly LegacyBrowserOwnerCandidate[],
+) {
+  if (run.status !== "active" || run.threadRootId || run.parentConversationId) {
+    return undefined;
   }
-  return [...latest.values()];
+  let hostname: string;
+  try {
+    hostname = new URL(run.url).hostname;
+  } catch {
+    return undefined;
+  }
+  if (hostname !== "accounts.google.com") return undefined;
+  const matches = candidates.filter((candidate) => {
+    const threadRootId = candidate.triggerContext?.threadRootId;
+    return (
+      candidate.parentId === run.conversationId &&
+      candidate.agent === "setup" &&
+      typeof threadRootId === "string" &&
+      threadRootId.length > 0 &&
+      candidate.createdAt <= run.createdAt
+    );
+  });
+  if (matches.length !== 1) return undefined;
+  const owner = matches[0];
+  const threadRootId = owner?.triggerContext?.threadRootId;
+  if (!owner || typeof threadRootId !== "string") return undefined;
+  return { conversationId: owner.id, threadRootId };
+}
+
+interface LegacyBrowserOwnerStore {
+  channelStore(): {
+    events(
+      workspaceId: string,
+      channelId: string,
+    ): Promise<readonly { id: string; tags: readonly string[][] }[]>;
+  };
+  listChildChats(
+    workspaceId: string,
+    parentId: string,
+  ): Promise<LegacyBrowserOwnerCandidate[]>;
+  chatRecord(
+    workspaceId: string,
+    chatId: string,
+  ): Promise<
+    | (LegacyBrowserOwnerCandidate & {
+        summary?: string;
+      })
+    | null
+  >;
+  updateChatState(
+    workspaceId: string,
+    chatId: string,
+    state: {
+      status: "waiting";
+      finishedAt: null;
+      error: null;
+    },
+  ): Promise<boolean>;
+  updateBrowserRun(
+    workspaceId: string,
+    id: string,
+    patch: Partial<
+      Pick<
+        BrowserRunRecord,
+        | "anchorMessageId"
+        | "conversationId"
+        | "parentConversationId"
+        | "status"
+        | "threadRootId"
+        | "title"
+        | "url"
+      >
+    >,
+  ): Promise<void>;
+}
+
+/** Move safely identifiable legacy Google handoffs before browser recovery. */
+export async function repairLegacyGoogleAuthBrowserOwners(
+  store: LegacyBrowserOwnerStore,
+  workspaceId: string,
+  runs: readonly BrowserRunRecord[],
+) {
+  return Promise.all(
+    runs.map(async (run) => {
+      let repaired = run;
+      if (!run.threadRootId && !run.parentConversationId) {
+        const children = await store.listChildChats(
+          workspaceId,
+          run.conversationId,
+        );
+        const owner = legacyGoogleAuthBrowserOwner(run, children);
+        if (owner) {
+          repaired = {
+            ...run,
+            conversationId: owner.conversationId,
+            parentConversationId: run.conversationId,
+            threadRootId: owner.threadRootId,
+          };
+        }
+      }
+      const parentId = repaired.parentConversationId;
+      const channelId = parentId ? channelIdFromChatId(parentId) : null;
+      if (channelId && repaired.threadRootId) {
+        const events = await store
+          .channelStore()
+          .events(workspaceId, channelId);
+        const root = events.find((event) => event.id === repaired.threadRootId);
+        const sourceId = root?.tags.find((tag) => tag[0] === "client")?.[1];
+        if (sourceId) repaired = { ...repaired, threadRootId: sourceId };
+      }
+      if (repaired.status === "active") {
+        const owner = await store.chatRecord(
+          workspaceId,
+          repaired.conversationId,
+        );
+        if (
+          owner?.agent === "setup" &&
+          owner.status === "failed" &&
+          owner.summary?.includes("pending-human-signin")
+        ) {
+          await store.updateChatState(workspaceId, owner.id, {
+            status: "waiting",
+            finishedAt: null,
+            error: null,
+          });
+        }
+      }
+      if (repaired === run) return run;
+      await store.updateBrowserRun(workspaceId, run.id, repaired);
+      return repaired;
+    }),
+  );
+}
+
+/** Resolve browser placement from durable task ownership before live turn state. */
+export function browserThreadRoot(
+  requested: string | undefined,
+  existing: string | undefined,
+  triggerContext: SessionRecord["triggerContext"] | undefined,
+) {
+  if (requested) return requested;
+  if (existing) return existing;
+  return typeof triggerContext?.threadRootId === "string"
+    ? triggerContext.threadRootId
+    : undefined;
 }
 
 /**

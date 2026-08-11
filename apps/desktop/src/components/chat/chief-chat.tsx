@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, useMemo, useRef } from "react";
 import { ArrowDown } from "lucide-react";
 
 import type { BrowserRunRecord } from "@chief/agent-runtime/types";
@@ -61,6 +61,7 @@ export function ChiefChat({
   onInitialPromptSent,
   onCloseChild,
   onOpenChild,
+  onThreadRootChange,
   onOpenProfile,
   onOpenInternalPanel,
   activityOpen,
@@ -69,6 +70,12 @@ export function ChiefChat({
   profileOpen = false,
   header,
 }: ChiefChatProps) {
+  const pictureInPictureContainerRef = useRef<HTMLDivElement>(null);
+  const pictureInPictureComposerRef = useRef<HTMLDivElement>(null);
+  const pictureInPictureAvoidRefs = useMemo(
+    () => [pictureInPictureComposerRef],
+    [],
+  );
   const core = useChiefChatCore({
     channel,
     chatId,
@@ -92,6 +99,7 @@ export function ChiefChat({
       isNew,
       onInitialPromptSent,
       onOpenProfile,
+      onThreadRootChange,
     },
   });
   const {
@@ -173,6 +181,8 @@ export function ChiefChat({
     <div className="mx-auto w-full max-w-3xl py-1 pl-11">
       <BrowserSessionAttachment
         operating={controls.status === "running"}
+        pictureInPictureAvoidRefs={pictureInPictureAvoidRefs}
+        pictureInPictureContainerRef={pictureInPictureContainerRef}
         run={run}
       />
     </div>
@@ -198,7 +208,10 @@ export function ChiefChat({
     <div className="relative flex h-full min-w-0 overflow-hidden">
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {header}
-        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-5 pb-3">
+        <div
+          ref={pictureInPictureContainerRef}
+          className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-5 pb-3"
+        >
           <div
             ref={mainScrollRef}
             className="min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto py-6 pr-2"
@@ -236,7 +249,7 @@ export function ChiefChat({
                     ? channel.description
                     : directAgent
                       ? `A private conversation with ${directAgent.name}.`
-                      : "Your CMO. Ask anything, and Chief will bring in the right specialist."}
+                      : "Your workspace lead. Ask anything, and Chief will bring in the right specialist."}
                 </p>
                 {channel ? (
                   <p className="text-muted-foreground/75 text-xs">
@@ -394,7 +407,10 @@ export function ChiefChat({
             <div ref={bottomRef} />
           </div>
 
-          <div className="relative mx-auto w-full max-w-3xl">
+          <div
+            ref={pictureInPictureComposerRef}
+            className="relative mx-auto w-full max-w-3xl"
+          >
             {mainScrolledUp && channelResolved ? (
               <button
                 type="button"
@@ -450,7 +466,6 @@ export function ChiefChat({
                 onOpen={() => {
                   setThreadRootId(null);
                   setActivityOpen(true);
-                  onOpenInternalPanel?.();
                 }}
               />
             </div>
@@ -459,7 +474,6 @@ export function ChiefChat({
       </div>
       <ChiefChatAuxiliaryPanels
         activeThreadSummary={activeThreadSummary}
-        browserAttachmentNode={browserAttachmentNode}
         composer={composerState}
         core={core}
         imageParts={imageParts}
@@ -469,7 +483,6 @@ export function ChiefChat({
           channel,
           onCloseChild,
           onOpenChild,
-          onOpenInternalPanel,
           panelSizing,
           profileOpen,
         }}
