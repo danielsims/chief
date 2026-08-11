@@ -5,9 +5,27 @@ import type { AgentBrowserSession } from "@chief/browser/node";
 
 import {
   BrowserSessionRegistry,
+  browserThreadRoot,
   commandTargetsActiveBrowserRun,
+  legacyGoogleAuthBrowserOwner,
+  repairLegacyGoogleAuthBrowserOwners,
   resumableBrowserRuns,
 } from "../src/browser-session-registry.js";
+
+void test("a specialist browser inherits its durable channel thread", () => {
+  assert.equal(
+    browserThreadRoot(undefined, undefined, {
+      threadRootId: "prospector-thread",
+    }),
+    "prospector-thread",
+  );
+  assert.equal(
+    browserThreadRoot("explicit-thread", undefined, {
+      threadRootId: "prospector-thread",
+    }),
+    "explicit-thread",
+  );
+});
 
 void test("a stale browser control cannot target the replacement run", () => {
   assert.equal(commandTargetsActiveBrowserRun("fresh", "old"), false);
@@ -15,7 +33,7 @@ void test("a stale browser control cannot target the replacement run", () => {
   assert.equal(commandTargetsActiveBrowserRun(undefined, "old"), false);
 });
 
-void test("keeps only the newest active browser run per conversation", () => {
+void test("keeps every active browser run independently resumable", () => {
   const run = (
     id: string,
     conversationId: string,
@@ -37,8 +55,122 @@ void test("keeps only the newest active browser run per conversation", () => {
       run("complete", "chat-b", 3, "complete"),
       run("other", "chat-c", 4, "active"),
     ]).map((candidate) => candidate.id),
-    ["new", "other"],
+    ["old", "new", "other"],
   );
+});
+
+void test("repairs one legacy Google handoff into its Setup thread", () => {
+  const run = {
+    id: "browser",
+    workspaceId: "workspace",
+    conversationId: "mission-control",
+    url: "https://accounts.google.com/v3/signin/identifier",
+    status: "active" as const,
+    createdAt: 20,
+    updatedAt: 20,
+  };
+  assert.deepEqual(
+    legacyGoogleAuthBrowserOwner(run, [
+      {
+        id: "setup-child",
+        agent: "setup",
+        parentId: "mission-control",
+        status: "waiting",
+        triggerContext: { threadRootId: "setup-thread" },
+        createdAt: 10,
+      },
+    ]),
+    { conversationId: "setup-child", threadRootId: "setup-thread" },
+  );
+  assert.equal(
+    legacyGoogleAuthBrowserOwner(run, [
+      {
+        id: "setup-one",
+        agent: "setup",
+        parentId: "mission-control",
+        status: "waiting",
+        triggerContext: { threadRootId: "thread-one" },
+        createdAt: 10,
+      },
+      {
+        id: "setup-two",
+        agent: "setup",
+        parentId: "mission-control",
+        status: "running",
+        triggerContext: { threadRootId: "thread-two" },
+        createdAt: 11,
+      },
+    ]),
+    undefined,
+  );
+});
+
+void test("canonicalizes a recovered browser to the visible channel root", async () => {
+  const updates: unknown[] = [];
+  const stateUpdates: unknown[] = [];
+  const [repaired] = await repairLegacyGoogleAuthBrowserOwners(
+    {
+      channelStore: () => ({
+        events: () =>
+          Promise.resolve([
+            {
+              id: "protocol-root",
+              tags: [["client", "channel-api:onboarding-setup-thread"]],
+            },
+          ]),
+      }),
+      chatRecord: () =>
+        Promise.resolve({
+          id: "specialist-setup",
+          agent: "setup",
+          parentId: "channel:workspace:mission-control",
+          status: "failed",
+          summary: "Google sign-in is open. pending-human-signin",
+          triggerContext: { threadRootId: "protocol-root" },
+          createdAt: 1,
+        }),
+      listChildChats: () => Promise.resolve([]),
+      updateChatState: (_workspaceId, _chatId, state) => {
+        stateUpdates.push(state);
+        return Promise.resolve(true);
+      },
+      updateBrowserRun: (_workspaceId, _id, patch) => {
+        updates.push(patch);
+        return Promise.resolve();
+      },
+    },
+    "workspace",
+    [
+      {
+        id: "browser",
+        workspaceId: "workspace",
+        conversationId: "specialist-setup",
+        parentConversationId: "channel:workspace:mission-control",
+        threadRootId: "protocol-root",
+        url: "https://accounts.google.com/",
+        status: "active",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+  );
+  assert.equal(repaired?.threadRootId, "channel-api:onboarding-setup-thread");
+  assert.equal(updates.length, 1);
+  assert.deepEqual(stateUpdates, [
+    { status: "waiting", finishedAt: null, error: null },
+  ]);
+});
+
+void test("creates independent physical sessions for independent run ids", () => {
+  const created: string[] = [];
+  const registry = new BrowserSessionRegistry((_workspaceId, browserRunId) => {
+    created.push(browserRunId);
+    return { id: browserRunId } as unknown as AgentBrowserSession;
+  });
+  const first = registry.session("workspace", "browser-run-a");
+  const second = registry.session("workspace", "browser-run-b");
+  assert.notEqual(first, second);
+  assert.deepEqual(created, ["browser-run-a", "browser-run-b"]);
 });
 
 void test("reset closes a browser and clears only its saved state", async () => {

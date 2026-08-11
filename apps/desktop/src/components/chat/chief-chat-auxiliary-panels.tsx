@@ -1,5 +1,4 @@
-import type { ReactNode } from "react";
-import { Fragment } from "react";
+import { Fragment, useMemo, useRef } from "react";
 
 import type {
   BrowserRunRecord,
@@ -14,6 +13,7 @@ import type { useChiefChatComposer } from "./use-chief-chat-composer";
 import type { useChiefChatCore } from "./use-chief-chat-core";
 import type { useChiefChatTimeline } from "./use-chief-chat-timeline";
 import { messageBlocks } from "../../lib/runtime";
+import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
 import { AgentActivityPanel, taskAgentLabel } from "./agent-activity-panel";
 import { ApprovalCard } from "./approval-card";
@@ -51,7 +51,6 @@ interface ThreadSummary {
  */
 export function ChiefChatAuxiliaryPanels({
   activeThreadSummary,
-  browserAttachmentNode,
   composer,
   core,
   imageParts,
@@ -61,7 +60,6 @@ export function ChiefChatAuxiliaryPanels({
   timeline,
 }: {
   activeThreadSummary: ThreadSummary;
-  browserAttachmentNode: (run: BrowserRunRecord) => ReactNode;
   composer: Composer;
   core: Core;
   imageParts: (message: ChiefUIMessage) => MessageAttachment[];
@@ -72,7 +70,6 @@ export function ChiefChatAuxiliaryPanels({
     | "channel"
     | "onCloseChild"
     | "onOpenChild"
-    | "onOpenInternalPanel"
     | "panelSizing"
     | "profileOpen"
   >;
@@ -88,7 +85,6 @@ export function ChiefChatAuxiliaryPanels({
     channel,
     onCloseChild,
     onOpenChild,
-    onOpenInternalPanel,
     panelSizing,
     profileOpen = false,
   } = props;
@@ -122,6 +118,7 @@ export function ChiefChatAuxiliaryPanels({
     threadScrollRef,
   } = composer;
   const {
+    activeSpecialistByThread,
     activeChildThreadRootId,
     activeThreadAudience,
     activeThreadRoot,
@@ -132,23 +129,35 @@ export function ChiefChatAuxiliaryPanels({
     childSessionOwners,
     threadReplyEntries,
   } = timeline;
+  const childPictureInPictureContainerRef = useRef<HTMLDivElement>(null);
+  const threadPictureInPictureContainerRef = useRef<HTMLDivElement>(null);
+  const threadComposerRef = useRef<HTMLDivElement>(null);
+  const threadPictureInPictureAvoidRefs = useMemo(
+    () => [threadComposerRef],
+    [],
+  );
+  const threadBrowserAttachmentNode = (run: BrowserRunRecord) => (
+    <div className="w-full min-w-0 py-1 pl-11">
+      <BrowserSessionAttachment
+        operating={browserOperating}
+        pictureInPictureAvoidRefs={threadPictureInPictureAvoidRefs}
+        pictureInPictureContainerRef={threadPictureInPictureContainerRef}
+        run={run}
+      />
+    </div>
+  );
   const closeAuxiliaryWorkspace = () => {
     setActivityOpen(false);
-    setThreadRootId(null);
     onCloseChild?.();
   };
   const returnToThread = () => {
     if (!activeChildThreadRootId) return;
     setActivityOpen(false);
-    onCloseChild?.();
-    setThreadRootId(activeChildThreadRootId);
+    onCloseChild?.(activeChildThreadRootId);
   };
   const returnFromChild = () => {
-    onCloseChild?.();
-    if (activeChildThreadRootId) {
-      setActivityOpen(false);
-      setThreadRootId(activeChildThreadRootId);
-    }
+    setActivityOpen(false);
+    onCloseChild?.(activeChildThreadRootId ?? undefined);
   };
 
   if (activeChild && !profileOpen) {
@@ -185,7 +194,10 @@ export function ChiefChatAuxiliaryPanels({
           subtitle={`${taskAgentLabel(activeChild.agent)} · ${taskStatusLabel(activeChild.status)}`}
           onClose={closeAuxiliaryWorkspace}
         />
-        <ConversationAuxiliaryPanelBody className="overflow-hidden">
+        <ConversationAuxiliaryPanelBody
+          ref={childPictureInPictureContainerRef}
+          className="overflow-hidden"
+        >
           <ObservedChat
             key={activeChild.id}
             chatId={activeChild.id}
@@ -194,6 +206,9 @@ export function ChiefChatAuxiliaryPanels({
               childBrowserRun ? (
                 <BrowserSessionAttachment
                   operating={browserOperating}
+                  pictureInPictureContainerRef={
+                    childPictureInPictureContainerRef
+                  }
                   run={childBrowserRun}
                 />
               ) : undefined
@@ -217,151 +232,171 @@ export function ChiefChatAuxiliaryPanels({
           subtitle={`${activeThreadSummary.count} ${activeThreadSummary.count === 1 ? "reply" : "replies"}`}
           onClose={() => setThreadRootId(null)}
         />
-        <ConversationAuxiliaryPanelBody
-          ref={threadScrollRef}
-          className="space-y-2 px-4 py-4"
+        <div
+          ref={threadPictureInPictureContainerRef}
+          className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
         >
-          {activeThreadRoot?.role === "user" ? (
-            <div id={`chief-message-${activeThreadRoot.id}`}>
-              <UserMessage
-                author={userAuthor}
-                attachments={imageParts(activeThreadRoot)}
-                metadata={null}
-                onOpenProfile={openUserProfile}
-                onOpenMention={openAgentMention}
-                text={messageText(activeThreadRoot)}
-              />
-            </div>
-          ) : null}
-          {chatBrowserRuns.map((run) =>
-            run.threadRootId === threadRootId &&
-            browserRunAnchors.get(run.id) === activeThreadRoot?.id ? (
-              <Fragment key={`browser:root:${run.id}`}>
-                {browserAttachmentNode(run)}
-              </Fragment>
-            ) : null,
-          )}
-          <ThreadDivider count={activeThreadSummary.count} />
-          {threadReplyEntries.map((entry) => {
-            if (entry.type === "browser") {
-              return (
-                <Fragment key={entry.key}>
-                  {browserAttachmentNode(entry.run)}
+          <ConversationAuxiliaryPanelBody
+            ref={threadScrollRef}
+            className="space-y-2 px-4 py-4"
+          >
+            {activeThreadRoot?.role === "user" ? (
+              <div id={`chief-message-${activeThreadRoot.id}`}>
+                <UserMessage
+                  author={userAuthor}
+                  attachments={imageParts(activeThreadRoot)}
+                  metadata={null}
+                  onOpenProfile={openUserProfile}
+                  onOpenMention={openAgentMention}
+                  text={messageText(activeThreadRoot)}
+                />
+              </div>
+            ) : null}
+            {chatBrowserRuns.map((run) =>
+              run.threadRootId === threadRootId &&
+              browserRunAnchors.get(run.id) === activeThreadRoot?.id ? (
+                <Fragment key={`browser:root:${run.id}`}>
+                  {threadBrowserAttachmentNode(run)}
                 </Fragment>
-              );
-            }
-            if (entry.type === "specialist") {
+              ) : null,
+            )}
+            <ThreadDivider count={activeThreadSummary.count} />
+            {threadReplyEntries.map((entry) => {
+              if (entry.type === "browser") {
+                return (
+                  <Fragment key={entry.key}>
+                    {threadBrowserAttachmentNode(entry.run)}
+                  </Fragment>
+                );
+              }
+              if (entry.type === "specialist") {
+                const agentId = entry.task.agent as WorkspaceAgentId;
+                const identity = WORKSPACE_AGENT_IDENTITIES[agentId];
+                return (
+                  <ChiefMessage
+                    key={entry.task.id}
+                    agent={{
+                      id: agentId,
+                      name: identity.name,
+                      role: identity.role,
+                    }}
+                    metadata={null}
+                  >
+                    <SpecialistTaskCard
+                      task={entry.task}
+                      onOpenTask={onOpenChild}
+                    />
+                  </ChiefMessage>
+                );
+              }
+              const { message } = entry;
+              if (message.role === "user") {
+                return (
+                  <div id={`chief-message-${message.id}`} key={message.id}>
+                    <UserMessage
+                      author={userAuthor}
+                      attachments={imageParts(message)}
+                      metadata={null}
+                      onOpenProfile={openUserProfile}
+                      onOpenMention={openAgentMention}
+                      text={messageText(message)}
+                    />
+                  </div>
+                );
+              }
+              if (threadBlocks(message).length === 0) return null;
+              const respondingAgent = respondingAgentFor(message);
+              const specialist = threadRootId
+                ? activeSpecialistByThread.get(threadRootId)
+                : undefined;
               return (
-                <div
-                  key={entry.task.id}
-                  className="mx-auto w-full max-w-3xl pl-11"
+                <ChiefMessage
+                  key={message.id}
+                  messageId={message.id}
+                  activity={
+                    specialist && respondingAgent?.id === specialist.agent
+                      ? specialist
+                      : undefined
+                  }
+                  agent={respondingAgent}
+                  metadata={null}
+                  onOpenProfile={selectProfile}
                 >
-                  <SpecialistTaskCard
-                    task={entry.task}
+                  <MessageBlocksContent
+                    message={message}
+                    filter={threadBlocks}
+                    progress={controls.toolProgress}
+                    capabilities={activeCapabilities}
+                    active={controls.status === "running"}
+                    tasks={childSessions}
+                    taskOwners={childSessionOwners}
+                    ownerId={message.id}
                     onOpenTask={onOpenChild}
                   />
-                </div>
+                </ChiefMessage>
               );
-            }
-            const { message } = entry;
-            if (message.role === "user") {
-              return (
-                <div id={`chief-message-${message.id}`} key={message.id}>
-                  <UserMessage
-                    author={userAuthor}
-                    attachments={imageParts(message)}
-                    metadata={null}
-                    onOpenProfile={openUserProfile}
-                    onOpenMention={openAgentMention}
-                    text={messageText(message)}
-                  />
-                </div>
-              );
-            }
-            if (threadBlocks(message).length === 0) return null;
-            return (
-              <ChiefMessage
-                key={message.id}
-                messageId={message.id}
-                agent={respondingAgentFor(message)}
-                metadata={null}
-                onOpenProfile={selectProfile}
-              >
-                <MessageBlocksContent
-                  message={message}
-                  filter={threadBlocks}
-                  progress={controls.toolProgress}
-                  capabilities={activeCapabilities}
-                  active={controls.status === "running"}
-                  tasks={childSessions}
-                  taskOwners={childSessionOwners}
-                  ownerId={message.id}
-                  onOpenTask={onOpenChild}
-                />
-              </ChiefMessage>
-            );
-          })}
-          {controls.questions.map((pending) => (
-            <div key={pending.requestId} className="mx-auto max-w-3xl">
-              <QuestionCard
-                pending={pending}
-                onSubmit={(answers) =>
-                  respondQuestion(pending.requestId, answers)
-                }
-                onDismiss={() => respondQuestion(pending.requestId, null)}
-              />
-            </div>
-          ))}
-          {controls.approvals
-            .filter((approval) =>
-              approvalBelongsToSurface(approval, threadRootId),
-            )
-            .map((approval) => (
-              <div key={approval.requestId} className="w-full">
-                <ApprovalCard
-                  approval={approval}
-                  onRespond={respondPermission}
+            })}
+            {controls.questions.map((pending) => (
+              <div key={pending.requestId} className="mx-auto max-w-3xl">
+                <QuestionCard
+                  pending={pending}
+                  onSubmit={(answers) =>
+                    respondQuestion(pending.requestId, answers)
+                  }
+                  onDismiss={() => respondQuestion(pending.requestId, null)}
                 />
               </div>
             ))}
-          <div ref={threadBottomRef} />
-        </ConversationAuxiliaryPanelBody>
-        <div className="relative shrink-0 px-3 pb-3">
-          <div className="relative space-y-2">
-            <ChatComposer
-              value={threadDraft}
-              onValueChange={setThreadDraft}
-              imageAttachments={threadImageAttachments}
-              onImageAttachmentsChange={setThreadImageAttachments}
-              onSubmit={() => {
-                const text = threadDraft.trim();
-                if (!text && threadImageAttachments.length === 0) return;
-                setThreadDraft("");
-                setThreadImageAttachments([]);
-                send(
-                  text,
-                  threadRootId,
-                  activeThreadAudience,
-                  threadImageAttachments,
-                  controls.status === "running",
-                );
-              }}
-              running={controls.status === "running"}
-              onInterrupt={interrupt}
-              showSuggestions={false}
-              showExecutionControls={false}
-              mentionCandidates={mentionCandidates}
-              placeholder={`Reply in #${channel.label}…`}
-            />
-            <AgentActivityComposerRow
-              running={controls.status === "running"}
-              statusLabel={statusLabel}
-              onOpen={() => {
-                setThreadRootId(null);
-                setActivityOpen(true);
-                onOpenInternalPanel?.();
-              }}
-            />
+            {controls.approvals
+              .filter((approval) =>
+                approvalBelongsToSurface(approval, threadRootId),
+              )
+              .map((approval) => (
+                <div key={approval.requestId} className="w-full">
+                  <ApprovalCard
+                    approval={approval}
+                    onRespond={respondPermission}
+                  />
+                </div>
+              ))}
+            <div ref={threadBottomRef} />
+          </ConversationAuxiliaryPanelBody>
+          <div ref={threadComposerRef} className="relative shrink-0 px-3 pb-3">
+            <div className="relative space-y-2">
+              <ChatComposer
+                value={threadDraft}
+                onValueChange={setThreadDraft}
+                imageAttachments={threadImageAttachments}
+                onImageAttachmentsChange={setThreadImageAttachments}
+                onSubmit={() => {
+                  const text = threadDraft.trim();
+                  if (!text && threadImageAttachments.length === 0) return;
+                  setThreadDraft("");
+                  setThreadImageAttachments([]);
+                  send(
+                    text,
+                    threadRootId,
+                    activeThreadAudience,
+                    threadImageAttachments,
+                    controls.status === "running",
+                  );
+                }}
+                running={controls.status === "running"}
+                onInterrupt={interrupt}
+                showSuggestions={false}
+                showExecutionControls={false}
+                mentionCandidates={mentionCandidates}
+                placeholder={`Reply in #${channel.label}…`}
+              />
+              <AgentActivityComposerRow
+                running={controls.status === "running"}
+                statusLabel={statusLabel}
+                onOpen={() => {
+                  setThreadRootId(null);
+                  setActivityOpen(true);
+                }}
+              />
+            </div>
           </div>
         </div>
       </ConversationAuxiliaryPanel>
@@ -405,6 +440,7 @@ function ThreadDivider({ count }: { count: number }) {
 function taskStatusLabel(status: string) {
   if (status === "completed") return "Complete";
   if (status === "idle") return "Starting";
-  if (status === "running" || status === "waiting") return "Working";
+  if (status === "waiting") return "Waiting for you";
+  if (status === "running") return "Working";
   return status;
 }

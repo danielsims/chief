@@ -1,0 +1,1001 @@
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 156b64ac2bc9821dc9d0a03cbc6315dc5b1337e7..4d6e88fd92cd17c0e602055f98b6a6bce3ea58b3 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -46,6 +46,27 @@ declare const BrowserFullscreenTrigger: react.ForwardRefExoticComponent<BrowserF
+
+ type BrowserVariant = "framed" | "bare";
+ type BrowserColorScheme = "light" | "dark" | "system";
++type BrowserPictureInPictureSnapPoint = "top-left" | "top-right" | "bottom-left" | "bottom-right";
++interface BrowserPictureInPictureOptions {
++    /** Container whose visible bounds constrain picture-in-picture mode. */
++    containerRef?: react.RefObject<HTMLElement | null>;
++    /** Elements inside the container that a settled viewer must not cover. */
++    avoidRefs?: readonly react.RefObject<HTMLElement | null>[];
++    /** Corners the viewer may snap to after dragging. */
++    allowedSnapPoints?: readonly BrowserPictureInPictureSnapPoint[];
++    /** Initial snap point for an uncontrolled viewer. Defaults to bottom-right. */
++    defaultSnapPoint?: BrowserPictureInPictureSnapPoint;
++    /** Controlled snap point. */
++    snapPoint?: BrowserPictureInPictureSnapPoint;
++    /** Reports a new snap point after a drag. */
++    onSnapPointChange?: (snapPoint: BrowserPictureInPictureSnapPoint) => void;
++    /** Distance in pixels between the viewer and its container. Defaults to 24. */
++    inset?: number;
++    /** Whether the picture-in-picture surface can be dragged. Defaults to true. */
++    draggable?: boolean;
++    /** Keep the inline layout slot while the viewer is floating. Defaults to false. */
++    preserveInlineSpace?: boolean;
++}
+ interface BrowserRootProps extends HTMLAttributes<HTMLElement> {
+     children: ReactNode;
+     variant?: BrowserVariant;
+@@ -53,8 +74,12 @@ interface BrowserRootProps extends HTMLAttributes<HTMLElement> {
+     mode?: BrowserDisplayMode;
+     onModeChange?: (mode: BrowserDisplayMode) => void;
+     colorScheme?: BrowserColorScheme;
++    /** Stable Motion layout identity for the live browser frame. */
++    layoutId?: string;
+     /** Optional element whose visible bounds fullscreen mode should fill. */
+     fullscreenTarget?: HTMLElement | null;
++    /** Optional container, drag, and snap policy for picture-in-picture mode. */
++    pictureInPicture?: BrowserPictureInPictureOptions;
+ }
+ /** Layout and display-mode root shared by live and custom transports. */
+ declare const BrowserRoot: react.ForwardRefExoticComponent<BrowserRootProps & react.RefAttributes<HTMLElement>>;
+@@ -64,7 +89,7 @@ interface BrowserAgentCursorProps extends HTMLAttributes<HTMLDivElement>, Browse
+ /** A transport-neutral cursor for visualizing recorded or live agent actions. */
+ declare function BrowserAgentCursor({ className, backgroundColor, label, pressed, size, style, typing, variant, visible, x, y, ...props }: BrowserAgentCursorProps): react.JSX.Element;
+
+-interface BrowserProps extends Pick<BrowserRootProps, "className" | "colorScheme" | "defaultMode" | "fullscreenTarget" | "mode" | "onModeChange" | "style" | "variant">, Pick<AgentBrowserViewportProps, "ariaLabel" | "createWebSocket" | "onViewportResize" | "protocols" | "resolveConnection"> {
++interface BrowserProps extends Pick<BrowserRootProps, "className" | "colorScheme" | "defaultMode" | "fullscreenTarget" | "layoutId" | "mode" | "onModeChange" | "pictureInPicture" | "style" | "variant">, Pick<AgentBrowserViewportProps, "ariaLabel" | "createWebSocket" | "onViewportResize" | "protocols" | "resolveConnection"> {
+     /** WebSocket URL returned by `agent-browser stream status`. */
+     streamUrl?: string;
+     /** Host-projected access state. Input requires the viewer's active lease. */
+@@ -97,7 +122,7 @@ interface BrowserProps extends Pick<BrowserRootProps, "className" | "colorScheme
+     onUrlChange?: (url: string) => void;
+ }
+ /** Composed browser viewer for the official agent-browser stream protocol. */
+-declare function Browser({ ariaLabel, access, agentCursor, className, colorScheme, createWebSocket, defaultMode, displayControls, displayControlsClassName, displayAspectRatio, fullscreenTarget, interactive, loadingLabel, onNavigate, onModeChange, onReload, onStatusChange, onTakeControl, onInteractionIntent, onUrlChange, onViewportResize, operating, operatingLabel, protocols, resolveConnection, mode, showControls, showPictureInPicture, showFullscreen, streamUrl, style, url, variant, viewportSize, viewportClassName, }: BrowserProps): react.JSX.Element;
++declare function Browser({ ariaLabel, access, agentCursor, className, colorScheme, createWebSocket, defaultMode, displayControls, displayControlsClassName, displayAspectRatio, fullscreenTarget, pictureInPicture, interactive, loadingLabel, onNavigate, onModeChange, onReload, onStatusChange, onTakeControl, onInteractionIntent, onUrlChange, onViewportResize, operating, operatingLabel, protocols, resolveConnection, mode, showControls, showPictureInPicture, showFullscreen, streamUrl, style, url, variant, viewportSize, viewportClassName, }: BrowserProps): react.JSX.Element;
+
+ interface BrowserRecordingProps extends Omit<BrowserRootProps, "children"> {
+     /** WebM or another browser-supported recording produced by agent-browser. */
+@@ -223,4 +248,4 @@ declare function BrowserPrincipalGrantTrigger({ audience, children, onClick, pri
+
+ type BrowserCursor = string;
+
+-export { AgentBrowserViewport, type AgentBrowserViewportProps, Browser, BrowserAccessRoot, type BrowserAccessRootProps, BrowserAgentCursor, type BrowserAgentCursorProps, BrowserAudienceOption, type BrowserAudienceOptionProps, type BrowserColorScheme, BrowserControlStatus, type BrowserControlStatusProps, BrowserControlTrigger, type BrowserControlTriggerProps, type BrowserCursor, BrowserDisplayControls, type BrowserDisplayControlsProps, type BrowserDisplayMode, BrowserDisplayTrigger, type BrowserDisplayTriggerProps, BrowserFullscreenTrigger, type BrowserFullscreenTriggerProps, BrowserLoading, type BrowserLoadingProps, BrowserObserverList, type BrowserObserverListProps, BrowserOperatingOverlay, type BrowserOperatingOverlayProps, BrowserOperatingShader, BrowserPictureInPictureTrigger, type BrowserPictureInPictureTriggerProps, BrowserPolicyRoot, type BrowserPolicyRootProps, BrowserPrincipalGrantTrigger, type BrowserPrincipalGrantTriggerProps, type BrowserProps, BrowserRecording, type BrowserRecordingProps, BrowserRoot, type BrowserRootProps, BrowserSurface, type BrowserSurfaceProps, BrowserToolbar, type BrowserToolbarProps, type BrowserVariant, useBrowserAccess };
++export { AgentBrowserViewport, type AgentBrowserViewportProps, Browser, BrowserAccessRoot, type BrowserAccessRootProps, BrowserAgentCursor, type BrowserAgentCursorProps, BrowserAudienceOption, type BrowserAudienceOptionProps, type BrowserColorScheme, BrowserControlStatus, type BrowserControlStatusProps, BrowserControlTrigger, type BrowserControlTriggerProps, type BrowserCursor, BrowserDisplayControls, type BrowserDisplayControlsProps, type BrowserDisplayMode, BrowserDisplayTrigger, type BrowserDisplayTriggerProps, BrowserFullscreenTrigger, type BrowserFullscreenTriggerProps, BrowserLoading, type BrowserLoadingProps, BrowserObserverList, type BrowserObserverListProps, BrowserOperatingOverlay, type BrowserOperatingOverlayProps, BrowserOperatingShader, type BrowserPictureInPictureOptions, type BrowserPictureInPictureSnapPoint, BrowserPictureInPictureTrigger, type BrowserPictureInPictureTriggerProps, BrowserPolicyRoot, type BrowserPolicyRootProps, BrowserPrincipalGrantTrigger, type BrowserPrincipalGrantTriggerProps, type BrowserProps, BrowserRecording, type BrowserRecordingProps, BrowserRoot, type BrowserRootProps, BrowserSurface, type BrowserSurfaceProps, BrowserToolbar, type BrowserToolbarProps, type BrowserVariant, useBrowserAccess };
+diff --git a/dist/index.js b/dist/index.js
+index 8ba7d4d549a04374f4f31d77db26c44d95f5c183..5db3967448445fdc89782631e89ca49c778f3e9e 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -824,23 +824,17 @@ var BrowserFullscreenTrigger = forwardRef(function BrowserFullscreenTrigger2({
+ // src/browser-root.tsx
+ import {
+   forwardRef as forwardRef2,
+-  useCallback as useCallback3,
+-  useLayoutEffect as useLayoutEffect2,
+-  useRef as useRef4,
+-  useState
++  useCallback as useCallbackBrowserRoot,
++  useId,
++  useLayoutEffect as useLayoutEffectBrowserRoot,
++  useRef as useRefBrowserRoot,
++  useState as useStateBrowserRoot
+ } from "react";
+-import { createPortal } from "react-dom";
+ import { motion as motion2, MotionConfig } from "motion/react";
++import { createPortal } from "react-dom";
+
+ // src/browser-layout.ts
+-import {
+-  useCallback as useCallback2,
+-  useEffect as useEffect3,
+-  useLayoutEffect,
+-  useRef as useRef3
+-} from "react";
+-var modeTransitionDurationMs = 420;
+-var modeTransitionFallbackMs = modeTransitionDurationMs + 120;
++import { useEffect as useEffectBrowserLayout, useLayoutEffect as useLayoutEffectBrowserLayout, useRef as useRefBrowserLayout, useState as useStateBrowserLayout } from "react";
+ var fullscreenTargetProperties = [
+   "--bui-fullscreen-top",
+   "--bui-fullscreen-left",
+@@ -850,34 +844,17 @@ var fullscreenTargetProperties = [
+ ];
+ var bodyScrollLockCount = 0;
+ var bodyOverflowBeforeLock = "";
+-function captureBrowserLayout(frame) {
+-  const surface = frame.querySelector(".bui-surface");
+-  return {
+-    frame: frame.getBoundingClientRect(),
+-    surface: surface?.getBoundingClientRect()
+-  };
+-}
+-function hasLayout(rect) {
+-  return Boolean(rect && rect.width > 0 && rect.height > 0);
+-}
+-function invertLayout(from, to) {
+-  return [
+-    `translate3d(${from.left - to.left}px, ${from.top - to.top}px, 0)`,
+-    `scale(${from.width / to.width}, ${from.height / to.height})`
+-  ].join(" ");
+-}
+-function useBrowserLayout({ frameMounted, frameRef, fullscreenTarget, inlineHostRef, mode, portalHost, rootRef }) {
+-  const inlineHeightRef = useRef3(void 0);
+-  const lastLayoutRef = useRef3(null);
+-  const modeTransitionCleanupRef = useRef3(null);
+-  const transitionFromRef = useRef3(null);
+-  const transitioningRef = useRef3(false);
+-  const previousModeRef = useRef3(mode);
+-  const prepareModeTransition = useCallback2(() => {
+-    const frame = frameRef.current;
+-    if (frame) transitionFromRef.current = captureBrowserLayout(frame);
+-  }, [frameRef]);
+-  useLayoutEffect(() => {
++function useBrowserLayout({
++  frameMounted,
++  frameRef,
++  fullscreenTarget,
++  inlineHostRef,
++  mode,
++  portalHost,
++  preservePictureInPictureSpace
++}) {
++  const [inlineHeight, setInlineHeight] = useStateBrowserLayout();
++  useLayoutEffectBrowserLayout(() => {
+     const inlineHost = inlineHostRef.current;
+     if (!portalHost || !inlineHost) return;
+     const target = mode === "inline" ? inlineHost : document.body;
+@@ -890,85 +867,32 @@ function useBrowserLayout({ frameMounted, frameRef, fullscreenTarget, inlineHost
+     const top = Math.floor(bounds.top);
+     frame.style.setProperty("--bui-fullscreen-top", `${top}px`);
+     frame.style.setProperty("--bui-fullscreen-left", `${left}px`);
+-    frame.style.setProperty("--bui-fullscreen-width", `${Math.ceil(bounds.right) - left}px`);
+-    frame.style.setProperty("--bui-fullscreen-height", `${Math.ceil(bounds.bottom) - top}px`);
+-    frame.style.setProperty("--bui-fullscreen-radius", targetStyle.borderRadius);
+-  }, [frameMounted, frameRef, fullscreenTarget, inlineHostRef, mode, portalHost]);
+-  useLayoutEffect(() => {
+-    const previousMode = previousModeRef.current;
+-    if (previousMode === mode) return;
+-    previousModeRef.current = mode;
+-    modeTransitionCleanupRef.current?.();
+-    const frame = frameRef.current;
+-    const preparedFrom = transitionFromRef.current;
+-    let from = preparedFrom ?? lastLayoutRef.current;
+-    transitionFromRef.current = null;
+-    if (previousMode === "inline" && !preparedFrom && rootRef.current) {
+-      const anchor = rootRef.current.getBoundingClientRect();
+-      if (from && hasLayout(from.frame) && hasLayout(anchor)) {
+-        const offsetX = anchor.left - from.frame.left;
+-        const offsetY = anchor.top - from.frame.top;
+-        const surface = from.surface ? new DOMRect(
+-          from.surface.left + offsetX,
+-          from.surface.top + offsetY,
+-          from.surface.width,
+-          from.surface.height
+-        ) : void 0;
+-        from = { frame: anchor, surface };
+-      } else if (hasLayout(anchor)) from = { frame: anchor };
+-    }
+-    if (!frame || !from || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+-      if (frame) lastLayoutRef.current = captureBrowserLayout(frame);
+-      return;
+-    }
+-    const to = captureBrowserLayout(frame);
+-    const useSurface = previousMode === "fullscreen" || mode === "fullscreen";
+-    const target = useSurface ? frame.querySelector(".bui-surface") : frame;
+-    const fromRect = useSurface ? from.surface : from.frame;
+-    const toRect = useSurface ? to.surface : to.frame;
+-    if (!target || !hasLayout(fromRect) || !hasLayout(toRect)) {
+-      lastLayoutRef.current = to;
+-      return;
+-    }
+-    transitioningRef.current = true;
+-    frame.dataset.transitioning = "true";
+-    target.style.transition = "none";
+-    target.style.transformOrigin = "top left";
+-    target.style.transform = invertLayout(fromRect, toRect);
+-    target.style.willChange = "transform";
+-    void target.offsetWidth;
+-    target.dataset.modeTransitioning = "true";
+-    target.style.transition = `transform ${modeTransitionDurationMs}ms cubic-bezier(.22, 1, .36, 1)`;
+-    target.style.transform = "translate3d(0, 0, 0) scale(1, 1)";
+-    let fallback = null;
+-    const finish = () => {
+-      if (!transitioningRef.current) return;
+-      transitioningRef.current = false;
+-      target.removeEventListener("transitionend", handleTransitionEnd);
+-      target.removeAttribute("data-mode-transitioning");
+-      frame.removeAttribute("data-transitioning");
+-      target.style.removeProperty("transform");
+-      target.style.removeProperty("transform-origin");
+-      target.style.removeProperty("transition");
+-      target.style.removeProperty("will-change");
+-      if (fallback) clearTimeout(fallback);
+-      fallback = null;
+-      lastLayoutRef.current = captureBrowserLayout(frame);
+-      modeTransitionCleanupRef.current = null;
+-    };
+-    const handleTransitionEnd = (event) => {
+-      if (event.target === target && event.propertyName === "transform") finish();
+-    };
+-    target.addEventListener("transitionend", handleTransitionEnd);
+-    fallback = setTimeout(finish, modeTransitionFallbackMs);
+-    modeTransitionCleanupRef.current = finish;
+-  }, [frameMounted, frameRef, mode, rootRef]);
+-  useLayoutEffect(() => {
++    frame.style.setProperty(
++      "--bui-fullscreen-width",
++      `${Math.ceil(bounds.right) - left}px`
++    );
++    frame.style.setProperty(
++      "--bui-fullscreen-height",
++      `${Math.ceil(bounds.bottom) - top}px`
++    );
++    frame.style.setProperty(
++      "--bui-fullscreen-radius",
++      targetStyle.borderRadius
++    );
++  }, [
++    frameMounted,
++    frameRef,
++    fullscreenTarget,
++    inlineHostRef,
++    mode,
++    portalHost
++  ]);
++  useLayoutEffectBrowserLayout(() => {
+     const frame = frameRef.current;
+     if (!frame) return;
+     const updateLayout = () => {
+-      if (!transitioningRef.current) lastLayoutRef.current = captureBrowserLayout(frame);
+-      if (mode === "inline") inlineHeightRef.current = frame.getBoundingClientRect().height;
++      if (mode === "inline")
++        setInlineHeight(frame.getBoundingClientRect().height);
+     };
+     updateLayout();
+     const observer = new ResizeObserver(updateLayout);
+@@ -977,8 +901,7 @@ function useBrowserLayout({ frameMounted, frameRef, fullscreenTarget, inlineHost
+     if (surface) observer.observe(surface);
+     return () => observer.disconnect();
+   }, [frameMounted, frameRef, mode]);
+-  useEffect3(() => () => modeTransitionCleanupRef.current?.(), []);
+-  useLayoutEffect(() => {
++  useLayoutEffectBrowserLayout(() => {
+     const frame = frameRef.current;
+     if (!frame || mode !== "fullscreen" || !fullscreenTarget) return;
+     const updateBounds = () => {
+@@ -988,9 +911,18 @@ function useBrowserLayout({ frameMounted, frameRef, fullscreenTarget, inlineHost
+       const top = Math.floor(bounds.top);
+       frame.style.setProperty("--bui-fullscreen-top", `${top}px`);
+       frame.style.setProperty("--bui-fullscreen-left", `${left}px`);
+-      frame.style.setProperty("--bui-fullscreen-width", `${Math.ceil(bounds.right) - left}px`);
+-      frame.style.setProperty("--bui-fullscreen-height", `${Math.ceil(bounds.bottom) - top}px`);
+-      frame.style.setProperty("--bui-fullscreen-radius", targetStyle.borderRadius);
++      frame.style.setProperty(
++        "--bui-fullscreen-width",
++        `${Math.ceil(bounds.right) - left}px`
++      );
++      frame.style.setProperty(
++        "--bui-fullscreen-height",
++        `${Math.ceil(bounds.bottom) - top}px`
++      );
++      frame.style.setProperty(
++        "--bui-fullscreen-radius",
++        targetStyle.borderRadius
++      );
+     };
+     updateBounds();
+     const observer = new ResizeObserver(updateBounds);
+@@ -1007,13 +939,15 @@ function useBrowserLayout({ frameMounted, frameRef, fullscreenTarget, inlineHost
+     };
+   }, [frameRef, fullscreenTarget, mode]);
+   return {
+-    prepareModeTransition,
+-    retainedHeight: mode === "inline" ? void 0 : inlineHeightRef.current
++    retainedHeight: mode === "fullscreen" || mode === "picture-in-picture" && preservePictureInPictureSpace ? inlineHeight : void 0
+   };
+ }
+-function useBrowserDisplayLifecycle({ mode, onExit }) {
+-  const previousFocusRef = useRef3(null);
+-  useEffect3(() => {
++function useBrowserDisplayLifecycle({
++  mode,
++  onExit
++}) {
++  const previousFocusRef = useRefBrowserLayout(null);
++  useEffectBrowserLayout(() => {
+     if (mode !== "inline") {
+       if (!previousFocusRef.current && document.activeElement instanceof HTMLElement) {
+         previousFocusRef.current = document.activeElement;
+@@ -1026,7 +960,7 @@ function useBrowserDisplayLifecycle({ mode, onExit }) {
+       requestAnimationFrame(() => previousFocus.focus({ preventScroll: true }));
+     }
+   }, [mode]);
+-  useEffect3(() => {
++  useEffectBrowserLayout(() => {
+     if (mode !== "fullscreen") return;
+     if (bodyScrollLockCount === 0) {
+       bodyOverflowBeforeLock = document.body.style.overflow;
+@@ -1040,7 +974,7 @@ function useBrowserDisplayLifecycle({ mode, onExit }) {
+       }
+     };
+   }, [mode]);
+-  useEffect3(() => {
++  useEffectBrowserLayout(() => {
+     if (mode === "inline") return;
+     const exitDisplayMode = (event) => {
+       if (event.key !== "Escape") return;
+@@ -1053,102 +987,497 @@ function useBrowserDisplayLifecycle({ mode, onExit }) {
+   }, [mode, onExit]);
+ }
+
+-// src/browser-root.tsx
+-import { jsx as jsx4, jsxs as jsxs3 } from "react/jsx-runtime";
+-var layoutTransition = { type: "spring", visualDuration: 0.42, bounce: 0.08 };
+-var BrowserRoot = forwardRef2(function BrowserRoot2({
+-  children,
+-  className,
+-  colorScheme = "light",
+-  defaultMode = "inline",
+-  fullscreenTarget,
+-  mode: controlledMode,
+-  onModeChange,
+-  style,
+-  variant = "framed",
+-  ...props
+-}, forwardedRef) {
+-  const frameRef = useRef4(null);
+-  const inlineHostRef = useRef4(null);
+-  const rootRef = useRef4(null);
+-  const [portalHost, setPortalHost] = useState(null);
+-  const [controlsVisible, setControlsVisible] = useState(false);
+-  const [localMode, setLocalMode] = useState(defaultMode);
+-  const mode = controlledMode ?? localMode;
+-  const { prepareModeTransition, retainedHeight } = useBrowserLayout({
+-    frameMounted: portalHost !== null,
+-    frameRef,
+-    fullscreenTarget,
+-    inlineHostRef,
+-    mode,
+-    portalHost,
+-    rootRef
+-  });
+-  const setRootRef = useCallback3((node) => {
+-    rootRef.current = node;
+-    if (typeof forwardedRef === "function") forwardedRef(node);
+-    else if (forwardedRef) forwardedRef.current = node;
+-  }, [forwardedRef]);
+-  const commitMode = useCallback3((nextMode) => {
+-    prepareModeTransition();
+-    if (controlledMode === void 0) setLocalMode(nextMode);
+-    onModeChange?.(nextMode);
+-  }, [controlledMode, onModeChange, prepareModeTransition]);
+-  const setMode = useCallback3((nextMode) => {
+-    if (nextMode !== mode) commitMode(nextMode);
+-  }, [commitMode, mode]);
+-  const toggleTouchControls = useCallback3((pointerType, target) => {
+-    if (pointerType !== "touch" && pointerType !== "pen") return;
+-    if (target instanceof Element && target.closest("button,[role='button']")) return;
+-    setControlsVisible((visible) => !visible);
+-  }, []);
+-  const exitDisplayMode = useCallback3(() => commitMode("inline"), [commitMode]);
+-  useBrowserDisplayLifecycle({
+-    mode,
+-    onExit: exitDisplayMode
+-  });
+-  useLayoutEffect2(() => {
+-    const inlineHost = inlineHostRef.current;
+-    if (!inlineHost) return;
+-    const host = document.createElement("div");
+-    host.className = "bui-browser-portal";
+-    inlineHost.appendChild(host);
+-    setPortalHost(host);
+-    return () => host.remove();
++// src/browser-picture-in-picture.ts
++import {
++  useCallback as useCallbackPictureInPicture,
++  useEffect as useEffectPictureInPicture,
++  useLayoutEffect as useLayoutEffectPictureInPicture,
++  useMemo as useMemoPictureInPicture,
++  useRef as useRefPictureInPicture,
++  useState as useStatePictureInPicture
++} from "react";
++import { animate as animatePictureInPicture, useDragControls as usePictureInPictureDragControls, useMotionValue as usePictureInPictureMotionValue } from "motion/react";
++var allSnapPoints = [
++  "top-left",
++  "top-right",
++  "bottom-left",
++  "bottom-right"
++];
++var noAvoidRefs = [];
++var snapTransition = {
++  type: "spring",
++  visualDuration: 0.3,
++  bounce: 0.06
++};
++var portalProperties = [
++  "left",
++  "top",
++  "width",
++  "height",
++  "border-radius"
++];
++function normalizedSnapPoints(snapPoints) {
++  const unique = [...new Set(snapPoints ?? allSnapPoints)];
++  return unique.length > 0 ? unique : ["bottom-right"];
++}
++function pointPosition(snapPoint, container, frame, inset, obstacles = []) {
++  const position = {
++    left: snapPoint.endsWith("right") ? Math.max(inset, container.width - frame.width - inset) : inset,
++    top: snapPoint.startsWith("bottom") ? Math.max(inset, container.height - frame.height - inset) : inset
++  };
++  const frameRight = () => position.left + frame.width;
++  const frameBottom = () => position.top + frame.height;
++  for (const obstacle of obstacles) {
++    const obstacleLeft = obstacle.left - container.left;
++    const obstacleRight = obstacle.right - container.left;
++    const obstacleTop = obstacle.top - container.top;
++    const obstacleBottom = obstacle.bottom - container.top;
++    const overlapsHorizontally = position.left < obstacleRight && frameRight() > obstacleLeft;
++    const overlapsVertically = position.top < obstacleBottom && frameBottom() > obstacleTop;
++    if (!overlapsHorizontally || !overlapsVertically) continue;
++    position.top = snapPoint.startsWith("bottom") ? Math.max(inset, obstacleTop - frame.height - inset) : Math.min(
++      Math.max(inset, container.height - frame.height - inset),
++      obstacleBottom + inset
++    );
++  }
++  return position;
++}
++function nearestBrowserPictureInPictureSnapPoint(position, snapPoints, container, frame, inset, obstacles) {
++  let closest = snapPoints[0] ?? "bottom-right";
++  let closestDistance = Number.POSITIVE_INFINITY;
++  for (const snapPoint of snapPoints) {
++    const candidate = pointPosition(
++      snapPoint,
++      container,
++      frame,
++      inset,
++      obstacles
++    );
++    const distance = (candidate.left - position.left) ** 2 + (candidate.top - position.top) ** 2;
++    if (distance < closestDistance) {
++      closest = snapPoint;
++      closestDistance = distance;
++    }
++  }
++  return closest;
++}
++function setFramePosition(frame, position) {
++  frame.style.setProperty("--bui-pip-left", `${position.left}px`);
++  frame.style.setProperty("--bui-pip-top", `${position.top}px`);
++}
++function layoutBounds(element) {
++  const measured = element.getBoundingClientRect();
++  return new DOMRect(
++    measured.left,
++    measured.top,
++    element.offsetWidth || measured.width,
++    element.offsetHeight || measured.height
++  );
++}
++function useBrowserPictureInPicture({
++  frameRef,
++  frameMounted,
++  mode,
++  options,
++  portalHostRef
++}) {
++  const allowedSnapPointInput = options?.allowedSnapPoints;
++  const avoidRefs = options?.avoidRefs ?? noAvoidRefs;
++  const containerRef = options?.containerRef;
++  const controlledSnapPoint = options?.snapPoint;
++  const onSnapPointChange = options?.onSnapPointChange;
++  const inset = Math.max(0, options?.inset ?? 24);
++  const draggable = Boolean(containerRef) && options?.draggable !== false;
++  const allowedKey = allowedSnapPointInput?.join("|") ?? "all";
++  const allowedSnapPoints = useMemoPictureInPicture(
++    () => normalizedSnapPoints(allowedSnapPointInput),
++    // The ordered value list, rather than a caller-created array, is the policy.
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++    [allowedKey]
++  );
++  const initialSnapPoint = options?.defaultSnapPoint ?? controlledSnapPoint ?? "bottom-right";
++  const defaultSnapPoint = allowedSnapPoints.includes(initialSnapPoint) ? initialSnapPoint : allowedSnapPoints[0] ?? "bottom-right";
++  const [localSnapPoint, setLocalSnapPoint] = useStatePictureInPicture(defaultSnapPoint);
++  const requestedSnapPoint = controlledSnapPoint ?? localSnapPoint;
++  const snapPoint = allowedSnapPoints.includes(requestedSnapPoint) ? requestedSnapPoint : allowedSnapPoints[0] ?? "bottom-right";
++  const dragControls = usePictureInPictureDragControls();
++  const dragX = usePictureInPictureMotionValue(0);
++  const dragY = usePictureInPictureMotionValue(0);
++  const draggingRef = useRefPictureInPicture(false);
++  const previousModeRef = useRefPictureInPicture(mode);
++  const activeSnapPointRef = useRefPictureInPicture(snapPoint);
++  const snapAnimationsRef = useRefPictureInPicture([]);
++  const stopSnapAnimations = useCallbackPictureInPicture(() => {
++    for (const animation of snapAnimationsRef.current) animation.stop();
++    snapAnimationsRef.current = [];
+   }, []);
+-  const rootStyle = retainedHeight === void 0 ? style : { ...style, minHeight: retainedHeight };
+-  const frameModeClass = mode === "picture-in-picture" ? "bui-browser-frame--pip" : mode === "fullscreen" ? "bui-browser-frame--fullscreen" : "";
+-  const frame = /* @__PURE__ */ jsxs3(
+-    motion2.div,
+-    {
+-      ref: frameRef,
+-      className: ["bui-browser-frame", `bui-browser-frame--${variant}`, frameModeClass].filter(Boolean).join(" "),
+-      "data-color-scheme": colorScheme,
+-      "data-controls-visible": controlsVisible ? "true" : void 0,
+-      "data-mode": mode,
+-      onPointerUp: (event) => toggleTouchControls(event.pointerType, event.target),
+-      children: [
+-        /* @__PURE__ */ jsx4(motion2.span, { "aria-hidden": "true", className: "bui-browser-frame-decoration" }),
+-        children
+-      ]
++  const commitSnapPoint = useCallbackPictureInPicture(
++    (nextSnapPoint) => {
++      activeSnapPointRef.current = nextSnapPoint;
++      if (controlledSnapPoint === void 0) setLocalSnapPoint(nextSnapPoint);
++      if (nextSnapPoint !== requestedSnapPoint)
++        onSnapPointChange?.(nextSnapPoint);
++    },
++    [controlledSnapPoint, onSnapPointChange, requestedSnapPoint]
++  );
++  const resetToDefault = useCallbackPictureInPicture(() => {
++    stopSnapAnimations();
++    draggingRef.current = false;
++    activeSnapPointRef.current = defaultSnapPoint;
++    dragX.set(0);
++    dragY.set(0);
++    if (controlledSnapPoint === void 0) setLocalSnapPoint(defaultSnapPoint);
++  }, [controlledSnapPoint, defaultSnapPoint, dragX, dragY, stopSnapAnimations]);
++  useEffectPictureInPicture(
++    () => () => {
++      stopSnapAnimations();
++    },
++    [stopSnapAnimations]
++  );
++  useLayoutEffectPictureInPicture(() => {
++    const previousMode = previousModeRef.current;
++    previousModeRef.current = mode;
++    if (mode === "picture-in-picture") {
++      activeSnapPointRef.current = previousMode === "picture-in-picture" ? snapPoint : controlledSnapPoint ?? defaultSnapPoint;
++    }
++  }, [controlledSnapPoint, defaultSnapPoint, mode, snapPoint]);
++  useLayoutEffectPictureInPicture(() => {
++    const container = containerRef?.current;
++    const frame = frameRef.current;
++    const portalHost = portalHostRef.current;
++    if (!portalHost) return;
++    const contained = mode === "picture-in-picture" && Boolean(container && frame);
++    portalHost.classList.toggle("bui-browser-portal--pip-contained", contained);
++    if (!contained) {
++      stopSnapAnimations();
++      dragX.set(0);
++      dragY.set(0);
++      if (frame) {
++        frame.style.removeProperty("--bui-pip-left");
++        frame.style.removeProperty("--bui-pip-top");
++        delete frame.dataset.pipDragging;
++      }
++      for (const property of portalProperties)
++        portalHost.style.removeProperty(property);
++      return;
+     }
++    if (!container || !frame) return;
++    const updatePortalBounds = () => {
++      const bounds = container.getBoundingClientRect();
++      const obstacles = avoidRefs.flatMap((ref) => {
++        const element = ref.current;
++        return element ? [element.getBoundingClientRect()] : [];
++      });
++      const targetStyle = window.getComputedStyle(container);
++      const left = Math.floor(bounds.left);
++      const top = Math.floor(bounds.top);
++      portalHost.style.left = `${left}px`;
++      portalHost.style.top = `${top}px`;
++      portalHost.style.width = `${Math.ceil(bounds.right) - left}px`;
++      portalHost.style.height = `${Math.ceil(bounds.bottom) - top}px`;
++      portalHost.style.borderRadius = targetStyle.borderRadius;
++      if (!draggingRef.current) {
++        setFramePosition(
++          frame,
++          pointPosition(
++            activeSnapPointRef.current,
++            bounds,
++            layoutBounds(frame),
++            inset,
++            obstacles
++          )
++        );
++      }
++    };
++    updatePortalBounds();
++    const observer = new ResizeObserver(updatePortalBounds);
++    observer.observe(container);
++    observer.observe(frame);
++    for (const ref of avoidRefs) {
++      if (ref.current) observer.observe(ref.current);
++    }
++    window.addEventListener("resize", updatePortalBounds);
++    window.addEventListener("scroll", updatePortalBounds, true);
++    return () => {
++      observer.disconnect();
++      window.removeEventListener("resize", updatePortalBounds);
++      window.removeEventListener("scroll", updatePortalBounds, true);
++    };
++  }, [
++    containerRef,
++    frameMounted,
++    frameRef,
++    inset,
++    mode,
++    portalHostRef,
++    snapPoint,
++    avoidRefs,
++    dragX,
++    dragY,
++    stopSnapAnimations
++  ]);
++  const onPointerDown = useCallbackPictureInPicture(
++    (event) => {
++      if (mode !== "picture-in-picture" || !draggable || event.button !== 0)
++        return;
++      const target = event.target;
++      if (target instanceof Element && target.closest(
++        "button,a,input,textarea,select,[role='button'],[data-bui-no-drag]"
++      ))
++        return;
++      stopSnapAnimations();
++      dragControls.start(event, { distanceThreshold: 4 });
++    },
++    [dragControls, draggable, mode, stopSnapAnimations]
+   );
+-  return /* @__PURE__ */ jsx4(MotionConfig, { reducedMotion: "user", transition: layoutTransition, children: /* @__PURE__ */ jsx4(BrowserDisplayProvider, { mode, setMode, children: /* @__PURE__ */ jsxs3(
+-    "section",
+-    {
+-      ...props,
+-      ref: setRootRef,
+-      className: ["bui-browser", `bui-browser--${variant}`, className].filter(Boolean).join(" "),
+-      "data-color-scheme": colorScheme,
+-      "data-mode": mode,
+-      style: rootStyle,
+-      children: [
+-        /* @__PURE__ */ jsx4("div", { ref: inlineHostRef, className: "bui-browser-inline-host" }),
+-        portalHost ? createPortal(frame, portalHost) : null
+-      ]
++  const onDragStart = useCallbackPictureInPicture((event) => {
++    const frame = frameRef.current;
++    if (!frame) return;
++    if (event instanceof PointerEvent) {
++      const target = document.elementFromPoint(event.clientX, event.clientY);
++      if (target && target !== frame) {
++        target.dispatchEvent(new PointerEvent("pointercancel", {
++          bubbles: true,
++          cancelable: false,
++          clientX: event.clientX,
++          clientY: event.clientY,
++          pointerId: event.pointerId,
++          pointerType: event.pointerType
++        }));
++      }
+     }
+-  ) }) });
+-});
++    draggingRef.current = true;
++    frame.dataset.pipDragging = "true";
++  }, [frameRef]);
++  const onDragEnd = useCallbackPictureInPicture(() => {
++    const frame = frameRef.current;
++    const portalHost = portalHostRef.current;
++    if (!frame || !portalHost) return;
++    const container = portalHost.getBoundingClientRect();
++    const frameBounds = frame.getBoundingClientRect();
++    const obstacles = avoidRefs.flatMap((ref) => {
++      const element = ref.current;
++      return element ? [element.getBoundingClientRect()] : [];
++    });
++    const currentPosition = {
++      left: frameBounds.left - container.left,
++      top: frameBounds.top - container.top
++    };
++    const nextSnapPoint = nearestBrowserPictureInPictureSnapPoint(
++      currentPosition,
++      allowedSnapPoints,
++      container,
++      frameBounds,
++      inset,
++      obstacles
++    );
++    const targetPosition = pointPosition(
++      nextSnapPoint,
++      container,
++      frameBounds,
++      inset,
++      obstacles
++    );
++    setFramePosition(frame, targetPosition);
++    dragX.set(frameBounds.left - (container.left + targetPosition.left));
++    dragY.set(frameBounds.top - (container.top + targetPosition.top));
++    stopSnapAnimations();
++    snapAnimationsRef.current = [
++      animatePictureInPicture(dragX, 0, snapTransition),
++      animatePictureInPicture(dragY, 0, snapTransition)
++    ];
++    commitSnapPoint(nextSnapPoint);
++    draggingRef.current = false;
++    delete frame.dataset.pipDragging;
++  }, [
++    allowedSnapPoints,
++    avoidRefs,
++    commitSnapPoint,
++    dragX,
++    dragY,
++    frameRef,
++    inset,
++    portalHostRef,
++    stopSnapAnimations
++  ]);
++  return {
++    dragControls,
++    dragX,
++    dragY,
++    draggable: Boolean(options) && draggable,
++    onDragEnd,
++    onDragStart,
++    onPointerDown,
++    resetToDefault,
++    snapPoint
++  };
++}
++
++// src/browser-root.tsx
++import { jsx as jsx4, jsxs as jsxs3 } from "react/jsx-runtime";
++var layoutTransition = {
++  type: "spring",
++  visualDuration: 0.42,
++  bounce: 0.08
++};
++var BrowserRoot = forwardRef2(
++  function BrowserRoot2({
++    children,
++    className,
++    colorScheme = "light",
++    defaultMode = "inline",
++    fullscreenTarget,
++    layoutId: providedLayoutId,
++    mode: controlledMode,
++    onModeChange,
++    pictureInPicture,
++    style,
++    variant = "framed",
++    ...props
++  }, forwardedRef) {
++    const frameRef = useRefBrowserRoot(null);
++    const inlineHostRef = useRefBrowserRoot(null);
++    const portalHostRef = useRefBrowserRoot(null);
++    const rootRef = useRefBrowserRoot(null);
++    const [portalHost, setPortalHost] = useStateBrowserRoot(null);
++    const [controlsVisible, setControlsVisible] = useStateBrowserRoot(false);
++    const [localMode, setLocalMode] = useStateBrowserRoot(defaultMode);
++    const generatedLayoutId = useId();
++    const layoutId = providedLayoutId ?? `browser-ui-${generatedLayoutId}`;
++    const mode = controlledMode ?? localMode;
++    const pictureInPictureLayout = useBrowserPictureInPicture({
++      frameRef,
++      frameMounted: portalHost !== null,
++      mode,
++      options: pictureInPicture,
++      portalHostRef
++    });
++    const resetPictureInPicture = pictureInPictureLayout.resetToDefault;
++    const { retainedHeight } = useBrowserLayout({
++      frameMounted: portalHost !== null,
++      frameRef,
++      fullscreenTarget,
++      inlineHostRef,
++      mode,
++      portalHost,
++      preservePictureInPictureSpace: pictureInPicture?.preserveInlineSpace === true
++    });
++    const setRootRef = useCallbackBrowserRoot(
++      (node) => {
++        rootRef.current = node;
++        if (typeof forwardedRef === "function") forwardedRef(node);
++        else if (forwardedRef) forwardedRef.current = node;
++      },
++      [forwardedRef]
++    );
++    const commitMode = useCallbackBrowserRoot(
++      (nextMode) => {
++        if (nextMode === "picture-in-picture")
++          resetPictureInPicture();
++        if (controlledMode === void 0) setLocalMode(nextMode);
++        onModeChange?.(nextMode);
++      },
++      [controlledMode, onModeChange, resetPictureInPicture]
++    );
++    const setMode = useCallbackBrowserRoot(
++      (nextMode) => {
++        if (nextMode !== mode) commitMode(nextMode);
++      },
++      [commitMode, mode]
++    );
++    const toggleTouchControls = useCallbackBrowserRoot(
++      (pointerType, target) => {
++        if (pointerType !== "touch" && pointerType !== "pen") return;
++        if (target instanceof Element && target.closest("button,[role='button']"))
++          return;
++        setControlsVisible((visible) => !visible);
++      },
++      []
++    );
++    const exitDisplayMode = useCallbackBrowserRoot(
++      () => commitMode("inline"),
++      [commitMode]
++    );
++    useBrowserDisplayLifecycle({
++      mode,
++      onExit: exitDisplayMode
++    });
++    useLayoutEffectBrowserRoot(() => {
++      const inlineHost = inlineHostRef.current;
++      if (!inlineHost) return;
++      const host = document.createElement("div");
++      host.className = "bui-browser-portal";
++      portalHostRef.current = host;
++      inlineHost.appendChild(host);
++      setPortalHost(host);
++      return () => {
++        portalHostRef.current = null;
++        host.remove();
++      };
++    }, []);
++    const rootStyle = retainedHeight === void 0 ? style : { ...style, minHeight: retainedHeight };
++    const frameModeClass = mode === "picture-in-picture" ? "bui-browser-frame--pip" : mode === "fullscreen" ? "bui-browser-frame--fullscreen" : "";
++    const frame = /* @__PURE__ */ jsxs3(
++      motion2.div,
++      {
++        ref: frameRef,
++        drag: mode === "picture-in-picture" && pictureInPictureLayout.draggable,
++        dragConstraints: portalHostRef,
++        dragControls: pictureInPictureLayout.dragControls,
++        dragElastic: 0.04,
++        dragListener: false,
++        dragMomentum: false,
++        layout: true,
++        layoutDependency: mode,
++        layoutId,
++        className: [
++          "bui-browser-frame",
++          `bui-browser-frame--${variant}`,
++          frameModeClass
++        ].filter(Boolean).join(" "),
++        "data-color-scheme": colorScheme,
++        "data-controls-visible": controlsVisible ? "true" : void 0,
++        "data-mode": mode,
++        "data-pip-draggable": mode === "picture-in-picture" && pictureInPictureLayout.draggable ? "true" : void 0,
++        "data-pip-snap-point": mode === "picture-in-picture" ? pictureInPictureLayout.snapPoint : void 0,
++        style: {
++          x: pictureInPictureLayout.dragX,
++          y: pictureInPictureLayout.dragY
++        },
++        onDragEnd: pictureInPictureLayout.onDragEnd,
++        onDragStart: pictureInPictureLayout.onDragStart,
++        onPointerDownCapture: pictureInPictureLayout.onPointerDown,
++        onPointerUp: (event) => toggleTouchControls(event.pointerType, event.target),
++        children: [
++          /* @__PURE__ */ jsx4(
++            motion2.span,
++            {
++              "aria-hidden": "true",
++              className: "bui-browser-frame-decoration"
++            }
++          ),
++          children
++        ]
++      }
++    );
++    return /* @__PURE__ */ jsx4(MotionConfig, { reducedMotion: "user", transition: layoutTransition, children: /* @__PURE__ */ jsx4(BrowserDisplayProvider, { mode, setMode, children: /* @__PURE__ */ jsxs3(
++      "section",
++      {
++        ...props,
++        ref: setRootRef,
++        className: ["bui-browser", `bui-browser--${variant}`, className].filter(Boolean).join(" "),
++        "data-color-scheme": colorScheme,
++        "data-mode": mode,
++        "data-pip-preserve-inline-space": mode === "picture-in-picture" && pictureInPicture?.preserveInlineSpace === true ? "true" : void 0,
++        style: rootStyle,
++        children: [
++          /* @__PURE__ */ jsx4("div", { ref: inlineHostRef, className: "bui-browser-inline-host" }),
++          portalHost ? createPortal(frame, portalHost) : null
++        ]
++      }
++    ) }) });
++  }
++);
+
+ // src/browser-surface.tsx
+ import { motion as motion3 } from "motion/react";
+@@ -1252,6 +1581,8 @@ function Browser({
+   displayControlsClassName,
+   displayAspectRatio,
+   fullscreenTarget,
++  layoutId,
++  pictureInPicture,
+   interactive = false,
+   loadingLabel = "Opening browser",
+   onNavigate,
+@@ -1308,8 +1639,10 @@ function Browser({
+       colorScheme,
+       defaultMode,
+       fullscreenTarget,
++      layoutId,
+       mode,
+       onModeChange,
++      pictureInPicture,
+       style: rootStyle,
+       variant,
+       children: [
+diff --git a/dist/styles.css b/dist/styles.css
+index 6424d74aa70165fa8273efe50c85cc9661873ea2..7d49540666af2ae22523f5d6a811aae9a20a3f72 100644
+--- a/dist/styles.css
++++ b/dist/styles.css
+@@ -41,11 +41,6 @@
+   transform-origin: top left;
+ }
+
+-.bui-browser-frame[data-mode-transitioning="true"],
+-.bui-browser-frame [data-mode-transitioning="true"] {
+-  transition: transform .42s cubic-bezier(.22, 1, .36, 1);
+-}
+-
+ .bui-browser-frame--framed {
+   --bui-frame-inset: 6px;
+   --bui-frame-radius: 13px;
+@@ -74,10 +69,44 @@
+   bottom: 24px;
+   z-index: 2147483000;
+   width: min(440px, calc(100vw - 48px));
++  border-radius: var(--bui-pip-radius, 13px);
+   box-shadow: 0 28px 90px rgba(0, 0, 0, .32), 0 8px 28px rgba(0, 0, 0, .18);
+   will-change: transform;
+ }
+
++.bui-browser-portal.bui-browser-portal--pip-contained {
++  position: fixed;
++  z-index: 2147483000;
++  display: block;
++  overflow: clip;
++  pointer-events: none;
++}
++
++.bui-browser-portal.bui-browser-portal--pip-contained > .bui-browser-frame--pip {
++  position: absolute;
++  top: var(--bui-pip-top, 24px);
++  right: auto;
++  bottom: auto;
++  left: var(--bui-pip-left, 24px);
++  width: min(440px, calc(100% - 48px));
++  pointer-events: auto;
++}
++
++.bui-browser-frame--pip[data-pip-draggable="true"] {
++  cursor: grab;
++  touch-action: none;
++}
++
++.bui-browser-frame--pip[data-pip-dragging="true"] {
++  cursor: grabbing;
++  user-select: none;
++}
++
++.bui-browser[data-mode="picture-in-picture"]:not([data-pip-preserve-inline-space="true"]) {
++  height: 0 !important;
++  min-height: 0 !important;
++}
++
+ .bui-browser-frame--fullscreen {
+   position: fixed;
+   inset: auto;

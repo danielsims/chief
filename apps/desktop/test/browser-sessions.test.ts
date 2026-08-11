@@ -7,11 +7,14 @@ import {
   anchorBrowserSession,
   beginBrowserActivity,
   browserOpenResultContent,
+  browserRunBelongsToChat,
   completeBrowserActivity,
   completeBrowserRun,
   completeBrowserSession,
   hideBrowserCursor,
+  mergeBrowserRunSnapshot,
   presentBrowserSession,
+  projectBrowserRunToOwnedThread,
   resolveBrowserOwnerMessageId,
   updateBrowserSession,
   upsertBrowserRun,
@@ -115,6 +118,80 @@ void test("durable browser runs keep independent historical insertion points", (
   assert.equal(resumedFirst.status, "active");
 });
 
+void test("a live browser can gain thread ownership but never drift to another thread", () => {
+  const initial = {
+    id: "run-setup",
+    workspaceId: "workspace",
+    conversationId: "mission-control",
+    url: "https://accounts.google.com",
+    status: "active" as const,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const owned = upsertBrowserRun([initial], {
+    ...initial,
+    conversationId: "specialist-setup",
+    threadRootId: "setup-thread",
+    updatedAt: 2,
+  });
+  const unchanged = upsertBrowserRun(owned, {
+    ...initial,
+    conversationId: "specialist-setup",
+    threadRootId: "setup-thread-alias",
+    updatedAt: 3,
+  });
+
+  const [run] = unchanged;
+  assert.ok(run);
+  assert.equal(run.conversationId, "specialist-setup");
+  assert.equal(run.threadRootId, "setup-thread");
+});
+
+void test("a reconnect snapshot cannot move a mounted browser to a thread alias", () => {
+  const current = {
+    id: "run-setup",
+    workspaceId: "workspace",
+    conversationId: "specialist-setup",
+    threadRootId: "setup-thread",
+    url: "https://accounts.google.com",
+    status: "active" as const,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const [merged] = mergeBrowserRunSnapshot(
+    [current],
+    [
+      {
+        ...current,
+        threadRootId: "setup-thread-alias",
+        updatedAt: 2,
+      },
+    ],
+  );
+
+  assert.equal(merged?.threadRootId, "setup-thread");
+});
+
+void test("live browser broadcasts preserve their first concrete thread", () => {
+  const topLevel = session("mission-control", "setup-run");
+  const owned = upsertBrowserSession(
+    { [topLevel.runId]: topLevel },
+    {
+      ...topLevel,
+      conversationId: "specialist-setup",
+      threadRootId: "setup-thread",
+    },
+  );
+  const drifted = upsertBrowserSession(owned, {
+    ...topLevel,
+    conversationId: "specialist-setup",
+    threadRootId: "setup-thread-alias",
+  });
+
+  assert.equal(drifted[topLevel.runId]?.conversationId, "specialist-setup");
+  assert.equal(drifted[topLevel.runId]?.threadRootId, "setup-thread");
+});
+
 void test("browser sessions remain isolated by owning conversation", () => {
   const channel = session("channel");
   const thread = { ...session("thread"), threadRootId: "root" };
@@ -132,6 +209,35 @@ void test("browser sessions remain isolated by owning conversation", () => {
   assert.strictEqual(updated[channel.runId], channel);
   assert.equal(updatedThread.url, "https://updated.example");
   assert.equal(updatedThread.threadRootId, "root");
+});
+
+void test("a private child browser projects into its parent chat", () => {
+  const run = {
+    id: "setup-browser",
+    workspaceId: "workspace",
+    conversationId: "specialist-setup",
+    url: "https://accounts.google.com/",
+    status: "active" as const,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  assert.equal(
+    browserRunBelongsToChat(
+      run,
+      "mission-control",
+      new Set(["specialist-setup"]),
+    ),
+    true,
+  );
+  assert.equal(browserRunBelongsToChat(run, "other-channel", new Set()), false);
+  assert.equal(
+    projectBrowserRunToOwnedThread(
+      run,
+      "visible-setup-thread",
+      new Set(["specialist-setup"]),
+    ).threadRootId,
+    "visible-setup-thread",
+  );
 });
 
 void test("closing one browser preserves every other conversation", () => {
