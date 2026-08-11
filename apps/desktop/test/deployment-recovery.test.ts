@@ -8,7 +8,7 @@ import {
 
 void test("recognizes current and legacy missing deployment actions", () => {
   const base = {
-    agentId: "cmo",
+    agentId: "chief",
     title: "Connect Chief",
     status: "open" as const,
     createdAt: 1,
@@ -42,7 +42,7 @@ void test("recognizes current and legacy missing deployment actions", () => {
 void test("local recovery preserves assignments and clears the remote model", () => {
   assert.deepEqual(
     localChiefPreference({
-      agentId: "cmo",
+      agentId: "chief",
       enabled: true,
       driver: "remote",
       model: "xai/grok-4.3",
@@ -50,7 +50,7 @@ void test("local recovery preserves assignments and clears the remote model", ()
       integrations: ["google-analytics"],
     }),
     {
-      agentId: "cmo",
+      agentId: "chief",
       enabled: true,
       driver: "codex",
       model: undefined,

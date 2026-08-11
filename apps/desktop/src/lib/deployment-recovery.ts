@@ -14,7 +14,7 @@ export function localChiefPreference(
 ): AgentPreference {
   return {
     ...existing,
-    agentId: "cmo",
+    agentId: "chief",
     enabled: true,
     driver: "codex",
     model: undefined,
