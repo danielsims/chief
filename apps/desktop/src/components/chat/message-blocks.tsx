@@ -121,7 +121,7 @@ export function SpecialistTaskCard({
   const working = specialistIsStartingOrWorking(task.status);
   const agent =
     task.agent === "brand"
-      ? "Brand Researcher"
+      ? "Marketer"
       : task.agent === "content"
         ? "Content Writer"
         : task.agent === "analyst"
@@ -155,7 +155,9 @@ export function SpecialistTaskCard({
           {working
             ? task.status === "idle"
               ? "Starting"
-              : "Working"
+              : task.status === "waiting"
+                ? "Waiting for you"
+                : "Working"
             : task.status === "completed"
               ? "Complete"
               : task.status === "failed"

@@ -6,7 +6,7 @@ import {
   threadAgentAudience,
 } from "../src/components/chat/channel-thread-audience.js";
 
-const knownAgents = new Set(["cmo", "analyst", "brand"]);
+const knownAgents = new Set(["chief", "analyst", "brand"]);
 
 void test("ordinary channel messages remain passive", () => {
   assert.deepEqual(channelRecipients([], [], knownAgents), []);
@@ -35,7 +35,9 @@ void test("a new explicit mention replaces the active thread audience", () => {
   );
 
   assert.deepEqual(channelRecipients([], audience, knownAgents), ["brand"]);
-  assert.deepEqual(channelRecipients(["cmo"], audience, knownAgents), ["cmo"]);
+  assert.deepEqual(channelRecipients(["chief"], audience, knownAgents), [
+    "chief",
+  ]);
 });
 
 void test("thread audiences discard unknown and duplicate agent ids", () => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { ChiefChatProps } from "./chief-chat-types";
@@ -31,6 +31,7 @@ export function useChiefChatComposer({
     | "isNew"
     | "onInitialPromptSent"
     | "onOpenProfile"
+    | "onThreadRootChange"
   >;
 }) {
   const {
@@ -56,6 +57,7 @@ export function useChiefChatComposer({
     isNew,
     onInitialPromptSent,
     onOpenProfile,
+    onThreadRootChange,
   } = props;
   const [draft, setDraft] = useState(initialDraft ?? "");
   const [threadDraft, setThreadDraft] = useState("");
@@ -65,8 +67,15 @@ export function useChiefChatComposer({
   const [threadImageAttachments, setThreadImageAttachments] = useState<
     ComposerImageAttachment[]
   >([]);
-  const [threadRootId, setThreadRootId] = useState<string | null>(
+  const [threadRootId, setThreadRootIdState] = useState<string | null>(
     initialThreadRootId ?? null,
+  );
+  const setThreadRootId = useCallback(
+    (nextThreadRootId: string | null) => {
+      setThreadRootIdState(nextThreadRootId);
+      onThreadRootChange?.(nextThreadRootId);
+    },
+    [onThreadRootChange],
   );
   const centeredMessageRef = useRef<string | null>(null);
   const suppressMainAutoScrollRef = useRef(

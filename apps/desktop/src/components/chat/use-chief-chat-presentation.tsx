@@ -44,8 +44,9 @@ export function useChiefChatPresentation({
 }) {
   const { channelReactions, controls, messages, setActivityOpen, userAuthor } =
     core;
-  const { setThreadRootId } = composer;
-  const { activeThreadReplies, threadReplies } = timeline;
+  const { setThreadRootId, threadRootId } = composer;
+  const { activeSpecialistByThread, activeThreadReplies, threadReplies } =
+    timeline;
   const visibleConversationBlocks = useCallback(
     (message: ChiefUIMessage) =>
       conversationVisibleBlocks(withoutMarkerLines(messageBlocks(message))),
@@ -69,14 +70,19 @@ export function useChiefChatPresentation({
   };
   const respondingAgentFor = (message: ChiefUIMessage) => {
     if (directAgent) return directAgent;
-    const mentionedId = message.metadata?.mentions?.find((agentId) =>
-      Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId),
+    const authoredId = message.metadata?.agentId;
+    const respondingId = (
+      authoredId && Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, authoredId)
+        ? authoredId
+        : message.metadata?.mentions?.find((agentId) =>
+            Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId),
+          )
     ) as WorkspaceAgentId | undefined;
-    const identity = mentionedId
-      ? WORKSPACE_AGENT_IDENTITIES[mentionedId]
+    const identity = respondingId
+      ? WORKSPACE_AGENT_IDENTITIES[respondingId]
       : undefined;
-    return mentionedId && identity
-      ? { id: mentionedId, name: identity.name, role: identity.role }
+    return respondingId && identity
+      ? { id: respondingId, name: identity.name, role: identity.role }
       : undefined;
   };
   const controlsForMessage = (message: ChiefUIMessage) => {
@@ -108,7 +114,7 @@ export function useChiefChatPresentation({
         }
         if (reply.role !== "assistant") return [];
         const agent = respondingAgentFor(reply) ?? {
-          id: "cmo" as const,
+          id: "chief" as const,
           name: "Chief",
         };
         return [
@@ -135,6 +141,7 @@ export function useChiefChatPresentation({
           lastReplyAt={replySummary.lastReplyAt}
           participants={participants}
           reactions={channelReactions.reactions.get(message.id) ?? []}
+          specialist={activeSpecialistByThread.get(message.id)}
           onOpenThread={openThread}
           onToggleReaction={toggleReaction}
         />
@@ -174,10 +181,22 @@ export function useChiefChatPresentation({
           ]
         : [],
     );
+  const summarizedActiveThread = summarizeThreadReplies(activeThreadReplies);
+  const activeThreadSpecialist = threadRootId
+    ? activeSpecialistByThread.get(threadRootId)
+    : undefined;
+  const activeThreadSummary =
+    summarizedActiveThread.count === 0 && activeThreadSpecialist
+      ? {
+          ...summarizedActiveThread,
+          count: 1,
+          lastReplyAt: activeThreadSpecialist.updatedAt,
+        }
+      : summarizedActiveThread;
 
   return {
     acknowledgedDmMessageId,
-    activeThreadSummary: summarizeThreadReplies(activeThreadReplies),
+    activeThreadSummary,
     controlsForMessage,
     imageParts,
     respondingAgentFor,

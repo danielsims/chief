@@ -20,10 +20,7 @@ import {
   useRuntime,
   useWorkspaceData,
 } from "../../lib/runtime";
-import {
-  GETTING_STARTED_CHANNEL_RELAY_ID,
-  WORKSPACE_AGENT_IDENTITIES,
-} from "../../lib/workspace-channels";
+import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
 import { channelActivityState } from "./channel-activity-state";
 import { channelRecipients } from "./channel-thread-audience";
 import { conversationActivityTurns } from "./conversation-activity-history";
@@ -72,13 +69,14 @@ export function useChiefChatCore({
   const childSessions = workspaceData.activity
     .filter(
       (session) =>
-        session.parentId === chatId &&
+        (session.parentId === chatId ||
+          session.triggerContext?.originConversationId === chatId) &&
         session.kind === "task" &&
         session.visibility === "private" &&
         !session.scheduleId,
     )
     .sort((a, b) => a.createdAt - b.createdAt);
-  const resolved = useAgentConfig().forAgent(directAgent?.id ?? "cmo");
+  const resolved = useAgentConfig().forAgent(directAgent?.id ?? "chief");
   const initialExecution = resolved.driver
     ? { driver: resolved.driver, model: resolved.model }
     : initialDriver
@@ -90,7 +88,7 @@ export function useChiefChatCore({
     chatId,
     initialExecution,
     selectedExecution ?? undefined,
-    destinationChannelId === GETTING_STARTED_CHANNEL_RELAY_ID
+    destinationChannelId === workspaceData.waysOfWorking.missionControlChannelId
       ? "full"
       : resolved.access,
     {

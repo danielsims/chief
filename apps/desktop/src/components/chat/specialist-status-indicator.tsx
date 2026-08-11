@@ -28,9 +28,15 @@ export function SpecialistStatusIndicator({
   if (specialistIsStartingOrWorking(status)) {
     return (
       <MatrixLoader
-        ariaLabel={status === "idle" ? "Starting" : "Working"}
+        ariaLabel={
+          status === "idle"
+            ? "Starting"
+            : status === "waiting"
+              ? "Waiting for you"
+              : "Working"
+        }
         className={cn(
-          "border-0 bg-transparent shadow-none",
+          "border-0 bg-transparent shadow-none [&_.matrix-loader-cell]:rounded-[24%]",
           AGENT_WORKING_COLOR[agent] ?? "text-slate-300",
           className,
         )}
@@ -40,10 +46,26 @@ export function SpecialistStatusIndicator({
   }
   if (status === "failed") {
     return (
-      <span
-        aria-label="Failed"
-        className={cn("size-2 shrink-0 rounded-full bg-red-500", className)}
-        role="img"
+      <MatrixLoader
+        ariaLabel="Failed"
+        className={cn(
+          "border-0 bg-transparent text-red-500 shadow-none [&_.matrix-loader-cell]:!animate-none [&_.matrix-loader-cell]:!rounded-[24%] [&_.matrix-loader-cell]:!opacity-100",
+          className,
+        )}
+        size={17}
+      />
+    );
+  }
+  if (status === "completed") {
+    return (
+      <MatrixLoader
+        ariaLabel="Complete"
+        className={cn(
+          "border-0 bg-transparent shadow-none [&_.matrix-loader-cell]:!animate-none [&_.matrix-loader-cell]:!rounded-[24%] [&_.matrix-loader-cell]:!opacity-45",
+          AGENT_WORKING_COLOR[agent] ?? "text-slate-300",
+          className,
+        )}
+        size={17}
       />
     );
   }

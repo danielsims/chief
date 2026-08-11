@@ -19,6 +19,7 @@ import {
 import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
 import { Blocks } from "./message-blocks";
+import { SpecialistStatusIndicator } from "./specialist-status-indicator";
 
 const MessageBlocksContent = memo(
   function MessageBlocksContent({
@@ -79,7 +80,7 @@ function ChatSkeleton() {
     >
       {[0, 1, 2, 3].map((row) => (
         <div key={row} className="flex items-start gap-3">
-          <div className="bg-muted/60 size-8 shrink-0 animate-pulse rounded-full" />
+          <div className="bg-muted/60 size-8 shrink-0 animate-pulse rounded-lg" />
           <div className="min-w-0 flex-1 space-y-2 pt-1.5">
             <div className="bg-muted/60 h-2.5 w-40 animate-pulse rounded-md" />
             <div className="bg-muted/60 h-2.5 w-full animate-pulse rounded-md" />
@@ -170,6 +171,7 @@ function browserToolCode(input: unknown): string | null {
 }
 
 function ChiefMessage({
+  activity,
   children,
   agent,
   messageId,
@@ -178,6 +180,7 @@ function ChiefMessage({
   footer,
   metadata,
 }: {
+  activity?: SessionRecord;
   children: ReactNode;
   agent?: { id: WorkspaceAgentId; name: string; role: string };
   messageId?: string;
@@ -188,9 +191,9 @@ function ChiefMessage({
 }) {
   const identity = agent ?? {
     name: "Chief",
-    role: "Chief Marketing Officer",
+    role: "Workspace Lead",
   };
-  const agentId = agent?.id ?? "cmo";
+  const agentId = agent?.id ?? "chief";
   const resolvedMetadata = metadata === undefined ? identity.role : metadata;
   return (
     <div
@@ -204,9 +207,19 @@ function ChiefMessage({
         title={`Open ${identity.name} profile`}
         disabled={!onOpenProfile}
         onClick={() => onOpenProfile?.({ kind: "agent", agentId })}
-        className="focus-visible:ring-ring/30 shrink-0 rounded-full transition-opacity outline-none enabled:hover:opacity-85 enabled:focus-visible:ring-2 disabled:cursor-default"
+        className="focus-visible:ring-ring/30 shrink-0 rounded-lg transition-opacity outline-none enabled:hover:opacity-85 enabled:focus-visible:ring-2 disabled:cursor-default"
       >
-        <AgentAvatar label={identity.name} />
+        {activity && activity.status !== "completed" ? (
+          <span className="bg-muted/35 grid size-8 place-items-center rounded-lg">
+            <SpecialistStatusIndicator
+              agent={activity.agent}
+              className="size-5"
+              status={activity.status}
+            />
+          </span>
+        ) : (
+          <AgentAvatar className="rounded-lg" label={identity.name} />
+        )}
       </button>
       <div className="min-w-0 flex-1 pt-0.5">
         <div className="mb-1 flex items-baseline gap-2">
@@ -240,12 +253,12 @@ function ChannelMembershipMessage({
     <div className="text-muted-foreground mx-auto flex w-full max-w-3xl items-center gap-2.5 py-2 pl-11 text-xs">
       {actorIsAgent ? (
         <AgentAvatar
-          className="size-5"
+          className="size-5 rounded-md"
           markClassName="size-2.5"
           label={action.actorName}
         />
       ) : (
-        <span className="bg-muted flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-full text-[8px] font-semibold">
+        <span className="bg-muted flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-md text-[8px] font-semibold">
           {userImage ? (
             <img src={userImage} alt="" className="size-full object-cover" />
           ) : (

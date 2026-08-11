@@ -39,8 +39,9 @@ export interface ChiefChatProps {
   integrationDomain?: string;
   activeChild?: SessionRecord;
   onInitialPromptSent?: () => void;
-  onCloseChild?: () => void;
+  onCloseChild?: (returnThreadRootId?: string) => void;
   onOpenChild?: (childId: string) => void;
+  onThreadRootChange?: (threadRootId: string | null) => void;
   onOpenProfile?: (selection: ConversationProfileSelection) => void;
   onOpenInternalPanel?: () => void;
   activityOpen: boolean;

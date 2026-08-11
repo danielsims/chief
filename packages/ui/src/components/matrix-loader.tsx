@@ -1,10 +1,10 @@
-import type { CSSProperties } from "react";
+import type * as React from "react";
 
 import { cn } from "../lib/utils";
 
 const MATRIX_CELLS = Array.from({ length: 9 }, (_, index) => index);
 
-interface MatrixLoaderStyle extends CSSProperties {
+interface MatrixLoaderStyle extends React.CSSProperties {
   "--matrix-loader-duration": string;
 }
 
