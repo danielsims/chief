@@ -2863,7 +2863,6 @@ export function startServer(port = PORT) {
             await handleBootstrapOnboardingWork({
               authorizeWorkspace,
               bindRootSession,
-              broadcastChannelEvent,
               broadcastChannels,
               broadcastWorkspaceData,
               chatDestinations,
