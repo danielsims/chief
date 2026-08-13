@@ -13,13 +13,10 @@ import * as channelBridge from "./channels/server-bridge.js";
 import {
   normalizedExecution,
   safeMessageAttachments,
-  SETUP_ATTEMPT_PREFIX,
 } from "./server-message-helpers.js";
+import { activateRequestedIntegrationSetup } from "./server-send-message-setup.js";
 import { setupSkillFromPrompt } from "./setup-skills.js";
-import {
-  ensureExecutorWorkspace,
-  prepareIntegrationSetup,
-} from "./tools/control-plane.js";
+import { ensureExecutorWorkspace } from "./tools/control-plane.js";
 import { executorToolServer } from "./tools/spec.js";
 import { readWorkspaceContext } from "./workspace-context.js";
 import { readWorkspaceWaysOfWorking } from "./workspace-ways-of-working.js";
@@ -306,11 +303,7 @@ export async function handleSendMessage({
         setupSkill.domain,
       );
     }
-    // A chat can be opened while its isolated Executor daemon is
-    // still recovering. Never let that one transient failure leave
-    // a long-lived provider continuation without Chief's internal
-    // tools: reattach the current workspace tool server immediately
-    // before every turn that is actually addressed to an agent.
+    // Reattach the workspace tool server immediately before an addressed turn.
     const executorWorkspace = await ensureExecutorWorkspace(
       msg.workspaceId,
       msg.executorCapability,
@@ -329,26 +322,14 @@ export async function handleSendMessage({
       ],
     });
     bindRootSession(msg.workspaceId, msg.chatId, session);
-    const firstLine = msg.text.split("\n", 1)[0] ?? "";
-    if (firstLine.startsWith(SETUP_ATTEMPT_PREFIX) && firstLine.endsWith("]")) {
-      const domain =
-        setupSkill?.domain ??
-        integrationSetups.domain(msg.workspaceId, msg.chatId);
-      const attemptId = firstLine.slice(SETUP_ATTEMPT_PREFIX.length, -1);
-      if (domain && attemptId) {
-        const prepared = await prepareIntegrationSetup(
-          msg.workspaceId,
-          msg.executorCapability,
-          domain,
-        );
-        integrationSetups.activate(msg.workspaceId, msg.chatId, {
-          attemptId,
-          domain,
-          integrationSlug: prepared.integrationSlug,
-          recipeId: prepared.recipeId,
-        });
-      }
-    }
+    await activateRequestedIntegrationSetup({
+      capability: msg.executorCapability,
+      chatId: msg.chatId,
+      integrationSetups,
+      setupSkill,
+      text: msg.text,
+      workspaceId: msg.workspaceId,
+    });
     const execution = normalizedExecution(msg.execution);
     if (respondingAgentId && destinationChannel) {
       const respondingAgent = getAgent(respondingAgentId);
