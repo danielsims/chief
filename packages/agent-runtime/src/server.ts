@@ -3216,6 +3216,7 @@ export function startServer(port = PORT) {
               workspaceId: msg.workspaceId,
               chatId: msg.chatId,
               visibility: inspected.chat.visibility,
+              agentId: inspected.session?.agent.id ?? inspected.chat.agent,
               parentId: inspected.chat.parentId,
             });
             await manager.waitForChatPersistence(msg.workspaceId, msg.chatId);

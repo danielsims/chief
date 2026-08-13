@@ -102,6 +102,7 @@ export async function handleSendMessage({
       workspaceId: msg.workspaceId,
       chatId: msg.chatId,
       visibility: "user",
+      agentId: restored.agent.id,
       execution: {
         driver: restored.config.driver,
         model: restored.config.model,

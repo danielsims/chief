@@ -45,7 +45,7 @@ export function useChiefChatPresentation({
 }) {
   const { channelReactions, controls, messages, setActivityOpen, userAuthor } =
     core;
-  const { setThreadRootId, threadRootId } = composer;
+  const { setThreadRootId } = composer;
   const { activeSpecialistByThread, activeThreadReplies, threadReplies } =
     timeline;
   const openActionSourceIds = useMemo(
@@ -201,18 +201,7 @@ export function useChiefChatPresentation({
           ]
         : [],
     );
-  const summarizedActiveThread = summarizeThreadReplies(activeThreadReplies);
-  const activeThreadSpecialist = threadRootId
-    ? activeSpecialistByThread.get(threadRootId)
-    : undefined;
-  const activeThreadSummary =
-    summarizedActiveThread.count === 0 && activeThreadSpecialist
-      ? {
-          ...summarizedActiveThread,
-          count: 1,
-          lastReplyAt: activeThreadSpecialist.updatedAt,
-        }
-      : summarizedActiveThread;
+  const activeThreadSummary = summarizeThreadReplies(activeThreadReplies);
 
   return {
     acknowledgedDmMessageId,

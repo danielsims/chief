@@ -23,6 +23,21 @@ import {
 type ReadState = ReturnType<typeof useChannelReadState>;
 type Runtime = ReturnType<typeof useRuntime>;
 
+function taskThreadRootId(
+  task: SessionRecord,
+  owners: ReadonlyMap<string, string>,
+  messages: readonly ChiefUIMessage[],
+) {
+  const explicitRoot =
+    task.triggerContext?.threadRootId ??
+    task.triggerContext?.originThreadRootId;
+  if (typeof explicitRoot === "string") return explicitRoot;
+  const ownerId = owners.get(task.id);
+  return ownerId
+    ? messages.find((message) => message.id === ownerId)?.metadata?.threadRootId
+    : undefined;
+}
+
 /**
  * Derives the ordered main and thread timelines from messages, specialist
  * tasks, and browser runs. It also owns thread read tracking and durable browser
@@ -106,16 +121,22 @@ export function useChiefChatTimeline({
             if (!specialistTaskBelongsToConversation(task, chatId)) {
               return false;
             }
-            if (task.triggerContext?.threadRootId === threadRootId) return true;
-            const ownerId = childSessionOwners.get(task.id);
-            if (!ownerId) return false;
             return (
-              messages.find((message) => message.id === ownerId)?.metadata
-                ?.threadRootId === threadRootId
+              taskThreadRootId(task, childSessionOwners, messages) ===
+              threadRootId
             );
           })
         : [],
     [chatId, childSessionOwners, childSessions, messages, threadRootId],
+  );
+  const activeMainChildSessions = useMemo(
+    () =>
+      childSessions.filter(
+        (task) =>
+          specialistTaskBelongsToConversation(task, chatId) &&
+          !taskThreadRootId(task, childSessionOwners, messages),
+      ),
+    [chatId, childSessionOwners, childSessions, messages],
   );
   const activeSpecialistByThread = useMemo(() => {
     const specialists = new Map<string, SessionRecord>();
@@ -343,8 +364,10 @@ export function useChiefChatTimeline({
   );
 
   return {
+    activeMainChildSessions,
     activeSpecialistByThread,
     activeChildThreadRootId,
+    activeThreadChildSessions,
     activeThreadAudience,
     activeThreadReplies,
     activeThreadRoot,

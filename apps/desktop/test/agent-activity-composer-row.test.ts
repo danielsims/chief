@@ -34,3 +34,21 @@ void test("channel activity retains its detailed activity affordance", () => {
   assert.match(html, /View activity/u);
   assert.match(html, /button/u);
 });
+
+void test("simultaneous thread agents are all represented", () => {
+  const html = renderToStaticMarkup(
+    createElement(AgentActivityComposerRow, {
+      agents: [
+        { id: "prospector", label: "Prospector" },
+        { id: "brand", label: "Marketer" },
+        { id: "setup", label: "Setup" },
+      ],
+      running: true,
+      statusLabel: "Working",
+      onOpen: () => undefined,
+    }),
+  );
+
+  assert.match(html, /Prospector, Marketer, and Setup are working/u);
+  assert.match(html, />\+1</u);
+});

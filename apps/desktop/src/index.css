@@ -160,6 +160,28 @@
   margin-bottom: 0;
 }
 
+.chat-markdown .streamdown-root a {
+  color: #72aafc;
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in srgb, #72aafc 65%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition:
+    color 150ms ease,
+    text-decoration-color 150ms ease;
+}
+
+.chat-markdown .streamdown-root a:hover {
+  color: #a8c9ff;
+  text-decoration-color: currentColor;
+}
+
+.chat-markdown .streamdown-root a:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid color-mix(in srgb, #72aafc 55%, transparent);
+  outline-offset: 2px;
+}
+
 .chief-document-editor {
   min-height: 520px;
   padding: 8px 0 120px;

@@ -32,3 +32,40 @@ void test("channel threads contain authored replies without private specialist c
     "reply",
   );
 });
+
+void test("a specialist file card stays in its owning thread", () => {
+  const fileMessage = {
+    id: "specialist-file:brand-profile:version-1",
+    role: "assistant",
+    parts: [
+      {
+        type: "data-document",
+        id: "document-brand-profile-version-1",
+        data: {
+          fileId: "brand-profile",
+          title: "Working brand profile.md",
+          path: "brand/working-brand-profile.md",
+          kind: "document",
+          versionId: "version-1",
+        },
+      },
+    ],
+    metadata: { createdAt: 200, threadRootId: "brand-thread" },
+  } as ChiefUIMessage;
+
+  assert.equal(
+    conversationTimelineEntries([fileMessage], [], new Map(), null).length,
+    0,
+  );
+  const threadEntries = conversationTimelineEntries(
+    [fileMessage],
+    [],
+    new Map(),
+    "brand-thread",
+  );
+  assert.equal(threadEntries.length, 1);
+  assert.equal(
+    threadEntries[0]?.type === "message" && threadEntries[0].message.id,
+    fileMessage.id,
+  );
+});
