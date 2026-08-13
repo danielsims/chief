@@ -10,52 +10,72 @@ import type {
 } from "../channel-types.js";
 
 export const CHANNEL_CHAT_PREFIX = "channel:";
-export const GETTING_STARTED_CHANNEL_ID =
-  "04e8b4b0-3b65-4a83-a2e0-7fd5aa9f70c4";
+export const MISSION_CONTROL_CHANNEL_ID =
+  "ce83fa02-5d8d-4fc1-9e31-f670676b0741";
 
 const DEFAULT_CHANNELS = [
   {
-    id: GETTING_STARTED_CHANNEL_ID,
-    slug: "getting-started",
-    name: "getting-started",
-    description: "Private setup with Chief and Setup",
-    agentIds: ["cmo", "setup"],
-    visibility: "private",
+    id: MISSION_CONTROL_CHANNEL_ID,
+    slug: "mission-control",
+    name: "mission-control",
+    description: "Priorities, decisions, and progress across active work",
+    agentIds: ["chief"],
+    agentPermissions: ["manage_members", "update_metadata"],
+  },
+  {
+    id: "749ad53f-bcb0-4e78-8732-4b0e05b96942",
+    slug: "engineering",
+    name: "engineering",
+    description: "Product changes, bugs, and technical reviews",
+    agentIds: ["chief", "engineer"],
+    agentPermissions: ["update_metadata"],
   },
   {
     id: "84d669ac-a8b3-4c09-8dd1-a620c2a76141",
     slug: "analytics",
     name: "analytics",
     description: "Measurement, reporting, and performance",
-    agentIds: ["cmo", "analyst"],
+    agentIds: ["chief", "analyst"],
+    agentPermissions: ["update_metadata"],
   },
   {
     id: "680f1a12-1e39-4727-9784-988857e11c6d",
     slug: "advertising",
     name: "advertising",
     description: "Campaigns, creative, and acquisition",
-    agentIds: ["cmo", "ads", "content"],
+    agentIds: ["chief", "ads", "content"],
+    agentPermissions: ["update_metadata"],
   },
   {
     id: "f6758067-06e1-4c55-aec8-54377bedc965",
     slug: "prospecting",
     name: "prospecting",
     description: "Research, leads, and outreach",
-    agentIds: ["cmo", "prospector"],
+    agentIds: ["chief", "prospector"],
+    agentPermissions: ["update_metadata"],
+  },
+  {
+    id: "89ff8a33-24b2-42cc-98ed-0cbb98592ab4",
+    slug: "marketing",
+    name: "marketing",
+    description: "Positioning, brand, content, and growth",
+    agentIds: ["chief", "brand", "content"],
+    agentPermissions: ["update_metadata"],
   },
   {
     id: "a842c23b-03fe-42e7-a0bf-1f9687004195",
     slug: "general",
     name: "general",
     description: "Planning and work across the company",
-    agentIds: ["cmo", "brand", "content"],
+    agentIds: ["chief"],
+    agentPermissions: ["update_metadata"],
   },
   {
     id: "cc7d57ef-d6ea-4ebf-a987-2dc33d18c8c7",
-    slug: "dm-cmo",
+    slug: "dm-chief",
     name: "Chief",
     description: "A direct conversation with Chief",
-    agentIds: ["cmo"],
+    agentIds: ["chief"],
     visibility: "direct",
   },
   {
@@ -101,9 +121,17 @@ const DEFAULT_CHANNELS = [
   {
     id: "16ca9ad9-7497-4cff-84f0-ff03550a88ac",
     slug: "dm-brand",
-    name: "Brand",
-    description: "A direct conversation with Brand",
+    name: "Marketer",
+    description: "A direct conversation with Marketer",
     agentIds: ["brand"],
+    visibility: "direct",
+  },
+  {
+    id: "0cb9348d-a7a6-43fc-a5b7-088d40353c7c",
+    slug: "dm-engineer",
+    name: "Engineer",
+    description: "A direct conversation with Engineer",
+    agentIds: ["engineer"],
     visibility: "direct",
   },
 ] as const;
@@ -113,11 +141,19 @@ export function defaultWorkspaceChannels(now = Date.now()): WorkspaceChannel[] {
     ...channel,
     topic: "",
     agentIds: [...channel.agentIds],
+    userIds:
+      channel.id === MISSION_CONTROL_CHANNEL_ID ||
+      channel.slug === "engineering" ||
+      channel.slug === "general" ||
+      "visibility" in channel
+        ? ["workspace-owner"]
+        : [],
     protocol: "nip29",
     kind: "standard",
     lifecycle: "active",
     createdBy: { type: "user", id: "workspace", name: "Workspace" },
-    agentPermissions: [],
+    agentPermissions:
+      "agentPermissions" in channel ? [...channel.agentPermissions] : [],
     version: 1,
     createdAt: now + index,
     updatedAt: now + index,
@@ -296,6 +332,7 @@ export function createChannelEvent(input: {
   threadRootId?: string;
   sourceId?: string;
   createdAt?: number;
+  silent?: boolean;
 }): ChannelMessageEvent {
   const createdAt = input.createdAt ?? Date.now();
   const pubkey = actorPubkey(input.workspaceId, input.actor);
@@ -326,6 +363,7 @@ export function createChannelEvent(input: {
         ]
       : []),
     ...(input.sourceId ? [["client", input.sourceId]] : []),
+    ...(input.silent ? [["notification", "silent"]] : []),
   ];
   const nonce = input.sourceId ?? randomUUID();
   const id = eventId({

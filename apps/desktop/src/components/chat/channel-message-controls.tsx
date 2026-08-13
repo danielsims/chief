@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { useState } from "react";
 import {
   Check,
+  CircleAlert,
   Copy,
   CornerUpLeft,
   Link2,
@@ -9,6 +10,7 @@ import {
   SmilePlus,
 } from "lucide-react";
 
+import type { SessionRecord } from "@chief/agent-runtime/types";
 import {
   Popover,
   PopoverContent,
@@ -24,6 +26,10 @@ import { cn } from "@chief/ui/lib/utils";
 import type { ChannelReactionSummary } from "../../lib/channel-reactions";
 import { AgentAvatar } from "../agent-avatar";
 import { EMOJI_OPTIONS } from "./emoji-catalog";
+import {
+  specialistIsStartingOrWorking,
+  SpecialistStatusIndicator,
+} from "./specialist-status-indicator";
 
 const QUICK_REACTIONS = [
   { emoji: "💬", label: "React with speech balloon" },
@@ -205,6 +211,8 @@ export function ChannelMessageMeta({
   reactions,
   onOpenThread,
   onToggleReaction,
+  specialist,
+  needsUser = false,
 }: {
   replies: readonly {
     role: "system" | "user" | "assistant";
@@ -216,8 +224,17 @@ export function ChannelMessageMeta({
   reactions: readonly ChannelReactionSummary[];
   onOpenThread: () => void;
   onToggleReaction: (emoji: string) => void;
+  specialist?: SessionRecord;
+  needsUser?: boolean;
 }) {
-  if (replyCount === 0 && reactions.length === 0) return null;
+  const specialistWorking = Boolean(
+    specialist &&
+    specialistIsStartingOrWorking(specialist.status) &&
+    specialist.status !== "waiting",
+  );
+  if (replyCount === 0 && reactions.length === 0) {
+    return null;
+  }
   const lastReply = replies.at(-1);
   const latestReplyAt = lastReplyAt ?? lastReply?.metadata?.createdAt;
   const uniqueParticipants = participants.filter(
@@ -263,16 +280,35 @@ export function ChannelMessageMeta({
           <span className="flex -space-x-1">
             {uniqueParticipants.slice(0, 3).map((participant) =>
               participant.kind === "agent" ? (
-                <AgentAvatar
+                <span
                   key={participant.id}
-                  label={participant.name}
-                  className="ring-background size-5 ring-2"
-                />
+                  title={
+                    specialistWorking &&
+                    participant.agentId === specialist?.agent
+                      ? `${participant.name} is working`
+                      : participant.name
+                  }
+                  className="bg-background ring-background grid size-5 place-items-center rounded-md ring-2"
+                >
+                  {specialistWorking &&
+                  participant.agentId === specialist?.agent ? (
+                    <SpecialistStatusIndicator
+                      agent={specialist.agent}
+                      status={specialist.status}
+                      className="size-4"
+                    />
+                  ) : (
+                    <AgentAvatar
+                      label={participant.name}
+                      className="size-5 rounded-md"
+                    />
+                  )}
+                </span>
               ) : (
                 <span
                   key={participant.id}
                   title={participant.name}
-                  className="bg-muted text-muted-foreground ring-background flex size-5 items-center justify-center overflow-hidden rounded-full text-[7px] font-semibold ring-2"
+                  className="bg-muted text-muted-foreground ring-background flex size-5 items-center justify-center overflow-hidden rounded-md text-[7px] font-semibold ring-2"
                 >
                   {participant.image ? (
                     <img
@@ -292,7 +328,7 @@ export function ChannelMessageMeta({
               ),
             )}
             {uniqueParticipants.length > 3 ? (
-              <span className="bg-muted text-muted-foreground ring-background flex size-5 items-center justify-center rounded-full text-[7px] font-medium ring-2">
+              <span className="bg-muted text-muted-foreground ring-background flex size-5 items-center justify-center rounded-md text-[7px] font-medium ring-2">
                 +{uniqueParticipants.length - 3}
               </span>
             ) : null}
@@ -303,15 +339,28 @@ export function ChannelMessageMeta({
           <span className="text-muted-foreground text-xs">
             Last reply {relativeReplyTime(latestReplyAt)}
           </span>
+          {needsUser ? (
+            <span className="flex items-center gap-1 text-xs font-medium text-amber-300">
+              <CircleAlert aria-hidden size={13} strokeWidth={2} />
+              Needs you
+            </span>
+          ) : null}
         </button>
       ) : null}
     </div>
   );
 }
 
-export interface ThreadParticipant {
-  id: string;
-  kind: "agent" | "user";
-  name: string;
-  image?: string;
-}
+export type ThreadParticipant =
+  | {
+      id: string;
+      kind: "agent";
+      name: string;
+      agentId: string;
+    }
+  | {
+      id: string;
+      kind: "user";
+      name: string;
+      image?: string;
+    };

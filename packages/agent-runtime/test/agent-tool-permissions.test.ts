@@ -18,7 +18,10 @@ import {
 } from "../src/agent-tool-permissions.js";
 
 void test("Chief and Setup start with the complete local tool surface", () => {
-  assert.deepEqual(defaultAgentToolPermissions("cmo"), allAgentToolPermissions);
+  assert.deepEqual(
+    defaultAgentToolPermissions("chief"),
+    allAgentToolPermissions,
+  );
   assert.deepEqual(
     defaultAgentToolPermissions("setup"),
     allAgentToolPermissions,
@@ -34,7 +37,7 @@ void test("specialists do not inherit connection or delegation authority", () =>
 });
 
 void test("an explicit empty permission list means no access", () => {
-  assert.deepEqual(effectiveAgentToolPermissions("cmo", []), []);
+  assert.deepEqual(effectiveAgentToolPermissions("chief", []), []);
 });
 
 void test("an empty workspace permission union remains empty", () => {

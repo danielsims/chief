@@ -36,15 +36,15 @@ void test("gives every product channel its own stable runtime session", () => {
   assert.ok(chatIds.every((chatId) => chatId.startsWith("channel:")));
 });
 
-void test("keeps getting started as a stable multi-agent channel", () => {
+void test("keeps mission control as the stable onboarding channel", () => {
   const channel = WORKSPACE_CHANNELS.find(
-    (candidate) => candidate.id === "getting-started",
+    (candidate) => candidate.id === "mission-control",
   );
   assert.ok(channel);
-  assert.deepEqual(channel.agentIds, ["cmo", "setup"]);
+  assert.deepEqual(channel.agentIds, ["chief"]);
   assert.equal(
     channelChatId(channel.id, "workspace-a"),
-    "channel:workspace-a:04e8b4b0-3b65-4a83-a2e0-7fd5aa9f70c4",
+    "channel:workspace-a:ce83fa02-5d8d-4fc1-9e31-f670676b0741",
   );
   assert.equal(
     channelIdFromChatId(channelChatId(channel.id, "workspace-a")),
@@ -66,7 +66,7 @@ void test("shows direct messages only after a real user conversation exists", ()
   assert.deepEqual(
     directMessageIdsForChats(
       [
-        { id: directMessageChatId("cmo", "workspace-a"), lastText: "" },
+        { id: directMessageChatId("chief", "workspace-a"), lastText: "" },
         {
           id: directMessageChatId("analyst", "workspace-a"),
           lastText: "Review this report",
@@ -93,7 +93,15 @@ void test("gives every agent direct message a private stable destination", () =>
 void test("routes overview actions to the channel that owns the work", () => {
   assert.deepEqual(
     actionConversation({ title: "Connect GitHub", agentId: "setup" }),
-    { kind: "channel", id: "getting-started" },
+    { kind: "channel", id: "mission-control" },
+  );
+  assert.deepEqual(
+    actionConversation({
+      title: "Connect GitHub",
+      agentId: "setup",
+      missionControlChannelId: "leadership",
+    }),
+    { kind: "channel", id: "leadership" },
   );
   assert.deepEqual(
     actionConversation({ title: "Review acquisition performance report" }),
@@ -143,7 +151,7 @@ void test("moves channels into and within the pinned section", () => {
 
 void test("orders channels and agent conversations in one pinned section", () => {
   const analytics = { kind: "channel" as const, id: "analytics" };
-  const chief = { kind: "agent" as const, id: "cmo" as const };
+  const chief = { kind: "agent" as const, id: "chief" as const };
   const advertising = { kind: "channel" as const, id: "advertising" };
 
   assert.deepEqual(placeSidebarPinnedItem([analytics], chief, analytics), [

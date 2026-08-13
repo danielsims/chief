@@ -2,7 +2,7 @@ import type { AgentCapabilityId, AgentDefinition } from "../types.js";
 import { ads } from "./ads/agent.js";
 import { analyst } from "./analyst/agent.js";
 import { brand } from "./brand/agent.js";
-import { cmo } from "./cmo/agent.js";
+import { chief } from "./chief/agent.js";
 import { content } from "./content/agent.js";
 import { engineer } from "./engineer/agent.js";
 import { prospector } from "./prospector/agent.js";
@@ -18,7 +18,7 @@ export interface AgentManifest {
 }
 
 export const agentManifests: readonly AgentManifest[] = [
-  cmo,
+  chief,
   setup,
   brand,
   content,

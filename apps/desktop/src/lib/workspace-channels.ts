@@ -1,60 +1,74 @@
-export const GETTING_STARTED_CHANNEL_ID = "getting-started";
-export const GETTING_STARTED_CHANNEL_RELAY_ID =
-  "04e8b4b0-3b65-4a83-a2e0-7fd5aa9f70c4";
+export const MISSION_CONTROL_CHANNEL_ID = "mission-control";
+export const MISSION_CONTROL_CHANNEL_RELAY_ID =
+  "ce83fa02-5d8d-4fc1-9e31-f670676b0741";
 
 export const WORKSPACE_CHANNELS = [
   {
-    id: GETTING_STARTED_CHANNEL_ID,
-    relayId: GETTING_STARTED_CHANNEL_RELAY_ID,
-    label: "getting-started",
-    description: "Private setup with Chief and Setup",
-    agentIds: ["cmo", "setup"],
+    id: MISSION_CONTROL_CHANNEL_ID,
+    relayId: MISSION_CONTROL_CHANNEL_RELAY_ID,
+    label: "mission-control",
+    description: "Priorities, decisions, and progress across active work",
+    agentIds: ["chief"],
+    userIds: ["workspace-owner"],
   },
   {
     id: "engineering",
     relayId: "749ad53f-bcb0-4e78-8732-4b0e05b96942",
     label: "engineering",
     description: "Product changes, bugs, and technical reviews",
-    agentIds: ["cmo", "engineer"],
+    agentIds: ["chief", "engineer"],
+    userIds: [],
   },
   {
     id: "analytics",
     relayId: "84d669ac-a8b3-4c09-8dd1-a620c2a76141",
     label: "analytics",
     description: "Measurement, reporting, and performance",
-    agentIds: ["cmo", "analyst"],
+    agentIds: ["chief", "analyst"],
+    userIds: [],
   },
   {
     id: "advertising",
     relayId: "680f1a12-1e39-4727-9784-988857e11c6d",
     label: "advertising",
     description: "Campaigns, creative, and acquisition",
-    agentIds: ["cmo", "ads", "content"],
+    agentIds: ["chief", "ads", "content"],
+    userIds: [],
   },
   {
     id: "prospecting",
     relayId: "f6758067-06e1-4c55-aec8-54377bedc965",
     label: "prospecting",
     description: "Research, leads, and outreach",
-    agentIds: ["cmo", "prospector"],
+    agentIds: ["chief", "prospector"],
+    userIds: [],
+  },
+  {
+    id: "marketing",
+    relayId: "89ff8a33-24b2-42cc-98ed-0cbb98592ab4",
+    label: "marketing",
+    description: "Positioning, brand, content, and growth",
+    agentIds: ["chief", "brand", "content"],
+    userIds: [],
   },
   {
     id: "general",
     relayId: "a842c23b-03fe-42e7-a0bf-1f9687004195",
     label: "general",
     description: "Planning and work across the company",
-    agentIds: ["cmo", "brand", "content"],
+    agentIds: ["chief"],
+    userIds: ["workspace-owner"],
   },
 ] as const;
 
 export const WORKSPACE_AGENT_IDENTITIES = {
-  cmo: { name: "Chief", role: "Chief Marketing Officer" },
+  chief: { name: "Chief", role: "Workspace Lead" },
   setup: { name: "Setup", role: "Private Workspace Setup" },
   analyst: { name: "Analyst", role: "Measurement and Reporting" },
   ads: { name: "Advertising", role: "Paid Acquisition" },
   content: { name: "Content", role: "Content and Creative" },
   prospector: { name: "Prospector", role: "Research and Outreach" },
-  brand: { name: "Brand", role: "Brand Research" },
+  brand: { name: "Marketer", role: "Marketing" },
   engineer: { name: "Engineer", role: "Product Engineering" },
 } as const;
 
@@ -82,7 +96,7 @@ export function isSidebarPinnedItem(
 }
 
 export const WORKSPACE_DIRECT_MESSAGES = [
-  { id: "cmo", relayId: "cc7d57ef-d6ea-4ebf-a987-2dc33d18c8c7" },
+  { id: "chief", relayId: "cc7d57ef-d6ea-4ebf-a987-2dc33d18c8c7" },
   { id: "setup", relayId: "147c5d7b-8e35-43f1-94dd-230484502e81" },
   { id: "analyst", relayId: "a644f850-6825-4a21-84cf-c1d4780875cc" },
   { id: "ads", relayId: "af454f32-d70c-4ef0-ab73-5b78d73710ba" },
@@ -109,6 +123,10 @@ const CHANNEL_KEYWORDS: {
   {
     id: "prospecting",
     keywords: ["prospect", "lead", "outreach", "buyer", "market research"],
+  },
+  {
+    id: "marketing",
+    keywords: ["marketing", "brand", "positioning", "content", "growth"],
   },
   {
     id: "engineering",
@@ -198,6 +216,7 @@ export function actionConversation(value: {
   title: string;
   reason?: string;
   agentId?: string;
+  missionControlChannelId?: string;
 }) {
   const text = `${value.title} ${value.reason ?? ""}`.toLocaleLowerCase();
   if (
@@ -210,7 +229,10 @@ export function actionConversation(value: {
     value.agentId === "setup" ||
     /connect|integration|credential|github|vercel|engineering tool/.test(text)
   ) {
-    return { kind: "channel" as const, id: GETTING_STARTED_CHANNEL_ID };
+    return {
+      kind: "channel" as const,
+      id: value.missionControlChannelId ?? MISSION_CONTROL_CHANNEL_ID,
+    };
   }
   return { kind: "channel" as const, id: channelForText(text) };
 }

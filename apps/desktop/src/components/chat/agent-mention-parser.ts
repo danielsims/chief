@@ -19,10 +19,12 @@ export interface AgentMentionRemoval {
 }
 
 const AGENT_IDS_BY_NAME = new Map(
-  Object.entries(WORKSPACE_AGENT_IDENTITIES).map(([agentId, identity]) => [
-    identity.name.toLocaleLowerCase(),
-    agentId as WorkspaceAgentId,
-  ]),
+  Object.entries(WORKSPACE_AGENT_IDENTITIES).flatMap(([agentId, identity]) =>
+    [identity.name, agentId, ...(agentId === "brand" ? ["Brand"] : [])].map(
+      (name) =>
+        [name.toLocaleLowerCase(), agentId as WorkspaceAgentId] as const,
+    ),
+  ),
 );
 
 const AGENT_MENTION_PATTERN = new RegExp(
@@ -47,7 +49,11 @@ export function splitAgentMentions(
     const label = match[1] ?? "";
     const agentId = AGENT_IDS_BY_NAME.get(label.toLocaleLowerCase());
     if (agentId) {
-      segments.push({ type: "mention", agentId, label });
+      segments.push({
+        type: "mention",
+        agentId,
+        label: WORKSPACE_AGENT_IDENTITIES[agentId].name,
+      });
     } else {
       segments.push({ type: "text", value: match[0] });
     }

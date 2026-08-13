@@ -8,19 +8,18 @@ import {
   channelReplyThreadRoot,
   channelRespondingAgentId,
 } from "./channel-reply-routing.js";
+import { AddressedChannelReplyFallback } from "./channel-response-fallback.js";
 import * as channelBridge from "./channels/server-bridge.js";
 import {
   normalizedExecution,
   safeMessageAttachments,
-  SETUP_ATTEMPT_PREFIX,
 } from "./server-message-helpers.js";
+import { activateRequestedIntegrationSetup } from "./server-send-message-setup.js";
 import { setupSkillFromPrompt } from "./setup-skills.js";
-import {
-  ensureExecutorWorkspace,
-  prepareIntegrationSetup,
-} from "./tools/control-plane.js";
+import { ensureExecutorWorkspace } from "./tools/control-plane.js";
 import { executorToolServer } from "./tools/spec.js";
 import { readWorkspaceContext } from "./workspace-context.js";
+import { readWorkspaceWaysOfWorking } from "./workspace-ways-of-working.js";
 
 type Message = Extract<ClientMessage, { type: "sendMessage" }>;
 
@@ -101,6 +100,7 @@ export async function handleSendMessage({
       workspaceId: msg.workspaceId,
       chatId: msg.chatId,
       visibility: "user",
+      agentId: restored.agent.id,
       execution: {
         driver: restored.config.driver,
         model: restored.config.model,
@@ -165,9 +165,19 @@ export async function handleSendMessage({
   const isSharedChannel = destinationChannel?.visibility !== "direct";
   const respondingAgentId = channelRespondingAgentId({
     channelId: destinationChannel?.id,
+    defaultAgentId:
+      destinationChannel?.visibility === "private"
+        ? destinationChannel.agentIds.find((agentId) => agentId !== "chief")
+        : undefined,
     isSharedChannel,
+    missionControlChannelId: readWorkspaceWaysOfWorking(msg.workspaceId)
+      .missionControlChannelId,
     mentions: msg.mentions,
   });
+  const channelReplyFallback =
+    respondingAgentId && destinationChannel
+      ? new AddressedChannelReplyFallback()
+      : undefined;
   // Follow-ups are durable before any interruption or execution
   // wait. That keeps the user's message visible even if stopping the
   // active provider takes a moment or fails and must fall back to a
@@ -293,11 +303,7 @@ export async function handleSendMessage({
         setupSkill.domain,
       );
     }
-    // A chat can be opened while its isolated Executor daemon is
-    // still recovering. Never let that one transient failure leave
-    // a long-lived provider continuation without Chief's internal
-    // tools: reattach the current workspace tool server immediately
-    // before every turn that is actually addressed to an agent.
+    // Reattach the workspace tool server immediately before an addressed turn.
     const executorWorkspace = await ensureExecutorWorkspace(
       msg.workspaceId,
       msg.executorCapability,
@@ -316,26 +322,14 @@ export async function handleSendMessage({
       ],
     });
     bindRootSession(msg.workspaceId, msg.chatId, session);
-    const firstLine = msg.text.split("\n", 1)[0] ?? "";
-    if (firstLine.startsWith(SETUP_ATTEMPT_PREFIX) && firstLine.endsWith("]")) {
-      const domain =
-        setupSkill?.domain ??
-        integrationSetups.domain(msg.workspaceId, msg.chatId);
-      const attemptId = firstLine.slice(SETUP_ATTEMPT_PREFIX.length, -1);
-      if (domain && attemptId) {
-        const prepared = await prepareIntegrationSetup(
-          msg.workspaceId,
-          msg.executorCapability,
-          domain,
-        );
-        integrationSetups.activate(msg.workspaceId, msg.chatId, {
-          attemptId,
-          domain,
-          integrationSlug: prepared.integrationSlug,
-          recipeId: prepared.recipeId,
-        });
-      }
-    }
+    await activateRequestedIntegrationSetup({
+      capability: msg.executorCapability,
+      chatId: msg.chatId,
+      integrationSetups,
+      setupSkill,
+      text: msg.text,
+      workspaceId: msg.workspaceId,
+    });
     const execution = normalizedExecution(msg.execution);
     if (respondingAgentId && destinationChannel) {
       const respondingAgent = getAgent(respondingAgentId);
@@ -371,7 +365,7 @@ export async function handleSendMessage({
       }
       const preference =
         (await manager.agentPreference(msg.workspaceId, respondingAgentId)) ??
-        (await manager.agentPreference(msg.workspaceId, "cmo"));
+        (await manager.agentPreference(msg.workspaceId, "chief"));
       const effectiveAgent = channelBridge.agentForChannel(
         respondingAgent,
         undefined,
@@ -379,6 +373,7 @@ export async function handleSendMessage({
           .channelStore()
           .get(msg.workspaceId, destinationChannel.id),
         readWorkspaceContext(msg.workspaceId),
+        readWorkspaceWaysOfWorking(msg.workspaceId).missionControlChannelId,
       );
       session = await manager.switchRootChatAgent(effectiveAgent, msg.chatId, {
         ...session.config,
@@ -403,7 +398,15 @@ export async function handleSendMessage({
       );
       bindRootSession(msg.workspaceId, msg.chatId, session);
     }
+    const replyThreadRootId = channelReplyThreadRoot({
+      isSharedChannel: Boolean(isSharedChannel),
+      mentions: msg.mentions,
+      messageId: msg.messageId,
+      text: msg.text,
+      threadRootId: msg.threadRootId,
+    });
     const terminalListener = (event: AgentEvent) => {
+      channelReplyFallback?.observe(event);
       if (
         event.type === "result" ||
         event.type === "error" ||
@@ -412,6 +415,33 @@ export async function handleSendMessage({
         session.off("event", terminalListener);
         releaseExecution?.();
         releaseExecution = undefined;
+        const fallback = channelReplyFallback?.completed(event);
+        if (fallback && respondingAgentId && destinationChannel) {
+          const respondingAgent = getAgent(respondingAgentId);
+          if (respondingAgent) {
+            void channelBridge
+              .mirrorEvent(
+                manager,
+                send,
+                msg.workspaceId,
+                msg.chatId,
+                {
+                  ...fallback,
+                  id: fallback.id ?? `${msg.messageId}:addressed-reply`,
+                  threadRootId: fallback.threadRootId ?? replyThreadRootId,
+                },
+                destinationChannel.id,
+                { id: respondingAgent.id, name: respondingAgent.name },
+                broadcastChannelEvent,
+              )
+              .catch((error: unknown) =>
+                console.error(
+                  "[runtime] addressed channel reply fallback:",
+                  error,
+                ),
+              );
+          }
+        }
         void finishAgentActivity().catch((error: unknown) =>
           console.error("[runtime] agent activity reaction cleanup:", error),
         );
@@ -419,13 +449,6 @@ export async function handleSendMessage({
     };
     releaseOnTerminal = terminalListener;
     session.on("event", terminalListener);
-    const replyThreadRootId = channelReplyThreadRoot({
-      isSharedChannel: Boolean(isSharedChannel),
-      mentions: msg.mentions,
-      messageId: msg.messageId,
-      text: msg.text,
-      threadRootId: msg.threadRootId,
-    });
     if (process.env.CHIEF_DEBUG_SESSION_FORCE === "1") {
       console.error(
         `[sendMessage] chatId=${msg.chatId} threadRootId=${
@@ -443,9 +466,20 @@ export async function handleSendMessage({
         threadRootId: replyThreadRootId,
         mentions: msg.mentions,
         attachments,
-        privateInstructions: setupSkill
-          ? `Setup skill ${setupSkill.id}:\n${setupSkill.instructions}`
-          : undefined,
+        privateInstructions:
+          [
+            ...(setupSkill
+              ? [`Setup skill ${setupSkill.id}:\n${setupSkill.instructions}`]
+              : []),
+            ...(destinationChannel && destinationChannel.visibility !== "direct"
+              ? [
+                  channelBridge.channelPublicationInstructions(
+                    destinationChannel.id,
+                    replyThreadRootId,
+                  ),
+                ]
+              : []),
+          ].join("\n\n") || undefined,
       },
     );
   } catch (error) {

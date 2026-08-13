@@ -3,7 +3,12 @@ import { join } from "node:path";
 
 import type { LocalStore } from "./local-store.js";
 import type { SessionConfig } from "./session.js";
-import type { AgentDefinition, AgentEvent } from "./types.js";
+import type {
+  AgentDefinition,
+  AgentEvent,
+  AgentToolPermission,
+} from "./types.js";
+import { agentLocalToolServer } from "./agent-local-mcp.js";
 import { scopeRemoteAgentEnvironment } from "./remote-agent-environment.js";
 import { AgentSession } from "./session.js";
 import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
@@ -18,6 +23,7 @@ export interface ManagedSessionContext {
     workspaceId: string;
     agentId: string;
     sessionId: string;
+    localToolPermissions?: readonly AgentToolPermission[];
   }) => Record<string, string>;
   sessions: Map<string, AgentSession>;
   startingWorkspaces: Map<string, number>;
@@ -44,7 +50,7 @@ export async function startManagedSession(
   const runtimeContext = [
     `Runtime context: the current Chief session ID is ${chatId}. Pass this exact value as sourceId whenever you call action.raise and as sessionId whenever you call a chief-local operation.`,
     conversationId
-      ? `The owning Chief conversation ID is ${conversationId}. Pass this exact value as conversationId whenever you propose scheduled work or open Chief's embedded browser. Chief's local Executor integration is named exactly chief-local: search for an operation such as localTools.browserOpen, copy the returned path byte-for-byte without camel-casing it, and invoke its OpenAPI operation with the schema's { body: { ... } } envelope rather than bare input fields.`
+      ? `The owning Chief conversation ID is ${conversationId}. Pass this exact value as conversationId whenever you propose scheduled work or open Chief's embedded browser. Chief-owned workspace, browser, setup, scheduling, and delegation operations are exposed as direct localTools.* tools. Call those tools directly with their documented input and never search Executor for a chief-local path. Use Executor only for connected external services.`
       : undefined,
   ]
     .filter(Boolean)
@@ -57,6 +63,28 @@ export async function startManagedSession(
         ...agent,
         instructions: `${agent.instructions}\n\n${runtimeContext}`,
       };
+  const sessionEnvironment = context.sessionEnvironmentProvider?.({
+    workspaceId: config.workspaceId,
+    agentId: agent.id,
+    sessionId: chatId,
+    localToolPermissions: config.automationGrant?.localToolPermissions,
+  });
+  const scheduledLocalTools =
+    config.executionOwner === "schedule" &&
+    (config.automationGrant?.localToolPermissions?.length ?? 0) > 0;
+  const agentLocalServer =
+    (config.executionOwner !== "schedule" || scheduledLocalTools) &&
+    sessionEnvironment?.CHIEF_LOCAL_URL &&
+    sessionEnvironment.CHIEF_LOCAL_CAPABILITY
+      ? agentLocalToolServer(
+          sessionEnvironment.CHIEF_LOCAL_URL,
+          sessionEnvironment.CHIEF_LOCAL_CAPABILITY,
+        )
+      : undefined;
+  const sessionMcpServers = [
+    ...(config.mcpServers ?? []),
+    ...(agentLocalServer ? [agentLocalServer] : []),
+  ];
   const existing = context.sessions.get(key);
   if (existing) {
     // A live session can't hop backends or change its access level.
@@ -67,8 +95,9 @@ export async function startManagedSession(
       existing.config.model !== config.model ||
       existing.agent.instructions !== runtimeAgent.instructions ||
       existing.config.executionOwner !== config.executionOwner ||
+      existing.config.maxPromptAttempts !== config.maxPromptAttempts ||
       JSON.stringify(existing.config.mcpServers ?? []) !==
-        JSON.stringify(config.mcpServers ?? [])
+        JSON.stringify(sessionMcpServers)
     ) {
       if (existing.isBusy) {
         throw new Error(
@@ -109,14 +138,11 @@ export async function startManagedSession(
     additionalDirectories: [workspaceRoot(config.workspaceId)],
     env: {
       ...scopeRemoteAgentEnvironment(env, agent.id),
-      ...context.sessionEnvironmentProvider?.({
-        workspaceId: config.workspaceId,
-        agentId: agent.id,
-        sessionId: chatId,
-      }),
+      ...sessionEnvironment,
       CHIEF_AGENT_ID: agent.id,
       CHIEF_SESSION_ID: chatId,
     },
+    mcpServers: sessionMcpServers,
     runtimeContext,
   };
   const archivedKey = workspaceChatKey(config.workspaceId, chatId);

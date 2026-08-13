@@ -4,6 +4,7 @@ import {
   Copy,
   Hash,
   ListChecks,
+  Lock,
   MoreHorizontal,
   UserRound,
 } from "lucide-react";
@@ -29,6 +30,7 @@ interface ConversationHeaderChannel {
   label: string;
   description: string;
   agentIds: readonly string[];
+  visibility?: "public" | "private";
 }
 
 interface ConversationHeaderProps {
@@ -83,6 +85,8 @@ export function ConversationHeader({
                 presence={directPresence}
               />
             </button>
+          ) : channel.visibility === "private" ? (
+            <Lock size={17} className="text-muted-foreground shrink-0" />
           ) : (
             <Hash size={17} className="text-muted-foreground shrink-0" />
           )}
@@ -132,36 +136,34 @@ export function ConversationHeader({
             </PopoverTrigger>
             <PopoverContent align="end" className="w-48 p-1.5">
               {directIdentity ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActionsOpen(false);
-                      if (directAgentId) {
-                        onOpenProfile({
-                          kind: "agent",
-                          agentId: directAgentId,
-                        });
-                      }
-                    }}
-                    className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
-                  >
-                    <UserRound size={14} />
-                    View profile
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActionsOpen(false);
-                      onOpenActivity();
-                    }}
-                    className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
-                  >
-                    <ListChecks size={14} />
-                    View activity
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActionsOpen(false);
+                    if (directAgentId) {
+                      onOpenProfile({
+                        kind: "agent",
+                        agentId: directAgentId,
+                      });
+                    }
+                  }}
+                  className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
+                >
+                  <UserRound size={14} />
+                  View profile
+                </button>
               ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  setActionsOpen(false);
+                  onOpenActivity();
+                }}
+                className="hover:bg-accent flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors"
+              >
+                <ListChecks size={14} />
+                View activity
+              </button>
               <button
                 type="button"
                 onClick={() => {

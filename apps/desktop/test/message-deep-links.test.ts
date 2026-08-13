@@ -39,10 +39,10 @@ void test("message targets resolve to channel and direct-message routes", () => 
   assert.equal(
     routeForMessageDeepLink({
       channelId: "direct-channel",
-      directAgentId: "cmo",
+      directAgentId: "chief",
       messageId: "reply-id",
     }),
-    "/conversations?dm=cmo&message=reply-id",
+    "/conversations?dm=chief&message=reply-id",
   );
 });
 

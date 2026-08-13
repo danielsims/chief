@@ -13,7 +13,7 @@ export function browserOpenApiPaths(body: (schema: string) => RequestBody) {
         operationId: "browser.open",
         summary: "Open or navigate Chief's embedded browser",
         description:
-          "Shows an HTTP or HTTPS page as new inline content at the point where it was called, while preserving the current browser context and sign-in by default. Set fresh only when the user explicitly asks for a separate clean browser session. Use the semantic browser tools to inspect and interact with it.",
+          "Opens inline content at the exact channel or thread position where it was called. It continues this agent execution's current run by default. Pass browserRunId to target another exact run, or fresh=true to create an independent clean run that can coexist with other browsers.",
         requestBody: body("BrowserOpenInput"),
         responses: { "200": { description: "Browser navigation sent" } },
       },
@@ -114,7 +114,13 @@ export const browserOpenApiSchemas = {
         type: "boolean",
         default: false,
         description:
-          "Destroy the current browser context and create a clean one. Use only when the user explicitly says fresh, separate, clean, or reset. Reopen, open again, and try again mean fresh=false and preserve the existing browser context.",
+          "Create a separate clean browser run without closing existing runs. Use only when the user explicitly asks for a fresh, separate, clean, or reset session. Reopen, open again, and try again preserve the current run.",
+      },
+      browserRunId: {
+        type: "string",
+        maxLength: 160,
+        description:
+          "Exact existing browser run to navigate. Omit to continue this agent execution's current run.",
       },
     },
   },
@@ -122,7 +128,15 @@ export const browserOpenApiSchemas = {
     type: "object",
     additionalProperties: false,
     required: ["conversationId"],
-    properties: { conversationId: { type: "string", maxLength: 160 } },
+    properties: {
+      conversationId: { type: "string", maxLength: 160 },
+      browserRunId: {
+        type: "string",
+        maxLength: 160,
+        description:
+          "Exact run returned by browser.open. Required when more than one browser is active.",
+      },
+    },
   },
   BrowserPresentationInput: {
     type: "object",
@@ -130,6 +144,7 @@ export const browserOpenApiSchemas = {
     required: ["conversationId", "mode"],
     properties: {
       conversationId: { type: "string", maxLength: 160 },
+      browserRunId: { type: "string", maxLength: 160 },
       mode: {
         type: "string",
         enum: ["inline", "picture-in-picture"],
@@ -142,6 +157,7 @@ export const browserOpenApiSchemas = {
     required: ["conversationId"],
     properties: {
       conversationId: { type: "string", maxLength: 160 },
+      browserRunId: { type: "string", maxLength: 160 },
       ref: {
         type: "string",
         maxLength: 32,
@@ -156,6 +172,7 @@ export const browserOpenApiSchemas = {
     required: ["conversationId", "labels", "value"],
     properties: {
       conversationId: { type: "string", maxLength: 160 },
+      browserRunId: { type: "string", maxLength: 160 },
       labels,
       value: { type: "string", maxLength: 2_000 },
     },
@@ -166,6 +183,7 @@ export const browserOpenApiSchemas = {
     required: ["conversationId", "labels", "values"],
     properties: {
       conversationId: { type: "string", maxLength: 160 },
+      browserRunId: { type: "string", maxLength: 160 },
       labels,
       values: labels,
     },
@@ -176,6 +194,7 @@ export const browserOpenApiSchemas = {
     required: ["conversationId", "key"],
     properties: {
       conversationId: { type: "string", maxLength: 160 },
+      browserRunId: { type: "string", maxLength: 160 },
       key: { type: "string", minLength: 1, maxLength: 80 },
     },
   },
@@ -186,15 +205,21 @@ export interface BrowserLocalToolContext {
     conversationId: string,
     url: string,
     fresh: boolean,
-  ) => void | Promise<void>;
+    browserRunId?: string,
+  ) => string | Promise<string>;
   browserCommand?: (
     conversationId: string,
     command: BrowserAutomationCommand,
+    browserRunId?: string,
   ) => Promise<BrowserAutomationResult>;
-  closeBrowser?: (conversationId: string) => void | Promise<void>;
+  closeBrowser?: (
+    conversationId: string,
+    browserRunId?: string,
+  ) => void | Promise<void>;
   presentBrowser?: (
     conversationId: string,
     mode: BrowserPresentationMode,
+    browserRunId?: string,
   ) => void | Promise<void>;
 }
 
@@ -239,17 +264,30 @@ export async function handleBrowserLocalTool(
       throw new Error("url must use HTTP or HTTPS.");
     }
     const fresh = body.fresh === true;
-    await context.openBrowser(conversationId, url.toString(), fresh);
+    const requestedBrowserRunId =
+      typeof body.browserRunId === "string" && body.browserRunId.trim()
+        ? body.browserRunId.trim().slice(0, 160)
+        : undefined;
+    const browserRunId = await context.openBrowser(
+      conversationId,
+      url.toString(),
+      fresh,
+      requestedBrowserRunId,
+    );
     return {
       handled: true,
-      value: { opened: true, fresh, url: url.toString() },
+      value: { opened: true, fresh, url: url.toString(), browserRunId },
     };
   }
+  const browserRunId =
+    typeof body.browserRunId === "string" && body.browserRunId.trim()
+      ? body.browserRunId.trim().slice(0, 160)
+      : undefined;
   if (path === "/local-tools/browser/close") {
     if (!context.closeBrowser)
       throw new Error("The embedded browser is unavailable.");
-    await context.closeBrowser(conversationId);
-    return { handled: true, value: { closed: true } };
+    await context.closeBrowser(conversationId, browserRunId);
+    return { handled: true, value: { closed: true, browserRunId } };
   }
   if (path === "/local-tools/browser/present") {
     if (!context.presentBrowser)
@@ -258,8 +296,8 @@ export async function handleBrowserLocalTool(
     if (mode !== "inline" && mode !== "picture-in-picture") {
       throw new Error("mode must be inline or picture-in-picture.");
     }
-    await context.presentBrowser(conversationId, mode);
-    return { handled: true, value: { mode } };
+    await context.presentBrowser(conversationId, mode, browserRunId);
+    return { handled: true, value: { mode, browserRunId } };
   }
   if (!context.browserCommand) {
     throw new Error("The embedded browser is unavailable.");
@@ -267,16 +305,24 @@ export async function handleBrowserLocalTool(
   if (path === "/local-tools/browser/snapshot") {
     return {
       handled: true,
-      value: await context.browserCommand(conversationId, { type: "snapshot" }),
+      value: await context.browserCommand(
+        conversationId,
+        { type: "snapshot" },
+        browserRunId,
+      ),
     };
   }
   if (path === "/local-tools/browser/press") {
     return {
       handled: true,
-      value: await context.browserCommand(conversationId, {
-        type: "press",
-        key: requiredString(body, "key").slice(0, 80),
-      }),
+      value: await context.browserCommand(
+        conversationId,
+        {
+          type: "press",
+          key: requiredString(body, "key").slice(0, 80),
+        },
+        browserRunId,
+      ),
     };
   }
   const commandLabels = [
@@ -309,6 +355,6 @@ export async function handleBrowserLocalTool(
   if (!command) return { handled: false };
   return {
     handled: true,
-    value: await context.browserCommand(conversationId, command),
+    value: await context.browserCommand(conversationId, command, browserRunId),
   };
 }

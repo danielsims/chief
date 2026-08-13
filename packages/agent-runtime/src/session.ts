@@ -8,6 +8,7 @@ import type {
   AgentEvent,
   AutomationGrant,
   ChiefMessageMetadata,
+  ContentBlock,
   DriverType,
   McpServerSpec,
   MessageAttachment,
@@ -30,10 +31,9 @@ export interface SessionConfig {
   mcpServers?: McpServerSpec[];
   automationGrant?: AutomationGrant;
   executionOwner?: "interactive" | "schedule" | "channel" | "delegation";
-  /** Dynamic identifiers that remote deployments do not compile into their prompt. */
   runtimeContext?: string;
-  /** Private specialist sessions never receive workspace credentials. */
   secretAccess?: boolean;
+  maxPromptAttempts?: number;
 }
 
 export class AgentSession extends EventEmitter {
@@ -68,7 +68,6 @@ export class AgentSession extends EventEmitter {
     this.chatId = chatId;
     this.config = config;
     this.driver = createDriver(config.driver);
-
     this.events = initialEvents.map(withGenerativeDataParts).slice(-500);
     this.driver.on("event", (rawEvent: AgentEvent) => {
       const contextualEvent =
@@ -174,7 +173,6 @@ export class AgentSession extends EventEmitter {
       this.emit("state", state);
     });
   }
-
   get isBusy() {
     const driverInFlight =
       this.driverState !== null &&
@@ -344,6 +342,7 @@ export class AgentSession extends EventEmitter {
       history: this.events,
       mcpServers: this.config.mcpServers,
       automationGrant: this.config.automationGrant,
+      maxPromptAttempts: this.config.maxPromptAttempts,
     });
   }
 
@@ -461,19 +460,24 @@ export class AgentSession extends EventEmitter {
       channelAction: context?.channelAction,
     });
   }
-
-  recordAssistantMessage(text: string) {
+  recordAssistantMessage(
+    content: string | ContentBlock[],
+    options: { id?: string; threadRootId?: string; mentions?: string[] } = {},
+  ) {
     this.record({
       type: "message",
+      id: options.id,
       role: "assistant",
-      content: [{ type: "text", text }],
+      content:
+        typeof content === "string"
+          ? [{ type: "text", text: content }]
+          : content,
+      threadRootId: options.threadRootId,
+      mentions: options.mentions,
     });
   }
-
   respondPermission(requestId: string, behavior: "allow" | "deny") {
     this.driver.respondPermission(requestId, behavior);
-    // Record the resolution in the buffer so replayed transcripts don't
-    // resurrect an approval prompt that was already answered.
     const event: AgentEvent = {
       type: "permissionResolved",
       requestId,
@@ -482,16 +486,12 @@ export class AgentSession extends EventEmitter {
     this.events.push(event);
     this.emit("event", event);
   }
-
   respondQuestion(requestId: string, answers: Record<string, string> | null) {
-    // The driver emits questionResolved itself, so the buffer stays correct.
     this.driver.respondQuestion(requestId, answers);
   }
-
   interrupt() {
     return this.driver.interrupt();
   }
-
   async stop() {
     this.clearStallWatchdog();
     await this.driver.stop();

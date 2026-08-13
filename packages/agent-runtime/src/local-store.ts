@@ -5,7 +5,14 @@ import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Client } from "@libsql/client";
+import type {
+  Client,
+  InArgs,
+  InStatement,
+  ResultSet,
+  Transaction,
+  TransactionMode,
+} from "@libsql/client";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 import {
@@ -46,6 +53,7 @@ import type {
 } from "./types.js";
 import { ensureChannelManagementSchema } from "./channels/schema-migration.js";
 import { ChannelStore } from "./channels/store.js";
+import { retryDatabaseWrite } from "./database-write-retry.js";
 import * as schema from "./db/schema.js";
 import {
   diagnosticData,
@@ -83,6 +91,105 @@ const moduleDirectory =
     : dirname(fileURLToPath(import.meta.url));
 
 const CHIEF_DATABASE_PATH = join(homedir(), ".chief", "chief.sqlite");
+
+/**
+ * libSQL can overlap an interactive transaction with another operation even
+ * when its connection concurrency is one. Hold a process-local queue for the
+ * complete lifetime of each transaction so every LocalStore and ChannelStore
+ * operation observes one ordered database boundary.
+ */
+function serializeLocalClient(client: Client): Client {
+  let tail: Promise<unknown> = Promise.resolve();
+  const enqueue = <T>(operation: () => Promise<T>) => {
+    const result = tail.then(operation, operation);
+    tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
+  function execute(statement: InStatement): Promise<ResultSet>;
+  function execute(sql: string, args?: InArgs): Promise<ResultSet>;
+  function execute(statement: InStatement | string, args?: InArgs) {
+    return enqueue(() =>
+      typeof statement === "string"
+        ? client.execute(statement, args)
+        : client.execute(statement),
+    );
+  }
+  const transaction = (mode?: TransactionMode) => {
+    let release: (() => void) | undefined;
+    const occupied = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const previous = tail;
+    tail = previous.then(
+      () => occupied,
+      () => occupied,
+    );
+    return previous.then(async () => {
+      try {
+        const started = await client.transaction(mode);
+        let released = false;
+        const finish = () => {
+          if (released) return;
+          released = true;
+          release?.();
+        };
+        const wrapped: Transaction = {
+          execute: started.execute.bind(started),
+          batch: started.batch.bind(started),
+          executeMultiple: started.executeMultiple.bind(started),
+          async rollback() {
+            try {
+              await started.rollback();
+            } finally {
+              finish();
+            }
+          },
+          async commit() {
+            try {
+              await started.commit();
+            } finally {
+              finish();
+            }
+          },
+          close() {
+            try {
+              started.close();
+            } finally {
+              finish();
+            }
+          },
+          get closed() {
+            return started.closed;
+          },
+        };
+        return wrapped;
+      } catch (error) {
+        release?.();
+        throw error;
+      }
+    });
+  };
+  return {
+    execute,
+    batch: (statements, mode) => enqueue(() => client.batch(statements, mode)),
+    migrate: (statements) => enqueue(() => client.migrate(statements)),
+    transaction,
+    executeMultiple: (sql) => enqueue(() => client.executeMultiple(sql)),
+    sync: () => enqueue(() => client.sync()),
+    close: () => client.close(),
+    reconnect: () => client.reconnect(),
+    get closed() {
+      return client.closed;
+    },
+    get protocol() {
+      return client.protocol;
+    },
+  };
+}
+
 function defaultDatabasePath() {
   return process.env.CHIEF_DATABASE_PATH ?? CHIEF_DATABASE_PATH;
 }
@@ -190,11 +297,14 @@ export class LocalStore {
     }
     const key = encryptionKey(directory);
     const openDatabase = () => {
-      const client = createClient({
-        url: `file:${path}`,
-        encryptionKey: key,
-        timeout: 5_000,
-      });
+      const client = serializeLocalClient(
+        createClient({
+          url: `file:${path}`,
+          encryptionKey: key,
+          timeout: 5_000,
+          concurrency: 1,
+        }),
+      );
       return { client, db: drizzle({ client }) };
     };
     let { client, db } = openDatabase();
@@ -287,6 +397,7 @@ export class LocalStore {
       Pick<
         BrowserRunRecord,
         | "anchorMessageId"
+        | "conversationId"
         | "parentConversationId"
         | "status"
         | "threadRootId"
@@ -301,6 +412,9 @@ export class LocalStore {
       .set({
         ...(patch.anchorMessageId !== undefined
           ? { anchorMessageId: patch.anchorMessageId }
+          : {}),
+        ...(patch.conversationId !== undefined
+          ? { conversationId: patch.conversationId }
           : {}),
         ...(patch.parentConversationId !== undefined
           ? { parentConversationId: patch.parentConversationId }
@@ -470,12 +584,12 @@ export class LocalStore {
     }
     if (
       chat.scheduleId &&
-      (chat.agent !== "cmo" ||
+      (chat.agent !== "chief" ||
         chat.scheduledFor === undefined ||
         chat.startedAt === undefined)
     ) {
       throw new Error(
-        "Schedule sessions require a scheduled time, start time, and CMO agent.",
+        "Schedule sessions require a scheduled time, start time, and Chief agent.",
       );
     }
     await this.db
@@ -485,6 +599,7 @@ export class LocalStore {
         organizationId: chat.organizationId,
         parentId: chat.parentId,
         triggerId: chat.triggerId,
+        triggerContext: chat.triggerContext,
         scheduleId: chat.scheduleId,
         kind,
         visibility: chat.visibility,
@@ -559,6 +674,10 @@ export class LocalStore {
       eveState?: unknown;
       status?: ChatStatus;
       startedAt?: number;
+      finishedAt?: number | null;
+      summary?: string;
+      error?: string | null;
+      triggerContext?: Record<string, unknown>;
     },
   ) {
     await this.ready;
@@ -770,12 +889,12 @@ export class LocalStore {
           );
         }
         if (
-          context.agentId !== "cmo" ||
+          context.agentId !== "chief" ||
           context.scheduledFor === undefined ||
           context.startedAt === undefined
         ) {
           throw new Error(
-            "Schedule sessions require a scheduled time, start time, and CMO agent.",
+            "Schedule sessions require a scheduled time, start time, and Chief agent.",
           );
         }
       }
@@ -1571,10 +1690,10 @@ export class LocalStore {
         conversation.parentId !== null ||
         conversation.kind !== "conversation" ||
         conversation.visibility !== "user" ||
-        conversation.agent !== "cmo"
+        conversation.agent !== "chief"
       ) {
         throw new Error(
-          "Schedule conversations must be top-level user-visible CMO conversations in this workspace.",
+          "Schedule conversations must be top-level user-visible Chief conversations in this workspace.",
         );
       }
     }
@@ -1586,59 +1705,61 @@ export class LocalStore {
     if (existing && existing.organizationId !== workspaceId) {
       throw new Error("Recurring work belongs to a different workspace.");
     }
-    await this.db
-      .insert(schema.schedules)
-      .values({
-        id: work.id,
-        organizationId: workspaceId,
-        conversationId: work.conversationId,
-        agentId: work.agentId,
-        title: work.title,
-        instructions: work.instructions,
-        cron: work.cron,
-        timezone: work.timezone,
-        onceAt: work.onceAt,
-        trigger: work.trigger,
-        operationKey: work.operationKey,
-        version: work.version ?? 1,
-        status: work.status,
-        placement: work.placement,
-        skipDates: work.skipDates,
-        approvalSummary: work.approvalSummary,
-        proposedToolPatterns: work.proposedToolPatterns,
-        grant: work.grant,
-        nextAt: work.nextAt,
-        lastCompletedAt: work.lastCompletedAt,
-        lastSummary: work.lastSummary,
-        createdAt: work.createdAt,
-        updatedAt: work.updatedAt,
-      })
-      .onConflictDoUpdate({
-        target: schema.schedules.id,
-        set: {
-          conversationId: work.conversationId ?? null,
+    const persist = () =>
+      this.db
+        .insert(schema.schedules)
+        .values({
+          id: work.id,
+          organizationId: workspaceId,
+          conversationId: work.conversationId,
           agentId: work.agentId,
           title: work.title,
           instructions: work.instructions,
           cron: work.cron,
           timezone: work.timezone,
-          onceAt: work.onceAt ?? null,
-          trigger: work.trigger ?? null,
-          operationKey: work.operationKey ?? null,
+          onceAt: work.onceAt,
+          trigger: work.trigger,
+          operationKey: work.operationKey,
           version: work.version ?? 1,
           status: work.status,
           placement: work.placement,
-          skipDates: work.skipDates ?? null,
+          skipDates: work.skipDates,
           approvalSummary: work.approvalSummary,
           proposedToolPatterns: work.proposedToolPatterns,
           grant: work.grant,
-          nextAt: work.nextAt ?? null,
+          nextAt: work.nextAt,
           lastCompletedAt: work.lastCompletedAt,
           lastSummary: work.lastSummary,
+          createdAt: work.createdAt,
           updatedAt: work.updatedAt,
-        },
-      })
-      .run();
+        })
+        .onConflictDoUpdate({
+          target: schema.schedules.id,
+          set: {
+            conversationId: work.conversationId ?? null,
+            agentId: work.agentId,
+            title: work.title,
+            instructions: work.instructions,
+            cron: work.cron,
+            timezone: work.timezone,
+            onceAt: work.onceAt ?? null,
+            trigger: work.trigger ?? null,
+            operationKey: work.operationKey ?? null,
+            version: work.version ?? 1,
+            status: work.status,
+            placement: work.placement,
+            skipDates: work.skipDates ?? null,
+            approvalSummary: work.approvalSummary,
+            proposedToolPatterns: work.proposedToolPatterns,
+            grant: work.grant,
+            nextAt: work.nextAt ?? null,
+            lastCompletedAt: work.lastCompletedAt,
+            lastSummary: work.lastSummary,
+            updatedAt: work.updatedAt,
+          },
+        })
+        .run();
+    await retryDatabaseWrite(persist);
   }
 
   async deleteRecurringWork(workspaceId: string, id: string) {
@@ -1935,7 +2056,7 @@ export class LocalStore {
             .values({
               id: actionId,
               organizationId: session.organizationId,
-              agentId: "cmo",
+              agentId: "chief",
               title: "Review interrupted work",
               reason: summary,
               sourceId: session.id,
@@ -1979,7 +2100,7 @@ export class LocalStore {
           isNotNull(schema.sessions.parentId),
           isNull(schema.sessions.scheduleId),
           inArray(schema.sessions.provider, ["claude", "codex", "opencode"]),
-          inArray(schema.sessions.status, ["running", "waiting"]),
+          eq(schema.sessions.status, "running"),
           lte(schema.sessions.updatedAt, cutoff),
         ),
       )
@@ -2001,7 +2122,7 @@ export class LocalStore {
       })
       .where(
         and(
-          inArray(schema.sessions.status, ["running", "waiting"]),
+          eq(schema.sessions.status, "running"),
           lte(schema.sessions.updatedAt, cutoff),
           or(
             and(
@@ -2287,11 +2408,11 @@ export class LocalStore {
           session.startedAt === undefined ||
           session.kind !== "task" ||
           session.visibility !== "private" ||
-          session.agent !== "cmo" ||
+          session.agent !== "chief" ||
           session.status !== "running"
         ) {
           throw new Error(
-            "Schedule occurrences must be running private CMO task sessions.",
+            "Schedule occurrences must be running private Chief task sessions.",
           );
         }
         if (session.parentId && session.parentId !== work.conversationId) {

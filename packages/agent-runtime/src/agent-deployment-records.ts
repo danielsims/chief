@@ -18,18 +18,23 @@ export function readAgentDeploymentRecord(
 ): AgentDeploymentRecord | undefined {
   try {
     const currentPath = recordPath(workspaceId, agentId);
+    const previousChiefPath = recordPath(workspaceId, "cmo");
     const legacyPath = join(workspaceRoot(workspaceId), "deployment.json");
+    const readablePath = existsSync(currentPath)
+      ? currentPath
+      : agentId === "chief" && existsSync(previousChiefPath)
+        ? previousChiefPath
+        : legacyPath;
     const value = JSON.parse(
-      readFileSync(
-        existsSync(currentPath) || agentId !== "cmo" ? currentPath : legacyPath,
-        "utf8",
-      ),
+      readFileSync(agentId === "chief" ? readablePath : currentPath, "utf8"),
     ) as Omit<AgentDeploymentRecord, "agentId"> & { agentId?: string };
-    const persistedAgentId = value.agentId ?? "cmo";
+    const persistedAgentId = value.agentId ?? "chief";
+    const normalizedAgentId =
+      persistedAgentId === "cmo" ? "chief" : persistedAgentId;
     return value.workspaceId === workspaceId &&
       value.status === "ready" &&
-      persistedAgentId === agentId
-      ? { ...value, agentId: persistedAgentId }
+      normalizedAgentId === agentId
+      ? { ...value, agentId: normalizedAgentId }
       : undefined;
   } catch {
     return undefined;

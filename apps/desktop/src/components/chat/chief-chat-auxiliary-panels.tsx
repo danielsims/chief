@@ -1,5 +1,4 @@
-import type { ReactNode } from "react";
-import { Fragment } from "react";
+import { Fragment, useMemo, useRef } from "react";
 
 import type {
   BrowserRunRecord,
@@ -14,12 +13,20 @@ import type { useChiefChatComposer } from "./use-chief-chat-composer";
 import type { useChiefChatCore } from "./use-chief-chat-core";
 import type { useChiefChatTimeline } from "./use-chief-chat-timeline";
 import { messageBlocks } from "../../lib/runtime";
+import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
 import { AgentActivityPanel, taskAgentLabel } from "./agent-activity-panel";
+import {
+  formatAgentActivityStatus,
+  mergeAgentActivityPresence,
+  taskAgentActivityPresence,
+} from "./agent-activity-presence";
 import { ApprovalCard } from "./approval-card";
 import { approvalBelongsToSurface } from "./approval-presentation";
 import { BrowserSessionAttachment } from "./browser-panel";
 import { ChatComposer } from "./chat-composer";
+import { ChatDateSeparator } from "./chat-date-time";
+import { ChatTimeline } from "./chat-timeline";
 import {
   ChiefMessage,
   MessageBlocksContent,
@@ -30,7 +37,6 @@ import {
   ConversationAuxiliaryPanelBody,
   ConversationAuxiliaryPanelHeader,
 } from "./conversation-auxiliary-panel";
-import { SpecialistTaskCard } from "./message-blocks";
 import { ObservedChat } from "./observed-chat";
 import { QuestionCard } from "./question-card";
 import { UserMessage } from "./user-message";
@@ -38,6 +44,14 @@ import { UserMessage } from "./user-message";
 type Core = ReturnType<typeof useChiefChatCore>;
 type Composer = ReturnType<typeof useChiefChatComposer>;
 type Timeline = ReturnType<typeof useChiefChatTimeline>;
+
+function activityAgentName(agentId: string) {
+  return Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)
+    ? WORKSPACE_AGENT_IDENTITIES[
+        agentId as keyof typeof WORKSPACE_AGENT_IDENTITIES
+      ].name
+    : agentId;
+}
 
 interface ThreadSummary {
   count: number;
@@ -51,7 +65,6 @@ interface ThreadSummary {
  */
 export function ChiefChatAuxiliaryPanels({
   activeThreadSummary,
-  browserAttachmentNode,
   composer,
   core,
   imageParts,
@@ -61,7 +74,6 @@ export function ChiefChatAuxiliaryPanels({
   timeline,
 }: {
   activeThreadSummary: ThreadSummary;
-  browserAttachmentNode: (run: BrowserRunRecord) => ReactNode;
   composer: Composer;
   core: Core;
   imageParts: (message: ChiefUIMessage) => MessageAttachment[];
@@ -70,9 +82,10 @@ export function ChiefChatAuxiliaryPanels({
     | "activeChild"
     | "activityOpen"
     | "channel"
+    | "channelReferences"
+    | "onOpenChannel"
     | "onCloseChild"
     | "onOpenChild"
-    | "onOpenInternalPanel"
     | "panelSizing"
     | "profileOpen"
   >;
@@ -86,15 +99,17 @@ export function ChiefChatAuxiliaryPanels({
     activeChild,
     activityOpen,
     channel,
+    channelReferences = [],
+    onOpenChannel,
     onCloseChild,
     onOpenChild,
-    onOpenInternalPanel,
     panelSizing,
     profileOpen = false,
   } = props;
   const {
     activeCapabilities,
     activityAgentLabel,
+    activeRootTurn,
     childSessions,
     controls,
     currentTurnBlocks,
@@ -122,33 +137,69 @@ export function ChiefChatAuxiliaryPanels({
     threadScrollRef,
   } = composer;
   const {
+    activeSpecialistByThread,
     activeChildThreadRootId,
     activeThreadAudience,
+    activeThreadChildSessions,
     activeThreadRoot,
     browserOperating,
     browserRunAnchors,
     chatBrowserRuns,
-    childBrowserRun,
     childSessionOwners,
     threadReplyEntries,
   } = timeline;
+  const threadPictureInPictureContainerRef = useRef<HTMLDivElement>(null);
+  const threadComposerRef = useRef<HTMLDivElement>(null);
+  const threadPictureInPictureAvoidRefs = useMemo(
+    () => [threadComposerRef],
+    [],
+  );
+  const threadActivityAgents = useMemo(() => {
+    const root =
+      controls.status === "running" &&
+      activeRootTurn?.threadRootId === threadRootId
+        ? {
+            id: activeRootTurn.agentId,
+            label: activityAgentName(activeRootTurn.agentId),
+          }
+        : undefined;
+    return mergeAgentActivityPresence(
+      root,
+      taskAgentActivityPresence(activeThreadChildSessions, activityAgentName),
+    );
+  }, [
+    activeRootTurn,
+    activeThreadChildSessions,
+    controls.status,
+    threadRootId,
+  ]);
+  const threadStatusLabel =
+    threadActivityAgents.length === 1 &&
+    threadActivityAgents[0]?.id === activeRootTurn?.agentId
+      ? statusLabel
+      : formatAgentActivityStatus(threadActivityAgents);
+  const threadBrowserAttachmentNode = (run: BrowserRunRecord) => (
+    <div className="w-full min-w-0 py-1 pl-11">
+      <BrowserSessionAttachment
+        operating={browserOperating}
+        pictureInPictureAvoidRefs={threadPictureInPictureAvoidRefs}
+        pictureInPictureContainerRef={threadPictureInPictureContainerRef}
+        run={run}
+      />
+    </div>
+  );
   const closeAuxiliaryWorkspace = () => {
     setActivityOpen(false);
-    setThreadRootId(null);
     onCloseChild?.();
   };
   const returnToThread = () => {
     if (!activeChildThreadRootId) return;
     setActivityOpen(false);
-    onCloseChild?.();
-    setThreadRootId(activeChildThreadRootId);
+    onCloseChild?.(activeChildThreadRootId);
   };
   const returnFromChild = () => {
-    onCloseChild?.();
-    if (activeChildThreadRootId) {
-      setActivityOpen(false);
-      setThreadRootId(activeChildThreadRootId);
-    }
+    setActivityOpen(false);
+    onCloseChild?.(activeChildThreadRootId ?? undefined);
   };
 
   if (activeChild && !profileOpen) {
@@ -168,7 +219,7 @@ export function ChiefChatAuxiliaryPanels({
           onBack={returnFromChild}
           title={
             <ConversationAuxiliaryBreadcrumb
-              current={activeChild.title}
+              current="Activity"
               items={
                 activeChildThreadRootId
                   ? [
@@ -182,7 +233,7 @@ export function ChiefChatAuxiliaryPanels({
               }
             />
           }
-          subtitle={`${taskAgentLabel(activeChild.agent)} · ${taskStatusLabel(activeChild.status)}`}
+          subtitle={`${activeChild.title} · ${taskAgentLabel(activeChild.agent)} · ${taskStatusLabel(activeChild.status)}`}
           onClose={closeAuxiliaryWorkspace}
         />
         <ConversationAuxiliaryPanelBody className="overflow-hidden">
@@ -190,14 +241,7 @@ export function ChiefChatAuxiliaryPanels({
             key={activeChild.id}
             chatId={activeChild.id}
             showHeader={false}
-            inlineAttachment={
-              childBrowserRun ? (
-                <BrowserSessionAttachment
-                  operating={browserOperating}
-                  run={childBrowserRun}
-                />
-              ) : undefined
-            }
+            activityOnly
           />
         </ConversationAuxiliaryPanelBody>
       </ConversationAuxiliaryPanel>
@@ -217,151 +261,172 @@ export function ChiefChatAuxiliaryPanels({
           subtitle={`${activeThreadSummary.count} ${activeThreadSummary.count === 1 ? "reply" : "replies"}`}
           onClose={() => setThreadRootId(null)}
         />
-        <ConversationAuxiliaryPanelBody
-          ref={threadScrollRef}
-          className="space-y-2 px-4 py-4"
+        <div
+          ref={threadPictureInPictureContainerRef}
+          className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
         >
-          {activeThreadRoot?.role === "user" ? (
-            <div id={`chief-message-${activeThreadRoot.id}`}>
-              <UserMessage
-                author={userAuthor}
-                attachments={imageParts(activeThreadRoot)}
-                metadata={null}
-                onOpenProfile={openUserProfile}
-                onOpenMention={openAgentMention}
-                text={messageText(activeThreadRoot)}
-              />
-            </div>
-          ) : null}
-          {chatBrowserRuns.map((run) =>
-            run.threadRootId === threadRootId &&
-            browserRunAnchors.get(run.id) === activeThreadRoot?.id ? (
-              <Fragment key={`browser:root:${run.id}`}>
-                {browserAttachmentNode(run)}
-              </Fragment>
-            ) : null,
-          )}
-          <ThreadDivider count={activeThreadSummary.count} />
-          {threadReplyEntries.map((entry) => {
-            if (entry.type === "browser") {
-              return (
-                <Fragment key={entry.key}>
-                  {browserAttachmentNode(entry.run)}
-                </Fragment>
-              );
-            }
-            if (entry.type === "specialist") {
-              return (
-                <div
-                  key={entry.task.id}
-                  className="mx-auto w-full max-w-3xl pl-11"
-                >
-                  <SpecialistTaskCard
-                    task={entry.task}
-                    onOpenTask={onOpenChild}
-                  />
-                </div>
-              );
-            }
-            const { message } = entry;
-            if (message.role === "user") {
-              return (
-                <div id={`chief-message-${message.id}`} key={message.id}>
-                  <UserMessage
-                    author={userAuthor}
-                    attachments={imageParts(message)}
-                    metadata={null}
-                    onOpenProfile={openUserProfile}
-                    onOpenMention={openAgentMention}
-                    text={messageText(message)}
-                  />
-                </div>
-              );
-            }
-            if (threadBlocks(message).length === 0) return null;
-            return (
-              <ChiefMessage
-                key={message.id}
-                messageId={message.id}
-                agent={respondingAgentFor(message)}
-                metadata={null}
-                onOpenProfile={selectProfile}
-              >
-                <MessageBlocksContent
-                  message={message}
-                  filter={threadBlocks}
-                  progress={controls.toolProgress}
-                  capabilities={activeCapabilities}
-                  active={controls.status === "running"}
-                  tasks={childSessions}
-                  taskOwners={childSessionOwners}
-                  ownerId={message.id}
-                  onOpenTask={onOpenChild}
+          <ConversationAuxiliaryPanelBody
+            ref={threadScrollRef}
+            data-chat-timeline
+            className="space-y-2 overflow-x-hidden px-4 py-4"
+          >
+            <ChatDateSeparator
+              timestamp={activeThreadRoot?.metadata?.createdAt}
+            />
+            {activeThreadRoot?.role === "user" ? (
+              <div id={`chief-message-${activeThreadRoot.id}`}>
+                <UserMessage
+                  author={userAuthor}
+                  attachments={imageParts(activeThreadRoot)}
+                  metadata={null}
+                  channelReferences={channelReferences}
+                  onOpenChannel={onOpenChannel}
+                  onOpenProfile={openUserProfile}
+                  onOpenMention={openAgentMention}
+                  text={messageText(activeThreadRoot)}
+                  timestamp={activeThreadRoot.metadata?.createdAt}
                 />
-              </ChiefMessage>
-            );
-          })}
-          {controls.questions.map((pending) => (
-            <div key={pending.requestId} className="mx-auto max-w-3xl">
-              <QuestionCard
-                pending={pending}
-                onSubmit={(answers) =>
-                  respondQuestion(pending.requestId, answers)
+              </div>
+            ) : null}
+            {chatBrowserRuns.map((run) =>
+              run.threadRootId === threadRootId &&
+              browserRunAnchors.get(run.id) === activeThreadRoot?.id ? (
+                <Fragment key={`browser:root:${run.id}`}>
+                  {threadBrowserAttachmentNode(run)}
+                </Fragment>
+              ) : null,
+            )}
+            <ChatTimeline
+              entries={threadReplyEntries}
+              initialTimestamp={activeThreadRoot?.metadata?.createdAt}
+              renderEntry={(entry) => {
+                if (entry.type === "browser") {
+                  return threadBrowserAttachmentNode(entry.run);
                 }
-                onDismiss={() => respondQuestion(pending.requestId, null)}
-              />
-            </div>
-          ))}
-          {controls.approvals
-            .filter((approval) =>
-              approvalBelongsToSurface(approval, threadRootId),
-            )
-            .map((approval) => (
-              <div key={approval.requestId} className="w-full">
-                <ApprovalCard
-                  approval={approval}
-                  onRespond={respondPermission}
+                const { message } = entry;
+                if (message.role === "user") {
+                  return (
+                    <div id={`chief-message-${message.id}`}>
+                      <UserMessage
+                        author={userAuthor}
+                        attachments={imageParts(message)}
+                        metadata={null}
+                        channelReferences={channelReferences}
+                        onOpenChannel={onOpenChannel}
+                        onOpenProfile={openUserProfile}
+                        onOpenMention={openAgentMention}
+                        text={messageText(message)}
+                        timestamp={message.metadata?.createdAt}
+                      />
+                    </div>
+                  );
+                }
+                if (threadBlocks(message).length === 0) return null;
+                const respondingAgent = respondingAgentFor(message);
+                const specialist = threadRootId
+                  ? activeSpecialistByThread.get(threadRootId)
+                  : undefined;
+                return (
+                  <ChiefMessage
+                    messageId={message.id}
+                    activity={
+                      specialist && respondingAgent?.id === specialist.agent
+                        ? specialist
+                        : undefined
+                    }
+                    agent={respondingAgent}
+                    metadata={null}
+                    onOpenProfile={selectProfile}
+                    timestamp={message.metadata?.createdAt}
+                  >
+                    <MessageBlocksContent
+                      message={message}
+                      filter={threadBlocks}
+                      progress={controls.toolProgress}
+                      capabilities={activeCapabilities}
+                      active={controls.status === "running"}
+                      tasks={childSessions}
+                      taskOwners={childSessionOwners}
+                      ownerId={message.id}
+                      channelReferences={channelReferences}
+                      onOpenChannel={onOpenChannel}
+                      onOpenTask={onOpenChild}
+                    />
+                  </ChiefMessage>
+                );
+              }}
+            />
+            {controls.questions.map((pending) => (
+              <div key={pending.requestId} className="mx-auto max-w-3xl">
+                <QuestionCard
+                  pending={pending}
+                  onSubmit={(answers) =>
+                    respondQuestion(pending.requestId, answers)
+                  }
+                  onDismiss={() => respondQuestion(pending.requestId, null)}
                 />
               </div>
             ))}
-          <div ref={threadBottomRef} />
-        </ConversationAuxiliaryPanelBody>
-        <div className="relative shrink-0 px-3 pb-3">
-          <div className="relative space-y-2">
-            <ChatComposer
-              value={threadDraft}
-              onValueChange={setThreadDraft}
-              imageAttachments={threadImageAttachments}
-              onImageAttachmentsChange={setThreadImageAttachments}
-              onSubmit={() => {
-                const text = threadDraft.trim();
-                if (!text && threadImageAttachments.length === 0) return;
-                setThreadDraft("");
-                setThreadImageAttachments([]);
-                send(
-                  text,
-                  threadRootId,
-                  activeThreadAudience,
-                  threadImageAttachments,
-                  controls.status === "running",
-                );
-              }}
-              running={controls.status === "running"}
-              onInterrupt={interrupt}
-              showSuggestions={false}
-              showExecutionControls={false}
-              mentionCandidates={mentionCandidates}
-              placeholder={`Reply in #${channel.label}…`}
-            />
-            <AgentActivityComposerRow
-              running={controls.status === "running"}
-              statusLabel={statusLabel}
-              onOpen={() => {
-                setThreadRootId(null);
-                setActivityOpen(true);
-                onOpenInternalPanel?.();
-              }}
-            />
+            {controls.approvals
+              .filter((approval) =>
+                approvalBelongsToSurface(approval, threadRootId),
+              )
+              .map((approval) => (
+                <div key={approval.requestId} className="w-full">
+                  <ApprovalCard
+                    approval={approval}
+                    onRespond={respondPermission}
+                  />
+                </div>
+              ))}
+            <div ref={threadBottomRef} />
+          </ConversationAuxiliaryPanelBody>
+          <div ref={threadComposerRef} className="relative shrink-0 px-3 pb-3">
+            <div className="relative space-y-2">
+              <ChatComposer
+                value={threadDraft}
+                onValueChange={setThreadDraft}
+                imageAttachments={threadImageAttachments}
+                onImageAttachmentsChange={setThreadImageAttachments}
+                onSubmit={() => {
+                  const text = threadDraft.trim();
+                  if (!text && threadImageAttachments.length === 0) return;
+                  setThreadDraft("");
+                  setThreadImageAttachments([]);
+                  send(
+                    text,
+                    threadRootId,
+                    activeThreadAudience,
+                    threadImageAttachments,
+                    controls.status === "running",
+                  );
+                }}
+                running={controls.status === "running"}
+                onInterrupt={interrupt}
+                showSuggestions={false}
+                showExecutionControls={false}
+                mentionCandidates={mentionCandidates}
+                placeholder={`Reply in #${channel.label}…`}
+              />
+              <AgentActivityComposerRow
+                agents={threadActivityAgents}
+                agentLabel={activityAgentLabel}
+                running={threadActivityAgents.length > 0}
+                statusLabel={threadStatusLabel}
+                onOpen={() => {
+                  const onlyAgent = threadActivityAgents[0];
+                  if (
+                    threadActivityAgents.length === 1 &&
+                    onlyAgent?.taskId &&
+                    onOpenChild
+                  ) {
+                    onOpenChild(onlyAgent.taskId);
+                    return;
+                  }
+                  setActivityOpen(true);
+                }}
+              />
+            </div>
           </div>
         </div>
       </ConversationAuxiliaryPanel>
@@ -390,21 +455,10 @@ function messageText(message: ChiefUIMessage) {
     .join("\n");
 }
 
-function ThreadDivider({ count }: { count: number }) {
-  return (
-    <div className="my-3 flex items-center gap-2">
-      <span className="bg-border h-px flex-1" />
-      <span className="text-muted-foreground text-[10px]">
-        {count} {count === 1 ? "reply" : "replies"}
-      </span>
-      <span className="bg-border h-px flex-1" />
-    </div>
-  );
-}
-
 function taskStatusLabel(status: string) {
   if (status === "completed") return "Complete";
   if (status === "idle") return "Starting";
-  if (status === "running" || status === "waiting") return "Working";
+  if (status === "waiting") return "Waiting for you";
+  if (status === "running") return "Working";
   return status;
 }

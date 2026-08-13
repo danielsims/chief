@@ -107,6 +107,10 @@ export function desktopNotificationsEnabled() {
   return readPreferences().desktopEnabled;
 }
 
+export function notificationSoundsEnabled() {
+  return readPreferences().enabled;
+}
+
 export function previewNotificationSound(sound: NotificationSound) {
   play(sound, { volume: 0.78 });
 }

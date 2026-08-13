@@ -17,6 +17,7 @@ import type {
   ProspectRecord,
   RecurringWorkRecord,
   TrendRecord,
+  WorkspaceFileRecord,
 } from "./types.js";
 import {
   browserOpenApiPaths,
@@ -779,6 +780,18 @@ export function localToolsOpenApi(origin: string) {
             },
             title: { type: "string", maxLength: 160 },
             task: { type: "string", maxLength: 8000 },
+            channelId: {
+              type: "string",
+              maxLength: 160,
+              description:
+                "Owning shared channel when this specialist has a visible work thread.",
+            },
+            threadRootId: {
+              type: "string",
+              maxLength: 160,
+              description:
+                "Durable channel message ID that owns this specialist's visible work. Use the event ID returned by channels.messages.post after @mentioning the specialist.",
+            },
             setupDomain: {
               type: "string",
               description:
@@ -1154,6 +1167,7 @@ export type LocalToolContext = BrowserLocalToolContext &
     conversationId?: string;
     onActivity?: () => void | Promise<void>;
     onFilesChanged?: () => void | Promise<void>;
+    onFileWritten?: (file: WorkspaceFileRecord) => void | Promise<void>;
     activateIntegrationSetup?: (
       sessionId: string,
       attemptId: string,
@@ -1401,6 +1415,14 @@ export async function handleLocalTool(
         agentId,
         title: requiredValue(body.title, "title", 160),
         task: requiredValue(body.task, "task", 8_000),
+        channelId:
+          typeof body.channelId === "string"
+            ? requiredValue(body.channelId, "channelId", 160)
+            : undefined,
+        threadRootId:
+          typeof body.threadRootId === "string"
+            ? requiredValue(body.threadRootId, "threadRootId", 160)
+            : undefined,
         setupDomain,
         setupAttemptId,
         onStateChange: context.onActivity,
@@ -1527,14 +1549,14 @@ export async function handleLocalTool(
         sourceAgentId:
           value(body.agentId, "agentId", 80, false) ??
           existingDraft?.agentId ??
-          "cmo",
+          "chief",
       });
       const draft: ContentDraftRecord = {
         id,
         agentId:
           value(body.agentId, "agentId", 80, false) ??
           existingDraft?.agentId ??
-          "cmo",
+          "chief",
         title,
         body: content,
         platform: requiredValue(body.platform, "platform", 80),
@@ -1585,6 +1607,7 @@ export async function handleLocalTool(
           false,
         ),
       });
+      await context.onFileWritten?.(file);
       return json({ file });
     }
     if (path === "/local-tools/campaigns") {
@@ -1769,7 +1792,7 @@ export async function handleLocalTool(
       }
       const item = {
         id,
-        agentId: value(body.agentId, "agentId", 120, false) ?? "cmo",
+        agentId: value(body.agentId, "agentId", 120, false) ?? "chief",
         title,
         reason,
         sourceId,

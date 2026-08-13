@@ -5,12 +5,17 @@ import {
   fail,
   optionalText,
   textValue,
+  validatedAgentIds,
 } from "./channel-local-tool-input.js";
+import { emitMemberAddedEvent } from "./channel-membership-local-tools.js";
+import { ensureChannelPermission } from "./channel-permissions.js";
 import {
   actorOwnsMessage,
+  channelMessages,
   channelTimeline,
   cursorPage,
   messageById,
+  resolveChannelMessageId,
   threadMessages,
 } from "./channels/message-projection.js";
 import {
@@ -24,6 +29,49 @@ interface MessageToolResult {
   handled: boolean;
   value?: unknown;
   status?: number;
+}
+
+const THREAD_PREVIEW_LIMIT = 3;
+const THREAD_PREVIEW_LENGTH = 600;
+
+function compactMessage(message: NonNullable<ReturnType<typeof messageById>>) {
+  return {
+    id: message.id,
+    content: message.content.slice(0, THREAD_PREVIEW_LENGTH),
+    actor: message.actor,
+    createdAt: message.createdAt,
+    threadRootId: message.threadRootId,
+  };
+}
+
+function withThreadContext(
+  events: Parameters<typeof channelTimeline>[0],
+  message: NonNullable<ReturnType<typeof messageById>>,
+  viewer: ChannelLocalToolContext["actor"],
+) {
+  if (message.threadRootId) {
+    const root = messageById(events, message.threadRootId, viewer);
+    return {
+      ...message,
+      threadRoot: root ? compactMessage(root) : undefined,
+    };
+  }
+  const replies = threadMessages(events, message.id, viewer).filter(
+    (candidate) => candidate.id !== message.id,
+  );
+  return {
+    ...message,
+    recentReplies: replies.slice(-THREAD_PREVIEW_LIMIT).map(compactMessage),
+  };
+}
+
+function timelineWithThreadContext(
+  events: Parameters<typeof channelTimeline>[0],
+  viewer: ChannelLocalToolContext["actor"],
+) {
+  return channelTimeline(events, viewer).map((message) =>
+    withThreadContext(events, message, viewer),
+  );
 }
 
 function numberQuery(url: URL, name: string, fallback: number) {
@@ -85,7 +133,7 @@ async function searchMessages(
   const matches = [];
   for (const channel of channels) {
     const events = await context.channelStore.events(workspaceId, channel.id);
-    for (const message of channelTimeline(events, context.actor)) {
+    for (const message of channelMessages(events, context.actor)) {
       if (
         !message.deleted &&
         message.createdAt >= after &&
@@ -94,7 +142,7 @@ async function searchMessages(
         message.content.toLowerCase().includes(query)
       ) {
         matches.push({
-          ...message,
+          ...withThreadContext(events, message, context.actor),
           channel: { id: channel.id, name: channel.name, slug: channel.slug },
         });
       }
@@ -132,10 +180,13 @@ export async function handleChannelMessageLocalTool(input: {
     const events = await context.channelStore.events(workspaceId, channel.id);
 
     if (tail === "messages" && request.method === "GET") {
-      const page = cursorPage(channelTimeline(events, context.actor), {
-        cursor: url.searchParams.get("cursor"),
-        limit: numberQuery(url, "limit", 50),
-      });
+      const page = cursorPage(
+        timelineWithThreadContext(events, context.actor),
+        {
+          cursor: url.searchParams.get("cursor"),
+          limit: numberQuery(url, "limit", 50),
+        },
+      );
       return {
         handled: true,
         value: { messages: page.items, nextCursor: page.nextCursor },
@@ -154,6 +205,11 @@ export async function handleChannelMessageLocalTool(input: {
       const sourceId = idempotencyKey
         ? `channel-api:${idempotencyKey}`
         : undefined;
+      const requestedThreadRootId = optionalText(
+        body.threadRootId,
+        "threadRootId",
+        160,
+      );
       const existing = sourceId
         ? events.find((event) =>
             event.tags.some(
@@ -163,20 +219,55 @@ export async function handleChannelMessageLocalTool(input: {
         : undefined;
       if (existing)
         return { handled: true, value: { event: existing, replayed: true } };
+      await context.beforeMessagePost?.({
+        channel,
+        content,
+        ...(idempotencyKey ? { idempotencyKey } : {}),
+      });
+      const mentions = validatedAgentIds(
+        Array.isArray(body.mentions)
+          ? body.mentions.filter(
+              (value): value is string => typeof value === "string",
+            )
+          : [],
+        context.availableAgentIds,
+        false,
+      );
+      const invitedAgentIds = mentions.filter(
+        (agentId) => !channel.agentIds.includes(agentId),
+      );
+      if (invitedAgentIds.length > 0) {
+        ensureChannelPermission(channel, context.actor, "manage_members");
+        await context.channelStore.addAgents(
+          workspaceId,
+          channel.id,
+          invitedAgentIds,
+        );
+        await emitMemberAddedEvent({
+          context,
+          workspaceId,
+          channel,
+          agentIds: invitedAgentIds,
+          userIds: [],
+          ...(sourceId ? { sourceId: `${sourceId}:mentioned-members` } : {}),
+        });
+        await context.onChannelsChanged?.();
+      }
       const event = createChannelEvent({
         workspaceId,
         channelId: channel.id,
         actor: context.actor,
         content,
-        mentions: Array.isArray(body.mentions)
-          ? body.mentions.filter(
-              (value): value is string => typeof value === "string",
-            )
+        mentions,
+        threadRootId: requestedThreadRootId
+          ? resolveChannelMessageId(events, requestedThreadRootId)
           : undefined,
-        threadRootId: optionalText(body.threadRootId, "threadRootId", 160),
         sourceId,
       });
       await append(context, workspaceId, event);
+      if (mentions.length > 0) {
+        await context.onAgentMentions?.(channel, event, mentions);
+      }
       await context.channelStore.audit(
         workspaceId,
         channel.id,
@@ -290,7 +381,12 @@ export async function handleChannelMessageLocalTool(input: {
       const message = messageById(events, messageId, context.actor);
       if (!message) fail("Message was not found.", 404, "message_not_found");
       if (request.method === "GET")
-        return { handled: true, value: { message } };
+        return {
+          handled: true,
+          value: {
+            message: withThreadContext(events, message, context.actor),
+          },
+        };
       if (!actorOwnsMessage(message, context.actor))
         fail(
           "Only the author can change this message.",

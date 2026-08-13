@@ -60,7 +60,8 @@ export function persistedDeployment(
       : {};
   const raw =
     agentDeployments[agentId] ??
-    (agentId === "cmo" ? onboarding.chiefDeployment : undefined);
+    (agentId === "chief" ? agentDeployments.cmo : undefined) ??
+    (agentId === "chief" ? onboarding.chiefDeployment : undefined);
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Record<string, unknown>;
   if (typeof value.url !== "string" || !value.url) return null;
@@ -76,7 +77,7 @@ export function persistedDeployment(
 export function projectSlug(workspaceId: string | null, agentId: string) {
   const suffix = workspaceId?.replace(/[^a-z0-9]/gi, "").slice(-8) ?? "local";
   const agent = agentId.replace(/[^a-z0-9]/gi, "-").toLowerCase();
-  return `chief-${agent === "cmo" ? "" : `${agent}-`}${suffix}`.toLowerCase();
+  return `chief-${agent === "chief" ? "" : `${agent}-`}${suffix}`.toLowerCase();
 }
 
 export function phaseIndex(phase: AgentDeploymentPhase | undefined) {

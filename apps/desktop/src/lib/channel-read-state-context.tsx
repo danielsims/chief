@@ -10,11 +10,14 @@ import {
 } from "react";
 import { useLocation } from "react-router";
 
+import type { ChannelInboxMessage } from "./channel-inbox";
 import type {
   ChannelReadStateBlob,
   ObservedChannelMessage,
 } from "./channel-read-state";
 import { useAuth } from "./auth/auth-context";
+import { channelForConversationRoute } from "./channel-conversation-route";
+import { channelInboxMessages } from "./channel-inbox";
 import {
   advanceReadContext,
   channelContextKey,
@@ -28,23 +31,23 @@ import {
   channelSourceAliasesFrom,
   latestChannelMessageTimestamp,
   MAX_SEEN_LIVE_EVENTS,
+  newSnapshotNotificationMessages,
   readChannelState,
   recordSeenChannelEvent,
   writeChannelState,
 } from "./channel-read-state-storage";
-import {
-  messageNotificationTarget,
-  notifySystem,
-  syncDesktopUnreadBadge,
-} from "./notifications";
+import { messageNotificationTarget, notifySystem } from "./notifications";
 import {
   useRuntime,
   useWorkspaceCapability,
   useWorkspaceChannels,
 } from "./runtime";
+import { useWorkspaceUnreadCounts } from "./workspace-unread-counts";
 
 interface ChannelReadStateValue {
+  inboxMessages: readonly ChannelInboxMessage[];
   unreadChannelCounts: ReadonlyMap<string, number>;
+  workspaceUnreadCounts: ReadonlyMap<string, number>;
   markChannelRead: (channelId: string) => void;
   markThreadRead: (channelId: string, rootId: string) => void;
   setVisibleThread: (channelId: string, rootId: string | null) => void;
@@ -64,7 +67,9 @@ export function ChannelReadStateProvider({
     return (
       <ChannelReadStateContext.Provider
         value={{
+          inboxMessages: [],
           unreadChannelCounts: new Map(),
+          workspaceUnreadCounts: new Map(),
           markChannelRead: () => undefined,
           markThreadRead: () => undefined,
           setVisibleThread: () => undefined,
@@ -197,25 +202,9 @@ function ScopedChannelReadStateProvider({
   );
 
   const activeChannelId = useMemo(() => {
-    if (!location.pathname.startsWith("/conversations")) return null;
-    const params = new URLSearchParams(location.search);
-    const requested = params.get("channel");
-    const requestedDm = params.get("dm");
-    if (requestedDm) {
-      return (
-        channels.find(
-          (channel) =>
-            channel.visibility === "direct" &&
-            channel.agentIds.includes(requestedDm),
-        )?.id ?? null
-      );
-    }
-    if (!requested)
-      return channels.find((channel) => channel.slug === "general")?.id ?? null;
     return (
-      channels.find(
-        (channel) => channel.id === requested || channel.slug === requested,
-      )?.id ?? null
+      channelForConversationRoute(location.pathname, location.search, channels)
+        ?.id ?? null
     );
   }, [channels, location.pathname, location.search]);
 
@@ -228,18 +217,10 @@ function ScopedChannelReadStateProvider({
     const markVisible = () => {
       if (document.visibilityState !== "visible") return;
       const current = locationRef.current;
-      if (!current.pathname.startsWith("/conversations")) return;
-      const params = new URLSearchParams(current.search);
-      const requested = params.get("channel");
-      const requestedDm = params.get("dm");
-      const channel = channelsRef.current.find(
-        (candidate) =>
-          candidate.id === requested ||
-          candidate.slug === requested ||
-          (requestedDm !== null &&
-            candidate.visibility === "direct" &&
-            candidate.agentIds.includes(requestedDm)) ||
-          (!requested && !requestedDm && candidate.slug === "general"),
+      const channel = channelForConversationRoute(
+        current.pathname,
+        current.search,
+        channelsRef.current,
       );
       if (channel) markChannelRead(channel.id);
       const thread = visibleThreadRef.current;
@@ -261,20 +242,11 @@ function ScopedChannelReadStateProvider({
       content: string,
     ) => {
       const currentLocation = locationRef.current;
-      const routeChannel = channelsRef.current.find((channel) => {
-        const params = new URLSearchParams(currentLocation.search);
-        const requested = params.get("channel");
-        const requestedDm = params.get("dm");
-        return (
-          currentLocation.pathname.startsWith("/conversations") &&
-          (channel.id === requested ||
-            channel.slug === requested ||
-            (requestedDm !== null &&
-              channel.visibility === "direct" &&
-              channel.agentIds.includes(requestedDm)) ||
-            (!requested && !requestedDm && channel.slug === "general"))
-        );
-      });
+      const routeChannel = channelForConversationRoute(
+        currentLocation.pathname,
+        currentLocation.search,
+        channelsRef.current,
+      );
       const isVisibleTopLevel =
         !observed.rootId &&
         routeChannel?.id === observed.channelId &&
@@ -326,12 +298,11 @@ function ScopedChannelReadStateProvider({
       title: string,
       content: string,
     ) => {
-      // Thread replies are explicit agent/user responses and must notify even
-      // when the event was seen in an earlier history batch — the user is away
-      // from the channel and expects a ping. The seen-set gates read-state
-      // bookkeeping, not delivery.
-      if (observed.rootId && !notifiedLiveEventsRef.current.has(observed.id)) {
-        notifiedLiveEventsRef.current.add(observed.id);
+      // Notification delivery and read-state hydration have separate
+      // deduplication. A live event may already exist in a history snapshot,
+      // but it still deserves exactly one notification attempt.
+      if (!notifiedLiveEventsRef.current.has(observed.id)) {
+        recordSeenChannelEvent(notifiedLiveEventsRef.current, observed.id);
         notifyForMessage(observed, title, content);
       }
       if (seenLiveEventsRef.current.has(observed.id)) return;
@@ -344,9 +315,6 @@ function ScopedChannelReadStateProvider({
         next.set(observed.channelId, messages);
         return next;
       });
-      if (!observed.rootId) {
-        notifyForMessage(observed, title, content);
-      }
     };
     const unsubscribe = client.subscribe((message) => {
       if (message.type !== "channelEvents" && message.type !== "channelEvent")
@@ -358,6 +326,27 @@ function ScopedChannelReadStateProvider({
           message.channelId,
           channelSourceAliasesFrom(message.events),
         );
+        // Channel creation and subscription changes can race a specialist's
+        // first messages. Those messages then arrive only in the recovery
+        // snapshot. Recover their notification here while keeping all history
+        // from before this provider mounted silent.
+        const channel = channelsRef.current.find(
+          (candidate) => candidate.id === message.channelId,
+        );
+        for (const observed of newSnapshotNotificationMessages(
+          nextMessages.values(),
+          startedAt,
+          notifiedLiveEventsRef.current,
+        )) {
+          recordSeenChannelEvent(notifiedLiveEventsRef.current, observed.id);
+          notifyForMessage(
+            observed,
+            channel?.visibility === "direct"
+              ? observed.actor.name
+              : `${observed.actor.name} in #${channel?.name ?? "channel"}`,
+            observed.content,
+          );
+        }
         for (const id of [...nextMessages.keys()].slice(
           -MAX_SEEN_LIVE_EVENTS,
         )) {
@@ -408,9 +397,15 @@ function ScopedChannelReadStateProvider({
       const channel = channelsRef.current.find(
         (candidate) => candidate.id === observed.channelId,
       );
+      const aliases = sourceAliasesRef.current.get(observed.channelId);
+      const threadSourceId = observed.rootId
+        ? ([...(aliases?.entries() ?? [])].find(
+            ([, eventId]) => eventId === observed.rootId,
+          )?.[0] ?? observed.rootId)
+        : null;
       const sourceId = observed.sourceId ?? observed.id;
       recordLiveMessage(
-        { ...observed, id: sourceId },
+        { ...observed, id: sourceId, threadSourceId },
         channel?.visibility === "direct"
           ? message.event.actor.name
           : `${message.event.actor.name} in #${channel?.name ?? "channel"}`,
@@ -450,22 +445,37 @@ function ScopedChannelReadStateProvider({
       ),
     [observedByChannel, readMarkers],
   );
+  const inboxMessages = useMemo(
+    () => channelInboxMessages(readMarkers, observedByChannel),
+    [observedByChannel, readMarkers],
+  );
   const totalUnread = useMemo(() => {
     let total = 0;
     for (const count of unreadChannelCounts.values()) total += count;
     return total;
   }, [unreadChannelCounts]);
-  useEffect(() => {
-    void syncDesktopUnreadBadge(totalUnread);
-  }, [totalUnread]);
+  const workspaceUnreadCounts = useWorkspaceUnreadCounts(
+    readerId,
+    workspaceId,
+    totalUnread,
+  );
   const value = useMemo<ChannelReadStateValue>(
     () => ({
+      inboxMessages,
       unreadChannelCounts,
+      workspaceUnreadCounts,
       markChannelRead,
       markThreadRead,
       setVisibleThread,
     }),
-    [markChannelRead, markThreadRead, setVisibleThread, unreadChannelCounts],
+    [
+      inboxMessages,
+      markChannelRead,
+      markThreadRead,
+      setVisibleThread,
+      unreadChannelCounts,
+      workspaceUnreadCounts,
+    ],
   );
 
   return (

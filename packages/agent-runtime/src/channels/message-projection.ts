@@ -33,6 +33,34 @@ function targetId(event: ChannelEvent, marker?: string) {
   )?.[1];
 }
 
+function clientId(event: ChannelEvent) {
+  return event.tags.find((tag) => tag[0] === "client")?.[1];
+}
+
+/** Resolves transcript/client IDs to the durable channel event ID. */
+export function resolveChannelMessageId(
+  events: readonly ChannelEvent[],
+  messageId: string,
+) {
+  return (
+    events.find(
+      (event) =>
+        event.kind === 9 &&
+        (event.id === messageId || clientId(event) === messageId),
+    )?.id ?? messageId
+  );
+}
+
+function eventReferences(events: readonly ChannelEvent[], eventId: string) {
+  const canonicalId = resolveChannelMessageId(events, eventId);
+  const event = events.find((candidate) => candidate.id === canonicalId);
+  return new Set(
+    [canonicalId, event ? clientId(event) : undefined].filter(
+      (value): value is string => Boolean(value),
+    ),
+  );
+}
+
 function sameActor(left: ChannelActor, right: ChannelActor) {
   return left.type === right.type && left.id === right.id;
 }
@@ -42,8 +70,9 @@ function isChannelAction(event: ChannelMessageEvent) {
 }
 
 export function isDeleted(events: readonly ChannelEvent[], eventId: string) {
+  const references = eventReferences(events, eventId);
   return events.some(
-    (event) => event.kind === 5 && targetId(event) === eventId,
+    (event) => event.kind === 5 && references.has(targetId(event) ?? ""),
   );
 }
 
@@ -52,16 +81,18 @@ export function messageById(
   messageId: string,
   viewer?: ChannelActor,
 ): ProjectedChannelMessage | undefined {
+  const canonicalId = resolveChannelMessageId(events, messageId);
   const message = events.find(
     (event): event is ChannelMessageEvent =>
-      event.kind === 9 && event.id === messageId,
+      event.kind === 9 && event.id === canonicalId,
   );
   if (!message) return undefined;
+  const references = eventReferences(events, message.id);
   const edits = events
     .filter(
       (event) =>
         event.kind === 40003 &&
-        targetId(event, "edit") === message.id &&
+        references.has(targetId(event, "edit") ?? "") &&
         sameActor(event.actor, message.actor),
     )
     .sort((left, right) => left.createdAt - right.createdAt);
@@ -70,7 +101,7 @@ export function messageById(
     .filter(
       (event) =>
         event.kind === 5 &&
-        targetId(event) === message.id &&
+        references.has(targetId(event) ?? "") &&
         sameActor(event.actor, message.actor),
     )
     .sort((left, right) => left.createdAt - right.createdAt)
@@ -78,7 +109,7 @@ export function messageById(
   const reactions = events.filter(
     (event) =>
       event.kind === 7 &&
-      targetId(event, "reply") === message.id &&
+      references.has(targetId(event, "reply") ?? "") &&
       !isDeleted(events, event.id),
   );
   const grouped = new Map<string, ChannelActor[]>();
@@ -93,9 +124,10 @@ export function messageById(
     (event) =>
       event.kind === 9 &&
       event.id !== message.id &&
-      targetId(event, "root") === message.id &&
+      references.has(targetId(event, "root") ?? "") &&
       !isDeleted(events, event.id),
   );
+  const rawThreadRootId = targetId(message, "root");
   return {
     id: message.id,
     channelId: message.channelId,
@@ -106,7 +138,9 @@ export function messageById(
     editedAt: latestEdit?.createdAt,
     deletedAt: deletion?.createdAt,
     deleted: Boolean(deletion),
-    threadRootId: targetId(message, "root"),
+    threadRootId: rawThreadRootId
+      ? resolveChannelMessageId(events, rawThreadRootId)
+      : undefined,
     replyCount: replies.length,
     reactions: [...grouped.entries()]
       .map(([emoji, members]) => ({
@@ -150,8 +184,11 @@ export function threadMessages(
   viewer?: ChannelActor,
 ) {
   const messages = channelMessages(events, viewer);
+  const canonicalRootId = resolveChannelMessageId(events, rootId);
   return messages.filter(
-    (message) => message.id === rootId || message.threadRootId === rootId,
+    (message) =>
+      message.id === canonicalRootId ||
+      message.threadRootId === canonicalRootId,
   );
 }
 

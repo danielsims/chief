@@ -1,7 +1,4 @@
-import type {
-  ChannelActorIdentity,
-  ChannelAgentPermission,
-} from "@chief/channel-api";
+import type { ChannelActorIdentity } from "@chief/channel-api";
 
 import type { ChannelEvent, WorkspaceChannel } from "./channel-types.js";
 import type { ChannelStore } from "./channels/store.js";
@@ -19,6 +16,7 @@ import {
   requestedMembers,
 } from "./channel-membership-local-tools.js";
 import { handleChannelMessageLocalTool } from "./channel-message-local-tools.js";
+import { ensureChannelPermission } from "./channel-permissions.js";
 
 export interface ChannelLocalToolContext {
   actor: ChannelActorIdentity;
@@ -26,6 +24,16 @@ export interface ChannelLocalToolContext {
   availableAgentIds: readonly string[];
   onChannelsChanged?: () => void | Promise<void>;
   onChannelEvent?: (event: ChannelEvent) => void | Promise<void>;
+  onAgentMentions?: (
+    channel: WorkspaceChannel,
+    event: ChannelEvent,
+    agentIds: readonly string[],
+  ) => void | Promise<void>;
+  beforeMessagePost?: (input: {
+    channel: WorkspaceChannel;
+    content: string;
+    idempotencyKey?: string;
+  }) => void | Promise<void>;
   requestDeletion?: (
     channel: WorkspaceChannel,
     reason: string,
@@ -46,28 +54,6 @@ function parseChannelPath(path: string) {
     channelId: decodeURIComponent(match[1]),
     tail: match[2] ?? "",
   };
-}
-
-function ensurePermission(
-  channel: WorkspaceChannel,
-  actor: ChannelActorIdentity,
-  permission: ChannelAgentPermission,
-) {
-  if (actor.type !== "agent") return;
-  if (!channel.agentIds.includes(actor.id)) {
-    fail(
-      `Join #${channel.name} before managing it.`,
-      403,
-      "not_a_channel_member",
-    );
-  }
-  if (!channel.agentPermissions.includes(permission)) {
-    fail(
-      `The workspace owner has locked ${permission.replaceAll("_", " ")} for #${channel.name}.`,
-      403,
-      "channel_management_locked",
-    );
-  }
 }
 
 function ensureActive(channel: WorkspaceChannel) {
@@ -217,6 +203,26 @@ export async function handleChannelLocalTool(
 
     const parsed = parseChannelPath(path);
     if (!parsed) return { handled: false };
+    const storedChannel = await context.channelStore.get(
+      workspaceId,
+      parsed.channelId,
+    );
+    if (storedChannel?.visibility === "direct") {
+      const directMessageResult = await handleChannelMessageLocalTool({
+        request,
+        workspaceId,
+        body,
+        context,
+        channel: storedChannel,
+        tail: parsed.tail,
+      });
+      if (directMessageResult.handled) return directMessageResult;
+      fail(
+        "Channel was not found in this workspace.",
+        404,
+        "channel_not_found",
+      );
+    }
     const channel = await visibleChannel(
       context,
       workspaceId,
@@ -238,14 +244,14 @@ export async function handleChannelLocalTool(
     }
     if (!parsed.tail && request.method === "PATCH") {
       if (body.workstream !== undefined) {
-        ensurePermission(channel, context.actor, "manage_workstream");
+        ensureChannelPermission(channel, context.actor, "manage_workstream");
       }
       if (
         body.name !== undefined ||
         body.topic !== undefined ||
         body.description !== undefined
       ) {
-        ensurePermission(channel, context.actor, "update_metadata");
+        ensureChannelPermission(channel, context.actor, "update_metadata");
       }
       const updated = await context.channelStore.update(
         workspaceId,
@@ -263,7 +269,7 @@ export async function handleChannelLocalTool(
       return { handled: true, value: { channel: updated } };
     }
     if (parsed.tail === "archive" && request.method === "POST") {
-      ensurePermission(channel, context.actor, "archive");
+      ensureChannelPermission(channel, context.actor, "archive");
       const updated = await context.channelStore.setArchived(
         workspaceId,
         channel.id,
@@ -274,7 +280,7 @@ export async function handleChannelLocalTool(
       return { handled: true, value: { channel: updated } };
     }
     if (parsed.tail === "unarchive" && request.method === "POST") {
-      ensurePermission(channel, context.actor, "archive");
+      ensureChannelPermission(channel, context.actor, "archive");
       const updated = await context.channelStore.setArchived(
         workspaceId,
         channel.id,
@@ -340,7 +346,11 @@ export async function handleChannelLocalTool(
         handled: true,
         value: {
           members: [
-            { id: "workspace-owner", type: "user", role: "owner" },
+            ...channel.userIds.map((userId) => ({
+              id: userId,
+              type: "user",
+              role: userId === "workspace-owner" ? "owner" : "member",
+            })),
             ...channel.agentIds.map((agentId) => ({
               id: agentId,
               type: "agent",
@@ -351,16 +361,20 @@ export async function handleChannelLocalTool(
       };
     }
     if (parsed.tail === "members" && request.method === "POST") {
-      ensurePermission(channel, context.actor, "manage_members");
+      ensureChannelPermission(channel, context.actor, "manage_members");
       ensureActive(channel);
       const requested = requestedMembers(body, context.availableAgentIds, true);
       const addedAgentIds = requested.agentIds.filter(
         (agentId) => !channel.agentIds.includes(agentId),
       );
-      const updated = await context.channelStore.addAgents(
+      const addedUserIds = requested.userIds.filter(
+        (userId) => !channel.userIds.includes(userId),
+      );
+      const updated = await context.channelStore.addMembers(
         workspaceId,
         channel.id,
         requested.agentIds,
+        requested.userIds,
         expectedVersion(body),
       );
       await context.channelStore.audit(
@@ -381,7 +395,7 @@ export async function handleChannelLocalTool(
         workspaceId,
         channel: updated ?? channel,
         agentIds: addedAgentIds,
-        userIds: requested.userIds,
+        userIds: addedUserIds,
         sourceId: idempotencyKey
           ? `channel-api:${idempotencyKey}:members`
           : undefined,
@@ -390,7 +404,7 @@ export async function handleChannelLocalTool(
     }
     const memberMatch = /^members\/([^/]+)$/.exec(parsed.tail);
     if (memberMatch?.[1] && request.method === "DELETE") {
-      ensurePermission(channel, context.actor, "manage_members");
+      ensureChannelPermission(channel, context.actor, "manage_members");
       const agentId = decodeURIComponent(memberMatch[1]);
       if (agentId === "workspace-owner") {
         fail(
@@ -430,7 +444,7 @@ export async function handleChannelLocalTool(
       };
     }
     if (parsed.tail === "deletion-request" && request.method === "POST") {
-      ensurePermission(channel, context.actor, "archive");
+      ensureChannelPermission(channel, context.actor, "archive");
       const reason = textValue(body.reason, "reason", 1_000);
       if (reason.length < 20) {
         fail(

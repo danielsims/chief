@@ -8,12 +8,12 @@ import type {
   WorkspaceChannel,
 } from "../types.js";
 import { composeWorkspaceInstructions } from "../agents.js";
+import { resolveChannelMessageId } from "./message-projection.js";
 import {
   channelChatId,
   channelIdFromChatId,
   createChannelEvent,
   createChannelReaction,
-  GETTING_STARTED_CHANNEL_ID,
 } from "./nip29.js";
 
 type Send = (message: ServerMessage) => void;
@@ -22,23 +22,19 @@ export type ChannelEventBroadcast = (
   event: ChannelEvent,
 ) => void;
 
-export type ChannelAssistantMessage = Extract<
-  AgentEvent,
-  { type: "message" }
-> & { role: "assistant" };
-
-export function isUserFacingChannelMessage(
-  event: AgentEvent,
-): event is ChannelAssistantMessage {
-  return (
-    event.type === "message" &&
-    event.role === "assistant" &&
-    event.content.some(
-      (block) =>
-        block.type === "image" ||
-        (block.type === "text" && block.text.trim().length > 0),
-    )
-  );
+/**
+ * Shared-channel publication is explicit. Provider narration stays in the
+ * private runtime transcript, while this tool writes the messages people see.
+ */
+export function channelPublicationInstructions(
+  channelId: string,
+  threadRootId?: string,
+) {
+  return [
+    "Your ordinary assistant text is private working output and is not published into this shared channel.",
+    `Publish each deliberate user-facing update with localTools.channelsMessagesPost using channelId ${JSON.stringify(channelId)}${threadRootId ? ` and threadRootId ${JSON.stringify(threadRootId)}` : ""}.`,
+    "Only publish a useful acknowledgement, meaningful checkpoint, user action request, blocker, or verified result. Do not publish tool narration, planning notes, retries, or text such as ‘let me check’. Normal tool calls and their results remain visible in Activity.",
+  ].join("\n");
 }
 
 export async function mirrorEvent(
@@ -71,11 +67,11 @@ export async function mirrorEvent(
       )
     : undefined;
   if (existing) return existing;
-  // The thread root is stored as the owning transcript message id (the
-  // `client` tag), never the mirrored event's own hash, so the client can map
-  // a thread reply back to the same thread the transcript uses. This is what
-  // keeps a thread reply out of the main timeline.
-  const threadRootId = agentEvent.threadRootId ?? undefined;
+  // Protocol references use the durable event hash. The client maps it back to
+  // the transcript ID through the root event's `client` tag.
+  const threadRootId = agentEvent.threadRootId
+    ? resolveChannelMessageId(events, agentEvent.threadRootId)
+    : undefined;
   const event = createChannelEvent({
     workspaceId,
     channelId,
@@ -83,7 +79,7 @@ export async function mirrorEvent(
       agentEvent.role === "assistant"
         ? {
             type: "agent",
-            id: assistantActor?.id ?? "cmo",
+            id: assistantActor?.id ?? "chief",
             name: assistantActor?.name ?? "Chief",
           }
         : { type: "user", id: "workspace-owner", name: "You" },
@@ -244,7 +240,7 @@ export async function handleRequest(
           channelId: message.channelId,
           actor:
             storedMessage.role === "assistant"
-              ? { type: "agent", id: "cmo", name: "Chief" }
+              ? { type: "agent", id: "chief", name: "Chief" }
               : { type: "user", id: "workspace-owner", name: "You" },
           content,
           parts: storedMessage.parts,
@@ -347,6 +343,7 @@ export function channelInstructions(
   baseInstructions: string,
   purpose: string | undefined,
   channel: WorkspaceChannel | undefined,
+  missionControlChannelId?: string,
 ) {
   const base =
     purpose === "integration-setup"
@@ -361,14 +358,15 @@ export function channelInstructions(
     ].join("\n\n");
   }
   const responseGuidance =
-    channel.id === GETTING_STARTED_CHANNEL_ID
-      ? "This private setup channel is an active conversation: every user post wakes Chief unless another member agent is explicitly addressed. Lead the setup conversationally, read onboarding/getting-started.md for the selected work, and involve Setup through visible delegation when useful. During the automatic kickoff, follow its exact opener instruction and do not add a second acknowledgement. For later user messages, reply naturally and proceed: open the browser and drive setup directly, pausing only for a genuine human step like sign-in or consent."
-      : "Ordinary channel posts are shared context and do not require an agent response. When your identity is addressed, answer directly as yourself in that message's thread. After the user explicitly addresses you in a thread, their subsequent replies in that thread may remain routed to you without repeating the textual @mention; treat recipient metadata as the wake signal and keep the response in that thread.";
+    channel.id === missionControlChannelId
+      ? `This is the workspace's assigned mission channel, #${channel.name}. Every user post wakes Chief unless another member agent is explicitly addressed. Use it for direction, decisions, handoffs, and compact linked status. During onboarding, follow the exact opener and kickoff instructions without adding another acknowledgement. A named specialist acknowledges inside its kickoff thread, then keeps detailed work in its own subject channel; Setup and authentication stay in the private #setup channel. Do not copy their working transcript, browser, files, or routine progress into this channel. Inspect those rooms before reporting one concise decision, blocker, or outcome that changes the wider plan. This convention grants no extra tool authority.`
+      : "Ordinary channel posts are shared context and do not require an agent response. When your identity is addressed, answer directly as yourself in that message's thread. Keep the detailed work, browser sessions, files, and final result in that owning thread. After the user explicitly addresses you there, their later replies may remain routed to you without repeating the textual @mention; treat recipient metadata as the wake signal. If channel metadata updates are permitted, keep its topic or description concise and current when the work meaningfully changes, not after routine tool calls.";
   return [
     base,
     `You are working in Chief's shared #${channel.name} channel (${channel.id}).`,
     `The channel follows NIP-29 semantics and is shared with the user and these member agents: ${channel.agentIds.join(", ")}.`,
-    "Treat its durable transcript as shared context. Delegate to the relevant member agent when specialist ownership helps, preserve the user's conversational thread, and bring the useful result back into this same channel.",
+    "Treat its durable transcript as shared context. Preserve the user's conversational thread and publish the useful result in the channel and thread that own the work.",
+    channelPublicationInstructions(channel.id),
     responseGuidance,
     "Use this agent pack's declared delegation tool so Chief can expose the specialist as an inspectable session. When localTools.specialistsDelegate is available, use it instead of provider-native or hidden background-agent features. Never imitate delegation with empty assistant messages.",
   ].join("\n\n");
@@ -379,11 +377,17 @@ export function agentForChannel(
   purpose: string | undefined,
   channel: WorkspaceChannel | undefined,
   workspaceContext: string | undefined,
+  missionControlChannelId?: string,
 ) {
   return {
     ...agent,
     instructions: composeWorkspaceInstructions(
-      channelInstructions(agent.instructions, purpose, channel),
+      channelInstructions(
+        agent.instructions,
+        purpose,
+        channel,
+        missionControlChannelId,
+      ),
       workspaceContext,
     ),
   };

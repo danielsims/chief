@@ -19,9 +19,16 @@ export interface OnboardingWorkInput {
     notes: string;
     files: BrandFile[];
   };
-  analytics: { integrations: IntegrationSearchResult[] };
+  analytics: {
+    integrations: IntegrationSearchResult[];
+    selection?: "selected" | "none" | "skipped" | null;
+  };
   ads: { integrations: IntegrationSearchResult[] };
   aeo: { trackAiReferrals: boolean };
+  engineering: {
+    enabled: boolean | null;
+    integrations: IntegrationSearchResult[];
+  };
 }
 
 const BRAND_KICKOFF_TOOLS = [
@@ -54,6 +61,12 @@ const ANALYST_KICKOFF_TOOLS = [
   "tools.google_analytics.org.main.*",
   "tools.chief-local.org.localworkspace.localTools.analyticsSaveDataset",
   "tools.chief.org.workspace.agentTools.uiPresentChart",
+];
+
+const ENGINEERING_KICKOFF_TOOLS = [
+  "tools.search",
+  "tools.executor.coreTools.connections.list",
+  "tools.chief.org.workspace.agentTools.sourcesList",
 ];
 
 export function buildOnboardingWorkJobs(
@@ -96,8 +109,13 @@ export function buildOnboardingWorkJobs(
           },
         ];
 
+  const analyticsIntegrations =
+    input.analytics.selection === "none" ||
+    input.analytics.selection === "skipped"
+      ? []
+      : input.analytics.integrations;
   const selectedIntegrations = [
-    ...input.analytics.integrations.map((integration) => ({
+    ...analyticsIntegrations.map((integration) => ({
       ...integration,
       category: "analytics",
     })),
@@ -137,7 +155,7 @@ export function buildOnboardingWorkJobs(
     },
   );
   const analystJobs: OnboardingWorkJob[] =
-    input.analytics.integrations.length > 0
+    analyticsIntegrations.length > 0
       ? [
           {
             id: onboardingScopedId(input.workspaceId, "initial-growth-report"),
@@ -159,6 +177,32 @@ export function buildOnboardingWorkJobs(
         ]
       : [];
 
+  const engineeringJob: OnboardingWorkJob[] =
+    input.engineering.enabled === true
+      ? [
+          {
+            id: onboardingScopedId(
+              input.workspaceId,
+              "engineering-channel-kickoff",
+            ),
+            agentId: "engineer",
+            title: "Prepare the engineering workspace",
+            runAt: Date.now(),
+            timezone: input.timezone,
+            proposedToolPatterns: ENGINEERING_KICKOFF_TOOLS,
+            instructions: [
+              "Launch this independently in the initial concurrent kickoff. Work in the Engineering channel and do not wait for brand, prospecting, analytics, or setup work.",
+              `Company website: ${input.websiteUrl}`,
+              input.engineering.integrations.length > 0
+                ? `The user selected these engineering services during onboarding: ${input.engineering.integrations.map((integration) => `${integration.name} (${integration.domain})`).join(", ")}. Treat these selections as intent, not proof that an account is connected.`
+                : "The user enabled engineering help without selecting a repository, deployment, or website service.",
+              "Inspect the available workspace context and connected sources read-only. Then post a short welcome in the Engineering channel explaining what you can help with and recommend the single cleanest next connection or inspection based on the user's selections.",
+              "Do not authenticate, connect a service, change code, create a branch, or deploy anything during this welcome. Let the user choose the next concrete engineering task; Setup or the upcoming plugin flow can handle any connection they approve.",
+            ].join("\n\n"),
+          },
+        ]
+      : [];
+
   const prospectorJob: OnboardingWorkJob = {
     id: onboardingScopedId(input.workspaceId, "initial-prospecting"),
     agentId: "prospector",
@@ -170,12 +214,19 @@ export function buildOnboardingWorkJobs(
       "Launch this as one independent delegation in the initial concurrent Chief kickoff. Do not wait for brand research, integration setup, or analytics.",
       "Use the workspace ideal customer, monitored channels, product, and public website as the qualification brief.",
       "Find five to eight recent, high-confidence people, companies, or public conversations with a concrete reason to care now. Search public Reddit and other accessible web communities even when no connector is installed.",
+      "Make at most three deliberate search passes. If a site blocks direct access or a search engine rate-limits, use one accessible fallback and then continue with indexed snippets or other public sources. Do not brute-force mirrors, retry captchas, or inspect Chief's connections and runtime internals.",
       "Every result must have a direct HTTP source URL, quoted or specific evidence, relevance, and a useful value-first reply or outreach angle.",
-      "Save every qualified result with prospectsSave before returning it to Chief. Do not return an unsaved list and do not invent people, posts, or URLs.",
+      "Save every qualified result with the direct localTools.prospectsSave tool before returning it to Chief. Return fewer results when the evidence is genuinely sparse rather than looping. Do not return an unsaved list and do not invent people, posts, or URLs.",
     ].join("\n\n"),
   };
 
-  return [...brandJob, ...setupJobs, prospectorJob, ...analystJobs];
+  return [
+    ...brandJob,
+    ...setupJobs,
+    ...engineeringJob,
+    prospectorJob,
+    ...analystJobs,
+  ];
 }
 
 function integrations(value: unknown): IntegrationSearchResult[] {
@@ -210,6 +261,10 @@ export function onboardingWorkFromMetadata(
     onboarding.aeo && typeof onboarding.aeo === "object"
       ? (onboarding.aeo as Record<string, unknown>)
       : {};
+  const engineering =
+    onboarding.engineering && typeof onboarding.engineering === "object"
+      ? (onboarding.engineering as Record<string, unknown>)
+      : {};
   return buildOnboardingWorkJobs({
     workspaceId,
     companyName,
@@ -237,8 +292,27 @@ export function onboardingWorkFromMetadata(
           )
         : [],
     },
-    analytics: { integrations: integrations(onboarding.analytics) },
+    analytics: {
+      integrations: integrations(onboarding.analytics),
+      selection:
+        onboarding.analytics && typeof onboarding.analytics === "object"
+          ? (() => {
+              const selection = (
+                onboarding.analytics as Record<string, unknown>
+              ).selection;
+              return selection === "selected" ||
+                selection === "none" ||
+                selection === "skipped"
+                ? selection
+                : null;
+            })()
+          : null,
+    },
     ads: { integrations: integrations(onboarding.ads) },
     aeo: { trackAiReferrals: aeo.trackAiReferrals === true },
+    engineering: {
+      enabled: engineering.enabled === true,
+      integrations: integrations(engineering),
+    },
   });
 }

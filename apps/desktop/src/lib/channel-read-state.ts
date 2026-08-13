@@ -11,6 +11,9 @@ export interface ObservedChannelMessage {
   createdAt: number;
   rootId: string | null;
   sourceId: string | null;
+  threadSourceId: string | null;
+  content: string;
+  actor: ChannelEvent["actor"];
 }
 
 export const EMPTY_CHANNEL_READ_STATE: ChannelReadStateBlob = {
@@ -56,7 +59,12 @@ export function isOwnChannelEvent(event: ChannelEvent) {
 export function observedChannelMessage(
   event: ChannelEvent,
 ): ObservedChannelMessage | null {
-  if (event.kind !== 9 || isOwnChannelEvent(event)) return null;
+  if (
+    event.kind !== 9 ||
+    isOwnChannelEvent(event) ||
+    event.tags.some((tag) => tag[0] === "notification" && tag[1] === "silent")
+  )
+    return null;
   const sourceId = channelEventSourceId(event);
   return {
     id: sourceId ?? event.id,
@@ -64,6 +72,9 @@ export function observedChannelMessage(
     createdAt: event.createdAt,
     rootId: channelEventThreadRootId(event),
     sourceId,
+    threadSourceId: null,
+    content: event.content,
+    actor: event.actor,
   };
 }
 

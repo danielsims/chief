@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AgentDefinition } from "./types.js";
+import { listAgentSkills } from "./agent-skills.js";
 import {
   composeWorkspaceInstructions,
   defaultAgents,
@@ -107,6 +108,18 @@ function assertSlug(value: string, kind: string) {
   if (!SLUG.test(value)) {
     throw new Error(`Invalid ${kind} id: ${value}`);
   }
+}
+
+function writeAgentSkills(agentId: string, target: string) {
+  mkdirSync(target, { recursive: true });
+  const ids = new Set<string>();
+  for (const skill of listAgentSkills(agentId)) {
+    assertSlug(skill.id, "skill");
+    if (ids.has(skill.id)) throw new Error(`Duplicate skill id: ${skill.id}`);
+    ids.add(skill.id);
+    writeFileSync(join(target, `${skill.id}.md`), `${skill.instructions}\n`);
+  }
+  return ids;
 }
 
 function composeSpecialistInstructions(
@@ -283,7 +296,7 @@ export function materializeEveWorkspace(
   input: EveWorkspaceInput,
 ) {
   const agentRoot = join(root, "agent");
-  const rootAgent = getAgent(input.agentId ?? "cmo");
+  const rootAgent = getAgent(input.agentId ?? "chief");
   if (!rootAgent) throw new Error("Deployment agent missing from roster.");
   const playbooks = input.playbooks ?? [];
   const automations = input.automations ?? [];
@@ -363,12 +376,19 @@ export function materializeEveWorkspace(
     mkdirSync(join(target, "tools"), { recursive: true });
     writeDisabledTool(join(target, "tools", "bash.ts"));
     writeDisabledTool(join(target, "tools", "write_file.ts"));
+    writeAgentSkills(id, join(target, "skills"));
   }
 
   rmSync(join(agentRoot, "skills"), { recursive: true, force: true });
-  mkdirSync(join(agentRoot, "skills"), { recursive: true });
+  const rootSkillIds = writeAgentSkills(
+    rootAgent.id,
+    join(agentRoot, "skills"),
+  );
   for (const playbook of playbooks) {
     assertSlug(playbook.id, "playbook");
+    if (rootSkillIds.has(playbook.id)) {
+      throw new Error(`Playbook conflicts with agent skill: ${playbook.id}`);
+    }
     writeFileSync(
       join(agentRoot, "skills", `${playbook.id}.md`),
       [

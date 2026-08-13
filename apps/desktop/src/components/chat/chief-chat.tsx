@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { useMemo, useRef } from "react";
 import { ArrowDown } from "lucide-react";
 
 import type { BrowserRunRecord } from "@chief/agent-runtime/types";
@@ -11,6 +11,7 @@ import { ApprovalCard } from "./approval-card";
 import { approvalBelongsToSurface } from "./approval-presentation";
 import { BrowserSessionAttachment } from "./browser-panel";
 import { ChatComposer } from "./chat-composer";
+import { ChatTimeline } from "./chat-timeline";
 import { ChiefChatAuxiliaryPanels } from "./chief-chat-auxiliary-panels";
 /**
  * Memoized per-message content. Thread rows are referentially stable after the
@@ -24,15 +25,16 @@ import {
   ChannelMembershipMessage,
   ChatSkeleton,
   ChiefMessage,
+  ConversationEmptyState,
   MessageBlocksContent,
 } from "./chief-chat-message-components";
-import { SpecialistTaskCard } from "./message-blocks";
 import { QuestionCard } from "./question-card";
 import { RecurringWorkComposer } from "./recurring-work-composer";
 import { useChiefChatComposer } from "./use-chief-chat-composer";
 import { useChiefChatCore } from "./use-chief-chat-core";
 import { useChiefChatPresentation } from "./use-chief-chat-presentation";
 import { useChiefChatTimeline } from "./use-chief-chat-timeline";
+import { useMainAgentActivity } from "./use-main-agent-activity";
 import { UserMessage } from "./user-message";
 
 /**
@@ -61,6 +63,9 @@ export function ChiefChat({
   onInitialPromptSent,
   onCloseChild,
   onOpenChild,
+  channelReferences = [],
+  onOpenChannel,
+  onThreadRootChange,
   onOpenProfile,
   onOpenInternalPanel,
   activityOpen,
@@ -69,6 +74,12 @@ export function ChiefChat({
   profileOpen = false,
   header,
 }: ChiefChatProps) {
+  const pictureInPictureContainerRef = useRef<HTMLDivElement>(null);
+  const pictureInPictureComposerRef = useRef<HTMLDivElement>(null);
+  const pictureInPictureAvoidRefs = useMemo(
+    () => [pictureInPictureComposerRef],
+    [],
+  );
   const core = useChiefChatCore({
     channel,
     chatId,
@@ -92,12 +103,14 @@ export function ChiefChat({
       isNew,
       onInitialPromptSent,
       onOpenProfile,
+      onThreadRootChange,
     },
   });
   const {
     activeCapabilities,
     activeExecution,
     activityAgentLabel,
+    activeRootTurn,
     anchorBrowserSession,
     browserRuns,
     browserSessions,
@@ -115,7 +128,6 @@ export function ChiefChat({
     provideInput,
     respondPermission,
     respondQuestion,
-    runtimeStatus,
     setActivityOpen,
     setAnsweredInputs,
     setSelectedExecution,
@@ -167,12 +179,27 @@ export function ChiefChat({
     threadRootId,
     threadScrollRef,
   });
-  const { childSessionOwners, showOptimisticInitialPrompt, timelineEntries } =
-    timelineState;
+  const {
+    activeMainChildSessions,
+    childSessionOwners,
+    showOptimisticInitialPrompt,
+    timelineEntries,
+  } = timelineState;
+  const { agents: mainActivityAgents, statusLabel: mainStatusLabel } =
+    useMainAgentActivity({
+      activeRootTurn,
+      channelAgentIds: channel?.agentIds,
+      directAgentId: directAgent?.id,
+      running: controls.status === "running",
+      statusLabel,
+      tasks: activeMainChildSessions,
+    });
   const browserAttachmentNode = (run: BrowserRunRecord) => (
     <div className="mx-auto w-full max-w-3xl py-1 pl-11">
       <BrowserSessionAttachment
         operating={controls.status === "running"}
+        pictureInPictureAvoidRefs={pictureInPictureAvoidRefs}
+        pictureInPictureContainerRef={pictureInPictureContainerRef}
         run={run}
       />
     </div>
@@ -198,9 +225,13 @@ export function ChiefChat({
     <div className="relative flex h-full min-w-0 overflow-hidden">
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {header}
-        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-5 pb-3">
+        <div
+          ref={pictureInPictureContainerRef}
+          className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-5 pb-3"
+        >
           <div
             ref={mainScrollRef}
+            data-chat-timeline
             className="min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto py-6 pr-2"
           >
             {/* A new chat has nothing to replay, so its identity header renders
@@ -225,32 +256,10 @@ export function ChiefChat({
             !composerOpen &&
             messages.length === 0 &&
             !showOptimisticInitialPrompt ? (
-              <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-                <p className="text-2xl font-medium tracking-[-0.03em]">
-                  {channel
-                    ? `#${channel.label}`
-                    : (directAgent?.name ?? "Chief")}
-                </p>
-                <p className="text-muted-foreground max-w-md text-sm">
-                  {channel
-                    ? channel.description
-                    : directAgent
-                      ? `A private conversation with ${directAgent.name}.`
-                      : "Your CMO. Ask anything, and Chief will bring in the right specialist."}
-                </p>
-                {channel ? (
-                  <p className="text-muted-foreground/75 text-xs">
-                    {channel.agentIds.length} agents share this channel’s
-                    context.
-                  </p>
-                ) : null}
-                {runtimeStatus !== "connected" && (
-                  <p className="text-muted-foreground mt-4 border border-dashed px-3 py-2 text-xs">
-                    Agent runtime not connected. Run <code>pnpm dev</code> in
-                    the repo root.
-                  </p>
-                )}
-              </div>
+              <ConversationEmptyState
+                channel={channel}
+                directAgent={directAgent}
+              />
             ) : null}
             {showOptimisticInitialPrompt && optimisticInitialPrompt ? (
               <UserMessage
@@ -262,39 +271,25 @@ export function ChiefChat({
                     : undefined
                 }
                 metadata={channel ? null : undefined}
+                channelReferences={channelReferences}
+                onOpenChannel={onOpenChannel}
                 onOpenProfile={openUserProfile}
                 onOpenMention={openAgentMention}
               />
             ) : null}
-            {channelResolved || isNew
-              ? timelineEntries.map((entry) => {
+            {channelResolved || isNew ? (
+              <ChatTimeline
+                entries={timelineEntries}
+                renderEntry={(entry) => {
                   if (entry.type === "browser") {
-                    return (
-                      <Fragment key={entry.key}>
-                        {browserAttachmentNode(entry.run)}
-                      </Fragment>
-                    );
-                  }
-                  if (entry.type === "specialist") {
-                    return (
-                      <div
-                        key={entry.task.id}
-                        className="mx-auto w-full max-w-3xl pl-11"
-                      >
-                        <SpecialistTaskCard
-                          task={entry.task}
-                          onOpenTask={onOpenChild}
-                        />
-                      </div>
-                    );
+                    return browserAttachmentNode(entry.run);
                   }
                   const { message } = entry;
-                  if (channel && message.metadata?.threadRootId) return null;
                   if (message.metadata?.channelAction) {
                     return (
                       <ChannelMembershipMessage
-                        key={message.id}
                         action={message.metadata.channelAction}
+                        timestamp={message.metadata.createdAt}
                         userImage={userAuthor.image}
                       />
                     );
@@ -302,7 +297,7 @@ export function ChiefChat({
                   if (message.role === "user") {
                     if (message.id === `${chatId}-kickoff`) return null;
                     return (
-                      <div id={`chief-message-${message.id}`} key={message.id}>
+                      <div id={`chief-message-${message.id}`}>
                         <UserMessage
                           author={userAuthor}
                           acknowledgedBy={
@@ -312,8 +307,11 @@ export function ChiefChat({
                           }
                           attachments={imageParts(message)}
                           metadata={channel ? null : undefined}
+                          channelReferences={channelReferences}
+                          onOpenChannel={onOpenChannel}
                           onOpenProfile={openUserProfile}
                           onOpenMention={openAgentMention}
+                          timestamp={message.metadata?.createdAt}
                           {...controlsForMessage(message)}
                           text={messageBlocks(message)
                             .flatMap((part) =>
@@ -330,11 +328,11 @@ export function ChiefChat({
                   const timelineFilter = visibleConversationBlocks;
                   return (
                     <ChiefMessage
-                      key={message.id}
                       messageId={message.id}
                       agent={respondingAgentFor(message)}
                       metadata={channel ? null : undefined}
                       onOpenProfile={selectProfile}
+                      timestamp={message.metadata?.createdAt}
                       {...controlsForMessage(message)}
                     >
                       <MessageBlocksContent
@@ -346,12 +344,15 @@ export function ChiefChat({
                         tasks={childSessions}
                         taskOwners={childSessionOwners}
                         ownerId={message.id}
+                        channelReferences={channelReferences}
+                        onOpenChannel={onOpenChannel}
                         onOpenTask={onOpenChild}
                       />
                     </ChiefMessage>
                   );
-                })
-              : null}
+                }}
+              />
+            ) : null}
             {controls.approvals
               .filter((approval) => approvalBelongsToSurface(approval, null))
               .map((approval) => (
@@ -394,7 +395,10 @@ export function ChiefChat({
             <div ref={bottomRef} />
           </div>
 
-          <div className="relative mx-auto w-full max-w-3xl">
+          <div
+            ref={pictureInPictureComposerRef}
+            className="relative mx-auto w-full max-w-3xl"
+          >
             {mainScrolledUp && channelResolved ? (
               <button
                 type="button"
@@ -444,13 +448,22 @@ export function ChiefChat({
                 }
               />
               <AgentActivityComposerRow
+                agents={mainActivityAgents}
                 agentLabel={activityAgentLabel}
-                running={controls.status === "running"}
-                statusLabel={statusLabel}
+                running={mainActivityAgents.length > 0}
+                statusLabel={mainStatusLabel}
                 onOpen={() => {
+                  const onlyAgent = mainActivityAgents[0];
+                  if (
+                    mainActivityAgents.length === 1 &&
+                    onlyAgent?.taskId &&
+                    onOpenChild
+                  ) {
+                    onOpenChild(onlyAgent.taskId);
+                    return;
+                  }
                   setThreadRootId(null);
                   setActivityOpen(true);
-                  onOpenInternalPanel?.();
                 }}
               />
             </div>
@@ -459,7 +472,6 @@ export function ChiefChat({
       </div>
       <ChiefChatAuxiliaryPanels
         activeThreadSummary={activeThreadSummary}
-        browserAttachmentNode={browserAttachmentNode}
         composer={composerState}
         core={core}
         imageParts={imageParts}
@@ -467,9 +479,10 @@ export function ChiefChat({
           activeChild,
           activityOpen,
           channel,
+          channelReferences,
+          onOpenChannel,
           onCloseChild,
           onOpenChild,
-          onOpenInternalPanel,
           panelSizing,
           profileOpen,
         }}

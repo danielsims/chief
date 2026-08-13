@@ -16,7 +16,10 @@ export interface ConversationActivityTurn {
 
 function activityBlocks(blocks: readonly ContentBlock[]) {
   return blocks.filter(
-    (block) => block.type === "tool_use" || block.type === "tool_result",
+    (block) =>
+      block.type === "thinking" ||
+      block.type === "tool_use" ||
+      block.type === "tool_result",
   );
 }
 

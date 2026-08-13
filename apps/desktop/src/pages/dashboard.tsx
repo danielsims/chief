@@ -1,8 +1,9 @@
 /* eslint-disable max-lines */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
+  CalendarDays,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -67,8 +68,6 @@ import {
 } from "../lib/runtime";
 import {
   actionConversation,
-  GETTING_STARTED_CHANNEL_ID,
-  GETTING_STARTED_CHANNEL_RELAY_ID,
   resolvedChannelChatId,
   WORKSPACE_AGENT_IDENTITIES,
 } from "../lib/workspace-channels";
@@ -76,22 +75,22 @@ import {
 const AGENT_NAMES: Record<string, string> = {
   ads: "Ads Manager",
   analyst: "Analyst",
-  brand: "Brand Researcher",
-  cmo: "Chief Marketing Officer",
+  brand: "Marketer",
+  chief: "Chief",
   content: "Content Writer",
   engineer: "Engineer",
   prospector: "Prospector",
   setup: "Setup",
 };
 
-const LEARNING_ACTION_ID = "workspace-getting-started";
+const LEARNING_ACTION_ID = "workspace-onboarding";
 
 const OVERVIEW_MENTION_CANDIDATES = Object.entries(WORKSPACE_AGENT_IDENTITIES)
   .filter(([id]) => id !== "setup")
   .map(([id, identity]) => ({
     id,
     ...identity,
-    member: id === "cmo",
+    member: id === "chief",
   }));
 
 const overviewSurface =
@@ -238,8 +237,6 @@ function scheduleDate(timestamp: number, timezone: string, now: number) {
 export function DashboardPage() {
   const navigate = useNavigate();
   const prefersReducedMotion = useReducedMotion();
-  const scheduleScrollRef = useRef<HTMLDivElement>(null);
-  const scheduleFocusRef = useRef<HTMLButtonElement>(null);
   const [ask, setAsk] = useState("");
   const [askAttachments, setAskAttachments] = useState<
     ComposerImageAttachment[]
@@ -353,7 +350,12 @@ export function DashboardPage() {
   ]);
   const preparationRoot = workspaceData.activity.find(
     (session) =>
-      session.id.startsWith("workspace-kickoff-") &&
+      (session.id.startsWith("workspace-kickoff-") ||
+        session.id.endsWith(
+          `:${workspaceData.waysOfWorking.missionControlChannelId}`,
+        ) ||
+        session.title === "Initial business review" ||
+        session.title === "Getting started") &&
       session.kind === "conversation" &&
       session.visibility === "user",
   );
@@ -378,17 +380,15 @@ export function DashboardPage() {
         workspaceData.now - session.updatedAt < 10 * 60_000,
     ),
   );
-  const gettingStartedOpenedAt = cloudOrganizationId
-    ? Number(
-        sessionStorage.getItem(`chief:getting-started:${cloudOrganizationId}`),
-      )
+  const onboardingOpenedAt = cloudOrganizationId
+    ? Number(sessionStorage.getItem(`chief:onboarding:${cloudOrganizationId}`))
     : Number.NaN;
-  const gettingStartedPending = Boolean(
-    Number.isFinite(gettingStartedOpenedAt) &&
-    workspaceData.now - gettingStartedOpenedAt < 10 * 60_000 &&
+  const onboardingPending = Boolean(
+    Number.isFinite(onboardingOpenedAt) &&
+    workspaceData.now - onboardingOpenedAt < 10 * 60_000 &&
     (!preparationRoot || preparationRoot.status === "idle"),
   );
-  const showLearningCard = gettingStartedPending || preparationActive;
+  const showLearningCard = onboardingPending || preparationActive;
   const overviewActions = useMemo<OverviewAction[]>(
     () => [
       ...(showLearningCard
@@ -396,7 +396,7 @@ export function DashboardPage() {
             {
               id: LEARNING_ACTION_ID,
               title: "Finish setting up with Chief",
-              agentId: "cmo",
+              agentId: "chief",
             },
           ]
         : []),
@@ -413,11 +413,12 @@ export function DashboardPage() {
     if (
       cloudOrganizationId &&
       preparationRoot &&
-      preparationRoot.status !== "idle"
+      preparationRoot.status !== "idle" &&
+      preparationChildren.length > 0
     ) {
-      sessionStorage.removeItem(`chief:getting-started:${cloudOrganizationId}`);
+      sessionStorage.removeItem(`chief:onboarding:${cloudOrganizationId}`);
     }
-  }, [cloudOrganizationId, preparationRoot]);
+  }, [cloudOrganizationId, preparationChildren.length, preparationRoot]);
   const requestedOverviewActionIndex = selectedActionId
     ? overviewActions.findIndex((item) => item.id === selectedActionId)
     : 0;
@@ -465,7 +466,7 @@ export function DashboardPage() {
                 Intl.DateTimeFormat().resolvedOptions().timeZone)
               : Intl.DateTimeFormat().resolvedOptions().timeZone,
             title: "Chief is working",
-            agentId: "cmo",
+            agentId: "chief",
             taskCount: activeTasks.length,
             parentId: firstActiveTask.parentId,
             status: firstActiveTask.status,
@@ -519,26 +520,6 @@ export function DashboardPage() {
     workspaceData.now,
     workspaceData.recurringWork,
   ]);
-  const focusedTimelineItemId =
-    agentWorkTimeline.find((item) => item.kind === "active")?.id ??
-    agentWorkTimeline.find((item) => item.kind === "upcoming")?.id ??
-    agentWorkTimeline.at(-1)?.id;
-
-  useEffect(() => {
-    const container = scheduleScrollRef.current;
-    const target = scheduleFocusRef.current;
-    if (!container || !target || !focusedTimelineItemId) return;
-    const frame = window.requestAnimationFrame(() => {
-      const top =
-        target.offsetTop - container.clientHeight / 2 + target.clientHeight / 2;
-      container.scrollTo({
-        top: Math.max(0, top),
-        behavior: prefersReducedMotion ? "auto" : "smooth",
-      });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [focusedTimelineItemId, prefersReducedMotion]);
-
   const analyticsSlides = useMemo<AnalyticsSlide[]>(() => {
     const currentTraffic = periodMetric(analytics30, [
       "activeUsers",
@@ -757,7 +738,7 @@ export function DashboardPage() {
       void navigate("/analytics");
       return;
     }
-    if (action.sourceId === "agent-cmo") {
+    if (action.sourceId === "agent-chief") {
       void navigate("/agents");
       return;
     }
@@ -765,7 +746,7 @@ export function DashboardPage() {
       const prompt =
         `@Setup, help me complete “${action.title}” here with Chief. ${action.reason.trim()}`.trim();
       const params = new URLSearchParams({
-        channel: GETTING_STARTED_CHANNEL_ID,
+        channel: workspaceData.waysOfWorking.missionControlChannelId,
         prompt,
       });
       void navigate(`/conversations?${params.toString()}`);
@@ -780,7 +761,11 @@ export function DashboardPage() {
     }
     const prompt =
       `Please action “${action.title}”. ${action.reason.trim()}`.trim();
-    const destination = actionConversation(action);
+    const destination = actionConversation({
+      ...action,
+      missionControlChannelId:
+        workspaceData.waysOfWorking.missionControlChannelId,
+    });
     const params = new URLSearchParams({ prompt });
     params.set(destination.kind, destination.id);
     void navigate(`/conversations?${params.toString()}`);
@@ -810,10 +795,10 @@ export function DashboardPage() {
   const useCodexLocally = () => {
     if (!cloudOrganizationId || !currentAction) return;
     const existing = agentPreferences.preferences.find(
-      (preference) => preference.agentId === "cmo",
+      (preference) => preference.agentId === "chief",
     );
     setWorkspaceProvider(cloudOrganizationId, "codex");
-    setAgentOverride(cloudOrganizationId, "cmo", {
+    setAgentOverride(cloudOrganizationId, "chief", {
       driver: "codex",
       model: undefined,
       enabled: true,
@@ -830,7 +815,7 @@ export function DashboardPage() {
       attachments: askAttachments,
     });
     const params = new URLSearchParams({
-      dm: "cmo",
+      dm: "chief",
       handoff,
     });
     void navigate(`/conversations?${params.toString()}`);
@@ -840,7 +825,7 @@ export function DashboardPage() {
   const firstName = profileFirstName ?? "there";
   const preparingWorkspace =
     workspaceData.loading ||
-    gettingStartedPending ||
+    onboardingPending ||
     preparationActive ||
     Boolean(continuingChatId);
   const activeAnalyticsSlide =
@@ -861,7 +846,7 @@ export function DashboardPage() {
           <WorkspaceIndicator organization={organization} />
         </header>
 
-        <section className="grid max-h-[min(640px,calc(100vh-250px))] min-h-0 w-full flex-none grid-cols-[minmax(0,1.7fr)_minmax(310px,0.9fr)] gap-3.5 max-[930px]:grid-cols-[minmax(0,1fr)_300px] max-[760px]:max-h-none max-[760px]:grid-cols-1">
+        <section className="grid h-[clamp(500px,calc(100vh-250px),560px)] min-h-0 w-full flex-none grid-cols-[minmax(0,1.7fr)_minmax(310px,0.9fr)] gap-3.5 max-[930px]:grid-cols-[minmax(0,1fr)_300px] max-[760px]:h-auto max-[760px]:grid-cols-1">
           <section
             className={cn(
               overviewSurface,
@@ -875,12 +860,14 @@ export function DashboardPage() {
                 index={resolvedOverviewActionIndex}
                 onMove={moveAction}
                 reviewChatId={resolvedChannelChatId(
-                  GETTING_STARTED_CHANNEL_RELAY_ID,
+                  workspaceData.waysOfWorking.missionControlChannelId,
                   cloudOrganizationId,
                   localChats.chats,
                 )}
                 onOpen={() => {
-                  void navigate("/conversations?channel=getting-started");
+                  const channel =
+                    workspaceData.waysOfWorking.missionControlChannelId;
+                  void navigate(`/conversations?channel=${channel}`);
                 }}
               />
             ) : currentAction ? (
@@ -1135,7 +1122,7 @@ export function DashboardPage() {
             ) : null}
           </section>
 
-          <aside className="grid min-h-0 min-w-0 grid-rows-[minmax(230px,1fr)_minmax(190px,1fr)] gap-2.5 max-[760px]:grid-cols-2 max-[760px]:grid-rows-none">
+          <aside className="grid min-h-0 min-w-0 grid-rows-[minmax(210px,0.85fr)_minmax(270px,1.15fr)] gap-2.5 max-[760px]:grid-cols-2 max-[760px]:grid-rows-none">
             <section
               aria-label="Workspace analytics"
               className={cn(
@@ -1238,27 +1225,31 @@ export function DashboardPage() {
                 overviewSurface,
                 "relative flex min-h-0 min-w-0 flex-col overflow-hidden p-4",
               )}
-              aria-label="Agent work"
+              aria-label="Upcoming work"
             >
-              <header className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground text-[11px] font-medium">
-                  Agent work
-                </span>
+              <header className="flex shrink-0 items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="truncate text-[13px] leading-4 font-semibold">
+                    Upcoming work
+                  </h2>
+                  <p className="text-muted-foreground mt-0.5 truncate text-[11px] leading-4 font-normal">
+                    Scheduled and in progress
+                  </p>
+                </div>
                 <button
-                  className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-[10px] transition-colors"
+                  aria-label="Open schedule"
+                  className="border-border/60 text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground grid size-8 shrink-0 place-items-center rounded-lg border transition-colors"
                   onClick={() => navigate("/schedule")}
+                  title="Open schedule"
                   type="button"
                 >
-                  View schedule <ArrowRight size={11} />
+                  <CalendarDays size={14} />
                 </button>
               </header>
-              <div
-                className="min-h-0 flex-1 [scrollbar-gutter:stable_both-edges] overflow-y-auto overscroll-contain pr-1"
-                ref={scheduleScrollRef}
-              >
+              <div className="mt-2 min-h-0 flex-1 [scrollbar-gutter:stable_both-edges] overflow-y-auto overscroll-contain pr-1">
                 {agentWorkTimeline.length > 0 ? (
-                  <div className="before:bg-foreground/[0.1] relative py-2 before:absolute before:top-8 before:bottom-8 before:left-[62px] before:w-px">
-                    {agentWorkTimeline.map((item) => {
+                  <div className="relative py-1">
+                    {agentWorkTimeline.map((item, index) => {
                       const when = scheduleDate(
                         item.timestamp,
                         item.timezone,
@@ -1283,11 +1274,6 @@ export function DashboardPage() {
                       return (
                         <button
                           key={item.id}
-                          ref={
-                            item.id === focusedTimelineItemId
-                              ? scheduleFocusRef
-                              : undefined
-                          }
                           onClick={() =>
                             navigate(
                               item.kind === "active"
@@ -1298,43 +1284,53 @@ export function DashboardPage() {
                             )
                           }
                           type="button"
-                          className="hover:bg-foreground/[0.025] grid min-h-12 w-full grid-cols-[48px_13px_minmax(0,1fr)_12px] items-center gap-2 rounded-lg px-1 text-left transition-colors"
+                          className="hover:bg-foreground/[0.025] grid min-h-12 w-full grid-cols-[52px_20px_minmax(0,1fr)_12px] items-center gap-x-0 rounded-lg px-1 text-left transition-colors"
                         >
                           <time className="grid min-w-0 gap-0.5">
-                            <strong className="text-muted-foreground text-[10px] font-medium">
+                            <strong className="text-foreground/85 text-[11px] leading-4 font-semibold">
                               {item.kind === "active" ? "Now" : when.day}
                             </strong>
-                            <span className="text-muted-foreground/70 text-[9px]">
+                            <span className="text-muted-foreground text-[11px] leading-4 font-normal">
                               {when.time}
                             </span>
                           </time>
-                          <i
+                          <span
                             className={cn(
-                              "bg-muted-foreground/60 relative z-[1] grid size-[7px] place-items-center justify-self-center rounded-full shadow-[0_0_0_3px_var(--card)]",
-                              (item.kind === "upcoming" ||
-                                item.status === "completed" ||
-                                item.status === "waiting") &&
-                                "bg-emerald-500",
-                              item.status === "failed" && "bg-red-500",
-                              item.kind === "active" &&
-                                item.status === "running" &&
-                                "bg-card text-foreground size-[15px]",
+                              "before:bg-foreground/[0.1] relative grid h-full min-h-12 place-items-center before:absolute before:left-[calc(50%-0.5px)] before:w-px",
+                              index === 0 ? "before:top-1/2" : "before:top-0",
+                              index === agentWorkTimeline.length - 1
+                                ? "before:bottom-1/2"
+                                : "before:bottom-0",
                             )}
                           >
-                            {item.kind === "active" &&
-                            item.status === "running" ? (
-                              <LoaderCircle
-                                aria-hidden
-                                className="animate-spin"
-                                size={10}
-                              />
-                            ) : null}
-                          </i>
+                            <i
+                              className={cn(
+                                "bg-muted-foreground/60 relative z-[1] grid size-2 place-items-center rounded-full shadow-[0_0_0_3px_var(--card)]",
+                                (item.kind === "upcoming" ||
+                                  item.status === "completed" ||
+                                  item.status === "waiting") &&
+                                  "bg-emerald-500",
+                                item.status === "failed" && "bg-red-500",
+                                item.kind === "active" &&
+                                  item.status === "running" &&
+                                  "bg-card text-foreground size-4",
+                              )}
+                            >
+                              {item.kind === "active" &&
+                              item.status === "running" ? (
+                                <LoaderCircle
+                                  aria-hidden
+                                  className="animate-spin"
+                                  size={10}
+                                />
+                              ) : null}
+                            </i>
+                          </span>
                           <span className="grid min-w-0 gap-0.5">
-                            <strong className="truncate text-[11px] font-medium">
+                            <strong className="truncate text-[11px] leading-4 font-semibold">
                               {item.title}
                             </strong>
-                            <small className="text-muted-foreground/70 truncate text-[9px]">
+                            <small className="text-muted-foreground truncate text-[11px] leading-4 font-normal">
                               {state} ·{" "}
                               {AGENT_NAMES[item.agentId] ?? item.agentId}
                             </small>

@@ -1,4 +1,4 @@
-import { ChevronDown, ListChecks } from "lucide-react";
+import { Brain, ChevronDown, ListChecks } from "lucide-react";
 
 import type { ContentBlock } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
@@ -23,7 +23,8 @@ export function ToolActivityGroup({
     seen.add(block.id);
     return [block];
   });
-  if (tools.length === 0) return null;
+  const thoughts = blocks.filter((block) => block.type === "thinking");
+  if (tools.length === 0 && thoughts.length === 0) return null;
   const completed = tools.filter((tool) => results.has(tool.id)).length;
   const failed = tools.filter((tool) => results.get(tool.id)?.is_error).length;
   const incomplete = tools.length - completed;
@@ -32,16 +33,24 @@ export function ToolActivityGroup({
 
   return (
     <details
-      className="group overflow-hidden rounded-xl bg-black/[0.018] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_5%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--foreground)_4%,transparent)] dark:bg-white/[0.018]"
+      className="group w-96 max-w-full overflow-hidden rounded-xl bg-black/[0.018] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_5%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--foreground)_4%,transparent)] dark:bg-white/[0.018]"
       open={active || undefined}
     >
       <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3.5 py-2.5 text-xs [&::-webkit-details-marker]:hidden">
         <ListChecks className="text-muted-foreground" size={14} />
         <span className="font-medium">
-          {working ? "Working" : stopped ? "Stopped" : "Workspace activity"}
+          {working
+            ? "Working"
+            : stopped
+              ? "Stopped"
+              : tools.length > 0
+                ? "Workspace activity"
+                : "Reasoning"}
         </span>
         <span className="text-muted-foreground min-w-0 flex-1 truncate">
-          {tools.length} {tools.length === 1 ? "step" : "steps"}
+          {tools.length > 0
+            ? `${tools.length} ${tools.length === 1 ? "step" : "steps"}`
+            : `${thoughts.length} ${thoughts.length === 1 ? "thought" : "thoughts"}`}
         </span>
         <span
           className={cn(
@@ -63,13 +72,39 @@ export function ToolActivityGroup({
         />
       </summary>
       <div className="border-border/45 space-y-2 border-t px-3.5 py-3">
-        {tools.map((tool) => {
-          const result = results.get(tool.id);
-          const label = toolPresentation(tool.name, tool.input);
-          const summary = toolSummary(tool.input);
+        {blocks.map((block, index) => {
+          if (block.type === "thinking") {
+            const thought = block.thinking.trim();
+            if (!thought) return null;
+            return (
+              <div
+                key={`thought:${index}`}
+                className="flex min-w-0 items-start gap-2.5"
+              >
+                <Brain
+                  aria-hidden
+                  className="text-muted-foreground mt-0.5 shrink-0"
+                  size={13}
+                />
+                <div className="min-w-0 flex-1">
+                  <span className="text-xs font-medium">Thinking</span>
+                  <p className="text-muted-foreground/80 mt-1 max-h-28 overflow-y-auto text-[11px] leading-5 [overflow-wrap:anywhere] whitespace-pre-wrap">
+                    {thought}
+                  </p>
+                </div>
+              </div>
+            );
+          }
+          if (block.type !== "tool_use" || seen.has(`render:${block.id}`)) {
+            return null;
+          }
+          seen.add(`render:${block.id}`);
+          const result = results.get(block.id);
+          const label = toolPresentation(block.name, block.input);
+          const summary = toolSummary(block.input);
           const detail = summary.startsWith("const ") ? "" : summary;
           return (
-            <div key={tool.id} className="flex min-w-0 items-center gap-2.5">
+            <div key={block.id} className="flex min-w-0 items-center gap-2.5">
               <span
                 className={cn(
                   "bg-muted-foreground/40 size-1.5 shrink-0 rounded-full",

@@ -81,6 +81,7 @@ import {
   searchIntegrations,
 } from "../lib/integrations";
 import { primeLocalIntegrationStatus } from "../lib/local-integration-status-cache";
+import { onboardingCompletionPresentation } from "../lib/onboarding-completion";
 import {
   LOCAL_ONBOARDING_FALLBACK,
   nextOnboardingStep,
@@ -152,6 +153,8 @@ interface OnboardingDraft {
   };
   analytics: {
     integrations: IntegrationSearchResult[];
+    /** Preserves an explicit opt-out separately from an unanswered step. */
+    selection: "selected" | "none" | "skipped" | null;
   };
   ads: {
     integrations: IntegrationSearchResult[];
@@ -482,6 +485,7 @@ function baseDraft(): OnboardingDraft {
     },
     analytics: {
       integrations: [],
+      selection: null,
     },
     ads: {
       integrations: [],
@@ -677,6 +681,12 @@ function draftFromOrg(
     },
     analytics: {
       integrations: normaliseIntegrations(analytics.integrations),
+      selection:
+        analytics.selection === "selected" ||
+        analytics.selection === "none" ||
+        analytics.selection === "skipped"
+          ? analytics.selection
+          : null,
     },
     ads: {
       integrations: normaliseIntegrations(ads.integrations),
@@ -809,6 +819,12 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
       },
       analytics: {
         integrations: normaliseIntegrations(parsedAnalytics?.integrations),
+        selection:
+          parsedAnalytics?.selection === "selected" ||
+          parsedAnalytics?.selection === "none" ||
+          parsedAnalytics?.selection === "skipped"
+            ? parsedAnalytics.selection
+            : null,
       },
       ads: {
         integrations: normaliseIntegrations(parsedAds?.integrations),
@@ -1156,8 +1172,12 @@ function AnswerPreview({
   if (step === "analytics") {
     return (
       <UserBubble>
-        {selectedIntegrationNames(draft.analytics.integrations) ??
-          "No analytics yet"}
+        {draft.analytics.selection === "none"
+          ? "I don't use analytics"
+          : draft.analytics.selection === "skipped"
+            ? "Skipped analytics for now"
+            : (selectedIntegrationNames(draft.analytics.integrations) ??
+              "No analytics selected")}
       </UserBubble>
     );
   }
@@ -1958,12 +1978,8 @@ function HealthControl({
         <ReadinessRow
           icon={Laptop}
           label={modeLabel(draft)}
-          detail={
-            runtimeStatus === "connected"
-              ? "The local agent service is reachable."
-              : "The local agent service is starting or reconnecting."
-          }
-          ready={runtimeReady}
+          detail="Agents will run on this computer using your local agent app."
+          ready
         />
         <ReadinessRow
           icon={Server}
@@ -2313,14 +2329,15 @@ function AutomationControl({
                   <div className="flex min-w-0 items-start gap-3">
                     <button
                       type="button"
+                      aria-pressed={item.enabled}
                       aria-label={`${item.enabled ? "Remove" : "Add"} ${item.title}`}
                       onClick={() =>
                         updateItem(item.playbookId, { enabled: !item.enabled })
                       }
                       className={cn(
-                        "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors",
+                        "border-border/80 bg-background hover:border-foreground/60 mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-[6px] border text-transparent shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_4%,transparent)] transition-[border-color,background-color,color,box-shadow] focus-visible:ring-2 focus-visible:ring-white/25 focus-visible:outline-none",
                         item.enabled &&
-                          "border-foreground bg-foreground text-background",
+                          "border-foreground bg-foreground text-background shadow-none",
                       )}
                     >
                       {item.enabled ? <Check size={12} /> : null}
@@ -2719,13 +2736,17 @@ function AeoControl({
 
 function CompletionControl({
   onContinue,
-  ready,
+  runtimeReady,
   saving,
 }: {
   onContinue: () => void;
-  ready: boolean;
+  runtimeReady: boolean;
   saving: boolean;
 }) {
+  const presentation = onboardingCompletionPresentation({
+    runtimeReady,
+    saving,
+  });
   return (
     <div className="bg-card flex min-h-[480px] w-full items-center justify-center rounded-xl border px-6 py-14">
       <div className="flex max-w-sm flex-col items-center text-center">
@@ -2735,21 +2756,15 @@ function CompletionControl({
             You're in.
           </h2>
           <p className="text-muted-foreground mt-4 text-sm leading-6">
-            {ready
-              ? "Your workspace is ready. Chief and Setup will meet you in a private getting-started channel."
-              : "Chief is preparing your workspace now."}
+            {presentation.description}
           </p>
           <Button
             type="button"
             className="mt-9"
             onClick={onContinue}
-            disabled={saving || !ready}
+            disabled={presentation.buttonDisabled}
           >
-            {saving
-              ? "Entering..."
-              : ready
-                ? "Enter workspace"
-                : "Preparing workspace..."}
+            {presentation.buttonLabel}
           </Button>
         </div>
       </div>
@@ -2894,7 +2909,14 @@ export function OnboardingPage() {
     (integrations: IntegrationSearchResult[]) => {
       setDraft((current) =>
         current
-          ? { ...current, analytics: { ...current.analytics, integrations } }
+          ? {
+              ...current,
+              analytics: {
+                ...current.analytics,
+                integrations,
+                selection: integrations.length > 0 ? "selected" : null,
+              },
+            }
           : current,
       );
     },
@@ -2952,20 +2974,27 @@ export function OnboardingPage() {
     [],
   );
 
-  const clearAnalyticsSelection = useCallback(() => {
-    setNotice(null);
-    setError(null);
-    setDraft((current) =>
-      current
-        ? {
-            ...current,
-            analytics: { ...current.analytics, integrations: [] },
-            ...(editingStep ? {} : { step: "ads" as const }),
-          }
-        : current,
-    );
-    if (editingStep) setEditingStep(null);
-  }, [editingStep]);
+  const clearAnalyticsSelection = useCallback(
+    (selection: "none" | "skipped") => {
+      setNotice(null);
+      setError(null);
+      setDraft((current) =>
+        current
+          ? {
+              ...current,
+              analytics: {
+                ...current.analytics,
+                integrations: [],
+                selection,
+              },
+              ...(editingStep ? {} : { step: "ads" as const }),
+            }
+          : current,
+      );
+      if (editingStep) setEditingStep(null);
+    },
+    [editingStep],
+  );
 
   const clearAdsSelection = useCallback(() => {
     setNotice(null);
@@ -3101,11 +3130,11 @@ export function OnboardingPage() {
     setWorkspaceProvider(org.id, draft.provider);
     updatePendingOnboardingDriver(org.id, draft.provider, draft.model || null);
     const existing = agentPreferences.preferences.find(
-      (preference) => preference.agentId === "cmo",
+      (preference) => preference.agentId === "chief",
     );
     agentPreferences.save({
       ...existing,
-      agentId: "cmo",
+      agentId: "chief",
       enabled: true,
       driver: draft.provider,
       model: draft.model || undefined,
@@ -3122,7 +3151,7 @@ export function OnboardingPage() {
       return false;
     }
     return deploymentState.start({
-      agentId: "cmo",
+      agentId: "chief",
       target: draft.deploymentProvider,
       projectName:
         `chief-${org.id.replace(/[^a-z0-9]/gi, "").slice(-8)}`.toLowerCase(),
@@ -3138,9 +3167,6 @@ export function OnboardingPage() {
 
   const completeOnboarding = useCallback(async () => {
     if (!org || !draft || completionStartedRef.current) return;
-    if (!workspaceData.onboardingBootstrapReady) {
-      return;
-    }
     if (
       draft.workspaceMode === "cloud" &&
       !deploymentState.deployments.some(
@@ -3156,10 +3182,7 @@ export function OnboardingPage() {
     completionStartedRef.current = true;
     setSaving(true);
     setError(null);
-    sessionStorage.setItem(
-      `chief:getting-started:${org.id}`,
-      String(Date.now()),
-    );
+    sessionStorage.setItem(`chief:onboarding:${org.id}`, String(Date.now()));
     try {
       await persistContext();
       await persistSocials();
@@ -3210,6 +3233,7 @@ export function OnboardingPage() {
         analytics: draft.analytics,
         ads: draft.ads,
         aeo: draft.aeo,
+        engineering: draft.engineering,
       });
       const schedules = buildOnboardingSchedules(draft.automation, org.id);
       const completedMetadata = {
@@ -3225,10 +3249,10 @@ export function OnboardingPage() {
       });
       // Workspace access and channel preparation have different durability
       // guarantees. Commit onboarding first, then let the runtime's persisted
-      // queue prepare or retry #getting-started without trapping the user here.
-      let gettingStarted: Promise<string> | null = null;
+      // queue prepare or retry mission control without trapping the user here.
+      let onboardingRun: Promise<string> | null = null;
       try {
-        gettingStarted = workspaceData.bootstrapOnboardingWork(
+        onboardingRun = workspaceData.bootstrapOnboardingWork(
           jobs,
           schedules,
           workspaceContextFromOrganization({
@@ -3239,23 +3263,23 @@ export function OnboardingPage() {
           draft.provider ?? undefined,
           draft.model || null,
         );
-      } catch (gettingStartedError) {
+      } catch (onboardingError) {
         console.warn(
-          "[Onboarding] Getting started could not be queued yet",
-          gettingStartedError,
+          "[Onboarding] Mission control onboarding could not be queued yet",
+          onboardingError,
         );
       }
       localStorage.removeItem(storageKey(org.id));
       window.dispatchEvent(new Event("chief:onboarding-complete"));
       navigate("/", { replace: true });
-      void gettingStarted?.catch((gettingStartedError: unknown) => {
+      void onboardingRun?.catch((onboardingError: unknown) => {
         console.warn(
-          "[Onboarding] Getting started will retry in the background",
-          gettingStartedError,
+          "[Onboarding] Mission control onboarding will retry in the background",
+          onboardingError,
         );
       });
     } catch (err) {
-      sessionStorage.removeItem(`chief:getting-started:${org.id}`);
+      sessionStorage.removeItem(`chief:onboarding:${org.id}`);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       completionStartedRef.current = false;
@@ -3506,8 +3530,8 @@ export function OnboardingPage() {
           searchPlaceholder="Search analytics tools"
           emptySelectionLabel={"I don't use analytics"}
           skipLabel="Skip for now"
-          onEmptySelection={clearAnalyticsSelection}
-          onSkip={clearAnalyticsSelection}
+          onEmptySelection={() => clearAnalyticsSelection("none")}
+          onSkip={() => clearAnalyticsSelection("skipped")}
           onContinue={advance}
           saving={saving}
         />
@@ -3588,7 +3612,7 @@ export function OnboardingPage() {
     return (
       <CompletionControl
         onContinue={() => void completeOnboarding()}
-        ready={workspaceData.onboardingBootstrapReady}
+        runtimeReady={workspaceData.onboardingBootstrapReady}
         saving={saving}
       />
     );
@@ -3651,19 +3675,15 @@ export function OnboardingPage() {
             .map((pastStep) => (
               <div key={pastStep} className="space-y-3">
                 <AgentBubble text={questionText(pastStep, draft)} />
-                {pastStep === "health" ? (
+                <EditableAnswer
+                  onEdit={() => {
+                    setNotice(null);
+                    setError(null);
+                    setEditingStep(pastStep);
+                  }}
+                >
                   <AnswerPreview step={pastStep} draft={draft} />
-                ) : (
-                  <EditableAnswer
-                    onEdit={() => {
-                      setNotice(null);
-                      setError(null);
-                      setEditingStep(pastStep);
-                    }}
-                  >
-                    <AnswerPreview step={pastStep} draft={draft} />
-                  </EditableAnswer>
-                )}
+                </EditableAnswer>
               </div>
             ))}
           <div ref={currentQuestionRef} className="space-y-4">

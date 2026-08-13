@@ -2,6 +2,10 @@ import type { SessionRecord } from "@chief/agent-runtime/types";
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import { cn } from "@chief/ui/lib/utils";
 
+import type { WorkspaceAgentId } from "../../lib/workspace-channels";
+import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import { AgentAvatar } from "../agent-avatar";
+
 const AGENT_WORKING_COLOR: Record<string, string> = {
   brand: "text-foreground",
   prospector: "text-sky-300",
@@ -25,12 +29,12 @@ export function SpecialistStatusIndicator({
   className?: string;
   status: SessionRecord["status"];
 }) {
-  if (specialistIsStartingOrWorking(status)) {
+  if (status === "idle" || status === "running") {
     return (
       <MatrixLoader
         ariaLabel={status === "idle" ? "Starting" : "Working"}
         className={cn(
-          "border-0 bg-transparent shadow-none",
+          "border-0 bg-transparent shadow-none [&_.matrix-loader-cell]:rounded-[24%]",
           AGENT_WORKING_COLOR[agent] ?? "text-slate-300",
           className,
         )}
@@ -38,12 +42,14 @@ export function SpecialistStatusIndicator({
       />
     );
   }
-  if (status === "failed") {
+  if (status === "waiting" || status === "failed" || status === "completed") {
+    const identity = Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agent)
+      ? WORKSPACE_AGENT_IDENTITIES[agent as WorkspaceAgentId]
+      : undefined;
     return (
-      <span
-        aria-label="Failed"
-        className={cn("size-2 shrink-0 rounded-full bg-red-500", className)}
-        role="img"
+      <AgentAvatar
+        className={cn("size-[17px] rounded-md", className)}
+        label={identity?.name ?? agent}
       />
     );
   }

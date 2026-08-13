@@ -48,6 +48,38 @@ void test("rotating a session revokes its previous agent credential", () => {
   );
 });
 
+void test("changing a scheduled local permission ceiling rotates the credential", () => {
+  const capabilities = new AgentSessionCapabilityRegistry();
+  const first = capabilities.agentSession(
+    {
+      workspaceId: "workspace",
+      agentId: "chief",
+      sessionId: "scheduled-run",
+      localToolPermissions: ["channels.read"],
+    },
+    1_000,
+  );
+  const rotated = capabilities.agentSession(
+    {
+      workspaceId: "workspace",
+      agentId: "chief",
+      sessionId: "scheduled-run",
+      localToolPermissions: ["messages.read"],
+    },
+    2_000,
+  );
+  assert.notEqual(first, rotated);
+  assert.equal(capabilities.authenticate(first, 2_000), undefined);
+  assert.deepEqual(capabilities.authenticate(rotated, 2_000), {
+    kind: "agent-session",
+    workspaceId: "workspace",
+    agentId: "chief",
+    sessionId: "scheduled-run",
+    localToolPermissions: ["messages.read"],
+    expiresAt: 2_000 + 12 * 60 * 60_000,
+  });
+});
+
 void test("the Executor gateway is workspace-scoped and stable", () => {
   const capabilities = new AgentSessionCapabilityRegistry();
   const first = capabilities.workspaceGateway("workspace-a");
