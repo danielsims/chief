@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { AgentEvent } from "../src/types.js";
+import type { AgentEvent, OnboardingWorkJob } from "../src/types.js";
 import {
   ONBOARDING_OPENING_MESSAGE,
   onboardingDirectory,
@@ -20,6 +20,36 @@ const kickoffPrompt: AgentEvent = {
   role: "user",
   content: [{ type: "text", text: "Start onboarding." }],
 };
+const selectedJobs: OnboardingWorkJob[] = [
+  {
+    id: "brand",
+    agentId: "brand",
+    title: "Research brand",
+    instructions: "Research brand",
+    runAt: 1,
+    timezone: "Australia/Brisbane",
+    proposedToolPatterns: [],
+  },
+  {
+    id: "prospecting",
+    agentId: "prospector",
+    title: "Find prospects",
+    instructions: "Find prospects",
+    runAt: 1,
+    timezone: "Australia/Brisbane",
+    proposedToolPatterns: [],
+  },
+  {
+    id: "analytics",
+    agentId: "setup",
+    title: "Connect Google Analytics",
+    instructions: "Connect analytics",
+    runAt: 1,
+    timezone: "Australia/Brisbane",
+    proposedToolPatterns: [],
+    setupDomain: "analytics.googleapis.com",
+  },
+];
 
 void test("the opening sounds conversational and avoids em dashes", () => {
   assert.match(ONBOARDING_OPENING_MESSAGE, /^Hey, welcome to Chief 👋/);
@@ -29,7 +59,10 @@ void test("the opening sounds conversational and avoids em dashes", () => {
 });
 
 void test("local kickoff roots stay concise and skill-backed", () => {
-  const instructions = onboardingLocalKickoffInstructions("mission");
+  const instructions = onboardingLocalKickoffInstructions(
+    "mission",
+    selectedJobs,
+  );
   assert.match(
     instructions,
     /Hey @Marketer, use \[chief-skill:build-brand-profile\]/u,
@@ -44,6 +77,17 @@ void test("local kickoff roots stay concise and skill-backed", () => {
   );
   assert.match(instructions, /one localTools\.channels\.members\.add call/u);
   assert.match(instructions, /channelId "mission"/u);
+});
+
+void test("local kickoff treats an empty analytics selection as authoritative", () => {
+  const instructions = onboardingLocalKickoffInstructions(
+    "mission",
+    selectedJobs.filter((job) => job.agentId !== "setup"),
+  );
+  assert.match(instructions, /No integration setup job was selected/);
+  assert.match(instructions, /do not add Setup, connect Google Analytics/);
+  assert.doesNotMatch(instructions, /chief-skill:setup-google-analytics/);
+  assert.doesNotMatch(instructions, /Hey @Setup/);
 });
 
 void test("onboarding files live inside the owning agent workspace", () => {
@@ -68,16 +112,21 @@ void test("mission control retains the onboarding marker after earlier activity"
 });
 
 void test("local recovery resumes the durable plan without a second greeting", () => {
-  const prompt = onboardingRecoveryPrompt("opencode", false, "mission");
+  const prompt = onboardingRecoveryPrompt(
+    "opencode",
+    false,
+    "mission",
+    selectedJobs,
+  );
   assert.match(prompt, /Read onboarding\/onboarding\.md/);
   assert.match(prompt, /do not greet the user again/);
   assert.match(prompt, /publish one top-level kickoff/i);
   assert.match(prompt, /selected unconnected analytics or advertising source/);
   assert.match(prompt, /\[chief-skill:setup-google-analytics]/);
   assert.match(prompt, /Marketer.*Prospector/);
-  assert.match(prompt, /"brand" for Marketer/);
-  assert.match(prompt, /"setup" for Setup/);
-  assert.match(prompt, /"prospector" for Prospector/);
+  assert.match(prompt, /Use agent ID "brand"/);
+  assert.match(prompt, /Use agent ID "setup"/);
+  assert.match(prompt, /Use agent ID "prospector"/);
   assert.match(prompt, /Do not search files/);
   assert.match(prompt, /do not also call specialistsDelegate/);
   assert.match(prompt, /Hey @Marketer, use \[chief-skill:build-brand-profile]/);
@@ -94,14 +143,22 @@ void test("local recovery resumes the durable plan without a second greeting", (
 });
 
 void test("recovery includes the exact opener only when no opener is visible", () => {
-  const prompt = onboardingRecoveryPrompt("opencode", true, "mission");
+  const prompt = onboardingRecoveryPrompt(
+    "opencode",
+    true,
+    "mission",
+    selectedJobs,
+  );
   assert.equal(prompt.includes(ONBOARDING_OPENING_MESSAGE), true);
   assert.match(prompt, /localTools\.channelsMessagesPost/);
   assert.match(prompt, /channelId "mission"/);
   assert.equal(
-    onboardingRecoveryPrompt("opencode", false, "mission").includes(
-      ONBOARDING_OPENING_MESSAGE,
-    ),
+    onboardingRecoveryPrompt(
+      "opencode",
+      false,
+      "mission",
+      selectedJobs,
+    ).includes(ONBOARDING_OPENING_MESSAGE),
     false,
   );
   assert.equal(onboardingOpeningIsVisible([kickoffPrompt], kickoffId), false);

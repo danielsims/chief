@@ -79,6 +79,14 @@ export function workspaceContextFromOrganization(
     : [];
   if (integrations.length > 0) {
     lines.push(`Analytics sources chosen at setup: ${integrations.join(", ")}`);
+  } else if (analytics.selection === "none") {
+    lines.push(
+      "Analytics setup choice: none. Do not connect or recommend an analytics provider during initial onboarding.",
+    );
+  } else if (analytics.selection === "skipped") {
+    lines.push(
+      "Analytics setup choice: deferred. Do not start analytics setup during initial onboarding.",
+    );
   }
   const schedulingAuthority = text(automation.mode);
   if (

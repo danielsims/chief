@@ -19,7 +19,10 @@ export interface OnboardingWorkInput {
     notes: string;
     files: BrandFile[];
   };
-  analytics: { integrations: IntegrationSearchResult[] };
+  analytics: {
+    integrations: IntegrationSearchResult[];
+    selection?: "selected" | "none" | "skipped" | null;
+  };
   ads: { integrations: IntegrationSearchResult[] };
   aeo: { trackAiReferrals: boolean };
 }
@@ -96,8 +99,13 @@ export function buildOnboardingWorkJobs(
           },
         ];
 
+  const analyticsIntegrations =
+    input.analytics.selection === "none" ||
+    input.analytics.selection === "skipped"
+      ? []
+      : input.analytics.integrations;
   const selectedIntegrations = [
-    ...input.analytics.integrations.map((integration) => ({
+    ...analyticsIntegrations.map((integration) => ({
       ...integration,
       category: "analytics",
     })),
@@ -137,7 +145,7 @@ export function buildOnboardingWorkJobs(
     },
   );
   const analystJobs: OnboardingWorkJob[] =
-    input.analytics.integrations.length > 0
+    analyticsIntegrations.length > 0
       ? [
           {
             id: onboardingScopedId(input.workspaceId, "initial-growth-report"),
@@ -238,7 +246,22 @@ export function onboardingWorkFromMetadata(
           )
         : [],
     },
-    analytics: { integrations: integrations(onboarding.analytics) },
+    analytics: {
+      integrations: integrations(onboarding.analytics),
+      selection:
+        onboarding.analytics && typeof onboarding.analytics === "object"
+          ? (() => {
+              const selection = (
+                onboarding.analytics as Record<string, unknown>
+              ).selection;
+              return selection === "selected" ||
+                selection === "none" ||
+                selection === "skipped"
+                ? selection
+                : null;
+            })()
+          : null,
+    },
     ads: { integrations: integrations(onboarding.ads) },
     aeo: { trackAiReferrals: aeo.trackAiReferrals === true },
   });
