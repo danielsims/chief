@@ -216,7 +216,7 @@ export function projectChannelTimeline(
       Boolean(threadRootId && threadRootId !== direct.metadata?.threadRootId) ||
       Boolean(channelAction && !direct.metadata?.channelAction) ||
       Boolean(agentId && agentId !== direct.metadata?.agentId) ||
-      Boolean(direct.metadata && !direct.metadata.createdAt);
+      direct.metadata?.createdAt !== event.createdAt;
     canonical.push(
       !needsEnrichment
         ? direct
@@ -225,7 +225,10 @@ export function projectChannelTimeline(
               ...direct,
               metadata: {
                 ...direct.metadata,
-                createdAt: direct.metadata?.createdAt ?? event.createdAt,
+                // Publication is the moment a private runtime message becomes
+                // visible in the channel. A delayed schedule must not sort a
+                // newly published message back at its planned run time.
+                createdAt: event.createdAt,
                 ...(agentId ? { agentId } : {}),
                 ...(threadRootId ? { threadRootId } : {}),
                 ...(channelAction ? { channelAction } : {}),

@@ -315,6 +315,7 @@ export function createChannelEvent(input: {
   threadRootId?: string;
   sourceId?: string;
   createdAt?: number;
+  silent?: boolean;
 }): ChannelMessageEvent {
   const createdAt = input.createdAt ?? Date.now();
   const pubkey = actorPubkey(input.workspaceId, input.actor);
@@ -345,6 +346,7 @@ export function createChannelEvent(input: {
         ]
       : []),
     ...(input.sourceId ? [["client", input.sourceId]] : []),
+    ...(input.silent ? [["notification", "silent"]] : []),
   ];
   const nonce = input.sourceId ?? randomUUID();
   const id = eventId({

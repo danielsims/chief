@@ -46,6 +46,7 @@ import type {
 } from "./types.js";
 import { ensureChannelManagementSchema } from "./channels/schema-migration.js";
 import { ChannelStore } from "./channels/store.js";
+import { retryDatabaseWrite } from "./database-write-retry.js";
 import * as schema from "./db/schema.js";
 import {
   diagnosticData,
@@ -1595,59 +1596,61 @@ export class LocalStore {
     if (existing && existing.organizationId !== workspaceId) {
       throw new Error("Recurring work belongs to a different workspace.");
     }
-    await this.db
-      .insert(schema.schedules)
-      .values({
-        id: work.id,
-        organizationId: workspaceId,
-        conversationId: work.conversationId,
-        agentId: work.agentId,
-        title: work.title,
-        instructions: work.instructions,
-        cron: work.cron,
-        timezone: work.timezone,
-        onceAt: work.onceAt,
-        trigger: work.trigger,
-        operationKey: work.operationKey,
-        version: work.version ?? 1,
-        status: work.status,
-        placement: work.placement,
-        skipDates: work.skipDates,
-        approvalSummary: work.approvalSummary,
-        proposedToolPatterns: work.proposedToolPatterns,
-        grant: work.grant,
-        nextAt: work.nextAt,
-        lastCompletedAt: work.lastCompletedAt,
-        lastSummary: work.lastSummary,
-        createdAt: work.createdAt,
-        updatedAt: work.updatedAt,
-      })
-      .onConflictDoUpdate({
-        target: schema.schedules.id,
-        set: {
-          conversationId: work.conversationId ?? null,
+    const persist = () =>
+      this.db
+        .insert(schema.schedules)
+        .values({
+          id: work.id,
+          organizationId: workspaceId,
+          conversationId: work.conversationId,
           agentId: work.agentId,
           title: work.title,
           instructions: work.instructions,
           cron: work.cron,
           timezone: work.timezone,
-          onceAt: work.onceAt ?? null,
-          trigger: work.trigger ?? null,
-          operationKey: work.operationKey ?? null,
+          onceAt: work.onceAt,
+          trigger: work.trigger,
+          operationKey: work.operationKey,
           version: work.version ?? 1,
           status: work.status,
           placement: work.placement,
-          skipDates: work.skipDates ?? null,
+          skipDates: work.skipDates,
           approvalSummary: work.approvalSummary,
           proposedToolPatterns: work.proposedToolPatterns,
           grant: work.grant,
-          nextAt: work.nextAt ?? null,
+          nextAt: work.nextAt,
           lastCompletedAt: work.lastCompletedAt,
           lastSummary: work.lastSummary,
+          createdAt: work.createdAt,
           updatedAt: work.updatedAt,
-        },
-      })
-      .run();
+        })
+        .onConflictDoUpdate({
+          target: schema.schedules.id,
+          set: {
+            conversationId: work.conversationId ?? null,
+            agentId: work.agentId,
+            title: work.title,
+            instructions: work.instructions,
+            cron: work.cron,
+            timezone: work.timezone,
+            onceAt: work.onceAt ?? null,
+            trigger: work.trigger ?? null,
+            operationKey: work.operationKey ?? null,
+            version: work.version ?? 1,
+            status: work.status,
+            placement: work.placement,
+            skipDates: work.skipDates ?? null,
+            approvalSummary: work.approvalSummary,
+            proposedToolPatterns: work.proposedToolPatterns,
+            grant: work.grant,
+            nextAt: work.nextAt ?? null,
+            lastCompletedAt: work.lastCompletedAt,
+            lastSummary: work.lastSummary,
+            updatedAt: work.updatedAt,
+          },
+        })
+        .run();
+    await retryDatabaseWrite(persist);
   }
 
   async deleteRecurringWork(workspaceId: string, id: string) {

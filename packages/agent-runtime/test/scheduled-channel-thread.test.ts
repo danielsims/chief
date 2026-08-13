@@ -99,6 +99,13 @@ void test("scheduled work creates a durable channel thread before provider work"
     ),
     true,
   );
+  assert.equal(
+    opening.tags.some(
+      (tag) => tag[0] === "notification" && tag[1] === "silent",
+    ),
+    true,
+  );
+  assert.match(heartbeat.instructions, /not a status reporter/u);
 });
 
 void test("ordinary scheduled work wakes its assigned agent in the owning channel", async () => {
