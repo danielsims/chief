@@ -16,6 +16,8 @@ import {
   INLINE_RESULT_CARD_CLASS,
   INLINE_RESULT_ICON_CLASS,
 } from "./inline-result-card";
+import { PluginToolCard } from "./plugin-tool-card";
+import { isPluginTool } from "./plugin-tool-data";
 import {
   specialistIsStartingOrWorking,
   SpecialistStatusIndicator,
@@ -406,6 +408,15 @@ export function Blocks({
             );
             if (attachment !== undefined) {
               return <Fragment key={block.id}>{attachment}</Fragment>;
+            }
+            if (isPluginTool(block.name)) {
+              return (
+                <PluginToolCard
+                  key={block.id}
+                  block={block}
+                  result={results.get(block.id)}
+                />
+              );
             }
             const blockTasks = specialistTasksForInput(block.input, tasks);
             const visibleTasks = blockTasks.filter(

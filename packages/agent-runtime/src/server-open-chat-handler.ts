@@ -9,6 +9,7 @@ import type {
   ClientMessage,
   DriverType,
   ExecutorCapability,
+  McpServerSpec,
   ServerMessage,
 } from "./types.js";
 import { getAgent } from "./agents.js";
@@ -82,6 +83,7 @@ export async function handleOpenChat({
   manager,
   msg,
   onboardingBootstraps,
+  pluginMcpServers,
   send,
 }: {
   authorizeWorkspace: (
@@ -115,6 +117,7 @@ export async function handleOpenChat({
   manager: SessionManager;
   msg: Message;
   onboardingBootstraps: Map<string, { ready: Promise<string> }>;
+  pluginMcpServers: (workspaceId: string) => Promise<McpServerSpec[]>;
   send: (message: ServerMessage) => void;
 }) {
   await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
@@ -360,6 +363,7 @@ export async function handleOpenChat({
           workspaceContext,
           readWorkspaceWaysOfWorking(msg.workspaceId).missionControlChannelId,
         );
+        const pluginServers = await pluginMcpServers(msg.workspaceId);
         const config = {
           driver,
           access:
@@ -376,8 +380,9 @@ export async function handleOpenChat({
                     ? "model"
                     : "browser",
                 ),
+                ...pluginServers,
               ]
-            : [],
+            : pluginServers,
           executionOwner: "interactive",
         } as const;
         return storedChat.provider !== driver || storedChat.model !== model

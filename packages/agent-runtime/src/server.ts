@@ -94,6 +94,7 @@ import {
 } from "./mission-control-heartbeat.js";
 import { listModels } from "./models.js";
 import { authorizeOrganizationRole } from "./organization-authorization.js";
+import { PluginRuntime } from "./plugins/runtime.js";
 import { ProviderAuthentication } from "./provider-authentication.js";
 import {
   rotateRecurringWorkWebhook,
@@ -147,6 +148,7 @@ import {
 } from "./workspace-authorization.js";
 import { readWorkspaceContext } from "./workspace-context.js";
 import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
+import { broadcastWorkspaceSockets } from "./workspace-socket-broadcast.js";
 import {
   readWorkspaceWaysOfWorking,
   saveWorkspaceWaysOfWorking,
@@ -401,6 +403,7 @@ export function startServer(port = PORT) {
   let broadcastChannelEvent = (_workspaceId: string, _event: ChannelEvent) =>
     undefined;
   let broadcastChannels = (_workspaceId: string) => Promise.resolve();
+  let broadcastPlugins = (_workspaceId: string) => Promise.resolve();
   let broadcastBrowserNavigate = (
     _workspaceId: string,
     _conversationId: string,
@@ -446,6 +449,9 @@ export function startServer(port = PORT) {
     _conversationId: string,
     _progress: IntegrationSetupProgress,
   ) => undefined;
+  const plugins = new PluginRuntime((workspaceId) => {
+    void broadcastPlugins(workspaceId);
+  });
   const completeBrowserRunPresentation = async (
     workspaceId: string,
     conversationId: string,
@@ -1262,6 +1268,7 @@ export function startServer(port = PORT) {
       );
       return null;
     });
+    const pluginServers = await plugins.mcpServers(workspaceId);
     return manager.ensureRootChat(effectiveAgent, chatId, {
       driver: preference.driver,
       access: "full",
@@ -1273,8 +1280,9 @@ export function startServer(port = PORT) {
               executorWorkspace,
               setupDomain ? "browser" : "model",
             ),
+            ...pluginServers,
           ]
-        : [],
+        : pluginServers,
       executionOwner: "interactive",
     });
   };
@@ -1455,6 +1463,7 @@ export function startServer(port = PORT) {
       }
       return;
     }
+    if (await plugins.handleCallback(req, res)) return;
     if (req.method === "POST" && path.startsWith("/hooks/scheduled-runs/")) {
       const chunks: Buffer[] = [];
       let size = 0;
@@ -2058,6 +2067,7 @@ export function startServer(port = PORT) {
               };
             },
           },
+          plugins: plugins.localTools(workspaceId),
         }),
         invoke: (request, workspaceId, context) =>
           handleLocalTool(request, workspaceId, manager, context),
@@ -2100,6 +2110,12 @@ export function startServer(port = PORT) {
   const wss = new WebSocketServer({ server: http4 });
   const wss6 = new WebSocketServer({ server: http6 });
   const socketAuthorization = new WorkspaceAuthorization<WebSocket>();
+  const sendWorkspace = (workspaceId: string, message: string) =>
+    broadcastWorkspaceSockets(
+      new Set([...wss.clients, ...wss6.clients]),
+      (client) => socketAuthorization.canReceive(client, workspaceId),
+      message,
+    );
   http4.listen(port, "127.0.0.1");
   http6.listen(port, "::1");
   http6.on("error", () => undefined);
@@ -2113,14 +2129,7 @@ export function startServer(port = PORT) {
       revision,
       ...data,
     });
-    for (const client of new Set([...wss.clients, ...wss6.clients])) {
-      if (
-        client.readyState === WebSocket.OPEN &&
-        socketAuthorization.canReceive(client, workspaceId)
-      ) {
-        client.send(message);
-      }
-    }
+    sendWorkspace(workspaceId, message);
   };
   broadcastWorkspaceFiles = async (workspaceId) => {
     await syncCloudRecords(workspaceId);
@@ -2129,14 +2138,16 @@ export function startServer(port = PORT) {
       workspaceId,
       files: await manager.listWorkspaceFiles(workspaceId),
     });
-    for (const client of new Set([...wss.clients, ...wss6.clients])) {
-      if (
-        client.readyState === WebSocket.OPEN &&
-        socketAuthorization.canReceive(client, workspaceId)
-      ) {
-        client.send(message);
-      }
-    }
+    sendWorkspace(workspaceId, message);
+  };
+  broadcastPlugins = async (workspaceId) => {
+    const snapshot = await plugins.snapshot(workspaceId);
+    const message = JSON.stringify({
+      type: "plugins",
+      workspaceId,
+      ...snapshot,
+    });
+    sendWorkspace(workspaceId, message);
   };
   broadcastChannels = async (workspaceId) => {
     const message = JSON.stringify({
@@ -2144,14 +2155,7 @@ export function startServer(port = PORT) {
       workspaceId,
       channels: await manager.store.channelStore().list(workspaceId),
     } satisfies ServerMessage);
-    for (const client of new Set([...wss.clients, ...wss6.clients])) {
-      if (
-        client.readyState === WebSocket.OPEN &&
-        socketAuthorization.canReceive(client, workspaceId)
-      ) {
-        client.send(message);
-      }
-    }
+    sendWorkspace(workspaceId, message);
   };
   broadcastNotice = (workspaceId, notice) => {
     const message = JSON.stringify({
@@ -2159,14 +2163,7 @@ export function startServer(port = PORT) {
       workspaceId,
       notice,
     });
-    for (const client of new Set([...wss.clients, ...wss6.clients])) {
-      if (
-        client.readyState === WebSocket.OPEN &&
-        socketAuthorization.canReceive(client, workspaceId)
-      ) {
-        client.send(message);
-      }
-    }
+    sendWorkspace(workspaceId, message);
   };
   broadcastChannelEvent = (workspaceId, event) => {
     const message = JSON.stringify({
@@ -2174,14 +2171,7 @@ export function startServer(port = PORT) {
       workspaceId,
       event,
     } satisfies ServerMessage);
-    for (const client of new Set([...wss.clients, ...wss6.clients])) {
-      if (
-        client.readyState === WebSocket.OPEN &&
-        socketAuthorization.canReceive(client, workspaceId)
-      ) {
-        client.send(message);
-      }
-    }
+    sendWorkspace(workspaceId, message);
     void dispatchScheduledWorkEvent({
       workspaceId,
       event,
@@ -2199,13 +2189,7 @@ export function startServer(port = PORT) {
     anchorMessages: browserAnchorMessages,
     send: (workspaceId, browserMessage) => {
       const payload = JSON.stringify(browserMessage);
-      for (const client of new Set([...wss.clients, ...wss6.clients])) {
-        if (
-          client.readyState === WebSocket.OPEN &&
-          socketAuthorization.canReceive(client, workspaceId)
-        )
-          client.send(payload);
-      }
+      sendWorkspace(workspaceId, payload);
     },
   });
   broadcastBrowserNavigate = browserBroadcasts.navigate;
@@ -2224,14 +2208,7 @@ export function startServer(port = PORT) {
       conversationId,
       progress,
     } satisfies ServerMessage);
-    for (const client of new Set([...wss.clients, ...wss6.clients])) {
-      if (
-        client.readyState === WebSocket.OPEN &&
-        socketAuthorization.canReceive(client, workspaceId)
-      ) {
-        client.send(message);
-      }
-    }
+    sendWorkspace(workspaceId, message);
   };
   broadcastAgentDeployment = (record) => {
     const message = JSON.stringify({
@@ -2239,14 +2216,7 @@ export function startServer(port = PORT) {
       workspaceId: record.workspaceId,
       deployment: record,
     });
-    for (const client of new Set([...wss.clients, ...wss6.clients])) {
-      if (
-        client.readyState === WebSocket.OPEN &&
-        socketAuthorization.canReceive(client, record.workspaceId)
-      ) {
-        client.send(message);
-      }
-    }
+    sendWorkspace(record.workspaceId, message);
   };
   broadcastIntegrationVerified = (workspaceId, integration) => {
     const message = JSON.stringify({
@@ -2254,14 +2224,7 @@ export function startServer(port = PORT) {
       workspaceId,
       ...integration,
     } satisfies ServerMessage);
-    for (const client of new Set([...wss.clients, ...wss6.clients])) {
-      if (
-        client.readyState === WebSocket.OPEN &&
-        socketAuthorization.canReceive(client, workspaceId)
-      ) {
-        client.send(message);
-      }
-    }
+    sendWorkspace(workspaceId, message);
   };
 
   wss.on("connection", (ws, req) => {
@@ -2648,6 +2611,9 @@ export function startServer(port = PORT) {
           return;
         }
         if (await channelBridge.handleRequest(manager, msg, send)) return;
+        if (await plugins.handleClientMessage(msg, authorizeWorkspace, send)) {
+          return;
+        }
         switch (msg.type) {
           case "listAgents":
             send({ type: "agents", agents: defaultAgents });
@@ -3254,6 +3220,8 @@ export function startServer(port = PORT) {
               manager,
               msg,
               onboardingBootstraps,
+              pluginMcpServers: (workspaceId) =>
+                plugins.mcpServers(workspaceId),
               send,
             });
             break;
@@ -3304,6 +3272,8 @@ export function startServer(port = PORT) {
               integrationSetups,
               manager,
               msg,
+              pluginMcpServers: (workspaceId) =>
+                plugins.mcpServers(workspaceId),
               send,
             });
             break;

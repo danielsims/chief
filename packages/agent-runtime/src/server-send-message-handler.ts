@@ -34,6 +34,7 @@ export async function handleSendMessage({
   integrationSetups,
   manager,
   msg,
+  pluginMcpServers,
   send,
 }: {
   authorizeWorkspace: (
@@ -55,6 +56,9 @@ export async function handleSendMessage({
   integrationSetups: IntegrationSetupRegistry;
   manager: SessionManager;
   msg: Message;
+  pluginMcpServers: (
+    workspaceId: string,
+  ) => Promise<import("./types.js").McpServerSpec[]>;
   send: (message: ServerMessage) => void;
 }) {
   await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
@@ -309,6 +313,7 @@ export async function handleSendMessage({
       msg.workspaceId,
       msg.executorCapability,
     );
+    const pluginServers = await pluginMcpServers(msg.workspaceId);
     session = await manager.ensureRootChat(session.agent, msg.chatId, {
       ...session.config,
       mcpServers: [
@@ -320,6 +325,7 @@ export async function handleSendMessage({
               ? "model"
               : "browser",
         ),
+        ...pluginServers,
       ],
     });
     bindRootSession(msg.workspaceId, msg.chatId, session);

@@ -309,6 +309,34 @@ export type ClientMessage =
       executorCapability: ExecutorCapability;
     }
   | {
+      type: "listPlugins";
+      workspaceId: string;
+      refresh?: boolean;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "installPlugin";
+      workspaceId: string;
+      pluginId: string;
+      trusted: boolean;
+      requestId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "authorizePlugin";
+      workspaceId: string;
+      pluginId: string;
+      requestId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "uninstallPlugin";
+      workspaceId: string;
+      pluginId: string;
+      requestId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
       type: "disconnectGoogleAnalytics";
       workspaceId: string;
       requestId: string;

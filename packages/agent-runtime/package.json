@@ -33,6 +33,7 @@
     "@chief/channel-api": "workspace:*",
     "@chief/email": "workspace:*",
     "@chief/google-oauth-connector": "workspace:*",
+    "@chief/plugin-api": "workspace:*",
     "@libsql/client": "0.17.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openai/codex": "0.144.1",
