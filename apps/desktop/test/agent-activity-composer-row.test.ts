@@ -55,7 +55,7 @@ void test("simultaneous thread agents are all represented", () => {
   assert.match(html, />\+1</u);
 });
 
-void test("inactive activity does not leave an empty composer row", () => {
+void test("inactive activity reserves the composer presence row", () => {
   const html = renderToStaticMarkup(
     createElement(AgentActivityComposerRow, {
       running: false,
@@ -64,5 +64,7 @@ void test("inactive activity does not leave an empty composer row", () => {
     }),
   );
 
-  assert.equal(html, "");
+  assert.match(html, /class="h-8 shrink-0"/u);
+  assert.match(html, /aria-hidden="true"/u);
+  assert.doesNotMatch(html, /img|avatar|working|typing/iu);
 });
