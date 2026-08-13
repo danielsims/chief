@@ -36,13 +36,9 @@ export function useChiefChatPresentation({
   composer,
   core,
   directAgent,
-  onOpenChild,
   onOpenInternalPanel,
   timeline,
-}: Pick<
-  ChiefChatProps,
-  "channel" | "directAgent" | "onOpenChild" | "onOpenInternalPanel"
-> & {
+}: Pick<ChiefChatProps, "channel" | "directAgent" | "onOpenInternalPanel"> & {
   composer: Composer;
   core: Core;
   timeline: Timeline;
@@ -115,16 +111,6 @@ export function useChiefChatPresentation({
     const toggleReaction = (emoji: string) =>
       channelReactions.toggleReaction(message.id, emoji);
     const specialist = activeSpecialistByThread.get(message.id);
-    const openSpecialistActivity = () => {
-      onOpenInternalPanel?.();
-      if (specialist && onOpenChild) {
-        setActivityOpen(false);
-        onOpenChild(specialist.id);
-        return;
-      }
-      setThreadRootId(message.id);
-      setActivityOpen(true);
-    };
     const participants = replySummary.visibleReplies.flatMap(
       (reply): ThreadParticipant[] => {
         if (reply.role === "user") {
@@ -147,6 +133,7 @@ export function useChiefChatPresentation({
             id: `agent:${agent.id}`,
             kind: "agent",
             name: agent.name,
+            agentId: agent.id,
           },
         ];
       },
@@ -177,7 +164,6 @@ export function useChiefChatPresentation({
               : false
           }
           onOpenThread={openThread}
-          onOpenSpecialistActivity={openSpecialistActivity}
           onToggleReaction={toggleReaction}
         />
       ),

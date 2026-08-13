@@ -21,7 +21,7 @@ const specialist: SessionRecord = {
   updatedAt: 2,
 };
 
-void test("working specialist status does not manufacture a thread reply", () => {
+void test("working specialist status does not add a standalone footer row", () => {
   const html = renderToStaticMarkup(
     createElement(ChannelMessageMeta, {
       replies: [],
@@ -29,15 +29,34 @@ void test("working specialist status does not manufacture a thread reply", () =>
       reactions: [],
       specialist,
       onOpenThread: () => undefined,
-      onOpenSpecialistActivity: () => undefined,
       onToggleReaction: () => undefined,
     }),
   );
 
-  assert.match(html, /Prospector is working/u);
-  assert.match(html, /View activity/u);
-  assert.match(html, /group\/activity/u);
-  assert.match(html, /<button/u);
-  assert.doesNotMatch(html, />1 reply</u);
-  assert.doesNotMatch(html, /Last reply/u);
+  assert.equal(html, "");
+});
+
+void test("a working specialist replaces their reply avatar with the matrix", () => {
+  const html = renderToStaticMarkup(
+    createElement(ChannelMessageMeta, {
+      replies: [{ role: "assistant", metadata: { createdAt: 2 } }],
+      participants: [
+        {
+          id: "agent:prospector",
+          agentId: "prospector",
+          kind: "agent",
+          name: "Prospector",
+        },
+      ],
+      reactions: [],
+      specialist,
+      onOpenThread: () => undefined,
+      onToggleReaction: () => undefined,
+    }),
+  );
+
+  assert.match(html, /matrix-loader-cell/u);
+  assert.match(html, /title="Prospector is working"/u);
+  assert.match(html, />1 reply</u);
+  assert.doesNotMatch(html, /View activity/u);
 });
