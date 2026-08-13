@@ -6,13 +6,14 @@
 
 # Chief
 
-Chief is a workspace for building, running, and supervising proactive AI agents. It combines agent instructions, tools, playbooks, schedules, conversations, and action items in a local-first desktop app.
+Chief is a local-first workspace where people and proactive AI agents work together across channels, threads, files, schedules, tools, and action items.
 
-Chief is in early preview. The current product is focused on marketing teams, with desktop apps for macOS and Windows.
+Chief is in early preview, with desktop apps for macOS and Windows.
 
 ## What Chief does
 
-- Runs specialist agents for strategy, content, analytics, prospecting, advertising, and integration setup.
+- Coordinates a team of specialist agents across business, research, marketing, analytics, product engineering, and integration setup.
+- Keeps delegated work in shared channels and threads, with detailed activity available when you want to inspect it.
 - Turns reusable playbooks into work that can run now or on a schedule.
 - Executes scheduled work in private sessions while keeping conversations focused on decisions and useful outcomes.
 - Produces reviewable results with structured artifacts such as charts, tables, drafts, and action items.
@@ -21,16 +22,18 @@ Chief is in early preview. The current product is focused on marketing teams, wi
 
 ## The team
 
-| Agent                   | Responsibility                                                        |
-| ----------------------- | --------------------------------------------------------------------- |
-| Chief Marketing Officer | Sets direction, delegates work, and keeps the team aligned.           |
-| Setup                   | Connects services and resolves missing prerequisites.                 |
-| Content Writer          | Creates channel-native drafts grounded in brand context and evidence. |
-| Analyst                 | Reviews acquisition, product, funnel, and content performance.        |
-| Prospector              | Finds timely prospects, conversations, and research opportunities.    |
-| Ads Manager             | Reviews paid acquisition and proposes changes for approval.           |
+| Agent          | Responsibility                                                                     |
+| -------------- | ---------------------------------------------------------------------------------- |
+| Chief          | Coordinates the workspace, delegates work, and brings decisions back to you.       |
+| Engineer       | Investigates product issues and prepares reviewable implementation changes.        |
+| Setup          | Connects services and resolves missing prerequisites.                              |
+| Marketer       | Grounds positioning, audience, voice, vocabulary, and claims in evidence.          |
+| Content Writer | Creates channel-native drafts grounded in brand context and evidence.              |
+| Analyst        | Reviews acquisition, product, funnel, and content performance.                     |
+| Prospector     | Finds timely prospects, conversations, buying signals, and research opportunities. |
+| Ads Manager    | Reviews paid acquisition and proposes changes for approval.                        |
 
-Agents can use focused playbooks such as growth reports, founder content, buying-signal research, conversion reviews, campaign monitoring, search opportunities, and social account setup.
+Agents can use focused playbooks, connected services, and general workspace tools to research, create artifacts, implement changes, and run recurring work. Tool access and consequential actions remain governed by workspace permissions and approval rules.
 
 ## Repository structure
 
