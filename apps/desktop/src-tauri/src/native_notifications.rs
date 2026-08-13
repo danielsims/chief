@@ -1,6 +1,7 @@
 use std::env;
 
 use tauri::AppHandle;
+#[cfg(not(target_os = "macos"))]
 use tauri_plugin_notification::NotificationExt;
 
 #[derive(serde::Serialize)]
@@ -89,21 +90,45 @@ pub(crate) fn show_native_notification(
     app: AppHandle,
     title: String,
     body: String,
-    _target: Option<serde_json::Value>,
+    target: Option<serde_json::Value>,
     sound: bool,
 ) -> Result<(), String> {
-    let mut notification = app.notification().builder().title(&title).body(&body);
-    if sound {
-        #[cfg(target_os = "macos")]
-        {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::{Emitter, Manager};
+
+        let mut notification = mac_usernotifications::Notification::new()
+            .title(title)
+            .message(body);
+        if sound {
             notification = notification.sound("Glass");
         }
-        #[cfg(not(target_os = "macos"))]
-        {
+        let handle = notification
+            .send_blocking()
+            .map_err(|error| format!("native notification delivery failed: {error}"))?;
+        if let Some(target) = target {
+            std::thread::spawn(move || {
+                let response = mac_usernotifications::block_on(handle.response());
+                if !matches!(response, Ok(ref value) if value.is_default_action()) {
+                    return;
+                }
+                app.state::<crate::PendingNotificationActivation>()
+                    .set(target);
+                crate::focus_main_window(&app);
+                let _ = app.emit("chief-notification-activated", ());
+            });
+        }
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let mut notification = app.notification().builder().title(&title).body(&body);
+        if sound {
             notification = notification.sound("default");
         }
+        notification
+            .show()
+            .map_err(|error| format!("native notification delivery failed: {error}"))
     }
-    notification
-        .show()
-        .map_err(|error| format!("native notification delivery failed: {error}"))
 }
