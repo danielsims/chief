@@ -5,14 +5,8 @@ import type { BrowserRunRecord } from "@chief/agent-runtime/types";
 
 import type { ChiefChatProps } from "./chief-chat-types";
 import { messageBlocks } from "../../lib/runtime";
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
 import { InputRequestSection } from "../integrations/input-request-section";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
-import {
-  formatAgentActivityStatus,
-  mergeAgentActivityPresence,
-  taskAgentActivityPresence,
-} from "./agent-activity-presence";
 import { ApprovalCard } from "./approval-card";
 import { approvalBelongsToSurface } from "./approval-presentation";
 import { BrowserSessionAttachment } from "./browser-panel";
@@ -40,15 +34,8 @@ import { useChiefChatComposer } from "./use-chief-chat-composer";
 import { useChiefChatCore } from "./use-chief-chat-core";
 import { useChiefChatPresentation } from "./use-chief-chat-presentation";
 import { useChiefChatTimeline } from "./use-chief-chat-timeline";
+import { useMainAgentActivity } from "./use-main-agent-activity";
 import { UserMessage } from "./user-message";
-
-function activityAgentName(agentId: string) {
-  return Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)
-    ? WORKSPACE_AGENT_IDENTITIES[
-        agentId as keyof typeof WORKSPACE_AGENT_IDENTITIES
-      ].name
-    : agentId;
-}
 
 /**
  * Composes the core, composer, timeline, and presentation hooks into the full
@@ -198,34 +185,15 @@ export function ChiefChat({
     showOptimisticInitialPrompt,
     timelineEntries,
   } = timelineState;
-  const mainActivityAgents = useMemo(() => {
-    const fallbackRootAgentId =
-      directAgent?.id ??
-      (channel?.agentIds.length === 1 ? channel.agentIds[0] : undefined) ??
-      (!channel ? "chief" : undefined);
-    const rootAgentId = activeRootTurn?.agentId ?? fallbackRootAgentId;
-    const root =
-      controls.status === "running" &&
-      !activeRootTurn?.threadRootId &&
-      rootAgentId
-        ? { id: rootAgentId, label: activityAgentName(rootAgentId) }
-        : undefined;
-    return mergeAgentActivityPresence(
-      root,
-      taskAgentActivityPresence(activeMainChildSessions, activityAgentName),
-    );
-  }, [
-    activeMainChildSessions,
-    activeRootTurn,
-    channel,
-    controls.status,
-    directAgent?.id,
-  ]);
-  const mainStatusLabel =
-    mainActivityAgents.length === 1 &&
-    mainActivityAgents[0]?.id === activeRootTurn?.agentId
-      ? statusLabel
-      : formatAgentActivityStatus(mainActivityAgents);
+  const { agents: mainActivityAgents, statusLabel: mainStatusLabel } =
+    useMainAgentActivity({
+      activeRootTurn,
+      channelAgentIds: channel?.agentIds,
+      directAgentId: directAgent?.id,
+      running: controls.status === "running",
+      statusLabel,
+      tasks: activeMainChildSessions,
+    });
   const browserAttachmentNode = (run: BrowserRunRecord) => (
     <div className="mx-auto w-full max-w-3xl py-1 pl-11">
       <BrowserSessionAttachment
