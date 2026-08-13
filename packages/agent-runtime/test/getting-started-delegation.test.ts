@@ -12,7 +12,7 @@ import { runSpecialistDelegation } from "../src/specialist-delegation.js";
 process.env.CHIEF_DATABASE_ENCRYPTION_KEY =
   "chief-runtime-integration-test-encryption-key";
 
-void test("mission control onboarding uses initial-review delegation rules", async () => {
+void test("mission control supplies the Marketer with durable output context", async () => {
   const directory = mkdtempSync(join(tmpdir(), "chief-onboarding-"));
   const store = new LocalStore(join(directory, "chief.sqlite"));
   const manager = new SessionManager(store);
@@ -36,7 +36,7 @@ void test("mission control onboarding uses initial-review delegation rules", asy
       this.recordUserMessage(text);
       queueMicrotask(() => {
         this.recordAssistantMessage(
-          "# Working brand profile\n\nA complete evidence-backed profile that is deliberately longer than one hundred characters so the runtime persists it.",
+          "# Working brand profile\n\nA complete evidence-backed profile produced after using the workspace tools supplied by the active skill.",
         );
         this.events.push({ type: "result", ok: true });
         this.emit("event", { type: "result", ok: true });
@@ -63,15 +63,9 @@ void test("mission control onboarding uses initial-review delegation rules", asy
     });
 
     assert.equal(result.status, "completed");
-    assert.match(
-      prompt,
-      /runtime will save your returned Markdown automatically/,
-    );
-    assert.doesNotMatch(
-      prompt,
-      /call the direct localTools\.brandProfileSave tool exactly once/,
-    );
-    assert.equal(result.file?.path, "brand/working-brand-profile.md");
+    assert.match(prompt, /localTools\.brandProfileSave/u);
+    assert.match(prompt, /localTools\.filesWrite/u);
+    assert.match(prompt, /existing files/u);
   } finally {
     if (originalStart) {
       Object.defineProperty(AgentSession.prototype, "start", originalStart);

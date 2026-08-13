@@ -5,8 +5,14 @@ import type { BrowserRunRecord } from "@chief/agent-runtime/types";
 
 import type { ChiefChatProps } from "./chief-chat-types";
 import { messageBlocks } from "../../lib/runtime";
+import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
 import { InputRequestSection } from "../integrations/input-request-section";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
+import {
+  formatAgentActivityStatus,
+  mergeAgentActivityPresence,
+  taskAgentActivityPresence,
+} from "./agent-activity-presence";
 import { ApprovalCard } from "./approval-card";
 import { approvalBelongsToSurface } from "./approval-presentation";
 import { BrowserSessionAttachment } from "./browser-panel";
@@ -35,6 +41,14 @@ import { useChiefChatCore } from "./use-chief-chat-core";
 import { useChiefChatPresentation } from "./use-chief-chat-presentation";
 import { useChiefChatTimeline } from "./use-chief-chat-timeline";
 import { UserMessage } from "./user-message";
+
+function activityAgentName(agentId: string) {
+  return Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)
+    ? WORKSPACE_AGENT_IDENTITIES[
+        agentId as keyof typeof WORKSPACE_AGENT_IDENTITIES
+      ].name
+    : agentId;
+}
 
 /**
  * Composes the core, composer, timeline, and presentation hooks into the full
@@ -109,6 +123,7 @@ export function ChiefChat({
     activeCapabilities,
     activeExecution,
     activityAgentLabel,
+    activeRootTurn,
     anchorBrowserSession,
     browserRuns,
     browserSessions,
@@ -177,8 +192,40 @@ export function ChiefChat({
     threadRootId,
     threadScrollRef,
   });
-  const { childSessionOwners, showOptimisticInitialPrompt, timelineEntries } =
-    timelineState;
+  const {
+    activeMainChildSessions,
+    childSessionOwners,
+    showOptimisticInitialPrompt,
+    timelineEntries,
+  } = timelineState;
+  const mainActivityAgents = useMemo(() => {
+    const fallbackRootAgentId =
+      directAgent?.id ??
+      (channel?.agentIds.length === 1 ? channel.agentIds[0] : undefined) ??
+      (!channel ? "chief" : undefined);
+    const rootAgentId = activeRootTurn?.agentId ?? fallbackRootAgentId;
+    const root =
+      controls.status === "running" &&
+      !activeRootTurn?.threadRootId &&
+      rootAgentId
+        ? { id: rootAgentId, label: activityAgentName(rootAgentId) }
+        : undefined;
+    return mergeAgentActivityPresence(
+      root,
+      taskAgentActivityPresence(activeMainChildSessions, activityAgentName),
+    );
+  }, [
+    activeMainChildSessions,
+    activeRootTurn,
+    channel,
+    controls.status,
+    directAgent?.id,
+  ]);
+  const mainStatusLabel =
+    mainActivityAgents.length === 1 &&
+    mainActivityAgents[0]?.id === activeRootTurn?.agentId
+      ? statusLabel
+      : formatAgentActivityStatus(mainActivityAgents);
   const browserAttachmentNode = (run: BrowserRunRecord) => (
     <div className="mx-auto w-full max-w-3xl py-1 pl-11">
       <BrowserSessionAttachment
@@ -433,10 +480,20 @@ export function ChiefChat({
                 }
               />
               <AgentActivityComposerRow
+                agents={mainActivityAgents}
                 agentLabel={activityAgentLabel}
-                running={controls.status === "running"}
-                statusLabel={statusLabel}
+                running={mainActivityAgents.length > 0}
+                statusLabel={mainStatusLabel}
                 onOpen={() => {
+                  const onlyAgent = mainActivityAgents[0];
+                  if (
+                    mainActivityAgents.length === 1 &&
+                    onlyAgent?.taskId &&
+                    onOpenChild
+                  ) {
+                    onOpenChild(onlyAgent.taskId);
+                    return;
+                  }
                   setThreadRootId(null);
                   setActivityOpen(true);
                 }}

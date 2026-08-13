@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { ChannelEvent } from "./channel-types.js";
 import type { SessionManager } from "./manager.js";
 import type { SpecialistOutcome } from "./specialist-outcome-state.js";
-import type { AgentEvent, WorkspaceFileRecord } from "./types.js";
+import type { AgentEvent } from "./types.js";
 import {
   agentEventProducedOutput,
   DEFAULT_AGENT_RETRY_DELAYS_MS,
@@ -13,10 +13,6 @@ import { agentSkillFromPrompt } from "./agent-skills.js";
 import { getAgent } from "./agents.js";
 import { publishSpecialistFailure } from "./specialist-failure-publication.js";
 import {
-  persistInitialBrandProfileFile,
-  publishSpecialistFileToThread,
-} from "./specialist-file-publication.js";
-import {
   isDriver,
   persistSpecialistOutcomeState,
   setupNeedsHumanSignIn,
@@ -24,10 +20,7 @@ import {
 } from "./specialist-outcome-state.js";
 import { existingExecutorWorkspace } from "./tools/control-plane.js";
 import { executorToolServer } from "./tools/spec.js";
-import {
-  readWorkspaceContext,
-  writeWorkspaceBrandProfile,
-} from "./workspace-context.js";
+import { readWorkspaceContext } from "./workspace-context.js";
 import {
   hasInitialReviewKickoff,
   isInitialReviewConversation,
@@ -38,7 +31,6 @@ type DelegationOutcome = SpecialistOutcome;
 type DelegationResult = DelegationOutcome & {
   sessionId: string;
   agentId: string;
-  file?: WorkspaceFileRecord;
   retrySafe: boolean;
 };
 const activeDelegations = new Map<string, Promise<DelegationResult>>();
@@ -152,7 +144,6 @@ export async function runSpecialistDelegation(input: {
     specialist.name,
     parent.chat.provider,
     parent.chat.model,
-    initialReview,
   );
   const tracked: Promise<DelegationResult> = run.finally(() => {
     if (activeDelegations.get(key) === tracked) activeDelegations.delete(key);
@@ -167,7 +158,6 @@ async function executeSpecialistDelegation(
   specialistName: string,
   parentProvider: string,
   parentModel: string | undefined,
-  initialReview: boolean,
 ): Promise<DelegationResult> {
   const retryDelays = input.retryDelaysMs ?? DEFAULT_AGENT_RETRY_DELAYS_MS;
   for (let attempt = 0; ; attempt += 1) {
@@ -179,7 +169,6 @@ async function executeSpecialistDelegation(
         specialistName,
         parentProvider,
         parentModel,
-        initialReview,
       );
     } catch (error) {
       if (attempt >= retryDelays.length || !retryableAgentFailure(error)) {
@@ -240,7 +229,6 @@ async function executeSpecialistDelegationAttempt(
   specialistName: string,
   parentProvider: string,
   parentModel: string | undefined,
-  initialReview: boolean,
 ): Promise<DelegationResult> {
   const existing = (
     await input.manager.childChats(input.workspaceId, input.conversationId)
@@ -263,23 +251,12 @@ async function executeSpecialistDelegationAttempt(
     const result =
       existing.summary ??
       "The specialist completed without a persisted text result.";
-    const file =
-      initialReview && input.agentId === "brand" && result.trim().length >= 100
-        ? await persistInitialBrandProfileFile(
-            input,
-            existing.id,
-            result.trim(),
-          )
-        : undefined;
-    if (file) notify(input.onFilesChange);
-    if (file) await publishSpecialistFileToThread(input, file);
     return {
       sessionId: existing.id,
       agentId: existing.agent,
       status: existing.status,
       result,
       retrySafe: false,
-      ...(file ? { file } : {}),
     };
   }
   const existingSession = existing
@@ -331,11 +308,7 @@ async function executeSpecialistDelegationAttempt(
                 : "You are working privately for Chief, not speaking directly to the user. Complete only the bounded technical growth task below. Audit connected GitHub, analytics, and deployment context read-only first. Do not call integration setup tools that require an active setup attempt. Prepare a narrow implementation plan, and create a branch or draft pull request only when the task states that the user explicitly requested or approved it. Never push to a default branch, merge, deploy to production, change secrets or repository settings, or perform unrelated engineering work. Return the evidence, checks, and pull-request link to Chief. Do not ask the user questions in this private thread."
             : input.agentId === "analyst"
               ? "You are working privately for Chief, not speaking directly to the user. Use Executor's live connected-provider catalog to answer the bounded analytics question below. Dynamically inspect schemas, call the narrowest read-only tools, state exact dates and numbers, and return evidence Chief can present directly. Do not use Chief's normalized analytics wrapper or ask the user questions."
-              : input.agentId === "brand"
-                ? initialReview
-                  ? "You are working privately for Chief, not speaking directly to the user. Complete the bounded brand research and return the complete Markdown profile. The Workspace section below already contains the current context, so do not read context.md or repeat a filesystem context lookup. Chief's runtime will save your returned Markdown automatically, so do not discover or call persistence tools. Do not inspect runtime source, environment variables, processes, ports, or Executor internals. Do not create an ad hoc handoff file or ask the user questions."
-                  : 'You are working privately for Chief, not speaking directly to the user. Complete the bounded brand research, then call the direct localTools.brandProfileSave tool exactly once with input {"markdown":"<complete profile>"}. Never search Executor for Chief-local tools, and do not inspect runtime source, environment variables, processes, ports, or Executor internals. Return the complete Markdown to Chief and do not ask the user questions.'
-                : "You are working privately for Chief, not speaking directly to the user. Complete only the bounded task below. Return concise evidence, analysis, or draft material for Chief to verify and synthesize. You have no durable product-write tools in this session, but you may inspect work or verify behavior by opening Chief's embedded browser with localTools.browserOpen using this current session ID. Do not ask the user questions.",
+              : "You are working privately for Chief, not speaking directly to the user. Complete only the bounded task below using the supplied workspace context, instructions, and available tools. When the task calls for a durable artifact, create or update it with an appropriate workspace tool and verify that the tool succeeded before claiming it was saved. You may inspect work or verify behavior by opening Chief's embedded browser with localTools.browserOpen using this current session ID. Return concise evidence, analysis, or draft material for Chief to verify and synthesize. Do not ask the user questions.",
       workspace ? `# Workspace\n\n${workspace}` : undefined,
     ]
       .filter(Boolean)
@@ -446,22 +419,6 @@ async function executeSpecialistDelegationAttempt(
     agentId: input.agentId,
     outcome,
   });
-  let file: WorkspaceFileRecord | undefined;
-  if (
-    initialReview &&
-    input.agentId === "brand" &&
-    outcome.status === "completed" &&
-    outcome.result.trim().length >= 100
-  ) {
-    writeWorkspaceBrandProfile(input.workspaceId, outcome.result.trim());
-    file = await persistInitialBrandProfileFile(
-      input,
-      sessionId,
-      outcome.result.trim(),
-    );
-    await publishSpecialistFileToThread(input, file);
-    notify(input.onFilesChange);
-  }
   await notifyTerminal(input.onStateChange);
   return {
     sessionId,
@@ -470,6 +427,5 @@ async function executeSpecialistDelegationAttempt(
     retrySafe: !session.events
       .slice(eventOffset)
       .some(agentEventProducedOutput),
-    ...(file ? { file } : {}),
   };
 }

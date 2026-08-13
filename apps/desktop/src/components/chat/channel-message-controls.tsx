@@ -24,6 +24,7 @@ import {
 import { cn } from "@chief/ui/lib/utils";
 
 import type { ChannelReactionSummary } from "../../lib/channel-reactions";
+import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
 import { EMOJI_OPTIONS } from "./emoji-catalog";
 import {
@@ -227,11 +228,22 @@ export function ChannelMessageMeta({
   specialist?: SessionRecord;
   needsUser?: boolean;
 }) {
-  if (replyCount === 0 && reactions.length === 0 && !specialist) return null;
+  const specialistWorking = Boolean(
+    specialist &&
+    specialistIsStartingOrWorking(specialist.status) &&
+    specialist.status !== "waiting",
+  );
+  if (replyCount === 0 && reactions.length === 0 && !specialistWorking) {
+    return null;
+  }
   const lastReply = replies.at(-1);
-  const effectiveReplyCount = Math.max(replyCount, specialist ? 1 : 0);
-  const latestReplyAt =
-    lastReplyAt ?? lastReply?.metadata?.createdAt ?? specialist?.updatedAt;
+  const latestReplyAt = lastReplyAt ?? lastReply?.metadata?.createdAt;
+  const specialistIdentity =
+    specialist && Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, specialist.agent)
+      ? WORKSPACE_AGENT_IDENTITIES[
+          specialist.agent as keyof typeof WORKSPACE_AGENT_IDENTITIES
+        ]
+      : undefined;
   const uniqueParticipants = participants.filter(
     (participant, index) =>
       participants.findIndex((candidate) => candidate.id === participant.id) ===
@@ -266,24 +278,30 @@ export function ChannelMessageMeta({
           ))}
         </div>
       ) : null}
-      {effectiveReplyCount > 0 ? (
+      {specialistWorking && specialist ? (
+        <div
+          className="text-muted-foreground flex h-8 items-center gap-2 px-1.5 text-xs"
+          aria-label={`${specialistIdentity?.name ?? specialist.title} is working`}
+        >
+          <span className="bg-background ring-background grid size-5 place-items-center rounded-md ring-2">
+            <SpecialistStatusIndicator
+              agent={specialist.agent}
+              status={specialist.status}
+              className="size-4"
+            />
+          </span>
+          <span className="font-medium">
+            {specialistIdentity?.name ?? specialist.title} is working…
+          </span>
+        </div>
+      ) : null}
+      {replyCount > 0 ? (
         <button
           type="button"
           onClick={onOpenThread}
           className="hover:bg-accent flex h-8 items-center gap-2 rounded-lg px-1.5 pr-2.5 text-left transition-colors"
         >
           <span className="flex -space-x-1">
-            {specialist &&
-            specialistIsStartingOrWorking(specialist.status) &&
-            specialist.status !== "waiting" ? (
-              <span className="bg-background ring-background relative z-[1] grid size-5 place-items-center rounded-md ring-2">
-                <SpecialistStatusIndicator
-                  agent={specialist.agent}
-                  status={specialist.status}
-                  className="size-4"
-                />
-              </span>
-            ) : null}
             {uniqueParticipants.slice(0, 3).map((participant) =>
               participant.kind === "agent" ? (
                 <AgentAvatar
@@ -321,8 +339,7 @@ export function ChannelMessageMeta({
             ) : null}
           </span>
           <span className="text-xs font-medium">
-            {effectiveReplyCount}{" "}
-            {effectiveReplyCount === 1 ? "reply" : "replies"}
+            {replyCount} {replyCount === 1 ? "reply" : "replies"}
           </span>
           <span className="text-muted-foreground text-xs">
             Last reply {relativeReplyTime(latestReplyAt)}

@@ -1,16 +1,34 @@
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 
+import type { AgentActivityPresence } from "./agent-activity-presence";
+import { AgentAvatar } from "../agent-avatar";
+import { formatAgentActivityStatus } from "./agent-activity-presence";
+
 export function AgentActivityComposerRow({
+  agents,
   agentLabel = "Chief",
   running,
   statusLabel,
   onOpen,
 }: {
+  agents?: readonly AgentActivityPresence[];
   agentLabel?: string;
   running: boolean;
   statusLabel: string;
   onOpen: () => void;
 }) {
+  const visibleAgents =
+    agents && agents.length > 0
+      ? agents
+      : [{ id: agentLabel.toLocaleLowerCase(), label: agentLabel }];
+  const visibleStatusLabel =
+    visibleAgents.length > 1
+      ? formatAgentActivityStatus(visibleAgents)
+      : statusLabel;
+  const activityLabel =
+    visibleAgents.length === 1
+      ? (visibleAgents[0]?.label ?? agentLabel)
+      : `${visibleAgents.length} agents`;
   return (
     <div
       className="flex h-8 shrink-0 items-center px-1"
@@ -29,13 +47,35 @@ export function AgentActivityComposerRow({
             ? "opacity-100"
             : "pointer-events-none opacity-0 select-none")
         }
-        aria-label={`${statusLabel}. View activity.`}
+        aria-label={`${visibleStatusLabel}. View activity.`}
       >
-        <span className="bg-muted/35 grid size-[18px] shrink-0 place-items-center rounded-md">
-          <MatrixLoader ariaLabel={`${agentLabel} is working`} size={13} />
+        <span className="flex shrink-0 items-center -space-x-1">
+          {visibleAgents.length === 1 ? (
+            <span className="bg-muted/35 grid size-[18px] place-items-center rounded-md">
+              <MatrixLoader
+                ariaLabel={`${activityLabel} is working`}
+                size={13}
+              />
+            </span>
+          ) : (
+            visibleAgents
+              .slice(0, 2)
+              .map((agent) => (
+                <AgentAvatar
+                  key={agent.id}
+                  label={agent.label}
+                  className="ring-background size-[18px] rounded-md ring-1"
+                />
+              ))
+          )}
         </span>
+        {visibleAgents.length > 2 ? (
+          <span className="text-muted-foreground shrink-0 text-[9px] font-medium">
+            +{visibleAgents.length - 2}
+          </span>
+        ) : null}
         <span className="chief-shimmer-text min-w-0 truncate text-[11px] font-medium">
-          {statusLabel}
+          {visibleStatusLabel}
         </span>
         <span className="text-muted-foreground/70 shrink-0 text-[10px] opacity-0 transition-opacity group-hover/activity:opacity-100 group-focus-visible/activity:opacity-100">
           View activity

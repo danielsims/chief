@@ -13,8 +13,14 @@ import type { useChiefChatComposer } from "./use-chief-chat-composer";
 import type { useChiefChatCore } from "./use-chief-chat-core";
 import type { useChiefChatTimeline } from "./use-chief-chat-timeline";
 import { messageBlocks } from "../../lib/runtime";
+import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
 import { AgentActivityPanel, taskAgentLabel } from "./agent-activity-panel";
+import {
+  formatAgentActivityStatus,
+  mergeAgentActivityPresence,
+  taskAgentActivityPresence,
+} from "./agent-activity-presence";
 import { ApprovalCard } from "./approval-card";
 import { approvalBelongsToSurface } from "./approval-presentation";
 import { BrowserSessionAttachment } from "./browser-panel";
@@ -38,6 +44,14 @@ import { UserMessage } from "./user-message";
 type Core = ReturnType<typeof useChiefChatCore>;
 type Composer = ReturnType<typeof useChiefChatComposer>;
 type Timeline = ReturnType<typeof useChiefChatTimeline>;
+
+function activityAgentName(agentId: string) {
+  return Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)
+    ? WORKSPACE_AGENT_IDENTITIES[
+        agentId as keyof typeof WORKSPACE_AGENT_IDENTITIES
+      ].name
+    : agentId;
+}
 
 interface ThreadSummary {
   count: number;
@@ -95,6 +109,7 @@ export function ChiefChatAuxiliaryPanels({
   const {
     activeCapabilities,
     activityAgentLabel,
+    activeRootTurn,
     childSessions,
     controls,
     currentTurnBlocks,
@@ -125,6 +140,7 @@ export function ChiefChatAuxiliaryPanels({
     activeSpecialistByThread,
     activeChildThreadRootId,
     activeThreadAudience,
+    activeThreadChildSessions,
     activeThreadRoot,
     browserOperating,
     browserRunAnchors,
@@ -138,6 +154,30 @@ export function ChiefChatAuxiliaryPanels({
     () => [threadComposerRef],
     [],
   );
+  const threadActivityAgents = useMemo(() => {
+    const root =
+      controls.status === "running" &&
+      activeRootTurn?.threadRootId === threadRootId
+        ? {
+            id: activeRootTurn.agentId,
+            label: activityAgentName(activeRootTurn.agentId),
+          }
+        : undefined;
+    return mergeAgentActivityPresence(
+      root,
+      taskAgentActivityPresence(activeThreadChildSessions, activityAgentName),
+    );
+  }, [
+    activeRootTurn,
+    activeThreadChildSessions,
+    controls.status,
+    threadRootId,
+  ]);
+  const threadStatusLabel =
+    threadActivityAgents.length === 1 &&
+    threadActivityAgents[0]?.id === activeRootTurn?.agentId
+      ? statusLabel
+      : formatAgentActivityStatus(threadActivityAgents);
   const threadBrowserAttachmentNode = (run: BrowserRunRecord) => (
     <div className="w-full min-w-0 py-1 pl-11">
       <BrowserSessionAttachment
@@ -369,12 +409,21 @@ export function ChiefChatAuxiliaryPanels({
                 placeholder={`Reply in #${channel.label}…`}
               />
               <AgentActivityComposerRow
-                running={controls.status === "running"}
-                statusLabel={statusLabel}
+                agents={threadActivityAgents}
+                agentLabel={activityAgentLabel}
+                running={threadActivityAgents.length > 0}
+                statusLabel={threadStatusLabel}
                 onOpen={() => {
-                  const specialist = activeSpecialistByThread.get(threadRootId);
-                  if (specialist) onOpenChild?.(specialist.id);
-                  else setActivityOpen(true);
+                  const onlyAgent = threadActivityAgents[0];
+                  if (
+                    threadActivityAgents.length === 1 &&
+                    onlyAgent?.taskId &&
+                    onOpenChild
+                  ) {
+                    onOpenChild(onlyAgent.taskId);
+                    return;
+                  }
+                  setActivityOpen(true);
                 }}
               />
             </div>

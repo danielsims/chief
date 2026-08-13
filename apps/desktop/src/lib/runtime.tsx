@@ -1959,6 +1959,7 @@ function useRuntimeChat(
   const [execution, setExecution] = useState<
     ChatExecutionSelection | undefined
   >(undefined);
+  const [sessionAgentId, setSessionAgentId] = useState<string | undefined>();
   const executionRef = useRef<ChatExecutionSelection | undefined>(
     selectedExecution ?? initialExecution,
   );
@@ -2082,6 +2083,7 @@ function useRuntimeChat(
       setMessages(cached ? deduplicateDocumentParts(cached) : []);
       setChatReady(cached ? true : false);
       setExecution(undefined);
+      setSessionAgentId(undefined);
     }
     let cancelled = false;
     if (mode === "observe") {
@@ -2129,6 +2131,7 @@ function useRuntimeChat(
         msg.chatId === chatId
       ) {
         setExecution(msg.execution);
+        setSessionAgentId(msg.agentId);
         return;
       }
       if (
@@ -2382,6 +2385,7 @@ function useRuntimeChat(
     // channel events have resolved, so elements never pop in after entry.
     channelResolved: chatReady && (!channelId || channelEventsLoaded),
     execution,
+    sessionAgentId,
   };
 }
 
