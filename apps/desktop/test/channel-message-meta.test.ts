@@ -29,11 +29,15 @@ void test("working specialist status does not manufacture a thread reply", () =>
       reactions: [],
       specialist,
       onOpenThread: () => undefined,
+      onOpenSpecialistActivity: () => undefined,
       onToggleReaction: () => undefined,
     }),
   );
 
   assert.match(html, /Prospector is working/u);
+  assert.match(html, /View activity/u);
+  assert.match(html, /group\/activity/u);
+  assert.match(html, /<button/u);
   assert.doesNotMatch(html, />1 reply</u);
   assert.doesNotMatch(html, /Last reply/u);
 });
