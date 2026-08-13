@@ -3,13 +3,7 @@ import { useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import {
-  CircleAlert,
-  Hash,
-  LockKeyhole,
-  MoreHorizontal,
-  PinOff,
-} from "lucide-react";
+import { CircleAlert, Hash, Lock, MoreHorizontal, PinOff } from "lucide-react";
 
 import {
   ContextMenu,
@@ -114,7 +108,7 @@ export function ChannelRow({
             )}
           >
             {channel.visibility === "private" ? (
-              <LockKeyhole
+              <Lock
                 size={14}
                 strokeWidth={1.8}
                 className="shrink-0 opacity-70"
