@@ -32,6 +32,12 @@ const channel: WorkspaceChannel = {
   createdAt: 1,
   updatedAt: 1,
 };
+const prospectingChannel: WorkspaceChannel = {
+  ...channel,
+  id: "chief-channel-prospecting",
+  slug: "prospecting",
+  name: "prospecting",
+};
 const work: RecurringWorkRecord = {
   id: "heartbeat",
   conversationId: channelChatId(workspaceId, channel.id),
@@ -56,7 +62,7 @@ void test("scheduled work creates a durable channel thread before provider work"
   const manager = {
     store: {
       channelStore: () => ({
-        get: () => Promise.resolve(channel),
+        list: () => Promise.resolve([channel]),
         appendEvent: (_workspaceId: string, event: ChannelEvent) => {
           stored.push(event);
           return Promise.resolve(event);
@@ -100,7 +106,7 @@ void test("ordinary scheduled work wakes its assigned agent in the owning channe
   const manager = {
     store: {
       channelStore: () => ({
-        get: () => Promise.resolve(channel),
+        list: () => Promise.resolve([channel]),
         appendEvent: (_workspaceId: string, event: ChannelEvent) => {
           opening = event;
           return Promise.resolve(event);
@@ -124,11 +130,52 @@ void test("ordinary scheduled work wakes its assigned agent in the owning channe
 
   assert.equal(thread.agentId, "analyst");
   assert.ok(opening);
+  assert.deepEqual(opening.actor, {
+    type: "agent",
+    id: "analyst",
+    name: "Analyst",
+  });
   assert.match(opening.content, /Weekly product report/u);
   assert.equal(
     opening.tags.some((tag) => tag[0] === "p"),
-    true,
+    false,
   );
+});
+
+void test("legacy onboarding schedules move to the assigned agent channel", async () => {
+  let opening: ChannelEvent | undefined;
+  const manager = {
+    store: {
+      channelStore: () => ({
+        list: () => Promise.resolve([channel, prospectingChannel]),
+        appendEvent: (_workspaceId: string, event: ChannelEvent) => {
+          opening = event;
+          return Promise.resolve(event);
+        },
+      }),
+    },
+  } as unknown as SessionManager;
+
+  const thread = await beginScheduledChannelThread(
+    manager,
+    workspaceId,
+    {
+      ...work,
+      id: "onboarding-find-buying-signals",
+      agentId: "prospector",
+      title: "Find buying signals",
+      operationKey: "prospecting-buying-signals",
+    },
+    () => undefined,
+  );
+
+  assert.equal(thread.channelId, prospectingChannel.id);
+  assert.ok(opening);
+  assert.deepEqual(opening.actor, {
+    type: "agent",
+    id: "prospector",
+    name: "Prospector",
+  });
 });
 
 void test("scheduled work keeps provider work and its closing update in the thread", async () => {
@@ -178,7 +225,7 @@ void test("scheduled work keeps provider work and its closing update in the thre
   const manager = {
     store: {
       channelStore: () => ({
-        get: () => Promise.resolve(channel),
+        list: () => Promise.resolve([channel]),
         appendEvent: (_workspaceId: string, event: ChannelEvent) =>
           Promise.resolve(event),
       }),

@@ -3,12 +3,7 @@ import { basename, join } from "node:path";
 
 import type { SessionManager } from "./manager.js";
 import type { AgentSession } from "./session.js";
-import type {
-  AgentEvent,
-  ChannelEvent,
-  ClientMessage,
-  ServerMessage,
-} from "./types.js";
+import type { AgentEvent, ClientMessage, ServerMessage } from "./types.js";
 import { getAgent } from "./agents.js";
 import {
   availableCapabilities,
@@ -27,7 +22,7 @@ import {
   onboardingOpeningIsVisible,
   onboardingRecoveryPrompt,
 } from "./onboarding-kickoff.js";
-import { nextRunAt, validateCron } from "./recurring-work.js";
+import { persistOnboardingSchedules } from "./onboarding-schedule-persistence.js";
 import { ensureExecutorWorkspace } from "./tools/control-plane.js";
 import { executorToolServer } from "./tools/spec.js";
 import {
@@ -47,7 +42,6 @@ interface Bootstrap {
 export async function handleBootstrapOnboardingWork({
   authorizeWorkspace,
   bindRootSession,
-  broadcastChannelEvent,
   broadcastChannels,
   broadcastWorkspaceData,
   chatDestinations,
@@ -65,7 +59,6 @@ export async function handleBootstrapOnboardingWork({
     chatId: string,
     session: AgentSession,
   ) => void;
-  broadcastChannelEvent: (workspaceId: string, event: ChannelEvent) => void;
   broadcastChannels: (workspaceId: string) => void | Promise<void>;
   broadcastWorkspaceData: (workspaceId: string) => Promise<void>;
   chatDestinations: Map<string, string>;
@@ -230,12 +223,6 @@ export async function handleBootstrapOnboardingWork({
       if (!channel) {
         throw new Error("Chief could not find the workspace mission channel.");
       }
-      await ensureOnboardingGeneralChannel({
-        manager,
-        workspaceId: msg.workspaceId,
-        broadcast: (event) => broadcastChannelEvent(msg.workspaceId, event),
-        onChannelsChanged: () => broadcastChannels(msg.workspaceId),
-      });
       await manager.createRootChat(
         msg.workspaceId,
         chatId,
@@ -243,58 +230,22 @@ export async function handleBootstrapOnboardingWork({
         driver,
         model,
       );
-
-      for (const schedule of msg.schedules) {
-        if (!/^[a-z0-9][a-z0-9_-]{2,96}$/i.test(schedule.id)) {
-          throw new Error("Invalid onboarding schedule id.");
-        }
-        validateCron(schedule.cron, schedule.timezone);
-        const existing = await manager.recurringWorkById(
-          msg.workspaceId,
-          schedule.id,
-        );
-        // These IDs are workspace-scoped onboarding records. Re-home a saved
-        // schedule when upgrading from the retired setup conversation to the
-        // current mission channel instead of stranding the whole kickoff.
-        const toolPatterns = Array.from(
-          new Set(
-            schedule.proposedToolPatterns
-              .filter((pattern) => pattern.startsWith("tools."))
-              .slice(0, 24),
-          ),
-        );
-        await manager.saveRecurringWork(msg.workspaceId, {
-          id: schedule.id,
-          conversationId: chatId,
-          agentId: schedule.agentId,
-          title: schedule.title.trim().slice(0, 160),
-          instructions: schedule.instructions.trim().slice(0, 40_000),
-          cron: schedule.cron,
-          timezone: schedule.timezone,
-          status: schedule.status,
-          placement: "local",
-          approvalSummary: schedule.approvalSummary.trim().slice(0, 2_000),
-          proposedToolPatterns: toolPatterns,
-          grant:
-            schedule.status === "active"
-              ? { version: 1, approvedAt: now, toolPatterns }
-              : undefined,
-          nextAt:
-            schedule.status === "active"
-              ? nextRunAt(schedule.cron, schedule.timezone)
-              : undefined,
-          lastCompletedAt: existing?.lastCompletedAt,
-          lastSummary: existing?.lastSummary,
-          createdAt: existing?.createdAt ?? now,
-          updatedAt: now,
-        });
-      }
-
-      await syncMissionControlHeartbeat(
-        manager,
-        msg.workspaceId,
-        waysOfWorking,
-      );
+      // Calendar persistence starts independently and cannot own or block the
+      // mission-control turn. Every saved schedule gets its own valid channel
+      // conversation before the local store accepts it.
+      const backgroundSetup = Promise.allSettled([
+        persistOnboardingSchedules({
+          manager,
+          workspaceId: msg.workspaceId,
+          schedules: msg.schedules,
+          missionChannelId,
+          fallbackConversationId: chatId,
+          driver,
+          model,
+          now,
+        }),
+        syncMissionControlHeartbeat(manager, msg.workspaceId, waysOfWorking),
+      ]);
 
       const persistedMessages = await manager.transcript(
         msg.workspaceId,
@@ -397,8 +348,9 @@ export async function handleBootstrapOnboardingWork({
             : [
                 `Start by publishing this exact text as the first channel message with localTools.channelsMessagesPost using channelId ${JSON.stringify(channel.id)}:\n\n${ONBOARDING_OPENING_MESSAGE}\n\nDo not write it as ordinary assistant text and do not add another acknowledgement. Continue working in this same turn as soon as the tool succeeds.`,
                 onboardingLocalKickoffInstructions(channel.id),
-                `Only after every independent kickoff call succeeds, publish one short, friendly milestone with localTools.channelsMessagesPost using channelId ${JSON.stringify(channel.id)}. Name exactly who is underway and what you are handling next, then keep working. Never claim a job started before its kickoff call succeeds, and never duplicate a thread kickoff as another status message.`,
+                `Only after every independent kickoff call succeeds, publish one calm sentence of at most 18 words with localTools.channelsMessagesPost using channelId ${JSON.stringify(channel.id)}. Name who is underway without repeating their task briefs, listing sources, or previewing another review. Then keep working. Never claim a job started before its kickoff call succeeds, and never duplicate a thread kickoff as another status message.`,
                 `Do useful public-source and workspace work immediately. When credentials, consent, or account selection are genuinely required, Setup must explain the exact next step inside its own thread and keep the secure browser waiting there. Do not mirror that browser or raise a duplicate top-level action in #${channel.name}.`,
+                "Persist useful results only in their dedicated surfaces, such as the brand profile, prospects, analytics, connections, and channel threads. Do not create or attach a generic initial business review file.",
                 `Keep all user-facing progress and the final synthesis in this channel by calling localTools.channelsMessagesPost with channelId ${JSON.stringify(channel.id)}. Ordinary assistant text is private working output. Do not treat agent activity as a user-facing message.`,
               ].join("\n\n");
           await sendOnboardingPrompt(
@@ -434,6 +386,22 @@ export async function handleBootstrapOnboardingWork({
           );
         }
       }
+      const setupResults = await backgroundSetup;
+      for (const result of setupResults) {
+        if (result.status === "rejected") {
+          console.error(
+            "[chief] non-blocking onboarding setup failed:",
+            result.reason,
+          );
+        }
+      }
+      await ensureOnboardingGeneralChannel({
+        manager,
+        workspaceId: msg.workspaceId,
+        onChannelsChanged: () => broadcastChannels(msg.workspaceId),
+      }).catch((error: unknown) =>
+        console.error("[chief] General channel membership failed:", error),
+      );
       resolveReady(chatId);
       await broadcastWorkspaceData(msg.workspaceId);
       return chatId;

@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import type { ChannelEvent } from "../src/channel-types.js";
 import { LocalStore } from "../src/local-store.js";
 import { SessionManager } from "../src/manager.js";
 import { ensureOnboardingGeneralChannel } from "../src/onboarding-general-channel.js";
@@ -12,19 +11,15 @@ import { ensureOnboardingGeneralChannel } from "../src/onboarding-general-channe
 process.env.CHIEF_DATABASE_ENCRYPTION_KEY =
   "chief-onboarding-general-channel-test-key";
 
-void test("Chief invites the owner into General exactly once", async () => {
+void test("General includes the owner without onboarding messages", async () => {
   const directory = mkdtempSync(join(tmpdir(), "chief-general-invite-"));
   try {
     const store = new LocalStore(join(directory, "chief.sqlite"));
     const manager = new SessionManager(store);
-    const broadcasts: ChannelEvent[] = [];
     let channelUpdates = 0;
     const input = {
       manager,
       workspaceId: "workspace-a",
-      broadcast: (event: ChannelEvent) => {
-        broadcasts.push(event);
-      },
       onChannelsChanged: () => {
         channelUpdates += 1;
       },
@@ -38,16 +33,9 @@ void test("Chief invites the owner into General exactly once", async () => {
     );
     assert.ok(general);
     assert.deepEqual(general.userIds, ["workspace-owner"]);
-    assert.equal(channelUpdates, 1);
-    assert.equal(broadcasts.length, 2);
+    assert.equal(channelUpdates, 0);
     const events = await store.channelStore().events("workspace-a", general.id);
-    assert.deepEqual(
-      new Set(events.map((event) => event.content)),
-      new Set([
-        "Chief added you to the channel.",
-        "Welcome to #general. Drop anything here that needs a home, and I’ll pull in the right people when it turns into real work.",
-      ]),
-    );
+    assert.deepEqual(events, []);
     await store.close();
   } finally {
     rmSync(directory, { recursive: true, force: true });

@@ -5,13 +5,11 @@ import type { SessionManager } from "./manager.js";
 import type { AgentSession } from "./session.js";
 import type { ExecutorWorkspace } from "./tools/control-plane.js";
 import type { AgentEvent, RecurringWorkRecord } from "./types.js";
-import {
-  channelChatId,
-  channelIdFromChatId,
-  createChannelEvent,
-} from "./channels/nip29.js";
+import { getAgent } from "./agents.js";
+import { channelChatId, createChannelEvent } from "./channels/nip29.js";
 import { agentForChannel } from "./channels/server-bridge.js";
 import { scheduledAgentConfig } from "./scheduled-agent-config.js";
+import { preferredScheduledChannel } from "./scheduled-work-channel.js";
 import { executorToolServer } from "./tools/spec.js";
 import { readWorkspaceContext } from "./workspace-context.js";
 import { readWorkspaceWaysOfWorking } from "./workspace-ways-of-working.js";
@@ -25,17 +23,6 @@ export interface ScheduledChannelThread {
   messageId: string;
   /** Durable channel event ID used by protocol thread references. */
   threadRootId: string;
-}
-
-function scheduledChannelId(workspaceId: string, work: RecurringWorkRecord) {
-  const owningChannel = work.conversationId
-    ? channelIdFromChatId(work.conversationId)
-    : null;
-  if (owningChannel) return owningChannel;
-  const waysOfWorking = readWorkspaceWaysOfWorking(workspaceId);
-  return waysOfWorking.mode === "mission-control"
-    ? waysOfWorking.missionControlChannelId
-    : null;
 }
 
 function openingMessage(work: RecurringWorkRecord) {
@@ -75,21 +62,29 @@ export async function beginScheduledChannelThread(
   broadcast: (workspaceId: string, event: ChannelEvent) => void,
   triggerContext?: Record<string, unknown>,
 ): Promise<ScheduledChannelThread> {
-  const channelId = scheduledChannelId(workspaceId, work);
-  if (!channelId) throw new Error("Choose a channel for this scheduled work.");
-  const channel = await manager.store
-    .channelStore()
-    .get(workspaceId, channelId);
-  if (channel?.lifecycle !== "active") {
+  const waysOfWorking = readWorkspaceWaysOfWorking(workspaceId);
+  const channels = await manager.store.channelStore().list(workspaceId);
+  const channel = preferredScheduledChannel(
+    channels,
+    work,
+    waysOfWorking.missionControlChannelId,
+  );
+  if (!channel) throw new Error("Choose a channel for this scheduled work.");
+  if (channel.lifecycle !== "active") {
     throw new Error("Choose an active channel for this scheduled work.");
   }
+  const assignedAgent = getAgent(work.agentId) ?? getAgent("chief");
+  if (!assignedAgent) throw new Error("The scheduled agent is unavailable.");
   const sourceId = randomUUID();
   const event = createChannelEvent({
     workspaceId,
     channelId: channel.id,
-    actor: { type: "agent", id: "chief", name: "Chief" },
+    actor: {
+      type: "agent",
+      id: assignedAgent.id,
+      name: assignedAgent.name,
+    },
     content: openingMessage(work),
-    mentions: [work.agentId],
     sourceId,
   });
   await manager.store.channelStore().appendEvent(workspaceId, event);
@@ -115,10 +110,15 @@ async function appendFailure(
   thread: ScheduledChannelThread,
   broadcast: (workspaceId: string, event: ChannelEvent) => void,
 ) {
+  const assignedAgent = getAgent(thread.agentId) ?? getAgent("chief");
   const event = createChannelEvent({
     workspaceId,
     channelId: thread.channelId,
-    actor: { type: "agent", id: "chief", name: "Chief" },
+    actor: {
+      type: "agent",
+      id: assignedAgent?.id ?? thread.agentId,
+      name: assignedAgent?.name ?? thread.agentId,
+    },
     content: "I couldn’t finish this work. Please try it again in a moment.",
     threadRootId: thread.threadRootId,
   });

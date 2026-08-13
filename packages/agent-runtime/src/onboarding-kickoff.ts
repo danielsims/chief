@@ -82,7 +82,7 @@ export function onboardingRecoveryPrompt(
       ? `Resume the initial business review for this workspace. Start by publishing this exact text with localTools.channelsMessagesPost using channelId ${JSON.stringify(channelId)}:\n\n${ONBOARDING_OPENING_MESSAGE}\n\nDo not write it as ordinary assistant text. Continue working in the same turn without another acknowledgement.`
       : "Resume the initial business review for this workspace. The opening message is already visible, so begin with the first tool call and do not greet the user again.",
     driver === "remote"
-      ? "Use current workspace context and connected cloud sources. Launch Marketer and Prospector concurrently and exactly once through Eve's declared subagents before waiting for either. Persist the brand profile and full review through chief files.save, and persist five to eight qualified prospects with direct source URLs through chief prospects.save."
+      ? "Use current workspace context and connected cloud sources. Launch Marketer and Prospector concurrently and exactly once through Eve's declared subagents before waiting for either. Persist the brand profile through chief files.save, and persist five to eight qualified prospects with direct source URLs through chief prospects.save."
       : `${onboardingLocalKickoffInstructions(channelId)} Resume every unfinished job recorded in the onboarding file. Marketer's returned profile is persisted against its specialist session, so do not save or republish it from Chief.`,
     driver === "remote"
       ? "If workspace context names an unconnected analytics or advertising source, do not delegate setup. Persist one direct provider-specific connection action through chief actions.raise."
@@ -91,7 +91,7 @@ export function onboardingRecoveryPrompt(
     driver === "remote"
       ? "Do not ask the user for information Chief can discover. If authorization is genuinely required, complete everything else and create one distinct action per provider or user decision, with a provider-scoped stable dedupe key."
       : "Do not ask the user for information Chief can discover. A waiting Setup thread is the single user-facing authorization alert; do not mirror it into mission control as another action or browser.",
-    "Missing integrations are non-blocking. Complete and save all public-source, brand, and prospecting work first. Save the complete review as a versioned Markdown file under reviews/, include the document in the synthesis, then create only deduplicated structured setup actions with stable keys. Recording actions is not completion.",
+    "Missing integrations are non-blocking. Complete all public-source, brand, and prospecting work first, persist each result only in its dedicated product surface, then create only deduplicated structured setup actions with stable keys. Do not create or attach a generic initial business review file. Recording actions is not completion.",
   ].join("\n\n");
 }
 
