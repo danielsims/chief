@@ -108,11 +108,9 @@ function ChatSkeleton() {
 function ConversationEmptyState({
   channel,
   directAgent,
-  runtimeConnected,
 }: {
   channel?: { label: string; description: string; agentIds: readonly string[] };
   directAgent?: { name: string };
-  runtimeConnected: boolean;
 }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
@@ -129,12 +127,6 @@ function ConversationEmptyState({
       {channel ? (
         <p className="text-muted-foreground/75 text-xs">
           {channel.agentIds.length} agents share this channel’s context.
-        </p>
-      ) : null}
-      {!runtimeConnected ? (
-        <p className="text-muted-foreground mt-4 border border-dashed px-3 py-2 text-xs">
-          Agent runtime not connected. Run <code>pnpm dev</code> in the repo
-          root.
         </p>
       ) : null}
     </div>

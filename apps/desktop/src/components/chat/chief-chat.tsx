@@ -127,7 +127,6 @@ export function ChiefChat({
     provideInput,
     respondPermission,
     respondQuestion,
-    runtimeStatus,
     setActivityOpen,
     setAnsweredInputs,
     setSelectedExecution,
@@ -246,7 +245,6 @@ export function ChiefChat({
               <ConversationEmptyState
                 channel={channel}
                 directAgent={directAgent}
-                runtimeConnected={runtimeStatus === "connected"}
               />
             ) : null}
             {showOptimisticInitialPrompt && optimisticInitialPrompt ? (

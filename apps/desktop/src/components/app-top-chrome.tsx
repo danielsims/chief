@@ -7,6 +7,7 @@ import {
 
 import { cn } from "@chief/ui/lib/utils";
 
+import { useRuntime } from "../lib/runtime";
 import { useNavigationHistory } from "./use-navigation-history";
 
 const controlClass =
@@ -22,6 +23,7 @@ export function AppTopChrome({
   hasWorkspaceRail: boolean;
 }) {
   const { canGoBack, canGoForward, goBack, goForward } = useNavigationHistory();
+  const { client, status } = useRuntime();
 
   return (
     <header
@@ -63,6 +65,16 @@ export function AppTopChrome({
           <ChevronRight size={16} />
         </button>
       </div>
+      {status === "disconnected" ? (
+        <button
+          type="button"
+          className="text-foreground/80 hover:text-foreground ml-auto flex items-center gap-2 text-xs transition-colors"
+          onClick={() => client.reconnectNow()}
+        >
+          <span className="size-1.5 rounded-full bg-red-500" />
+          Runtime disconnected
+        </button>
+      ) : null}
     </header>
   );
 }
