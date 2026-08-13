@@ -12,7 +12,10 @@ import {
 import { channelChatId } from "./channels/nip29.js";
 import * as channelBridge from "./channels/server-bridge.js";
 import { syncMissionControlHeartbeat } from "./mission-control-heartbeat.js";
-import { ensureOnboardingGeneralChannel } from "./onboarding-general-channel.js";
+import {
+  ensureOnboardingEngineeringChannel,
+  ensureOnboardingGeneralChannel,
+} from "./onboarding-general-channel.js";
 import {
   ONBOARDING_OPENING_MESSAGE,
   onboardingDirectory,
@@ -204,7 +207,9 @@ export async function handleBootstrapOnboardingWork({
           "# Workspace onboarding",
           "",
           "This is the durable setup plan for the workspace mission channel.",
-          "Chief should work through it conversationally with the workspace owner and bring Setup into the thread when a provider requires browser authorization or credentials.",
+          msg.jobs.some((job) => job.agentId === "setup")
+            ? "Chief should work through only the selected jobs conversationally with the workspace owner. Setup may enter a selected provider thread when browser authorization or credentials are required."
+            : "No provider setup was selected. Chief must not infer a default provider, bring Setup into the channel, or start an authorization flow during initial onboarding.",
           "",
           "## Setup and initial work",
           jobs.length > 0 ? jobs.join("\n") : "- No setup work selected.",
@@ -344,12 +349,15 @@ export async function handleBootstrapOnboardingWork({
                 driver,
                 !onboardingOpeningIsVisible(persistedMessages, kickoffId),
                 channel.id,
+                msg.jobs,
               )
             : [
                 `Start by publishing this exact text as the first channel message with localTools.channelsMessagesPost using channelId ${JSON.stringify(channel.id)}:\n\n${ONBOARDING_OPENING_MESSAGE}\n\nDo not write it as ordinary assistant text and do not add another acknowledgement. Continue working in this same turn as soon as the tool succeeds.`,
-                onboardingLocalKickoffInstructions(channel.id),
+                onboardingLocalKickoffInstructions(channel.id, msg.jobs),
                 `Only after every independent kickoff call succeeds, publish one calm sentence of at most 18 words with localTools.channelsMessagesPost using channelId ${JSON.stringify(channel.id)}. Name who is underway without repeating their task briefs, listing sources, or previewing another review. Then keep working. Never claim a job started before its kickoff call succeeds, and never duplicate a thread kickoff as another status message.`,
-                `Do useful public-source and workspace work immediately. When credentials, consent, or account selection are genuinely required, Setup must explain the exact next step inside its own thread and keep the secure browser waiting there. Do not mirror that browser or raise a duplicate top-level action in #${channel.name}.`,
+                msg.jobs.some((job) => job.agentId === "setup")
+                  ? `Do useful public-source and workspace work immediately. For a selected Setup job only, when credentials, consent, or account selection are genuinely required, Setup must explain the exact next step inside its own thread and keep the secure browser waiting there. Do not mirror that browser or raise a duplicate top-level action in #${channel.name}.`
+                  : "Do useful public-source and workspace work immediately. No setup job was selected, so do not start an integration, authorization flow, or provider action during initial onboarding.",
                 "Persist useful results only in their dedicated surfaces, such as the brand profile, prospects, analytics, connections, and channel threads. Do not create or attach a generic initial business review file.",
                 `Keep all user-facing progress and the final synthesis in this channel by calling localTools.channelsMessagesPost with channelId ${JSON.stringify(channel.id)}. Ordinary assistant text is private working output. Do not treat agent activity as a user-facing message.`,
               ].join("\n\n");
@@ -380,6 +388,7 @@ export async function handleBootstrapOnboardingWork({
               driver,
               !onboardingOpeningIsVisible(afterInitialEvents, kickoffId),
               channel.id,
+              msg.jobs,
             ),
             undefined,
             false,
@@ -395,13 +404,24 @@ export async function handleBootstrapOnboardingWork({
           );
         }
       }
-      await ensureOnboardingGeneralChannel({
+      const ensureVisibleChannel = {
         manager,
         workspaceId: msg.workspaceId,
         onChannelsChanged: () => broadcastChannels(msg.workspaceId),
-      }).catch((error: unknown) =>
-        console.error("[chief] General channel membership failed:", error),
-      );
+      };
+      await Promise.allSettled([
+        ensureOnboardingGeneralChannel(ensureVisibleChannel),
+        ensureOnboardingEngineeringChannel(ensureVisibleChannel),
+      ]).then((results) => {
+        for (const result of results) {
+          if (result.status === "rejected") {
+            console.error(
+              "[chief] onboarding channel membership failed:",
+              result.reason,
+            );
+          }
+        }
+      });
       resolveReady(chatId);
       await broadcastWorkspaceData(msg.workspaceId);
       return chatId;
@@ -429,7 +449,11 @@ export async function handleBootstrapOnboardingWork({
         }
       });
   }
-  await bootstrap.ready;
+  // A durable client handoff must mean the entire bootstrap completed. The UI
+  // enters the workspace independently, while retaining its local retry record
+  // until this acknowledgement. If the runtime exits mid-turn, reconnecting
+  // replays the same deterministic work instead of freezing failed cards.
+  await bootstrap.run;
   send({
     type: "onboardingWorkBootstrapped",
     workspaceId: msg.workspaceId,

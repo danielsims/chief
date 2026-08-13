@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   ChatExecutionSelection,
@@ -24,6 +24,7 @@ import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
 import { channelActivityState } from "./channel-activity-state";
 import { channelRecipients } from "./channel-thread-audience";
 import { conversationActivityTurns } from "./conversation-activity-history";
+import { orderMentionCandidatesByMembership } from "./mention-candidate-order";
 
 /**
  * Connects a Chief conversation to runtime, authentication, workspace, and
@@ -98,7 +99,46 @@ export function useChiefChatCore({
       integrationDomain,
     },
   );
-  const activityAgentLabel = directAgent?.name ?? "Chief";
+  const [activeRootTurn, setActiveRootTurn] = useState<{
+    agentId: string;
+    threadRootId?: string;
+  } | null>(null);
+  const wasRunningRef = useRef(false);
+  useEffect(() => {
+    if (chat.controls.status === "running") {
+      wasRunningRef.current = true;
+      return;
+    }
+    if (wasRunningRef.current) {
+      wasRunningRef.current = false;
+      setActiveRootTurn(null);
+    }
+  }, [chat.controls.status]);
+  const resumedThreadRootId = useMemo(() => {
+    if (chat.controls.status !== "running" || activeRootTurn) return undefined;
+    for (let index = chat.messages.length - 1; index >= 0; index -= 1) {
+      const message = chat.messages[index];
+      if (message?.role === "user") return message.metadata?.threadRootId;
+    }
+    return undefined;
+  }, [activeRootTurn, chat.controls.status, chat.messages]);
+  const visibleActiveRootTurn =
+    activeRootTurn ??
+    (chat.controls.status === "running" && chat.sessionAgentId
+      ? {
+          agentId: chat.sessionAgentId,
+          ...(resumedThreadRootId ? { threadRootId: resumedThreadRootId } : {}),
+        }
+      : null);
+  const activeRootIdentity =
+    visibleActiveRootTurn &&
+    Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, visibleActiveRootTurn.agentId)
+      ? WORKSPACE_AGENT_IDENTITIES[
+          visibleActiveRootTurn.agentId as keyof typeof WORKSPACE_AGENT_IDENTITIES
+        ]
+      : undefined;
+  const activityAgentLabel =
+    activeRootIdentity?.name ?? directAgent?.name ?? "Chief";
   const currentTurn = useMemo(
     () =>
       channelActivityState(
@@ -152,21 +192,23 @@ export function useChiefChatCore({
   );
   const mentionCandidates = useMemo(
     () =>
-      Object.entries(WORKSPACE_AGENT_IDENTITIES)
-        .filter(
-          ([id]) =>
-            id !== "setup" ||
-            directAgent?.id === "setup" ||
-            Boolean(channel?.agentIds.includes("setup")),
-        )
-        .map(([id, identity]) => ({
-          id,
-          ...identity,
-          member:
-            directAgent?.id === id ||
-            addedAgentIds.has(id) ||
-            Boolean(channel?.agentIds.includes(id)),
-        })),
+      orderMentionCandidatesByMembership(
+        Object.entries(WORKSPACE_AGENT_IDENTITIES)
+          .filter(
+            ([id]) =>
+              id !== "setup" ||
+              directAgent?.id === "setup" ||
+              Boolean(channel?.agentIds.includes("setup")),
+          )
+          .map(([id, identity]) => ({
+            id,
+            ...identity,
+            member:
+              directAgent?.id === id ||
+              addedAgentIds.has(id) ||
+              Boolean(channel?.agentIds.includes(id)),
+          })),
+      ),
     [addedAgentIds, channel?.agentIds, directAgent?.id],
   );
   const knownAgentIds = useMemo(
@@ -199,6 +241,23 @@ export function useChiefChatCore({
     if (channel && mentions.length > 0) {
       setAddedAgentIds((current) => new Set([...current, ...mentions]));
     }
+    const routedAgentId = channel
+      ? (mentions[0] ??
+        (destinationChannelId ===
+        workspaceData.waysOfWorking.missionControlChannelId
+          ? "chief"
+          : channel.visibility === "private"
+            ? channel.agentIds.find((agentId) => agentId !== "chief")
+            : undefined))
+      : (directAgent?.id ?? "chief");
+    setActiveRootTurn(
+      routedAgentId
+        ? {
+            agentId: routedAgentId,
+            ...(threadRootId ? { threadRootId } : {}),
+          }
+        : null,
+    );
     chat.sendMessageWithContext(
       text,
       { threadRootId, mentions, interruptActive },
@@ -211,6 +270,7 @@ export function useChiefChatCore({
     activeCapabilities: resolved.capabilities,
     activeExecution,
     activityAgentLabel,
+    activeRootTurn: visibleActiveRootTurn,
     anchorBrowserSession,
     browserRuns,
     browserSessions,

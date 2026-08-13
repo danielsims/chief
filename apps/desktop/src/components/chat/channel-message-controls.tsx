@@ -227,11 +227,16 @@ export function ChannelMessageMeta({
   specialist?: SessionRecord;
   needsUser?: boolean;
 }) {
-  if (replyCount === 0 && reactions.length === 0 && !specialist) return null;
+  const specialistWorking = Boolean(
+    specialist &&
+    specialistIsStartingOrWorking(specialist.status) &&
+    specialist.status !== "waiting",
+  );
+  if (replyCount === 0 && reactions.length === 0) {
+    return null;
+  }
   const lastReply = replies.at(-1);
-  const effectiveReplyCount = Math.max(replyCount, specialist ? 1 : 0);
-  const latestReplyAt =
-    lastReplyAt ?? lastReply?.metadata?.createdAt ?? specialist?.updatedAt;
+  const latestReplyAt = lastReplyAt ?? lastReply?.metadata?.createdAt;
   const uniqueParticipants = participants.filter(
     (participant, index) =>
       participants.findIndex((candidate) => candidate.id === participant.id) ===
@@ -266,31 +271,39 @@ export function ChannelMessageMeta({
           ))}
         </div>
       ) : null}
-      {effectiveReplyCount > 0 ? (
+      {replyCount > 0 ? (
         <button
           type="button"
           onClick={onOpenThread}
           className="hover:bg-accent flex h-8 items-center gap-2 rounded-lg px-1.5 pr-2.5 text-left transition-colors"
         >
           <span className="flex -space-x-1">
-            {specialist &&
-            specialistIsStartingOrWorking(specialist.status) &&
-            specialist.status !== "waiting" ? (
-              <span className="bg-background ring-background relative z-[1] grid size-5 place-items-center rounded-md ring-2">
-                <SpecialistStatusIndicator
-                  agent={specialist.agent}
-                  status={specialist.status}
-                  className="size-4"
-                />
-              </span>
-            ) : null}
             {uniqueParticipants.slice(0, 3).map((participant) =>
               participant.kind === "agent" ? (
-                <AgentAvatar
+                <span
                   key={participant.id}
-                  label={participant.name}
-                  className="ring-background size-5 rounded-md ring-2"
-                />
+                  title={
+                    specialistWorking &&
+                    participant.agentId === specialist?.agent
+                      ? `${participant.name} is working`
+                      : participant.name
+                  }
+                  className="bg-background ring-background grid size-5 place-items-center rounded-md ring-2"
+                >
+                  {specialistWorking &&
+                  participant.agentId === specialist?.agent ? (
+                    <SpecialistStatusIndicator
+                      agent={specialist.agent}
+                      status={specialist.status}
+                      className="size-4"
+                    />
+                  ) : (
+                    <AgentAvatar
+                      label={participant.name}
+                      className="size-5 rounded-md"
+                    />
+                  )}
+                </span>
               ) : (
                 <span
                   key={participant.id}
@@ -321,8 +334,7 @@ export function ChannelMessageMeta({
             ) : null}
           </span>
           <span className="text-xs font-medium">
-            {effectiveReplyCount}{" "}
-            {effectiveReplyCount === 1 ? "reply" : "replies"}
+            {replyCount} {replyCount === 1 ? "reply" : "replies"}
           </span>
           <span className="text-muted-foreground text-xs">
             Last reply {relativeReplyTime(latestReplyAt)}
@@ -339,9 +351,16 @@ export function ChannelMessageMeta({
   );
 }
 
-export interface ThreadParticipant {
-  id: string;
-  kind: "agent" | "user";
-  name: string;
-  image?: string;
-}
+export type ThreadParticipant =
+  | {
+      id: string;
+      kind: "agent";
+      name: string;
+      agentId: string;
+    }
+  | {
+      id: string;
+      kind: "user";
+      name: string;
+      image?: string;
+    };

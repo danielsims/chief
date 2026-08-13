@@ -13,6 +13,12 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+mod native_notifications;
+
+use native_notifications::{
+    notification_environment, request_native_notification_permission, show_native_notification,
+};
+
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
@@ -28,6 +34,12 @@ const RUNTIME_PROTOCOL: &str = "2";
 struct PendingNotificationActivation(Mutex<Option<serde_json::Value>>);
 
 impl PendingNotificationActivation {
+    fn set(&self, target: serde_json::Value) {
+        if let Ok(mut pending) = self.0.lock() {
+            *pending = Some(target);
+        }
+    }
+
     fn take(&self) -> Option<serde_json::Value> {
         self.0.lock().ok()?.take()
     }
@@ -105,11 +117,7 @@ impl RuntimeProcess {
                             } else {
                                 healthy_since = None;
                                 let became_unhealthy = unhealthy_since.get_or_insert(now);
-                                let grace = if has_been_healthy {
-                                    Duration::from_secs(3)
-                                } else {
-                                    Duration::from_secs(20)
-                                };
+                                let grace = runtime_unhealthy_grace(has_been_healthy);
                                 if became_unhealthy.elapsed() >= grace {
                                     eprintln!("[runtime] agent runtime is unhealthy; restarting");
                                     terminate_runtime(runtime);
@@ -313,6 +321,17 @@ fn restart_at(delay: &mut Duration) -> Instant {
     next
 }
 
+fn runtime_unhealthy_grace(has_been_healthy: bool) -> Duration {
+    // Agent persistence can legitimately keep the runtime busy for several
+    // seconds. A child that exits is detected immediately; reserve restart-on-
+    // health-failure for a sustained hang.
+    if has_been_healthy {
+        Duration::from_secs(15)
+    } else {
+        Duration::from_secs(20)
+    }
+}
+
 fn runtime_port_is_open() -> bool {
     let addr: SocketAddr = format!("127.0.0.1:{RUNTIME_PORT}")
         .parse()
@@ -441,7 +460,7 @@ fn is_runtime_health_response(response: &[u8]) -> bool {
 mod runtime_health_tests {
     use std::path::Path;
 
-    use super::{command_runs_executable, is_runtime_health_response};
+    use super::{command_runs_executable, is_runtime_health_response, runtime_unhealthy_grace};
 
     #[test]
     fn accepts_only_the_ready_chief_runtime() {
@@ -471,6 +490,12 @@ mod runtime_health_tests {
             "/Applications/Codex.app/Contents/MacOS/Codex",
             executable
         ));
+    }
+
+    #[test]
+    fn tolerates_transient_runtime_backpressure() {
+        assert_eq!(runtime_unhealthy_grace(true).as_secs(), 15);
+        assert_eq!(runtime_unhealthy_grace(false).as_secs(), 20);
     }
 }
 
@@ -686,42 +711,6 @@ fn activate_app_window(app: tauri::AppHandle) {
     focus_main_window(&app);
 }
 
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct NotificationEnvironment {
-    bundled: bool,
-}
-
-#[tauri::command]
-fn notification_environment(_app: tauri::AppHandle) -> NotificationEnvironment {
-    let executable = env::current_exe().unwrap_or_default();
-    NotificationEnvironment {
-        bundled: executable
-            .components()
-            .any(|component| component.as_os_str() == "Contents"),
-    }
-}
-
-#[tauri::command]
-fn show_native_notification(
-    app: tauri::AppHandle,
-    title: String,
-    body: String,
-    _target: Option<serde_json::Value>,
-) -> Result<(), String> {
-    use tauri_plugin_notification::NotificationExt;
-
-    app.notification()
-        .builder()
-        .title(&title)
-        .body(&body)
-        .show()
-        .map_err(|error| format!("native notification delivery failed: {error}"))?;
-    // Showing a notification is not clicking it. Queueing here makes the next
-    // focus event navigate to an old notification; clicks need a native callback.
-    Ok(())
-}
-
 #[tauri::command]
 fn take_pending_notification_activation(
     state: tauri::State<'_, PendingNotificationActivation>,
@@ -762,6 +751,7 @@ pub fn run() {
             greet,
             activate_app_window,
             notification_environment,
+            request_native_notification_permission,
             show_native_notification,
             take_pending_notification_activation
         ])

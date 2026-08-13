@@ -14,6 +14,9 @@ void test("agents discover their own Markdown skills from their filesystem", () 
   assert.equal(skill.label, "Build Brand Profile");
   assert.match(skill.sourcePath, /agents\/brand\/skills/u);
   assert.match(skill.instructions, /# Build brand profile/u);
+  assert.match(skill.instructions, /localTools\.brandProfileSave/u);
+  assert.match(skill.instructions, /localTools\.filesWrite/u);
+  assert.match(skill.instructions, /existing files/u);
 });
 
 void test("a chat skill attachment only resolves for its owning agent", () => {

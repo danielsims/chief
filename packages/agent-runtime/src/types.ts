@@ -1004,6 +1004,8 @@ export type ServerMessage =
       workspaceId: string;
       chatId: string;
       visibility: "user" | "private";
+      /** Agent currently bound to this session. Used for authoritative live presence. */
+      agentId?: string;
       parentId?: string;
       execution?: ChatExecutionSelection;
     }

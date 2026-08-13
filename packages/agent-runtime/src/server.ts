@@ -93,6 +93,7 @@ import {
   syncMissionControlHeartbeat,
 } from "./mission-control-heartbeat.js";
 import { listModels } from "./models.js";
+import { OnboardingMessagePacer } from "./onboarding-message-pacing.js";
 import { authorizeOrganizationRole } from "./organization-authorization.js";
 import { PluginRuntime } from "./plugins/runtime.js";
 import { ProviderAuthentication } from "./provider-authentication.js";
@@ -100,6 +101,7 @@ import {
   rotateRecurringWorkWebhook,
   saveRecurringWorkSettings,
 } from "./recurring-work-settings.js";
+import { runtimeHealthResponse } from "./runtime-health.js";
 import { resumeDriverBlockedWork } from "./scheduled-agent-config.js";
 import { startScheduledChannelWork } from "./scheduled-channel-thread.js";
 import { dispatchScheduledWorkEvent } from "./scheduled-work-triggers.js";
@@ -174,6 +176,7 @@ export function startServer(port = PORT) {
     string,
     { signature: string; ready: Promise<string>; run: Promise<string> }
   >();
+  const onboardingMessagePacer = new OnboardingMessagePacer();
   const integrationSetups = new IntegrationSetupRegistry();
   const pendingGoogleAuthentication = new Map<
     string,
@@ -1437,7 +1440,6 @@ export function startServer(port = PORT) {
     },
     progress: (...args) => broadcastIntegrationSetupProgress(...args),
   });
-  let schedulerReady = false;
   let localToolsRoute:
     ReturnType<typeof createLocalToolsRoute<LocalToolContext>> | undefined;
   // Bind both loopback families — macOS clients resolving "localhost" may
@@ -1447,20 +1449,9 @@ export function startServer(port = PORT) {
       ? new URL(req.url, `http://127.0.0.1:${port}`).pathname
       : "/";
     if (req.method === "GET" && path === "/healthz") {
-      try {
-        await manager.health();
-        if (!schedulerReady) throw new Error("Scheduler is not ready.");
-        res.writeHead(200, {
-          "content-type": "text/plain",
-          "cache-control": "no-store",
-          "x-chief-runtime": "ready",
-          "x-chief-runtime-protocol": "2",
-        });
-        res.end("chief-runtime-ready");
-      } catch {
-        res.writeHead(503, { "content-type": "text/plain" });
-        res.end("chief-runtime-starting");
-      }
+      const health = runtimeHealthResponse();
+      res.writeHead(health.status, health.headers);
+      res.end(health.body);
       return;
     }
     if (await plugins.handleCallback(req, res)) return;
@@ -1559,6 +1550,11 @@ export function startServer(port = PORT) {
             broadcastEvent: (event) =>
               broadcastChannelEvent(workspaceId, event),
             broadcastWorkspaceData: () => broadcastWorkspaceData(workspaceId),
+            beforeMessagePost: ({ content, idempotencyKey }) =>
+              onboardingMessagePacer.beforePost(workspaceId, {
+                content,
+                ...(idempotencyKey ? { idempotencyKey } : {}),
+              }),
             onAgentMentions: (channel, event, agentIds) => {
               startMentionedAgentThreads({
                 manager,
@@ -3193,6 +3189,7 @@ export function startServer(port = PORT) {
               workspaceId: msg.workspaceId,
               chatId: msg.chatId,
               visibility: inspected.chat.visibility,
+              agentId: inspected.session?.agent.id ?? inspected.chat.agent,
               parentId: inspected.chat.parentId,
             });
             await manager.waitForChatPersistence(msg.workspaceId, msg.chatId);
@@ -3284,7 +3281,7 @@ export function startServer(port = PORT) {
             await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
             try {
               await (
-                await manager.rootChat(msg.workspaceId, msg.chatId)
+                await manager.inspectChat(msg.workspaceId, msg.chatId)
               ).session?.interrupt();
             } finally {
               manager.releaseExecution(
@@ -3599,9 +3596,6 @@ export function startServer(port = PORT) {
         manager.reconcileStaleActivitySessions(startupCutoff - 10 * 60_000),
       )
       .then(() => scheduler.start())
-      .then(() => {
-        schedulerReady = true;
-      })
       .catch((error) =>
         console.error("[scheduler] startup recovery failed:", error),
       );
@@ -3614,7 +3608,6 @@ export function startServer(port = PORT) {
   });
 
   const shutdown = async () => {
-    schedulerReady = false;
     scheduler.stop();
     await Promise.all(
       [...slackGateways.values()].map((gateway) =>

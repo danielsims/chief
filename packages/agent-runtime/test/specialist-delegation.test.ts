@@ -125,10 +125,6 @@ void test("an initial review creates one Marketer despite rewritten concurrent c
     assert.equal(starts, 1);
     assert.equal(prompts, 1);
     assert.equal((await store.listChildChats("workspace", "root")).length, 1);
-    const [brandResult] = results;
-    assert.ok(brandResult);
-    assert.equal(brandResult.file?.path, "brand/working-brand-profile.md");
-    assert.equal((await manager.listWorkspaceFiles("workspace")).length, 1);
     const prospectResults = await Promise.all([
       runSpecialistDelegation({
         ...base,

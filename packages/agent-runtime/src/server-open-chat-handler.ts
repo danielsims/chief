@@ -299,6 +299,7 @@ export async function handleOpenChat({
       workspaceId: msg.workspaceId,
       chatId: msg.chatId,
       visibility: "user",
+      agentId: storedChat.agent,
       execution: { driver, model },
     });
     const events = await manager.transcript(msg.workspaceId, msg.chatId);
@@ -401,6 +402,7 @@ export async function handleOpenChat({
     workspaceId: msg.workspaceId,
     chatId: msg.chatId,
     visibility: "user",
+    agentId: session.agent.id,
     execution: { driver, model },
   });
   await manager.waitForChatPersistence(msg.workspaceId, msg.chatId);
