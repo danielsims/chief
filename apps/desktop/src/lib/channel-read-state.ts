@@ -11,6 +11,9 @@ export interface ObservedChannelMessage {
   createdAt: number;
   rootId: string | null;
   sourceId: string | null;
+  threadSourceId: string | null;
+  content: string;
+  actor: ChannelEvent["actor"];
 }
 
 export const EMPTY_CHANNEL_READ_STATE: ChannelReadStateBlob = {
@@ -64,6 +67,9 @@ export function observedChannelMessage(
     createdAt: event.createdAt,
     rootId: channelEventThreadRootId(event),
     sourceId,
+    threadSourceId: null,
+    content: event.content,
+    actor: event.actor,
   };
 }
 

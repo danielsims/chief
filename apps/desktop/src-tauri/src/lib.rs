@@ -530,7 +530,8 @@ fn spawn_agent_runtime(_app: &tauri::AppHandle) -> Option<Child> {
     // Node install) surfaces a noisy ENOENT before the loop reaches a working
     // candidate, and a bare "corepack" on PATH is resolved lazily at spawn.
     candidates.retain(|(program, _)| {
-        program.is_absolute()
+        program
+            .is_absolute()
             .then(|| program.is_file())
             .unwrap_or(true)
     });
@@ -685,6 +686,22 @@ fn activate_app_window(app: tauri::AppHandle) {
     focus_main_window(&app);
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NotificationEnvironment {
+    bundled: bool,
+}
+
+#[tauri::command]
+fn notification_environment(_app: tauri::AppHandle) -> NotificationEnvironment {
+    let executable = env::current_exe().unwrap_or_default();
+    NotificationEnvironment {
+        bundled: executable
+            .components()
+            .any(|component| component.as_os_str() == "Contents"),
+    }
+}
+
 #[tauri::command]
 fn show_native_notification(
     app: tauri::AppHandle,
@@ -700,10 +717,8 @@ fn show_native_notification(
         .body(&body)
         .show()
         .map_err(|error| format!("native notification delivery failed: {error}"))?;
-    // Do not enqueue a route here. Showing a notification is not clicking it;
-    // enqueueing it makes the next focus event steal the user's location and
-    // navigate into the source channel. Explicit click routing needs a native
-    // notification action callback, not the delivery path.
+    // Showing a notification is not clicking it. Queueing here makes the next
+    // focus event navigate to an old notification; clicks need a native callback.
     Ok(())
 }
 
@@ -746,6 +761,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             activate_app_window,
+            notification_environment,
             show_native_notification,
             take_pending_notification_activation
         ])

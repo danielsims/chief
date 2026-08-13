@@ -12,10 +12,12 @@ import { Toaster } from "sonner";
 
 import { Button } from "@chief/ui/components/button";
 
+import { PluginToolCardsPreview } from "./components/chat/plugin-tool-card";
 import { EntryState } from "./components/entry-state";
 import { Layout } from "./components/layout";
 import { MessageDeepLinkHandler } from "./components/message-deep-link-handler";
 import { PageTitle } from "./components/page-title";
+import { PluginMarketplacePreview } from "./components/plugin-marketplace-dialog";
 import { AgentConfigProvider } from "./lib/agent-config";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
 import {
@@ -33,6 +35,7 @@ import { ArtifactsPage } from "./pages/artifacts";
 import { CampaignsPage } from "./pages/campaigns";
 import { ConversationsPage } from "./pages/conversations";
 import { DashboardPage } from "./pages/dashboard";
+import { InboxPage } from "./pages/inbox";
 import { OnboardingPage } from "./pages/onboarding";
 import { ProspectsPage } from "./pages/prospects";
 import { SchedulePage } from "./pages/schedule";
@@ -224,6 +227,21 @@ function AuthenticatedApp() {
   const { isAuthenticated, isLoading } = useAuth();
   const { resolved } = useTheme();
 
+  if (
+    import.meta.env.DEV &&
+    new URLSearchParams(window.location.search).get("preview") ===
+      "agent-plugins"
+  ) {
+    return <PluginMarketplacePreview />;
+  }
+  if (
+    import.meta.env.DEV &&
+    new URLSearchParams(window.location.search).get("preview") ===
+      "agent-plugin-cards"
+  ) {
+    return <PluginToolCardsPreview />;
+  }
+
   if (isLoading) {
     return <EntryState />;
   }
@@ -262,6 +280,7 @@ function AuthenticatedApp() {
                 <Route path="onboarding" element={<OnboardingPage />} />
                 <Route element={<Layout />}>
                   <Route index element={<DashboardPage />} />
+                  <Route path="inbox" element={<InboxPage />} />
                   <Route path="analytics" element={<AnalyticsPage />} />
                   <Route path="artifacts" element={<ArtifactsPage />} />
                   <Route path="campaigns" element={<CampaignsPage />} />
