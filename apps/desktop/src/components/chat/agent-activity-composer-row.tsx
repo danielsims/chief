@@ -1,7 +1,6 @@
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 
 import type { AgentActivityPresence } from "./agent-activity-presence";
-import { AgentAvatar } from "../agent-avatar";
 import { formatAgentActivityStatus } from "./agent-activity-presence";
 
 export function AgentActivityComposerRow({
@@ -25,10 +24,8 @@ export function AgentActivityComposerRow({
     visibleAgents.length > 1
       ? formatAgentActivityStatus(visibleAgents)
       : statusLabel;
-  const activityLabel =
-    visibleAgents.length === 1
-      ? (visibleAgents[0]?.label ?? agentLabel)
-      : `${visibleAgents.length} agents`;
+  if (!running || !visibleStatusLabel.trim()) return null;
+
   return (
     <div
       className="flex h-8 shrink-0 items-center px-1"
@@ -38,36 +35,18 @@ export function AgentActivityComposerRow({
       <button
         type="button"
         onClick={onOpen}
-        disabled={!running}
-        tabIndex={running ? 0 : -1}
-        aria-hidden={!running}
-        className={
-          "group/activity text-muted-foreground hover:text-foreground flex max-w-full min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left transition-[color,opacity] duration-150 " +
-          (running
-            ? "opacity-100"
-            : "pointer-events-none opacity-0 select-none")
-        }
+        className="group/activity text-muted-foreground hover:text-foreground flex max-w-full min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 text-left transition-colors duration-150"
         aria-label={`${visibleStatusLabel}. View activity.`}
       >
         <span className="flex shrink-0 items-center -space-x-1">
-          {visibleAgents.length === 1 ? (
-            <span className="bg-muted/35 grid size-[18px] place-items-center rounded-md">
-              <MatrixLoader
-                ariaLabel={`${activityLabel} is working`}
-                size={13}
-              />
+          {visibleAgents.slice(0, 2).map((agent) => (
+            <span
+              key={agent.id}
+              className="bg-muted/35 ring-background grid size-[18px] place-items-center rounded-md ring-1"
+            >
+              <MatrixLoader ariaLabel={`${agent.label} is working`} size={13} />
             </span>
-          ) : (
-            visibleAgents
-              .slice(0, 2)
-              .map((agent) => (
-                <AgentAvatar
-                  key={agent.id}
-                  label={agent.label}
-                  className="ring-background size-[18px] rounded-md ring-1"
-                />
-              ))
-          )}
+          ))}
         </span>
         {visibleAgents.length > 2 ? (
           <span className="text-muted-foreground shrink-0 text-[9px] font-medium">
