@@ -22,6 +22,10 @@ import {
 } from "./deployment-failure.js";
 import { authorizeContextRequest } from "./input-values.js";
 import {
+  HEARTBEAT_MAX_PROMPT_ATTEMPTS,
+  MISSION_CONTROL_HEARTBEAT_OPERATION_KEY,
+} from "./mission-control-heartbeat.js";
+import {
   canonicalExecutorAddress,
   nextRunAt,
   runDateKey,
@@ -832,6 +836,10 @@ export class RecurringWorkScheduler {
             toolPatterns: effectiveApproved,
           },
           executionOwner: "schedule",
+          maxPromptAttempts:
+            work.operationKey === MISSION_CONTROL_HEARTBEAT_OPERATION_KEY
+              ? HEARTBEAT_MAX_PROMPT_ATTEMPTS
+              : undefined,
         },
         work.title,
       );
@@ -1107,13 +1115,19 @@ export class RecurringWorkScheduler {
         runtimeSession?.events.slice(sessionStartIndex) ?? [],
       );
       const retrying =
-        retry.retrying && occurrence.attempt === 1 && !potentialSideEffects;
+        work.operationKey !== MISSION_CONTROL_HEARTBEAT_OPERATION_KEY &&
+        retry.retrying &&
+        occurrence.attempt === 1 &&
+        !potentialSideEffects;
       const message =
-        retry.retrying && potentialSideEffects
-          ? "Chief stopped after a local runtime issue, but the task had already used tools. It will not retry automatically."
-          : retry.retrying && occurrence.attempt > 1
-            ? "Chief's local runtime did not recover after one automatic retry. Nothing external was changed."
-            : (retry.message ?? safeWorkFailure(error));
+        work.operationKey === MISSION_CONTROL_HEARTBEAT_OPERATION_KEY &&
+        retry.retrying
+          ? `Chief stopped this heartbeat after ${HEARTBEAT_MAX_PROMPT_ATTEMPTS} attempts and will wait for its next scheduled run.`
+          : retry.retrying && potentialSideEffects
+            ? "Chief stopped after a local runtime issue, but the task had already used tools. It will not retry automatically."
+            : retry.retrying && occurrence.attempt > 1
+              ? "Chief's local runtime did not recover after one automatic retry. Nothing external was changed."
+              : (retry.message ?? safeWorkFailure(error));
       const artifacts =
         runtimeSession && beforeData
           ? await this.manager

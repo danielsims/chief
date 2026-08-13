@@ -31,10 +31,9 @@ export interface SessionConfig {
   mcpServers?: McpServerSpec[];
   automationGrant?: AutomationGrant;
   executionOwner?: "interactive" | "schedule" | "channel" | "delegation";
-  /** Dynamic identifiers that remote deployments do not compile into their prompt. */
   runtimeContext?: string;
-  /** Private specialist sessions never receive workspace credentials. */
   secretAccess?: boolean;
+  maxPromptAttempts?: number;
 }
 
 export class AgentSession extends EventEmitter {
@@ -343,6 +342,7 @@ export class AgentSession extends EventEmitter {
       history: this.events,
       mcpServers: this.config.mcpServers,
       automationGrant: this.config.automationGrant,
+      maxPromptAttempts: this.config.maxPromptAttempts,
     });
   }
 

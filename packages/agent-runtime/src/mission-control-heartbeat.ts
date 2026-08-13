@@ -11,6 +11,7 @@ import { nextRunAt } from "./recurring-work.js";
 
 export const MISSION_CONTROL_HEARTBEAT_OPERATION_KEY =
   "chief-mission-control-heartbeat";
+export const HEARTBEAT_MAX_PROMPT_ATTEMPTS = 3;
 
 const HEARTBEAT_CRON = "0 9 * * *";
 const HEARTBEAT_LOCAL_PERMISSIONS = [
