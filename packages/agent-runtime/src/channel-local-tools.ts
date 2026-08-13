@@ -29,6 +29,11 @@ export interface ChannelLocalToolContext {
     event: ChannelEvent,
     agentIds: readonly string[],
   ) => void | Promise<void>;
+  beforeMessagePost?: (input: {
+    channel: WorkspaceChannel;
+    content: string;
+    idempotencyKey?: string;
+  }) => void | Promise<void>;
   requestDeletion?: (
     channel: WorkspaceChannel,
     reason: string,

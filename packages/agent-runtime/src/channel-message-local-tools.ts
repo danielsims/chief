@@ -219,6 +219,11 @@ export async function handleChannelMessageLocalTool(input: {
         : undefined;
       if (existing)
         return { handled: true, value: { event: existing, replayed: true } };
+      await context.beforeMessagePost?.({
+        channel,
+        content,
+        ...(idempotencyKey ? { idempotencyKey } : {}),
+      });
       const mentions = validatedAgentIds(
         Array.isArray(body.mentions)
           ? body.mentions.filter(
