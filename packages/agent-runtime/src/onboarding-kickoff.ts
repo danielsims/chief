@@ -1,12 +1,54 @@
 import { join } from "node:path";
 
-import type { AgentEvent, DriverType } from "./types.js";
+import type { AgentEvent, DriverType, OnboardingWorkJob } from "./types.js";
 
 export const ONBOARDING_OPENING_MESSAGE =
   "Hey, welcome to Chief 👋 I'm getting the team together now. We'll have a look around, get to know your brand and market, and start figuring out where the good opportunities are hiding. You can hang out here and watch us work. I'll give you a shout if I need anything.";
 
-export function onboardingLocalKickoffInstructions(channelId: string) {
-  return `Read onboarding/onboarding.md from the current working directory. The exact agent IDs are "brand" for Marketer, "setup" for Setup, and "prospector" for Prospector. Do not search files, inspect agent definitions, or call channel discovery tools to rediscover them. Add every selected agent together through one localTools.channels.members.add call. Then publish one top-level kickoff per independent job through localTools.channelsMessagesPost in channelId ${JSON.stringify(channelId)}. Use these exact two-sentence shapes with the real workspace details: "Hey @Marketer, use [chief-skill:build-brand-profile] to create a profile for <company> from <website>. Ground its voice, vocabulary, audience, and claims in first-party evidence." "Hey @Prospector, use [chief-skill:find-buying-signals] to find our first real buying signals. Focus on <selected sources> and save only evidence-backed prospects." "Hey @Setup, use [chief-skill:setup-google-analytics] to connect <provider>. Keep sign-in private and tell me only when you need me." Use the full display names and mention only that message's exact agent ID. Use idempotency keys "onboarding-marketer-thread", "onboarding-prospector-thread", and "onboarding-setup-<provider-domain>". Start every independent job before waiting for one. Keep Analyst blocked until analytics succeeds. The channel API starts each named agent in its thread, so do not also call specialistsDelegate or claim a job started before its kickoff succeeds.`;
+export function onboardingLocalKickoffInstructions(
+  channelId: string,
+  jobs?: readonly OnboardingWorkJob[],
+) {
+  const brandSelected = jobs?.some((job) => job.agentId === "brand");
+  const prospectorSelected = jobs?.some((job) => job.agentId === "prospector");
+  const setupJobs = jobs?.filter((job) => job.agentId === "setup") ?? [];
+  const kickoffAgentIds = [
+    ...(brandSelected ? ["brand"] : []),
+    ...(prospectorSelected ? ["prospector"] : []),
+    ...(setupJobs.length > 0 ? ["setup"] : []),
+  ];
+  const templates = [
+    brandSelected || jobs === undefined
+      ? 'For the brand job use exactly: "Hey @Marketer, use [chief-skill:build-brand-profile] to create a profile for <company> from <website>. Ground its voice, vocabulary, audience, and claims in first-party evidence." Use agent ID "brand" and idempotency key "onboarding-marketer-thread".'
+      : undefined,
+    prospectorSelected || jobs === undefined
+      ? 'For the prospecting job use exactly: "Hey @Prospector, use [chief-skill:find-buying-signals] to find our first real buying signals. Focus on <selected sources> and save only evidence-backed prospects." Use agent ID "prospector" and idempotency key "onboarding-prospector-thread".'
+      : undefined,
+    ...setupJobs.map((job) => {
+      const domain = job.setupDomain?.trim() ?? "selected-provider";
+      const skill =
+        domain === "analytics.googleapis.com"
+          ? "setup-google-analytics"
+          : "setup-integration";
+      return `For the selected setup job ${JSON.stringify(job.title)} use exactly: "Hey @Setup, use [chief-skill:${skill}] to connect ${domain}. Keep sign-in private and tell me only when you need me." Use agent ID "setup" and idempotency key ${JSON.stringify(`onboarding-setup-${domain}`)}.`;
+    }),
+  ].filter((template): template is string => Boolean(template));
+  const setupBoundary =
+    jobs === undefined
+      ? "For recovery, derive provider setup only from setup jobs actually present in the saved file. Use [chief-skill:setup-integration] with that job's exact domain. If the file has no setup job, do not add Setup, infer Google Analytics, or create any provider authorization action."
+      : setupJobs.length > 0
+        ? `The only selected provider setup domains are ${setupJobs.map((job) => JSON.stringify(job.setupDomain ?? job.title)).join(", ")}. Do not infer or add another provider.`
+        : "No integration setup job was selected. This is authoritative: do not add Setup, connect Google Analytics, infer a default analytics provider, or create a provider authorization action.";
+
+  return [
+    "Read onboarding/onboarding.md from the current working directory.",
+    `The saved onboarding jobs and this selected-agent list are the only authority for initial work: ${jobs === undefined ? "derive the exact list from the saved file" : kickoffAgentIds.length > 0 ? kickoffAgentIds.map((agentId) => JSON.stringify(agentId)).join(", ") : "none"}. Never launch an agent or provider absent from that list, even if a template, capability, or general workspace instruction mentions it. An empty analytics selection is an opt-out, not permission to choose a default.`,
+    setupBoundary,
+    "Do not search files, inspect agent definitions, or call channel discovery tools to rediscover agents. Add only the selected agent IDs together through one localTools.channels.members.add call. Then publish one top-level kickoff for each selected independent job through localTools.channelsMessagesPost " +
+      `in channelId ${JSON.stringify(channelId)}.`,
+    templates.join(" "),
+    "Use the full display names and mention only that message's exact agent ID. Start every selected independent job before waiting for one. Keep Analyst blocked until a selected analytics setup succeeds; if no analytics setup was selected, do not start Analyst's initial report. The channel API starts each named agent in its thread, so do not also call specialistsDelegate or claim a job started before its kickoff succeeds.",
+  ].join(" ");
 }
 
 export function onboardingKickoffId(chatId: string) {
@@ -76,6 +118,7 @@ export function onboardingRecoveryPrompt(
   driver: DriverType,
   includeOpening: boolean,
   channelId: string,
+  jobs?: readonly OnboardingWorkJob[],
 ) {
   return [
     includeOpening
@@ -83,7 +126,7 @@ export function onboardingRecoveryPrompt(
       : "Resume the initial business review for this workspace. The opening message is already visible, so begin with the first tool call and do not greet the user again.",
     driver === "remote"
       ? "Use current workspace context and connected cloud sources. Launch Marketer and Prospector concurrently and exactly once through Eve's declared subagents before waiting for either. Persist the brand profile through chief files.save, and persist five to eight qualified prospects with direct source URLs through chief prospects.save."
-      : `${onboardingLocalKickoffInstructions(channelId)} Resume every unfinished job recorded in the onboarding file. Marketer's returned profile is persisted against its specialist session, so do not save or republish it from Chief.`,
+      : `${onboardingLocalKickoffInstructions(channelId, jobs)} Resume every unfinished selected job recorded in the onboarding file. Marketer's returned profile is persisted against its specialist session, so do not save or republish it from Chief.`,
     driver === "remote"
       ? "If workspace context names an unconnected analytics or advertising source, do not delegate setup. Persist one direct provider-specific connection action through chief actions.raise."
       : "For each selected unconnected analytics or advertising source, use its Setup job in the onboarding plan. Setup owns the secure browser in that kickoff thread. If sign-in or consent needs the user, keep that Setup job and browser waiting in place instead of completing it or replacing it with a generic action. Do not raise a duplicate top-level action for a waiting Setup thread.",

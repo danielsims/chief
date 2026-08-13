@@ -153,6 +153,8 @@ interface OnboardingDraft {
   };
   analytics: {
     integrations: IntegrationSearchResult[];
+    /** Preserves an explicit opt-out separately from an unanswered step. */
+    selection: "selected" | "none" | "skipped" | null;
   };
   ads: {
     integrations: IntegrationSearchResult[];
@@ -483,6 +485,7 @@ function baseDraft(): OnboardingDraft {
     },
     analytics: {
       integrations: [],
+      selection: null,
     },
     ads: {
       integrations: [],
@@ -678,6 +681,12 @@ function draftFromOrg(
     },
     analytics: {
       integrations: normaliseIntegrations(analytics.integrations),
+      selection:
+        analytics.selection === "selected" ||
+        analytics.selection === "none" ||
+        analytics.selection === "skipped"
+          ? analytics.selection
+          : null,
     },
     ads: {
       integrations: normaliseIntegrations(ads.integrations),
@@ -810,6 +819,12 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
       },
       analytics: {
         integrations: normaliseIntegrations(parsedAnalytics?.integrations),
+        selection:
+          parsedAnalytics?.selection === "selected" ||
+          parsedAnalytics?.selection === "none" ||
+          parsedAnalytics?.selection === "skipped"
+            ? parsedAnalytics.selection
+            : null,
       },
       ads: {
         integrations: normaliseIntegrations(parsedAds?.integrations),
@@ -1157,8 +1172,12 @@ function AnswerPreview({
   if (step === "analytics") {
     return (
       <UserBubble>
-        {selectedIntegrationNames(draft.analytics.integrations) ??
-          "No analytics yet"}
+        {draft.analytics.selection === "none"
+          ? "I don't use analytics"
+          : draft.analytics.selection === "skipped"
+            ? "Skipped analytics for now"
+            : (selectedIntegrationNames(draft.analytics.integrations) ??
+              "No analytics selected")}
       </UserBubble>
     );
   }
@@ -2890,7 +2909,14 @@ export function OnboardingPage() {
     (integrations: IntegrationSearchResult[]) => {
       setDraft((current) =>
         current
-          ? { ...current, analytics: { ...current.analytics, integrations } }
+          ? {
+              ...current,
+              analytics: {
+                ...current.analytics,
+                integrations,
+                selection: integrations.length > 0 ? "selected" : null,
+              },
+            }
           : current,
       );
     },
@@ -2948,20 +2974,27 @@ export function OnboardingPage() {
     [],
   );
 
-  const clearAnalyticsSelection = useCallback(() => {
-    setNotice(null);
-    setError(null);
-    setDraft((current) =>
-      current
-        ? {
-            ...current,
-            analytics: { ...current.analytics, integrations: [] },
-            ...(editingStep ? {} : { step: "ads" as const }),
-          }
-        : current,
-    );
-    if (editingStep) setEditingStep(null);
-  }, [editingStep]);
+  const clearAnalyticsSelection = useCallback(
+    (selection: "none" | "skipped") => {
+      setNotice(null);
+      setError(null);
+      setDraft((current) =>
+        current
+          ? {
+              ...current,
+              analytics: {
+                ...current.analytics,
+                integrations: [],
+                selection,
+              },
+              ...(editingStep ? {} : { step: "ads" as const }),
+            }
+          : current,
+      );
+      if (editingStep) setEditingStep(null);
+    },
+    [editingStep],
+  );
 
   const clearAdsSelection = useCallback(() => {
     setNotice(null);
@@ -3496,8 +3529,8 @@ export function OnboardingPage() {
           searchPlaceholder="Search analytics tools"
           emptySelectionLabel={"I don't use analytics"}
           skipLabel="Skip for now"
-          onEmptySelection={clearAnalyticsSelection}
-          onSkip={clearAnalyticsSelection}
+          onEmptySelection={() => clearAnalyticsSelection("none")}
+          onSkip={() => clearAnalyticsSelection("skipped")}
           onContinue={advance}
           saving={saving}
         />

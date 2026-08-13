@@ -35,6 +35,37 @@ void test("skipping brand research still populates prospects", () => {
   );
 });
 
+void test("an explicit analytics opt-out cannot launch stale setup work", () => {
+  const jobs = buildOnboardingWorkJobs({
+    ...base,
+    analytics: {
+      selection: "none",
+      integrations: [
+        {
+          domain: "analytics.googleapis.com",
+          name: "Google Analytics",
+          description: "GA4",
+          kinds: ["openapi"],
+          url: "https://integrations.sh/analytics.googleapis.com/",
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(
+    jobs.map((job) => job.agentId),
+    ["brand", "prospector"],
+  );
+  assert.equal(
+    jobs.some((job) => job.setupDomain),
+    false,
+  );
+  assert.equal(
+    jobs.some((job) => /Google Analytics/i.test(job.title)),
+    false,
+  );
+});
+
 void test("independent post-onboarding work launches before analytics", () => {
   const jobs = buildOnboardingWorkJobs({
     ...base,
