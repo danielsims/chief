@@ -31,6 +31,7 @@ import {
   channelSourceAliasesFrom,
   latestChannelMessageTimestamp,
   MAX_SEEN_LIVE_EVENTS,
+  newSnapshotNotificationMessages,
   readChannelState,
   recordSeenChannelEvent,
   writeChannelState,
@@ -297,12 +298,11 @@ function ScopedChannelReadStateProvider({
       title: string,
       content: string,
     ) => {
-      // Thread replies are explicit agent/user responses and must notify even
-      // when the event was seen in an earlier history batch — the user is away
-      // from the channel and expects a ping. The seen-set gates read-state
-      // bookkeeping, not delivery.
-      if (observed.rootId && !notifiedLiveEventsRef.current.has(observed.id)) {
-        notifiedLiveEventsRef.current.add(observed.id);
+      // Notification delivery and read-state hydration have separate
+      // deduplication. A live event may already exist in a history snapshot,
+      // but it still deserves exactly one notification attempt.
+      if (!notifiedLiveEventsRef.current.has(observed.id)) {
+        recordSeenChannelEvent(notifiedLiveEventsRef.current, observed.id);
         notifyForMessage(observed, title, content);
       }
       if (seenLiveEventsRef.current.has(observed.id)) return;
@@ -315,9 +315,6 @@ function ScopedChannelReadStateProvider({
         next.set(observed.channelId, messages);
         return next;
       });
-      if (!observed.rootId) {
-        notifyForMessage(observed, title, content);
-      }
     };
     const unsubscribe = client.subscribe((message) => {
       if (message.type !== "channelEvents" && message.type !== "channelEvent")
@@ -329,6 +326,27 @@ function ScopedChannelReadStateProvider({
           message.channelId,
           channelSourceAliasesFrom(message.events),
         );
+        // Channel creation and subscription changes can race a specialist's
+        // first messages. Those messages then arrive only in the recovery
+        // snapshot. Recover their notification here while keeping all history
+        // from before this provider mounted silent.
+        const channel = channelsRef.current.find(
+          (candidate) => candidate.id === message.channelId,
+        );
+        for (const observed of newSnapshotNotificationMessages(
+          nextMessages.values(),
+          startedAt,
+          notifiedLiveEventsRef.current,
+        )) {
+          recordSeenChannelEvent(notifiedLiveEventsRef.current, observed.id);
+          notifyForMessage(
+            observed,
+            channel?.visibility === "direct"
+              ? observed.actor.name
+              : `${observed.actor.name} in #${channel?.name ?? "channel"}`,
+            observed.content,
+          );
+        }
         for (const id of [...nextMessages.keys()].slice(
           -MAX_SEEN_LIVE_EVENTS,
         )) {
