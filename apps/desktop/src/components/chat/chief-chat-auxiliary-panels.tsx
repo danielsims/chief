@@ -258,7 +258,6 @@ export function ChiefChatAuxiliaryPanels({
                 </Fragment>
               ) : null,
             )}
-            <ThreadDivider count={activeThreadSummary.count} />
             <ChatTimeline
               entries={threadReplyEntries}
               initialTimestamp={activeThreadRoot?.metadata?.createdAt}
@@ -427,18 +426,6 @@ function messageText(message: ChiefUIMessage) {
   return messageBlocks(message)
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("\n");
-}
-
-function ThreadDivider({ count }: { count: number }) {
-  return (
-    <div className="my-3 flex items-center gap-2">
-      <span className="bg-border h-px flex-1" />
-      <span className="text-muted-foreground text-[10px]">
-        {count} {count === 1 ? "reply" : "replies"}
-      </span>
-      <span className="bg-border h-px flex-1" />
-    </div>
-  );
 }
 
 function taskStatusLabel(status: string) {
