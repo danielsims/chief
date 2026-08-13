@@ -34,6 +34,12 @@ const RUNTIME_PROTOCOL: &str = "2";
 struct PendingNotificationActivation(Mutex<Option<serde_json::Value>>);
 
 impl PendingNotificationActivation {
+    fn set(&self, target: serde_json::Value) {
+        if let Ok(mut pending) = self.0.lock() {
+            *pending = Some(target);
+        }
+    }
+
     fn take(&self) -> Option<serde_json::Value> {
         self.0.lock().ok()?.take()
     }
