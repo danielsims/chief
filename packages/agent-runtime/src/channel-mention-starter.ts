@@ -9,6 +9,7 @@ import { runSpecialistDelegation } from "./specialist-delegation.js";
 
 const ONBOARDING_HOME_CHANNELS: Readonly<Record<string, string>> = {
   brand: "marketing",
+  engineer: "engineering",
   prospector: "prospecting",
   setup: "setup",
 };
@@ -144,13 +145,24 @@ export async function ensureOnboardingHomeChannel(input: {
     await input.onChannelsChanged?.();
     return channel;
   }
-  if (input.agentId !== "brand") return undefined;
+  if (input.agentId !== "brand" && input.agentId !== "engineer") {
+    return undefined;
+  }
+  const engineering = input.agentId === "engineer";
   const channel = await store.create(input.workspaceId, {
-    name: "marketing",
-    description: "Positioning, brand, content, and growth",
-    operationKey: "chief-default-marketing",
-    actor: { type: "agent", id: "brand", name: "Marketer" },
-    agentIds: ["chief", "brand", "content"],
+    name: engineering ? "engineering" : "marketing",
+    description: engineering
+      ? "Product changes, bugs, and technical reviews"
+      : "Positioning, brand, content, and growth",
+    operationKey: engineering
+      ? "chief-default-engineering"
+      : "chief-default-marketing",
+    actor: engineering
+      ? { type: "agent", id: "engineer", name: "Engineer" }
+      : { type: "agent", id: "brand", name: "Marketer" },
+    agentIds: engineering
+      ? ["chief", "engineer"]
+      : ["chief", "brand", "content"],
     agentPermissions: [
       "update_metadata",
       "manage_members",

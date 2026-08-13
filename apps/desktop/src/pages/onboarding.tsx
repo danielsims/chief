@@ -3233,6 +3233,7 @@ export function OnboardingPage() {
         analytics: draft.analytics,
         ads: draft.ads,
         aeo: draft.aeo,
+        engineering: draft.engineering,
       });
       const schedules = buildOnboardingSchedules(draft.automation, org.id);
       const completedMetadata = {
