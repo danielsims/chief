@@ -3314,7 +3314,7 @@ export function startServer(port = PORT) {
             await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
             try {
               await (
-                await manager.rootChat(msg.workspaceId, msg.chatId)
+                await manager.inspectChat(msg.workspaceId, msg.chatId)
               ).session?.interrupt();
             } finally {
               manager.releaseExecution(
