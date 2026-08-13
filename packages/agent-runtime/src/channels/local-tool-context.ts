@@ -11,6 +11,7 @@ export function createChannelLocalToolContext(input: {
   broadcastEvent: (event: ChannelEvent) => void | Promise<void>;
   broadcastWorkspaceData: () => void | Promise<void>;
   onAgentMentions?: ChannelLocalToolContext["onAgentMentions"];
+  beforeMessagePost?: ChannelLocalToolContext["beforeMessagePost"];
   notifyDeletionRequest: (title: string) => void;
 }): Promise<ChannelLocalToolContext> {
   // The agent-bound capability was already authenticated by the local-tools
@@ -30,6 +31,7 @@ export function createChannelLocalToolContext(input: {
     onChannelsChanged: input.broadcastChannels,
     onChannelEvent: input.broadcastEvent,
     onAgentMentions: input.onAgentMentions,
+    beforeMessagePost: input.beforeMessagePost,
     requestDeletion: async (channel: WorkspaceChannel, reason, actor) => {
       const item = {
         id: `channel-delete-${channel.id}`,

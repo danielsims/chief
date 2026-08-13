@@ -93,6 +93,7 @@ import {
   syncMissionControlHeartbeat,
 } from "./mission-control-heartbeat.js";
 import { listModels } from "./models.js";
+import { OnboardingMessagePacer } from "./onboarding-message-pacing.js";
 import { authorizeOrganizationRole } from "./organization-authorization.js";
 import { ProviderAuthentication } from "./provider-authentication.js";
 import {
@@ -173,6 +174,7 @@ export function startServer(port = PORT) {
     string,
     { signature: string; ready: Promise<string>; run: Promise<string> }
   >();
+  const onboardingMessagePacer = new OnboardingMessagePacer();
   const integrationSetups = new IntegrationSetupRegistry();
   const pendingGoogleAuthentication = new Map<
     string,
@@ -1539,6 +1541,11 @@ export function startServer(port = PORT) {
             broadcastEvent: (event) =>
               broadcastChannelEvent(workspaceId, event),
             broadcastWorkspaceData: () => broadcastWorkspaceData(workspaceId),
+            beforeMessagePost: ({ content, idempotencyKey }) =>
+              onboardingMessagePacer.beforePost(workspaceId, {
+                content,
+                ...(idempotencyKey ? { idempotencyKey } : {}),
+              }),
             onAgentMentions: (channel, event, agentIds) => {
               startMentionedAgentThreads({
                 manager,

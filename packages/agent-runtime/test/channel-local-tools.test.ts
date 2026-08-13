@@ -23,12 +23,16 @@ void test("agent channel tools provide a reversible feature workflow", async () 
   const directory = mkdtempSync(join(tmpdir(), "chief-channel-tools-"));
   const store = new LocalStore(join(directory, "chief.sqlite"));
   const events: string[] = [];
+  const pacedPosts: string[] = [];
   const context = {
     actor: { type: "agent" as const, id: "engineer", name: "Engineer" },
     channelStore: store.channelStore(),
     availableAgentIds: ["chief", "engineer", "analyst"],
     onChannelEvent: (event: { id: string }) => {
       events.push(event.id);
+    },
+    beforeMessagePost: (input: { idempotencyKey?: string }) => {
+      if (input.idempotencyKey) pacedPosts.push(input.idempotencyKey);
     },
   };
   try {
@@ -99,6 +103,7 @@ void test("agent channel tools provide a reversible feature workflow", async () 
       (postedAgain.value as { event: { id: string } }).event.id,
     );
     assert.equal(events.length, 2);
+    assert.deepEqual(pacedPosts, ["feature-sharing-review-ready"]);
 
     const archived = await handleChannelLocalTool(
       request(`/local-tools/channels/${channel.id}/archive`, "POST", {
