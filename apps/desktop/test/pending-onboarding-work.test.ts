@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  clearPendingOnboardingWorkWhenPersisted,
+  completePendingOnboardingWork,
   mergePendingOnboardingSchedules,
   pendingOnboardingWorkStorageKey,
 } from "../src/lib/pending-onboarding-work.js";
@@ -24,7 +24,7 @@ class MemoryStorage {
   }
 }
 
-void test("keeps onboarding schedules visible until the runtime persists them", () => {
+void test("keeps onboarding work durable until the full runtime bootstrap acknowledges", () => {
   const previousWindow = globalThis.window;
   const localStorage = new MemoryStorage();
   Object.defineProperty(globalThis, "window", {
@@ -67,19 +67,11 @@ void test("keeps onboarding schedules visible until the runtime persists them", 
     assert.ok(queuedSchedule);
     assert.equal(queuedSchedule.id, "daily-review");
     assert.equal(queuedSchedule.nextAt, Date.UTC(2026, 7, 10, 9));
-    assert.equal(
-      clearPendingOnboardingWorkWhenPersisted(workspaceId, []),
-      false,
-    );
     assert.equal(localStorage.getItem(storageKey) !== null, true);
 
-    assert.equal(
-      clearPendingOnboardingWorkWhenPersisted(
-        workspaceId,
-        optimistic.recurringWork,
-      ),
-      true,
-    );
+    // A schedule snapshot alone cannot prove the specialists finished.
+    assert.equal(localStorage.getItem(storageKey) !== null, true);
+    completePendingOnboardingWork(workspaceId);
     assert.equal(localStorage.getItem(storageKey), null);
   } finally {
     Object.defineProperty(globalThis, "window", {

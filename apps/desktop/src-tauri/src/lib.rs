@@ -111,11 +111,7 @@ impl RuntimeProcess {
                             } else {
                                 healthy_since = None;
                                 let became_unhealthy = unhealthy_since.get_or_insert(now);
-                                let grace = if has_been_healthy {
-                                    Duration::from_secs(3)
-                                } else {
-                                    Duration::from_secs(20)
-                                };
+                                let grace = runtime_unhealthy_grace(has_been_healthy);
                                 if became_unhealthy.elapsed() >= grace {
                                     eprintln!("[runtime] agent runtime is unhealthy; restarting");
                                     terminate_runtime(runtime);
@@ -319,6 +315,17 @@ fn restart_at(delay: &mut Duration) -> Instant {
     next
 }
 
+fn runtime_unhealthy_grace(has_been_healthy: bool) -> Duration {
+    // Agent persistence can legitimately keep the runtime busy for several
+    // seconds. A child that exits is detected immediately; reserve restart-on-
+    // health-failure for a sustained hang.
+    if has_been_healthy {
+        Duration::from_secs(15)
+    } else {
+        Duration::from_secs(20)
+    }
+}
+
 fn runtime_port_is_open() -> bool {
     let addr: SocketAddr = format!("127.0.0.1:{RUNTIME_PORT}")
         .parse()
@@ -447,7 +454,7 @@ fn is_runtime_health_response(response: &[u8]) -> bool {
 mod runtime_health_tests {
     use std::path::Path;
 
-    use super::{command_runs_executable, is_runtime_health_response};
+    use super::{command_runs_executable, is_runtime_health_response, runtime_unhealthy_grace};
 
     #[test]
     fn accepts_only_the_ready_chief_runtime() {
@@ -477,6 +484,12 @@ mod runtime_health_tests {
             "/Applications/Codex.app/Contents/MacOS/Codex",
             executable
         ));
+    }
+
+    #[test]
+    fn tolerates_transient_runtime_backpressure() {
+        assert_eq!(runtime_unhealthy_grace(true).as_secs(), 15);
+        assert_eq!(runtime_unhealthy_grace(false).as_secs(), 20);
     }
 }
 
