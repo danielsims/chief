@@ -243,7 +243,6 @@ export class RuntimeClient {
       this.reconnectTimer = null;
     }
     this.closed = false;
-    this.statusListener("connecting");
     try {
       const socket = new WebSocket(RUNTIME_URL);
       this.ws = socket;
@@ -282,6 +281,18 @@ export class RuntimeClient {
     socket.onerror = () => socket.close();
   }
 
+  reconnectNow() {
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.clearConnectTimer();
+    const socket = this.ws;
+    this.ws = null;
+    socket?.close();
+    this.connect();
+  }
+
   private clearConnectTimer() {
     if (this.connectTimer === null) return;
     window.clearTimeout(this.connectTimer);
@@ -290,7 +301,7 @@ export class RuntimeClient {
 
   private scheduleReconnect() {
     if (this.closed || this.reconnectTimer !== null) return;
-    this.statusListener("connecting");
+    this.statusListener("disconnected");
     const delay = this.reconnectDelayMs;
     this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 5000);
     this.reconnectTimer = window.setTimeout(() => {
