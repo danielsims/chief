@@ -28,13 +28,13 @@ import {
   ConversationEmptyState,
   MessageBlocksContent,
 } from "./chief-chat-message-components";
-import { SpecialistTaskCard } from "./message-blocks";
 import { QuestionCard } from "./question-card";
 import { RecurringWorkComposer } from "./recurring-work-composer";
 import { useChiefChatComposer } from "./use-chief-chat-composer";
 import { useChiefChatCore } from "./use-chief-chat-core";
 import { useChiefChatPresentation } from "./use-chief-chat-presentation";
 import { useChiefChatTimeline } from "./use-chief-chat-timeline";
+import { useMainAgentActivity } from "./use-main-agent-activity";
 import { UserMessage } from "./user-message";
 
 /**
@@ -110,6 +110,7 @@ export function ChiefChat({
     activeCapabilities,
     activeExecution,
     activityAgentLabel,
+    activeRootTurn,
     anchorBrowserSession,
     browserRuns,
     browserSessions,
@@ -178,8 +179,21 @@ export function ChiefChat({
     threadRootId,
     threadScrollRef,
   });
-  const { childSessionOwners, showOptimisticInitialPrompt, timelineEntries } =
-    timelineState;
+  const {
+    activeMainChildSessions,
+    childSessionOwners,
+    showOptimisticInitialPrompt,
+    timelineEntries,
+  } = timelineState;
+  const { agents: mainActivityAgents, statusLabel: mainStatusLabel } =
+    useMainAgentActivity({
+      activeRootTurn,
+      channelAgentIds: channel?.agentIds,
+      directAgentId: directAgent?.id,
+      running: controls.status === "running",
+      statusLabel,
+      tasks: activeMainChildSessions,
+    });
   const browserAttachmentNode = (run: BrowserRunRecord) => (
     <div className="mx-auto w-full max-w-3xl py-1 pl-11">
       <BrowserSessionAttachment
@@ -269,16 +283,6 @@ export function ChiefChat({
                 renderEntry={(entry) => {
                   if (entry.type === "browser") {
                     return browserAttachmentNode(entry.run);
-                  }
-                  if (entry.type === "specialist") {
-                    return (
-                      <div className="mx-auto w-full max-w-3xl pl-11">
-                        <SpecialistTaskCard
-                          task={entry.task}
-                          onOpenTask={onOpenChild}
-                        />
-                      </div>
-                    );
                   }
                   const { message } = entry;
                   if (message.metadata?.channelAction) {
@@ -444,10 +448,20 @@ export function ChiefChat({
                 }
               />
               <AgentActivityComposerRow
+                agents={mainActivityAgents}
                 agentLabel={activityAgentLabel}
-                running={controls.status === "running"}
-                statusLabel={statusLabel}
+                running={mainActivityAgents.length > 0}
+                statusLabel={mainStatusLabel}
                 onOpen={() => {
+                  const onlyAgent = mainActivityAgents[0];
+                  if (
+                    mainActivityAgents.length === 1 &&
+                    onlyAgent?.taskId &&
+                    onOpenChild
+                  ) {
+                    onOpenChild(onlyAgent.taskId);
+                    return;
+                  }
                   setThreadRootId(null);
                   setActivityOpen(true);
                 }}

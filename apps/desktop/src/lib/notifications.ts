@@ -13,6 +13,7 @@ import {
 } from "./message-deep-links";
 import {
   desktopNotificationsEnabled,
+  notificationSoundsEnabled,
   playConfiguredNotificationSound,
 } from "./notification-sounds";
 
@@ -26,6 +27,18 @@ export type DesktopNotificationTarget =
 
 export interface DesktopNotificationEnvironment {
   bundled: boolean;
+  nativePermissionChecks: boolean;
+  authorizationStatus?:
+    | "notDetermined"
+    | "denied"
+    | "authorized"
+    | "provisional"
+    | "ephemeral"
+    | "unknown"
+    | null;
+  alertsEnabled?: boolean | null;
+  soundsEnabled?: boolean | null;
+  notificationCenterEnabled?: boolean | null;
 }
 
 export interface DesktopNotificationTestResult {
@@ -126,6 +139,12 @@ function ensurePermission(): Promise<boolean> {
   if (isTauri()) {
     permissionRequest ??= (async () => {
       try {
+        const environment = await desktopNotificationEnvironment();
+        if (environment?.nativePermissionChecks) {
+          return await invoke<boolean>(
+            "request_native_notification_permission",
+          );
+        }
         if (await isPermissionGranted()) return true;
         return (await requestPermission()) === "granted";
       } catch {
@@ -175,12 +194,20 @@ export async function desktopNotificationEnvironment() {
 }
 
 export async function testDesktopNotification(): Promise<DesktopNotificationTestResult> {
-  const environment = await desktopNotificationEnvironment();
+  let environment = await desktopNotificationEnvironment();
   if (!(await ensurePermission())) {
     return {
       delivered: false,
       environment,
       error: "macOS notification permission is not granted.",
+    };
+  }
+  environment = await desktopNotificationEnvironment();
+  if (environment?.alertsEnabled === false) {
+    return {
+      delivered: false,
+      environment,
+      error: "macOS banners are disabled for Chief in System Settings.",
     };
   }
   try {
@@ -189,6 +216,7 @@ export async function testDesktopNotification(): Promise<DesktopNotificationTest
         title: "Chief notifications are working",
         body: "You’ll see messages and handoffs here when you’re away.",
         target: null,
+        sound: notificationSoundsEnabled(),
       });
     } else if (hasNotificationApi()) {
       showWebNotification(
@@ -232,17 +260,23 @@ export async function notifySystem(
   target?: DesktopNotificationTarget,
 ) {
   let delivered = false;
+  let nativeSoundDelivered = false;
   try {
     if (desktopNotificationsEnabled() && (await ensurePermission())) {
       if (isTauri()) await ensureActionListener();
       if (isTauri()) {
         try {
+          nativeSoundDelivered =
+            notificationSoundsEnabled() &&
+            (document.visibilityState !== "visible" || !document.hasFocus());
           await invoke("show_native_notification", {
             title,
             body: body ?? "",
             target: target ?? null,
+            sound: nativeSoundDelivered,
           });
         } catch {
+          nativeSoundDelivered = false;
           showWebNotification(title, body ?? "", target);
         }
       } else {
@@ -258,7 +292,7 @@ export async function notifySystem(
   } catch {
     // A notification must never break the app.
   }
-  playConfiguredNotificationSound();
+  if (!nativeSoundDelivered) playConfiguredNotificationSound();
   return delivered;
 }
 

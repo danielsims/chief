@@ -91,22 +91,7 @@ export function mergePendingOnboardingSchedules(
   };
 }
 
-/** Clears the onboarding handoff only after every queued schedule is durable. */
-export function clearPendingOnboardingWorkWhenPersisted(
-  workspaceId: string,
-  recurringWork: readonly RecurringWorkRecord[],
-) {
-  const pending = pendingOnboardingSchedules(workspaceId);
-  if (
-    pending.length > 0 &&
-    pending.every((schedule) =>
-      recurringWork.some((work) => work.id === schedule.id),
-    )
-  ) {
-    window.localStorage.removeItem(
-      pendingOnboardingWorkStorageKey(workspaceId),
-    );
-    return true;
-  }
-  return false;
+/** Clear only after the runtime acknowledges the complete onboarding run. */
+export function completePendingOnboardingWork(workspaceId: string) {
+  window.localStorage.removeItem(pendingOnboardingWorkStorageKey(workspaceId));
 }

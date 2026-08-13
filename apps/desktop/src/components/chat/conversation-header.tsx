@@ -4,7 +4,7 @@ import {
   Copy,
   Hash,
   ListChecks,
-  LockKeyhole,
+  Lock,
   MoreHorizontal,
   UserRound,
 } from "lucide-react";
@@ -86,7 +86,7 @@ export function ConversationHeader({
               />
             </button>
           ) : channel.visibility === "private" ? (
-            <LockKeyhole size={17} className="text-muted-foreground shrink-0" />
+            <Lock size={17} className="text-muted-foreground shrink-0" />
           ) : (
             <Hash size={17} className="text-muted-foreground shrink-0" />
           )}

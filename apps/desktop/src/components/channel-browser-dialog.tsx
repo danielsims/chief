@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, Hash, LockKeyhole, Plus, Search } from "lucide-react";
+import { ArrowLeft, Hash, Lock, Plus, Search } from "lucide-react";
 
 import type {
   ChannelAgentPermission,
@@ -248,7 +248,7 @@ export function ChannelBrowserDialog({
                       className="hover:bg-muted/55 flex w-full items-start gap-3 px-3.5 py-3 text-left transition-colors"
                     >
                       {channel.visibility === "private" ? (
-                        <LockKeyhole
+                        <Lock
                           size={15}
                           className="text-muted-foreground mt-0.5 shrink-0"
                         />

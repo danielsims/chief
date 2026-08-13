@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { SessionManager } from "./manager.js";
 import type { WorkspaceFileRecord } from "./types.js";
 
@@ -8,40 +10,25 @@ interface SpecialistFileContext {
   threadRootId?: string;
 }
 
-export async function persistInitialBrandProfileFile(
-  input: SpecialistFileContext,
-  sessionId: string,
-  markdown: string,
-) {
-  const path = "brand/working-brand-profile.md";
-  const existing = (
-    await input.manager.listWorkspaceFiles(input.workspaceId)
-  ).find((file) => file.path === path);
-  if (existing) return existing;
-  return input.manager.saveWorkspaceFile(input.workspaceId, {
-    name: "Working brand profile.md",
-    path,
-    content: markdown,
-    kind: "document",
-    createdBy: "agent",
-    sourceAgentId: "brand",
-    sourceSessionId: sessionId,
-  });
-}
-
-/** Publishes one stable document component beside its specialist thread. */
+/** Publishes a file version in the exact thread owned by its calling agent. */
 export async function publishSpecialistFileToThread(
   input: SpecialistFileContext,
   file: WorkspaceFileRecord,
 ) {
   if (!input.threadRootId) return;
-  const documentId = `document-${file.id}`;
+  const threadIdentity = createHash("sha256")
+    .update(input.threadRootId)
+    .digest("hex")
+    .slice(0, 16);
+  const documentId = `document-${threadIdentity}-${file.id}-${file.currentVersionId}`;
   const alreadyPublished = (
     await input.manager.messages(input.workspaceId, input.conversationId)
-  ).some((message) =>
-    message.parts.some(
-      (part) => part.type === "data-document" && part.id === documentId,
-    ),
+  ).some(
+    (message) =>
+      message.metadata?.threadRootId === input.threadRootId &&
+      message.parts.some(
+        (part) => part.type === "data-document" && part.id === documentId,
+      ),
   );
   if (alreadyPublished) return;
   const root = await input.manager.rootChat(
@@ -63,7 +50,8 @@ export async function publishSpecialistFileToThread(
       },
     ],
     {
-      id: `specialist-file:${file.id}`,
+      id:
+        `specialist-file:${threadIdentity}:${file.id}:` + file.currentVersionId,
       threadRootId: input.threadRootId,
     },
   );

@@ -34,6 +34,7 @@ export interface ChiefChatProps {
     label: string;
     description: string;
     agentIds: readonly string[];
+    visibility?: "public" | "private";
   };
   directAgent?: { id: WorkspaceAgentId; name: string; role: string };
   destinationChannelId?: string;

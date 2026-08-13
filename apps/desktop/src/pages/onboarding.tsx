@@ -81,6 +81,7 @@ import {
   searchIntegrations,
 } from "../lib/integrations";
 import { primeLocalIntegrationStatus } from "../lib/local-integration-status-cache";
+import { onboardingCompletionPresentation } from "../lib/onboarding-completion";
 import {
   LOCAL_ONBOARDING_FALLBACK,
   nextOnboardingStep,
@@ -152,6 +153,8 @@ interface OnboardingDraft {
   };
   analytics: {
     integrations: IntegrationSearchResult[];
+    /** Preserves an explicit opt-out separately from an unanswered step. */
+    selection: "selected" | "none" | "skipped" | null;
   };
   ads: {
     integrations: IntegrationSearchResult[];
@@ -482,6 +485,7 @@ function baseDraft(): OnboardingDraft {
     },
     analytics: {
       integrations: [],
+      selection: null,
     },
     ads: {
       integrations: [],
@@ -677,6 +681,12 @@ function draftFromOrg(
     },
     analytics: {
       integrations: normaliseIntegrations(analytics.integrations),
+      selection:
+        analytics.selection === "selected" ||
+        analytics.selection === "none" ||
+        analytics.selection === "skipped"
+          ? analytics.selection
+          : null,
     },
     ads: {
       integrations: normaliseIntegrations(ads.integrations),
@@ -809,6 +819,12 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
       },
       analytics: {
         integrations: normaliseIntegrations(parsedAnalytics?.integrations),
+        selection:
+          parsedAnalytics?.selection === "selected" ||
+          parsedAnalytics?.selection === "none" ||
+          parsedAnalytics?.selection === "skipped"
+            ? parsedAnalytics.selection
+            : null,
       },
       ads: {
         integrations: normaliseIntegrations(parsedAds?.integrations),
@@ -1156,8 +1172,12 @@ function AnswerPreview({
   if (step === "analytics") {
     return (
       <UserBubble>
-        {selectedIntegrationNames(draft.analytics.integrations) ??
-          "No analytics yet"}
+        {draft.analytics.selection === "none"
+          ? "I don't use analytics"
+          : draft.analytics.selection === "skipped"
+            ? "Skipped analytics for now"
+            : (selectedIntegrationNames(draft.analytics.integrations) ??
+              "No analytics selected")}
       </UserBubble>
     );
   }
@@ -2716,13 +2736,17 @@ function AeoControl({
 
 function CompletionControl({
   onContinue,
-  ready,
+  runtimeReady,
   saving,
 }: {
   onContinue: () => void;
-  ready: boolean;
+  runtimeReady: boolean;
   saving: boolean;
 }) {
+  const presentation = onboardingCompletionPresentation({
+    runtimeReady,
+    saving,
+  });
   return (
     <div className="bg-card flex min-h-[480px] w-full items-center justify-center rounded-xl border px-6 py-14">
       <div className="flex max-w-sm flex-col items-center text-center">
@@ -2732,21 +2756,15 @@ function CompletionControl({
             You're in.
           </h2>
           <p className="text-muted-foreground mt-4 text-sm leading-6">
-            {ready
-              ? "Your workspace is ready. Chief will meet you in mission control and bring Setup in when needed."
-              : "Chief is preparing your workspace now."}
+            {presentation.description}
           </p>
           <Button
             type="button"
             className="mt-9"
             onClick={onContinue}
-            disabled={saving || !ready}
+            disabled={presentation.buttonDisabled}
           >
-            {saving
-              ? "Entering..."
-              : ready
-                ? "Enter workspace"
-                : "Preparing workspace..."}
+            {presentation.buttonLabel}
           </Button>
         </div>
       </div>
@@ -2891,7 +2909,14 @@ export function OnboardingPage() {
     (integrations: IntegrationSearchResult[]) => {
       setDraft((current) =>
         current
-          ? { ...current, analytics: { ...current.analytics, integrations } }
+          ? {
+              ...current,
+              analytics: {
+                ...current.analytics,
+                integrations,
+                selection: integrations.length > 0 ? "selected" : null,
+              },
+            }
           : current,
       );
     },
@@ -2949,20 +2974,27 @@ export function OnboardingPage() {
     [],
   );
 
-  const clearAnalyticsSelection = useCallback(() => {
-    setNotice(null);
-    setError(null);
-    setDraft((current) =>
-      current
-        ? {
-            ...current,
-            analytics: { ...current.analytics, integrations: [] },
-            ...(editingStep ? {} : { step: "ads" as const }),
-          }
-        : current,
-    );
-    if (editingStep) setEditingStep(null);
-  }, [editingStep]);
+  const clearAnalyticsSelection = useCallback(
+    (selection: "none" | "skipped") => {
+      setNotice(null);
+      setError(null);
+      setDraft((current) =>
+        current
+          ? {
+              ...current,
+              analytics: {
+                ...current.analytics,
+                integrations: [],
+                selection,
+              },
+              ...(editingStep ? {} : { step: "ads" as const }),
+            }
+          : current,
+      );
+      if (editingStep) setEditingStep(null);
+    },
+    [editingStep],
+  );
 
   const clearAdsSelection = useCallback(() => {
     setNotice(null);
@@ -3135,9 +3167,6 @@ export function OnboardingPage() {
 
   const completeOnboarding = useCallback(async () => {
     if (!org || !draft || completionStartedRef.current) return;
-    if (!workspaceData.onboardingBootstrapReady) {
-      return;
-    }
     if (
       draft.workspaceMode === "cloud" &&
       !deploymentState.deployments.some(
@@ -3204,6 +3233,7 @@ export function OnboardingPage() {
         analytics: draft.analytics,
         ads: draft.ads,
         aeo: draft.aeo,
+        engineering: draft.engineering,
       });
       const schedules = buildOnboardingSchedules(draft.automation, org.id);
       const completedMetadata = {
@@ -3500,8 +3530,8 @@ export function OnboardingPage() {
           searchPlaceholder="Search analytics tools"
           emptySelectionLabel={"I don't use analytics"}
           skipLabel="Skip for now"
-          onEmptySelection={clearAnalyticsSelection}
-          onSkip={clearAnalyticsSelection}
+          onEmptySelection={() => clearAnalyticsSelection("none")}
+          onSkip={() => clearAnalyticsSelection("skipped")}
           onContinue={advance}
           saving={saving}
         />
@@ -3582,7 +3612,7 @@ export function OnboardingPage() {
     return (
       <CompletionControl
         onContinue={() => void completeOnboarding()}
-        ready={workspaceData.onboardingBootstrapReady}
+        runtimeReady={workspaceData.onboardingBootstrapReady}
         saving={saving}
       />
     );

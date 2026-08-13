@@ -86,6 +86,16 @@ export function channelSourceAliasesFrom(events: readonly ChannelEvent[]) {
   return aliases;
 }
 
+export function newSnapshotNotificationMessages(
+  messages: Iterable<ObservedChannelMessage>,
+  startedAt: number,
+  notifiedIds: ReadonlySet<string>,
+) {
+  return [...messages].filter(
+    (message) => message.createdAt > startedAt && !notifiedIds.has(message.id),
+  );
+}
+
 export function latestChannelMessageTimestamp(
   messages: Iterable<ObservedChannelMessage>,
   predicate: (message: ObservedChannelMessage) => boolean,

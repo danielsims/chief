@@ -19,9 +19,16 @@ export interface OnboardingWorkInput {
     notes: string;
     files: BrandFile[];
   };
-  analytics: { integrations: IntegrationSearchResult[] };
+  analytics: {
+    integrations: IntegrationSearchResult[];
+    selection?: "selected" | "none" | "skipped" | null;
+  };
   ads: { integrations: IntegrationSearchResult[] };
   aeo: { trackAiReferrals: boolean };
+  engineering: {
+    enabled: boolean | null;
+    integrations: IntegrationSearchResult[];
+  };
 }
 
 const BRAND_KICKOFF_TOOLS = [
@@ -54,6 +61,12 @@ const ANALYST_KICKOFF_TOOLS = [
   "tools.google_analytics.org.main.*",
   "tools.chief-local.org.localworkspace.localTools.analyticsSaveDataset",
   "tools.chief.org.workspace.agentTools.uiPresentChart",
+];
+
+const ENGINEERING_KICKOFF_TOOLS = [
+  "tools.search",
+  "tools.executor.coreTools.connections.list",
+  "tools.chief.org.workspace.agentTools.sourcesList",
 ];
 
 export function buildOnboardingWorkJobs(
@@ -96,8 +109,13 @@ export function buildOnboardingWorkJobs(
           },
         ];
 
+  const analyticsIntegrations =
+    input.analytics.selection === "none" ||
+    input.analytics.selection === "skipped"
+      ? []
+      : input.analytics.integrations;
   const selectedIntegrations = [
-    ...input.analytics.integrations.map((integration) => ({
+    ...analyticsIntegrations.map((integration) => ({
       ...integration,
       category: "analytics",
     })),
@@ -137,7 +155,7 @@ export function buildOnboardingWorkJobs(
     },
   );
   const analystJobs: OnboardingWorkJob[] =
-    input.analytics.integrations.length > 0
+    analyticsIntegrations.length > 0
       ? [
           {
             id: onboardingScopedId(input.workspaceId, "initial-growth-report"),
@@ -159,6 +177,32 @@ export function buildOnboardingWorkJobs(
         ]
       : [];
 
+  const engineeringJob: OnboardingWorkJob[] =
+    input.engineering.enabled === true
+      ? [
+          {
+            id: onboardingScopedId(
+              input.workspaceId,
+              "engineering-channel-kickoff",
+            ),
+            agentId: "engineer",
+            title: "Prepare the engineering workspace",
+            runAt: Date.now(),
+            timezone: input.timezone,
+            proposedToolPatterns: ENGINEERING_KICKOFF_TOOLS,
+            instructions: [
+              "Launch this independently in the initial concurrent kickoff. Work in the Engineering channel and do not wait for brand, prospecting, analytics, or setup work.",
+              `Company website: ${input.websiteUrl}`,
+              input.engineering.integrations.length > 0
+                ? `The user selected these engineering services during onboarding: ${input.engineering.integrations.map((integration) => `${integration.name} (${integration.domain})`).join(", ")}. Treat these selections as intent, not proof that an account is connected.`
+                : "The user enabled engineering help without selecting a repository, deployment, or website service.",
+              "Inspect the available workspace context and connected sources read-only. Then post a short welcome in the Engineering channel explaining what you can help with and recommend the single cleanest next connection or inspection based on the user's selections.",
+              "Do not authenticate, connect a service, change code, create a branch, or deploy anything during this welcome. Let the user choose the next concrete engineering task; Setup or the upcoming plugin flow can handle any connection they approve.",
+            ].join("\n\n"),
+          },
+        ]
+      : [];
+
   const prospectorJob: OnboardingWorkJob = {
     id: onboardingScopedId(input.workspaceId, "initial-prospecting"),
     agentId: "prospector",
@@ -176,7 +220,13 @@ export function buildOnboardingWorkJobs(
     ].join("\n\n"),
   };
 
-  return [...brandJob, ...setupJobs, prospectorJob, ...analystJobs];
+  return [
+    ...brandJob,
+    ...setupJobs,
+    ...engineeringJob,
+    prospectorJob,
+    ...analystJobs,
+  ];
 }
 
 function integrations(value: unknown): IntegrationSearchResult[] {
@@ -211,6 +261,10 @@ export function onboardingWorkFromMetadata(
     onboarding.aeo && typeof onboarding.aeo === "object"
       ? (onboarding.aeo as Record<string, unknown>)
       : {};
+  const engineering =
+    onboarding.engineering && typeof onboarding.engineering === "object"
+      ? (onboarding.engineering as Record<string, unknown>)
+      : {};
   return buildOnboardingWorkJobs({
     workspaceId,
     companyName,
@@ -238,8 +292,27 @@ export function onboardingWorkFromMetadata(
           )
         : [],
     },
-    analytics: { integrations: integrations(onboarding.analytics) },
+    analytics: {
+      integrations: integrations(onboarding.analytics),
+      selection:
+        onboarding.analytics && typeof onboarding.analytics === "object"
+          ? (() => {
+              const selection = (
+                onboarding.analytics as Record<string, unknown>
+              ).selection;
+              return selection === "selected" ||
+                selection === "none" ||
+                selection === "skipped"
+                ? selection
+                : null;
+            })()
+          : null,
+    },
     ads: { integrations: integrations(onboarding.ads) },
     aeo: { trackAiReferrals: aeo.trackAiReferrals === true },
+    engineering: {
+      enabled: engineering.enabled === true,
+      integrations: integrations(engineering),
+    },
   });
 }
