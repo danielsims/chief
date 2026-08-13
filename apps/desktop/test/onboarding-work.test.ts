@@ -12,6 +12,7 @@ const base = {
   analytics: { integrations: [] },
   ads: { integrations: [] },
   aeo: { trackAiReferrals: false },
+  engineering: { enabled: false, integrations: [] },
 };
 
 void test("initial onboarding schedules one Marketer and one Prospector", () => {
@@ -33,6 +34,33 @@ void test("skipping brand research still populates prospects", () => {
     jobs.map((job) => job.agentId),
     ["prospector"],
   );
+});
+
+void test("selected engineering tools brief Engineer in its channel", () => {
+  const jobs = buildOnboardingWorkJobs({
+    ...base,
+    engineering: {
+      enabled: true,
+      integrations: [
+        {
+          domain: "github.com",
+          name: "GitHub",
+          description: "Repositories and pull requests",
+          kinds: ["mcp"],
+          url: "https://integrations.sh/github.com/",
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(
+    jobs.map((job) => job.agentId),
+    ["brand", "engineer", "prospector"],
+  );
+  const engineering = jobs[1];
+  assert.match(engineering?.instructions ?? "", /GitHub \(github\.com\)/);
+  assert.match(engineering?.instructions ?? "", /intent, not proof/);
+  assert.match(engineering?.instructions ?? "", /upcoming plugin flow/);
 });
 
 void test("an explicit analytics opt-out cannot launch stale setup work", () => {

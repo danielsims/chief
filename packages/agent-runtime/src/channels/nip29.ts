@@ -23,6 +23,14 @@ const DEFAULT_CHANNELS = [
     agentPermissions: ["manage_members", "update_metadata"],
   },
   {
+    id: "749ad53f-bcb0-4e78-8732-4b0e05b96942",
+    slug: "engineering",
+    name: "engineering",
+    description: "Product changes, bugs, and technical reviews",
+    agentIds: ["chief", "engineer"],
+    agentPermissions: ["update_metadata"],
+  },
+  {
     id: "84d669ac-a8b3-4c09-8dd1-a620c2a76141",
     slug: "analytics",
     name: "analytics",
@@ -118,6 +126,14 @@ const DEFAULT_CHANNELS = [
     agentIds: ["brand"],
     visibility: "direct",
   },
+  {
+    id: "0cb9348d-a7a6-43fc-a5b7-088d40353c7c",
+    slug: "dm-engineer",
+    name: "Engineer",
+    description: "A direct conversation with Engineer",
+    agentIds: ["engineer"],
+    visibility: "direct",
+  },
 ] as const;
 
 export function defaultWorkspaceChannels(now = Date.now()): WorkspaceChannel[] {
@@ -127,6 +143,7 @@ export function defaultWorkspaceChannels(now = Date.now()): WorkspaceChannel[] {
     agentIds: [...channel.agentIds],
     userIds:
       channel.id === MISSION_CONTROL_CHANNEL_ID ||
+      channel.slug === "engineering" ||
       channel.slug === "general" ||
       "visibility" in channel
         ? ["workspace-owner"]

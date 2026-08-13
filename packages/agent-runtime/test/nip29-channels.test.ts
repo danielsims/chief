@@ -141,7 +141,7 @@ void test("workspace channels are durable NIP-29 groups instead of chat labels",
         .filter((channel) => channel.visibility === "public")
         .map((channel) => channel.slug),
       // prettier-ignore
-      ["mission-control", "analytics", "advertising", "prospecting", "marketing", "general"],
+      ["mission-control", "engineering", "analytics", "advertising", "prospecting", "marketing", "general"],
     );
     assert.deepEqual(
       channels
@@ -151,7 +151,7 @@ void test("workspace channels are durable NIP-29 groups instead of chat labels",
     );
     assert.equal(
       channels.filter((channel) => channel.visibility === "direct").length,
-      7,
+      8,
     );
     assert.equal(
       new Set(

@@ -12,7 +12,10 @@ import {
 import { channelChatId } from "./channels/nip29.js";
 import * as channelBridge from "./channels/server-bridge.js";
 import { syncMissionControlHeartbeat } from "./mission-control-heartbeat.js";
-import { ensureOnboardingGeneralChannel } from "./onboarding-general-channel.js";
+import {
+  ensureOnboardingEngineeringChannel,
+  ensureOnboardingGeneralChannel,
+} from "./onboarding-general-channel.js";
 import {
   ONBOARDING_OPENING_MESSAGE,
   onboardingDirectory,
@@ -401,13 +404,24 @@ export async function handleBootstrapOnboardingWork({
           );
         }
       }
-      await ensureOnboardingGeneralChannel({
+      const ensureVisibleChannel = {
         manager,
         workspaceId: msg.workspaceId,
         onChannelsChanged: () => broadcastChannels(msg.workspaceId),
-      }).catch((error: unknown) =>
-        console.error("[chief] General channel membership failed:", error),
-      );
+      };
+      await Promise.allSettled([
+        ensureOnboardingGeneralChannel(ensureVisibleChannel),
+        ensureOnboardingEngineeringChannel(ensureVisibleChannel),
+      ]).then((results) => {
+        for (const result of results) {
+          if (result.status === "rejected") {
+            console.error(
+              "[chief] onboarding channel membership failed:",
+              result.reason,
+            );
+          }
+        }
+      });
       resolveReady(chatId);
       await broadcastWorkspaceData(msg.workspaceId);
       return chatId;
