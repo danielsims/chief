@@ -13,7 +13,6 @@ import type { useChiefChatComposer } from "./use-chief-chat-composer";
 import type { useChiefChatCore } from "./use-chief-chat-core";
 import type { useChiefChatTimeline } from "./use-chief-chat-timeline";
 import { messageBlocks } from "../../lib/runtime";
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
 import { AgentActivityPanel, taskAgentLabel } from "./agent-activity-panel";
 import { ApprovalCard } from "./approval-card";
@@ -32,7 +31,6 @@ import {
   ConversationAuxiliaryPanelBody,
   ConversationAuxiliaryPanelHeader,
 } from "./conversation-auxiliary-panel";
-import { SpecialistTaskCard } from "./message-blocks";
 import { ObservedChat } from "./observed-chat";
 import { QuestionCard } from "./question-card";
 import { UserMessage } from "./user-message";
@@ -264,26 +262,6 @@ export function ChiefChatAuxiliaryPanels({
               renderEntry={(entry) => {
                 if (entry.type === "browser") {
                   return threadBrowserAttachmentNode(entry.run);
-                }
-                if (entry.type === "specialist") {
-                  const agentId = entry.task.agent as WorkspaceAgentId;
-                  const identity = WORKSPACE_AGENT_IDENTITIES[agentId];
-                  return (
-                    <ChiefMessage
-                      agent={{
-                        id: agentId,
-                        name: identity.name,
-                        role: identity.role,
-                      }}
-                      metadata={null}
-                      timestamp={entry.task.createdAt}
-                    >
-                      <SpecialistTaskCard
-                        task={entry.task}
-                        onOpenTask={onOpenChild}
-                      />
-                    </ChiefMessage>
-                  );
                 }
                 const { message } = entry;
                 if (message.role === "user") {
