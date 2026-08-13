@@ -7,17 +7,15 @@ import test from "node:test";
 import { LocalStore } from "../src/local-store.js";
 import { SessionManager } from "../src/manager.js";
 import { AgentSession } from "../src/session.js";
-import {
-  runSpecialistDelegation,
-  terminalOutcome,
-} from "../src/specialist-delegation.js";
+import { runSpecialistDelegation } from "../src/specialist-delegation.js";
+import { terminalSpecialistOutcome } from "../src/specialist-outcome-state.js";
 
 process.env.CHIEF_DATABASE_ENCRYPTION_KEY =
   "chief-runtime-integration-test-encryption-key";
 
 void test("a successful result wins over later process shutdown events", () => {
   assert.deepEqual(
-    terminalOutcome([
+    terminalSpecialistOutcome([
       {
         type: "message",
         role: "user",

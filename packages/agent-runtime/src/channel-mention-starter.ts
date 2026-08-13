@@ -10,8 +10,10 @@ import { runSpecialistDelegation } from "./specialist-delegation.js";
 const ONBOARDING_HOME_CHANNELS: Readonly<Record<string, string>> = {
   brand: "marketing",
   prospector: "prospecting",
-  setup: "dm-setup",
+  setup: "setup",
 };
+
+const SETUP_CHANNEL_OPERATION_KEY = "chief-onboarding-private-setup";
 
 export function isOnboardingMention(event: ChannelEvent) {
   return event.tags.some(
@@ -62,7 +64,7 @@ async function appendOnce(input: {
   return event;
 }
 
-async function onboardingHomeChannel(input: {
+export async function ensureOnboardingHomeChannel(input: {
   manager: SessionManager;
   workspaceId: string;
   agentId: string;
@@ -74,7 +76,74 @@ async function onboardingHomeChannel(input: {
   const existing = (await store.list(input.workspaceId)).find(
     (channel) => channel.slug === slug,
   );
-  if (existing) return existing;
+  if (existing) {
+    if (input.agentId !== "setup") return existing;
+    const setupActor = { type: "agent" as const, id: "setup", name: "Setup" };
+    let channel = existing;
+    let changed = false;
+    if (channel.visibility !== "private") {
+      channel = await store.update(input.workspaceId, channel.id, {
+        visibility: "private",
+        actor: setupActor,
+      });
+      changed = true;
+    }
+    if (
+      channel.agentIds.length !== 2 ||
+      !["setup", "chief"].every((agentId) => channel.agentIds.includes(agentId))
+    ) {
+      channel =
+        (await store.setAgents(input.workspaceId, channel.id, [
+          "setup",
+          "chief",
+        ])) ?? channel;
+      changed = true;
+    }
+    if (
+      channel.userIds.length !== 1 ||
+      channel.userIds[0] !== "workspace-owner"
+    ) {
+      channel =
+        (await store.setUsers(input.workspaceId, channel.id, [
+          "workspace-owner",
+        ])) ?? channel;
+      changed = true;
+    }
+    if (changed) {
+      await input.onChannelsChanged?.();
+    }
+    return channel;
+  }
+  if (input.agentId === "setup") {
+    const create = () =>
+      store.create(input.workspaceId, {
+        name: "setup",
+        description: "Private workspace connections and account setup",
+        visibility: "private",
+        operationKey: SETUP_CHANNEL_OPERATION_KEY,
+        actor: { type: "agent", id: "setup", name: "Setup" },
+        agentIds: ["setup", "chief"],
+        userIds: ["workspace-owner"],
+        agentPermissions: [
+          "update_metadata",
+          "manage_members",
+          "manage_workstream",
+          "archive",
+        ],
+      });
+    let channel: WorkspaceChannel;
+    try {
+      channel = await create();
+    } catch (error) {
+      const concurrent = (await store.list(input.workspaceId)).find(
+        (candidate) => candidate.slug === slug,
+      );
+      if (!concurrent) throw error;
+      channel = concurrent;
+    }
+    await input.onChannelsChanged?.();
+    return channel;
+  }
   if (input.agentId !== "brand") return undefined;
   const channel = await store.create(input.workspaceId, {
     name: "marketing",
@@ -99,7 +168,7 @@ async function startOnboardingAgentWork(
 ) {
   const specialist = getAgent(agentId);
   if (!specialist) return;
-  let homeChannel = await onboardingHomeChannel({
+  let homeChannel = await ensureOnboardingHomeChannel({
     manager: input.manager,
     workspaceId: input.workspaceId,
     agentId,
@@ -145,6 +214,23 @@ async function startOnboardingAgentWork(
     threadRootId: originThreadRootId,
     onChannelEvent: input.onChannelEvent,
   });
+
+  if (agentId === "setup") {
+    await appendOnce({
+      manager: input.manager,
+      workspaceId: input.workspaceId,
+      channel: homeChannel,
+      sourceId: `${sourcePrefix}:setup-members`,
+      actor,
+      content: "Setup added you and Chief to the channel.",
+      channelAction: {
+        type: "member-added",
+        agentIds: ["chief"],
+        userIds: ["workspace-owner"],
+      },
+      onChannelEvent: input.onChannelEvent,
+    });
+  }
 
   if (homeChannel.visibility !== "direct" && !ownerWasMember) {
     await appendOnce({
@@ -203,6 +289,7 @@ async function startOnboardingAgentWork(
     initialReview: true,
     onStateChange: input.onStateChange,
     onFilesChange: input.onFilesChange,
+    onChannelEvent: input.onChannelEvent,
   });
 }
 

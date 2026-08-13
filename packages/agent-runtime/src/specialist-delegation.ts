@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import type { ChannelEvent } from "./channel-types.js";
 import type { SessionManager } from "./manager.js";
 import type { SpecialistOutcome } from "./specialist-outcome-state.js";
 import type { AgentEvent, WorkspaceFileRecord } from "./types.js";
@@ -10,15 +11,16 @@ import {
 } from "./agent-retry.js";
 import { agentSkillFromPrompt } from "./agent-skills.js";
 import { getAgent } from "./agents.js";
+import { publishSpecialistFailure } from "./specialist-failure-publication.js";
 import {
   persistInitialBrandProfileFile,
   publishSpecialistFileToThread,
 } from "./specialist-file-publication.js";
 import {
   isDriver,
-  lastAssistantText,
   persistSpecialistOutcomeState,
   setupNeedsHumanSignIn,
+  terminalSpecialistOutcome,
 } from "./specialist-outcome-state.js";
 import { existingExecutorWorkspace } from "./tools/control-plane.js";
 import { executorToolServer } from "./tools/spec.js";
@@ -59,57 +61,6 @@ function delegationIdentity(
     )
     .digest("hex")
     .slice(0, 32);
-}
-
-export function terminalOutcome(
-  events: readonly AgentEvent[],
-): DelegationOutcome | undefined {
-  let currentTurnStartedAt = -1;
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index];
-    if (event?.type === "message" && event.role === "user") {
-      currentTurnStartedAt = index;
-      break;
-    }
-  }
-  for (
-    let index = events.length - 1;
-    index > currentTurnStartedAt;
-    index -= 1
-  ) {
-    const event = events[index];
-    if (event?.type !== "result") continue;
-    return event.ok
-      ? {
-          status: "completed",
-          result:
-            lastAssistantText(events.slice(currentTurnStartedAt + 1)) ??
-            "The specialist completed the task without a text result.",
-        }
-      : {
-          status: "failed",
-          error: event.error ?? "The specialist task failed.",
-        };
-  }
-  let exitOutcome: DelegationOutcome | undefined;
-  for (
-    let index = events.length - 1;
-    index > currentTurnStartedAt;
-    index -= 1
-  ) {
-    const event = events[index];
-    if (!event) continue;
-    if (event.type === "error") {
-      return { status: "failed", error: event.message };
-    }
-    if (event.type === "exit") {
-      exitOutcome = {
-        status: "failed",
-        error: "The specialist session exited before returning a result.",
-      };
-    }
-  }
-  return exitOutcome;
 }
 
 function notify(callback: (() => void | Promise<void>) | undefined) {
@@ -158,6 +109,7 @@ export async function runSpecialistDelegation(input: {
   setupAttemptId?: string;
   onStateChange?: () => void | Promise<void>;
   onFilesChange?: () => void | Promise<void>;
+  onChannelEvent?: (event: ChannelEvent) => void | Promise<void>;
   onSessionReady?: (sessionId: string) => void | Promise<void>;
   timeoutMs?: number;
   initialReview?: boolean;
@@ -231,6 +183,18 @@ async function executeSpecialistDelegation(
       );
     } catch (error) {
       if (attempt >= retryDelays.length || !retryableAgentFailure(error)) {
+        await publishSpecialistFailure({
+          manager: input.manager,
+          workspaceId: input.workspaceId,
+          conversationId: input.conversationId,
+          threadRootId: input.threadRootId,
+          sessionId,
+          agentId: input.agentId,
+          agentName: specialistName,
+          title: input.title,
+          error: error instanceof Error ? error.message : String(error),
+          onChannelEvent: input.onChannelEvent,
+        });
         throw error;
       }
       const delayMs = retryDelays[attempt] ?? 0;
@@ -246,6 +210,20 @@ async function executeSpecialistDelegation(
       !result.retrySafe ||
       !retryableAgentFailure(result.error)
     ) {
+      if (result.status === "failed") {
+        await publishSpecialistFailure({
+          manager: input.manager,
+          workspaceId: input.workspaceId,
+          conversationId: input.conversationId,
+          threadRootId: input.threadRootId,
+          sessionId,
+          agentId: input.agentId,
+          agentName: specialistName,
+          title: input.title,
+          error: result.error,
+          onChannelEvent: input.onChannelEvent,
+        });
+      }
       return result;
     }
     const delayMs = retryDelays[attempt] ?? 0;
@@ -349,7 +327,7 @@ async function executeSpecialistDelegationAttempt(
             ? input.setupDomain && input.setupAttemptId
               ? "You are working privately for Chief after onboarding, not speaking directly to the user. Inspect existing Executor connections and complete only the bounded source setup task below. Use the supplied setupDomain and setupAttemptId with this current session ID when calling Chief-local setup tools. When an authorization tool returns a consent URL, open it with localTools.browserOpen using this current session ID. Never invent a successful connection. Complete safe setup steps, then return each distinct credential, consent, or account-selection requirement with its provider identity so Chief can present one structured action per requirement. Do not ask the user questions in this private thread."
               : input.channelId && input.threadRootId
-                ? "You were invited into a channel thread for one selected integration setup. Read the provider name and domain from the task, call localTools.setup.list to resolve the exact supported setup, then call localTools.setup.start for that domain. Use the returned setup attempt ID and this current session ID for every setup tool. Complete safe local steps autonomously. When sign-in, consent, account selection, or MFA needs the user, open the authorization URL in this thread with localTools.browserOpen, publish one calm handoff in the same thread, and leave both this job and browser waiting. Return a private result containing the exact marker pending-human-signin and the provider name so the runtime preserves that waiting state. Never close the browser or claim completion until the connection is verified."
+                ? "You were invited into a channel thread for one selected integration setup. Read the provider name and domain from the task, call localTools.setup.list to resolve the exact supported setup, then call localTools.setup.start for that domain. Use the returned setup attempt ID and this current session ID for every setup tool. Complete safe local steps autonomously. When sign-in, consent, account selection, or MFA needs the user, open the authorization URL in this thread with localTools.browserOpen. Then call localTools.actionRaise with this current session ID as sourceId, setup as agentId, a provider-specific title and reason, and a stable provider-scoped dedupeKey. That explicit action is what marks the owning thread and channel as needing the user. Publish one calm handoff in the same thread and leave both this job and browser waiting. Return a private result containing the exact marker pending-human-signin and the provider name so the runtime preserves that waiting state. Never close the browser or claim completion until the connection is verified."
                 : "You are working privately for Chief, not speaking directly to the user. Complete only the bounded technical growth task below. Audit connected GitHub, analytics, and deployment context read-only first. Do not call integration setup tools that require an active setup attempt. Prepare a narrow implementation plan, and create a branch or draft pull request only when the task states that the user explicitly requested or approved it. Never push to a default branch, merge, deploy to production, change secrets or repository settings, or perform unrelated engineering work. Return the evidence, checks, and pull-request link to Chief. Do not ask the user questions in this private thread."
             : input.agentId === "analyst"
               ? "You are working privately for Chief, not speaking directly to the user. Use Executor's live connected-provider catalog to answer the bounded analytics question below. Dynamically inspect schemas, call the narrowest read-only tools, state exact dates and numbers, and return evidence Chief can present directly. Do not use Chief's normalized analytics wrapper or ask the user questions."
@@ -415,13 +393,17 @@ async function executeSpecialistDelegationAttempt(
       }, input.timeoutMs ?? DELEGATION_INACTIVITY_TIMEOUT_MS);
     };
     const listener = (_event: AgentEvent) => {
-      const terminal = terminalOutcome(session.events.slice(eventOffset));
+      const terminal = terminalSpecialistOutcome(
+        session.events.slice(eventOffset),
+      );
       if (terminal) finish(terminal);
       else armTimeout();
     };
     session.on("event", listener);
     armTimeout();
-    const alreadyTerminal = terminalOutcome(session.events.slice(eventOffset));
+    const alreadyTerminal = terminalSpecialistOutcome(
+      session.events.slice(eventOffset),
+    );
     if (alreadyTerminal) {
       finish(alreadyTerminal);
       return;
