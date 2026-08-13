@@ -75,6 +75,11 @@ import {
   pendingOnboardingWorkStorageKey,
   readPendingOnboardingWork,
 } from "./pending-onboarding-work";
+import {
+  readCachedProviderModels,
+  retainUsefulProviderModels,
+  writeCachedProviderModels,
+} from "./provider-model-cache";
 /** Durable NIP-29 events for channel timelines and message search. */
 import { reactionIntentKey, useChannelEvents } from "./runtime-channels";
 import {
@@ -974,27 +979,40 @@ export function useChannelReactions(channelId: string | null) {
 
 const providerModelsCache = new Map<DriverType, ProviderModelOption[]>();
 
+function cachedProviderModels(driver: DriverType) {
+  const memory = providerModelsCache.get(driver);
+  if (memory) return memory;
+  const stored = readCachedProviderModels(driver);
+  if (stored.length > 0) providerModelsCache.set(driver, stored);
+  return stored;
+}
+
 export function useProviderModels(driver: DriverType | null) {
   const { client, status } = useRuntime();
   // Cached across mounts and runtime reconnects: the picker renders the last
   // known list immediately and refreshes in place.
   const [models, setModels] = useState<ProviderModelOption[]>(() =>
-    driver ? (providerModelsCache.get(driver) ?? []) : [],
+    driver ? cachedProviderModels(driver) : [],
   );
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const cached = driver ? providerModelsCache.get(driver) : undefined;
-    setModels(cached ?? []);
-    if (!driver || status !== "connected") return;
-    if (!cached) setLoading(true);
+    const cached = driver ? cachedProviderModels(driver) : [];
+    setModels(cached);
+    if (!driver) return;
+    if (cached.length === 0) setLoading(true);
     const unsubscribe = client.subscribe((message) => {
       if (message.type === "models" && message.driver === driver) {
-        providerModelsCache.set(driver, message.models);
-        setModels(message.models);
+        const next = retainUsefulProviderModels(cached, message.models);
+        providerModelsCache.set(driver, next);
+        writeCachedProviderModels(driver, next);
+        setModels(next);
         setLoading(false);
       }
     });
+    // RuntimeClient queues this request while its socket reconnects. Keeping
+    // the subscription alive lets onboarding retain the last useful list and
+    // refresh it as soon as the bundled runtime is ready.
     client.send({ type: "listModels", driver });
     return () => {
       unsubscribe();

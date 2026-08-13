@@ -188,6 +188,7 @@ execFileSync(
   runner,
   [
     ...runnerArgs,
+    "--config.allow-unused-patches=true",
     "--config.node-linker=hoisted",
     "--dir",
     repoRoot,
@@ -235,6 +236,14 @@ await build({
         }));
       },
     },
+    {
+      name: "bundle-chief-channel-api",
+      setup(build) {
+        build.onResolve({ filter: /^@chief\/channel-api$/ }, () => ({
+          path: join(repoRoot, "packages/channel-api/src/index.ts"),
+        }));
+      },
+    },
   ],
   platform: "node",
   target: "node24",
@@ -264,6 +273,12 @@ rmSync(join(runtimeRoot, "node_modules/@chief/browser"), {
   recursive: true,
   force: true,
 });
+if (
+  bundledRuntime.includes('"@chief/channel-api"') ||
+  bundledRuntime.includes("'@chief/channel-api'")
+) {
+  throw new Error("Chief channel API escaped the desktop runtime bundle.");
+}
 
 // Prompts are runtime assets, not bundled strings. Shipping the canonical
 // filesystem tree keeps local Codex, Claude and OpenCode sessions on the same
