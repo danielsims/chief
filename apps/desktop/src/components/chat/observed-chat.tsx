@@ -17,12 +17,14 @@ export function ObservedChat({
   capabilities,
   inlineAttachment,
   showHeader = true,
+  activityOnly = false,
 }: {
   chatId: string;
   label?: ReactNode;
   capabilities?: readonly AgentCapabilityId[];
   inlineAttachment?: ReactNode;
   showHeader?: boolean;
+  activityOnly?: boolean;
 }) {
   const { messages, controls, chatReady } = useObservedChat(chatId);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -72,6 +74,7 @@ export function ObservedChat({
         {messages.map((message) => {
           const blocks = withoutMarkerLines(messageBlocks(message));
           if (message.role === "user") {
+            if (activityOnly) return null;
             const text = blocks
               .flatMap((block) => (block.type === "text" ? [block.text] : []))
               .join("\n");
@@ -101,10 +104,19 @@ export function ObservedChat({
               </div>
             );
           }
+          const visibleBlocks = activityOnly
+            ? blocks.filter(
+                (block) =>
+                  block.type === "thinking" ||
+                  block.type === "tool_use" ||
+                  block.type === "tool_result",
+              )
+            : blocks;
+          if (visibleBlocks.length === 0) return null;
           return (
             <div key={message.id} className="mx-auto w-full max-w-3xl min-w-0">
               <Blocks
-                blocks={blocks}
+                blocks={visibleBlocks}
                 progress={controls.toolProgress}
                 capabilities={capabilities}
                 active={controls.status === "running"}

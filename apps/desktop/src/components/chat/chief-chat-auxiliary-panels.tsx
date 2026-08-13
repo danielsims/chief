@@ -131,11 +131,9 @@ export function ChiefChatAuxiliaryPanels({
     browserOperating,
     browserRunAnchors,
     chatBrowserRuns,
-    childBrowserRun,
     childSessionOwners,
     threadReplyEntries,
   } = timeline;
-  const childPictureInPictureContainerRef = useRef<HTMLDivElement>(null);
   const threadPictureInPictureContainerRef = useRef<HTMLDivElement>(null);
   const threadComposerRef = useRef<HTMLDivElement>(null);
   const threadPictureInPictureAvoidRefs = useMemo(
@@ -183,7 +181,7 @@ export function ChiefChatAuxiliaryPanels({
           onBack={returnFromChild}
           title={
             <ConversationAuxiliaryBreadcrumb
-              current={activeChild.title}
+              current="Activity"
               items={
                 activeChildThreadRootId
                   ? [
@@ -197,28 +195,15 @@ export function ChiefChatAuxiliaryPanels({
               }
             />
           }
-          subtitle={`${taskAgentLabel(activeChild.agent)} · ${taskStatusLabel(activeChild.status)}`}
+          subtitle={`${activeChild.title} · ${taskAgentLabel(activeChild.agent)} · ${taskStatusLabel(activeChild.status)}`}
           onClose={closeAuxiliaryWorkspace}
         />
-        <ConversationAuxiliaryPanelBody
-          ref={childPictureInPictureContainerRef}
-          className="overflow-hidden"
-        >
+        <ConversationAuxiliaryPanelBody className="overflow-hidden">
           <ObservedChat
             key={activeChild.id}
             chatId={activeChild.id}
             showHeader={false}
-            inlineAttachment={
-              childBrowserRun ? (
-                <BrowserSessionAttachment
-                  operating={browserOperating}
-                  pictureInPictureContainerRef={
-                    childPictureInPictureContainerRef
-                  }
-                  run={childBrowserRun}
-                />
-              ) : undefined
-            }
+            activityOnly
           />
         </ConversationAuxiliaryPanelBody>
       </ConversationAuxiliaryPanel>
@@ -410,8 +395,9 @@ export function ChiefChatAuxiliaryPanels({
                 running={controls.status === "running"}
                 statusLabel={statusLabel}
                 onOpen={() => {
-                  setThreadRootId(null);
-                  setActivityOpen(true);
+                  const specialist = activeSpecialistByThread.get(threadRootId);
+                  if (specialist) onOpenChild?.(specialist.id);
+                  else setActivityOpen(true);
                 }}
               />
             </div>
