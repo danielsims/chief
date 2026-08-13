@@ -9,6 +9,7 @@ export function requestsMainChannelReply(text: string) {
 
 export function channelRespondingAgentId(input: {
   channelId?: string;
+  defaultAgentId?: string;
   isSharedChannel: boolean;
   missionControlChannelId?: string;
   mentions?: readonly string[];
@@ -16,7 +17,9 @@ export function channelRespondingAgentId(input: {
   if (!input.isSharedChannel) return undefined;
   return (
     input.mentions?.[0] ??
-    (input.channelId === input.missionControlChannelId ? "chief" : undefined)
+    (input.channelId === input.missionControlChannelId
+      ? "chief"
+      : input.defaultAgentId)
   );
 }
 

@@ -45,6 +45,17 @@ void test("mission control wakes Chief while ordinary channels stay quiet", () =
   );
 });
 
+void test("a private agent channel wakes its assigned agent", () => {
+  assert.equal(
+    channelRespondingAgentId({
+      channelId: "setup",
+      defaultAgentId: "setup",
+      isSharedChannel: true,
+    }),
+    "setup",
+  );
+});
+
 void test("an addressed channel post receives the agent reply in a thread", () => {
   assert.equal(
     channelReplyThreadRoot({

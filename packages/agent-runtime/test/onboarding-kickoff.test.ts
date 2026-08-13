@@ -83,6 +83,14 @@ void test("local recovery resumes the durable plan without a second greeting", (
   assert.match(prompt, /Hey @Marketer, use \[chief-skill:build-brand-profile]/);
   assert.match(prompt, /<company>/);
   assert.match(prompt, /single user-facing authorization alert/);
+  assert.match(
+    prompt,
+    /Do not create or attach a generic initial business review file/,
+  );
+  assert.doesNotMatch(
+    prompt,
+    /Save the complete review as a versioned Markdown file/,
+  );
 });
 
 void test("recovery includes the exact opener only when no opener is visible", () => {
