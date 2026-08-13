@@ -95,7 +95,7 @@ export function WorkspaceRail() {
       className="bg-sidebar relative z-50 flex w-12 shrink-0 flex-col items-center"
     >
       <div className="h-10 shrink-0" data-tauri-drag-region />
-      <div className="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto px-1.5">
+      <div className="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto px-1.5 pt-1">
         {organizations === null ? (
           <span
             aria-hidden
@@ -159,7 +159,7 @@ export function WorkspaceRail() {
                       {unreadCount > 0 ? (
                         <span
                           aria-label={`${unreadCount} unread ${unreadCount === 1 ? "message" : "messages"}`}
-                          className="bg-destructive ring-sidebar absolute top-0 right-0 z-10 flex min-w-4 items-center justify-center rounded-full px-1 text-[9px] leading-4 font-semibold text-white tabular-nums ring-2"
+                          className="bg-destructive ring-sidebar absolute -top-1 -right-1 z-10 flex min-w-4 items-center justify-center rounded-full px-1 text-[9px] leading-4 font-semibold text-white tabular-nums ring-2"
                         >
                           {unreadCount > 99 ? "99+" : unreadCount}
                         </span>
