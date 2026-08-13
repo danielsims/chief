@@ -81,6 +81,7 @@ import {
   searchIntegrations,
 } from "../lib/integrations";
 import { primeLocalIntegrationStatus } from "../lib/local-integration-status-cache";
+import { onboardingCompletionPresentation } from "../lib/onboarding-completion";
 import {
   LOCAL_ONBOARDING_FALLBACK,
   nextOnboardingStep,
@@ -2716,13 +2717,17 @@ function AeoControl({
 
 function CompletionControl({
   onContinue,
-  ready,
+  runtimeReady,
   saving,
 }: {
   onContinue: () => void;
-  ready: boolean;
+  runtimeReady: boolean;
   saving: boolean;
 }) {
+  const presentation = onboardingCompletionPresentation({
+    runtimeReady,
+    saving,
+  });
   return (
     <div className="bg-card flex min-h-[480px] w-full items-center justify-center rounded-xl border px-6 py-14">
       <div className="flex max-w-sm flex-col items-center text-center">
@@ -2732,21 +2737,15 @@ function CompletionControl({
             You're in.
           </h2>
           <p className="text-muted-foreground mt-4 text-sm leading-6">
-            {ready
-              ? "Your workspace is ready. Chief will meet you in mission control and bring Setup in when needed."
-              : "Chief is preparing your workspace now."}
+            {presentation.description}
           </p>
           <Button
             type="button"
             className="mt-9"
             onClick={onContinue}
-            disabled={saving || !ready}
+            disabled={presentation.buttonDisabled}
           >
-            {saving
-              ? "Entering..."
-              : ready
-                ? "Enter workspace"
-                : "Preparing workspace..."}
+            {presentation.buttonLabel}
           </Button>
         </div>
       </div>
@@ -3135,9 +3134,6 @@ export function OnboardingPage() {
 
   const completeOnboarding = useCallback(async () => {
     if (!org || !draft || completionStartedRef.current) return;
-    if (!workspaceData.onboardingBootstrapReady) {
-      return;
-    }
     if (
       draft.workspaceMode === "cloud" &&
       !deploymentState.deployments.some(
@@ -3582,7 +3578,7 @@ export function OnboardingPage() {
     return (
       <CompletionControl
         onContinue={() => void completeOnboarding()}
-        ready={workspaceData.onboardingBootstrapReady}
+        runtimeReady={workspaceData.onboardingBootstrapReady}
         saving={saving}
       />
     );
