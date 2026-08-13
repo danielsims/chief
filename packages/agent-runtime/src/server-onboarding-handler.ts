@@ -429,7 +429,11 @@ export async function handleBootstrapOnboardingWork({
         }
       });
   }
-  await bootstrap.ready;
+  // A durable client handoff must mean the entire bootstrap completed. The UI
+  // enters the workspace independently, while retaining its local retry record
+  // until this acknowledgement. If the runtime exits mid-turn, reconnecting
+  // replays the same deterministic work instead of freezing failed cards.
+  await bootstrap.run;
   send({
     type: "onboardingWorkBootstrapped",
     workspaceId: msg.workspaceId,

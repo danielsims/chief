@@ -99,6 +99,7 @@ import {
   rotateRecurringWorkWebhook,
   saveRecurringWorkSettings,
 } from "./recurring-work-settings.js";
+import { runtimeHealthResponse } from "./runtime-health.js";
 import { resumeDriverBlockedWork } from "./scheduled-agent-config.js";
 import { startScheduledChannelWork } from "./scheduled-channel-thread.js";
 import { dispatchScheduledWorkEvent } from "./scheduled-work-triggers.js";
@@ -1429,7 +1430,6 @@ export function startServer(port = PORT) {
     },
     progress: (...args) => broadcastIntegrationSetupProgress(...args),
   });
-  let schedulerReady = false;
   let localToolsRoute:
     ReturnType<typeof createLocalToolsRoute<LocalToolContext>> | undefined;
   // Bind both loopback families — macOS clients resolving "localhost" may
@@ -1439,20 +1439,9 @@ export function startServer(port = PORT) {
       ? new URL(req.url, `http://127.0.0.1:${port}`).pathname
       : "/";
     if (req.method === "GET" && path === "/healthz") {
-      try {
-        await manager.health();
-        if (!schedulerReady) throw new Error("Scheduler is not ready.");
-        res.writeHead(200, {
-          "content-type": "text/plain",
-          "cache-control": "no-store",
-          "x-chief-runtime": "ready",
-          "x-chief-runtime-protocol": "2",
-        });
-        res.end("chief-runtime-ready");
-      } catch {
-        res.writeHead(503, { "content-type": "text/plain" });
-        res.end("chief-runtime-starting");
-      }
+      const health = runtimeHealthResponse();
+      res.writeHead(health.status, health.headers);
+      res.end(health.body);
       return;
     }
     if (req.method === "POST" && path.startsWith("/hooks/scheduled-runs/")) {
@@ -3629,9 +3618,6 @@ export function startServer(port = PORT) {
         manager.reconcileStaleActivitySessions(startupCutoff - 10 * 60_000),
       )
       .then(() => scheduler.start())
-      .then(() => {
-        schedulerReady = true;
-      })
       .catch((error) =>
         console.error("[scheduler] startup recovery failed:", error),
       );
@@ -3644,7 +3630,6 @@ export function startServer(port = PORT) {
   });
 
   const shutdown = async () => {
-    schedulerReady = false;
     scheduler.stop();
     await Promise.all(
       [...slackGateways.values()].map((gateway) =>

@@ -69,9 +69,8 @@ import {
 } from "./channel-reactions";
 import { navigateApp, notifySystem } from "./notifications";
 import {
-  clearPendingOnboardingWorkWhenPersisted,
+  completePendingOnboardingWork,
   mergePendingOnboardingSchedules,
-  pendingOnboardingSchedules,
   pendingOnboardingWorkStorageKey,
   readPendingOnboardingWork,
 } from "./pending-onboarding-work";
@@ -1247,13 +1246,7 @@ function useWorkspaceDataSource(workspaceId: string | null) {
         if (message.revision <= workspaceRevisionRef.current) return;
         workspaceRevisionRef.current = message.revision;
         const normalized = normalizeWorkspaceData(message);
-        const persisted = clearPendingOnboardingWorkWhenPersisted(
-          workspaceId,
-          normalized.recurringWork,
-        );
-        const next = persisted
-          ? normalized
-          : mergePendingOnboardingSchedules(workspaceId, normalized);
+        const next = mergePendingOnboardingSchedules(workspaceId, normalized);
         workspaceDataCache.set(workspaceId, next);
         setData(next);
         setLoading(false);
@@ -1304,8 +1297,7 @@ function useWorkspaceDataSource(workspaceId: string | null) {
         clearPendingOnboardingRetry();
         pendingOnboardingRequestId = null;
         pendingOnboardingRetryAttempt = 0;
-        // The queued schedules stay visible until a workspace snapshot proves
-        // they are durable. The next refresh clears the handoff.
+        completePendingOnboardingWork(workspaceId);
       }
       if (
         message.type === "error" &&
@@ -1421,13 +1413,7 @@ function useWorkspaceDataSource(workspaceId: string | null) {
           ) {
             window.clearTimeout(timeout);
             unsubscribe();
-            // A workspace-data refresh removes the durable handoff after the
-            // saved schedules are present in the returned snapshot.
-            if (pendingOnboardingSchedules(workspaceId).length === 0) {
-              window.localStorage.removeItem(
-                pendingOnboardingWorkStorageKey(workspaceId),
-              );
-            }
+            completePendingOnboardingWork(workspaceId);
             resolve(message.chatId);
           }
           if (message.type === "error" && message.requestId === requestId) {
