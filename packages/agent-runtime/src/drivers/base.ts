@@ -57,7 +57,12 @@ export abstract class BaseDriver extends EventEmitter {
    * time, and stops early after an interrupt or any output that could duplicate.
    */
   async sendPrompt(text: string): Promise<void> {
-    const retryDelays = promptRetryDelays(process.env.CHIEF_PROMPT_RETRIES);
+    const configuredAttempts = this.startOptions?.maxPromptAttempts;
+    const retryDelays = promptRetryDelays(
+      configuredAttempts === undefined
+        ? process.env.CHIEF_PROMPT_RETRIES
+        : String(configuredAttempts),
+    );
     const maxAttempts = retryDelays.length + 1;
     this.interrupted = false;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {

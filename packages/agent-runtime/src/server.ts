@@ -38,6 +38,7 @@ import type {
   ServerMessage,
 } from "./types.js";
 import { AgentDeploymentManager } from "./agent-deployments.js";
+import { createAgentLocalMcpHandler } from "./agent-local-mcp.js";
 import { AgentSessionCapabilityRegistry } from "./agent-session-capabilities.js";
 import { combinedAgentToolPermissionCeiling } from "./agent-tool-permissions.js";
 import {
@@ -45,10 +46,12 @@ import {
   defaultAgents,
   getAgent,
 } from "./agents.js";
+import { createBrowserBroadcasts } from "./browser-broadcasts.js";
 import {
   BrowserSessionRegistry,
-  commandTargetsActiveBrowserRun,
+  browserThreadRoot,
   integrationBrowserProfile,
+  repairLegacyGoogleAuthBrowserOwners,
   resumableBrowserRuns,
 } from "./browser-session-registry.js";
 import { browserStateEncryptionKey } from "./browser-state-encryption.js";
@@ -56,6 +59,7 @@ import {
   availableCapabilities,
   composeAgentCapabilities,
 } from "./capabilities/index.js";
+import { startMentionedAgentThreads } from "./channel-mention-starter.js";
 import { handleGovernanceRequest } from "./channels/governance-bridge.js";
 import { createChannelLocalToolContext } from "./channels/local-tool-context.js";
 import { channelChatId } from "./channels/nip29.js";
@@ -84,11 +88,21 @@ import {
 import { handleLocalTool, localToolsOpenApi } from "./local-tools.js";
 import { SessionManager } from "./manager.js";
 import { createChiefMcpHandler } from "./mcp-server.js";
+import {
+  MISSION_CONTROL_HEARTBEAT_OPERATION_KEY,
+  syncMissionControlHeartbeat,
+} from "./mission-control-heartbeat.js";
 import { listModels } from "./models.js";
+import { OnboardingMessagePacer } from "./onboarding-message-pacing.js";
 import { authorizeOrganizationRole } from "./organization-authorization.js";
 import { ProviderAuthentication } from "./provider-authentication.js";
-import { nextRunAt, validateCron } from "./recurring-work.js";
+import {
+  rotateRecurringWorkWebhook,
+  saveRecurringWorkSettings,
+} from "./recurring-work-settings.js";
+import { runtimeHealthResponse } from "./runtime-health.js";
 import { resumeDriverBlockedWork } from "./scheduled-agent-config.js";
+import { startScheduledChannelWork } from "./scheduled-channel-thread.js";
 import { dispatchScheduledWorkEvent } from "./scheduled-work-triggers.js";
 import { handleScheduledWorkWebhook } from "./scheduled-work-webhook.js";
 import { RecurringWorkScheduler } from "./scheduler.js";
@@ -96,7 +110,10 @@ import {
   handleExpandRecurringWorkGrant,
   handleResolveActionRequest,
 } from "./server-action-handlers.js";
-import { createLocalToolsRoute } from "./server-local-tools-route.js";
+import {
+  createLocalToolsRoute,
+  prepareCallerScopedToolBody,
+} from "./server-local-tools-route.js";
 import {
   chatControlEvents,
   equivalentInputKeys,
@@ -108,6 +125,7 @@ import { handleBootstrapOnboardingWork } from "./server-onboarding-handler.js";
 import { handleOpenChat } from "./server-open-chat-handler.js";
 import { handleSendMessage } from "./server-send-message-handler.js";
 import { setupTaskCatalog } from "./setup-skills.js";
+import { publishSpecialistFileToThread } from "./specialist-file-publication.js";
 import { executorArtifactsMessage } from "./tools/artifacts.js";
 import {
   awaitGoogleAnalyticsAuthorization,
@@ -131,6 +149,10 @@ import {
 } from "./workspace-authorization.js";
 import { readWorkspaceContext } from "./workspace-context.js";
 import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
+import {
+  readWorkspaceWaysOfWorking,
+  saveWorkspaceWaysOfWorking,
+} from "./workspace-ways-of-working.js";
 
 const PORT = Number(process.env.CHIEF_RUNTIME_PORT ?? 4318);
 
@@ -152,6 +174,7 @@ export function startServer(port = PORT) {
     string,
     { signature: string; ready: Promise<string>; run: Promise<string> }
   >();
+  const onboardingMessagePacer = new OnboardingMessagePacer();
   const integrationSetups = new IntegrationSetupRegistry();
   const pendingGoogleAuthentication = new Map<
     string,
@@ -185,17 +208,16 @@ export function startServer(port = PORT) {
     Boolean(candidate && existsSync(candidate)),
   );
   const browserEncryptionKey = browserStateEncryptionKey();
-  const browsers = new BrowserSessionRegistry((workspaceId, conversationId) => {
-    const key = `${workspaceId}\0${conversationId}`;
-    const isIntegrationSetup = Boolean(
-      integrationSetups.domain(workspaceId, conversationId),
-    );
+  const integrationBrowserRuns = new Set<string>();
+  const browsers = new BrowserSessionRegistry((workspaceId, browserRunId) => {
+    const key = `${workspaceId}\0${browserRunId}`;
+    const isIntegrationSetup = integrationBrowserRuns.has(browserRunId);
     return new AgentBrowserSession({
       sessionId: `chief-${createHash("sha256").update(key).digest("hex").slice(0, 24)}`,
       downloadPath: join(
         workspaceRoot(workspaceId),
         ".browser",
-        createHash("sha256").update(conversationId).digest("hex").slice(0, 16),
+        createHash("sha256").update(browserRunId).digest("hex").slice(0, 16),
         "downloads",
       ),
       executablePath: systemChrome,
@@ -210,8 +232,27 @@ export function startServer(port = PORT) {
   const browserParentConversations = new Map<string, string | undefined>();
   const browserAnchorMessages = new Map<string, string>();
   const browserRunIds = new Map<string, string>();
-  const browserSession = (workspaceId: string, conversationId: string) =>
-    browsers.session(workspaceId, conversationId);
+  const browserRunConversations = new Map<string, string>();
+  const browserRunsByExecution = new Map<string, string>();
+  const browserSession = (workspaceId: string, browserRunId: string) =>
+    browsers.session(workspaceId, browserRunId);
+  const browserRunIdFor = (
+    workspaceId: string,
+    conversationId: string,
+    requestedBrowserRunId?: string,
+  ) => {
+    if (requestedBrowserRunId) {
+      if (
+        browserRunConversations.get(requestedBrowserRunId) !== conversationId
+      ) {
+        throw new Error(
+          "This browsing session does not belong to the conversation.",
+        );
+      }
+      return requestedBrowserRunId;
+    }
+    return browserRunIds.get(browserKey(workspaceId, conversationId));
+  };
   const activeIntegrationSetup =
     integrationSetups.require.bind(integrationSetups);
   const assertActiveIntegrationSetup =
@@ -363,102 +404,24 @@ export function startServer(port = PORT) {
   let broadcastChannelEvent = (_workspaceId: string, _event: ChannelEvent) =>
     undefined;
   let broadcastChannels = (_workspaceId: string) => Promise.resolve();
-  const channelMirrorBindings = new Map<
-    string,
-    {
-      session: AgentSession;
-      listener: (event: unknown) => void;
-      settleTimer?: ReturnType<typeof setTimeout>;
-    }
-  >();
-  const bindChannelEventMirror = (
-    workspaceId: string,
-    chatId: string,
-    session: AgentSession,
-  ) => {
-    const key = `${workspaceId}\0${chatId}`;
-    const existing = channelMirrorBindings.get(key);
-    if (existing?.session === session) return;
-    if (existing?.settleTimer) clearTimeout(existing.settleTimer);
-    existing?.session.off("event", existing.listener);
-
-    const binding: {
-      session: AgentSession;
-      listener: (event: unknown) => void;
-      settleTimer?: ReturnType<typeof setTimeout>;
-    } = {
-      session,
-      listener: () => undefined,
-    };
-    // Every user-facing assistant message becomes its own channel event with
-    // the same thread tags a user message carries — one mirrorEvent per
-    // message, mirroring the exact path users use to post into a channel or a
-    // thread. No turn-collapsing state machine: that collapsed several
-    // streamed messages into one event and, when the turn's closing message
-    // lost its thread context, re-anchored the whole reply into the main
-    // timeline.
-    const queueMirror = (event: channelBridge.ChannelAssistantMessage) => {
-      if (binding.settleTimer) clearTimeout(binding.settleTimer);
-      binding.settleTimer = setTimeout(() => {
-        binding.settleTimer = undefined;
-        if (channelMirrorBindings.get(key) !== binding) return;
-        void manager
-          .enqueueChatPersistence(workspaceId, chatId, () =>
-            channelBridge.mirrorEvent(
-              manager,
-              () => undefined,
-              workspaceId,
-              chatId,
-              event,
-              undefined,
-              { id: session.agent.id, name: session.agent.name },
-              broadcastChannelEvent,
-            ),
-          )
-          .catch((error: unknown) =>
-            console.error("[runtime] background channel event mirror:", error),
-          );
-      }, 250);
-      binding.settleTimer.unref();
-    };
-    const listener = (rawEvent: unknown) => {
-      const event = rawEvent as AgentEvent;
-      if (channelBridge.isUserFacingChannelMessage(event)) {
-        queueMirror(event);
-        return;
-      }
-      if (event.type === "error") {
-        if (binding.settleTimer) clearTimeout(binding.settleTimer);
-        binding.settleTimer = undefined;
-      }
-      if (
-        event.type === "exit" &&
-        channelMirrorBindings.get(key)?.session === session
-      ) {
-        if (binding.settleTimer) clearTimeout(binding.settleTimer);
-        binding.settleTimer = undefined;
-        channelMirrorBindings.delete(key);
-      }
-    };
-    binding.listener = listener;
-    session.on("event", listener);
-    channelMirrorBindings.set(key, binding);
-  };
   let broadcastBrowserNavigate = (
     _workspaceId: string,
     _conversationId: string,
     _url: string,
     _streamUrl: string,
-  ) => undefined;
+    _browserRunId?: string,
+  ): void => undefined;
   let broadcastBrowserPrepare = (
     _workspaceId: string,
     _conversationId: string,
     _url: string,
-  ) => undefined;
+    _browserRunId?: string,
+  ): void => undefined;
   let broadcastBrowserClosed = (
     _workspaceId: string,
     _conversationId: string,
-  ) => undefined;
+    _browserRunId?: string,
+  ): void => undefined;
   let broadcastBrowserActivity = (
     _workspaceId: string,
     _conversationId: string,
@@ -473,12 +436,14 @@ export function startServer(port = PORT) {
         visible?: boolean;
       };
     },
-  ) => undefined;
+    _browserRunId?: string,
+  ): void => undefined;
   let broadcastBrowserPresentation = (
     _workspaceId: string,
     _conversationId: string,
     _mode: BrowserPresentationMode,
-  ) => undefined;
+    _browserRunId?: string,
+  ): void => undefined;
   let broadcastIntegrationSetupProgress = (
     _workspaceId: string,
     _conversationId: string,
@@ -487,11 +452,16 @@ export function startServer(port = PORT) {
   const completeBrowserRunPresentation = async (
     workspaceId: string,
     conversationId: string,
+    requestedBrowserRunId?: string,
   ) => {
     const key = browserKey(workspaceId, conversationId);
-    const browserRunId = browserRunIds.get(key);
+    const browserRunId = browserRunIdFor(
+      workspaceId,
+      conversationId,
+      requestedBrowserRunId,
+    );
     if (browserRunId) {
-      const session = browserSession(workspaceId, conversationId);
+      const session = browserSession(workspaceId, browserRunId);
       const [url, title] = await Promise.all([
         session.getUrl().catch(() => undefined),
         session.getTitle().catch(() => undefined),
@@ -501,34 +471,38 @@ export function startServer(port = PORT) {
         ...(title ? { title } : {}),
         status: "complete",
       });
-      broadcastBrowserClosed(workspaceId, conversationId);
-      browserRunIds.delete(key);
+      broadcastBrowserClosed(workspaceId, conversationId, browserRunId);
+      if (browserRunIds.get(key) === browserRunId) browserRunIds.delete(key);
+      browserRunConversations.delete(browserRunId);
+      browserRunsByExecution.forEach((runId, executionKey) => {
+        if (runId === browserRunId) browserRunsByExecution.delete(executionKey);
+      });
+      browserThreadRoots.delete(browserRunId);
+      browserParentConversations.delete(browserRunId);
+      browserAnchorMessages.delete(browserRunId);
+      integrationBrowserRuns.delete(browserRunId);
     }
-    browserThreadRoots.delete(key);
-    browserParentConversations.delete(key);
-    browserAnchorMessages.delete(key);
   };
   const closeBrowserSession = async (
     workspaceId: string,
     conversationId: string,
+    requestedBrowserRunId?: string,
   ) => {
     const key = browserKey(workspaceId, conversationId);
+    const browserRunId = browserRunIdFor(
+      workspaceId,
+      conversationId,
+      requestedBrowserRunId,
+    );
     pendingGoogleAuthentication.delete(key);
     providerAuthentication.clear(workspaceId, conversationId);
     googleAccountSessions.delete(key);
-    await completeBrowserRunPresentation(workspaceId, conversationId);
-    await browsers.close(workspaceId, conversationId);
-  };
-  const resetBrowserSession = async (
-    workspaceId: string,
-    conversationId: string,
-  ) => {
-    const key = browserKey(workspaceId, conversationId);
-    pendingGoogleAuthentication.delete(key);
-    providerAuthentication.clear(workspaceId, conversationId);
-    googleAccountSessions.delete(key);
-    await completeBrowserRunPresentation(workspaceId, conversationId);
-    await browsers.reset(workspaceId, conversationId);
+    await completeBrowserRunPresentation(
+      workspaceId,
+      conversationId,
+      browserRunId,
+    );
+    if (browserRunId) await browsers.close(workspaceId, browserRunId);
   };
   const openBrowserSession = async (
     workspaceId: string,
@@ -550,26 +524,22 @@ export function startServer(port = PORT) {
         "This browsing session does not belong to the conversation.",
       );
     }
-    const activeBrowserRunId = browserRunIds.get(key);
-    if (
-      activeBrowserRunId &&
-      requestedBrowserRunId &&
-      activeBrowserRunId !== requestedBrowserRunId
-    ) {
-      await closeBrowserSession(workspaceId, conversationId);
-    }
     const conversation = await manager.store.chatRecord(
       workspaceId,
       conversationId,
     );
-    browserParentConversations.set(
-      key,
-      requestedRun?.parentConversationId ?? conversation?.parentId,
+    let resolvedThreadRootId = browserThreadRoot(
+      threadRootId,
+      requestedRun?.threadRootId,
+      conversation?.triggerContext,
     );
-    let resolvedThreadRootId = threadRootId ?? requestedRun?.threadRootId;
     // Setup/OAuth-triggered opens don't carry the turn's thread context.
     // Derive it from the live session so the browser is associated with the
     // same thread its opening turn is streaming into.
+    resolvedThreadRootId ??= manager.get(
+      workspaceId,
+      conversationId,
+    )?.activeThreadRootId;
     resolvedThreadRootId ??= await manager
       .rootChat(workspaceId, conversationId)
       .then((result) => result.session?.activeThreadRootId)
@@ -579,19 +549,8 @@ export function startServer(port = PORT) {
         `[browser-open] workspace=${workspaceId} conversation=${conversationId} threadRoot=${resolvedThreadRootId ?? "none"} url=${url}`,
       );
     }
-    if (resolvedThreadRootId !== undefined) {
-      browserThreadRoots.set(key, resolvedThreadRootId);
-    }
-    // Keep the first insertion point for the session. Re-opening or navigating
-    // the same browser must never clear the anchor — that would orphan the
-    // viewer and make it vanish from the chat while the agent keeps operating.
-    if (requestedRun?.anchorMessageId) {
-      browserAnchorMessages.set(key, requestedRun.anchorMessageId);
-    }
-    let browserRunId = browserRunIds.get(key);
-    if (!browserRunId && requestedRun) {
-      browserRunId = requestedRun.id;
-      browserRunIds.set(key, browserRunId);
+    let browserRunId = requestedRun?.id;
+    if (browserRunId) {
       await manager.store.updateBrowserRun(workspaceId, browserRunId, {
         url,
         status: "active",
@@ -599,7 +558,6 @@ export function startServer(port = PORT) {
     }
     if (!browserRunId) {
       browserRunId = randomUUID();
-      browserRunIds.set(key, browserRunId);
       const now = Date.now();
       await manager.store.saveBrowserRun({
         id: browserRunId,
@@ -623,6 +581,23 @@ export function startServer(port = PORT) {
         url,
       });
     }
+    browserRunIds.set(key, browserRunId);
+    browserRunConversations.set(browserRunId, conversationId);
+    browserParentConversations.set(
+      browserRunId,
+      requestedRun?.parentConversationId ?? conversation?.parentId,
+    );
+    if (resolvedThreadRootId !== undefined) {
+      browserThreadRoots.set(browserRunId, resolvedThreadRootId);
+    }
+    // Keep the first insertion point for the run. Re-opening or navigating the
+    // same run must never clear its creator-message attachment.
+    if (requestedRun?.anchorMessageId) {
+      browserAnchorMessages.set(browserRunId, requestedRun.anchorMessageId);
+    }
+    if (integrationSetups.domain(workspaceId, conversationId)) {
+      integrationBrowserRuns.add(browserRunId);
+    }
     if (isGoogleAccountChooserUrl(url)) {
       googleAccountSessions.set(key, {
         ...googleAccountSessions.get(key),
@@ -634,13 +609,18 @@ export function startServer(port = PORT) {
       ? withGoogleAuthUser(url, account.authuser)
       : url;
     if (!viewport) {
-      broadcastBrowserPrepare(workspaceId, conversationId, lockedUrl);
+      broadcastBrowserPrepare(
+        workspaceId,
+        conversationId,
+        lockedUrl,
+        browserRunId,
+      );
     }
     // Keep the remote page at a stable coordinate system and scale it into the
     // chat surface. Resizing Chromium to the rendered card made automation
     // coordinates drift whenever the thread panel changed width.
     const initialViewport = viewport ?? { width: 1280, height: 800 };
-    const session = browserSession(workspaceId, conversationId);
+    const session = browserSession(workspaceId, browserRunId);
     const stream = await session
       .open(lockedUrl, initialViewport)
       .catch((error: unknown) => {
@@ -662,15 +642,21 @@ export function startServer(port = PORT) {
       conversationId,
       currentUrl,
       stream.url,
+      browserRunId,
     );
-    return session;
+    return browserRunId;
   };
   const browserRecoveryTasks = new Map<string, Promise<void>>();
   const recoverBrowserRuns = (workspaceId: string) => {
     const current = browserRecoveryTasks.get(workspaceId);
     if (current) return current;
     const task = (async () => {
-      const runs = await manager.store.listBrowserRuns(workspaceId);
+      const storedRuns = await manager.store.listBrowserRuns(workspaceId);
+      const runs = await repairLegacyGoogleAuthBrowserOwners(
+        manager.store,
+        workspaceId,
+        storedRuns,
+      );
       const resumable = resumableBrowserRuns(runs);
       const resumableIds = new Set(resumable.map((run) => run.id));
       await Promise.all(
@@ -685,9 +671,9 @@ export function startServer(port = PORT) {
 
       for (const run of resumable) {
         const key = browserKey(workspaceId, run.conversationId);
-        if (browserRunIds.has(key)) {
+        if (browserRunConversations.has(run.id)) {
           try {
-            const session = browserSession(workspaceId, run.conversationId);
+            const session = browserSession(workspaceId, run.id);
             const stream = await session.stream(5_000);
             const url = await session.getUrl().catch(() => run.url);
             broadcastBrowserNavigate(
@@ -695,26 +681,33 @@ export function startServer(port = PORT) {
               run.conversationId,
               url,
               stream.url,
+              run.id,
             );
             continue;
           } catch {
             // The UI reconnected but the browser daemon did not. Replace only
             // the process wrapper; encrypted restore state remains available
             // to the bounded recovery loop below.
-            await browsers.close(workspaceId, run.conversationId);
+            await browsers.close(workspaceId, run.id);
           }
         }
         browserRunIds.set(key, run.id);
+        browserRunConversations.set(run.id, run.conversationId);
         if (run.threadRootId !== undefined) {
-          browserThreadRoots.set(key, run.threadRootId);
+          browserThreadRoots.set(run.id, run.threadRootId);
         }
         if (run.parentConversationId !== undefined) {
-          browserParentConversations.set(key, run.parentConversationId);
+          browserParentConversations.set(run.id, run.parentConversationId);
         }
         if (run.anchorMessageId) {
-          browserAnchorMessages.set(key, run.anchorMessageId);
+          browserAnchorMessages.set(run.id, run.anchorMessageId);
         }
-        broadcastBrowserPrepare(workspaceId, run.conversationId, run.url);
+        broadcastBrowserPrepare(
+          workspaceId,
+          run.conversationId,
+          run.url,
+          run.id,
+        );
 
         let recovered = false;
         let lastError: unknown;
@@ -723,7 +716,7 @@ export function startServer(port = PORT) {
             await new Promise((resolve) => setTimeout(resolve, delay));
           }
           try {
-            const session = browserSession(workspaceId, run.conversationId);
+            const session = browserSession(workspaceId, run.id);
             const stream = await session.open(
               run.url,
               {
@@ -746,12 +739,13 @@ export function startServer(port = PORT) {
               run.conversationId,
               url,
               stream.url,
+              run.id,
             );
             recovered = true;
             break;
           } catch (error) {
             lastError = error;
-            await browsers.close(workspaceId, run.conversationId);
+            await browsers.close(workspaceId, run.id);
           }
         }
         if (recovered) continue;
@@ -763,11 +757,12 @@ export function startServer(port = PORT) {
         await manager.store.updateBrowserRun(workspaceId, run.id, {
           status: "complete",
         });
-        broadcastBrowserClosed(workspaceId, run.conversationId);
-        browserRunIds.delete(key);
-        browserThreadRoots.delete(key);
-        browserParentConversations.delete(key);
-        browserAnchorMessages.delete(key);
+        broadcastBrowserClosed(workspaceId, run.conversationId, run.id);
+        if (browserRunIds.get(key) === run.id) browserRunIds.delete(key);
+        browserRunConversations.delete(run.id);
+        browserThreadRoots.delete(run.id);
+        browserParentConversations.delete(run.id);
+        browserAnchorMessages.delete(run.id);
       }
     })().finally(() => browserRecoveryTasks.delete(workspaceId));
     browserRecoveryTasks.set(workspaceId, task);
@@ -777,8 +772,17 @@ export function startServer(port = PORT) {
     workspaceId: string,
     conversationId: string,
     command: BrowserAutomationCommand,
+    requestedBrowserRunId?: string,
   ): Promise<BrowserAutomationResult> => {
-    const session = browserSession(workspaceId, conversationId);
+    const browserRunId = browserRunIdFor(
+      workspaceId,
+      conversationId,
+      requestedBrowserRunId,
+    );
+    if (!browserRunId) {
+      throw new Error("There is no active embedded browser to control.");
+    }
+    const session = browserSession(workspaceId, browserRunId);
     const key = browserKey(workspaceId, conversationId);
     const account = googleAccountSessions.get(key);
     if (account?.authuser && !account.awaitingSelection) {
@@ -801,13 +805,10 @@ export function startServer(port = PORT) {
     }
     const currentBrowserSnapshot = async (): Promise<BrowserPageSnapshot> => {
       const snapshot = await session.snapshot();
-      const browserRunId = browserRunIds.get(key);
-      if (browserRunId) {
-        await manager.store.updateBrowserRun(workspaceId, browserRunId, {
-          url: snapshot.url,
-          title: snapshot.title,
-        });
-      }
+      await manager.store.updateBrowserRun(workspaceId, browserRunId, {
+        url: snapshot.url,
+        title: snapshot.title,
+      });
       const isGoogleSetup =
         integrationSetups
           .domain(workspaceId, conversationId)
@@ -863,38 +864,58 @@ export function startServer(port = PORT) {
     const cursorState = cursor
       ? { ...cursor, pressed: false, typing: false, visible: true }
       : undefined;
-    broadcastBrowserActivity(workspaceId, conversationId, {
-      phase: "started",
-      label: activityLabel,
-      ...(cursorState ? { cursor: cursorState } : {}),
-    });
-    const completed = () =>
-      broadcastBrowserActivity(workspaceId, conversationId, {
-        phase: "completed",
-        label: activityLabel,
-        ...(cursorState ? { cursor: cursorState } : {}),
-      });
-    const releaseCursor = () => {
-      if (!cursorState) return;
-      broadcastBrowserActivity(workspaceId, conversationId, {
+    broadcastBrowserActivity(
+      workspaceId,
+      conversationId,
+      {
         phase: "started",
         label: activityLabel,
-        cursor: cursorState,
-      });
+        ...(cursorState ? { cursor: cursorState } : {}),
+      },
+      browserRunId,
+    );
+    const completed = () =>
+      broadcastBrowserActivity(
+        workspaceId,
+        conversationId,
+        {
+          phase: "completed",
+          label: activityLabel,
+          ...(cursorState ? { cursor: cursorState } : {}),
+        },
+        browserRunId,
+      );
+    const releaseCursor = () => {
+      if (!cursorState) return;
+      broadcastBrowserActivity(
+        workspaceId,
+        conversationId,
+        {
+          phase: "started",
+          label: activityLabel,
+          cursor: cursorState,
+        },
+        browserRunId,
+      );
     };
     if (cursorState) {
       // Keep the browser action behind Browser UI's 680ms travel curve so the
       // cursor visibly reaches the target before the page responds.
       await new Promise((resolve) => setTimeout(resolve, 780));
-      broadcastBrowserActivity(workspaceId, conversationId, {
-        phase: "started",
-        label: activityLabel,
-        cursor: {
-          ...cursorState,
-          pressed: true,
-          typing: command.type === "fill",
+      broadcastBrowserActivity(
+        workspaceId,
+        conversationId,
+        {
+          phase: "started",
+          label: activityLabel,
+          cursor: {
+            ...cursorState,
+            pressed: true,
+            typing: command.type === "fill",
+          },
         },
-      });
+        browserRunId,
+      );
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
     if (command.type === "click") {
@@ -959,6 +980,12 @@ export function startServer(port = PORT) {
     _receipt: string,
     _capability: ExecutorCapability,
   ) => Promise.resolve();
+  let ensureChiefSession = (
+    _workspaceId: string,
+    _chatId: string,
+    _capability: ExecutorCapability,
+  ): Promise<AgentSession> =>
+    Promise.reject(new Error("Chief is still starting this workspace."));
   const workspaceRevisions = new Map<string, number>();
   const workspaceSnapshotQueues = new Map<string, Promise<void>>();
   const deployments = new AgentDeploymentManager(manager, (record) =>
@@ -1038,12 +1065,31 @@ export function startServer(port = PORT) {
         ? await ensureExecutorWorkspace(workspaceId, capability)
         : null;
     },
+    async (workspaceId, work, _scheduledFor, triggerContext) => {
+      const capability = workspaceCapabilities.get(workspaceId);
+      if (!capability) return false;
+      return Boolean(
+        await startScheduledChannelWork({
+          // Scheduled agents publish deliberate channel updates through the
+          // channel message tool. Their ordinary provider stream remains
+          // private work and is available in Activity.
+          bindSession: () => undefined,
+          broadcast: broadcastChannelEvent,
+          manager,
+          prepareWorkspaceTools: () =>
+            ensureExecutorWorkspace(workspaceId, capability).catch(() => null),
+          triggerContext,
+          workspaceId,
+          work,
+        }),
+      );
+    },
   );
   const syncCloudRecords = async (workspaceId: string) => {
     const active = cloudSyncs.get(workspaceId);
     if (active) return active;
     const sync = (async () => {
-      const preference = await manager.agentPreference(workspaceId, "cmo");
+      const preference = await manager.agentPreference(workspaceId, "chief");
       const capability = workspaceCapabilities.get(workspaceId);
       if (preference?.driver !== "remote" || !capability) return;
       const response = await fetch(
@@ -1146,7 +1192,7 @@ export function startServer(port = PORT) {
     return snapshot;
   };
   const dismissCloudAction = async (workspaceId: string, id: string) => {
-    const preference = await manager.agentPreference(workspaceId, "cmo");
+    const preference = await manager.agentPreference(workspaceId, "chief");
     const capability = workspaceCapabilities.get(workspaceId);
     if (preference?.driver !== "remote" || !capability) return;
     const response = await fetch(
@@ -1164,7 +1210,7 @@ export function startServer(port = PORT) {
       throw new Error(`Cloud action dismissal returned ${response.status}.`);
     }
   };
-  const ensureChiefSession = async (
+  ensureChiefSession = async (
     workspaceId: string,
     chatId: string,
     capability: ExecutorCapability,
@@ -1180,11 +1226,11 @@ export function startServer(port = PORT) {
     if (current) {
       return current;
     }
-    const agent = getAgent(setupDomain ? "setup" : "cmo");
+    const agent = getAgent(setupDomain ? "setup" : "chief");
     if (!agent) throw new Error("Chief's agent persona is missing.");
-    const preference = await manager.agentPreference(workspaceId, "cmo");
+    const preference = await manager.agentPreference(workspaceId, "chief");
     if (!preference?.driver || preference.enabled === false) {
-      throw new Error("Configure the CMO agent app before continuing work.");
+      throw new Error("Configure Chief's agent app before continuing work.");
     }
     const capableAgent =
       !setupDomain && preference.capabilities
@@ -1339,13 +1385,16 @@ export function startServer(port = PORT) {
       attemptId,
       capability,
     });
-    const browser = browserSession(workspaceId, sessionId);
+    const browserRunId = browserRunIds.get(browserKey(workspaceId, sessionId));
+    if (!browserRunId) return;
+    const browser = browserSession(workspaceId, browserRunId);
     const stream = await browser.stream();
     broadcastBrowserNavigate(
       workspaceId,
       sessionId,
       url.toString(),
       stream.url,
+      browserRunId,
     );
     broadcastIntegrationSetupProgress(workspaceId, sessionId, {
       recipeId: "google-analytics",
@@ -1367,10 +1416,22 @@ export function startServer(port = PORT) {
   const providerAuthentication = new ProviderAuthentication({
     browserKey,
     continueSession: continueChiefSession,
-    openBrowser: openBrowserSession,
+    openBrowser: async (workspaceId, sessionId, url) => {
+      const browserRunId = await openBrowserSession(
+        workspaceId,
+        sessionId,
+        url,
+      );
+      browserRunsByExecution.set(
+        browserKey(workspaceId, sessionId),
+        browserRunId,
+      );
+      return {
+        getUrl: () => browserSession(workspaceId, browserRunId).getUrl(),
+      };
+    },
     progress: (...args) => broadcastIntegrationSetupProgress(...args),
   });
-  let schedulerReady = false;
   let localToolsRoute:
     ReturnType<typeof createLocalToolsRoute<LocalToolContext>> | undefined;
   // Bind both loopback families — macOS clients resolving "localhost" may
@@ -1380,20 +1441,9 @@ export function startServer(port = PORT) {
       ? new URL(req.url, `http://127.0.0.1:${port}`).pathname
       : "/";
     if (req.method === "GET" && path === "/healthz") {
-      try {
-        await manager.health();
-        if (!schedulerReady) throw new Error("Scheduler is not ready.");
-        res.writeHead(200, {
-          "content-type": "text/plain",
-          "cache-control": "no-store",
-          "x-chief-runtime": "ready",
-          "x-chief-runtime-protocol": "2",
-        });
-        res.end("chief-runtime-ready");
-      } catch {
-        res.writeHead(503, { "content-type": "text/plain" });
-        res.end("chief-runtime-starting");
-      }
+      const health = runtimeHealthResponse();
+      res.writeHead(health.status, health.headers);
+      res.end(health.body);
       return;
     }
     if (req.method === "POST" && path.startsWith("/hooks/scheduled-runs/")) {
@@ -1442,24 +1492,18 @@ export function startServer(port = PORT) {
         workspaceCapabilities,
         manager,
         openApi: () => localToolsOpenApi(`http://127.0.0.1:${port}`),
-        prepareBody: ({ body, requestedSessionId, workspaceId }) => {
-          // Model-authored session identifiers are not authoritative. Bind
-          // setup calls to the live setup conversation the user is watching.
-          const activeSetupSession =
-            manager
-              .activeSessionIds(workspaceId)
-              .find((sessionId) =>
-                integrationSetups.get(workspaceId, sessionId),
-              ) ??
-            manager.activeSetupSessionId(workspaceId, requestedSessionId);
-          if (!activeSetupSession) return;
-          const activeSetup = integrationSetups.get(
-            workspaceId,
-            activeSetupSession,
-          );
-          body.sessionId = activeSetupSession;
-          body.conversationId = activeSetupSession;
-          if (activeSetup) body.attemptId = activeSetup.attemptId;
+        prepareBody: ({ body, caller, path, workspaceId }) => {
+          // Bind private browser, setup, integration, and file effects to the
+          // authenticated caller. Public channel delegation deliberately keeps
+          // its explicit destination so agents can invite and address others.
+          const activeSetup = integrationSetups.get(workspaceId, caller.chatId);
+          prepareCallerScopedToolBody({
+            path,
+            body,
+            callerAgentId: caller.agentId,
+            callerChatId: caller.chatId,
+            attemptId: activeSetup?.attemptId,
+          });
         },
         createContext: async ({
           caller: activeCaller,
@@ -1468,76 +1512,153 @@ export function startServer(port = PORT) {
         }): Promise<LocalToolContext> => ({
           onActivity: () => broadcastWorkspaceData(workspaceId),
           onFilesChanged: () => broadcastWorkspaceFiles(workspaceId),
+          onFileWritten: async (file) => {
+            const callerRecord = await manager.store.chatRecord(
+              workspaceId,
+              activeCaller.chatId,
+            );
+            const threadRootId = browserThreadRoot(
+              undefined,
+              undefined,
+              callerRecord?.triggerContext,
+            );
+            if (!callerRecord?.parentId || !threadRootId) return;
+            await publishSpecialistFileToThread(
+              {
+                manager,
+                workspaceId,
+                conversationId: callerRecord.parentId,
+                threadRootId,
+              },
+              file,
+            );
+          },
           channels: await createChannelLocalToolContext({
             manager,
             workspaceId,
-            requestedSession: activeCaller.chatId,
+            caller: activeCaller,
             broadcastChannels: () => broadcastChannels(workspaceId),
             broadcastEvent: (event) =>
               broadcastChannelEvent(workspaceId, event),
             broadcastWorkspaceData: () => broadcastWorkspaceData(workspaceId),
+            beforeMessagePost: ({ content, idempotencyKey }) =>
+              onboardingMessagePacer.beforePost(workspaceId, {
+                content,
+                ...(idempotencyKey ? { idempotencyKey } : {}),
+              }),
+            onAgentMentions: (channel, event, agentIds) => {
+              startMentionedAgentThreads({
+                manager,
+                workspaceId,
+                callerAgentId: activeCaller.agentId,
+                channel,
+                event,
+                agentIds,
+                onStateChange: () => broadcastWorkspaceData(workspaceId),
+                onFilesChange: () => broadcastWorkspaceFiles(workspaceId),
+                onChannelEvent: (event) =>
+                  broadcastChannelEvent(workspaceId, event),
+                onChannelsChanged: () => broadcastChannels(workspaceId),
+              });
+            },
             notifyDeletionRequest: (title) =>
               broadcastNotice(workspaceId, { kind: "action", title }),
           }),
           scheduledWork: scheduler,
-          openBrowser: async (conversationId, url, fresh) => {
-            // The model may pass a stale or wrong conversationId (it sometimes
-            // reuses a remembered channel id). Resolve to the live interactive
-            // chat so the browser opens in the conversation the user is watching.
-            const resolvedConversationId =
-              (await manager
-                .rootChat(workspaceId, conversationId)
-                .then(() => conversationId)
-                .catch(() => undefined)) ?? manager.activeChatId(workspaceId);
-            const root = await manager.rootChat(
+          openBrowser: async (
+            _conversationId,
+            url,
+            fresh,
+            requestedBrowserRunId,
+          ) => {
+            // The capability-bound caller owns browser placement.
+            const callerRecord = await manager.store.chatRecord(
               workspaceId,
-              resolvedConversationId ?? conversationId,
+              activeCaller.chatId,
             );
-            if (fresh) {
-              await resetBrowserSession(
+            const callerThreadRootId =
+              browserThreadRoot(
+                undefined,
+                undefined,
+                callerRecord?.triggerContext,
+              ) ??
+              manager.get(workspaceId, activeCaller.chatId)?.activeThreadRootId;
+            const resolvedOwner = activeCaller.chatId;
+            const executionKey = browserKey(workspaceId, activeCaller.chatId);
+            const exactRunId =
+              requestedBrowserRunId ??
+              (fresh ? undefined : browserRunsByExecution.get(executionKey));
+            if (fresh && requestedBrowserRunId) {
+              await closeBrowserSession(
                 workspaceId,
-                resolvedConversationId ?? conversationId,
-              );
-            } else {
-              // A new browser.open call is new conversation content even when it
-              // reuses the same authenticated Chromium context. Settle the old
-              // transcript block and create a new run at this turn's insertion
-              // point without destroying cookies, auth, or the physical browser.
-              await completeBrowserRunPresentation(
-                workspaceId,
-                resolvedConversationId ?? conversationId,
+                resolvedOwner,
+                requestedBrowserRunId,
               );
             }
-            browserThreadRoots.set(
-              browserKey(workspaceId, resolvedConversationId ?? conversationId),
-              root.session?.activeThreadRootId,
-            );
-            await openBrowserSession(
+            const browserRunId = await openBrowserSession(
               workspaceId,
-              resolvedConversationId ?? conversationId,
+              resolvedOwner,
               url,
               undefined,
-              root.session?.activeThreadRootId,
+              callerThreadRootId,
+              exactRunId,
             );
+            browserRunsByExecution.set(executionKey, browserRunId);
+            return browserRunId;
           },
-          closeBrowser: async (conversationId) => {
-            await manager.rootChat(workspaceId, conversationId);
-            await closeBrowserSession(workspaceId, conversationId);
+          closeBrowser: async (_conversationId, requestedBrowserRunId) => {
+            const browserRunId =
+              requestedBrowserRunId ??
+              browserRunsByExecution.get(
+                browserKey(workspaceId, activeCaller.chatId),
+              );
+            const resolvedOwner = browserRunId
+              ? (browserRunConversations.get(browserRunId) ??
+                activeCaller.chatId)
+              : activeCaller.chatId;
+            await closeBrowserSession(workspaceId, resolvedOwner, browserRunId);
           },
-          presentBrowser: async (conversationId, mode) => {
-            await manager.rootChat(workspaceId, conversationId);
-            if (!browserRunIds.has(browserKey(workspaceId, conversationId))) {
+          presentBrowser: (_conversationId, mode, requestedBrowserRunId) => {
+            const browserRunId =
+              requestedBrowserRunId ??
+              browserRunsByExecution.get(
+                browserKey(workspaceId, activeCaller.chatId),
+              );
+            if (!browserRunId) {
               throw new Error(
                 "There is no active embedded browser to present.",
               );
             }
-            broadcastBrowserPresentation(workspaceId, conversationId, mode);
+            broadcastBrowserPresentation(
+              workspaceId,
+              browserRunConversations.get(browserRunId) ?? activeCaller.chatId,
+              mode,
+              browserRunId,
+            );
           },
-          browserCommand: async (conversationId, command) => {
-            await manager.rootChat(workspaceId, conversationId);
-            return requestBrowserCommand(workspaceId, conversationId, command);
+          browserCommand: async (
+            _conversationId,
+            command,
+            requestedBrowserRunId,
+          ) => {
+            const browserRunId =
+              requestedBrowserRunId ??
+              browserRunsByExecution.get(
+                browserKey(workspaceId, activeCaller.chatId),
+              );
+            const resolvedOwner = browserRunId
+              ? (browserRunConversations.get(browserRunId) ??
+                activeCaller.chatId)
+              : activeCaller.chatId;
+            return requestBrowserCommand(
+              workspaceId,
+              resolvedOwner,
+              command,
+              browserRunId,
+            );
           },
-          activateIntegrationSetup: async (sessionId, attemptId, domain) => {
+          activateIntegrationSetup: async (_sessionId, attemptId, domain) => {
+            const sessionId = activeCaller.chatId;
             const prepared = await prepareIntegrationSetup(
               workspaceId,
               externalCapability,
@@ -1572,7 +1693,8 @@ export function startServer(port = PORT) {
               })),
             );
           },
-          startSetup: async (sessionId, domain) => {
+          startSetup: async (_sessionId, domain) => {
+            const sessionId = activeCaller.chatId;
             const task = setupTaskCatalog().find(
               (candidate) =>
                 candidate.domain === domain.toLowerCase() ||
@@ -1617,12 +1739,22 @@ export function startServer(port = PORT) {
               })),
             };
           },
-          openIntegrationHandoff: async (sessionId, attemptId, url) => {
+          openIntegrationHandoff: async (_sessionId, attemptId, url) => {
+            const sessionId = activeCaller.chatId;
             activeIntegrationSetup(workspaceId, sessionId, attemptId);
             const handoffUrl = await executorHandoffUrl(workspaceId, url);
-            await openBrowserSession(workspaceId, sessionId, handoffUrl);
+            const browserRunId = await openBrowserSession(
+              workspaceId,
+              sessionId,
+              handoffUrl,
+            );
+            browserRunsByExecution.set(
+              browserKey(workspaceId, sessionId),
+              browserRunId,
+            );
           },
-          openProviderPage: async (sessionId, attemptId, rawTargetUrl) => {
+          openProviderPage: async (_sessionId, attemptId, rawTargetUrl) => {
+            const sessionId = activeCaller.chatId;
             const setup = activeIntegrationSetup(
               workspaceId,
               sessionId,
@@ -1640,14 +1772,21 @@ export function startServer(port = PORT) {
               setup,
             });
           },
-          captureGeneratedCredential: async (sessionId, attemptId) => {
+          captureGeneratedCredential: async (_sessionId, attemptId) => {
+            const sessionId = activeCaller.chatId;
             const setup = activeIntegrationSetup(
               workspaceId,
               sessionId,
               attemptId,
             );
+            const browserRunId = browserRunsByExecution.get(
+              browserKey(workspaceId, sessionId),
+            );
+            if (!browserRunId) {
+              throw new Error("The setup browser is no longer active.");
+            }
             return captureAndStoreGeneratedCredential({
-              browser: browserSession(workspaceId, sessionId),
+              browser: browserSession(workspaceId, browserRunId),
               domain: setup.domain,
               integrationSlug: setup.integrationSlug,
               progress: (phase, instruction) =>
@@ -1682,16 +1821,11 @@ export function startServer(port = PORT) {
             });
           },
           googleOAuth: {
-            provisionClient: async (sessionId, attemptId) => {
-              // The model may pass a stale sessionId through the executor's
-              // generic `execute` tool. Fall back to the live interactive chat so
-              // the browser opens in the conversation the user is watching.
-              const resolvedSessionId =
-                (integrationSetups.get(workspaceId, sessionId)
-                  ? sessionId
-                  : undefined) ??
-                manager.activeChatId(workspaceId) ??
-                sessionId;
+            provisionClient: async (_sessionId, attemptId) => {
+              // The capability-bound specialist is the durable owner. Falling
+              // back to the currently visible root chat moved its browser out
+              // of the thread whenever the model repeated a parent ID.
+              const resolvedSessionId = activeCaller.chatId;
               const setup = activeIntegrationSetup(
                 workspaceId,
                 resolvedSessionId,
@@ -1735,10 +1869,14 @@ export function startServer(port = PORT) {
               );
               const firstService = googleAnalyticsRecipe.services[0];
               if (!firstService) throw new Error("Google API recipe is empty.");
-              await openBrowserSession(
+              const browserRunId = await openBrowserSession(
                 workspaceId,
                 resolvedSessionId,
                 googleAccountChooserUrl(googleApiLibraryUrl(firstService)),
+              );
+              browserRunsByExecution.set(
+                browserKey(workspaceId, resolvedSessionId),
+                browserRunId,
               );
               return {
                 status: "authentication-required" as const,
@@ -1746,7 +1884,8 @@ export function startServer(port = PORT) {
                   "The user only needs to complete Google sign-in. Chief will resume this same agent automatically and operate the browser from there.",
               };
             },
-            captureClient: async (sessionId, attemptId) => {
+            captureClient: async (_sessionId, attemptId) => {
+              const sessionId = activeCaller.chatId;
               const setup = activeIntegrationSetup(
                 workspaceId,
                 sessionId,
@@ -1763,8 +1902,16 @@ export function startServer(port = PORT) {
                 instruction: "Capturing Google's OAuth client securely…",
                 status: "active",
               });
+              const browserRunId = browserRunsByExecution.get(
+                browserKey(workspaceId, sessionId),
+              );
+              if (!browserRunId) {
+                throw new Error(
+                  "The Google setup browser is no longer active.",
+                );
+              }
               const client = await captureGoogleDesktopOAuthClient(
-                browserSession(workspaceId, sessionId),
+                browserSession(workspaceId, browserRunId),
               );
               await storeGoogleAnalyticsOAuthClientForWorkspace(
                 workspaceId,
@@ -1785,7 +1932,8 @@ export function startServer(port = PORT) {
             },
           },
           googleAnalytics: {
-            startAuthorization: async (sessionId, attemptId) => {
+            startAuthorization: async (_sessionId, attemptId) => {
+              const sessionId = activeCaller.chatId;
               assertActiveIntegrationSetup(
                 workspaceId,
                 sessionId,
@@ -1817,7 +1965,8 @@ export function startServer(port = PORT) {
               });
               return authorization;
             },
-            completeAuthorization: async (sessionId, attemptId, state) => {
+            completeAuthorization: async (_sessionId, attemptId, state) => {
+              const sessionId = activeCaller.chatId;
               assertActiveIntegrationSetup(
                 workspaceId,
                 sessionId,
@@ -1861,7 +2010,8 @@ export function startServer(port = PORT) {
                 ...verification.property,
               };
             },
-            selectProperty: async (sessionId, attemptId, propertyId) => {
+            selectProperty: async (_sessionId, attemptId, propertyId) => {
+              const sessionId = activeCaller.chatId;
               assertActiveIntegrationSetup(
                 workspaceId,
                 sessionId,
@@ -1926,10 +2076,16 @@ export function startServer(port = PORT) {
       await localToolsRoute(req, res);
       return;
     }
+    if (await handleAgentLocalMcp(req, res)) return;
     if (await handleMcp(req, res)) return;
     res.writeHead(204, { "access-control-allow-origin": "*" });
     res.end();
   };
+  const handleAgentLocalMcp = createAgentLocalMcpHandler({
+    authenticate: (token) => localToolCapabilities.authenticate(token),
+    openApi: () => localToolsOpenApi(`http://127.0.0.1:${port}`),
+    origin: `http://127.0.0.1:${port}`,
+  });
   const handleMcp = createChiefMcpHandler({
     manager,
     authorize: authorizeWorkspace,
@@ -2031,126 +2187,28 @@ export function startServer(port = PORT) {
       console.error("[scheduled-work] channel trigger failed:", error),
     );
   };
-  broadcastBrowserNavigate = (workspaceId, conversationId, url, streamUrl) => {
-    const key = browserKey(workspaceId, conversationId);
-    const browserRunId = browserRunIds.get(key);
-    if (!browserRunId) return;
-    const threadRootId = browserThreadRoots.get(key);
-    const parentConversationId = browserParentConversations.get(key);
-    const anchorMessageId = browserAnchorMessages.get(key);
-    if (process.env.CHIEF_DEBUG_SESSION_FORCE === "1") {
-      console.error(
-        `[browser-broadcast] conversation=${conversationId} threadRoot=${threadRootId ?? "none"} anchor=${anchorMessageId ?? "none"} url=${url}`,
-      );
-    }
-    const message = JSON.stringify({
-      type: "browserNavigate",
-      browserRunId,
-      workspaceId,
-      conversationId,
-      parentConversationId,
-      threadRootId,
-      anchorMessageId,
-      url,
-      streamUrl,
-    } satisfies ServerMessage);
-    for (const client of new Set([...wss.clients, ...wss6.clients])) {
-      if (
-        client.readyState === WebSocket.OPEN &&
-        socketAuthorization.canReceive(client, workspaceId)
-      ) {
-        client.send(message);
+  const browserBroadcasts = createBrowserBroadcasts({
+    browserKey,
+    runIds: browserRunIds,
+    threadRoots: browserThreadRoots,
+    parentConversations: browserParentConversations,
+    anchorMessages: browserAnchorMessages,
+    send: (workspaceId, browserMessage) => {
+      const payload = JSON.stringify(browserMessage);
+      for (const client of new Set([...wss.clients, ...wss6.clients])) {
+        if (
+          client.readyState === WebSocket.OPEN &&
+          socketAuthorization.canReceive(client, workspaceId)
+        )
+          client.send(payload);
       }
-    }
-  };
-  broadcastBrowserPrepare = (workspaceId, conversationId, url) => {
-    const key = browserKey(workspaceId, conversationId);
-    const browserRunId = browserRunIds.get(key);
-    if (!browserRunId) return;
-    const threadRootId = browserThreadRoots.get(key);
-    const parentConversationId = browserParentConversations.get(key);
-    const anchorMessageId = browserAnchorMessages.get(key);
-    const message = JSON.stringify({
-      type: "browserPrepare",
-      browserRunId,
-      workspaceId,
-      conversationId,
-      parentConversationId,
-      threadRootId,
-      anchorMessageId,
-      url,
-    } satisfies ServerMessage);
-    for (const client of new Set([...wss.clients, ...wss6.clients])) {
-      if (
-        client.readyState === WebSocket.OPEN &&
-        socketAuthorization.canReceive(client, workspaceId)
-      ) {
-        client.send(message);
-      }
-    }
-  };
-  broadcastBrowserActivity = (workspaceId, conversationId, activity) => {
-    const browserRunId = browserRunIds.get(
-      browserKey(workspaceId, conversationId),
-    );
-    if (!browserRunId) return;
-    const message = JSON.stringify({
-      type: "browserActivity",
-      browserRunId,
-      workspaceId,
-      conversationId,
-      ...activity,
-    } satisfies ServerMessage);
-    for (const client of new Set([...wss.clients, ...wss6.clients])) {
-      if (
-        client.readyState === WebSocket.OPEN &&
-        socketAuthorization.canReceive(client, workspaceId)
-      ) {
-        client.send(message);
-      }
-    }
-  };
-  broadcastBrowserPresentation = (workspaceId, conversationId, mode) => {
-    const browserRunId = browserRunIds.get(
-      browserKey(workspaceId, conversationId),
-    );
-    if (!browserRunId) return;
-    const message = JSON.stringify({
-      type: "browserPresentation",
-      browserRunId,
-      workspaceId,
-      conversationId,
-      mode,
-    } satisfies ServerMessage);
-    for (const client of new Set([...wss.clients, ...wss6.clients])) {
-      if (
-        client.readyState === WebSocket.OPEN &&
-        socketAuthorization.canReceive(client, workspaceId)
-      ) {
-        client.send(message);
-      }
-    }
-  };
-  broadcastBrowserClosed = (workspaceId, conversationId) => {
-    const browserRunId = browserRunIds.get(
-      browserKey(workspaceId, conversationId),
-    );
-    if (!browserRunId) return;
-    const message = JSON.stringify({
-      type: "browserClosed",
-      browserRunId,
-      workspaceId,
-      conversationId,
-    } satisfies ServerMessage);
-    for (const client of new Set([...wss.clients, ...wss6.clients])) {
-      if (
-        client.readyState === WebSocket.OPEN &&
-        socketAuthorization.canReceive(client, workspaceId)
-      ) {
-        client.send(message);
-      }
-    }
-  };
+    },
+  });
+  broadcastBrowserNavigate = browserBroadcasts.navigate;
+  broadcastBrowserPrepare = browserBroadcasts.prepare;
+  broadcastBrowserActivity = browserBroadcasts.activity;
+  broadcastBrowserPresentation = browserBroadcasts.presentation;
+  broadcastBrowserClosed = browserBroadcasts.closed;
   broadcastIntegrationSetupProgress = (
     workspaceId,
     conversationId,
@@ -2223,7 +2281,6 @@ export function startServer(port = PORT) {
       chatId: string,
       session: AgentSession,
     ) => {
-      bindChannelEventMirror(workspaceId, chatId, session);
       const subscriptionKey = `${workspaceId}\0${chatId}`;
       const registered = sessionListeners.get(subscriptionKey);
       if (registered?.session === session) return;
@@ -2339,17 +2396,18 @@ export function startServer(port = PORT) {
             throw new Error("This browser action is not authorized.");
           }
           if (msg.type !== "browserNavigateRequest") {
-            const activeRunId = browserRunIds.get(
-              browserKey(msg.workspaceId, msg.conversationId),
-            );
-            // Browser controls are scoped to an immutable run. A delayed close,
-            // URL update, reload, or resize from an old component must never
-            // mutate the fresh browser that replaced it in the same chat.
-            if (!commandTargetsActiveBrowserRun(activeRunId, msg.browserRunId))
+            if (
+              browserRunConversations.get(msg.browserRunId) !==
+              msg.conversationId
+            )
               return;
           }
           if (msg.type === "browserClose") {
-            await closeBrowserSession(msg.workspaceId, msg.conversationId);
+            await closeBrowserSession(
+              msg.workspaceId,
+              msg.conversationId,
+              msg.browserRunId,
+            );
             return;
           }
           if (msg.type === "browserUrlChanged") {
@@ -2358,14 +2416,11 @@ export function startServer(port = PORT) {
               throw new Error("Browser URLs must use HTTP or HTTPS.");
             }
             const key = browserKey(msg.workspaceId, msg.conversationId);
-            const browserRunId = browserRunIds.get(key);
-            if (browserRunId) {
-              await manager.store.updateBrowserRun(
-                msg.workspaceId,
-                browserRunId,
-                { url: url.toString() },
-              );
-            }
+            await manager.store.updateBrowserRun(
+              msg.workspaceId,
+              msg.browserRunId,
+              { url: url.toString() },
+            );
             const account = googleAccountSessions.get(key);
             if (
               url.hostname === "console.cloud.google.com" &&
@@ -2384,6 +2439,9 @@ export function startServer(port = PORT) {
                   msg.workspaceId,
                   msg.conversationId,
                   lockedUrl,
+                  undefined,
+                  undefined,
+                  msg.browserRunId,
                 );
                 return;
               }
@@ -2420,7 +2478,7 @@ export function startServer(port = PORT) {
               msg.browserRunId,
             );
           } else {
-            const browser = browserSession(msg.workspaceId, msg.conversationId);
+            const browser = browserSession(msg.workspaceId, msg.browserRunId);
             if (msg.type === "browserReload") {
               await browser.reload();
               const [url, stream] = await Promise.all([
@@ -2432,15 +2490,16 @@ export function startServer(port = PORT) {
                 msg.conversationId,
                 url,
                 stream.url,
+                msg.browserRunId,
               );
             } else {
               if (
-                !browsers.resolveViewport(msg.workspaceId, msg.conversationId, {
+                !browsers.resolveViewport(msg.workspaceId, msg.browserRunId, {
                   width: msg.width,
                   height: msg.height,
                 })
               ) {
-                await browsers.resize(msg.workspaceId, msg.conversationId, {
+                await browsers.resize(msg.workspaceId, msg.browserRunId, {
                   width: msg.width,
                   height: msg.height,
                 });
@@ -2617,16 +2676,25 @@ export function startServer(port = PORT) {
               msg.browserRunId,
               { anchorMessageId: msg.messageId },
             );
-            for (const [key, runId] of browserRunIds) {
-              if (runId === msg.browserRunId) {
-                browserAnchorMessages.set(key, msg.messageId);
-                break;
-              }
-            }
+            browserAnchorMessages.set(msg.browserRunId, msg.messageId);
             break;
 
           case "listWorkspaceData": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const waysOfWorking = readWorkspaceWaysOfWorking(msg.workspaceId);
+            if (
+              waysOfWorking.mode === "mission-control" &&
+              !(await manager.recurringWorkByOperationKey(
+                msg.workspaceId,
+                MISSION_CONTROL_HEARTBEAT_OPERATION_KEY,
+              ))
+            ) {
+              await syncMissionControlHeartbeat(
+                manager,
+                msg.workspaceId,
+                waysOfWorking,
+              );
+            }
             const { data, revision } = await loadWorkspaceDataSnapshot(
               msg.workspaceId,
             );
@@ -2636,6 +2704,66 @@ export function startServer(port = PORT) {
               revision,
               ...data,
             });
+            break;
+          }
+
+          case "saveWorkspaceWaysOfWorking": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const verified = localCapabilities.get(
+              msg.executorCapability.token,
+            );
+            if (!verified) {
+              throw new Error("Could not verify access to this workspace.");
+            }
+            await authorizeOrganizationRole({
+              apiBaseUrl: verified.apiBaseUrl,
+              allowedRoles: ["owner", "admin"],
+              errorMessage:
+                "Only workspace owners and admins can change ways of working.",
+              sessionToken: msg.sessionToken,
+              workspaceId: msg.workspaceId,
+            });
+            const channel =
+              msg.mode === "mission-control"
+                ? await manager.store
+                    .channelStore()
+                    .get(msg.workspaceId, msg.missionControlChannelId)
+                : undefined;
+            if (msg.mode === "mission-control") {
+              if (
+                !channel ||
+                channel.visibility === "direct" ||
+                channel.lifecycle !== "active"
+              ) {
+                throw new Error("Choose an active workspace channel.");
+              }
+              if (!channel.agentIds.includes("chief")) {
+                await manager.store
+                  .channelStore()
+                  .setAgents(msg.workspaceId, channel.id, [
+                    ...channel.agentIds,
+                    "chief",
+                  ]);
+                await broadcastChannels(msg.workspaceId);
+              }
+            }
+            const waysOfWorking = saveWorkspaceWaysOfWorking(
+              msg.workspaceId,
+              msg.mode,
+              channel?.id ?? msg.missionControlChannelId,
+            );
+            await syncMissionControlHeartbeat(
+              manager,
+              msg.workspaceId,
+              waysOfWorking,
+            );
+            send({
+              type: "workspaceWaysOfWorkingSaved",
+              workspaceId: msg.workspaceId,
+              requestId: msg.requestId,
+              waysOfWorking,
+            });
+            await broadcastWorkspaceData(msg.workspaceId);
             break;
           }
 
@@ -2731,9 +2859,9 @@ export function startServer(port = PORT) {
             await handleBootstrapOnboardingWork({
               authorizeWorkspace,
               bindRootSession,
+              broadcastChannels,
               broadcastWorkspaceData,
               chatDestinations,
-              closeBrowserSession,
               manager,
               msg,
               onboardingBootstraps,
@@ -2741,67 +2869,19 @@ export function startServer(port = PORT) {
             });
             break;
           }
-
           case "saveCampaign":
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
             await manager.saveCampaign(msg.workspaceId, msg.campaign);
             await broadcastWorkspaceData(msg.workspaceId);
             break;
-
           case "saveRecurringWork": {
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            validateCron(msg.work.cron, msg.work.timezone);
-            const existing = await manager.recurringWorkById(
+            const { saved, missedOneOff } = await saveRecurringWorkSettings(
+              manager,
               msg.workspaceId,
-              msg.work.id,
+              msg.work,
             );
-            if (!existing) {
-              throw new Error(
-                "Recurring work must be proposed by an agent first.",
-              );
-            }
-            if (msg.work.grant) {
-              const proposed = new Set(existing.proposedToolPatterns);
-              if (
-                msg.work.grant.toolPatterns.some(
-                  (pattern) => !proposed.has(pattern),
-                )
-              ) {
-                throw new Error(
-                  "Approval contains tools the agent did not propose.",
-                );
-              }
-            }
-            const active = msg.work.status === "active";
-            const now = Date.now();
-            const missedOneOff =
-              active && existing.onceAt !== undefined && existing.onceAt <= now;
-            if (active && !msg.work.grant) {
-              throw new Error(
-                "Explicit approval is required before activation.",
-              );
-            }
-            // The client may edit scheduling and presentation; instructions
-            // and proposed tool patterns stay agent-authored and the grant is
-            // validated above, so the delegation can never widen silently.
-            await manager.saveRecurringWork(msg.workspaceId, {
-              ...existing,
-              title: msg.work.title,
-              cron: msg.work.cron,
-              timezone: msg.work.timezone,
-              placement: msg.work.placement,
-              skipDates: msg.work.skipDates,
-              status: msg.work.status,
-              grant: msg.work.grant,
-              nextAt: active
-                ? missedOneOff
-                  ? now
-                  : (existing.onceAt ??
-                    nextRunAt(msg.work.cron, msg.work.timezone))
-                : msg.work.nextAt,
-              updatedAt: now,
-            });
-            if (active) {
+            if (saved.status === "active") {
               // The app knows approval resolved the action item, so do not
               // make the user dismiss it too.
               for (const suffix of [
@@ -2817,11 +2897,38 @@ export function startServer(port = PORT) {
               }
             }
             await broadcastWorkspaceData(msg.workspaceId);
+            if (msg.requestId) {
+              send({
+                type: "recurringWorkSaved",
+                workspaceId: msg.workspaceId,
+                requestId: msg.requestId,
+                work: saved,
+              });
+            }
             if (missedOneOff) {
               void scheduler
                 .runNow(msg.workspaceId, msg.work.id)
                 .catch((error) => console.error("[recurring-work]", error));
             }
+            break;
+          }
+
+          case "rotateRecurringWorkWebhook": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const url = await rotateRecurringWorkWebhook(
+              manager,
+              msg.workspaceId,
+              msg.recurringWorkId,
+              `http://127.0.0.1:${PORT}`,
+            );
+            send({
+              type: "recurringWorkWebhookRotated",
+              workspaceId: msg.workspaceId,
+              requestId: msg.requestId,
+              recurringWorkId: msg.recurringWorkId,
+              url,
+              reachability: "local_only",
+            });
             break;
           }
 
@@ -2831,6 +2938,45 @@ export function startServer(port = PORT) {
               .runNow(msg.workspaceId, msg.recurringWorkId)
               .catch((error) => console.error("[recurring-work]", error));
             break;
+
+          case "runMissionControlHeartbeatNow": {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const work = await manager.recurringWorkByOperationKey(
+              msg.workspaceId,
+              MISSION_CONTROL_HEARTBEAT_OPERATION_KEY,
+            );
+            if (!work) throw new Error("The heartbeat is not ready yet.");
+            const started = await startScheduledChannelWork({
+              bindSession: bindRootSession,
+              broadcast: broadcastChannelEvent,
+              manager,
+              onThread: (thread) => {
+                chatDestinations.set(
+                  `${msg.workspaceId}\0${thread.chatId}`,
+                  thread.channelId,
+                );
+                send({
+                  type: "missionControlHeartbeatStarted",
+                  workspaceId: msg.workspaceId,
+                  requestId: msg.requestId,
+                  channelId: thread.channelId,
+                  messageId: thread.messageId,
+                  threadRootId: thread.messageId,
+                });
+              },
+              prepareWorkspaceTools: () =>
+                ensureExecutorWorkspace(
+                  msg.workspaceId,
+                  msg.executorCapability,
+                ).catch(() => null),
+              work,
+              workspaceId: msg.workspaceId,
+            });
+            if (!started) {
+              throw new Error("Chief is not ready to run this heartbeat.");
+            }
+            break;
+          }
 
           case "dismissActionItem":
             await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
@@ -3077,6 +3223,7 @@ export function startServer(port = PORT) {
               workspaceId: msg.workspaceId,
               chatId: msg.chatId,
               visibility: inspected.chat.visibility,
+              agentId: inspected.session?.agent.id ?? inspected.chat.agent,
               parentId: inspected.chat.parentId,
             });
             await manager.waitForChatPersistence(msg.workspaceId, msg.chatId);
@@ -3164,7 +3311,7 @@ export function startServer(port = PORT) {
             await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
             try {
               await (
-                await manager.rootChat(msg.workspaceId, msg.chatId)
+                await manager.inspectChat(msg.workspaceId, msg.chatId)
               ).session?.interrupt();
             } finally {
               manager.releaseExecution(
@@ -3382,7 +3529,7 @@ export function startServer(port = PORT) {
                   {
                     id: msg.chatId,
                     organizationId: msg.workspaceId,
-                    agentId: "cmo",
+                    agentId: "chief",
                     driver: chat.driver,
                     model: chat.model,
                   },
@@ -3479,9 +3626,6 @@ export function startServer(port = PORT) {
         manager.reconcileStaleActivitySessions(startupCutoff - 10 * 60_000),
       )
       .then(() => scheduler.start())
-      .then(() => {
-        schedulerReady = true;
-      })
       .catch((error) =>
         console.error("[scheduler] startup recovery failed:", error),
       );
@@ -3494,7 +3638,6 @@ export function startServer(port = PORT) {
   });
 
   const shutdown = async () => {
-    schedulerReady = false;
     scheduler.stop();
     await Promise.all(
       [...slackGateways.values()].map((gateway) =>

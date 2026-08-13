@@ -35,8 +35,43 @@ export interface LocalToolRouteRequest {
   body: Record<string, unknown>;
   caller: ActiveLocalToolCaller;
   capability: ExecutorCapability;
+  path: string;
   requestedSessionId?: string;
   workspaceId: string;
+}
+
+/**
+ * Binds private workspace mutations to the authenticated agent session.
+ *
+ * Channel delegation retains its explicit public destination. Setup state,
+ * provider authorization, and file attribution belong to the capability-bound
+ * caller, so model-authored parent conversation IDs cannot leak their artifacts
+ * out of a specialist thread.
+ */
+export function prepareCallerScopedToolBody(input: {
+  path: string;
+  body: Record<string, unknown>;
+  callerAgentId: string;
+  callerChatId: string;
+  attemptId?: string;
+}) {
+  if (input.path.startsWith("/local-tools/browser/")) {
+    input.body.conversationId = input.callerChatId;
+    return;
+  }
+  if (input.path === "/local-tools/setup/start") {
+    input.body.conversationId = input.callerChatId;
+    return;
+  }
+  if (input.path.startsWith("/local-tools/integrations/")) {
+    input.body.sessionId = input.callerChatId;
+    if (input.attemptId) input.body.attemptId = input.attemptId;
+    return;
+  }
+  if (input.path === "/local-tools/files/write") {
+    input.body.agentId = input.callerAgentId;
+    input.body.sourceSessionId = input.callerChatId;
+  }
 }
 
 interface LocalToolRouteResult {
@@ -132,6 +167,18 @@ export function createLocalToolsRoute<Context>(
       });
       return true;
     }
+    if (
+      issuedCapability.kind === "agent-session" &&
+      issuedCapability.localToolPermissions &&
+      !issuedCapability.localToolPermissions.includes(permission)
+    ) {
+      writeJson(response, 403, {
+        error: `This scheduled run does not have ${permission} permission.`,
+        code: "automation_permission_denied",
+        permission,
+      });
+      return true;
+    }
     const preference = await dependencies.manager.agentPreference(
       workspaceId,
       caller.agentId,
@@ -159,6 +206,7 @@ export function createLocalToolsRoute<Context>(
       body,
       caller,
       capability: workspaceCapability,
+      path,
       requestedSessionId,
       workspaceId,
     } satisfies LocalToolRouteRequest;

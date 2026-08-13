@@ -57,21 +57,28 @@ import {
   completeBrowserSession,
   completeBrowserRun as completeRuntimeBrowserRun,
   hideBrowserCursor,
+  mergeBrowserRunSnapshot,
   presentBrowserSession,
   updateBrowserSession,
   upsertBrowserSession,
   upsertBrowserRun as upsertRuntimeBrowserRun,
 } from "./browser-sessions";
-import { channelActionFromEvent } from "./channel-actions";
 import {
   applyOptimisticChannelReaction,
   foldChannelReactions,
 } from "./channel-reactions";
-import {
-  channelEventSourceId,
-  channelEventThreadRootId,
-} from "./channel-read-state";
 import { navigateApp, notifySystem } from "./notifications";
+import {
+  completePendingOnboardingWork,
+  mergePendingOnboardingSchedules,
+  pendingOnboardingWorkStorageKey,
+  readPendingOnboardingWork,
+} from "./pending-onboarding-work";
+import {
+  readCachedProviderModels,
+  retainUsefulProviderModels,
+  writeCachedProviderModels,
+} from "./provider-model-cache";
 /** Durable NIP-29 events for channel timelines and message search. */
 import { reactionIntentKey, useChannelEvents } from "./runtime-channels";
 import {
@@ -79,8 +86,12 @@ import {
   dropReplayedMessages,
   mergeRuntimeHistory,
   mergeRuntimeMessage,
+  projectChannelTimeline,
   visibleRuntimeError,
 } from "./runtime-messages";
+import { useManualMissionHeartbeat } from "./runtime-mission-heartbeat";
+import { useRecurringWorkSettings } from "./runtime-recurring-work";
+import { useWaysOfWorkingSaver } from "./runtime-ways-of-working";
 import { capabilityForWorkspace } from "./workspace-capability";
 import { buildWorkspaceContext } from "./workspace-context";
 import { emptyWorkspaceData, normalizeWorkspaceData } from "./workspace-data";
@@ -231,7 +242,6 @@ export class RuntimeClient {
       this.reconnectTimer = null;
     }
     this.closed = false;
-    this.statusListener("connecting");
     try {
       const socket = new WebSocket(RUNTIME_URL);
       this.ws = socket;
@@ -270,6 +280,18 @@ export class RuntimeClient {
     socket.onerror = () => socket.close();
   }
 
+  reconnectNow() {
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.clearConnectTimer();
+    const socket = this.ws;
+    this.ws = null;
+    socket?.close();
+    this.connect();
+  }
+
   private clearConnectTimer() {
     if (this.connectTimer === null) return;
     window.clearTimeout(this.connectTimer);
@@ -278,7 +300,7 @@ export class RuntimeClient {
 
   private scheduleReconnect() {
     if (this.closed || this.reconnectTimer !== null) return;
-    this.statusListener("connecting");
+    this.statusListener("disconnected");
     const delay = this.reconnectDelayMs;
     this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 5000);
     this.reconnectTimer = window.setTimeout(() => {
@@ -548,14 +570,13 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         msg.type === "browserRuns" &&
         msg.workspaceId === cloudOrganizationId
       ) {
-        setBrowserRuns(msg.runs);
+        setBrowserRuns((current) => mergeBrowserRunSnapshot(current, msg.runs));
       }
       if (
         (msg.type === "browserPrepare" || msg.type === "browserNavigate") &&
         msg.workspaceId === cloudOrganizationId
       ) {
-        const currentOwner = browserOwners.get(msg.browserRunId);
-        const owner = currentOwner ?? {
+        const owner = {
           workspaceId: msg.workspaceId,
           conversationId: msg.conversationId,
           ...(msg.threadRootId ? { threadRootId: msg.threadRootId } : {}),
@@ -569,12 +590,9 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
             url: msg.url,
             streamUrl: msg.type === "browserNavigate" ? msg.streamUrl : null,
             conversationId: msg.conversationId,
-            parentConversationId:
-              existing?.parentConversationId ??
-              msg.parentConversationId ??
-              null,
+            parentConversationId: msg.parentConversationId ?? null,
             workspaceId: msg.workspaceId,
-            threadRootId: existing?.threadRootId ?? msg.threadRootId ?? null,
+            threadRootId: msg.threadRootId ?? null,
             anchorMessageId:
               existing?.status === "active" &&
               existing.runId === msg.browserRunId
@@ -710,16 +728,22 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         // Starting scheduled work is visible in Schedule and does not need a
         // banner. Terminal outcomes still notify because they may need review.
         if (msg.notice.kind === "work-started") return;
-        const isWorkNotice = msg.notice.kind === "work-completed";
-        const route = isWorkNotice ? "/schedule" : "/";
-        toast(msg.notice.title, {
-          description: msg.notice.detail,
-          duration: 10_000,
-          action: {
-            label: isWorkNotice ? "View schedule" : "Review action",
-            onClick: () => navigateApp(route),
-          },
-        });
+        const isScheduledWorkNotice = [
+          "work-completed",
+          "work-blocked",
+          "work-failed",
+        ].includes(msg.notice.kind);
+        const route = isScheduledWorkNotice ? "/schedule" : "/";
+        if (!isScheduledWorkNotice) {
+          toast(msg.notice.title, {
+            description: msg.notice.detail,
+            duration: 10_000,
+            action: {
+              label: "Review action",
+              onClick: () => navigateApp(route),
+            },
+          });
+        }
         void notifySystem(msg.notice.title, msg.notice.detail, {
           kind: "route",
           route,
@@ -965,27 +989,40 @@ export function useChannelReactions(channelId: string | null) {
 
 const providerModelsCache = new Map<DriverType, ProviderModelOption[]>();
 
+function cachedProviderModels(driver: DriverType) {
+  const memory = providerModelsCache.get(driver);
+  if (memory) return memory;
+  const stored = readCachedProviderModels(driver);
+  if (stored.length > 0) providerModelsCache.set(driver, stored);
+  return stored;
+}
+
 export function useProviderModels(driver: DriverType | null) {
   const { client, status } = useRuntime();
   // Cached across mounts and runtime reconnects: the picker renders the last
   // known list immediately and refreshes in place.
   const [models, setModels] = useState<ProviderModelOption[]>(() =>
-    driver ? (providerModelsCache.get(driver) ?? []) : [],
+    driver ? cachedProviderModels(driver) : [],
   );
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const cached = driver ? providerModelsCache.get(driver) : undefined;
-    setModels(cached ?? []);
-    if (!driver || status !== "connected") return;
-    if (!cached) setLoading(true);
+    const cached = driver ? cachedProviderModels(driver) : [];
+    setModels(cached);
+    if (!driver) return;
+    if (cached.length === 0) setLoading(true);
     const unsubscribe = client.subscribe((message) => {
       if (message.type === "models" && message.driver === driver) {
-        providerModelsCache.set(driver, message.models);
-        setModels(message.models);
+        const next = retainUsefulProviderModels(cached, message.models);
+        providerModelsCache.set(driver, next);
+        writeCachedProviderModels(driver, next);
+        setModels(next);
         setLoading(false);
       }
     });
+    // RuntimeClient queues this request while its socket reconnects. Keeping
+    // the subscription alive lets onboarding retain the last useful list and
+    // refresh it as soon as the bundled runtime is ready.
     client.send({ type: "listModels", driver });
     return () => {
       unsubscribe();
@@ -997,25 +1034,17 @@ export function useProviderModels(driver: DriverType | null) {
 
 const workspaceDataCache = new Map<string, WorkspaceDataState>();
 
-function onboardingJobsStorageKey(workspaceId: string) {
-  return `chief:onboarding-work:${workspaceId}`;
-}
-
-function readOnboardingJobs(workspaceId: string) {
-  return window.localStorage.getItem(onboardingJobsStorageKey(workspaceId));
-}
-
 export function updatePendingOnboardingDriver(
   workspaceId: string,
   driver: DriverType,
   model: string | null,
 ) {
-  const stored = readOnboardingJobs(workspaceId);
+  const stored = readPendingOnboardingWork(workspaceId);
   if (!stored) return false;
   try {
     const pending = JSON.parse(stored) as Record<string, unknown>;
     window.localStorage.setItem(
-      onboardingJobsStorageKey(workspaceId),
+      pendingOnboardingWorkStorageKey(workspaceId),
       JSON.stringify({ ...pending, driver, model }),
     );
     return true;
@@ -1026,6 +1055,7 @@ export function updatePendingOnboardingDriver(
 
 function useWorkspaceDataSource(workspaceId: string | null) {
   const { client, status } = useRuntime();
+  const { sessionToken } = useAuth();
   const {
     cloudOrganizationId,
     capability,
@@ -1036,7 +1066,10 @@ function useWorkspaceDataSource(workspaceId: string | null) {
   // and revalidates in place instead of flashing empty or placeholder frames.
   const [data, setData] = useState<WorkspaceDataState>(() =>
     workspaceId
-      ? (workspaceDataCache.get(workspaceId) ?? emptyWorkspaceData)
+      ? mergePendingOnboardingSchedules(
+          workspaceId,
+          workspaceDataCache.get(workspaceId) ?? emptyWorkspaceData,
+        )
       : emptyWorkspaceData,
   );
   const [loading, setLoading] = useState(
@@ -1055,6 +1088,52 @@ function useWorkspaceDataSource(workspaceId: string | null) {
       }
     >(),
   );
+  const applyWaysOfWorking = useCallback(
+    (waysOfWorking: WorkspaceDataState["waysOfWorking"]) => {
+      if (!workspaceId) return;
+      setData((current) => {
+        const next = { ...current, waysOfWorking };
+        workspaceDataCache.set(workspaceId, next);
+        return next;
+      });
+    },
+    [workspaceId],
+  );
+  const saveWaysOfWorking = useWaysOfWorkingSaver({
+    capability,
+    client,
+    cloudOrganizationId,
+    onSaved: applyWaysOfWorking,
+    sessionToken,
+    workspaceId,
+  });
+  const applyRecurringWork = useCallback(
+    (work: RecurringWorkRecord) => {
+      if (!workspaceId) return;
+      setData((current) => {
+        const recurringWork = current.recurringWork.map((item) =>
+          item.id === work.id ? work : item,
+        );
+        const next = { ...current, recurringWork };
+        workspaceDataCache.set(workspaceId, next);
+        return next;
+      });
+    },
+    [workspaceId],
+  );
+  const recurringWorkSettings = useRecurringWorkSettings({
+    capability,
+    client,
+    cloudOrganizationId,
+    onSaved: applyRecurringWork,
+    workspaceId,
+  });
+  const runMissionControlHeartbeatNow = useManualMissionHeartbeat({
+    capability,
+    client,
+    cloudOrganizationId,
+    workspaceId,
+  });
 
   useEffect(() => {
     const updateClock = () => setNow(Date.now());
@@ -1078,7 +1157,14 @@ function useWorkspaceDataSource(workspaceId: string | null) {
       const cached = workspaceId
         ? workspaceDataCache.get(workspaceId)
         : undefined;
-      setData(cached ?? emptyWorkspaceData);
+      setData(
+        workspaceId
+          ? mergePendingOnboardingSchedules(
+              workspaceId,
+              cached ?? emptyWorkspaceData,
+            )
+          : emptyWorkspaceData,
+      );
       setLoading(!cached);
     }
     if (
@@ -1101,7 +1187,7 @@ function useWorkspaceDataSource(workspaceId: string | null) {
     };
     const replayPendingOnboarding = () => {
       clearPendingOnboardingRetry();
-      const stored = readOnboardingJobs(workspaceId);
+      const stored = readPendingOnboardingWork(workspaceId);
       if (!stored) {
         pendingOnboardingRequestId = null;
         return;
@@ -1134,7 +1220,9 @@ function useWorkspaceDataSource(workspaceId: string | null) {
           120_000,
         );
       } catch {
-        window.localStorage.removeItem(onboardingJobsStorageKey(workspaceId));
+        window.localStorage.removeItem(
+          pendingOnboardingWorkStorageKey(workspaceId),
+        );
         pendingOnboardingRequestId = null;
       }
     };
@@ -1157,7 +1245,8 @@ function useWorkspaceDataSource(workspaceId: string | null) {
       ) {
         if (message.revision <= workspaceRevisionRef.current) return;
         workspaceRevisionRef.current = message.revision;
-        const next = normalizeWorkspaceData(message);
+        const normalized = normalizeWorkspaceData(message);
+        const next = mergePendingOnboardingSchedules(workspaceId, normalized);
         workspaceDataCache.set(workspaceId, next);
         setData(next);
         setLoading(false);
@@ -1208,7 +1297,7 @@ function useWorkspaceDataSource(workspaceId: string | null) {
         clearPendingOnboardingRetry();
         pendingOnboardingRequestId = null;
         pendingOnboardingRetryAttempt = 0;
-        window.localStorage.removeItem(onboardingJobsStorageKey(workspaceId));
+        completePendingOnboardingWork(workspaceId);
       }
       if (
         message.type === "error" &&
@@ -1291,9 +1380,14 @@ function useWorkspaceDataSource(workspaceId: string | null) {
     ) => {
       if (workspaceId) {
         window.localStorage.setItem(
-          onboardingJobsStorageKey(workspaceId),
+          pendingOnboardingWorkStorageKey(workspaceId),
           JSON.stringify({ jobs, schedules, workspaceContext, driver, model }),
         );
+        setData((current) => {
+          const next = mergePendingOnboardingSchedules(workspaceId, current);
+          workspaceDataCache.set(workspaceId, next);
+          return next;
+        });
       }
       if (
         !workspaceId ||
@@ -1319,9 +1413,7 @@ function useWorkspaceDataSource(workspaceId: string | null) {
           ) {
             window.clearTimeout(timeout);
             unsubscribe();
-            window.localStorage.removeItem(
-              onboardingJobsStorageKey(workspaceId),
-            );
+            completePendingOnboardingWork(workspaceId);
             resolve(message.chatId);
           }
           if (message.type === "error" && message.requestId === requestId) {
@@ -1498,6 +1590,10 @@ function useWorkspaceDataSource(workspaceId: string | null) {
     dismissActionItem,
     resolveActionRequest,
     expandRecurringWorkGrant,
+    saveWaysOfWorking,
+    runMissionControlHeartbeatNow,
+    saveRecurringWorkSettings: recurringWorkSettings.save,
+    rotateRecurringWorkWebhook: recurringWorkSettings.rotateWebhook,
   };
 }
 
@@ -1863,6 +1959,7 @@ function useRuntimeChat(
   const [execution, setExecution] = useState<
     ChatExecutionSelection | undefined
   >(undefined);
+  const [sessionAgentId, setSessionAgentId] = useState<string | undefined>();
   const executionRef = useRef<ChatExecutionSelection | undefined>(
     selectedExecution ?? initialExecution,
   );
@@ -1986,6 +2083,7 @@ function useRuntimeChat(
       setMessages(cached ? deduplicateDocumentParts(cached) : []);
       setChatReady(cached ? true : false);
       setExecution(undefined);
+      setSessionAgentId(undefined);
     }
     let cancelled = false;
     if (mode === "observe") {
@@ -2033,6 +2131,7 @@ function useRuntimeChat(
         msg.chatId === chatId
       ) {
         setExecution(msg.execution);
+        setSessionAgentId(msg.agentId);
         return;
       }
       if (
@@ -2265,87 +2364,10 @@ function useRuntimeChat(
     // same toolCallId/text, no threadRootId). Those copies would render the
     // thread's tool/browser UI in the main timeline. dropReplayedMessages keeps
     // only the original thread-attached copies.
-    if (!channelId || channelEvents.length === 0) {
+    if (!channelId) {
       return dropReplayedMessages(messages);
     }
-
-    const sourceIdsByEventId = new Map(
-      channelEvents.flatMap((event) => {
-        const sourceId = channelEventSourceId(event);
-        return sourceId ? [[event.id, sourceId] as const] : [];
-      }),
-    );
-    // Channel events are the authoritative source for thread placement. On a
-    // reconnect, a transcript message can arrive before its channel event and
-    // lack the thread metadata in the client buffer. Enrich it from the event
-    // tags before rendering, otherwise the same thread reply leaks into the
-    // top-level timeline after navigating away and back.
-    const directById = new Map(
-      messages.map((message) => [message.id, message]),
-    );
-    const seenIds = new Set<string>();
-    const canonicalMessages: ChiefUIMessage[] = [];
-    for (const event of channelEvents) {
-      if (event.kind !== 9 || !event.content.trim()) continue;
-      const id = channelEventSourceId(event) ?? event.id;
-      if (id.endsWith("-welcome") || seenIds.has(id)) continue;
-      const direct = directById.get(id);
-      const channelAction = channelActionFromEvent(event);
-      const protocolRootId = channelEventThreadRootId(event);
-      const threadRootId = protocolRootId
-        ? (sourceIdsByEventId.get(protocolRootId) ?? protocolRootId)
-        : direct?.metadata?.threadRootId;
-      // Preserve message identity when the enrichment changes nothing, so
-      // React can skip re-rendering unchanged rows instead of rebuilding the
-      // whole thread on every event (that rebuild is what made threads flicker).
-      const needsEnrichment =
-        !direct ||
-        Boolean(
-          threadRootId && threadRootId !== direct.metadata?.threadRootId,
-        ) ||
-        Boolean(channelAction && !direct.metadata?.channelAction) ||
-        Boolean(direct.metadata && !direct.metadata.createdAt);
-      canonicalMessages.push(
-        !needsEnrichment
-          ? direct
-          : direct
-            ? {
-                ...direct,
-                metadata: {
-                  ...direct.metadata,
-                  createdAt: direct.metadata?.createdAt ?? event.createdAt,
-                  ...(threadRootId ? { threadRootId } : {}),
-                  ...(channelAction ? { channelAction } : {}),
-                },
-              }
-            : {
-                id,
-                role: event.actor.type === "user" ? "user" : "assistant",
-                parts: [{ type: "text", text: event.content }],
-                metadata: {
-                  createdAt: event.createdAt,
-                  ...(threadRootId ? { threadRootId } : {}),
-                  ...(channelAction ? { channelAction } : {}),
-                },
-              },
-      );
-      seenIds.add(id);
-    }
-    // Keep live transcript messages that do not have a channel event yet — an
-    // optimistic user send or a streaming assistant reply must appear the moment
-    // it is created, not only after its mirror event lands. dropReplayedMessages
-    // removes restart-replay copies so these are never confused with duplicates.
-    for (const message of messages) {
-      if (seenIds.has(message.id)) continue;
-      canonicalMessages.push(message);
-      seenIds.add(message.id);
-    }
-    return dropReplayedMessages(
-      canonicalMessages.sort(
-        (left, right) =>
-          (left.metadata?.createdAt ?? 0) - (right.metadata?.createdAt ?? 0),
-      ),
-    );
+    return projectChannelTimeline(messages, channelEvents);
   }, [channelEvents, channelId, messages]);
 
   return {
@@ -2363,6 +2385,7 @@ function useRuntimeChat(
     // channel events have resolved, so elements never pop in after entry.
     channelResolved: chatReady && (!channelId || channelEventsLoaded),
     execution,
+    sessionAgentId,
   };
 }
 

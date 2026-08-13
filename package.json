@@ -7,7 +7,7 @@
     "build": "turbo run build",
     "check": "pnpm lint && pnpm typecheck && pnpm format:fix",
     "check:node": "node apps/workspace/scripts/assert-node-version.mjs .nvmrc",
-    "check:staged": "lint-staged --concurrent false && pnpm typecheck",
+    "check:staged": "lint-staged --concurrent false && pnpm lint:source-size && pnpm typecheck",
     "clean": "git clean -xdf node_modules",
     "clean:workspaces": "turbo run clean",
     "dev": "turbo watch dev --continue",

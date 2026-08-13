@@ -31,6 +31,7 @@ import {
 } from "./composer-toolbar";
 import { EmojiAutocomplete } from "./emoji-autocomplete";
 import { emojiForShortcode, matchingEmoji } from "./emoji-catalog";
+import { orderMentionCandidatesByMembership } from "./mention-candidate-order";
 
 export type { MentionCandidate } from "./composer-mention-popover";
 
@@ -84,14 +85,13 @@ export function ChatComposer({
   const visibleMentions =
     mentionQuery === undefined || mentionDismissed
       ? []
-      : mentionCandidates
-          .filter((candidate) =>
+      : orderMentionCandidatesByMembership(
+          mentionCandidates.filter((candidate) =>
             `${candidate.name} ${candidate.role}`
               .toLocaleLowerCase()
               .includes(mentionQuery),
-          )
-          .sort((a, b) => Number(b.member) - Number(a.member))
-          .slice(0, 6);
+          ),
+        ).slice(0, 6);
   const emojiMatch = /(?:^|\s):([a-z0-9_+-]*)$/iu.exec(textBeforeCursor);
   const emojiQuery = emojiMatch?.[1];
   const visibleEmojis =

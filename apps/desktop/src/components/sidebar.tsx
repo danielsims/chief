@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   BarChart3,
   CalendarClock,
   FolderOpen,
+  Inbox,
   LayoutGrid,
   Network,
 } from "lucide-react";
@@ -20,8 +21,13 @@ import {
   canDeleteChannels,
   canManageChannels,
 } from "../lib/auth/organization-role";
+import { channelIdsNeedingUser } from "../lib/channel-action-items";
 import { useChannelReadState } from "../lib/channel-read-state-context";
-import { useLocalChats, useWorkspaceChannels } from "../lib/runtime";
+import {
+  useLocalChats,
+  useWorkspaceChannels,
+  useWorkspaceData,
+} from "../lib/runtime";
 import {
   directMessageIdsForChats,
   isSidebarPinnedItem,
@@ -37,11 +43,16 @@ import { WorkspaceSearch } from "./workspace-search";
 
 const PRIMARY_ITEMS = [
   { to: "/", label: "Overview", icon: LayoutGrid },
+  { to: "/inbox", label: "Inbox", icon: Inbox },
   { to: "/schedule", label: "Schedule", icon: CalendarClock },
   { to: "/agents", label: "Agents", icon: Network },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/files", label: "Files", icon: FolderOpen },
 ] as const;
+
+function sidebarChannelVisibility(visibility: string | undefined) {
+  return visibility === "private" ? ("private" as const) : ("public" as const);
+}
 
 function pinnedStorageKey(workspaceId: string | null) {
   return `chief:pinned-channels:${workspaceId ?? "local"}`;
@@ -82,10 +93,12 @@ function NavItem({
   to,
   label,
   icon: Icon,
+  badge,
 }: {
   to: string;
   label: string;
   icon: typeof LayoutGrid;
+  badge?: number;
 }) {
   const { pathname } = useLocation();
   const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
@@ -99,6 +112,11 @@ function NavItem({
     >
       <Icon size={15} strokeWidth={1.8} className="shrink-0" />
       <span className="truncate">{label}</span>
+      {badge ? (
+        <span className="bg-sidebar-primary text-sidebar-primary-foreground ml-auto min-w-4 rounded-full px-1 text-center text-[10px] leading-4 tabular-nums">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      ) : null}
     </NavLink>
   );
 }
@@ -113,6 +131,7 @@ export function Sidebar({
   const { cloudOrganizationId, organizationRole } = useAuth();
   const localChats = useLocalChats(cloudOrganizationId);
   const workspaceChannels = useWorkspaceChannels();
+  const workspaceData = useWorkspaceData(cloudOrganizationId);
   const { unreadChannelCounts } = useChannelReadState();
   const location = useLocation();
   const navigate = useNavigate();
@@ -139,34 +158,56 @@ export function Sidebar({
   const activeChannelId = location.pathname.startsWith("/conversations")
     ? (requestedRuntimeChannel?.id ?? requestedChannel?.id ?? null)
     : null;
-  const publicChannels =
-    workspaceChannels.channels.length > 0
-      ? workspaceChannels.channels
-          .filter((channel) => channel.visibility !== "direct")
-          .map((channel) => ({
+  const publicChannels = useMemo(
+    () =>
+      workspaceChannels.channels.length > 0
+        ? workspaceChannels.channels
+            .filter((channel) => channel.visibility !== "direct")
+            .map((channel) => ({
+              id: channel.id,
+              label: channel.name,
+              topic: channel.topic,
+              description: channel.description,
+              agentIds: channel.agentIds,
+              userIds: channel.userIds,
+              visibility: sidebarChannelVisibility(channel.visibility),
+              kind: channel.kind,
+              lifecycle: channel.lifecycle,
+              agentPermissions: channel.agentPermissions,
+              workstream: channel.workstream,
+              version: channel.version,
+              createdAt: channel.createdAt,
+            }))
+        : WORKSPACE_CHANNELS.map((channel) => ({
             id: channel.id,
-            label: channel.name,
-            topic: channel.topic,
+            label: channel.label,
+            topic: "",
             description: channel.description,
-            agentIds: channel.agentIds,
-            kind: channel.kind,
-            lifecycle: channel.lifecycle,
-            agentPermissions: channel.agentPermissions,
-            workstream: channel.workstream,
-            version: channel.version,
-            createdAt: channel.createdAt,
-          }))
-      : WORKSPACE_CHANNELS.map((channel) => ({
-          id: channel.id,
-          label: channel.label,
-          topic: "",
-          description: channel.description,
-          agentIds: [...channel.agentIds],
-          kind: "standard" as const,
-          lifecycle: "active" as const,
-          agentPermissions: [],
-          version: 1,
-        }));
+            agentIds: [...channel.agentIds],
+            userIds: [...channel.userIds],
+            visibility: "public" as const,
+            kind: "standard" as const,
+            lifecycle: "active" as const,
+            agentPermissions: [],
+            version: 1,
+          })),
+    [workspaceChannels.channels],
+  );
+  const channelsNeedingUser = useMemo(
+    () =>
+      channelIdsNeedingUser({
+        actionItems: workspaceData.actionItems,
+        sessions: workspaceData.activity,
+        recurringWork: workspaceData.recurringWork,
+        channelIds: publicChannels.map((channel) => channel.id),
+      }),
+    [
+      publicChannels,
+      workspaceData.actionItems,
+      workspaceData.activity,
+      workspaceData.recurringWork,
+    ],
+  );
   const normalizedPinnedItems = pinnedItems.flatMap<SidebarPinnedItem>(
     (item) => {
       if (item.kind === "agent") return [item];
@@ -185,7 +226,9 @@ export function Sidebar({
   );
   const visiblePublicChannels = publicChannels.filter(
     (channel) =>
-      channel.lifecycle !== "archived" && !leftIds.includes(channel.id),
+      channel.lifecycle !== "archived" &&
+      channel.userIds.includes("workspace-owner") &&
+      !leftIds.includes(channel.id),
   );
   const directMessageIds = directMessageIdsForChats(
     localChats.chats,
@@ -196,6 +239,10 @@ export function Sidebar({
       message.id,
       unreadChannelCounts.get(message.relayId) ?? 0,
     ]),
+  );
+  const inboxUnreadCount = [...unreadChannelCounts.values()].reduce(
+    (total, count) => total + count,
+    0,
   );
 
   const updateLeftChannels = (next: WorkspaceChannelId[]) => {
@@ -284,7 +331,11 @@ export function Sidebar({
       <nav className="min-h-0 flex-1 [scrollbar-width:thin] [scrollbar-color:color-mix(in_srgb,var(--sidebar-muted)_22%,transparent)_transparent] overflow-y-auto px-2 pb-5">
         <div className="space-y-0.5 px-0.5 pb-1">
           {PRIMARY_ITEMS.map((item) => (
-            <NavItem key={item.to} {...item} />
+            <NavItem
+              key={item.to}
+              {...item}
+              badge={item.to === "/inbox" ? inboxUnreadCount : undefined}
+            />
           ))}
         </div>
         <SidebarChannels
@@ -300,6 +351,7 @@ export function Sidebar({
           }
           directMessageIds={directMessageIds}
           pinnedItems={normalizedPinnedItems}
+          channelsNeedingUser={channelsNeedingUser}
           unreadChannelCounts={unreadChannelCounts}
           unreadDirectMessageCounts={unreadDirectMessageCounts}
           onOpen={openChannel}

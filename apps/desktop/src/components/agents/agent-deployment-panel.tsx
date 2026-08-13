@@ -164,7 +164,7 @@ export function AgentDeploymentPanel({
       ...metadata,
       onboarding: {
         ...onboarding,
-        ...(current.activated && agent.id === "cmo"
+        ...(current.activated && agent.id === "chief"
           ? {
               provider: "remote",
               providerMode: "deployed",
@@ -177,7 +177,9 @@ export function AgentDeploymentPanel({
           ...agentDeployments,
           [agent.id]: deploymentMetadata,
         },
-        ...(agent.id === "cmo" ? { chiefDeployment: deploymentMetadata } : {}),
+        ...(agent.id === "chief"
+          ? { chiefDeployment: deploymentMetadata }
+          : {}),
       },
     };
     void updateAuthOrganization(org.id, { metadata: nextMetadata }).then(() =>

@@ -2,29 +2,57 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  chronologicallyMergeSpecialistTasks,
   ordinaryToolMessageGroups,
+  specialistNeedsUserInThread,
+  specialistTaskBelongsToConversation,
   specialistTaskForInput,
   specialistTaskOwners,
   specialistTasksForInput,
 } from "../src/components/chat/specialist-task-display.ts";
 
-void test("specialist cards keep their chronological place among later messages", () => {
-  const messages = [
-    { id: "opening", metadata: { createdAt: 100 } },
-    { id: "milestone", metadata: { createdAt: 300 } },
-    { id: "later-user-message", metadata: { createdAt: 500 } },
-  ];
-  const tasks = [
-    { id: "brand", agent: "brand", createdAt: 400 },
-    { id: "prospector", agent: "prospector", createdAt: 200 },
-  ];
+void test("specialist cards render only in their owning conversation", () => {
+  const task = {
+    id: "brand-work",
+    agent: "brand",
+    parentId: "channel:workspace:marketing",
+  };
 
-  assert.deepEqual(
-    chronologicallyMergeSpecialistTasks(messages, tasks).map((entry) =>
-      entry.type === "message" ? entry.message.id : entry.task.id,
+  assert.equal(
+    specialistTaskBelongsToConversation(task, "channel:workspace:marketing"),
+    true,
+  );
+  assert.equal(
+    specialistTaskBelongsToConversation(
+      task,
+      "channel:workspace:mission-control",
     ),
-    ["opening", "prospector", "milestone", "brand", "later-user-message"],
+    false,
+  );
+});
+
+void test("waiting work needs the user only in its owning setup thread", () => {
+  const task = {
+    id: "setup-work",
+    agent: "setup",
+    status: "waiting",
+    triggerContext: {
+      threadRootId: "setup-root",
+      originThreadRootId: "mission-root",
+    },
+  };
+
+  const explicitActions = new Set(["setup-work"]);
+  assert.equal(
+    specialistNeedsUserInThread(task, "setup-root", explicitActions),
+    true,
+  );
+  assert.equal(
+    specialistNeedsUserInThread(task, "mission-root", explicitActions),
+    false,
+  );
+  assert.equal(
+    specialistNeedsUserInThread(task, "setup-root", new Set()),
+    false,
   );
 });
 
@@ -87,6 +115,36 @@ void test("consecutive ordinary tool messages collapse into one owner", () => {
   assert.equal(groups.get("two")?.ownerId, "one");
   assert.equal(groups.get("one")?.blocks.length, 2);
   assert.equal(groups.has("three"), false);
+});
+
+void test("reasoning does not split one specialist activity group", () => {
+  const messages = [
+    {
+      id: "one",
+      role: "assistant",
+      blocks: [
+        { type: "thinking" },
+        { type: "tool_use", input: { query: "first" } },
+      ],
+    },
+    {
+      id: "two",
+      role: "assistant",
+      blocks: [
+        { type: "tool_result" },
+        { type: "thinking" },
+        { type: "tool_use", input: { query: "second" } },
+      ],
+    },
+  ];
+
+  const groups = ordinaryToolMessageGroups(messages, []);
+  assert.equal(groups.get("one")?.ownerId, "one");
+  assert.equal(groups.get("two")?.ownerId, "one");
+  assert.deepEqual(
+    groups.get("one")?.blocks.map((block) => block.type),
+    ["tool_use", "tool_result", "tool_use"],
+  );
 });
 
 void test("agent fallback stays ambiguous when separate tasks exist", () => {

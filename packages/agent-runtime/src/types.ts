@@ -180,6 +180,8 @@ export type ChiefMessageEventMetadata =
 export interface ChiefMessageMetadata {
   createdAt: number;
   event?: ChiefMessageEventMetadata;
+  /** Agent that authored a shared-channel message. */
+  agentId?: string;
   /** The top-level channel message this reply belongs to. */
   threadRootId?: string;
   /** Stable user or agent identities explicitly addressed by this message. */
@@ -377,13 +379,15 @@ export interface AutomationGrant {
   approvedAt: number;
   /** Exact Executor tool addresses the user delegated to this automation. */
   toolPatterns: string[];
+  /** Chief-local permissions explicitly delegated to this automation. */
+  localToolPermissions?: AgentToolPermission[];
 }
 
 export interface RecurringWorkRecord {
   id: string;
-  /** User-visible conversation that owns this schedule's concise outcomes. */
+  /** Channel conversation where each occurrence posts its root message. */
   conversationId?: string;
-  /** Optional specialist routing hint. The CMO still owns and executes work. */
+  /** Agent woken by the scheduled channel message. */
   agentId: string;
   title: string;
   instructions: string;
@@ -394,6 +398,8 @@ export interface RecurringWorkRecord {
   /** Stable caller key used to make create retries idempotent. */
   operationKey?: string;
   version?: number;
+  /** Controls whether a successful unattended run creates a desktop notice. */
+  notificationPolicy?: "always" | "attention-only";
   /** Exact occurrence for work that runs once rather than recurring. */
   onceAt?: number;
   status: RecurringWorkStatus;
@@ -551,6 +557,25 @@ export type AgentToolPermission =
 
 export type AgentApprovalMode = "auto" | "ask";
 
+export const workspaceOperatingModes = [
+  "mission-control",
+  "channels",
+  "calm",
+] as const;
+
+export type WorkspaceOperatingMode = (typeof workspaceOperatingModes)[number];
+
+/**
+ * A lightweight preference that shapes how agents compose Chief's existing
+ * channels, threads, schedules and notifications. It is guidance, not a new
+ * permission or workflow protocol.
+ */
+export interface WorkspaceWaysOfWorking {
+  mode: WorkspaceOperatingMode;
+  missionControlChannelId: string;
+  updatedAt: number;
+}
+
 export type AgentCapabilityId =
   | "analytics-chart"
   | "prospect-memory"
@@ -605,7 +630,7 @@ export interface AgentDefinition {
   baseInstructions?: string;
   /** Optional, composable tool + UI behaviors available to this agent. */
   capabilities?: AgentCapabilityId[];
-  /** The CMO orchestrator can delegate to these agent ids. */
+  /** Chief can delegate to these agent ids. */
   delegates?: string[];
 }
 
@@ -630,6 +655,8 @@ export interface StartOptions {
   mcpServers?: McpServerSpec[];
   /** Durable, user-authored delegation used only by unattended runs. */
   automationGrant?: AutomationGrant;
+  /** Maximum provider attempts for this turn, including the first attempt. */
+  maxPromptAttempts?: number;
 }
 
 // ---- Structured user input (secrets/config the agent cannot obtain itself) ----
@@ -906,6 +933,35 @@ export type ServerMessage =
       recurringWork: RecurringWorkRecord[];
       activity: SessionRecord[];
       actionItems: ActionItem[];
+      waysOfWorking: WorkspaceWaysOfWorking;
+    }
+  | {
+      type: "workspaceWaysOfWorkingSaved";
+      workspaceId: string;
+      requestId: string;
+      waysOfWorking: WorkspaceWaysOfWorking;
+    }
+  | {
+      type: "missionControlHeartbeatStarted";
+      workspaceId: string;
+      requestId: string;
+      channelId: string;
+      messageId: string;
+      threadRootId: string;
+    }
+  | {
+      type: "recurringWorkSaved";
+      workspaceId: string;
+      requestId: string;
+      work: RecurringWorkRecord;
+    }
+  | {
+      type: "recurringWorkWebhookRotated";
+      workspaceId: string;
+      requestId: string;
+      recurringWorkId: string;
+      url: string;
+      reachability: "local_only";
     }
   | {
       type: "diagnostics";
@@ -937,6 +993,8 @@ export type ServerMessage =
       workspaceId: string;
       chatId: string;
       visibility: "user" | "private";
+      /** Agent currently bound to this session. Used for authoritative live presence. */
+      agentId?: string;
       parentId?: string;
       execution?: ChatExecutionSelection;
     }

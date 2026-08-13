@@ -22,15 +22,23 @@ export interface ScheduledAgentConfig {
 export async function scheduledAgentConfig(
   manager: SessionManager,
   workspaceId: string,
-  _work: RecurringWorkRecord,
+  work: RecurringWorkRecord,
 ): Promise<ScheduledAgentConfig | null> {
-  const agent = getAgent("cmo");
-  if (!agent) throw new Error("CMO persona is missing.");
+  const agent = getAgent(work.agentId) ?? getAgent("chief");
+  if (!agent)
+    throw new Error("The scheduled agent is missing from the roster.");
 
-  const preference = await manager.agentPreference(workspaceId, "cmo");
-  if (preference?.enabled === false) {
+  const assignedPreference = await manager.agentPreference(
+    workspaceId,
+    agent.id,
+  );
+  if (assignedPreference?.enabled === false) {
     throw new Error(`${agent.name} is disabled.`);
   }
+  const preference =
+    assignedPreference?.driver || agent.id === "chief"
+      ? assignedPreference
+      : await manager.agentPreference(workspaceId, "chief");
   if (!preference?.driver) return null;
 
   return { agent, preference: { ...preference, driver: preference.driver } };
@@ -43,7 +51,7 @@ export async function deferForAgentConfiguration(
   notice: (workspaceId: string, notice: RuntimeNotice) => void,
   onChange: (workspaceId: string) => void | Promise<void>,
 ) {
-  const agentName = "CMO";
+  const agentName = getAgent(work.agentId)?.name ?? "Chief";
   const reason = `Choose an agent app for ${agentName} before this work can run.`;
   const now = Date.now();
 
@@ -56,10 +64,10 @@ export async function deferForAgentConfiguration(
   });
   await manager.raiseActionItem(workspaceId, {
     id: `action-${work.id}-agent-app`,
-    agentId: "cmo",
+    agentId: work.agentId,
     title: `Configure ${agentName}`,
     reason,
-    sourceId: "agent-cmo",
+    sourceId: `agent-${work.agentId}`,
     status: "open",
     createdAt: now,
   });
@@ -67,8 +75,8 @@ export async function deferForAgentConfiguration(
     kind: "action",
     title: `Configure ${agentName}`,
     detail: reason,
-    sourceId: "agent-cmo",
-    agentId: "cmo",
+    sourceId: `agent-${work.agentId}`,
+    agentId: work.agentId,
     recurringWorkId: work.id,
   });
   await Promise.resolve(onChange(workspaceId));
@@ -82,7 +90,7 @@ export async function resumeDriverBlockedWork(
   const data = await manager.workspaceData(workspaceId);
   const blocked = data.recurringWork.filter(
     (work) =>
-      agentId === "cmo" &&
+      work.agentId === agentId &&
       work.status === "needs_approval" &&
       (work.lastSummary?.startsWith(MISSING_DRIVER_SUMMARY) === true ||
         work.lastSummary === DEPLOYMENT_REQUIRED_MESSAGE),

@@ -9,6 +9,7 @@ import type {
   AgentDefinition,
   AgentEvent,
   AgentPreference,
+  AgentToolPermission,
   AnalyticsDataset,
   CampaignRecord,
   ContentDraftRecord,
@@ -24,6 +25,7 @@ import type {
 import { LocalStore } from "./local-store.js";
 import { startManagedSession } from "./session-starter.js";
 import {
+  hasInitialReviewKickoff,
   INITIAL_REVIEW_SINGLETON_AGENTS,
   preferredSession,
   workspaceData,
@@ -89,6 +91,7 @@ export class SessionManager {
     workspaceId: string;
     agentId: string;
     sessionId: string;
+    localToolPermissions?: readonly AgentToolPermission[];
   }) => Record<string, string>;
 
   constructor(readonly store = new LocalStore()) {}
@@ -105,6 +108,10 @@ export class SessionManager {
 
   get(workspaceId: string, chatId: string) {
     return this.sessions.get(workspaceChatKey(workspaceId, chatId));
+  }
+  executionOwner(workspaceId: string, chatId: string) {
+    return this.executionOwners.get(workspaceChatKey(workspaceId, chatId))
+      ?.owner;
   }
 
   acquireExecution(
@@ -447,7 +454,7 @@ export class SessionManager {
     title: string,
     provider?: DriverType,
     model?: string,
-    agentId = "cmo",
+    agentId = "chief",
   ) {
     const key = workspaceChatKey(workspaceId, chatId);
     const pending = this.creatingRootChats.get(key);
@@ -474,15 +481,15 @@ export class SessionManager {
     title: string,
     provider?: DriverType,
     model?: string,
-    agentId = "cmo",
+    agentId = "chief",
   ) {
     const stored = await this.store.chatRecord(workspaceId, chatId);
     if (!stored) {
       const preference = provider
         ? undefined
-        : await this.store.agentPreference(workspaceId, "cmo");
+        : await this.store.agentPreference(workspaceId, "chief");
       const driver = provider ?? preference?.driver;
-      if (!driver) throw new Error("Configure the CMO agent app first.");
+      if (!driver) throw new Error("Configure Chief's agent app first.");
       await this.store.createChat({
         id: chatId,
         organizationId: workspaceId,
@@ -506,7 +513,7 @@ export class SessionManager {
     config: Omit<SessionConfig, "automationGrant">,
     metadata: { title?: string; triggerId?: string } = {},
   ): Promise<AgentSession> {
-    if (agent.id === "cmo")
+    if (agent.id === "chief")
       throw new Error("Child chats require a specialist.");
     return this.ensureTaskSession(
       agent,
@@ -534,9 +541,9 @@ export class SessionManager {
     if (parentId) await this.rootChat(config.workspaceId, parentId);
     const stored = await this.store.chatRecord(config.workspaceId, sessionId);
     if (!stored) {
-      if (agent.id === "cmo") {
+      if (agent.id === "chief") {
         throw new Error(
-          "CMO task sessions must be started atomically by a schedule.",
+          "Chief task sessions must be started atomically by a schedule.",
         );
       }
       if (!parentId)
@@ -560,8 +567,8 @@ export class SessionManager {
       stored.agent !== agent.id
     ) {
       throw new Error("Task session identity does not match stored state.");
-    } else if (agent.id === "cmo" && !stored.scheduleId) {
-      throw new Error("CMO task sessions must belong to a schedule.");
+    } else if (agent.id === "chief" && !stored.scheduleId) {
+      throw new Error("Chief task sessions must belong to a schedule.");
     }
     return this.ensureSession(agent, sessionId, config);
   }
@@ -707,7 +714,8 @@ export class SessionManager {
     ).filter((chat) => !chat.scheduleId);
     if (
       !rootChatId.startsWith("workspace-kickoff-") &&
-      root.chat.title !== "Initial business review"
+      root.chat.title !== "Initial business review" &&
+      !hasInitialReviewKickoff(root.events)
     ) {
       return chats;
     }
@@ -1131,15 +1139,12 @@ export class SessionManager {
   reconcileInterruptedScheduleSessions(cutoff: number) {
     return this.store.reconcileInterruptedScheduleSessions(cutoff);
   }
-
   agentPreference(workspaceId: string, agentId: string) {
     return this.store.agentPreference(workspaceId, agentId);
   }
-
   listAgentPreferences(workspaceId: string) {
     return this.store.listAgentPreferences(workspaceId);
   }
-
   saveAgentPreference(workspaceId: string, preference: AgentPreference) {
     return this.store.saveAgentPreference(workspaceId, preference);
   }

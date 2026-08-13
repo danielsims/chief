@@ -1,4 +1,11 @@
-import { Check, Volume2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  AlertCircle,
+  BellRing,
+  Check,
+  CheckCircle2,
+  Volume2,
+} from "lucide-react";
 
 import { Button } from "@chief/ui/components/button";
 import {
@@ -18,12 +25,20 @@ import {
 import { cn } from "@chief/ui/lib/utils";
 
 import type { NotificationSound } from "../../lib/notification-sounds";
+import type {
+  DesktopNotificationEnvironment,
+  DesktopNotificationTestResult,
+} from "../../lib/notifications";
 import {
   NOTIFICATION_SOUNDS,
   previewNotificationSound,
   useNotificationSoundPreferences,
 } from "../../lib/notification-sounds";
-import { requestDesktopNotificationAccess } from "../../lib/notifications";
+import {
+  desktopNotificationEnvironment,
+  requestDesktopNotificationAccess,
+  testDesktopNotification,
+} from "../../lib/notifications";
 
 const SOUND_DETAILS: Record<
   NotificationSound,
@@ -82,6 +97,15 @@ function SoundMark({ sound }: { sound: NotificationSound }) {
 export function NotificationsSettings() {
   const { preferences, setDesktopEnabled, setEnabled, setSound } =
     useNotificationSoundPreferences();
+  const [environment, setEnvironment] =
+    useState<DesktopNotificationEnvironment | null>(null);
+  const [testResult, setTestResult] =
+    useState<DesktopNotificationTestResult | null>(null);
+  const [testing, setTesting] = useState(false);
+
+  useEffect(() => {
+    void desktopNotificationEnvironment().then(setEnvironment);
+  }, []);
 
   const chooseSound = (sound: NotificationSound) => {
     setSound(sound);
@@ -94,6 +118,16 @@ export function NotificationsSettings() {
       return;
     }
     setDesktopEnabled(await requestDesktopNotificationAccess());
+    setEnvironment(await desktopNotificationEnvironment());
+  };
+
+  const sendTestNotification = async () => {
+    setTesting(true);
+    const result = await testDesktopNotification();
+    setTestResult(result);
+    setEnvironment(result.environment);
+    if (result.delivered) setDesktopEnabled(true);
+    setTesting(false);
   };
 
   return (
@@ -106,12 +140,57 @@ export function NotificationsSettings() {
       </CardHeader>
       <CardContent>
         <div className="border-border/70 divide-border/70 divide-y border-t">
-          <div className="flex items-center justify-between gap-6 py-4">
-            <div>
+          <div className="flex items-start justify-between gap-6 py-4">
+            <div className="min-w-0 flex-1">
               <h2 className="text-sm font-medium">Desktop notifications</h2>
               <p className="text-muted-foreground mt-1 text-xs leading-5">
                 Show macOS notifications for messages and scheduled work.
               </p>
+              {environment && !environment.bundled ? (
+                <p className="mt-2 flex max-w-xl items-start gap-1.5 text-xs leading-5 text-amber-500">
+                  <AlertCircle className="mt-0.5 shrink-0" size={13} />
+                  This development process is running outside a macOS app
+                  bundle, so macOS may suppress its banners. Use a bundled
+                  Chief.app or signed DMG for the final notification test.
+                </p>
+              ) : null}
+              {environment?.authorizationStatus === "denied" ||
+              environment?.alertsEnabled === false ? (
+                <p className="text-destructive mt-2 flex max-w-xl items-start gap-1.5 text-xs leading-5">
+                  <AlertCircle className="mt-0.5 shrink-0" size={13} />
+                  macOS is suppressing Chief banners. Enable Allow Notifications
+                  and banners for Chief in System Settings.
+                </p>
+              ) : null}
+              {testResult ? (
+                <p
+                  className={cn(
+                    "mt-2 flex items-center gap-1.5 text-xs",
+                    testResult.delivered
+                      ? "text-emerald-500"
+                      : "text-destructive",
+                  )}
+                >
+                  {testResult.delivered ? (
+                    <CheckCircle2 size={13} />
+                  ) : (
+                    <AlertCircle size={13} />
+                  )}
+                  {testResult.delivered
+                    ? "Test notification sent."
+                    : (testResult.error ?? "Notification delivery failed.")}
+                </p>
+              ) : null}
+              <Button
+                className="mt-3"
+                variant="outline"
+                size="sm"
+                disabled={testing}
+                onClick={() => void sendTestNotification()}
+              >
+                <BellRing size={14} />
+                {testing ? "Sending…" : "Send test notification"}
+              </Button>
             </div>
             <Switch
               aria-label="Show desktop notifications"
@@ -123,11 +202,18 @@ export function NotificationsSettings() {
           </div>
 
           <div className="flex items-center justify-between gap-6 py-4">
-            <div>
+            <div className="min-w-0 flex-1">
               <h2 className="text-sm font-medium">Notification sounds</h2>
               <p className="text-muted-foreground mt-1 text-xs leading-5">
                 Play a sound for new messages and scheduled outcomes.
               </p>
+              {environment?.soundsEnabled === false ? (
+                <p className="mt-2 flex max-w-xl items-start gap-1.5 text-xs leading-5 text-amber-500">
+                  <AlertCircle className="mt-0.5 shrink-0" size={13} />
+                  macOS notification sounds are disabled for Chief. The selected
+                  cue can still play while Chief is open.
+                </p>
+              ) : null}
             </div>
             <Switch
               aria-label="Play notification sounds"

@@ -266,7 +266,7 @@ export function AnalyticsPage() {
     Boolean(selectedProvider) && storedDataset === undefined;
 
   const preferredIntegration = usePreferredAnalyticsIntegration();
-  const chiefConfig = agentConfig.forAgent("cmo");
+  const chiefConfig = agentConfig.forAgent("chief");
   const workspaceProvider = chiefConfig.driver;
   const visibleDetails =
     selectedDetails ?? providerDetails(preferredIntegration.domain);

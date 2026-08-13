@@ -115,6 +115,7 @@ export function SidebarChannels({
   activeAgentId,
   directMessageIds,
   pinnedItems,
+  channelsNeedingUser,
   unreadChannelCounts,
   unreadDirectMessageCounts,
   onOpen,
@@ -135,6 +136,7 @@ export function SidebarChannels({
   activeAgentId: WorkspaceAgentId | null;
   directMessageIds: WorkspaceAgentId[];
   pinnedItems: SidebarPinnedItem[];
+  channelsNeedingUser: ReadonlySet<string>;
   unreadChannelCounts: ReadonlyMap<string, number>;
   unreadDirectMessageCounts: ReadonlyMap<WorkspaceAgentId, number>;
   onOpen: (
@@ -290,6 +292,7 @@ export function SidebarChannels({
                         channel={channel}
                         active={activeChannelId === item.id}
                         pinned
+                        needsUser={channelsNeedingUser.has(item.id)}
                         unreadCount={unreadChannelCounts.get(item.id) ?? 0}
                         dragKind="sortable"
                         onDelete={() => setDeleteTarget(channel)}
@@ -379,6 +382,7 @@ export function SidebarChannels({
                   channel={channel}
                   active={activeChannelId === channel.id}
                   pinned={false}
+                  needsUser={channelsNeedingUser.has(channel.id)}
                   unreadCount={unreadChannelCounts.get(channel.id) ?? 0}
                   dragKind="source"
                   onDelete={() => setDeleteTarget(channel)}

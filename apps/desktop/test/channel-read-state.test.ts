@@ -3,6 +3,7 @@ import test from "node:test";
 
 import type { ChannelEvent } from "@chief/agent-runtime/types";
 
+import { channelInboxMessages } from "../src/lib/channel-inbox";
 import {
   advanceReadContext,
   channelContextKey,
@@ -93,6 +94,17 @@ void test("own messages and reactions never become unread activity", () => {
   );
 });
 
+void test("quiet scheduled openings do not create phantom unread activity", () => {
+  assert.equal(
+    observedChannelMessage({
+      ...message({ id: "heartbeat-opening", createdAt: 300 }),
+      tags: [["notification", "silent"]],
+      content: "I’m checking the workspace now.",
+    }),
+    null,
+  );
+});
+
 void test("a stale history snapshot cannot erase a newer live message", () => {
   const live = {
     id: "live",
@@ -100,6 +112,9 @@ void test("a stale history snapshot cannot erase a newer live message", () => {
     createdAt: 200,
     rootId: null,
     sourceId: "live",
+    threadSourceId: null,
+    content: "Hello",
+    actor: { type: "agent" as const, id: "chief", name: "Chief" },
   };
   assert.deepEqual(
     [
@@ -110,6 +125,41 @@ void test("a stale history snapshot cannot erase a newer live message", () => {
       ),
     ],
     [[live.id, live]],
+  );
+});
+
+void test("the inbox keeps recent messages ordered and preserves unread state", () => {
+  const older = observedChannelMessage(
+    message({ id: "older", createdAt: 100 }),
+  );
+  const newer = observedChannelMessage(
+    message({ id: "newer", createdAt: 200 }),
+  );
+  assert.ok(older);
+  assert.ok(newer);
+  const readState = advanceReadContext(
+    parseChannelReadState(null),
+    channelContextKey("analytics"),
+    100,
+  );
+
+  assert.deepEqual(
+    channelInboxMessages(
+      readState,
+      new Map([
+        [
+          "analytics",
+          new Map([
+            [older.id, older],
+            [newer.id, newer],
+          ]),
+        ],
+      ]),
+    ).map((entry) => ({ id: entry.id, unread: entry.unread })),
+    [
+      { id: "newer", unread: true },
+      { id: "older", unread: false },
+    ],
   );
 });
 

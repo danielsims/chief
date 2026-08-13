@@ -19,6 +19,7 @@ import {
   ChannelMessageMeta,
 } from "./channel-message-controls";
 import { conversationVisibleBlocks } from "./conversation-visible-blocks";
+import { specialistNeedsUserInThread } from "./specialist-task-display";
 import { summarizeThreadReplyCandidates } from "./thread-reply-summary";
 
 type Core = ReturnType<typeof useChiefChatCore>;
@@ -45,7 +46,17 @@ export function useChiefChatPresentation({
   const { channelReactions, controls, messages, setActivityOpen, userAuthor } =
     core;
   const { setThreadRootId } = composer;
-  const { activeThreadReplies, threadReplies } = timeline;
+  const { activeSpecialistByThread, activeThreadReplies, threadReplies } =
+    timeline;
+  const openActionSourceIds = useMemo(
+    () =>
+      new Set(
+        core.workspaceData.actionItems.flatMap((action) =>
+          action.status === "open" && action.sourceId ? [action.sourceId] : [],
+        ),
+      ),
+    [core.workspaceData.actionItems],
+  );
   const visibleConversationBlocks = useCallback(
     (message: ChiefUIMessage) =>
       conversationVisibleBlocks(withoutMarkerLines(messageBlocks(message))),
@@ -69,14 +80,19 @@ export function useChiefChatPresentation({
   };
   const respondingAgentFor = (message: ChiefUIMessage) => {
     if (directAgent) return directAgent;
-    const mentionedId = message.metadata?.mentions?.find((agentId) =>
-      Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId),
+    const authoredId = message.metadata?.agentId;
+    const respondingId = (
+      authoredId && Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, authoredId)
+        ? authoredId
+        : message.metadata?.mentions?.find((agentId) =>
+            Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId),
+          )
     ) as WorkspaceAgentId | undefined;
-    const identity = mentionedId
-      ? WORKSPACE_AGENT_IDENTITIES[mentionedId]
+    const identity = respondingId
+      ? WORKSPACE_AGENT_IDENTITIES[respondingId]
       : undefined;
-    return mentionedId && identity
-      ? { id: mentionedId, name: identity.name, role: identity.role }
+    return respondingId && identity
+      ? { id: respondingId, name: identity.name, role: identity.role }
       : undefined;
   };
   const controlsForMessage = (message: ChiefUIMessage) => {
@@ -94,6 +110,7 @@ export function useChiefChatPresentation({
     };
     const toggleReaction = (emoji: string) =>
       channelReactions.toggleReaction(message.id, emoji);
+    const specialist = activeSpecialistByThread.get(message.id);
     const participants = replySummary.visibleReplies.flatMap(
       (reply): ThreadParticipant[] => {
         if (reply.role === "user") {
@@ -108,7 +125,7 @@ export function useChiefChatPresentation({
         }
         if (reply.role !== "assistant") return [];
         const agent = respondingAgentFor(reply) ?? {
-          id: "cmo" as const,
+          id: "chief" as const,
           name: "Chief",
         };
         return [
@@ -116,6 +133,7 @@ export function useChiefChatPresentation({
             id: `agent:${agent.id}`,
             kind: "agent",
             name: agent.name,
+            agentId: agent.id,
           },
         ];
       },
@@ -135,6 +153,16 @@ export function useChiefChatPresentation({
           lastReplyAt={replySummary.lastReplyAt}
           participants={participants}
           reactions={channelReactions.reactions.get(message.id) ?? []}
+          specialist={specialist}
+          needsUser={
+            specialist
+              ? specialistNeedsUserInThread(
+                  specialist,
+                  message.id,
+                  openActionSourceIds,
+                )
+              : false
+          }
           onOpenThread={openThread}
           onToggleReaction={toggleReaction}
         />
@@ -174,10 +202,11 @@ export function useChiefChatPresentation({
           ]
         : [],
     );
+  const activeThreadSummary = summarizeThreadReplies(activeThreadReplies);
 
   return {
     acknowledgedDmMessageId,
-    activeThreadSummary: summarizeThreadReplies(activeThreadReplies),
+    activeThreadSummary,
     controlsForMessage,
     imageParts,
     respondingAgentFor,

@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
-import { Wrench } from "lucide-react";
 
 import type { MessageAttachment } from "@chief/agent-runtime/types";
 
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
+import type { ChannelReferenceTarget } from "./channel-reference-parser";
 import { stripPrivateSetupInstructions } from "../../lib/integration-setup";
+import { MessageTimestamp } from "./chat-date-time";
 import { StreamingMarkdown } from "./streaming-markdown";
 
 export function UserMessage({
@@ -12,16 +13,21 @@ export function UserMessage({
   author = { name: "You" },
   attachments = [],
   onOpenProfile,
+  channelReferences = [],
+  onOpenChannel,
   onOpenMention,
   actions,
   footer,
   acknowledgedBy,
   metadata,
+  timestamp,
 }: {
   text: string;
   author?: { name: string; image?: string };
   attachments?: readonly MessageAttachment[];
   onOpenProfile?: () => void;
+  channelReferences?: readonly ChannelReferenceTarget[];
+  onOpenChannel?: (channelId: string) => void;
   onOpenMention?: (agentId: WorkspaceAgentId) => void;
   actions?: ReactNode;
   footer?: ReactNode;
@@ -30,25 +36,12 @@ export function UserMessage({
   /** Secondary identity copy. Omit for the default "You" label; pass null
    * when the surrounding channel already makes authorship clear. */
   metadata?: ReactNode;
+  timestamp?: number;
 }) {
-  const skillId = /^\[chief-skill:([a-z0-9-]+)]$/im.exec(text)?.[1];
-  const skillLabel = skillId
-    ? ({
-        "setup-github": "Setup GitHub",
-        "setup-vercel": "Setup Vercel",
-        "setup-google-analytics": "Setup Google Analytics",
-        "setup-integration": "Setup Integration",
-      }[skillId] ?? skillId)
-    : null;
   const visibleText = stripPrivateSetupInstructions(text)
     .split("\n")
-    .filter(
-      (line) =>
-        !/^\[chief-integration-setup:[^\]]+]$/.test(line.trim()) &&
-        !/^\[chief-skill:[a-z0-9-]+]$/.test(line.trim()),
-    )
-    .join("\n")
-    .trim();
+    .filter((line) => !/^\[chief-integration-setup:[^\]]+]$/.test(line.trim()))
+    .join("\n");
   const initials = author.name
     .split(/\s+/u)
     .map((part) => part.charAt(0))
@@ -66,7 +59,7 @@ export function UserMessage({
         title={`Open ${author.name} profile`}
         disabled={!onOpenProfile}
         onClick={onOpenProfile}
-        className="bg-muted text-muted-foreground focus-visible:ring-ring/30 flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full text-[10px] font-semibold shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)] transition-opacity outline-none enabled:hover:opacity-85 enabled:focus-visible:ring-2 disabled:cursor-default"
+        className="bg-muted text-muted-foreground focus-visible:ring-ring/30 flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg text-[10px] font-semibold shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)] transition-opacity outline-none enabled:hover:opacity-85 enabled:focus-visible:ring-2 disabled:cursor-default"
       >
         {author.image ? (
           <img src={author.image} alt="" className="size-full object-cover" />
@@ -77,6 +70,7 @@ export function UserMessage({
       <div className="min-w-0 flex-1 pt-0.5">
         <div className="mb-1 flex items-baseline gap-2">
           <strong className="text-[13px] font-semibold">{author.name}</strong>
+          <MessageTimestamp timestamp={timestamp} />
           {resolvedMetadata ? (
             <span className="text-muted-foreground text-[10px]">
               {resolvedMetadata}
@@ -84,12 +78,11 @@ export function UserMessage({
           ) : null}
         </div>
         <div className="chat-markdown overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]">
-          {skillLabel ? (
-            <span className="bg-muted text-foreground mb-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium">
-              <Wrench className="size-3" /> {skillLabel}
-            </span>
-          ) : null}
-          <StreamingMarkdown onOpenMention={onOpenMention}>
+          <StreamingMarkdown
+            channels={channelReferences}
+            onOpenChannel={onOpenChannel}
+            onOpenMention={onOpenMention}
+          >
             {visibleText}
           </StreamingMarkdown>
         </div>

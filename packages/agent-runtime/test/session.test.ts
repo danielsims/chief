@@ -6,9 +6,9 @@ import { remoteHistoryContext } from "../src/drivers/remote-history.js";
 import { AgentSession } from "../src/session.js";
 
 const cmo: AgentDefinition = {
-  id: "cmo",
+  id: "chief",
   name: "Chief",
-  role: "CMO",
+  role: "Chief",
   description: "Runs marketing work.",
   instructions: "Run the requested work.",
 };

@@ -6,15 +6,17 @@ import {
   channelRespondingAgentId,
   requestsMainChannelReply,
 } from "../src/channel-reply-routing.js";
-import { GETTING_STARTED_CHANNEL_ID } from "../src/channels/nip29.js";
+import { MISSION_CONTROL_CHANNEL_ID } from "../src/channels/nip29.js";
 
-void test("the private getting-started channel wakes Chief without a mention", () => {
+void test("an explicit specialist mention wins in mission control", () => {
   assert.equal(
     channelRespondingAgentId({
-      channelId: GETTING_STARTED_CHANNEL_ID,
+      channelId: MISSION_CONTROL_CHANNEL_ID,
       isSharedChannel: true,
+      missionControlChannelId: MISSION_CONTROL_CHANNEL_ID,
+      mentions: ["setup"],
     }),
-    "cmo",
+    "setup",
   );
   assert.equal(
     channelRespondingAgentId({
@@ -23,11 +25,32 @@ void test("the private getting-started channel wakes Chief without a mention", (
     }),
     undefined,
   );
+});
+
+void test("mission control wakes Chief while ordinary channels stay quiet", () => {
   assert.equal(
     channelRespondingAgentId({
-      channelId: GETTING_STARTED_CHANNEL_ID,
+      channelId: MISSION_CONTROL_CHANNEL_ID,
       isSharedChannel: true,
-      mentions: ["setup"],
+      missionControlChannelId: MISSION_CONTROL_CHANNEL_ID,
+    }),
+    "chief",
+  );
+  assert.equal(
+    channelRespondingAgentId({
+      channelId: "general",
+      isSharedChannel: true,
+    }),
+    undefined,
+  );
+});
+
+void test("a private agent channel wakes its assigned agent", () => {
+  assert.equal(
+    channelRespondingAgentId({
+      channelId: "setup",
+      defaultAgentId: "setup",
+      isSharedChannel: true,
     }),
     "setup",
   );
@@ -37,7 +60,7 @@ void test("an addressed channel post receives the agent reply in a thread", () =
   assert.equal(
     channelReplyThreadRoot({
       isSharedChannel: true,
-      mentions: ["cmo"],
+      mentions: ["chief"],
       messageId: "root-message",
     }),
     "root-message",
@@ -48,7 +71,7 @@ void test("an existing thread and direct messages retain their routing", () => {
   assert.equal(
     channelReplyThreadRoot({
       isSharedChannel: true,
-      mentions: ["cmo"],
+      mentions: ["chief"],
       messageId: "reply",
       threadRootId: "existing-root",
     }),
@@ -57,7 +80,7 @@ void test("an existing thread and direct messages retain their routing", () => {
   assert.equal(
     channelReplyThreadRoot({
       isSharedChannel: false,
-      mentions: ["cmo"],
+      mentions: ["chief"],
       messageId: "direct-message",
     }),
     undefined,
@@ -68,7 +91,7 @@ void test("an explicit main-chat instruction overrides automatic thread routing"
   assert.equal(
     channelReplyThreadRoot({
       isSharedChannel: true,
-      mentions: ["cmo"],
+      mentions: ["chief"],
       messageId: "root-message",
       text: "Reply here in the main chat, not in a thread.",
     }),
@@ -77,7 +100,7 @@ void test("an explicit main-chat instruction overrides automatic thread routing"
   assert.equal(
     channelReplyThreadRoot({
       isSharedChannel: true,
-      mentions: ["cmo"],
+      mentions: ["chief"],
       messageId: "thread-reply",
       text: "Please post your answer to the main channel.",
       threadRootId: "existing-thread",
@@ -96,7 +119,7 @@ void test("ordinary references to the main issue do not change routing", () => {
   assert.equal(
     channelReplyThreadRoot({
       isSharedChannel: true,
-      mentions: ["cmo"],
+      mentions: ["chief"],
       messageId: "root-message",
       text: "The main issue is that the thread context needs more detail.",
     }),

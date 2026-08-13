@@ -34,6 +34,29 @@ export type RuntimeBrowserSessions = Readonly<
 
 export type RuntimeBrowserRuns = readonly BrowserRunRecord[];
 
+/** A child-owned run projects into its parent chat even during live repair. */
+export function browserRunBelongsToChat(
+  run: BrowserRunRecord,
+  chatId: string,
+  childSessionIds: ReadonlySet<string>,
+) {
+  return (
+    run.conversationId === chatId ||
+    run.parentConversationId === chatId ||
+    childSessionIds.has(run.conversationId)
+  );
+}
+
+/** Prefer the visible thread root owned by the browser's child session. */
+export function projectBrowserRunToOwnedThread(
+  run: BrowserRunRecord,
+  threadRootId: string | null,
+  childSessionIds: ReadonlySet<string>,
+) {
+  if (!threadRootId || !childSessionIds.has(run.conversationId)) return run;
+  return { ...run, threadRootId };
+}
+
 export interface BrowserOwnerCandidate {
   id: string;
   role: string;
@@ -110,15 +133,46 @@ export function upsertBrowserRun(
   run: BrowserRunRecord,
 ): RuntimeBrowserRuns {
   const existing = runs.find((candidate) => candidate.id === run.id);
+  const durableThreadRootId = existing?.threadRootId ?? run.threadRootId;
   const next = existing
     ? runs.map((candidate) =>
-        candidate.id === run.id ? { ...candidate, ...run } : candidate,
+        candidate.id === run.id
+          ? {
+              ...candidate,
+              ...run,
+              conversationId: candidate.threadRootId
+                ? candidate.conversationId
+                : run.threadRootId
+                  ? run.conversationId
+                  : candidate.conversationId,
+              parentConversationId:
+                candidate.parentConversationId ?? run.parentConversationId,
+              ...(durableThreadRootId
+                ? { threadRootId: durableThreadRootId }
+                : {}),
+              ...(candidate.anchorMessageId
+                ? { anchorMessageId: candidate.anchorMessageId }
+                : {}),
+              createdAt: candidate.createdAt,
+            }
+          : candidate,
       )
     : [...runs, run];
   return next.sort(
     (left, right) =>
       left.createdAt - right.createdAt || left.id.localeCompare(right.id),
   );
+}
+
+/** Reconciles a server snapshot without letting aliases move mounted viewers. */
+export function mergeBrowserRunSnapshot(
+  current: RuntimeBrowserRuns,
+  incoming: RuntimeBrowserRuns,
+) {
+  const incomingIds = new Set(incoming.map((run) => run.id));
+  return incoming
+    .reduce<RuntimeBrowserRuns>(upsertBrowserRun, current)
+    .filter((run) => incomingIds.has(run.id));
 }
 
 export function completeBrowserRun(
@@ -215,7 +269,25 @@ export function upsertBrowserSession(
   sessions: RuntimeBrowserSessions,
   session: RuntimeBrowserSession,
 ): RuntimeBrowserSessions {
-  return { ...sessions, [session.runId]: session };
+  const existing = sessions[session.runId];
+  if (!existing) return { ...sessions, [session.runId]: session };
+  const threadRootId = existing.threadRootId ?? session.threadRootId;
+  return {
+    ...sessions,
+    [session.runId]: {
+      ...session,
+      conversationId: existing.threadRootId
+        ? existing.conversationId
+        : session.threadRootId
+          ? session.conversationId
+          : existing.conversationId,
+      parentConversationId:
+        existing.parentConversationId ?? session.parentConversationId,
+      threadRootId,
+      anchorMessageId: existing.anchorMessageId ?? session.anchorMessageId,
+      createdAt: existing.createdAt,
+    },
+  };
 }
 
 export function updateBrowserSession(

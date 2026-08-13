@@ -1,6 +1,9 @@
 interface SpecialistTask {
   id: string;
   agent: string;
+  parentId?: string;
+  status?: string;
+  triggerContext?: Record<string, unknown>;
   triggerId?: string;
 }
 
@@ -15,31 +18,24 @@ interface TranscriptMessage<TBlock extends ToolBlock> {
   blocks: readonly TBlock[];
 }
 
-export function chronologicallyMergeSpecialistTasks<
-  TMessage extends { metadata?: { createdAt?: number } },
-  TTask extends SpecialistTask & { createdAt: number },
->(messages: readonly TMessage[], tasks: readonly TTask[]) {
-  const pendingTasks = [...tasks].sort(
-    (left, right) => left.createdAt - right.createdAt,
+/** Render task cards only in the conversation that owns their execution. */
+export function specialistTaskBelongsToConversation(
+  task: SpecialistTask,
+  conversationId: string,
+) {
+  return task.parentId === conversationId;
+}
+
+/** A waiting state is actionable only in the thread that owns the work. */
+export function specialistNeedsUserInThread(
+  task: SpecialistTask,
+  threadRootId: string,
+  openActionSourceIds: ReadonlySet<string>,
+) {
+  return (
+    openActionSourceIds.has(task.id) &&
+    task.triggerContext?.threadRootId === threadRootId
   );
-  const entries: (
-    { type: "message"; message: TMessage } | { type: "specialist"; task: TTask }
-  )[] = [];
-  let taskIndex = 0;
-  for (const message of messages) {
-    const messageCreatedAt = message.metadata?.createdAt ?? 0;
-    while (taskIndex < pendingTasks.length) {
-      const task = pendingTasks[taskIndex];
-      if (!task || task.createdAt > messageCreatedAt) break;
-      entries.push({ type: "specialist", task });
-      taskIndex += 1;
-    }
-    entries.push({ type: "message", message });
-  }
-  for (const task of pendingTasks.slice(taskIndex)) {
-    entries.push({ type: "specialist", task });
-  }
-  return entries;
 }
 
 function delegationIds(input: unknown) {
@@ -138,12 +134,17 @@ export function ordinaryToolMessageGroups<
     { ownerId: string; messageIds: string[]; blocks: TBlock[] } | undefined;
 
   for (const message of messages) {
+    const activityBlocks = message.blocks.filter(
+      (block) => block.type === "tool_use" || block.type === "tool_result",
+    );
     const ordinaryToolsOnly =
       message.role === "assistant" &&
-      message.blocks.length > 0 &&
+      activityBlocks.length > 0 &&
       message.blocks.every(
         (block) =>
-          (block.type === "tool_use" || block.type === "tool_result") &&
+          (block.type === "thinking" ||
+            block.type === "tool_use" ||
+            block.type === "tool_result") &&
           (block.type !== "tool_use" ||
             specialistTasksForInput(block.input, tasks).length === 0),
       );
@@ -153,7 +154,7 @@ export function ordinaryToolMessageGroups<
     }
     current ??= { ownerId: message.id, messageIds: [], blocks: [] };
     current.messageIds.push(message.id);
-    current.blocks.push(...message.blocks);
+    current.blocks.push(...activityBlocks);
     groups.set(message.id, current);
   }
   return groups;

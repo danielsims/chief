@@ -1,12 +1,31 @@
 import type { LocalStore } from "./local-store.js";
-import type { SessionRecord } from "./types.js";
+import type { AgentEvent, SessionRecord } from "./types.js";
 import { runDateKey, upcomingRuns } from "./recurring-work.js";
+import { readWorkspaceWaysOfWorking } from "./workspace-ways-of-working.js";
 
 export const INITIAL_REVIEW_SINGLETON_AGENTS = new Set([
   "brand",
   "prospector",
   "setup",
 ]);
+
+export function isInitialReviewConversation(id: string, title: string) {
+  return (
+    id.startsWith("workspace-kickoff-") ||
+    title === "Initial business review" ||
+    title === "Getting started"
+  );
+}
+
+/** Detects onboarding after mission control has already existed as a normal chat. */
+export function hasInitialReviewKickoff(events: readonly AgentEvent[]) {
+  return events.some(
+    (event) =>
+      event.type === "message" &&
+      event.role === "user" &&
+      event.id?.endsWith("-onboarding-kickoff") === true,
+  );
+}
 
 function sessionRank(status: SessionRecord["status"]) {
   return status === "completed"
@@ -54,8 +73,7 @@ export async function workspaceData(store: LocalStore, workspaceId: string) {
       .filter(
         (session) =>
           !session.parentId &&
-          (session.id.startsWith("workspace-kickoff-") ||
-            session.title === "Initial business review"),
+          isInitialReviewConversation(session.id, session.title),
       )
       .map((session) => session.id),
   );
@@ -84,6 +102,7 @@ export async function workspaceData(store: LocalStore, workspaceId: string) {
     campaigns,
     activity: visibleActivity,
     actionItems,
+    waysOfWorking: readWorkspaceWaysOfWorking(workspaceId),
     recurringWork: recurringWork.map((work) => {
       try {
         const skipped = new Set(work.skipDates ?? []);

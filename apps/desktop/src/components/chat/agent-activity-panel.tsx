@@ -1,4 +1,5 @@
 import type { ContentBlock, SessionRecord } from "@chief/agent-runtime/types";
+import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 
 import type { ConversationActivityTurn } from "./conversation-activity-history";
 import type { ConversationAuxiliaryPanelSizing } from "./conversation-auxiliary-panel";
@@ -21,7 +22,7 @@ const ACTIVITY_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
 
 export function taskAgentLabel(agent: string) {
   return agent === "brand"
-    ? "Brand Researcher"
+    ? "Marketer"
     : agent === "content"
       ? "Content Writer"
       : agent === "analyst"
@@ -56,7 +57,9 @@ export function AgentActivityPanel({
   onOpenTask?: (taskId: string) => void;
   sizing: ConversationAuxiliaryPanelSizing;
 }) {
-  const hasTools = blocks.some((block) => block.type === "tool_use");
+  const hasActivity = blocks.some(
+    (block) => block.type === "thinking" || block.type === "tool_use",
+  );
   const resultIds = new Set(
     blocks.flatMap((block) =>
       block.type === "tool_result" ? [block.tool_use_id] : [],
@@ -76,7 +79,13 @@ export function AgentActivityPanel({
 
       <ConversationAuxiliaryPanelBody className="p-4">
         <div className="bg-muted/35 flex items-center gap-3 rounded-xl px-3 py-3 shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_5%,transparent)]">
-          <AgentAvatar label={agentLabel} className="size-7" />
+          {running ? (
+            <span className="bg-background/45 grid size-7 shrink-0 place-items-center rounded-lg">
+              <MatrixLoader ariaLabel={`${agentLabel} is working`} size={17} />
+            </span>
+          ) : (
+            <AgentAvatar label={agentLabel} className="size-7 rounded-lg" />
+          )}
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-medium">{agentLabel}</p>
             <p
@@ -105,7 +114,7 @@ export function AgentActivityPanel({
           <p className="text-muted-foreground mb-2 px-1 text-[10px] font-medium">
             Current turn
           </p>
-          {hasTools ? (
+          {hasActivity ? (
             <ToolActivityGroup blocks={blocks} active={running} />
           ) : (
             <p className="text-muted-foreground rounded-xl bg-black/[0.018] px-3 py-3 text-xs leading-5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_5%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--foreground)_4%,transparent)] dark:bg-white/[0.018]">

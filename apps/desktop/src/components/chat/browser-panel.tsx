@@ -1,4 +1,4 @@
-import type { ErrorInfo, ReactNode, Ref } from "react";
+import type { ErrorInfo, ReactNode, Ref, RefObject } from "react";
 import {
   Component,
   lazy,
@@ -92,11 +92,15 @@ function SafeBrowserSessionViewer({
   className,
   onCloseViewer,
   operating,
+  pictureInPictureAvoidRefs,
+  pictureInPictureContainerRef,
   runId,
 }: {
   className?: string;
   onCloseViewer?: () => void;
   operating: boolean;
+  pictureInPictureAvoidRefs?: readonly RefObject<HTMLElement | null>[];
+  pictureInPictureContainerRef?: RefObject<HTMLElement | null>;
   runId: string;
 }) {
   return (
@@ -106,6 +110,8 @@ function SafeBrowserSessionViewer({
           className={className}
           onCloseViewer={onCloseViewer}
           operating={operating}
+          pictureInPictureAvoidRefs={pictureInPictureAvoidRefs}
+          pictureInPictureContainerRef={pictureInPictureContainerRef}
           runId={runId}
         />
       </Suspense>
@@ -174,12 +180,13 @@ function BrowserSessionCard({
       <div className="relative z-10 flex shrink-0 items-center gap-1">
         {onClick ? (
           <button
-            className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring/30 flex h-7 items-center gap-1 rounded-lg px-2 text-[11px] leading-none font-medium transition-colors outline-none focus-visible:ring-2"
+            aria-label="Reopen browsing session"
+            className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring/30 flex size-7 items-center justify-center rounded-lg transition-colors outline-none focus-visible:ring-2"
+            title="Reopen browsing session"
             type="button"
             onClick={onClick}
           >
-            View session
-            <ArrowRight aria-hidden size={12} strokeWidth={1.7} />
+            <ArrowRight aria-hidden size={14} strokeWidth={1.7} />
           </button>
         ) : null}
       </div>
@@ -191,12 +198,16 @@ function BrowserSessionAttachmentContent({
   detached = false,
   onOpenPanel,
   operating = false,
+  pictureInPictureAvoidRefs,
+  pictureInPictureContainerRef,
   run,
   targetRef,
 }: {
   detached?: boolean;
   onOpenPanel?: () => void;
   operating?: boolean;
+  pictureInPictureAvoidRefs?: readonly RefObject<HTMLElement | null>[];
+  pictureInPictureContainerRef?: RefObject<HTMLElement | null>;
   run: BrowserRunRecord;
   targetRef?: Ref<HTMLDivElement>;
 }) {
@@ -223,7 +234,7 @@ function BrowserSessionAttachmentContent({
     return (
       <BrowserSessionCard
         detail={browserDomain(url)}
-        onClick={onOpenPanel ? viewSession : undefined}
+        onClick={viewSession}
         title={
           detached ? "Browser open in side panel" : "Browsing session complete"
         }
@@ -233,8 +244,15 @@ function BrowserSessionAttachmentContent({
   }
 
   return (
-    <div className="mt-1 w-full max-w-[64rem] min-w-0 overflow-visible">
-      <div className="bg-muted/45 overflow-hidden rounded-2xl p-1 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_70%,transparent)]">
+    <div className="chief-browser-attachment mt-1 w-full max-w-[64rem] min-w-0 overflow-visible">
+      <div
+        className={cn(
+          "chief-browser-attachment-shell",
+          targetRef
+            ? "bg-muted/45 overflow-hidden rounded-2xl p-1 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_70%,transparent)]"
+            : "overflow-visible",
+        )}
+      >
         {targetRef ? (
           <div
             ref={targetRef}
@@ -247,6 +265,8 @@ function BrowserSessionAttachmentContent({
           <SafeBrowserSessionViewer
             className={INLINE_BROWSER_VIEWPORT_CLASS}
             operating={operating}
+            pictureInPictureAvoidRefs={pictureInPictureAvoidRefs}
+            pictureInPictureContainerRef={pictureInPictureContainerRef}
             runId={run.id}
           />
         )}
@@ -282,6 +302,10 @@ export const BrowserSessionAttachment = memo(
     const nextRun = next.run.id;
     if (prevRun !== nextRun) return false;
     if (prev.onOpenPanel !== next.onOpenPanel) return false;
+    if (prev.pictureInPictureAvoidRefs !== next.pictureInPictureAvoidRefs)
+      return false;
+    if (prev.pictureInPictureContainerRef !== next.pictureInPictureContainerRef)
+      return false;
     if (prev.targetRef !== next.targetRef) return false;
     return true;
   },

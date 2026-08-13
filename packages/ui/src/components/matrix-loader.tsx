@@ -1,10 +1,10 @@
-import type { CSSProperties } from "react";
+import * as React from "react";
 
 import { cn } from "../lib/utils";
 
 const MATRIX_CELLS = Array.from({ length: 9 }, (_, index) => index);
 
-interface MatrixLoaderStyle extends CSSProperties {
+interface MatrixLoaderStyle extends React.CSSProperties {
   "--matrix-loader-duration": string;
 }
 
@@ -29,16 +29,20 @@ export function MatrixLoader({
     width: size,
   };
 
-  return (
-    <span
-      aria-label={ariaLabel}
-      className={cn("matrix-loader inline-grid shrink-0", className)}
-      role="status"
-      style={style}
-    >
-      {MATRIX_CELLS.map((cell) => (
-        <span aria-hidden className="matrix-loader-cell" key={cell} />
-      ))}
-    </span>
+  return React.createElement(
+    "span",
+    {
+      "aria-label": ariaLabel,
+      className: cn("matrix-loader inline-grid shrink-0", className),
+      role: "status",
+      style,
+    },
+    MATRIX_CELLS.map((cell) =>
+      React.createElement("span", {
+        "aria-hidden": true,
+        className: "matrix-loader-cell",
+        key: cell,
+      }),
+    ),
   );
 }

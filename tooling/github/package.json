@@ -1,5 +1,8 @@
 {
   "name": "@chief/github",
   "version": "0.1.0",
-  "private": true
+  "private": true,
+  "scripts": {
+    "clean": "git clean -xdf .cache .turbo node_modules"
+  }
 }

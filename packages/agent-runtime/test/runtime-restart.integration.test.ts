@@ -44,7 +44,7 @@ function runningSession(scheduledFor: number): SessionRecord {
     scheduleId: "growth-report",
     kind: "task",
     visibility: "private",
-    agent: "cmo",
+    agent: "chief",
     title: "Growth report",
     provider: "codex",
     status: "running",
@@ -61,7 +61,7 @@ async function saveInitialWork(store: LocalStore, scheduledFor: number) {
     id: "schedule-conversation",
     organizationId: "workspace",
     visibility: "user",
-    agent: "cmo",
+    agent: "chief",
     provider: "codex",
     title: "Growth report",
   });
@@ -213,7 +213,7 @@ void test("terminal session and schedule state commit atomically", async () => {
     const finishedAt = Date.now();
     await store.raiseActionItem("workspace", {
       id: `action-${work.id}-blocked`,
-      agentId: "cmo",
+      agentId: "chief",
       title: "Old block",
       reason: "Old blocked action that should be dismissed.",
       sourceId: session.id,
@@ -240,7 +240,7 @@ void test("terminal session and schedule state commit atomically", async () => {
       {
         upsert: {
           id: `action-${work.id}-complete-review`,
-          agentId: "cmo",
+          agentId: "chief",
           title: "Review completed report",
           reason: "The completed report needs a final user decision.",
           sourceId: session.id,
@@ -284,7 +284,7 @@ void test("restart never replays an interrupted session that used tools", async 
       {
         id: session.id,
         organizationId: "workspace",
-        agentId: "cmo",
+        agentId: "chief",
         driver: "codex",
       },
       [
@@ -319,7 +319,7 @@ void test("restart never replays an interrupted session that used tools", async 
     assert.deepEqual(await store.listActionItems("workspace"), [
       {
         id: "action-growth-report-interrupted",
-        agentId: "cmo",
+        agentId: "chief",
         title: "Review interrupted work",
         reason:
           "Chief restarted after this session used tools. It will not retry automatically.",

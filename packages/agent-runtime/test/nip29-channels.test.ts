@@ -14,8 +14,8 @@ import {
 } from "../src/channels/nip29.js";
 import {
   beginAgentActivityReaction,
+  channelPublicationInstructions,
   endAgentActivityReaction,
-  isUserFacingChannelMessage,
   mirrorEvent,
 } from "../src/channels/server-bridge.js";
 import { LocalStore } from "../src/local-store.js";
@@ -33,7 +33,19 @@ void test("channel conversations are stable and isolated by workspace", () => {
   assert.equal(channelIdFromChatId(`channel:${channelId}`), channelId);
 });
 
-void test("every user-facing assistant message mirrors with thread tags preserved", async () => {
+void test("shared channel publication names its exact destination", () => {
+  const instructions = channelPublicationInstructions(
+    "channel-a",
+    "thread-root-a",
+  );
+  assert.match(instructions, /ordinary assistant text is private/u);
+  assert.match(instructions, /localTools\.channelsMessagesPost/u);
+  assert.match(instructions, /channelId "channel-a"/u);
+  assert.match(instructions, /threadRootId "thread-root-a"/u);
+  assert.match(instructions, /Do not publish tool narration/u);
+});
+
+void test("explicitly mirrored messages keep thread tags", async () => {
   const directory = mkdtempSync(join(tmpdir(), "chief-mirror-"));
   try {
     const store = new LocalStore(join(directory, "chief.sqlite"));
@@ -53,14 +65,6 @@ void test("every user-facing assistant message mirrors with thread tags preserve
       threadRootId: "root-message",
       content: [{ type: "text", text: "I’ll check the project first." }],
     } satisfies AgentEvent;
-    const toolUse = {
-      type: "message",
-      role: "assistant",
-      content: [
-        { type: "thinking", thinking: "inspecting" },
-        { type: "tool_use", id: "tool-1", name: "browser.open", input: {} },
-      ],
-    } satisfies AgentEvent;
     const second = {
       type: "message",
       id: "assistant-2",
@@ -69,11 +73,6 @@ void test("every user-facing assistant message mirrors with thread tags preserve
       content: [{ type: "text", text: "Opening the browser for you." }],
     } satisfies AgentEvent;
 
-    // Tool-only messages are provider plumbing and carry no channel content.
-    assert.equal(isUserFacingChannelMessage(toolUse), false);
-    assert.equal(isUserFacingChannelMessage(first), true);
-    assert.equal(isUserFacingChannelMessage(second), true);
-
     const eventA = await mirrorEvent(
       manager,
       send,
@@ -81,7 +80,7 @@ void test("every user-facing assistant message mirrors with thread tags preserve
       chatId,
       first,
       channel.id,
-      { id: "cmo", name: "Chief" },
+      { id: "chief", name: "Chief" },
     );
     const eventB = await mirrorEvent(
       manager,
@@ -90,7 +89,7 @@ void test("every user-facing assistant message mirrors with thread tags preserve
       chatId,
       second,
       channel.id,
-      { id: "cmo", name: "Chief" },
+      { id: "chief", name: "Chief" },
     );
 
     assert.ok(eventA);
@@ -141,17 +140,18 @@ void test("workspace channels are durable NIP-29 groups instead of chat labels",
       channels
         .filter((channel) => channel.visibility === "public")
         .map((channel) => channel.slug),
-      ["analytics", "advertising", "prospecting", "general"],
+      // prettier-ignore
+      ["mission-control", "engineering", "analytics", "advertising", "prospecting", "marketing", "general"],
     );
     assert.deepEqual(
       channels
         .filter((channel) => channel.visibility === "private")
         .map((channel) => channel.slug),
-      ["getting-started"],
+      [],
     );
     assert.equal(
       channels.filter((channel) => channel.visibility === "direct").length,
-      7,
+      8,
     );
     assert.equal(
       new Set(
@@ -165,7 +165,7 @@ void test("workspace channels are durable NIP-29 groups instead of chat labels",
       .channelStore()
       .addAgents("workspace-a", analytics.id, ["ads", "analyst"]);
     assert.ok(updated);
-    assert.deepEqual(updated.agentIds, ["cmo", "analyst", "ads"]);
+    assert.deepEqual(updated.agentIds, ["chief", "analyst", "ads"]);
     const reassigned = await store
       .channelStore()
       .setAgents("workspace-a", analytics.id, ["analyst", "brand"]);
@@ -273,21 +273,23 @@ void test("deleting a channel removes its Nostr history and stays deleted", asyn
   }
 });
 
-void test("a workspace keeps at least one public channel", async () => {
+void test("a workspace retains mission control when other channels are removed", async () => {
   const directory = mkdtempSync(join(tmpdir(), "chief-channel-last-"));
   const store = new LocalStore(join(directory, "chief.sqlite"));
   try {
     const publicChannels = (
       await store.channelStore().list("workspace-a")
     ).filter((channel) => channel.visibility === "public");
-    for (const channel of publicChannels.slice(1)) {
+    for (const channel of publicChannels.filter(
+      (candidate) => candidate.slug !== "mission-control",
+    )) {
       await store.channelStore().remove("workspace-a", channel.id);
     }
-    const finalChannel = publicChannels[0];
-    assert.ok(finalChannel);
-    await assert.rejects(
-      store.channelStore().remove("workspace-a", finalChannel.id),
-      /must keep at least one channel/u,
+    assert.deepEqual(
+      (await store.channelStore().list("workspace-a"))
+        .filter((channel) => channel.visibility === "public")
+        .map((channel) => channel.slug),
+      ["mission-control"],
     );
   } finally {
     await store.close();
@@ -457,7 +459,7 @@ void test("channel reactions persist as kind-7 events targeting a message", asyn
     const message = createChannelEvent({
       workspaceId: "workspace-a",
       channelId: channel.id,
-      actor: { type: "agent", id: "cmo", name: "Chief" },
+      actor: { type: "agent", id: "chief", name: "Chief" },
       content: "The launch plan is ready.",
       sourceId: "message-1",
     });

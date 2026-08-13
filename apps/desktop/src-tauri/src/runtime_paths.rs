@@ -1,9 +1,9 @@
-use std::{
-    env,
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::path::{Path, PathBuf};
 
+#[cfg(debug_assertions)]
+use std::{env, process::Command};
+
+#[cfg(debug_assertions)]
 fn parse_node_version(version: &str) -> Option<(u32, u32, u32)> {
     let mut parts = version
         .trim()

@@ -16,6 +16,7 @@ export interface WorkspaceChannel {
   topic: string;
   description: string;
   agentIds: string[];
+  userIds: string[];
   visibility?: "public" | "private" | "direct";
   kind: ChannelKind;
   lifecycle: ChannelLifecycleState;

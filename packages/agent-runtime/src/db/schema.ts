@@ -38,6 +38,7 @@ export const channels = sqliteTable(
     topic: text().notNull().default(""),
     description: text().notNull(),
     agentIds: text("agent_ids", { mode: "json" }).$type<string[]>().notNull(),
+    userIds: text("user_ids", { mode: "json" }).$type<string[]>().notNull(),
     visibility: text({ enum: ["public", "private"] })
       .notNull()
       .default("public"),

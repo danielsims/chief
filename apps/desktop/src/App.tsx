@@ -33,6 +33,7 @@ import { ArtifactsPage } from "./pages/artifacts";
 import { CampaignsPage } from "./pages/campaigns";
 import { ConversationsPage } from "./pages/conversations";
 import { DashboardPage } from "./pages/dashboard";
+import { InboxPage } from "./pages/inbox";
 import { OnboardingPage } from "./pages/onboarding";
 import { ProspectsPage } from "./pages/prospects";
 import { SchedulePage } from "./pages/schedule";
@@ -44,6 +45,7 @@ import {
   IntegrationsSettings,
 } from "./pages/settings/integrations";
 import { SettingsLayout } from "./pages/settings/layout";
+import { MissionsSettings } from "./pages/settings/missions";
 import { NotificationsSettings } from "./pages/settings/notifications";
 import { ProfileSettings } from "./pages/settings/profile";
 import { WorkspaceSettings } from "./pages/settings/workspace";
@@ -261,6 +263,7 @@ function AuthenticatedApp() {
                 <Route path="onboarding" element={<OnboardingPage />} />
                 <Route element={<Layout />}>
                   <Route index element={<DashboardPage />} />
+                  <Route path="inbox" element={<InboxPage />} />
                   <Route path="analytics" element={<AnalyticsPage />} />
                   <Route path="artifacts" element={<ArtifactsPage />} />
                   <Route path="campaigns" element={<CampaignsPage />} />
@@ -278,6 +281,7 @@ function AuthenticatedApp() {
                     />
                     <Route path="profile" element={<ProfileSettings />} />
                     <Route path="workspace" element={<WorkspaceSettings />} />
+                    <Route path="missions" element={<MissionsSettings />} />
                     <Route path="appearance" element={<AppearanceSettings />} />
                     <Route
                       path="notifications"

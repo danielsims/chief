@@ -6,9 +6,9 @@ import type { AgentDefinition, AgentEvent } from "../src/types.js";
 import { AgentSession } from "../src/session.js";
 
 const cmo: AgentDefinition = {
-  id: "cmo",
+  id: "chief",
   name: "Chief",
-  role: "CMO",
+  role: "Chief",
   description: "Runs marketing work.",
   instructions: "Run the requested work.",
 };
@@ -45,6 +45,39 @@ void test("recorded channel membership retains its durable UI action", () => {
   });
 });
 
+void test("a host-owned document keeps its exact channel thread", () => {
+  const session = new AgentSession(cmo, "document-chat", {
+    driver: "codex",
+    access: "guarded",
+    workspaceId: "workspace",
+  });
+  session.recordAssistantMessage(
+    [
+      {
+        type: "data-document",
+        id: "document-brand-profile",
+        data: {
+          fileId: "brand-profile",
+          title: "Working brand profile.md",
+          path: "brand/working-brand-profile.md",
+          kind: "document",
+          versionId: "version-1",
+        },
+      },
+    ],
+    {
+      id: "specialist-file:brand-profile",
+      threadRootId: "brand-thread",
+    },
+  );
+
+  const event = session.events.at(-1);
+  if (event?.type !== "message") assert.fail("Expected a document message.");
+  assert.equal(event.id, "specialist-file:brand-profile");
+  assert.equal(event.threadRootId, "brand-thread");
+  assert.equal(event.content[0]?.type, "data-document");
+});
+
 void test("an attached image is materialized for the agent to inspect", async () => {
   const session = new AgentSession(cmo, "image-chat", {
     driver: "codex",
@@ -63,7 +96,7 @@ void test("an attached image is materialized for the agent to inspect", async ()
   await session.start("/tmp");
 
   await session.sendPrompt("What is this?", "image-message", true, {
-    mentions: ["cmo"],
+    mentions: ["chief"],
     attachments: [
       { name: "reference.png", mediaType: "image/png", url: tinyPng },
     ],
@@ -101,7 +134,7 @@ void test("a later agent reply receives images from the current thread", async (
 
   await session.sendPrompt("@Chief please take a look", "thread-reply", true, {
     threadRootId: "thread-root",
-    mentions: ["cmo"],
+    mentions: ["chief"],
   });
 
   assert.match(prompts[0] ?? "", /Current channel thread context/u);
@@ -125,7 +158,7 @@ void test("a newly addressed channel thread receives the recent shared channel c
   session.recordUserMessage(
     "@Chief see my last message",
     "addressed-thread-root",
-    { mentions: ["cmo"] },
+    { mentions: ["chief"] },
   );
   const prompts: string[] = [];
   const driver = {
@@ -144,7 +177,7 @@ void test("a newly addressed channel thread receives the recent shared channel c
     false,
     {
       threadRootId: "addressed-thread-root",
-      mentions: ["cmo"],
+      mentions: ["chief"],
     },
   );
 

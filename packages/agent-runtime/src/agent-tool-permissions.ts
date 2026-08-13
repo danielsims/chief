@@ -246,7 +246,7 @@ const standardAgentPermissions = allAgentToolPermissions.filter(
 export function defaultAgentToolPermissions(
   agentId: string,
 ): AgentToolPermission[] {
-  return agentId === "cmo" || agentId === "setup"
+  return agentId === "chief" || agentId === "setup"
     ? [...allAgentToolPermissions]
     : [...standardAgentPermissions];
 }
