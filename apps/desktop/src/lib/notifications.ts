@@ -24,6 +24,16 @@ export type DesktopNotificationTarget =
     }
   | { kind: "route"; route: string };
 
+export interface DesktopNotificationEnvironment {
+  bundled: boolean;
+}
+
+export interface DesktopNotificationTestResult {
+  delivered: boolean;
+  environment: DesktopNotificationEnvironment | null;
+  error?: string;
+}
+
 // Only deduplicate an in-flight permission prompt. Do not cache a denied
 // result forever: macOS users can grant the permission in System Settings
 // while Chief remains open.
@@ -151,6 +161,51 @@ export function navigateApp(route: string) {
 
 export async function requestDesktopNotificationAccess() {
   return ensurePermission();
+}
+
+export async function desktopNotificationEnvironment() {
+  if (!isTauri()) return null;
+  try {
+    return await invoke<DesktopNotificationEnvironment>(
+      "notification_environment",
+    );
+  } catch {
+    return null;
+  }
+}
+
+export async function testDesktopNotification(): Promise<DesktopNotificationTestResult> {
+  const environment = await desktopNotificationEnvironment();
+  if (!(await ensurePermission())) {
+    return {
+      delivered: false,
+      environment,
+      error: "macOS notification permission is not granted.",
+    };
+  }
+  try {
+    if (isTauri()) {
+      await invoke("show_native_notification", {
+        title: "Chief notifications are working",
+        body: "You’ll see messages and handoffs here when you’re away.",
+        target: null,
+      });
+    } else if (hasNotificationApi()) {
+      showWebNotification(
+        "Chief notifications are working",
+        "You’ll see messages and handoffs here when you’re away.",
+      );
+    } else {
+      throw new Error("This environment does not support notifications.");
+    }
+    return { delivered: true, environment };
+  } catch (error) {
+    return {
+      delivered: false,
+      environment,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 export async function syncDesktopUnreadBadge(count: number) {

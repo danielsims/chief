@@ -3,8 +3,10 @@ import {
   BarChart3,
   CalendarClock,
   FolderOpen,
+  Inbox,
   LayoutGrid,
   Network,
+  Plug,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 
@@ -36,17 +38,23 @@ import {
   workspaceChannel,
   workspaceDirectMessage,
 } from "../lib/workspace-channels";
+import { PluginMarketplaceDialog } from "./plugin-marketplace-dialog";
 import { SidebarChannels } from "./sidebar-channels";
 import { SidebarProfileMenu } from "./sidebar-profile-menu";
 import { WorkspaceSearch } from "./workspace-search";
 
 const PRIMARY_ITEMS = [
   { to: "/", label: "Overview", icon: LayoutGrid },
+  { to: "/inbox", label: "Inbox", icon: Inbox },
   { to: "/schedule", label: "Schedule", icon: CalendarClock },
   { to: "/agents", label: "Agents", icon: Network },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/files", label: "Files", icon: FolderOpen },
 ] as const;
+
+function sidebarChannelVisibility(visibility: string | undefined) {
+  return visibility === "private" ? ("private" as const) : ("public" as const);
+}
 
 function pinnedStorageKey(workspaceId: string | null) {
   return `chief:pinned-channels:${workspaceId ?? "local"}`;
@@ -87,10 +95,12 @@ function NavItem({
   to,
   label,
   icon: Icon,
+  badge,
 }: {
   to: string;
   label: string;
   icon: typeof LayoutGrid;
+  badge?: number;
 }) {
   const { pathname } = useLocation();
   const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
@@ -104,6 +114,11 @@ function NavItem({
     >
       <Icon size={15} strokeWidth={1.8} className="shrink-0" />
       <span className="truncate">{label}</span>
+      {badge ? (
+        <span className="bg-sidebar-primary text-sidebar-primary-foreground ml-auto min-w-4 rounded-full px-1 text-center text-[10px] leading-4 tabular-nums">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      ) : null}
     </NavLink>
   );
 }
@@ -125,6 +140,7 @@ export function Sidebar({
   const [pinnedItems, setPinnedItems] = useState(() =>
     readPinnedItems(cloudOrganizationId),
   );
+  const [pluginsOpen, setPluginsOpen] = useState(false);
   const [leftChannelState, setLeftChannelState] = useState(() => ({
     workspaceId: cloudOrganizationId,
     ids: readLeftChannels(cloudOrganizationId),
@@ -157,6 +173,7 @@ export function Sidebar({
               description: channel.description,
               agentIds: channel.agentIds,
               userIds: channel.userIds,
+              visibility: sidebarChannelVisibility(channel.visibility),
               kind: channel.kind,
               lifecycle: channel.lifecycle,
               agentPermissions: channel.agentPermissions,
@@ -171,6 +188,7 @@ export function Sidebar({
             description: channel.description,
             agentIds: [...channel.agentIds],
             userIds: [...channel.userIds],
+            visibility: "public" as const,
             kind: "standard" as const,
             lifecycle: "active" as const,
             agentPermissions: [],
@@ -224,6 +242,10 @@ export function Sidebar({
       message.id,
       unreadChannelCounts.get(message.relayId) ?? 0,
     ]),
+  );
+  const inboxUnreadCount = [...unreadChannelCounts.values()].reduce(
+    (total, count) => total + count,
+    0,
   );
 
   const updateLeftChannels = (next: WorkspaceChannelId[]) => {
@@ -312,7 +334,11 @@ export function Sidebar({
       <nav className="min-h-0 flex-1 [scrollbar-width:thin] [scrollbar-color:color-mix(in_srgb,var(--sidebar-muted)_22%,transparent)_transparent] overflow-y-auto px-2 pb-5">
         <div className="space-y-0.5 px-0.5 pb-1">
           {PRIMARY_ITEMS.map((item) => (
-            <NavItem key={item.to} {...item} />
+            <NavItem
+              key={item.to}
+              {...item}
+              badge={item.to === "/inbox" ? inboxUnreadCount : undefined}
+            />
           ))}
         </div>
         <SidebarChannels
@@ -344,9 +370,25 @@ export function Sidebar({
           onPinnedChange={updatePinned}
         />
       </nav>
+      <div className="shrink-0 px-2.5 pt-1">
+        <button
+          type="button"
+          onClick={() => setPluginsOpen(true)}
+          className="text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-[13px] transition-colors"
+        >
+          <span className="flex size-7 items-center justify-center rounded-full border">
+            <Plug size={14} />
+          </span>
+          <span className="font-medium">Plugins</span>
+        </button>
+      </div>
       <div className="shrink-0 px-2.5 pt-1 pb-3">
         <SidebarProfileMenu />
       </div>
+      <PluginMarketplaceDialog
+        open={pluginsOpen}
+        onOpenChange={setPluginsOpen}
+      />
       <div
         role="separator"
         aria-orientation="vertical"

@@ -159,7 +159,7 @@ export function WorkspaceRail() {
                       {unreadCount > 0 ? (
                         <span
                           aria-label={`${unreadCount} unread ${unreadCount === 1 ? "message" : "messages"}`}
-                          className="bg-destructive text-destructive-foreground ring-sidebar absolute -top-1 -right-1 flex min-w-4 items-center justify-center rounded-full px-1 text-[9px] leading-4 font-semibold tabular-nums ring-2"
+                          className="bg-destructive ring-sidebar absolute top-0 right-0 z-10 flex min-w-4 items-center justify-center rounded-full px-1 text-[9px] leading-4 font-semibold text-white tabular-nums ring-2"
                         >
                           {unreadCount > 99 ? "99+" : unreadCount}
                         </span>

@@ -3,7 +3,13 @@ import { useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Hash, MoreHorizontal, PinOff } from "lucide-react";
+import {
+  CircleAlert,
+  Hash,
+  LockKeyhole,
+  MoreHorizontal,
+  PinOff,
+} from "lucide-react";
 
 import {
   ContextMenu,
@@ -107,12 +113,25 @@ export function ChannelRow({
               drag.isDragging && "cursor-grabbing",
             )}
           >
-            <Hash size={14} strokeWidth={1.8} className="shrink-0 opacity-70" />
+            {channel.visibility === "private" ? (
+              <LockKeyhole
+                size={14}
+                strokeWidth={1.8}
+                className="shrink-0 opacity-70"
+              />
+            ) : (
+              <Hash
+                size={14}
+                strokeWidth={1.8}
+                className="shrink-0 opacity-70"
+              />
+            )}
             <span className="min-w-0 flex-1 truncate">{channel.label}</span>
             {needsUser || unreadCount > 0 ? (
               <span className="ml-auto flex shrink-0 items-center gap-1.5">
                 {needsUser ? (
-                  <span className="text-[11px] font-medium text-amber-300">
+                  <span className="flex items-center gap-1 text-[11px] font-medium text-amber-300">
+                    <CircleAlert aria-hidden size={12} strokeWidth={2} />
                     Needs you
                   </span>
                 ) : null}

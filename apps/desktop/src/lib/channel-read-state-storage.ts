@@ -52,10 +52,26 @@ export function writeChannelState(
 }
 
 export function channelMessagesFrom(events: readonly ChannelEvent[]) {
+  const sourceIds = new Map<string, string>();
+  for (const event of events) {
+    const sourceId = event.tags.find((tag) => tag[0] === "client")?.[1];
+    if (event.kind === 9 && sourceId) sourceIds.set(event.id, sourceId);
+  }
   return new Map(
     events.flatMap((event): [string, ObservedChannelMessage][] => {
       const message = observedChannelMessage(event);
-      return message ? [[message.id, message]] : [];
+      if (!message) return [];
+      return [
+        [
+          message.id,
+          {
+            ...message,
+            threadSourceId: message.rootId
+              ? (sourceIds.get(message.rootId) ?? message.rootId)
+              : null,
+          },
+        ],
+      ];
     }),
   );
 }
