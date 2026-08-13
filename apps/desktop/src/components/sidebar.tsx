@@ -6,7 +6,6 @@ import {
   Inbox,
   LayoutGrid,
   Network,
-  Plug,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 
@@ -38,7 +37,6 @@ import {
   workspaceChannel,
   workspaceDirectMessage,
 } from "../lib/workspace-channels";
-import { PluginMarketplaceDialog } from "./plugin-marketplace-dialog";
 import { SidebarChannels } from "./sidebar-channels";
 import { SidebarProfileMenu } from "./sidebar-profile-menu";
 import { WorkspaceSearch } from "./workspace-search";
@@ -140,7 +138,6 @@ export function Sidebar({
   const [pinnedItems, setPinnedItems] = useState(() =>
     readPinnedItems(cloudOrganizationId),
   );
-  const [pluginsOpen, setPluginsOpen] = useState(false);
   const [leftChannelState, setLeftChannelState] = useState(() => ({
     workspaceId: cloudOrganizationId,
     ids: readLeftChannels(cloudOrganizationId),
@@ -370,25 +367,9 @@ export function Sidebar({
           onPinnedChange={updatePinned}
         />
       </nav>
-      <div className="shrink-0 px-2.5 pt-1">
-        <button
-          type="button"
-          onClick={() => setPluginsOpen(true)}
-          className="text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-[13px] transition-colors"
-        >
-          <span className="flex size-7 items-center justify-center rounded-full border">
-            <Plug size={14} />
-          </span>
-          <span className="font-medium">Plugins</span>
-        </button>
-      </div>
       <div className="shrink-0 px-2.5 pt-1 pb-3">
         <SidebarProfileMenu />
       </div>
-      <PluginMarketplaceDialog
-        open={pluginsOpen}
-        onOpenChange={setPluginsOpen}
-      />
       <div
         role="separator"
         aria-orientation="vertical"
