@@ -24,7 +24,9 @@ export function AgentActivityComposerRow({
     visibleAgents.length > 1
       ? formatAgentActivityStatus(visibleAgents)
       : statusLabel;
-  if (!running || !visibleStatusLabel.trim()) return null;
+  if (!running || !visibleStatusLabel.trim()) {
+    return <div className="h-8 shrink-0" aria-hidden="true" />;
+  }
 
   return (
     <div

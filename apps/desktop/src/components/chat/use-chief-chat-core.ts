@@ -24,6 +24,7 @@ import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
 import { channelActivityState } from "./channel-activity-state";
 import { channelRecipients } from "./channel-thread-audience";
 import { conversationActivityTurns } from "./conversation-activity-history";
+import { orderMentionCandidatesByMembership } from "./mention-candidate-order";
 
 /**
  * Connects a Chief conversation to runtime, authentication, workspace, and
@@ -191,21 +192,23 @@ export function useChiefChatCore({
   );
   const mentionCandidates = useMemo(
     () =>
-      Object.entries(WORKSPACE_AGENT_IDENTITIES)
-        .filter(
-          ([id]) =>
-            id !== "setup" ||
-            directAgent?.id === "setup" ||
-            Boolean(channel?.agentIds.includes("setup")),
-        )
-        .map(([id, identity]) => ({
-          id,
-          ...identity,
-          member:
-            directAgent?.id === id ||
-            addedAgentIds.has(id) ||
-            Boolean(channel?.agentIds.includes(id)),
-        })),
+      orderMentionCandidatesByMembership(
+        Object.entries(WORKSPACE_AGENT_IDENTITIES)
+          .filter(
+            ([id]) =>
+              id !== "setup" ||
+              directAgent?.id === "setup" ||
+              Boolean(channel?.agentIds.includes("setup")),
+          )
+          .map(([id, identity]) => ({
+            id,
+            ...identity,
+            member:
+              directAgent?.id === id ||
+              addedAgentIds.has(id) ||
+              Boolean(channel?.agentIds.includes(id)),
+          })),
+      ),
     [addedAgentIds, channel?.agentIds, directAgent?.id],
   );
   const knownAgentIds = useMemo(
