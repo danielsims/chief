@@ -8,6 +8,10 @@ import type { AgentEvent, RecurringWorkRecord } from "./types.js";
 import { getAgent } from "./agents.js";
 import { channelChatId, createChannelEvent } from "./channels/nip29.js";
 import { agentForChannel } from "./channels/server-bridge.js";
+import {
+  HEARTBEAT_MAX_PROMPT_ATTEMPTS,
+  MISSION_CONTROL_HEARTBEAT_OPERATION_KEY,
+} from "./mission-control-heartbeat.js";
 import { scheduledAgentConfig } from "./scheduled-agent-config.js";
 import { preferredScheduledChannel } from "./scheduled-work-channel.js";
 import { executorToolServer } from "./tools/spec.js";
@@ -23,6 +27,7 @@ export interface ScheduledChannelThread {
   messageId: string;
   /** Durable channel event ID used by protocol thread references. */
   threadRootId: string;
+  failureMessage?: string;
 }
 
 function openingMessage(work: RecurringWorkRecord) {
@@ -109,6 +114,10 @@ export async function beginScheduledChannelThread(
     ),
     messageId: sourceId,
     threadRootId: event.id,
+    failureMessage:
+      work.operationKey === MISSION_CONTROL_HEARTBEAT_OPERATION_KEY
+        ? `I couldn’t finish this check after ${HEARTBEAT_MAX_PROMPT_ATTEMPTS} attempts. I’ll wait until the next scheduled check.`
+        : undefined,
   };
 }
 
@@ -127,7 +136,9 @@ async function appendFailure(
       id: assignedAgent?.id ?? thread.agentId,
       name: assignedAgent?.name ?? thread.agentId,
     },
-    content: "I couldn’t finish this work. Please try it again in a moment.",
+    content:
+      thread.failureMessage ??
+      "I couldn’t finish this work. Please try it again in a moment.",
     threadRootId: thread.threadRootId,
   });
   await manager.store.channelStore().appendEvent(workspaceId, event);
@@ -260,6 +271,10 @@ export async function startScheduledChannelWork({
         mcpServers: [executorToolServer(executor)],
         automationGrant: work.grant,
         executionOwner: "schedule",
+        maxPromptAttempts:
+          work.operationKey === MISSION_CONTROL_HEARTBEAT_OPERATION_KEY
+            ? HEARTBEAT_MAX_PROMPT_ATTEMPTS
+            : undefined,
       }),
     manager,
     onSessionReady: () => onThread?.(thread),

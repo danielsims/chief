@@ -655,6 +655,8 @@ export interface StartOptions {
   mcpServers?: McpServerSpec[];
   /** Durable, user-authored delegation used only by unattended runs. */
   automationGrant?: AutomationGrant;
+  /** Maximum provider attempts for this turn, including the first attempt. */
+  maxPromptAttempts?: number;
 }
 
 // ---- Structured user input (secrets/config the agent cannot obtain itself) ----

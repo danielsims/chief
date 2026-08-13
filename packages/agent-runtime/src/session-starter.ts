@@ -95,6 +95,7 @@ export async function startManagedSession(
       existing.config.model !== config.model ||
       existing.agent.instructions !== runtimeAgent.instructions ||
       existing.config.executionOwner !== config.executionOwner ||
+      existing.config.maxPromptAttempts !== config.maxPromptAttempts ||
       JSON.stringify(existing.config.mcpServers ?? []) !==
         JSON.stringify(sessionMcpServers)
     ) {

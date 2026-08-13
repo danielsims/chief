@@ -106,6 +106,7 @@ void test("scheduled work creates a durable channel thread before provider work"
     true,
   );
   assert.match(heartbeat.instructions, /not a status reporter/u);
+  assert.match(heartbeat.failureMessage ?? "", /after 3 attempts/u);
 });
 
 void test("ordinary scheduled work wakes its assigned agent in the owning channel", async () => {

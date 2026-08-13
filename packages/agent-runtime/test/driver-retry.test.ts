@@ -10,7 +10,8 @@ class RetryDriver extends BaseDriver {
   failures = 0;
   outputBeforeFailure = false;
 
-  start(_options: StartOptions) {
+  start(options: StartOptions) {
+    this.startOptions = options;
     return Promise.resolve();
   }
 
@@ -67,6 +68,25 @@ void test("retries a failed prompt after restarting the backend", async () => {
 
   assert.equal(driver.attempts, 2);
   assert.equal(driver.restarts, 1);
+});
+
+void test("a constrained unattended turn stops after three attempts", async () => {
+  const driver = new RetryDriver();
+  driver.failures = 5;
+  await driver.start({
+    cwd: "/tmp",
+    instructions: "Run the heartbeat.",
+    access: "guarded",
+    maxPromptAttempts: 3,
+  });
+
+  await assert.rejects(
+    () => driver.sendPrompt("Run the heartbeat"),
+    /temporary failure/,
+  );
+
+  assert.equal(driver.attempts, 3);
+  assert.equal(driver.restarts, 2);
 });
 
 void test("partial output prevents a duplicate retry and rejects the send", async () => {
