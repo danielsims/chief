@@ -10,6 +10,7 @@ import type {
 } from "@chief/agent-runtime/types";
 
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
+import type { ChannelReferenceTarget } from "./channel-reference-parser";
 import type { ConversationProfileSelection } from "./conversation-profile";
 import { browserOpenResultContent } from "../../lib/browser-sessions";
 import {
@@ -18,8 +19,12 @@ import {
 } from "../../lib/channel-actions";
 import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
+import { MessageTimestamp } from "./chat-date-time";
 import { Blocks } from "./message-blocks";
-import { SpecialistStatusIndicator } from "./specialist-status-indicator";
+import {
+  specialistIsStartingOrWorking,
+  SpecialistStatusIndicator,
+} from "./specialist-status-indicator";
 
 const MessageBlocksContent = memo(
   function MessageBlocksContent({
@@ -31,6 +36,8 @@ const MessageBlocksContent = memo(
     tasks,
     taskOwners,
     ownerId,
+    channelReferences,
+    onOpenChannel,
     onOpenTask,
   }: {
     message: ChiefUIMessage;
@@ -41,6 +48,8 @@ const MessageBlocksContent = memo(
     tasks?: readonly SessionRecord[];
     taskOwners?: ReadonlyMap<string, string>;
     ownerId?: string;
+    channelReferences?: readonly ChannelReferenceTarget[];
+    onOpenChannel?: (channelId: string) => void;
     onOpenTask?: (taskId: string) => void;
   }) {
     const blocks = useMemo(() => filter(message), [filter, message]);
@@ -53,6 +62,8 @@ const MessageBlocksContent = memo(
         tasks={tasks}
         taskOwners={taskOwners}
         ownerId={ownerId}
+        channelReferences={channelReferences}
+        onOpenChannel={onOpenChannel}
         onOpenTask={onOpenTask}
       />
     );
@@ -63,6 +74,8 @@ const MessageBlocksContent = memo(
     if (prev.active !== next.active) return false;
     if (prev.capabilities !== next.capabilities) return false;
     if (prev.ownerId !== next.ownerId) return false;
+    if (prev.channelReferences !== next.channelReferences) return false;
+    if (prev.onOpenChannel !== next.onOpenChannel) return false;
     if (prev.tasks !== next.tasks) return false;
     if (prev.taskOwners !== next.taskOwners) return false;
     if (prev.onOpenTask !== next.onOpenTask) return false;
@@ -88,6 +101,42 @@ function ChatSkeleton() {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function ConversationEmptyState({
+  channel,
+  directAgent,
+  runtimeConnected,
+}: {
+  channel?: { label: string; description: string; agentIds: readonly string[] };
+  directAgent?: { name: string };
+  runtimeConnected: boolean;
+}) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+      <p className="text-2xl font-medium tracking-[-0.03em]">
+        {channel ? `#${channel.label}` : (directAgent?.name ?? "Chief")}
+      </p>
+      <p className="text-muted-foreground max-w-md text-sm">
+        {channel
+          ? channel.description
+          : directAgent
+            ? `A private conversation with ${directAgent.name}.`
+            : "Your workspace lead. Ask anything, and Chief will bring in the right specialist."}
+      </p>
+      {channel ? (
+        <p className="text-muted-foreground/75 text-xs">
+          {channel.agentIds.length} agents share this channel’s context.
+        </p>
+      ) : null}
+      {!runtimeConnected ? (
+        <p className="text-muted-foreground mt-4 border border-dashed px-3 py-2 text-xs">
+          Agent runtime not connected. Run <code>pnpm dev</code> in the repo
+          root.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -179,6 +228,7 @@ function ChiefMessage({
   actions,
   footer,
   metadata,
+  timestamp,
 }: {
   activity?: SessionRecord;
   children: ReactNode;
@@ -188,6 +238,7 @@ function ChiefMessage({
   actions?: ReactNode;
   footer?: ReactNode;
   metadata?: ReactNode;
+  timestamp?: number;
 }) {
   const identity = agent ?? {
     name: "Chief",
@@ -209,7 +260,9 @@ function ChiefMessage({
         onClick={() => onOpenProfile?.({ kind: "agent", agentId })}
         className="focus-visible:ring-ring/30 shrink-0 rounded-lg transition-opacity outline-none enabled:hover:opacity-85 enabled:focus-visible:ring-2 disabled:cursor-default"
       >
-        {activity && activity.status !== "completed" ? (
+        {activity &&
+        specialistIsStartingOrWorking(activity.status) &&
+        activity.status !== "waiting" ? (
           <span className="bg-muted/35 grid size-8 place-items-center rounded-lg">
             <SpecialistStatusIndicator
               agent={activity.agent}
@@ -224,6 +277,7 @@ function ChiefMessage({
       <div className="min-w-0 flex-1 pt-0.5">
         <div className="mb-1 flex items-baseline gap-2">
           <strong className="text-[13px] font-semibold">{identity.name}</strong>
+          <MessageTimestamp timestamp={timestamp} />
           {resolvedMetadata ? (
             <span className="text-muted-foreground text-[10px]">
               {resolvedMetadata}
@@ -240,9 +294,11 @@ function ChiefMessage({
 function ChannelMembershipMessage({
   action,
   userImage,
+  timestamp,
 }: {
   action: NonNullable<ChiefMessageMetadata["channelAction"]>;
   userImage?: string;
+  timestamp?: number;
 }) {
   const targetNames = channelMembershipTargetNames(action, (agentId) => {
     if (!Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)) return agentId;
@@ -276,6 +332,7 @@ function ChannelMembershipMessage({
         </strong>{" "}
         to the channel
       </span>
+      <MessageTimestamp timestamp={timestamp} />
     </div>
   );
 }
@@ -285,5 +342,6 @@ export {
   ChannelMembershipMessage,
   ChatSkeleton,
   ChiefMessage,
+  ConversationEmptyState,
   MessageBlocksContent,
 };

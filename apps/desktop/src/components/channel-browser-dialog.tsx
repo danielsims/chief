@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, Hash, Plus, Search } from "lucide-react";
+import { ArrowLeft, Hash, LockKeyhole, Plus, Search } from "lucide-react";
 
 import type {
   ChannelAgentPermission,
@@ -22,6 +22,7 @@ export interface SidebarChannel {
   topic: string;
   description: string;
   agentIds: string[];
+  visibility?: "public" | "private";
   kind?: ChannelKind;
   lifecycle?: ChannelLifecycleState;
   agentPermissions?: ChannelAgentPermission[];
@@ -246,10 +247,17 @@ export function ChannelBrowserDialog({
                       onClick={() => openChannel(channel.id)}
                       className="hover:bg-muted/55 flex w-full items-start gap-3 px-3.5 py-3 text-left transition-colors"
                     >
-                      <Hash
-                        size={15}
-                        className="text-muted-foreground mt-0.5 shrink-0"
-                      />
+                      {channel.visibility === "private" ? (
+                        <LockKeyhole
+                          size={15}
+                          className="text-muted-foreground mt-0.5 shrink-0"
+                        />
+                      ) : (
+                        <Hash
+                          size={15}
+                          className="text-muted-foreground mt-0.5 shrink-0"
+                        />
+                      )}
                       <span className="min-w-0">
                         <span className="block truncate text-[13px] font-medium">
                           {channel.label}

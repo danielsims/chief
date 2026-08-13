@@ -20,10 +20,11 @@ import { threadAgentAudience } from "./channel-thread-audience";
 import { browserOpenBlockIn } from "./chief-chat-message-components";
 import {
   chronologicallyMergeSpecialistTasks,
+  specialistTaskBelongsToConversation,
   specialistTaskOwners,
 } from "./specialist-task-display";
 
-type TimelineEntry =
+export type TimelineEntry =
   | { type: "message"; message: ChiefUIMessage }
   | { type: "browser"; key: string; run: BrowserRunRecord }
   | { type: "specialist"; task: SessionRecord };
@@ -110,21 +111,23 @@ export function useChiefChatTimeline({
   const mainTimelineChildSessions = useMemo(
     () =>
       childSessions.filter((task) => {
+        if (!specialistTaskBelongsToConversation(task, chatId)) return false;
         if (typeof task.triggerContext?.threadRootId === "string") return false;
         const ownerId = childSessionOwners.get(task.id);
         if (!ownerId) return true;
         const owner = messages.find((message) => message.id === ownerId);
         return !owner?.metadata?.threadRootId;
       }),
-    [childSessionOwners, childSessions, messages],
+    [chatId, childSessionOwners, childSessions, messages],
   );
   const activeThreadChildSessions = useMemo(
     () =>
       threadRootId
         ? childSessions.filter((task) => {
+            if (!specialistTaskBelongsToConversation(task, chatId)) {
+              return false;
+            }
             if (task.triggerContext?.threadRootId === threadRootId) return true;
-            if (task.triggerContext?.originThreadRootId === threadRootId)
-              return true;
             const ownerId = childSessionOwners.get(task.id);
             if (!ownerId) return false;
             return (
@@ -133,7 +136,7 @@ export function useChiefChatTimeline({
             );
           })
         : [],
-    [childSessionOwners, childSessions, messages, threadRootId],
+    [chatId, childSessionOwners, childSessions, messages, threadRootId],
   );
   const activeSpecialistByThread = useMemo(() => {
     const specialists = new Map<string, SessionRecord>();
@@ -395,6 +398,9 @@ function mergeTimelineEntries(
       entries.push(entry);
       continue;
     }
+    if ((entry.message.metadata?.threadRootId ?? null) !== threadRootId) {
+      continue;
+    }
     entries.push({ type: "message", message: entry.message });
     for (const run of runs) {
       if (
@@ -413,4 +419,12 @@ function mergeTimelineEntries(
     }
   }
   return entries;
+}
+
+export function timelineEntryCreatedAt(entry: TimelineEntry) {
+  return entry.type === "message"
+    ? entry.message.metadata?.createdAt
+    : entry.type === "browser"
+      ? entry.run.createdAt
+      : entry.task.createdAt;
 }

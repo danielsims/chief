@@ -3,7 +3,9 @@ import type { ReactNode } from "react";
 import type { MessageAttachment } from "@chief/agent-runtime/types";
 
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
+import type { ChannelReferenceTarget } from "./channel-reference-parser";
 import { stripPrivateSetupInstructions } from "../../lib/integration-setup";
+import { MessageTimestamp } from "./chat-date-time";
 import { StreamingMarkdown } from "./streaming-markdown";
 
 export function UserMessage({
@@ -11,16 +13,21 @@ export function UserMessage({
   author = { name: "You" },
   attachments = [],
   onOpenProfile,
+  channelReferences = [],
+  onOpenChannel,
   onOpenMention,
   actions,
   footer,
   acknowledgedBy,
   metadata,
+  timestamp,
 }: {
   text: string;
   author?: { name: string; image?: string };
   attachments?: readonly MessageAttachment[];
   onOpenProfile?: () => void;
+  channelReferences?: readonly ChannelReferenceTarget[];
+  onOpenChannel?: (channelId: string) => void;
   onOpenMention?: (agentId: WorkspaceAgentId) => void;
   actions?: ReactNode;
   footer?: ReactNode;
@@ -29,6 +36,7 @@ export function UserMessage({
   /** Secondary identity copy. Omit for the default "You" label; pass null
    * when the surrounding channel already makes authorship clear. */
   metadata?: ReactNode;
+  timestamp?: number;
 }) {
   const visibleText = stripPrivateSetupInstructions(text)
     .split("\n")
@@ -62,6 +70,7 @@ export function UserMessage({
       <div className="min-w-0 flex-1 pt-0.5">
         <div className="mb-1 flex items-baseline gap-2">
           <strong className="text-[13px] font-semibold">{author.name}</strong>
+          <MessageTimestamp timestamp={timestamp} />
           {resolvedMetadata ? (
             <span className="text-muted-foreground text-[10px]">
               {resolvedMetadata}
@@ -69,7 +78,11 @@ export function UserMessage({
           ) : null}
         </div>
         <div className="chat-markdown overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]">
-          <StreamingMarkdown onOpenMention={onOpenMention}>
+          <StreamingMarkdown
+            channels={channelReferences}
+            onOpenChannel={onOpenChannel}
+            onOpenMention={onOpenMention}
+          >
             {visibleText}
           </StreamingMarkdown>
         </div>

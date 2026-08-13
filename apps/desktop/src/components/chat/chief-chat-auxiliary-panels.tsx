@@ -20,6 +20,8 @@ import { ApprovalCard } from "./approval-card";
 import { approvalBelongsToSurface } from "./approval-presentation";
 import { BrowserSessionAttachment } from "./browser-panel";
 import { ChatComposer } from "./chat-composer";
+import { ChatDateSeparator } from "./chat-date-time";
+import { ChatTimeline } from "./chat-timeline";
 import {
   ChiefMessage,
   MessageBlocksContent,
@@ -68,6 +70,8 @@ export function ChiefChatAuxiliaryPanels({
     | "activeChild"
     | "activityOpen"
     | "channel"
+    | "channelReferences"
+    | "onOpenChannel"
     | "onCloseChild"
     | "onOpenChild"
     | "panelSizing"
@@ -83,6 +87,8 @@ export function ChiefChatAuxiliaryPanels({
     activeChild,
     activityOpen,
     channel,
+    channelReferences = [],
+    onOpenChannel,
     onCloseChild,
     onOpenChild,
     panelSizing,
@@ -238,17 +244,24 @@ export function ChiefChatAuxiliaryPanels({
         >
           <ConversationAuxiliaryPanelBody
             ref={threadScrollRef}
-            className="space-y-2 px-4 py-4"
+            data-chat-timeline
+            className="space-y-2 overflow-x-hidden px-4 py-4"
           >
+            <ChatDateSeparator
+              timestamp={activeThreadRoot?.metadata?.createdAt}
+            />
             {activeThreadRoot?.role === "user" ? (
               <div id={`chief-message-${activeThreadRoot.id}`}>
                 <UserMessage
                   author={userAuthor}
                   attachments={imageParts(activeThreadRoot)}
                   metadata={null}
+                  channelReferences={channelReferences}
+                  onOpenChannel={onOpenChannel}
                   onOpenProfile={openUserProfile}
                   onOpenMention={openAgentMention}
                   text={messageText(activeThreadRoot)}
+                  timestamp={activeThreadRoot.metadata?.createdAt}
                 />
               </div>
             ) : null}
@@ -261,81 +274,86 @@ export function ChiefChatAuxiliaryPanels({
               ) : null,
             )}
             <ThreadDivider count={activeThreadSummary.count} />
-            {threadReplyEntries.map((entry) => {
-              if (entry.type === "browser") {
-                return (
-                  <Fragment key={entry.key}>
-                    {threadBrowserAttachmentNode(entry.run)}
-                  </Fragment>
-                );
-              }
-              if (entry.type === "specialist") {
-                const agentId = entry.task.agent as WorkspaceAgentId;
-                const identity = WORKSPACE_AGENT_IDENTITIES[agentId];
+            <ChatTimeline
+              entries={threadReplyEntries}
+              initialTimestamp={activeThreadRoot?.metadata?.createdAt}
+              renderEntry={(entry) => {
+                if (entry.type === "browser") {
+                  return threadBrowserAttachmentNode(entry.run);
+                }
+                if (entry.type === "specialist") {
+                  const agentId = entry.task.agent as WorkspaceAgentId;
+                  const identity = WORKSPACE_AGENT_IDENTITIES[agentId];
+                  return (
+                    <ChiefMessage
+                      agent={{
+                        id: agentId,
+                        name: identity.name,
+                        role: identity.role,
+                      }}
+                      metadata={null}
+                      timestamp={entry.task.createdAt}
+                    >
+                      <SpecialistTaskCard
+                        task={entry.task}
+                        onOpenTask={onOpenChild}
+                      />
+                    </ChiefMessage>
+                  );
+                }
+                const { message } = entry;
+                if (message.role === "user") {
+                  return (
+                    <div id={`chief-message-${message.id}`}>
+                      <UserMessage
+                        author={userAuthor}
+                        attachments={imageParts(message)}
+                        metadata={null}
+                        channelReferences={channelReferences}
+                        onOpenChannel={onOpenChannel}
+                        onOpenProfile={openUserProfile}
+                        onOpenMention={openAgentMention}
+                        text={messageText(message)}
+                        timestamp={message.metadata?.createdAt}
+                      />
+                    </div>
+                  );
+                }
+                if (threadBlocks(message).length === 0) return null;
+                const respondingAgent = respondingAgentFor(message);
+                const specialist = threadRootId
+                  ? activeSpecialistByThread.get(threadRootId)
+                  : undefined;
                 return (
                   <ChiefMessage
-                    key={entry.task.id}
-                    agent={{
-                      id: agentId,
-                      name: identity.name,
-                      role: identity.role,
-                    }}
+                    messageId={message.id}
+                    activity={
+                      specialist && respondingAgent?.id === specialist.agent
+                        ? specialist
+                        : undefined
+                    }
+                    agent={respondingAgent}
                     metadata={null}
+                    onOpenProfile={selectProfile}
+                    timestamp={message.metadata?.createdAt}
                   >
-                    <SpecialistTaskCard
-                      task={entry.task}
+                    <MessageBlocksContent
+                      message={message}
+                      filter={threadBlocks}
+                      progress={controls.toolProgress}
+                      capabilities={activeCapabilities}
+                      active={controls.status === "running"}
+                      tasks={childSessions}
+                      taskOwners={childSessionOwners}
+                      ownerId={message.id}
+                      channelReferences={channelReferences}
+                      onOpenChannel={onOpenChannel}
                       onOpenTask={onOpenChild}
                     />
                   </ChiefMessage>
                 );
-              }
-              const { message } = entry;
-              if (message.role === "user") {
-                return (
-                  <div id={`chief-message-${message.id}`} key={message.id}>
-                    <UserMessage
-                      author={userAuthor}
-                      attachments={imageParts(message)}
-                      metadata={null}
-                      onOpenProfile={openUserProfile}
-                      onOpenMention={openAgentMention}
-                      text={messageText(message)}
-                    />
-                  </div>
-                );
-              }
-              if (threadBlocks(message).length === 0) return null;
-              const respondingAgent = respondingAgentFor(message);
-              const specialist = threadRootId
-                ? activeSpecialistByThread.get(threadRootId)
-                : undefined;
-              return (
-                <ChiefMessage
-                  key={message.id}
-                  messageId={message.id}
-                  activity={
-                    specialist && respondingAgent?.id === specialist.agent
-                      ? specialist
-                      : undefined
-                  }
-                  agent={respondingAgent}
-                  metadata={null}
-                  onOpenProfile={selectProfile}
-                >
-                  <MessageBlocksContent
-                    message={message}
-                    filter={threadBlocks}
-                    progress={controls.toolProgress}
-                    capabilities={activeCapabilities}
-                    active={controls.status === "running"}
-                    tasks={childSessions}
-                    taskOwners={childSessionOwners}
-                    ownerId={message.id}
-                    onOpenTask={onOpenChild}
-                  />
-                </ChiefMessage>
-              );
-            })}
+              }}
+            />
             {controls.questions.map((pending) => (
               <div key={pending.requestId} className="mx-auto max-w-3xl">
                 <QuestionCard

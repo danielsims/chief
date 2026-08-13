@@ -19,6 +19,7 @@ import {
   ChannelMessageMeta,
 } from "./channel-message-controls";
 import { conversationVisibleBlocks } from "./conversation-visible-blocks";
+import { specialistNeedsUserInThread } from "./specialist-task-display";
 import { summarizeThreadReplyCandidates } from "./thread-reply-summary";
 
 type Core = ReturnType<typeof useChiefChatCore>;
@@ -47,6 +48,15 @@ export function useChiefChatPresentation({
   const { setThreadRootId, threadRootId } = composer;
   const { activeSpecialistByThread, activeThreadReplies, threadReplies } =
     timeline;
+  const openActionSourceIds = useMemo(
+    () =>
+      new Set(
+        core.workspaceData.actionItems.flatMap((action) =>
+          action.status === "open" && action.sourceId ? [action.sourceId] : [],
+        ),
+      ),
+    [core.workspaceData.actionItems],
+  );
   const visibleConversationBlocks = useCallback(
     (message: ChiefUIMessage) =>
       conversationVisibleBlocks(withoutMarkerLines(messageBlocks(message))),
@@ -100,6 +110,7 @@ export function useChiefChatPresentation({
     };
     const toggleReaction = (emoji: string) =>
       channelReactions.toggleReaction(message.id, emoji);
+    const specialist = activeSpecialistByThread.get(message.id);
     const participants = replySummary.visibleReplies.flatMap(
       (reply): ThreadParticipant[] => {
         if (reply.role === "user") {
@@ -141,7 +152,16 @@ export function useChiefChatPresentation({
           lastReplyAt={replySummary.lastReplyAt}
           participants={participants}
           reactions={channelReactions.reactions.get(message.id) ?? []}
-          specialist={activeSpecialistByThread.get(message.id)}
+          specialist={specialist}
+          needsUser={
+            specialist
+              ? specialistNeedsUserInThread(
+                  specialist,
+                  message.id,
+                  openActionSourceIds,
+                )
+              : false
+          }
           onOpenThread={openThread}
           onToggleReaction={toggleReaction}
         />

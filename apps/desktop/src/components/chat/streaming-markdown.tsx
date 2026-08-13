@@ -4,11 +4,12 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
+import type { ChannelReferenceTarget } from "./channel-reference-parser";
 import {
   markdownLinkTarget,
   normalizeLocalFileLinks,
 } from "../../lib/markdown-link-target";
-import { AgentMentionText } from "./agent-mention";
+import { ChannelReferenceText } from "./channel-reference";
 import {
   messageSkill,
   MessageSkillChip,
@@ -70,6 +71,8 @@ function MarkdownImage({
 
 function highlightReferences(
   children: ReactNode,
+  channels: readonly ChannelReferenceTarget[],
+  onOpenChannel?: (channelId: string) => void,
   onOpenMention?: (agentId: WorkspaceAgentId) => void,
 ) {
   return Children.map(children, (child) =>
@@ -82,8 +85,10 @@ function highlightReferences(
               label={segment.label}
             />
           ) : (
-            <AgentMentionText
+            <ChannelReferenceText
+              channels={channels}
               key={`${index}:${segment.value}`}
+              onOpenChannel={onOpenChannel}
               text={segment.value}
               onOpenMention={onOpenMention}
             />
@@ -96,10 +101,14 @@ function highlightReferences(
 export function StreamingMarkdown({
   children,
   streaming = false,
+  channels = [],
+  onOpenChannel,
   onOpenMention,
 }: {
   children: string;
   streaming?: boolean;
+  channels?: readonly ChannelReferenceTarget[];
+  onOpenChannel?: (channelId: string) => void;
   onOpenMention?: (agentId: WorkspaceAgentId) => void;
 }) {
   const { inlineText } = messageSkill(children);
@@ -112,24 +121,41 @@ export function StreamingMarkdown({
         ...props
       }: ComponentPropsWithoutRef<"p">) => (
         <p {...props}>
-          {highlightReferences(paragraphChildren, onOpenMention)}
+          {highlightReferences(
+            paragraphChildren,
+            channels,
+            onOpenChannel,
+            onOpenMention,
+          )}
         </p>
       ),
       li: ({
         children: itemChildren,
         ...props
       }: ComponentPropsWithoutRef<"li">) => (
-        <li {...props}>{highlightReferences(itemChildren, onOpenMention)}</li>
+        <li {...props}>
+          {highlightReferences(
+            itemChildren,
+            channels,
+            onOpenChannel,
+            onOpenMention,
+          )}
+        </li>
       ),
     }),
-    [onOpenMention],
+    [channels, onOpenChannel, onOpenMention],
   );
   return (
     <div className="max-w-full min-w-0 overflow-hidden [overflow-wrap:anywhere] [&_a]:break-all [&_code]:break-all [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
       <Suspense
         fallback={
           <div className="max-w-full [overflow-wrap:anywhere] break-all whitespace-pre-wrap">
-            {highlightReferences(inlineText, onOpenMention)}
+            {highlightReferences(
+              inlineText,
+              channels,
+              onOpenChannel,
+              onOpenMention,
+            )}
           </div>
         }
       >

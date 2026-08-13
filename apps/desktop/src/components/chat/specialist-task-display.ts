@@ -1,6 +1,9 @@
 interface SpecialistTask {
   id: string;
   agent: string;
+  parentId?: string;
+  status?: string;
+  triggerContext?: Record<string, unknown>;
   triggerId?: string;
 }
 
@@ -13,6 +16,26 @@ interface TranscriptMessage<TBlock extends ToolBlock> {
   id: string;
   role: string;
   blocks: readonly TBlock[];
+}
+
+/** Render task cards only in the conversation that owns their execution. */
+export function specialistTaskBelongsToConversation(
+  task: SpecialistTask,
+  conversationId: string,
+) {
+  return task.parentId === conversationId;
+}
+
+/** A waiting state is actionable only in the thread that owns the work. */
+export function specialistNeedsUserInThread(
+  task: SpecialistTask,
+  threadRootId: string,
+  openActionSourceIds: ReadonlySet<string>,
+) {
+  return (
+    openActionSourceIds.has(task.id) &&
+    task.triggerContext?.threadRootId === threadRootId
+  );
 }
 
 export function chronologicallyMergeSpecialistTasks<

@@ -19,7 +19,7 @@ void test("working specialists use the animated rounded matrix", () => {
   assert.doesNotMatch(html, /animate-none/u);
 });
 
-void test("failed specialists retain a frozen red matrix", () => {
+void test("failed specialists return to their normal avatar", () => {
   const html = renderToStaticMarkup(
     createElement(SpecialistStatusIndicator, {
       agent: "prospector",
@@ -27,13 +27,11 @@ void test("failed specialists retain a frozen red matrix", () => {
     }),
   );
 
-  assert.match(html, /aria-label="Failed"/u);
-  assert.match(html, /text-red-500/u);
-  assert.match(html, /animate-none/u);
-  assert.doesNotMatch(html, /rounded-full bg-red-500/u);
+  assert.match(html, /aria-label="Prospector"/u);
+  assert.doesNotMatch(html, /matrix-loader-cell/u);
 });
 
-void test("completed specialists keep a quiet frozen matrix", () => {
+void test("completed specialists return to their normal avatar", () => {
   const html = renderToStaticMarkup(
     createElement(SpecialistStatusIndicator, {
       agent: "brand",
@@ -41,7 +39,18 @@ void test("completed specialists keep a quiet frozen matrix", () => {
     }),
   );
 
-  assert.match(html, /aria-label="Complete"/u);
-  assert.match(html, /animate-none/u);
-  assert.match(html, /opacity-45/u);
+  assert.match(html, /aria-label="Marketer"/u);
+  assert.doesNotMatch(html, /matrix-loader-cell/u);
+});
+
+void test("specialists waiting for the user return to their normal avatar", () => {
+  const html = renderToStaticMarkup(
+    createElement(SpecialistStatusIndicator, {
+      agent: "setup",
+      status: "waiting",
+    }),
+  );
+
+  assert.match(html, /aria-label="Setup"/u);
+  assert.doesNotMatch(html, /matrix-loader-cell/u);
 });

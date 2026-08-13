@@ -17,6 +17,7 @@ void test("activity history groups tool calls under the user turn that triggered
       createdAt: 11,
       blocks: [
         { type: "text", text: "I’ll check it now." },
+        { type: "thinking", thinking: "Find the relevant files first." },
         { type: "tool_use", id: "tool-1", name: "read", input: {} },
       ],
     },
@@ -50,7 +51,7 @@ void test("activity history groups tool calls under the user turn that triggered
       {
         id: "user-1",
         prompt: "Audit the repository",
-        blockTypes: ["tool_use", "tool_result"],
+        blockTypes: ["thinking", "tool_use", "tool_result"],
       },
       {
         id: "user-2",

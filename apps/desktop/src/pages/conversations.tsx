@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useMemo, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { defaultAgents } from "@chief/agent-runtime/agent-roster";
@@ -19,11 +19,12 @@ import {
 import { useConversationAuxiliaryPanelSizing } from "../components/chat/conversation-auxiliary-panel";
 import { ConversationErrorBoundary } from "../components/chat/conversation-error-boundary";
 import { ConversationHeader } from "../components/chat/conversation-header";
+import { useRunningChats } from "../components/chat/use-running-chats";
 import { useAuth } from "../lib/auth/auth-context";
 import {
-  withConversationChild,
   withConversationThread,
   withoutConversationChild,
+  withResolvedConversationChild,
 } from "../lib/conversation-navigation";
 import { INTEGRATION_CATALOG } from "../lib/integration-catalog";
 import {
@@ -51,45 +52,8 @@ const DEFAULT_WORKSPACE_CHANNEL =
   WORKSPACE_CHANNELS.find((channel) => channel.id === "general") ??
   WORKSPACE_CHANNELS[0];
 
-function useRunningChats(): Record<string, boolean> {
-  const { client } = useRuntime();
-  const [running, setRunning] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    const unsubscribe = client.subscribe((message) => {
-      if (message.type === "message" && message.message.role === "user") {
-        setRunning((current) => ({
-          ...current,
-          [message.chatId]: true,
-        }));
-        return;
-      }
-      if (message.type !== "event") return;
-      const event = message.event;
-      const next =
-        event.type === "stream" ||
-        (event.type === "message" && event.role === "user") ||
-        (event.type === "status" && event.status === "running")
-          ? true
-          : event.type === "result" ||
-              event.type === "error" ||
-              event.type === "exit" ||
-              (event.type === "status" && event.status !== "running")
-            ? false
-            : undefined;
-      if (next === undefined) return;
-      setRunning((current) =>
-        current[message.chatId] === next
-          ? current
-          : { ...current, [message.chatId]: next },
-      );
-    });
-    return () => {
-      unsubscribe();
-    };
-  }, [client]);
-
-  return running;
+function conversationChannelVisibility(visibility: string | undefined) {
+  return visibility === "private" ? ("private" as const) : ("public" as const);
 }
 
 export function ConversationsPage() {
@@ -130,6 +94,9 @@ export function ConversationsPage() {
         label: resolvedRuntimeChannel.name,
         description: resolvedRuntimeChannel.description,
         agentIds: resolvedRuntimeChannel.agentIds,
+        visibility: conversationChannelVisibility(
+          resolvedRuntimeChannel.visibility,
+        ),
       }
     : (staticRequestedChannel ?? staticChannelRequestedByChat);
   const requestedDirectMessage = workspaceDirectMessage(params.get("dm"));
@@ -148,6 +115,9 @@ export function ConversationsPage() {
           label: defaultRuntimeChannel.name,
           description: defaultRuntimeChannel.description,
           agentIds: defaultRuntimeChannel.agentIds,
+          visibility: conversationChannelVisibility(
+            defaultRuntimeChannel.visibility,
+          ),
         }
       : DEFAULT_WORKSPACE_CHANNEL);
   const isDefaultChannelRoute =
@@ -259,6 +229,23 @@ export function ConversationsPage() {
   const isNew = Boolean(activeChatId && !localChats.loading && !activeEntry);
   const activeView =
     !directIdentity && params.get("view") === "canvas" ? "canvas" : "messages";
+  const channelReferences = useMemo(
+    () =>
+      workspaceChannels.channels
+        .filter((channel) => channel.visibility !== "direct")
+        .map((channel) => ({
+          id: channel.id,
+          name: channel.name,
+          slug: channel.slug,
+        })),
+    [workspaceChannels.channels],
+  );
+  const openReferencedChannel = useCallback(
+    (channelId: string) => {
+      void navigate(`/conversations?channel=${encodeURIComponent(channelId)}`);
+    },
+    [navigate],
+  );
 
   useEffect(() => {
     if (!legacySetupPath) return;
@@ -345,6 +332,18 @@ export function ConversationsPage() {
       return next;
     });
   };
+  const openChild = (childId: string) => {
+    setParams((current) =>
+      withResolvedConversationChild(
+        current,
+        childId,
+        workspaceData.activity,
+        workspaceChannels.channels,
+        activeChatId,
+        activeConversationChannel?.id,
+      ),
+    );
+  };
   const conversationHeader = (
     <ConversationHeader
       channel={activeChannel}
@@ -386,6 +385,8 @@ export function ConversationsPage() {
                 initialThreadRootId={params.get("thread") ?? undefined}
                 isNew={isNew}
                 channel={activeConversationChannel}
+                channelReferences={channelReferences}
+                onOpenChannel={openReferencedChannel}
                 directAgent={
                   directIdentity && requestedDirectMessage
                     ? {
@@ -443,16 +444,7 @@ export function ConversationsPage() {
                     withoutConversationChild(current, returnThreadRootId),
                   )
                 }
-                onOpenChild={(childId) =>
-                  setParams((current) =>
-                    withConversationChild(
-                      current,
-                      childId,
-                      activeChatId,
-                      activeConversationChannel?.id,
-                    ),
-                  )
-                }
+                onOpenChild={openChild}
                 onThreadRootChange={(threadRootId) =>
                   setParams(
                     (current) => withConversationThread(current, threadRootId),
