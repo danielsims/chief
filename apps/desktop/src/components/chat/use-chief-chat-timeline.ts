@@ -1,11 +1,7 @@
 import type { RefObject } from "react";
 import { useEffect, useMemo, useRef } from "react";
 
-import type {
-  BrowserRunRecord,
-  ChiefUIMessage,
-  SessionRecord,
-} from "@chief/agent-runtime/types";
+import type { ChiefUIMessage, SessionRecord } from "@chief/agent-runtime/types";
 
 import type { useChannelReadState } from "../../lib/channel-read-state-context";
 import type { useRuntime } from "../../lib/runtime";
@@ -18,16 +14,11 @@ import { messageBlocks } from "../../lib/runtime";
 import { resolveBrowserRunAnchors } from "./browser-run-placement";
 import { threadAgentAudience } from "./channel-thread-audience";
 import { browserOpenBlockIn } from "./chief-chat-message-components";
+import { conversationTimelineEntries } from "./conversation-timeline-entries";
 import {
-  chronologicallyMergeSpecialistTasks,
   specialistTaskBelongsToConversation,
   specialistTaskOwners,
 } from "./specialist-task-display";
-
-export type TimelineEntry =
-  | { type: "message"; message: ChiefUIMessage }
-  | { type: "browser"; key: string; run: BrowserRunRecord }
-  | { type: "specialist"; task: SessionRecord };
 
 type ReadState = ReturnType<typeof useChannelReadState>;
 type Runtime = ReturnType<typeof useRuntime>;
@@ -107,18 +98,6 @@ export function useChiefChatTimeline({
         childSessions,
       ),
     [childSessions, messages],
-  );
-  const mainTimelineChildSessions = useMemo(
-    () =>
-      childSessions.filter((task) => {
-        if (!specialistTaskBelongsToConversation(task, chatId)) return false;
-        if (typeof task.triggerContext?.threadRootId === "string") return false;
-        const ownerId = childSessionOwners.get(task.id);
-        if (!ownerId) return true;
-        const owner = messages.find((message) => message.id === ownerId);
-        return !owner?.metadata?.threadRootId;
-      }),
-    [chatId, childSessionOwners, childSessions, messages],
   );
   const activeThreadChildSessions = useMemo(
     () =>
@@ -331,14 +310,13 @@ export function useChiefChatTimeline({
 
   const timelineEntries = useMemo(
     () =>
-      mergeTimelineEntries(
+      conversationTimelineEntries(
         messages,
-        mainTimelineChildSessions,
         chatBrowserRuns,
         browserRunAnchors,
         null,
       ),
-    [browserRunAnchors, chatBrowserRuns, mainTimelineChildSessions, messages],
+    [browserRunAnchors, chatBrowserRuns, messages],
   );
   const activeThreadBrowserRuns = useMemo(() => {
     const childSessionIds = new Set(
@@ -350,15 +328,13 @@ export function useChiefChatTimeline({
   }, [activeThreadChildSessions, chatBrowserRuns, threadRootId]);
   const threadReplyEntries = useMemo(
     () =>
-      mergeTimelineEntries(
+      conversationTimelineEntries(
         activeThreadReplies,
-        activeThreadChildSessions,
         activeThreadBrowserRuns,
         browserRunAnchors,
         threadRootId,
       ),
     [
-      activeThreadChildSessions,
       activeThreadReplies,
       activeThreadBrowserRuns,
       browserRunAnchors,
@@ -382,49 +358,4 @@ export function useChiefChatTimeline({
     threadReplyEntries,
     timelineEntries,
   };
-}
-
-function mergeTimelineEntries(
-  messages: readonly ChiefUIMessage[],
-  tasks: readonly SessionRecord[],
-  runs: readonly BrowserRunRecord[],
-  anchors: ReadonlyMap<string, string>,
-  threadRootId: string | null,
-): TimelineEntry[] {
-  const entries: TimelineEntry[] = [];
-  const placed = new Set<string>();
-  for (const entry of chronologicallyMergeSpecialistTasks(messages, tasks)) {
-    if (entry.type === "specialist") {
-      entries.push(entry);
-      continue;
-    }
-    if ((entry.message.metadata?.threadRootId ?? null) !== threadRootId) {
-      continue;
-    }
-    entries.push({ type: "message", message: entry.message });
-    for (const run of runs) {
-      if (
-        (run.threadRootId ?? null) !== threadRootId ||
-        anchors.get(run.id) !== entry.message.id
-      ) {
-        continue;
-      }
-      entries.push({ type: "browser", key: `browser:${run.id}`, run });
-      placed.add(run.id);
-    }
-  }
-  for (const run of runs) {
-    if ((run.threadRootId ?? null) === threadRootId && !placed.has(run.id)) {
-      entries.push({ type: "browser", key: `browser:${run.id}`, run });
-    }
-  }
-  return entries;
-}
-
-export function timelineEntryCreatedAt(entry: TimelineEntry) {
-  return entry.type === "message"
-    ? entry.message.metadata?.createdAt
-    : entry.type === "browser"
-      ? entry.run.createdAt
-      : entry.task.createdAt;
 }

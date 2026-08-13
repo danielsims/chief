@@ -28,7 +28,6 @@ import {
   ConversationEmptyState,
   MessageBlocksContent,
 } from "./chief-chat-message-components";
-import { SpecialistTaskCard } from "./message-blocks";
 import { QuestionCard } from "./question-card";
 import { RecurringWorkComposer } from "./recurring-work-composer";
 import { useChiefChatComposer } from "./use-chief-chat-composer";
@@ -269,16 +268,6 @@ export function ChiefChat({
                 renderEntry={(entry) => {
                   if (entry.type === "browser") {
                     return browserAttachmentNode(entry.run);
-                  }
-                  if (entry.type === "specialist") {
-                    return (
-                      <div className="mx-auto w-full max-w-3xl pl-11">
-                        <SpecialistTaskCard
-                          task={entry.task}
-                          onOpenTask={onOpenChild}
-                        />
-                      </div>
-                    );
                   }
                   const { message } = entry;
                   if (message.metadata?.channelAction) {

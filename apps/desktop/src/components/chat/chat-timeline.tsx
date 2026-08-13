@@ -1,16 +1,12 @@
 import type { ReactNode } from "react";
 import { Fragment } from "react";
 
-import type { TimelineEntry } from "./use-chief-chat-timeline";
+import type { TimelineEntry } from "./conversation-timeline-entries";
 import { ChatDateSeparator, chatDayKey } from "./chat-date-time";
-import { timelineEntryCreatedAt } from "./use-chief-chat-timeline";
+import { timelineEntryCreatedAt } from "./conversation-timeline-entries";
 
 function timelineEntryKey(entry: TimelineEntry) {
-  return entry.type === "browser"
-    ? entry.key
-    : entry.type === "specialist"
-      ? entry.task.id
-      : entry.message.id;
+  return entry.type === "browser" ? entry.key : entry.message.id;
 }
 
 export function ChatTimeline({
