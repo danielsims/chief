@@ -12,10 +12,12 @@ import { Toaster } from "sonner";
 
 import { Button } from "@chief/ui/components/button";
 
+import { PluginToolCardsPreview } from "./components/chat/plugin-tool-card";
 import { EntryState } from "./components/entry-state";
 import { Layout } from "./components/layout";
 import { MessageDeepLinkHandler } from "./components/message-deep-link-handler";
 import { PageTitle } from "./components/page-title";
+import { PluginMarketplacePreview } from "./components/plugin-marketplace-dialog";
 import { AgentConfigProvider } from "./lib/agent-config";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
 import {
@@ -224,6 +226,21 @@ function AuthSessionBoundary({ children }: { children: ReactNode }) {
 function AuthenticatedApp() {
   const { isAuthenticated, isLoading } = useAuth();
   const { resolved } = useTheme();
+
+  if (
+    import.meta.env.DEV &&
+    new URLSearchParams(window.location.search).get("preview") ===
+      "agent-plugins"
+  ) {
+    return <PluginMarketplacePreview />;
+  }
+  if (
+    import.meta.env.DEV &&
+    new URLSearchParams(window.location.search).get("preview") ===
+      "agent-plugin-cards"
+  ) {
+    return <PluginToolCardsPreview />;
+  }
 
   if (isLoading) {
     return <EntryState />;

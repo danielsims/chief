@@ -3,11 +3,13 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { channelOpenApiPaths, channelOpenApiSchemas } from "@chief/channel-api";
+import { pluginOpenApiPaths, pluginOpenApiSchemas } from "@chief/plugin-api";
 
 import type { BrowserLocalToolContext } from "./browser-local-tools.js";
 import type { ChannelLocalToolContext } from "./channel-local-tools.js";
 import type { IntegrationSetupLocalToolContext } from "./integration-setup-local-tools.js";
 import type { SessionManager } from "./manager.js";
+import type { PluginLocalToolService } from "./plugin-local-tools.js";
 import type { ScheduledWorkRunner } from "./scheduled-work-local-tools.js";
 import type {
   AnalyticsDataset,
@@ -31,6 +33,7 @@ import {
   integrationSetupOpenApiPaths,
   integrationSetupOpenApiSchemas,
 } from "./integration-setup-local-tools.js";
+import { handlePluginLocalTool } from "./plugin-local-tools.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
 import { handleScheduledWorkLocalTool } from "./scheduled-work-local-tools.js";
 import { runSpecialistDelegation } from "./specialist-delegation.js";
@@ -413,6 +416,7 @@ export function localToolsOpenApi(origin: string) {
         },
       },
       ...channelOpenApiPaths(body),
+      ...pluginOpenApiPaths(body),
       "/local-tools/trends": {
         get: {
           operationId: "trends.list",
@@ -1098,6 +1102,7 @@ export function localToolsOpenApi(origin: string) {
             revenue: { type: "number", minimum: 0 },
           },
         },
+        ...pluginOpenApiSchemas,
         RecurringWorkInput: {
           type: "object",
           additionalProperties: false,
@@ -1215,6 +1220,7 @@ export type LocalToolContext = BrowserLocalToolContext &
         propertyId: string,
       ) => Promise<unknown>;
     };
+    plugins?: PluginLocalToolService;
   };
 
 export async function handleLocalTool(
@@ -1238,6 +1244,12 @@ export async function handleLocalTool(
     !Array.isArray(rawChannelBody)
       ? (rawChannelBody as Record<string, unknown>)
       : {};
+  const pluginResult = await handlePluginLocalTool(
+    request,
+    channelBody,
+    context.plugins,
+  );
+  if (pluginResult) return pluginResult;
   const channelResult = await handleChannelLocalTool(
     request,
     workspaceId,

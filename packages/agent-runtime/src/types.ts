@@ -3,10 +3,19 @@
 import type { UIMessage } from "ai";
 
 import type { ScheduledWorkTrigger } from "@chief/channel-api";
+import type {
+  AgentPluginSummary,
+  PluginAuthorizationAction,
+} from "@chief/plugin-api";
 
 import type * as Artifacts from "./artifact-types.js";
 import type { ChannelServerMessage } from "./channel-types.js";
 import type { IntegrationSetupPhase } from "./integration-setup-recipes.js";
+
+export type {
+  AgentPluginSummary,
+  PluginAuthorizationAction,
+} from "@chief/plugin-api";
 
 export type {
   ChannelActor,
@@ -597,6 +606,8 @@ export interface McpServerSpec {
   name: string;
   command: string;
   args: string[];
+  /** Working directory for stdio servers. */
+  cwd?: string;
   env?: Record<string, string>;
   /**
    * Streamable-HTTP endpoint for the same server, for clients whose MCP
@@ -1023,6 +1034,26 @@ export type ServerMessage =
       type: "localIntegrationStatus";
       workspaceId: string;
       integrations: LocalIntegrationStatus[];
+    }
+  | {
+      type: "plugins";
+      workspaceId: string;
+      plugins: AgentPluginSummary[];
+      sources: {
+        id: string;
+        name: string;
+        homepage?: string;
+        enabled: boolean;
+      }[];
+      refreshedAt: number;
+      stale: boolean;
+      warning?: string;
+    }
+  | {
+      type: "pluginAuthorization";
+      workspaceId: string;
+      requestId: string;
+      action: PluginAuthorizationAction;
     }
   | {
       type: "integrationDisconnected";
