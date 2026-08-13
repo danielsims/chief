@@ -3,6 +3,7 @@ import test from "node:test";
 
 import type { ChannelEvent } from "@chief/agent-runtime/types";
 
+import { newSnapshotNotificationMessages } from "../src/lib/channel-read-state-storage";
 import {
   parseNotificationSoundPreferences,
   shouldPlayChannelNotification,
@@ -66,4 +67,37 @@ void test("reaction events never create notification sounds", () => {
     content: "👀",
   };
   assert.equal(shouldPlayChannelNotification(reaction), false);
+});
+
+void test("recovers notifications for messages missed during channel subscription", () => {
+  const oldMessage = {
+    id: "old",
+    channelId: "general",
+    createdAt: 99,
+    rootId: null,
+    sourceId: null,
+    threadSourceId: null,
+    content: "Already here",
+    actor: { type: "agent" as const, id: "chief", name: "Chief" },
+  };
+  const recoveredMessage = {
+    ...oldMessage,
+    id: "recovered",
+    createdAt: 101,
+    content: "Finished setup",
+  };
+  const alreadyNotified = {
+    ...recoveredMessage,
+    id: "live",
+    createdAt: 102,
+  };
+
+  assert.deepEqual(
+    newSnapshotNotificationMessages(
+      [oldMessage, recoveredMessage, alreadyNotified],
+      100,
+      new Set(["live"]),
+    ).map((entry) => entry.id),
+    ["recovered"],
+  );
 });

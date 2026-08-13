@@ -13,6 +13,12 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+mod native_notifications;
+
+use native_notifications::{
+    notification_environment, request_native_notification_permission, show_native_notification,
+};
+
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
@@ -686,42 +692,6 @@ fn activate_app_window(app: tauri::AppHandle) {
     focus_main_window(&app);
 }
 
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct NotificationEnvironment {
-    bundled: bool,
-}
-
-#[tauri::command]
-fn notification_environment(_app: tauri::AppHandle) -> NotificationEnvironment {
-    let executable = env::current_exe().unwrap_or_default();
-    NotificationEnvironment {
-        bundled: executable
-            .components()
-            .any(|component| component.as_os_str() == "Contents"),
-    }
-}
-
-#[tauri::command]
-fn show_native_notification(
-    app: tauri::AppHandle,
-    title: String,
-    body: String,
-    _target: Option<serde_json::Value>,
-) -> Result<(), String> {
-    use tauri_plugin_notification::NotificationExt;
-
-    app.notification()
-        .builder()
-        .title(&title)
-        .body(&body)
-        .show()
-        .map_err(|error| format!("native notification delivery failed: {error}"))?;
-    // Showing a notification is not clicking it. Queueing here makes the next
-    // focus event navigate to an old notification; clicks need a native callback.
-    Ok(())
-}
-
 #[tauri::command]
 fn take_pending_notification_activation(
     state: tauri::State<'_, PendingNotificationActivation>,
@@ -762,6 +732,7 @@ pub fn run() {
             greet,
             activate_app_window,
             notification_environment,
+            request_native_notification_permission,
             show_native_notification,
             take_pending_notification_activation
         ])
