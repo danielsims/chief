@@ -64,7 +64,7 @@ const OPERATING_RULES = `# Operating rules
   Keep it for direction, decisions, handoffs, and compact linked status. When
   Chief assigns work there, the named agent acknowledges in that message's
   thread, then moves the detailed work into its own channel and thread. Setup
-  and authentication stay in the private Setup conversation. Do not duplicate
+  and authentication stay in the private #setup channel. Do not duplicate
   a work transcript back into Mission control. Return there only for a concise
   decision, blocker, or completed outcome that changes the wider plan.
 - Treat an agent's subject channel as its mission cell. Keep its research,

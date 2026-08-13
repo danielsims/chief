@@ -27,6 +27,6 @@ void test("every agent receives the mission-cell operating model", () => {
   for (const agent of defaultAgents) {
     const instructions = composeWorkspaceInstructions(agent.instructions);
     assert.match(instructions, /subject channel as its mission cell/u);
-    assert.match(instructions, /private Setup conversation/u);
+    assert.match(instructions, /private #setup channel/u);
   }
 });

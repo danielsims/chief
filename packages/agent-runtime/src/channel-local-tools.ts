@@ -198,6 +198,26 @@ export async function handleChannelLocalTool(
 
     const parsed = parseChannelPath(path);
     if (!parsed) return { handled: false };
+    const storedChannel = await context.channelStore.get(
+      workspaceId,
+      parsed.channelId,
+    );
+    if (storedChannel?.visibility === "direct") {
+      const directMessageResult = await handleChannelMessageLocalTool({
+        request,
+        workspaceId,
+        body,
+        context,
+        channel: storedChannel,
+        tail: parsed.tail,
+      });
+      if (directMessageResult.handled) return directMessageResult;
+      fail(
+        "Channel was not found in this workspace.",
+        404,
+        "channel_not_found",
+      );
+    }
     const channel = await visibleChannel(
       context,
       workspaceId,

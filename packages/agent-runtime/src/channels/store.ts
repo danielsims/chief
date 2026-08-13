@@ -10,6 +10,7 @@ import type {
 } from "@chief/channel-api";
 
 import type { WorkspaceChannel } from "../types.js";
+import type { ChannelUpdateInput } from "./store-types.js";
 import * as schema from "../db/schema.js";
 import {
   readWorkspaceWaysOfWorking,
@@ -241,14 +242,7 @@ export class ChannelStore extends ChannelHistoryStore {
   async update(
     workspaceId: string,
     channelId: string,
-    input: {
-      name?: string;
-      topic?: string;
-      description?: string;
-      workstream?: ChannelWorkstream;
-      expectedVersion?: number;
-      actor?: ChannelActorIdentity;
-    },
+    input: ChannelUpdateInput,
   ) {
     const channel = await this.get(workspaceId, channelId);
     if (!channel) throw new Error("Channel was not found in this workspace.");
@@ -259,6 +253,7 @@ export class ChannelStore extends ChannelHistoryStore {
     const name = input.name?.trim() ?? channel.name;
     const topic = input.topic?.trim() ?? channel.topic;
     const description = input.description?.trim() ?? channel.description;
+    const visibility = input.visibility ?? channel.visibility;
     if (!name) throw new Error("Channel name is required.");
     if (name.length > 60) {
       throw new Error("Channel names can be at most 60 characters.");
@@ -277,6 +272,7 @@ export class ChannelStore extends ChannelHistoryStore {
         name,
         topic,
         description,
+        visibility,
         workstream: input.workstream ?? channel.workstream,
         version,
         updatedAt,
@@ -296,6 +292,7 @@ export class ChannelStore extends ChannelHistoryStore {
       name,
       topic,
       description,
+      visibility,
       workstream: input.workstream ?? channel.workstream,
       version,
       updatedAt,
@@ -309,7 +306,7 @@ export class ChannelStore extends ChannelHistoryStore {
         id: "workspace-owner",
         name: "Workspace owner",
       },
-      { version },
+      { version, visibility },
     );
     return updated;
   }

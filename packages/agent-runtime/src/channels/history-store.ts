@@ -202,6 +202,37 @@ export abstract class ChannelHistoryStore {
     return { ...channel, agentIds: nextAgentIds, version, updatedAt };
   }
 
+  async setUsers(
+    workspaceId: string,
+    channelId: string,
+    userIds: readonly string[],
+  ) {
+    const channel = await this.get(workspaceId, channelId);
+    if (!channel || channel.visibility === "direct") return channel;
+    const nextUserIds = [...new Set(userIds)];
+    if (
+      nextUserIds.length === channel.userIds.length &&
+      nextUserIds.every((userId) => channel.userIds.includes(userId))
+    ) {
+      return channel;
+    }
+    const updatedAt = Date.now();
+    const version = channel.version + 1;
+    const result = await this.database()
+      .update(schema.channels)
+      .set({ userIds: nextUserIds, version, updatedAt })
+      .where(
+        and(
+          eq(schema.channels.organizationId, workspaceId),
+          eq(schema.channels.id, channel.id),
+          eq(schema.channels.version, channel.version),
+        ),
+      )
+      .run();
+    this.assertWriteApplied(result.rowsAffected);
+    return { ...channel, userIds: nextUserIds, version, updatedAt };
+  }
+
   async audit(
     workspaceId: string,
     channelId: string,
