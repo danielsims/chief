@@ -249,6 +249,7 @@ export function ChiefChat({
     composer: composerState,
     core,
     directAgent,
+    onOpenChild,
     onOpenInternalPanel,
     timeline: timelineState,
   });

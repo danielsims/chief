@@ -211,6 +211,7 @@ export function ChannelMessageMeta({
   participants,
   reactions,
   onOpenThread,
+  onOpenSpecialistActivity,
   onToggleReaction,
   specialist,
   needsUser = false,
@@ -224,6 +225,7 @@ export function ChannelMessageMeta({
   participants: readonly ThreadParticipant[];
   reactions: readonly ChannelReactionSummary[];
   onOpenThread: () => void;
+  onOpenSpecialistActivity: () => void;
   onToggleReaction: (emoji: string) => void;
   specialist?: SessionRecord;
   needsUser?: boolean;
@@ -279,9 +281,11 @@ export function ChannelMessageMeta({
         </div>
       ) : null}
       {specialistWorking && specialist ? (
-        <div
-          className="text-muted-foreground flex h-8 items-center gap-2 px-1.5 text-xs"
-          aria-label={`${specialistIdentity?.name ?? specialist.title} is working`}
+        <button
+          type="button"
+          onClick={onOpenSpecialistActivity}
+          className="group/activity text-muted-foreground hover:bg-accent/60 hover:text-foreground focus-visible:ring-ring flex h-8 max-w-full items-center gap-2 rounded-lg px-1.5 pr-2.5 text-left text-xs transition-[background-color,color] outline-none focus-visible:ring-2"
+          aria-label={`${specialistIdentity?.name ?? specialist.title} is working. View activity.`}
         >
           <span className="bg-background ring-background grid size-5 place-items-center rounded-md ring-2">
             <SpecialistStatusIndicator
@@ -290,10 +294,13 @@ export function ChannelMessageMeta({
               className="size-4"
             />
           </span>
-          <span className="font-medium">
+          <span className="min-w-0 truncate font-medium">
             {specialistIdentity?.name ?? specialist.title} is working…
           </span>
-        </div>
+          <span className="text-muted-foreground/70 shrink-0 text-[10px] opacity-0 transition-opacity group-hover/activity:opacity-100 group-focus-visible/activity:opacity-100">
+            View activity
+          </span>
+        </button>
       ) : null}
       {replyCount > 0 ? (
         <button
