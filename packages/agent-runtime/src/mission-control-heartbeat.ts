@@ -14,6 +14,7 @@ export const MISSION_CONTROL_HEARTBEAT_OPERATION_KEY =
 
 const HEARTBEAT_CRON = "0 9 * * *";
 const HEARTBEAT_LOCAL_PERMISSIONS = [
+  "workspace.write",
   "channels.read",
   "channels.create",
   "channels.update",
@@ -24,11 +25,16 @@ const HEARTBEAT_LOCAL_PERMISSIONS = [
   "messages.send",
 ] as const satisfies readonly AgentToolPermission[];
 
-const HEARTBEAT_INSTRUCTIONS = `Wake up as Chief and assess the workspace.
+const HEARTBEAT_INSTRUCTIONS = `Wake up as Chief and move the workspace forward.
 
-Read the workspace context and enough recent activity to understand what is happening now. Decide whether there is a useful next action. There is no fixed checklist or required workflow. Use the available channel and message primitives only when they help the actual situation. You may wake a relevant agent, continue useful work yourself, or leave the workspace alone.
+Read the workspace context, open user actions, and enough recent channel and thread activity to understand what is happening now. There is no fixed checklist or prescribed project type. Choose the smallest meaningful next move based on the actual workspace.
 
-The assigned mission channel is the coordination home, not a required output destination. Do not invent work, publish a routine status update, repeat an unchanged request, or wake an agent just to appear active. If nothing meaningful needs attention, do nothing and send nothing.`;
+You are not a status reporter. Never publish a passive recap of work that is already complete or unchanged. A successful heartbeat does one of these things:
+- advances useful work directly;
+- creates or reuses a focused channel, gives it a clear purpose, and wakes the right agent there;
+- raises one concrete user action with localTools.actionRaise when only the user can unblock progress.
+
+Use the mission channel for coordination, focused channels for delivery, and threads for the working record. Do not invent work, repeat an unchanged request, or wake an agent merely to appear active. If there is no meaningful move and no genuine user action, stay quiet.`;
 
 function localTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";

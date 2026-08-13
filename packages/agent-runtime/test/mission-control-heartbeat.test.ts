@@ -83,6 +83,7 @@ void test("mission control creates one quiet Chief heartbeat", async () => {
   assert.ok(heartbeat.grant);
   assert.deepEqual(heartbeat.grant.toolPatterns, []);
   assert.deepEqual(heartbeat.grant.localToolPermissions, [
+    "workspace.write",
     "channels.read",
     "channels.create",
     "channels.update",
@@ -92,11 +93,8 @@ void test("mission control creates one quiet Chief heartbeat", async () => {
     "messages.read",
     "messages.send",
   ]);
-  assert.match(heartbeat.instructions, /There is no fixed checklist/u);
-  assert.match(
-    heartbeat.instructions,
-    /If nothing meaningful needs attention/u,
-  );
+  assert.match(heartbeat.instructions, /not a status reporter/u);
+  assert.match(heartbeat.instructions, /no meaningful move/u);
   assert.doesNotMatch(heartbeat.instructions, /GitHub|marketing/u);
   assert.equal(
     shouldDeliverScheduledOutcomeNotice(heartbeat, "completed"),

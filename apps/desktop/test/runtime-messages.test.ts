@@ -151,6 +151,35 @@ void test("published replies retain the agent that authored them", () => {
   assert.equal(reply.metadata.threadRootId, "brand-assignment");
 });
 
+void test("a delayed scheduled publication uses its channel arrival time", () => {
+  const [published] = projectChannelTimeline(
+    [
+      {
+        id: "heartbeat-reply",
+        role: "assistant",
+        metadata: { createdAt: 9 * 60 * 60 * 1_000 },
+        parts: [{ type: "text", text: "Private scheduled output." }],
+      },
+    ],
+    [
+      {
+        protocol: "nip29",
+        kind: 9,
+        id: "heartbeat-event",
+        channelId: "mission-control",
+        pubkey: "chief",
+        actor: { type: "agent", id: "chief", name: "Chief" },
+        content: "I moved the active work forward.",
+        parts: [],
+        tags: [["client", "heartbeat-reply"]],
+        createdAt: 11.5 * 60 * 60 * 1_000,
+      },
+    ],
+  );
+
+  assert.equal(published?.metadata?.createdAt, 11.5 * 60 * 60 * 1_000);
+});
+
 void test("hides intentional cancellation and internal runtime failures", () => {
   assert.equal(visibleRuntimeError(" Turn interrupted "), undefined);
   assert.equal(visibleRuntimeError("Turn cancelled"), undefined);

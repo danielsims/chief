@@ -592,7 +592,12 @@ export class RecurringWorkScheduler {
     },
   ) {
     const workKey = `${workspaceId}:${work.id}`;
-    if (this.activeWork.has(workKey) || !work.grant) return;
+    if (
+      this.activeWork.has(workKey) ||
+      !work.grant ||
+      (claim && this.lastDeliveryTimes.get(workKey) === scheduledFor)
+    )
+      return;
 
     const skipped = work.skipDates?.includes(
       runDateKey(scheduledFor, work.timezone),
@@ -606,6 +611,10 @@ export class RecurringWorkScheduler {
         triggerContext,
       ))
     ) {
+      // The visible channel event has already been published. Suppress a
+      // duplicate occurrence in this process even if advancing the durable
+      // schedule briefly contends with another SQLite writer.
+      this.lastDeliveryTimes.set(workKey, scheduledFor);
       const completedAt = Date.now();
       const timeTriggered =
         !work.trigger || ["cron", "once"].includes(work.trigger.type);

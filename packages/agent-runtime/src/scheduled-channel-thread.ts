@@ -37,6 +37,13 @@ function threadInstructions(
   threadRootId: string,
   triggerContext?: Record<string, unknown>,
 ) {
+  const heartbeatOutcome =
+    work.operationKey === "chief-mission-control-heartbeat"
+      ? `
+- You are not a status reporter. A recap of existing state is not an outcome.
+- Before publishing a closing reply, either advance useful work yourself, open or reuse a focused work channel and wake its owner, or raise one concrete user action with localTools.actionRaise.
+- If nothing can be advanced and the user is not genuinely required, publish nothing. The quiet opening event will not notify them.`
+      : "";
   return `This scheduled channel message has started the following work:
 
 ${work.instructions}
@@ -51,7 +58,7 @@ Operating rules:
 - Before treating an existing message as unanswered, inspect recentReplies or read its complete thread. Never infer that a root is unanswered from search results alone.
 - When work belongs to an existing message, reply using that message's threadRootId. Do not post a detached top-level answer.
 - Post in another channel only when it advances real work. Claim an action completed only after its tool call succeeds.
-- Leave one concise closing reply here with what changed, what remains, or that no action was needed. Do not repeat the opening message or restate the same conclusion twice.`;
+- Leave one concise closing reply here with what changed or the exact action now required. Do not repeat the opening message or restate the same conclusion twice.${heartbeatOutcome}`;
 }
 
 /** Posts the scheduled message that wakes an agent in its owning channel. */
@@ -86,6 +93,7 @@ export async function beginScheduledChannelThread(
     },
     content: openingMessage(work),
     sourceId,
+    silent: true,
   });
   await manager.store.channelStore().appendEvent(workspaceId, event);
   broadcast(workspaceId, event);

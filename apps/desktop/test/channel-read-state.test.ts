@@ -94,6 +94,17 @@ void test("own messages and reactions never become unread activity", () => {
   );
 });
 
+void test("quiet scheduled openings do not create phantom unread activity", () => {
+  assert.equal(
+    observedChannelMessage({
+      ...message({ id: "heartbeat-opening", createdAt: 300 }),
+      tags: [["notification", "silent"]],
+      content: "I’m checking the workspace now.",
+    }),
+    null,
+  );
+});
+
 void test("a stale history snapshot cannot erase a newer live message", () => {
   const live = {
     id: "live",
