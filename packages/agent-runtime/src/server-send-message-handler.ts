@@ -8,6 +8,7 @@ import {
   channelReplyThreadRoot,
   channelRespondingAgentId,
 } from "./channel-reply-routing.js";
+import { AddressedChannelReplyFallback } from "./channel-response-fallback.js";
 import * as channelBridge from "./channels/server-bridge.js";
 import {
   normalizedExecution,
@@ -176,6 +177,10 @@ export async function handleSendMessage({
       .missionControlChannelId,
     mentions: msg.mentions,
   });
+  const channelReplyFallback =
+    respondingAgentId && destinationChannel
+      ? new AddressedChannelReplyFallback()
+      : undefined;
   // Follow-ups are durable before any interruption or execution
   // wait. That keeps the user's message visible even if stopping the
   // active provider takes a moment or fails and must fall back to a
@@ -412,7 +417,15 @@ export async function handleSendMessage({
       );
       bindRootSession(msg.workspaceId, msg.chatId, session);
     }
+    const replyThreadRootId = channelReplyThreadRoot({
+      isSharedChannel: Boolean(isSharedChannel),
+      mentions: msg.mentions,
+      messageId: msg.messageId,
+      text: msg.text,
+      threadRootId: msg.threadRootId,
+    });
     const terminalListener = (event: AgentEvent) => {
+      channelReplyFallback?.observe(event);
       if (
         event.type === "result" ||
         event.type === "error" ||
@@ -421,6 +434,33 @@ export async function handleSendMessage({
         session.off("event", terminalListener);
         releaseExecution?.();
         releaseExecution = undefined;
+        const fallback = channelReplyFallback?.completed(event);
+        if (fallback && respondingAgentId && destinationChannel) {
+          const respondingAgent = getAgent(respondingAgentId);
+          if (respondingAgent) {
+            void channelBridge
+              .mirrorEvent(
+                manager,
+                send,
+                msg.workspaceId,
+                msg.chatId,
+                {
+                  ...fallback,
+                  id: fallback.id ?? `${msg.messageId}:addressed-reply`,
+                  threadRootId: fallback.threadRootId ?? replyThreadRootId,
+                },
+                destinationChannel.id,
+                { id: respondingAgent.id, name: respondingAgent.name },
+                broadcastChannelEvent,
+              )
+              .catch((error: unknown) =>
+                console.error(
+                  "[runtime] addressed channel reply fallback:",
+                  error,
+                ),
+              );
+          }
+        }
         void finishAgentActivity().catch((error: unknown) =>
           console.error("[runtime] agent activity reaction cleanup:", error),
         );
@@ -428,13 +468,6 @@ export async function handleSendMessage({
     };
     releaseOnTerminal = terminalListener;
     session.on("event", terminalListener);
-    const replyThreadRootId = channelReplyThreadRoot({
-      isSharedChannel: Boolean(isSharedChannel),
-      mentions: msg.mentions,
-      messageId: msg.messageId,
-      text: msg.text,
-      threadRootId: msg.threadRootId,
-    });
     if (process.env.CHIEF_DEBUG_SESSION_FORCE === "1") {
       console.error(
         `[sendMessage] chatId=${msg.chatId} threadRootId=${
