@@ -1958,12 +1958,8 @@ function HealthControl({
         <ReadinessRow
           icon={Laptop}
           label={modeLabel(draft)}
-          detail={
-            runtimeStatus === "connected"
-              ? "The local agent service is reachable."
-              : "The local agent service is starting or reconnecting."
-          }
-          ready={runtimeReady}
+          detail="Agents will run on this computer using your local agent app."
+          ready
         />
         <ReadinessRow
           icon={Server}
