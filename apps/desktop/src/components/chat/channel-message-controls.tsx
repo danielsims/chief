@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { useState } from "react";
 import {
   Check,
+  CircleAlert,
   Copy,
   CornerUpLeft,
   Link2,
@@ -25,7 +26,10 @@ import { cn } from "@chief/ui/lib/utils";
 import type { ChannelReactionSummary } from "../../lib/channel-reactions";
 import { AgentAvatar } from "../agent-avatar";
 import { EMOJI_OPTIONS } from "./emoji-catalog";
-import { SpecialistStatusIndicator } from "./specialist-status-indicator";
+import {
+  specialistIsStartingOrWorking,
+  SpecialistStatusIndicator,
+} from "./specialist-status-indicator";
 
 const QUICK_REACTIONS = [
   { emoji: "💬", label: "React with speech balloon" },
@@ -208,6 +212,7 @@ export function ChannelMessageMeta({
   onOpenThread,
   onToggleReaction,
   specialist,
+  needsUser = false,
 }: {
   replies: readonly {
     role: "system" | "user" | "assistant";
@@ -220,6 +225,7 @@ export function ChannelMessageMeta({
   onOpenThread: () => void;
   onToggleReaction: (emoji: string) => void;
   specialist?: SessionRecord;
+  needsUser?: boolean;
 }) {
   if (replyCount === 0 && reactions.length === 0 && !specialist) return null;
   const lastReply = replies.at(-1);
@@ -267,7 +273,9 @@ export function ChannelMessageMeta({
           className="hover:bg-accent flex h-8 items-center gap-2 rounded-lg px-1.5 pr-2.5 text-left transition-colors"
         >
           <span className="flex -space-x-1">
-            {specialist ? (
+            {specialist &&
+            specialistIsStartingOrWorking(specialist.status) &&
+            specialist.status !== "waiting" ? (
               <span className="bg-background ring-background relative z-[1] grid size-5 place-items-center rounded-md ring-2">
                 <SpecialistStatusIndicator
                   agent={specialist.agent}
@@ -319,8 +327,9 @@ export function ChannelMessageMeta({
           <span className="text-muted-foreground text-xs">
             Last reply {relativeReplyTime(latestReplyAt)}
           </span>
-          {specialist?.status === "waiting" ? (
-            <span className="text-xs font-medium text-amber-300">
+          {needsUser ? (
+            <span className="flex items-center gap-1 text-xs font-medium text-amber-300">
+              <CircleAlert aria-hidden size={13} strokeWidth={2} />
               Needs you
             </span>
           ) : null}

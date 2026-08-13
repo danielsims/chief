@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Fragment, useEffect, useState } from "react";
-import { ArrowRight, Check, ChevronDown } from "lucide-react";
+import { ArrowRight, ChevronDown } from "lucide-react";
 
 import type {
   AgentCapabilityId,
@@ -9,12 +9,15 @@ import type {
 } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
 
+import type { ChannelReferenceTarget } from "./channel-reference-parser";
 import { renderGenerativePart } from "../generative-ui/registry";
 import { executorToolLabel } from "./executor-tool-label";
 import {
   INLINE_RESULT_CARD_CLASS,
   INLINE_RESULT_ICON_CLASS,
 } from "./inline-result-card";
+import { PluginToolCard } from "./plugin-tool-card";
+import { isPluginTool } from "./plugin-tool-data";
 import {
   specialistIsStartingOrWorking,
   SpecialistStatusIndicator,
@@ -138,15 +141,7 @@ export function SpecialistTaskCard({
       className={cn(INLINE_RESULT_CARD_CLASS, "text-xs")}
     >
       <span className={INLINE_RESULT_ICON_CLASS}>
-        {working || task.status === "failed" ? (
-          <SpecialistStatusIndicator agent={task.agent} status={task.status} />
-        ) : (
-          <Check
-            aria-hidden
-            className="text-muted-foreground shrink-0"
-            size={15}
-          />
-        )}
+        <SpecialistStatusIndicator agent={task.agent} status={task.status} />
       </span>
       <span className="min-w-0 flex-1">
         <strong className="block truncate font-medium">{task.title}</strong>
@@ -322,6 +317,8 @@ export function Blocks({
   tasks = [],
   taskOwners,
   ownerId,
+  channelReferences = [],
+  onOpenChannel,
   onOpenTask,
   toolAttachment,
 }: {
@@ -332,6 +329,8 @@ export function Blocks({
   tasks?: readonly SessionRecord[];
   taskOwners?: ReadonlyMap<string, string>;
   ownerId?: string;
+  channelReferences?: readonly ChannelReferenceTarget[];
+  onOpenChannel?: (channelId: string) => void;
   onOpenTask?: (taskId: string) => void;
   /**
    * A generic hook for tools that carry a rich inline UI (Chief's embedded
@@ -370,7 +369,12 @@ export function Blocks({
                 key={index}
                 className="chat-markdown max-w-full min-w-0 overflow-hidden text-sm leading-6 [overflow-wrap:anywhere]"
               >
-                <StreamingMarkdown>{block.text}</StreamingMarkdown>
+                <StreamingMarkdown
+                  channels={channelReferences}
+                  onOpenChannel={onOpenChannel}
+                >
+                  {block.text}
+                </StreamingMarkdown>
               </div>
             );
           case "data-chart":
@@ -404,6 +408,15 @@ export function Blocks({
             );
             if (attachment !== undefined) {
               return <Fragment key={block.id}>{attachment}</Fragment>;
+            }
+            if (isPluginTool(block.name)) {
+              return (
+                <PluginToolCard
+                  key={block.id}
+                  block={block}
+                  result={results.get(block.id)}
+                />
+              );
             }
             const blockTasks = specialistTasksForInput(block.input, tasks);
             const visibleTasks = blockTasks.filter(

@@ -4,10 +4,58 @@ import test from "node:test";
 import {
   chronologicallyMergeSpecialistTasks,
   ordinaryToolMessageGroups,
+  specialistNeedsUserInThread,
+  specialistTaskBelongsToConversation,
   specialistTaskForInput,
   specialistTaskOwners,
   specialistTasksForInput,
 } from "../src/components/chat/specialist-task-display.ts";
+
+void test("specialist cards render only in their owning conversation", () => {
+  const task = {
+    id: "brand-work",
+    agent: "brand",
+    parentId: "channel:workspace:marketing",
+  };
+
+  assert.equal(
+    specialistTaskBelongsToConversation(task, "channel:workspace:marketing"),
+    true,
+  );
+  assert.equal(
+    specialistTaskBelongsToConversation(
+      task,
+      "channel:workspace:mission-control",
+    ),
+    false,
+  );
+});
+
+void test("waiting work needs the user only in its owning setup thread", () => {
+  const task = {
+    id: "setup-work",
+    agent: "setup",
+    status: "waiting",
+    triggerContext: {
+      threadRootId: "setup-root",
+      originThreadRootId: "mission-root",
+    },
+  };
+
+  const explicitActions = new Set(["setup-work"]);
+  assert.equal(
+    specialistNeedsUserInThread(task, "setup-root", explicitActions),
+    true,
+  );
+  assert.equal(
+    specialistNeedsUserInThread(task, "mission-root", explicitActions),
+    false,
+  );
+  assert.equal(
+    specialistNeedsUserInThread(task, "setup-root", new Set()),
+    false,
+  );
+});
 
 void test("specialist cards keep their chronological place among later messages", () => {
   const messages = [

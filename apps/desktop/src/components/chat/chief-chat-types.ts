@@ -7,6 +7,7 @@ import type {
 } from "@chief/agent-runtime/types";
 
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
+import type { ChannelReferenceTarget } from "./channel-reference-parser";
 import type { ConversationAuxiliaryPanelSizing } from "./conversation-auxiliary-panel";
 import type { ConversationProfileSelection } from "./conversation-profile";
 
@@ -41,6 +42,8 @@ export interface ChiefChatProps {
   onInitialPromptSent?: () => void;
   onCloseChild?: (returnThreadRootId?: string) => void;
   onOpenChild?: (childId: string) => void;
+  channelReferences?: readonly ChannelReferenceTarget[];
+  onOpenChannel?: (channelId: string) => void;
   onThreadRootChange?: (threadRootId: string | null) => void;
   onOpenProfile?: (selection: ConversationProfileSelection) => void;
   onOpenInternalPanel?: () => void;

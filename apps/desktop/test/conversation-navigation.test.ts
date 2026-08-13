@@ -5,6 +5,7 @@ import {
   withConversationChild,
   withConversationThread,
   withoutConversationChild,
+  withOwnedConversationChild,
 } from "../src/lib/conversation-navigation.js";
 
 void test("closing nested agent work returns to its owning thread", () => {
@@ -44,4 +45,26 @@ void test("opening nested work in a DM does not inject a channel", () => {
   assert.equal(child.get("dm"), "setup");
   assert.equal(child.get("channel"), null);
   assert.equal(child.get("thread"), "thread-2");
+});
+
+void test("cross-channel nested work opens in its owning direct message", () => {
+  const next = withOwnedConversationChild(
+    new URLSearchParams("channel=mission-control&thread=origin"),
+    {
+      id: "setup-task",
+      parentId: "channel:workspace:setup-dm",
+      triggerContext: { threadRootId: "setup-root" },
+    },
+    [
+      {
+        id: "setup-dm",
+        visibility: "direct",
+        agentIds: ["setup"],
+      },
+    ],
+  );
+  assert.equal(next.get("dm"), "setup");
+  assert.equal(next.get("channel"), null);
+  assert.equal(next.get("thread"), "setup-root");
+  assert.equal(next.get("child"), "setup-task");
 });

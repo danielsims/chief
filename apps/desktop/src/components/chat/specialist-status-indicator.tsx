@@ -2,6 +2,10 @@ import type { SessionRecord } from "@chief/agent-runtime/types";
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import { cn } from "@chief/ui/lib/utils";
 
+import type { WorkspaceAgentId } from "../../lib/workspace-channels";
+import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import { AgentAvatar } from "../agent-avatar";
+
 const AGENT_WORKING_COLOR: Record<string, string> = {
   brand: "text-foreground",
   prospector: "text-sky-300",
@@ -25,16 +29,10 @@ export function SpecialistStatusIndicator({
   className?: string;
   status: SessionRecord["status"];
 }) {
-  if (specialistIsStartingOrWorking(status)) {
+  if (status === "idle" || status === "running") {
     return (
       <MatrixLoader
-        ariaLabel={
-          status === "idle"
-            ? "Starting"
-            : status === "waiting"
-              ? "Waiting for you"
-              : "Working"
-        }
+        ariaLabel={status === "idle" ? "Starting" : "Working"}
         className={cn(
           "border-0 bg-transparent shadow-none [&_.matrix-loader-cell]:rounded-[24%]",
           AGENT_WORKING_COLOR[agent] ?? "text-slate-300",
@@ -44,28 +42,14 @@ export function SpecialistStatusIndicator({
       />
     );
   }
-  if (status === "failed") {
+  if (status === "waiting" || status === "failed" || status === "completed") {
+    const identity = Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agent)
+      ? WORKSPACE_AGENT_IDENTITIES[agent as WorkspaceAgentId]
+      : undefined;
     return (
-      <MatrixLoader
-        ariaLabel="Failed"
-        className={cn(
-          "border-0 bg-transparent text-red-500 shadow-none [&_.matrix-loader-cell]:!animate-none [&_.matrix-loader-cell]:!rounded-[24%] [&_.matrix-loader-cell]:!opacity-100",
-          className,
-        )}
-        size={17}
-      />
-    );
-  }
-  if (status === "completed") {
-    return (
-      <MatrixLoader
-        ariaLabel="Complete"
-        className={cn(
-          "border-0 bg-transparent shadow-none [&_.matrix-loader-cell]:!animate-none [&_.matrix-loader-cell]:!rounded-[24%] [&_.matrix-loader-cell]:!opacity-45",
-          AGENT_WORKING_COLOR[agent] ?? "text-slate-300",
-          className,
-        )}
-        size={17}
+      <AgentAvatar
+        className={cn("size-[17px] rounded-md", className)}
+        label={identity?.name ?? agent}
       />
     );
   }

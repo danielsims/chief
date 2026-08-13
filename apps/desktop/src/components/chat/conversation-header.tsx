@@ -4,6 +4,7 @@ import {
   Copy,
   Hash,
   ListChecks,
+  LockKeyhole,
   MoreHorizontal,
   UserRound,
 } from "lucide-react";
@@ -29,6 +30,7 @@ interface ConversationHeaderChannel {
   label: string;
   description: string;
   agentIds: readonly string[];
+  visibility?: "public" | "private";
 }
 
 interface ConversationHeaderProps {
@@ -83,6 +85,8 @@ export function ConversationHeader({
                 presence={directPresence}
               />
             </button>
+          ) : channel.visibility === "private" ? (
+            <LockKeyhole size={17} className="text-muted-foreground shrink-0" />
           ) : (
             <Hash size={17} className="text-muted-foreground shrink-0" />
           )}

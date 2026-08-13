@@ -57,7 +57,9 @@ export function AgentActivityPanel({
   onOpenTask?: (taskId: string) => void;
   sizing: ConversationAuxiliaryPanelSizing;
 }) {
-  const hasTools = blocks.some((block) => block.type === "tool_use");
+  const hasActivity = blocks.some(
+    (block) => block.type === "thinking" || block.type === "tool_use",
+  );
   const resultIds = new Set(
     blocks.flatMap((block) =>
       block.type === "tool_result" ? [block.tool_use_id] : [],
@@ -112,7 +114,7 @@ export function AgentActivityPanel({
           <p className="text-muted-foreground mb-2 px-1 text-[10px] font-medium">
             Current turn
           </p>
-          {hasTools ? (
+          {hasActivity ? (
             <ToolActivityGroup blocks={blocks} active={running} />
           ) : (
             <p className="text-muted-foreground rounded-xl bg-black/[0.018] px-3 py-3 text-xs leading-5 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_5%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--foreground)_4%,transparent)] dark:bg-white/[0.018]">

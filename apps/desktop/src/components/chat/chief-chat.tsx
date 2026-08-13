@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useRef } from "react";
+import { useMemo, useRef } from "react";
 import { ArrowDown } from "lucide-react";
 
 import type { BrowserRunRecord } from "@chief/agent-runtime/types";
@@ -11,6 +11,7 @@ import { ApprovalCard } from "./approval-card";
 import { approvalBelongsToSurface } from "./approval-presentation";
 import { BrowserSessionAttachment } from "./browser-panel";
 import { ChatComposer } from "./chat-composer";
+import { ChatTimeline } from "./chat-timeline";
 import { ChiefChatAuxiliaryPanels } from "./chief-chat-auxiliary-panels";
 /**
  * Memoized per-message content. Thread rows are referentially stable after the
@@ -24,6 +25,7 @@ import {
   ChannelMembershipMessage,
   ChatSkeleton,
   ChiefMessage,
+  ConversationEmptyState,
   MessageBlocksContent,
 } from "./chief-chat-message-components";
 import { SpecialistTaskCard } from "./message-blocks";
@@ -61,6 +63,8 @@ export function ChiefChat({
   onInitialPromptSent,
   onCloseChild,
   onOpenChild,
+  channelReferences = [],
+  onOpenChannel,
   onThreadRootChange,
   onOpenProfile,
   onOpenInternalPanel,
@@ -214,6 +218,7 @@ export function ChiefChat({
         >
           <div
             ref={mainScrollRef}
+            data-chat-timeline
             className="min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto py-6 pr-2"
           >
             {/* A new chat has nothing to replay, so its identity header renders
@@ -238,32 +243,11 @@ export function ChiefChat({
             !composerOpen &&
             messages.length === 0 &&
             !showOptimisticInitialPrompt ? (
-              <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-                <p className="text-2xl font-medium tracking-[-0.03em]">
-                  {channel
-                    ? `#${channel.label}`
-                    : (directAgent?.name ?? "Chief")}
-                </p>
-                <p className="text-muted-foreground max-w-md text-sm">
-                  {channel
-                    ? channel.description
-                    : directAgent
-                      ? `A private conversation with ${directAgent.name}.`
-                      : "Your workspace lead. Ask anything, and Chief will bring in the right specialist."}
-                </p>
-                {channel ? (
-                  <p className="text-muted-foreground/75 text-xs">
-                    {channel.agentIds.length} agents share this channel’s
-                    context.
-                  </p>
-                ) : null}
-                {runtimeStatus !== "connected" && (
-                  <p className="text-muted-foreground mt-4 border border-dashed px-3 py-2 text-xs">
-                    Agent runtime not connected. Run <code>pnpm dev</code> in
-                    the repo root.
-                  </p>
-                )}
-              </div>
+              <ConversationEmptyState
+                channel={channel}
+                directAgent={directAgent}
+                runtimeConnected={runtimeStatus === "connected"}
+              />
             ) : null}
             {showOptimisticInitialPrompt && optimisticInitialPrompt ? (
               <UserMessage
@@ -275,25 +259,22 @@ export function ChiefChat({
                     : undefined
                 }
                 metadata={channel ? null : undefined}
+                channelReferences={channelReferences}
+                onOpenChannel={onOpenChannel}
                 onOpenProfile={openUserProfile}
                 onOpenMention={openAgentMention}
               />
             ) : null}
-            {channelResolved || isNew
-              ? timelineEntries.map((entry) => {
+            {channelResolved || isNew ? (
+              <ChatTimeline
+                entries={timelineEntries}
+                renderEntry={(entry) => {
                   if (entry.type === "browser") {
-                    return (
-                      <Fragment key={entry.key}>
-                        {browserAttachmentNode(entry.run)}
-                      </Fragment>
-                    );
+                    return browserAttachmentNode(entry.run);
                   }
                   if (entry.type === "specialist") {
                     return (
-                      <div
-                        key={entry.task.id}
-                        className="mx-auto w-full max-w-3xl pl-11"
-                      >
+                      <div className="mx-auto w-full max-w-3xl pl-11">
                         <SpecialistTaskCard
                           task={entry.task}
                           onOpenTask={onOpenChild}
@@ -302,12 +283,11 @@ export function ChiefChat({
                     );
                   }
                   const { message } = entry;
-                  if (channel && message.metadata?.threadRootId) return null;
                   if (message.metadata?.channelAction) {
                     return (
                       <ChannelMembershipMessage
-                        key={message.id}
                         action={message.metadata.channelAction}
+                        timestamp={message.metadata.createdAt}
                         userImage={userAuthor.image}
                       />
                     );
@@ -315,7 +295,7 @@ export function ChiefChat({
                   if (message.role === "user") {
                     if (message.id === `${chatId}-kickoff`) return null;
                     return (
-                      <div id={`chief-message-${message.id}`} key={message.id}>
+                      <div id={`chief-message-${message.id}`}>
                         <UserMessage
                           author={userAuthor}
                           acknowledgedBy={
@@ -325,8 +305,11 @@ export function ChiefChat({
                           }
                           attachments={imageParts(message)}
                           metadata={channel ? null : undefined}
+                          channelReferences={channelReferences}
+                          onOpenChannel={onOpenChannel}
                           onOpenProfile={openUserProfile}
                           onOpenMention={openAgentMention}
+                          timestamp={message.metadata?.createdAt}
                           {...controlsForMessage(message)}
                           text={messageBlocks(message)
                             .flatMap((part) =>
@@ -343,11 +326,11 @@ export function ChiefChat({
                   const timelineFilter = visibleConversationBlocks;
                   return (
                     <ChiefMessage
-                      key={message.id}
                       messageId={message.id}
                       agent={respondingAgentFor(message)}
                       metadata={channel ? null : undefined}
                       onOpenProfile={selectProfile}
+                      timestamp={message.metadata?.createdAt}
                       {...controlsForMessage(message)}
                     >
                       <MessageBlocksContent
@@ -359,12 +342,15 @@ export function ChiefChat({
                         tasks={childSessions}
                         taskOwners={childSessionOwners}
                         ownerId={message.id}
+                        channelReferences={channelReferences}
+                        onOpenChannel={onOpenChannel}
                         onOpenTask={onOpenChild}
                       />
                     </ChiefMessage>
                   );
-                })
-              : null}
+                }}
+              />
+            ) : null}
             {controls.approvals
               .filter((approval) => approvalBelongsToSurface(approval, null))
               .map((approval) => (
@@ -481,6 +467,8 @@ export function ChiefChat({
           activeChild,
           activityOpen,
           channel,
+          channelReferences,
+          onOpenChannel,
           onCloseChild,
           onOpenChild,
           panelSizing,

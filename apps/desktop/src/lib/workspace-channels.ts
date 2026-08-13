@@ -57,7 +57,7 @@ export const WORKSPACE_CHANNELS = [
     label: "general",
     description: "Planning and work across the company",
     agentIds: ["chief"],
-    userIds: [],
+    userIds: ["workspace-owner"],
   },
 ] as const;
 
