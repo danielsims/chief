@@ -10,12 +10,7 @@ export type OnboardingStep =
   | "success"
   | "time"
   | "monitoring"
-  | "analytics"
-  | "ads"
-  | "adsBudget"
-  | "aeo"
-  | "engineering"
-  | "engineeringTools"
+  | "plugins"
   | "automation"
   | "finish";
 
@@ -24,22 +19,17 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   "inference",
   "health",
   "context",
-  "brand",
-  "socials",
-  "selling",
-  "audience",
-  "success",
-  "time",
-  "monitoring",
-  "analytics",
-  "ads",
-  "adsBudget",
-  "engineering",
-  "engineeringTools",
-  "aeo",
-  "automation",
+  "plugins",
   "finish",
 ];
+
+export function resumableOnboardingStep(step: string): OnboardingStep {
+  if (ONBOARDING_STEPS.includes(step as OnboardingStep)) {
+    return step as OnboardingStep;
+  }
+  if (step === "automation") return "finish";
+  return "plugins";
+}
 
 export function nextOnboardingStep(step: OnboardingStep) {
   return ONBOARDING_STEPS[ONBOARDING_STEPS.indexOf(step) + 1] ?? "finish";

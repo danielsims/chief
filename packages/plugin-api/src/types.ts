@@ -26,7 +26,8 @@ export interface AgentPluginCatalogEntry {
   source:
     | { type: "bundled"; path: string }
     | { type: "git"; url: string; sha: string; path?: string }
-    | { type: "discovery"; registry: string; domain: string };
+    | { type: "discovery"; registry: string; domain: string }
+    | { type: "setup"; domain: string };
 }
 
 export type AgentPluginStatus =

@@ -19,14 +19,7 @@ export interface OnboardingWorkInput {
     notes: string;
     files: BrandFile[];
   };
-  analytics: {
-    integrations: IntegrationSearchResult[];
-    selection?: "selected" | "none" | "skipped" | null;
-  };
-  ads: { integrations: IntegrationSearchResult[] };
-  aeo: { trackAiReferrals: boolean };
-  engineering: {
-    enabled: boolean | null;
+  plugins: {
     integrations: IntegrationSearchResult[];
   };
 }
@@ -46,27 +39,12 @@ const PROSPECT_KICKOFF_TOOLS = [
   "tools.chief-local.org.localworkspace.localTools.trendsSave",
 ];
 
-const SETUP_KICKOFF_TOOLS = [
-  "tools.search",
-  "tools.executor.coreTools.connections.*",
-  "tools.chief.org.workspace.agentTools.integrationsMarkConnected",
-  "tools.chief-local.org.localworkspace.localTools.googleAnalyticsAuthorize",
-  "tools.chief-local.org.localworkspace.localTools.googleAnalyticsComplete",
-  "tools.chief-local.org.localworkspace.localTools.googleAnalyticsSelect",
-  "tools.chief-local.org.localworkspace.localTools.integrationOpenHandoff",
-];
-
-const ANALYST_KICKOFF_TOOLS = [
-  "tools.search",
-  "tools.google_analytics.org.main.*",
-  "tools.chief-local.org.localworkspace.localTools.analyticsSaveDataset",
-  "tools.chief.org.workspace.agentTools.uiPresentChart",
-];
-
 const ENGINEERING_KICKOFF_TOOLS = [
   "tools.search",
   "tools.executor.coreTools.connections.list",
   "tools.chief.org.workspace.agentTools.sourcesList",
+  "tools.chief-local.org.localworkspace.localTools.pluginsList",
+  "tools.chief-local.org.localworkspace.localTools.pluginsRecommend",
 ];
 
 export function buildOnboardingWorkJobs(
@@ -92,7 +70,7 @@ export function buildOnboardingWorkJobs(
               "Launch this as one independent delegation in the initial concurrent Chief kickoff.",
               "This job must never block Setup, Prospector, or any other independent kickoff work. If it fails, Chief must continue and label the brand profile as provisional.",
               "Inspect workspace context and already-connected sources before asking the user for anything.",
-              "Build and save a practical brand profile for every agent in this workspace.",
+              "Build and save a practical provisional brand profile for every agent in this workspace.",
               `Company: ${input.companyName}`,
               `Website: ${input.websiteUrl}`,
               attachments.length > 0
@@ -101,107 +79,32 @@ export function buildOnboardingWorkJobs(
               input.brand.notes
                 ? `User notes: ${input.brand.notes}`
                 : undefined,
-              "Return a complete Markdown profile with voice principles, vocabulary, supported claims, claims to avoid, visual cues, audience, and three representative writing examples. Chief must save the verified profile to durable memory and as a visible versioned workspace file.",
-              "Work proactively. Ask the user only if a missing fact would make the profile unsafe or materially misleading.",
+              "Return a complete Markdown profile with voice principles, vocabulary, supported claims, claims to avoid, visual cues, audience, and three representative writing examples. Save the verified profile to durable memory and as a visible versioned workspace file.",
+              "Work proactively. If one missing preference would make the profile unsafe, materially misleading, or too generic to use, ask one compact structured question in the Marketing thread and continue when answered. Public accounts and brand preferences belong in this specialist conversation, not workspace setup.",
             ]
               .filter(Boolean)
               .join("\n\n"),
           },
         ];
 
-  const analyticsIntegrations =
-    input.analytics.selection === "none" ||
-    input.analytics.selection === "skipped"
-      ? []
-      : input.analytics.integrations;
-  const selectedIntegrations = [
-    ...analyticsIntegrations.map((integration) => ({
-      ...integration,
-      category: "analytics",
-    })),
-    ...input.ads.integrations.map((integration) => ({
-      ...integration,
-      category: "ads",
-    })),
-  ].filter(
-    (integration, index, all) =>
-      all.findIndex((item) => item.domain === integration.domain) === index,
-  );
-  const setupJobs: OnboardingWorkJob[] = selectedIntegrations.map(
-    (integration) => {
-      const attemptId = onboardingScopedId(
-        input.workspaceId,
-        `setup-attempt-${integration.domain}`,
-      );
-      return {
-        id: onboardingScopedId(
-          input.workspaceId,
-          `integration-setup-${integration.domain}`,
-        ),
-        agentId: "setup",
-        title: `Connect ${integration.name}`,
-        runAt: Date.now(),
-        timezone: input.timezone,
-        proposedToolPatterns: SETUP_KICKOFF_TOOLS,
-        setupDomain: integration.domain,
-        setupAttemptId: attemptId,
-        instructions: [
-          "Launch this independently in the initial concurrent kickoff. It does not depend on brand research, prospecting, or another selected integration setup.",
-          `Connect and verify ${integration.name} (${integration.domain}) for the ${integration.category} category selected during onboarding.`,
-          `Chief must delegate this with setupDomain=${integration.domain} and setupAttemptId=${attemptId}.`,
-          "Use the dedicated setup tools and current Chief session identity. Complete safe local steps autonomously. If consent, credentials, or account selection genuinely needs the user, return that exact requirement to Chief as one structured action without blocking unrelated kickoff work; never invent success.",
-        ].join("\n\n"),
-      };
-    },
-  );
-  const analystJobs: OnboardingWorkJob[] =
-    analyticsIntegrations.length > 0
-      ? [
-          {
-            id: onboardingScopedId(input.workspaceId, "initial-growth-report"),
-            agentId: "analyst",
-            title: "Build the first growth report",
-            runAt: Date.now(),
-            timezone: input.timezone,
-            proposedToolPatterns: ANALYST_KICKOFF_TOOLS,
-            instructions: [
-              "Run only after the selected analytics setup job has completed successfully.",
-              "Pull a live current-period and previous-period report from the verified source, save the overview dataset locally with analyticsSaveDataset, and present the primary chart.",
-              input.aeo.trackAiReferrals
-                ? "Include attributable AI referral traffic and clearly separate direct evidence from dark traffic."
-                : undefined,
-            ]
-              .filter(Boolean)
-              .join("\n\n"),
-          },
-        ]
-      : [];
-
-  const engineeringJob: OnboardingWorkJob[] =
-    input.engineering.enabled === true
-      ? [
-          {
-            id: onboardingScopedId(
-              input.workspaceId,
-              "engineering-channel-kickoff",
-            ),
-            agentId: "engineer",
-            title: "Prepare the engineering workspace",
-            runAt: Date.now(),
-            timezone: input.timezone,
-            proposedToolPatterns: ENGINEERING_KICKOFF_TOOLS,
-            instructions: [
-              "Launch this independently in the initial concurrent kickoff. Work in the Engineering channel and do not wait for brand, prospecting, analytics, or setup work.",
-              `Company website: ${input.websiteUrl}`,
-              input.engineering.integrations.length > 0
-                ? `The user selected these engineering services during onboarding: ${input.engineering.integrations.map((integration) => `${integration.name} (${integration.domain})`).join(", ")}. Treat these selections as intent, not proof that an account is connected.`
-                : "The user enabled engineering help without selecting a repository, deployment, or website service.",
-              "Inspect the available workspace context and connected sources read-only. Then post a short welcome in the Engineering channel explaining what you can help with and recommend the single cleanest next connection or inspection based on the user's selections.",
-              "Do not authenticate, connect a service, change code, create a branch, or deploy anything during this welcome. Let the user choose the next concrete engineering task; Setup or the upcoming plugin flow can handle any connection they approve.",
-            ].join("\n\n"),
-          },
-        ]
-      : [];
+  const engineeringJob: OnboardingWorkJob = {
+    id: onboardingScopedId(input.workspaceId, "engineering-channel-kickoff"),
+    agentId: "engineer",
+    title: "Prepare the engineering workspace",
+    runAt: Date.now(),
+    timezone: input.timezone,
+    proposedToolPatterns: ENGINEERING_KICKOFF_TOOLS,
+    instructions: [
+      "Launch this independently in the initial concurrent kickoff. Work in the Engineering channel and do not wait for brand or prospecting work.",
+      `Company website: ${input.websiteUrl}`,
+      input.plugins.integrations.length > 0
+        ? `The user said they already use these tools: ${input.plugins.integrations.map((integration) => `${integration.name} (${integration.domain})`).join(", ")}. Treat the selections as relevance, never as proof that an account is connected. Every selected tool relevant to engineering is a required baseline recommendation.`
+        : "The user did not name any existing tools during workspace setup.",
+      "Inspect available workspace context and connected sources read-only. Post a short, conversational welcome in Engineering explaining what you can help with. Write like a technical teammate in chat, not a status report.",
+      "Use localTools.pluginsList privately if you need catalog discovery, then call localTools.pluginsRecommend with the current Engineering channelId and threadRootId. Pass every engineering-relevant onboarding selection to services using its exact `Name (domain)` value. That call must publish every selected service as an actionable inline card in this thread, using a catalog plugin when one exists and Chief's secure setup flow when it does not. Never use prose markers such as Card: to imitate UI, and do not tell the user to visit settings when an actionable card can be rendered.",
+      "Do not replace a selected service with a similar tool, and do not omit one because another catalog result scored higher. You may recommend a small number of additional tools only after every relevant selected service is represented, and clearly keep extras secondary. A selection is relevance, not permission to install or authorize it. Do not authenticate, change code, create a branch, or deploy anything during this welcome; let the user choose the next concrete task.",
+    ].join("\n\n"),
+  };
 
   const prospectorJob: OnboardingWorkJob = {
     id: onboardingScopedId(input.workspaceId, "initial-prospecting"),
@@ -212,7 +115,8 @@ export function buildOnboardingWorkJobs(
     proposedToolPatterns: PROSPECT_KICKOFF_TOOLS,
     instructions: [
       "Launch this as one independent delegation in the initial concurrent Chief kickoff. Do not wait for brand research, integration setup, or analytics.",
-      "Use the workspace ideal customer, monitored channels, product, and public website as the qualification brief.",
+      "Use the best available product, customer, brand, and public-website evidence as the initial qualification brief. Do not assume setup already captured an ideal customer or preferred channels.",
+      "If one missing customer or source decision would materially change qualification, ask one compact structured question in the Prospecting thread, then continue from the answer. Do not turn this into an intake questionnaire and do not ask for facts you can research.",
       "Find five to eight recent, high-confidence people, companies, or public conversations with a concrete reason to care now. Search public Reddit and other accessible web communities even when no connector is installed.",
       "Make at most three deliberate search passes. If a site blocks direct access or a search engine rate-limits, use one accessible fallback and then continue with indexed snippets or other public sources. Do not brute-force mirrors, retry captchas, or inspect Chief's connections and runtime internals.",
       "Every result must have a direct HTTP source URL, quoted or specific evidence, relevance, and a useful value-first reply or outreach angle.",
@@ -220,13 +124,7 @@ export function buildOnboardingWorkJobs(
     ].join("\n\n"),
   };
 
-  return [
-    ...brandJob,
-    ...setupJobs,
-    ...engineeringJob,
-    prospectorJob,
-    ...analystJobs,
-  ];
+  return [...brandJob, engineeringJob, prospectorJob];
 }
 
 function integrations(value: unknown): IntegrationSearchResult[] {
@@ -257,14 +155,12 @@ export function onboardingWorkFromMetadata(
     onboarding.automation && typeof onboarding.automation === "object"
       ? (onboarding.automation as Record<string, unknown>)
       : {};
-  const aeo =
-    onboarding.aeo && typeof onboarding.aeo === "object"
-      ? (onboarding.aeo as Record<string, unknown>)
-      : {};
-  const engineering =
-    onboarding.engineering && typeof onboarding.engineering === "object"
-      ? (onboarding.engineering as Record<string, unknown>)
-      : {};
+  const selectedPlugins = integrations(onboarding.plugins);
+  const legacySelections = [
+    ...integrations(onboarding.analytics),
+    ...integrations(onboarding.ads),
+    ...integrations(onboarding.engineering),
+  ];
   return buildOnboardingWorkJobs({
     workspaceId,
     companyName,
@@ -292,27 +188,14 @@ export function onboardingWorkFromMetadata(
           )
         : [],
     },
-    analytics: {
-      integrations: integrations(onboarding.analytics),
-      selection:
-        onboarding.analytics && typeof onboarding.analytics === "object"
-          ? (() => {
-              const selection = (
-                onboarding.analytics as Record<string, unknown>
-              ).selection;
-              return selection === "selected" ||
-                selection === "none" ||
-                selection === "skipped"
-                ? selection
-                : null;
-            })()
-          : null,
-    },
-    ads: { integrations: integrations(onboarding.ads) },
-    aeo: { trackAiReferrals: aeo.trackAiReferrals === true },
-    engineering: {
-      enabled: engineering.enabled === true,
-      integrations: integrations(engineering),
+    plugins: {
+      integrations: (selectedPlugins.length > 0
+        ? selectedPlugins
+        : legacySelections
+      ).filter(
+        (integration, index, all) =>
+          all.findIndex((item) => item.domain === integration.domain) === index,
+      ),
     },
   });
 }

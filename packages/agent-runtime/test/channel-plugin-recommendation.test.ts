@@ -43,7 +43,7 @@ void test("plugin recommendations publish durable typed cards into an exact thre
   const directory = mkdtempSync(join(tmpdir(), "chief-plugin-recommend-"));
   const store = new LocalStore(join(directory, "chief.sqlite"));
   const published: ChannelEvent[] = [];
-  const catalog = [plugin("github", "GitHub"), plugin("vercel", "Vercel")];
+  const catalog = [plugin("vercel", "Vercel")];
   const context = {
     actor: { type: "agent" as const, id: "engineer", name: "Engineer" },
     channelStore: store.channelStore(),
@@ -76,7 +76,11 @@ void test("plugin recommendations publish durable typed cards into an exact thre
     const rootEvent = (root.value as { event: ChannelEvent }).event;
     const recommendationBody = {
       content: "These are the two tools I’d connect first.",
-      services: ["Vercel", "GitHub", "Missing service"],
+      services: [
+        "Vercel (vercel.com)",
+        "GitHub (github.com)",
+        "Missing service",
+      ],
       threadRootId: "channel-api:engineering-welcome",
       idempotencyKey: "engineering-welcome-plugins",
     };
@@ -105,13 +109,25 @@ void test("plugin recommendations publish durable typed cards into an exact thre
     };
     assert.deepEqual(
       result.plugins.map((item) => item.id),
-      ["vercel", "github"],
+      ["vercel", "setup-github-com"],
     );
     assert.deepEqual(result.missingServices, ["Missing service"]);
+    assert.deepEqual(result.plugins[1], {
+      id: "setup-github-com",
+      name: "GitHub",
+      description: "Connect GitHub through Chief's secure setup flow.",
+      category: "Productivity",
+      homepage: "https://github.com",
+      domains: ["github.com"],
+      source: { type: "setup", domain: "github.com" },
+      status: "available",
+      enabled: false,
+      trusted: false,
+    });
     assert.deepEqual(result.event.parts, [
       {
         type: "data-plugin-recommendations",
-        data: { plugins: [catalog[1], catalog[0]] },
+        data: { plugins: result.plugins },
       },
     ]);
     assert.ok(

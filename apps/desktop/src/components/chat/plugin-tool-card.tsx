@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Check, LoaderCircle, RotateCw } from "lucide-react";
+import { Check, CircleAlert, LoaderCircle, RotateCw } from "lucide-react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import type {
@@ -9,6 +10,8 @@ import type {
 } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 
+import { integrationSetupChannelPath } from "../../lib/integration-setup";
+import { pluginDomain } from "../../lib/plugin-presentation";
 import { usePlugins } from "../../lib/runtime-plugins";
 import { ProviderLogo } from "../provider-logo";
 import {
@@ -18,15 +21,6 @@ import {
 
 type ToolUse = Extract<ContentBlock, { type: "tool_use" }>;
 type ToolResult = Extract<ContentBlock, { type: "tool_result" }>;
-
-function domain(plugin: AgentPluginSummary) {
-  if (plugin.source.type === "discovery") return plugin.source.domain;
-  try {
-    return plugin.homepage ? new URL(plugin.homepage).hostname : plugin.id;
-  } catch {
-    return plugin.id;
-  }
-}
 
 type PluginRuntime = ReturnType<typeof usePlugins>;
 const PREVIEW_REFRESHED_AT = 1_786_555_200_000;
@@ -38,39 +32,44 @@ function PluginRow({
   plugin: AgentPluginSummary;
   runtime: PluginRuntime;
 }) {
+  const navigate = useNavigate();
   const current =
     runtime.plugins?.find((item) => item.id === plugin.id) ?? plugin;
   const busy = runtime.busyPluginId === plugin.id;
   const connect = async () => {
     try {
-      if (current.status === "available") await runtime.install(current.id);
+      if (current.source.type === "setup") {
+        await navigate(
+          integrationSetupChannelPath({
+            domain: current.source.domain,
+            name: current.name,
+          }),
+        );
+        return;
+      }
+      if (current.status === "available" || current.status === "error") {
+        await runtime.install(current.id);
+      }
       await runtime.authorize(current.id);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
     }
   };
   return (
-    <div className="bg-card/60 flex min-w-0 items-center gap-3 rounded-2xl border px-3 py-3 shadow-sm">
+    <div className="bg-card/60 flex min-w-0 items-center gap-3 rounded-2xl border px-3 py-2.5 shadow-sm">
       <ProviderLogo
-        domain={domain(current)}
+        domain={pluginDomain(current)}
         label={current.name}
-        className="bg-background size-10 rounded-xl border p-1.5"
+        className="size-10 overflow-hidden rounded-xl"
       />
       <span className="min-w-0 flex-1">
         <strong className="block truncate text-sm font-medium">
           {current.name}
         </strong>
-        <small className="text-muted-foreground mt-0.5 block truncate text-xs">
-          {current.description}
-        </small>
       </span>
       {current.status === "connected" ? (
         <span className="flex items-center gap-1 text-xs text-emerald-500">
           <Check size={13} /> Connected
-        </span>
-      ) : current.status === "installed" ? (
-        <span className="text-muted-foreground flex items-center gap-1 text-xs">
-          <Check size={13} /> Added
         </span>
       ) : (
         <Button
@@ -80,11 +79,44 @@ function PluginRow({
           onClick={() => void connect()}
         >
           {busy ? <LoaderCircle className="animate-spin" size={13} /> : null}
-          {current.status === "available" ? "Add & authorize" : "Authorize"}
+          {current.status === "available"
+            ? "Authorize"
+            : current.status === "waiting"
+              ? "Reopen"
+              : current.status === "failed" || current.status === "error"
+                ? "Retry"
+                : current.status === "reconnect"
+                  ? "Reconnect"
+                  : "Authorize"}
         </Button>
       )}
     </div>
   );
+}
+
+function PluginRecommendationRows({
+  plugins,
+  runtime,
+}: {
+  plugins: AgentPluginSummary[];
+  runtime: PluginRuntime;
+}) {
+  return (
+    <div className="w-[620px] max-w-full space-y-2">
+      {plugins.slice(0, 8).map((plugin) => (
+        <PluginRow key={plugin.id} plugin={plugin} runtime={runtime} />
+      ))}
+    </div>
+  );
+}
+
+export function PluginRecommendationCards({
+  plugins,
+}: {
+  plugins: AgentPluginSummary[];
+}) {
+  const runtime = usePlugins();
+  return <PluginRecommendationRows plugins={plugins} runtime={runtime} />;
 }
 
 function AuthorizationCard({
@@ -103,6 +135,10 @@ function AuthorizationCard({
     (plugin) => plugin.id === action.pluginId,
   );
   const connected = current?.status === "connected";
+  const failed = current?.status === "failed" || current?.status === "error";
+  const reconnect = current?.status === "reconnect";
+  const waiting =
+    current?.status === "waiting" || (opened && !failed && !reconnect);
   const providerDomain = action.provider.includes(".")
     ? action.provider
     : action.pluginId;
@@ -114,13 +150,21 @@ function AuthorizationCard({
       toast.error(error instanceof Error ? error.message : String(error));
     }
   };
+  const restart = async () => {
+    try {
+      await plugins.authorize(action.pluginId);
+      setOpened(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
   return (
     <div className="bg-card/70 w-[620px] max-w-full rounded-2xl border p-4 shadow-sm">
       <div className="flex min-w-0 items-center gap-3">
         <ProviderLogo
           domain={providerDomain}
           label={action.pluginName}
-          className="bg-background size-12 rounded-xl border p-1.5"
+          className="size-12 overflow-hidden rounded-xl"
         />
         <span className="min-w-0 flex-1">
           <strong className="block truncate text-base font-medium">
@@ -130,13 +174,13 @@ function AuthorizationCard({
             {action.description}
           </small>
         </span>
-        {!opened && !connected ? (
+        {!waiting && !connected && !failed && !reconnect ? (
           <Button variant="outline" onClick={() => void open()}>
             Authorize
           </Button>
         ) : null}
       </div>
-      {opened || connected ? (
+      {waiting || connected || failed || reconnect ? (
         <div className="mt-4 flex items-center gap-2 border-t pt-3">
           {connected ? (
             <>
@@ -144,6 +188,26 @@ function AuthorizationCard({
               <span className="text-muted-foreground text-sm">
                 Connected to {action.pluginName}
               </span>
+            </>
+          ) : failed ? (
+            <>
+              <CircleAlert className="text-amber-500" size={15} />
+              <span className="text-muted-foreground flex-1 text-sm">
+                {action.pluginName} authorization didn&apos;t finish.
+              </span>
+              <Button variant="ghost" size="sm" onClick={() => void restart()}>
+                Retry
+              </Button>
+            </>
+          ) : reconnect ? (
+            <>
+              <RotateCw className="text-amber-500" size={15} />
+              <span className="text-muted-foreground flex-1 text-sm">
+                {action.pluginName} needs to reconnect.
+              </span>
+              <Button variant="ghost" size="sm" onClick={() => void restart()}>
+                Reconnect
+              </Button>
             </>
           ) : (
             <>
@@ -177,7 +241,6 @@ export function PluginToolCard({
     ? pluginAuthorizationFromResult(result)
     : undefined;
   const listed = result ? pluginListFromResult(result) : undefined;
-  const list = useMemo(() => listed?.slice(0, 8), [listed]);
   if (!result) {
     return (
       <div className="text-muted-foreground flex items-center gap-2 text-xs">
@@ -187,15 +250,7 @@ export function PluginToolCard({
   }
   if (authorization)
     return <AuthorizationCard result={result} plugins={plugins} />;
-  if (list) {
-    return (
-      <div className="w-[620px] max-w-full space-y-2">
-        {list.map((plugin) => (
-          <PluginRow key={plugin.id} plugin={plugin} runtime={plugins} />
-        ))}
-      </div>
-    );
-  }
+  if (listed) return <PluginRecommendationCards plugins={listed} />;
   return null;
 }
 
@@ -254,6 +309,7 @@ export function PluginToolCardsPreview() {
   return (
     <main className="bg-background text-foreground flex min-h-screen items-center justify-center p-10">
       <div className="w-[680px] max-w-full space-y-5">
+        <PluginRecommendationRows plugins={[plugin]} runtime={runtime} />
         <AuthorizationCard result={result} plugins={runtime} />
         <AuthorizationCard result={result} plugins={runtime} initiallyOpened />
       </div>
