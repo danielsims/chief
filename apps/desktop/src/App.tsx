@@ -1,5 +1,5 @@
 import type { ErrorInfo, ReactNode } from "react";
-import { Component, useEffect, useState } from "react";
+import { Component, lazy, Suspense, useEffect, useState } from "react";
 import { useConvexAuth } from "convex/react";
 import {
   BrowserRouter,
@@ -13,11 +13,10 @@ import { Toaster } from "sonner";
 import { Button } from "@chief/ui/components/button";
 
 import { PluginToolCardsPreview } from "./components/chat/plugin-tool-card";
+import { ChiefNavigationProvider } from "./components/chief-navigation-provider";
 import { EntryState } from "./components/entry-state";
 import { Layout } from "./components/layout";
-import { MessageDeepLinkHandler } from "./components/message-deep-link-handler";
 import { PageTitle } from "./components/page-title";
-import { PluginMarketplacePreview } from "./components/plugin-marketplace-dialog";
 import { AgentConfigProvider } from "./lib/agent-config";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
 import {
@@ -56,6 +55,15 @@ import { TrendingPage } from "./pages/trending";
 import { WorkspaceFilePage } from "./pages/workspace-file";
 import { WorkspaceFilesPage } from "./pages/workspace-files";
 import { CreateWorkspacePage } from "./pages/workspace-new";
+
+const PluginsPage = lazy(() =>
+  import("./pages/plugins").then((module) => ({ default: module.PluginsPage })),
+);
+const PluginsPagePreview = lazy(() =>
+  import("./pages/plugins").then((module) => ({
+    default: module.PluginsPagePreview,
+  })),
+);
 
 function ConfigurationRequired() {
   return (
@@ -229,11 +237,15 @@ function AuthenticatedApp() {
 
   if (
     import.meta.env.DEV &&
-    new URLSearchParams(window.location.search).get("preview") ===
-      "agent-plugins"
+    new URLSearchParams(window.location.search).get("preview") === "plugins"
   ) {
-    return <PluginMarketplacePreview />;
+    return (
+      <Suspense fallback={null}>
+        <PluginsPagePreview />
+      </Suspense>
+    );
   }
+
   if (
     import.meta.env.DEV &&
     new URLSearchParams(window.location.search).get("preview") ===
@@ -269,62 +281,80 @@ function AuthenticatedApp() {
       />
       <AgentConfigProvider>
         <BrowserRouter>
-          <MessageDeepLinkHandler />
-          <ChannelReadStateProvider>
-            <OnboardingGate>
-              <Routes>
-                <Route
-                  path="workspaces/new"
-                  element={<CreateWorkspacePage />}
-                />
-                <Route path="onboarding" element={<OnboardingPage />} />
-                <Route element={<Layout />}>
-                  <Route index element={<DashboardPage />} />
-                  <Route path="inbox" element={<InboxPage />} />
-                  <Route path="analytics" element={<AnalyticsPage />} />
-                  <Route path="artifacts" element={<ArtifactsPage />} />
-                  <Route path="campaigns" element={<CampaignsPage />} />
-                  <Route path="schedule" element={<SchedulePage />} />
-                  <Route path="prospects" element={<ProspectsPage />} />
-                  <Route path="trending" element={<TrendingPage />} />
-                  <Route path="conversations" element={<ConversationsPage />} />
-                  <Route path="agents" element={<AgentsPage />} />
-                  <Route path="files" element={<WorkspaceFilesPage />} />
-                  <Route path="files/:fileId" element={<WorkspaceFilePage />} />
-                  <Route path="settings" element={<SettingsLayout />}>
+          <ChiefNavigationProvider>
+            <ChannelReadStateProvider>
+              <OnboardingGate>
+                <Routes>
+                  <Route
+                    path="workspaces/new"
+                    element={<CreateWorkspacePage />}
+                  />
+                  <Route path="onboarding" element={<OnboardingPage />} />
+                  <Route element={<Layout />}>
+                    <Route index element={<DashboardPage />} />
+                    <Route path="inbox" element={<InboxPage />} />
+                    <Route path="analytics" element={<AnalyticsPage />} />
+                    <Route path="artifacts" element={<ArtifactsPage />} />
+                    <Route path="campaigns" element={<CampaignsPage />} />
+                    <Route path="schedule" element={<SchedulePage />} />
+                    <Route path="prospects" element={<ProspectsPage />} />
+                    <Route path="trending" element={<TrendingPage />} />
                     <Route
-                      index
-                      element={<Navigate to="/settings/profile" replace />}
+                      path="conversations"
+                      element={<ConversationsPage />}
                     />
-                    <Route path="profile" element={<ProfileSettings />} />
-                    <Route path="workspace" element={<WorkspaceSettings />} />
-                    <Route path="missions" element={<MissionsSettings />} />
-                    <Route path="appearance" element={<AppearanceSettings />} />
+                    <Route path="agents" element={<AgentsPage />} />
                     <Route
-                      path="notifications"
-                      element={<NotificationsSettings />}
+                      path="plugins"
+                      element={
+                        <Suspense fallback={null}>
+                          <PluginsPage />
+                        </Suspense>
+                      }
                     />
+                    <Route path="files" element={<WorkspaceFilesPage />} />
                     <Route
-                      path="diagnostics"
-                      element={<DiagnosticsSettings />}
+                      path="files/:fileId"
+                      element={<WorkspaceFilePage />}
                     />
-                    <Route
-                      path="environment"
-                      element={<EnvironmentSettings />}
-                    />
-                    <Route
-                      path="integrations"
-                      element={<IntegrationsSettings />}
-                    />
-                    <Route
-                      path="integrations/:provider"
-                      element={<IntegrationSettingsDetail />}
-                    />
+                    <Route path="settings" element={<SettingsLayout />}>
+                      <Route
+                        index
+                        element={<Navigate to="/settings/profile" replace />}
+                      />
+                      <Route path="profile" element={<ProfileSettings />} />
+                      <Route path="workspace" element={<WorkspaceSettings />} />
+                      <Route path="missions" element={<MissionsSettings />} />
+                      <Route
+                        path="appearance"
+                        element={<AppearanceSettings />}
+                      />
+                      <Route
+                        path="notifications"
+                        element={<NotificationsSettings />}
+                      />
+                      <Route
+                        path="diagnostics"
+                        element={<DiagnosticsSettings />}
+                      />
+                      <Route
+                        path="environment"
+                        element={<EnvironmentSettings />}
+                      />
+                      <Route
+                        path="integrations"
+                        element={<IntegrationsSettings />}
+                      />
+                      <Route
+                        path="integrations/:provider"
+                        element={<IntegrationSettingsDetail />}
+                      />
+                    </Route>
                   </Route>
-                </Route>
-              </Routes>
-            </OnboardingGate>
-          </ChannelReadStateProvider>
+                </Routes>
+              </OnboardingGate>
+            </ChannelReadStateProvider>
+          </ChiefNavigationProvider>
         </BrowserRouter>
       </AgentConfigProvider>
     </RuntimeProvider>

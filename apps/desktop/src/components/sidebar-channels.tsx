@@ -110,10 +110,12 @@ export function SidebarChannels({
   canDeleteChannels,
   canManageChannels,
   channels,
+  compactAttention,
   allChannels = channels,
   activeChannelId,
   activeAgentId,
   directMessageIds,
+  directMessageAttentionTargets,
   pinnedItems,
   channelsNeedingUser,
   unreadChannelCounts,
@@ -131,10 +133,15 @@ export function SidebarChannels({
   canDeleteChannels: boolean;
   canManageChannels: boolean;
   channels: SidebarChannel[];
+  compactAttention: boolean;
   allChannels?: SidebarChannel[];
   activeChannelId: WorkspaceChannelId | null;
   activeAgentId: WorkspaceAgentId | null;
   directMessageIds: WorkspaceAgentId[];
+  directMessageAttentionTargets: ReadonlyMap<
+    WorkspaceAgentId,
+    { threadRootId?: string; messageId: string }
+  >;
   pinnedItems: SidebarPinnedItem[];
   channelsNeedingUser: ReadonlySet<string>;
   unreadChannelCounts: ReadonlyMap<string, number>;
@@ -143,7 +150,10 @@ export function SidebarChannels({
     channelId: WorkspaceChannelId,
     options?: { focusComposer?: boolean },
   ) => void;
-  onOpenDirectMessage: (agentId: WorkspaceAgentId) => void;
+  onOpenDirectMessage: (
+    agentId: WorkspaceAgentId,
+    target?: { threadRootId?: string; messageId: string },
+  ) => void;
   onCreateChannel: (
     name: string,
     description?: string,
@@ -272,8 +282,15 @@ export function SidebarChannels({
                           key={sidebarPinnedItemKey(item)}
                           active={activeAgentId === item.id}
                           agentId={item.id}
+                          compactAttention={compactAttention}
                           dragKind="sortable"
-                          onOpen={() => onOpenDirectMessage(item.id)}
+                          needsUser={directMessageAttentionTargets.has(item.id)}
+                          onOpen={() =>
+                            onOpenDirectMessage(
+                              item.id,
+                              directMessageAttentionTargets.get(item.id),
+                            )
+                          }
                           onPinChange={(next) => setAgentPinned(item.id, next)}
                           pinned
                           unreadCount={
@@ -289,6 +306,7 @@ export function SidebarChannels({
                       <ChannelRow
                         key={sidebarPinnedItemKey(item)}
                         canDelete={canDeleteChannels}
+                        compactAttention={compactAttention}
                         channel={channel}
                         active={activeChannelId === item.id}
                         pinned
@@ -379,6 +397,7 @@ export function SidebarChannels({
                 <ChannelRow
                   key={channel.id}
                   canDelete={canDeleteChannels}
+                  compactAttention={compactAttention}
                   channel={channel}
                   active={activeChannelId === channel.id}
                   pinned={false}
@@ -403,6 +422,8 @@ export function SidebarChannels({
       </section>
       <SidebarDirectMessages
         activeAgentId={activeAgentId}
+        attentionTargets={directMessageAttentionTargets}
+        compactAttention={compactAttention}
         directMessageIds={directMessageIds}
         onOpen={onOpenDirectMessage}
         onPinChange={setAgentPinned}

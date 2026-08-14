@@ -1,5 +1,10 @@
+import type { ChiefNavigationDestination } from "./app-navigation";
+import { parseChiefNavigationHref } from "./app-navigation";
+
 export type MarkdownLinkTarget =
-  { kind: "path"; value: string } | { kind: "url"; value: string };
+  | { kind: "app"; value: ChiefNavigationDestination }
+  | { kind: "path"; value: string }
+  | { kind: "url"; value: string };
 
 function decodedPath(value: string) {
   try {
@@ -10,6 +15,8 @@ function decodedPath(value: string) {
 }
 
 export function markdownLinkTarget(href: string): MarkdownLinkTarget | null {
+  const appDestination = parseChiefNavigationHref(href);
+  if (appDestination) return { kind: "app", value: appDestination };
   if (href.startsWith("/") && !href.startsWith("//")) {
     const path = decodedPath(href);
     return path ? { kind: "path", value: path } : null;

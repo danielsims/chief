@@ -2,7 +2,6 @@ import type { ReactElement } from "react";
 import { useState } from "react";
 import {
   Check,
-  CircleAlert,
   Copy,
   CornerUpLeft,
   Link2,
@@ -25,7 +24,9 @@ import { cn } from "@chief/ui/lib/utils";
 
 import type { ChannelReactionSummary } from "../../lib/channel-reactions";
 import { AgentAvatar } from "../agent-avatar";
+import { AttentionPill } from "../attention-pill";
 import { EMOJI_OPTIONS } from "./emoji-catalog";
+import { relativeActivityTime } from "./relative-activity-time";
 import {
   specialistIsStartingOrWorking,
   SpecialistStatusIndicator,
@@ -37,18 +38,6 @@ const QUICK_REACTIONS = [
   { emoji: "❤️", label: "React with heart" },
   { emoji: "😂", label: "React with tears of joy" },
 ] as const;
-
-function relativeReplyTime(createdAt: number | undefined) {
-  if (!createdAt) return "recently";
-  const elapsed = Math.max(0, Date.now() - createdAt);
-  const minutes = Math.floor(elapsed / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
 
 const actionButtonClass =
   "text-muted-foreground hover:bg-muted hover:text-foreground flex size-8 items-center justify-center rounded-full transition-colors outline-none focus-visible:bg-muted focus-visible:text-foreground focus-visible:ring-1 focus-visible:ring-ring";
@@ -337,14 +326,9 @@ export function ChannelMessageMeta({
             {replyCount} {replyCount === 1 ? "reply" : "replies"}
           </span>
           <span className="text-muted-foreground text-xs">
-            Last reply {relativeReplyTime(latestReplyAt)}
+            Last reply {relativeActivityTime(latestReplyAt)}
           </span>
-          {needsUser ? (
-            <span className="flex items-center gap-1 text-xs font-medium text-amber-300">
-              <CircleAlert aria-hidden size={13} strokeWidth={2} />
-              Needs you
-            </span>
-          ) : null}
+          {needsUser ? <AttentionPill /> : null}
         </button>
       ) : null}
     </div>

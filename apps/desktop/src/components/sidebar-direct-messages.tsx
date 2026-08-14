@@ -22,11 +22,14 @@ import {
   WORKSPACE_DIRECT_MESSAGES,
 } from "../lib/workspace-channels";
 import { AgentAvatar } from "./agent-avatar";
+import { AttentionPill } from "./attention-pill";
 
 export function DirectMessageRow({
   active,
   agentId,
+  compactAttention,
   dragKind,
+  needsUser,
   onOpen,
   onPinChange,
   pinned,
@@ -34,7 +37,9 @@ export function DirectMessageRow({
 }: {
   active: boolean;
   agentId: WorkspaceAgentId;
+  compactAttention: boolean;
   dragKind: "source" | "sortable";
+  needsUser: boolean;
   onOpen: () => void;
   onPinChange: (pinned: boolean) => void;
   pinned: boolean;
@@ -42,6 +47,7 @@ export function DirectMessageRow({
 }) {
   const item = { kind: "agent", id: agentId } satisfies SidebarPinnedItem;
   const identity = WORKSPACE_AGENT_IDENTITIES[agentId];
+  const [menuOpen, setMenuOpen] = useState(false);
   const source = useDraggable({
     id: `source:${sidebarPinnedItemKey(item)}`,
     data: { pin: item },
@@ -80,7 +86,12 @@ export function DirectMessageRow({
         aria-current={active ? "page" : undefined}
         onClick={onOpen}
         className={cn(
-          "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full min-w-0 cursor-grab touch-none items-center gap-2 rounded-lg px-2 pr-9 text-left text-[13px] transition-colors select-none active:cursor-grabbing",
+          "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full min-w-0 cursor-grab touch-none items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-[padding,color,background-color] select-none active:cursor-grabbing",
+          needsUser
+            ? menuOpen
+              ? "pr-9"
+              : "pr-2 group-focus-within/direct:pr-9 group-hover/direct:pr-9"
+            : "pr-9",
           active && "bg-sidebar-accent text-sidebar-foreground font-medium",
           !active && unreadCount > 0 && "text-sidebar-foreground font-semibold",
           drag.isDragging && "cursor-grabbing",
@@ -91,12 +102,17 @@ export function DirectMessageRow({
           className="bg-sidebar-foreground text-sidebar size-4 dark:bg-white dark:text-black"
         />
         <span className="min-w-0 flex-1 truncate">{identity.name}</span>
-        {unreadCount > 0 ? (
-          <span
-            aria-label={`${unreadCount} unread ${unreadCount === 1 ? "message" : "messages"}`}
-            className="bg-sidebar-foreground/10 text-sidebar-foreground ml-auto min-w-5 rounded-full px-1.5 text-center text-[10px] leading-5 font-semibold tabular-nums"
-          >
-            {unreadCount > 99 ? "99+" : unreadCount}
+        {needsUser || unreadCount > 0 ? (
+          <span className="ml-auto flex shrink-0 items-center gap-1.5">
+            {needsUser ? <AttentionPill compact={compactAttention} /> : null}
+            {unreadCount > 0 ? (
+              <span
+                aria-label={`${unreadCount} unread ${unreadCount === 1 ? "message" : "messages"}`}
+                className="bg-sidebar-foreground/10 text-sidebar-foreground min-w-5 rounded-full px-1.5 text-center text-[10px] leading-5 font-semibold tabular-nums"
+              >
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            ) : null}
           </span>
         ) : null}
       </button>
@@ -115,7 +131,7 @@ export function DirectMessageRow({
           <PinOff size={13} strokeWidth={1.8} />
         </button>
       ) : (
-        <Popover>
+        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
           <PopoverTrigger asChild>
             <button
               type="button"
@@ -145,6 +161,8 @@ export function DirectMessageRow({
 
 export function SidebarDirectMessages({
   activeAgentId,
+  attentionTargets,
+  compactAttention,
   directMessageIds,
   onOpen,
   onPinChange,
@@ -152,8 +170,16 @@ export function SidebarDirectMessages({
   unreadCounts,
 }: {
   activeAgentId: WorkspaceAgentId | null;
+  attentionTargets: ReadonlyMap<
+    WorkspaceAgentId,
+    { threadRootId?: string; messageId: string }
+  >;
+  compactAttention: boolean;
   directMessageIds: WorkspaceAgentId[];
-  onOpen: (agentId: WorkspaceAgentId) => void;
+  onOpen: (
+    agentId: WorkspaceAgentId,
+    target?: { threadRootId?: string; messageId: string },
+  ) => void;
   onPinChange: (agentId: WorkspaceAgentId, pinned: boolean) => void;
   pinnedAgentIds: WorkspaceAgentId[];
   unreadCounts: ReadonlyMap<WorkspaceAgentId, number>;
@@ -190,8 +216,12 @@ export function SidebarDirectMessages({
               key={message.id}
               active={activeAgentId === message.id}
               agentId={message.id}
+              compactAttention={compactAttention}
               dragKind="source"
-              onOpen={() => onOpen(message.id)}
+              needsUser={attentionTargets.has(message.id)}
+              onOpen={() =>
+                onOpen(message.id, attentionTargets.get(message.id))
+              }
               onPinChange={(pinned) => onPinChange(message.id, pinned)}
               pinned={false}
               unreadCount={unreadCounts.get(message.id) ?? 0}

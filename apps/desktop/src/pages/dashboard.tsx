@@ -24,9 +24,11 @@ import { cn } from "@chief/ui/lib/utils";
 import type { ComposerImageAttachment } from "../components/chat/composer-image-attachments";
 import type { OverviewAction } from "../components/overview-presentation";
 import type { AuthOrganization } from "../lib/auth/better-auth-client";
+import { AttentionPill } from "../components/attention-pill";
 import { ChatComposer } from "../components/chat/chat-composer";
 import { createComposerHandoff } from "../components/chat/composer-handoff";
 import { InputRequestSection } from "../components/integrations/input-request-section";
+import { OverviewActionContextLink } from "../components/overview-action-context-link";
 import {
   AnalyticsChart,
   formatNumber,
@@ -43,10 +45,16 @@ import {
   cachedAuthOrganization,
   listAuthOrganizations,
 } from "../lib/auth/better-auth-client";
+import { actionAttentionTarget } from "../lib/channel-action-items";
+import { useChiefNavigation } from "../lib/chief-navigation-context";
 import {
   isDeploymentRecoveryAction,
   localChiefPreference,
 } from "../lib/deployment-recovery";
+import {
+  isQuestionActionRequest,
+  simpleDecisionQuestion,
+} from "../lib/input-request-presentation";
 import {
   findPendingInputRequest,
   integrationSetupChannelPath,
@@ -58,16 +66,17 @@ import { useLocalIntegrationStatus } from "../lib/local-integration-status";
 import {
   isOnboardingEngineeringAction,
   onboardingEngineeringSetup,
-  selectedGoogleAnalyticsDuringOnboarding,
 } from "../lib/onboarding-engineering";
 import {
   useAgentPreferences,
   useLocalChats,
   useObservedChat,
+  useWorkspaceChannels,
   useWorkspaceData,
 } from "../lib/runtime";
 import {
   actionConversation,
+  directMessageAgentIdFromChatId,
   resolvedChannelChatId,
   WORKSPACE_AGENT_IDENTITIES,
 } from "../lib/workspace-channels";
@@ -151,8 +160,14 @@ function OverviewTaskInput({ task }: { task: SessionRecord }) {
   return (
     <div className="mt-5 w-full max-w-[620px]">
       <InputRequestSection
-        progressive
         request={pendingInput}
+        embedded
+        compactDecision={isQuestionActionRequest(pendingInput)}
+        compactDecisionAgentName={
+          isQuestionActionRequest(pendingInput)
+            ? (AGENT_NAMES[task.agent] ?? task.agent)
+            : undefined
+        }
         onSubmit={(request, values) => {
           provideInput(request, values);
           setAnsweredInputs((current) => new Set(current).add(request.id));
@@ -236,6 +251,7 @@ function scheduleDate(timestamp: number, timezone: string, now: number) {
 
 export function DashboardPage() {
   const navigate = useNavigate();
+  const chiefNavigation = useChiefNavigation();
   const prefersReducedMotion = useReducedMotion();
   const [ask, setAsk] = useState("");
   const [askAttachments, setAskAttachments] = useState<
@@ -251,6 +267,7 @@ export function DashboardPage() {
   const [analyticsIndex, setAnalyticsIndex] = useState(0);
   const [analyticsPaused, setAnalyticsPaused] = useState(false);
   const workspaceData = useWorkspaceData(cloudOrganizationId);
+  const workspaceChannels = useWorkspaceChannels();
   const { integrations: localIntegrations } = useLocalIntegrationStatus();
   const datasets = workspaceData.loading
     ? undefined
@@ -307,33 +324,10 @@ export function DashboardPage() {
   );
   const nextEngineeringIntegration = engineeringSetup.nextIntegration;
   const actions = useMemo(() => {
-    const tracked = workspaceData.actionItems;
-    const hasGoogleAnalyticsAction = tracked.some(
-      isGoogleAnalyticsConnectionAction,
-    );
-    const googleAnalyticsConnected = localIntegrations?.some(
-      (integration) =>
-        integration.provider === "google-analytics" &&
-        integration.status === "connected",
+    const tracked = workspaceData.actionItems.filter(
+      (action) => action.status === "open",
     );
     const additions: ActionItem[] = [];
-    if (
-      cloudOrganizationId &&
-      localIntegrations !== null &&
-      !googleAnalyticsConnected &&
-      !hasGoogleAnalyticsAction &&
-      selectedGoogleAnalyticsDuringOnboarding(organization)
-    ) {
-      additions.push({
-        id: `onboarding-google-analytics-recovery-${cloudOrganizationId}`,
-        agentId: "setup",
-        title: "Connect Google Analytics",
-        reason:
-          "Google Analytics was selected during onboarding. Open Setup and sign in with the Google account that administers the Analytics property you want Chief to use.",
-        status: "open" as const,
-        createdAt: 0,
-      });
-    }
     if (
       engineeringSetup.action &&
       !tracked.some(isOnboardingEngineeringAction)
@@ -341,13 +335,7 @@ export function DashboardPage() {
       additions.push(engineeringSetup.action);
     }
     return [...additions, ...tracked];
-  }, [
-    cloudOrganizationId,
-    localIntegrations,
-    engineeringSetup.action,
-    organization,
-    workspaceData.actionItems,
-  ]);
+  }, [engineeringSetup.action, workspaceData.actionItems]);
   const preparationRoot = workspaceData.activity.find(
     (session) =>
       (session.id.startsWith("workspace-kickoff-") ||
@@ -426,6 +414,23 @@ export function DashboardPage() {
   const selectedOverviewAction = overviewActions[resolvedOverviewActionIndex];
   const learningSelected = selectedOverviewAction?.id === LEARNING_ACTION_ID;
   const currentAction = selectedOverviewAction?.action;
+  const simpleDecision = simpleDecisionQuestion(currentAction?.request);
+  const questionAction = isQuestionActionRequest(currentAction?.request);
+  const currentActionTarget = currentAction
+    ? actionAttentionTarget({
+        action: currentAction,
+        sessions: workspaceData.activity,
+        recurringWork: workspaceData.recurringWork,
+      })
+    : null;
+  const currentActionChannel = currentActionTarget
+    ? workspaceChannels.channels.find(
+        (channel) => channel.id === currentActionTarget.channelId,
+      )
+    : null;
+  const currentActionDirectAgentId = directMessageAgentIdFromChatId(
+    currentAction?.sourceId ?? null,
+  );
   const deploymentRecovery = isDeploymentRecoveryAction(currentAction);
   const currentActionTask = currentAction?.sourceId
     ? privateTasksById.get(currentAction.sourceId)
@@ -874,58 +879,98 @@ export function DashboardPage() {
               <article
                 className={cn(
                   "relative flex min-h-0 flex-1 flex-col p-7",
-                  !currentAction.request && "justify-center",
+                  (!currentAction.request || simpleDecision) &&
+                    "justify-center",
                 )}
               >
-                <header className="flex items-start justify-between gap-3.5">
-                  <div className="flex items-center gap-2.5">
-                    {currentActionInProgress ? (
-                      <LoaderCircle
-                        className="text-muted-foreground animate-spin"
-                        size={13}
-                      />
-                    ) : null}
-                    <span className="grid gap-0.5">
-                      <strong className="text-[12px] font-medium">
-                        {AGENT_NAMES[currentAction.agentId] ??
-                          currentAction.agentId}
-                      </strong>
-                      <small className="text-muted-foreground text-[10px]">
-                        {currentActionInProgress
-                          ? "Task in progress"
-                          : `Prepared ${new Intl.RelativeTimeFormat(undefined, {
-                              numeric: "auto",
-                            }).format(
-                              Math.max(
-                                -30,
-                                Math.round(
-                                  (currentAction.createdAt -
-                                    workspaceData.now) /
-                                    86_400_000,
+                {!questionAction ? (
+                  <AttentionPill className="absolute top-6 right-7" />
+                ) : null}
+                {!questionAction ? (
+                  <header className="flex items-start justify-between gap-3.5">
+                    <div className="flex items-center gap-2.5">
+                      {currentActionInProgress ? (
+                        <LoaderCircle
+                          className="text-muted-foreground animate-spin"
+                          size={13}
+                        />
+                      ) : null}
+                      <span className="grid gap-0.5">
+                        <strong className="text-[12px] font-medium">
+                          {AGENT_NAMES[currentAction.agentId] ??
+                            currentAction.agentId}
+                        </strong>
+                        <small className="text-muted-foreground text-[10px]">
+                          {currentActionInProgress
+                            ? "Task in progress"
+                            : `Prepared ${new Intl.RelativeTimeFormat(
+                                undefined,
+                                {
+                                  numeric: "auto",
+                                },
+                              ).format(
+                                Math.max(
+                                  -30,
+                                  Math.round(
+                                    (currentAction.createdAt -
+                                      workspaceData.now) /
+                                      86_400_000,
+                                  ),
                                 ),
-                              ),
-                              "day",
-                            )}`}
-                      </small>
-                    </span>
-                  </div>
-                </header>
+                                "day",
+                              )}`}
+                        </small>
+                      </span>
+                    </div>
+                  </header>
+                ) : null}
                 <div
                   className={cn(
                     "my-10 max-w-[610px]",
                     currentAction.request &&
+                      !questionAction &&
                       "mt-7 mb-5 flex min-h-0 w-full max-w-[680px] flex-1 flex-col",
+                    simpleDecision &&
+                      "mx-auto my-auto w-full max-w-[560px] flex-none translate-y-4",
+                    questionAction &&
+                      !simpleDecision &&
+                      "mx-auto my-0 flex min-h-0 w-full max-w-[560px] flex-1 flex-col overflow-hidden pt-6 pr-1 pb-16",
                   )}
                 >
-                  <h2 className="m-0 text-[clamp(23px,2.7vw,33px)] leading-[1.1] font-normal tracking-[-0.035em]">
-                    {deploymentRecovery ? "Connect Chief" : currentAction.title}
-                  </h2>
-                  <p className="text-muted-foreground mt-3 line-clamp-2 max-w-[560px] text-[13px] leading-6">
+                  {questionAction ? (
+                    <div className="mb-5 flex items-center justify-between gap-4">
+                      <AttentionPill />
+                      <OverviewActionContextLink
+                        actionId={currentAction.id}
+                        channel={currentActionTarget}
+                        channelLabel={
+                          currentActionChannel?.name ??
+                          currentActionChannel?.slug
+                        }
+                        directAgentId={currentActionDirectAgentId}
+                      />
+                    </div>
+                  ) : null}
+                  <h2
+                    className={cn(
+                      "m-0 font-normal",
+                      questionAction
+                        ? "max-w-[540px] text-[24px] leading-[1.25] tracking-[-0.025em]"
+                        : "text-[clamp(23px,2.7vw,33px)] leading-[1.1] tracking-[-0.035em]",
+                    )}
+                  >
                     {deploymentRecovery
-                      ? "Chief's previous cloud deployment no longer exists. Choose where Chief should run, then your scheduled work can continue."
-                      : currentAction.reason.trim() ||
-                        "This action needs your review."}
-                  </p>
+                      ? "Connect Chief"
+                      : (simpleDecision?.question ?? currentAction.title)}
+                  </h2>
+                  {!questionAction ? (
+                    <p className="text-muted-foreground mt-3 line-clamp-2 max-w-[560px] text-[13px] leading-6">
+                      {deploymentRecovery
+                        ? "Chief's previous cloud deployment no longer exists. Choose where Chief should run, then your scheduled work can continue."
+                        : currentAction.reason.trim() ||
+                          "This action needs your review."}
+                    </p>
+                  ) : null}
                   {currentActionTask?.status === "needs_approval" ? (
                     <OverviewTaskInput
                       key={currentActionTask.id}
@@ -934,33 +979,93 @@ export function DashboardPage() {
                   ) : null}
                   {currentAction.request &&
                   !isGoogleAnalyticsConnectionAction(currentAction) ? (
-                    <div className="mt-5 w-full max-w-[620px]">
+                    <div
+                      className={cn(
+                        "w-full max-w-[620px]",
+                        questionAction
+                          ? "mt-8 flex min-h-0 flex-1 flex-col"
+                          : "mt-5",
+                      )}
+                    >
                       <InputRequestSection
                         key={currentAction.request.id}
                         request={currentAction.request}
                         embedded
-                        progressive
+                        compactDecision={questionAction}
+                        compactDecisionAgentName={
+                          questionAction
+                            ? (AGENT_NAMES[currentAction.agentId] ??
+                              currentAction.agentId)
+                            : undefined
+                        }
+                        compactDecisionHideQuestionLabels={Boolean(
+                          simpleDecision,
+                        )}
+                        compactDecisionCurrentUser={user}
+                        compactDecisionSecondaryAction={
+                          questionAction &&
+                          !currentActionInProgress &&
+                          !currentAction.id.startsWith(
+                            "onboarding-google-analytics-recovery-",
+                          ) &&
+                          !isOnboardingEngineeringAction(currentAction)
+                            ? {
+                                label: "Dismiss",
+                                onClick: () =>
+                                  workspaceData.dismissActionItem(
+                                    currentAction.id,
+                                  ),
+                              }
+                            : undefined
+                        }
+                        compactDecisionSurface="overview"
                         onSubmit={(request, values, answers) => {
                           if (currentAction.sourceId) {
                             setContinuingChatId(currentAction.sourceId);
                           }
-                          return workspaceData
-                            .resolveActionRequest(
-                              currentAction.id,
-                              request.id,
-                              answers,
-                              values,
-                            )
-                            .catch((error) => {
-                              setContinuingChatId(null);
-                              throw error;
+                          const resolution = workspaceData.resolveActionRequest(
+                            currentAction.id,
+                            request.id,
+                            answers,
+                            values,
+                          );
+                          const target = actionAttentionTarget({
+                            action: currentAction,
+                            sessions: workspaceData.activity,
+                            recurringWork: workspaceData.recurringWork,
+                          });
+                          if (target) {
+                            chiefNavigation.open({
+                              kind: "conversation",
+                              channelId: target.channelId,
+                              threadRootId: target.threadRootId,
+                              messageId: currentAction.id,
                             });
+                          } else if (currentActionDirectAgentId) {
+                            chiefNavigation.open({
+                              kind: "conversation",
+                              channelId: `direct:${currentActionDirectAgentId}`,
+                              directAgentId: currentActionDirectAgentId,
+                              messageId: currentAction.id,
+                            });
+                          }
+                          return resolution.catch((error) => {
+                            setContinuingChatId(null);
+                            throw error;
+                          });
                         }}
                       />
                     </div>
                   ) : null}
                 </div>
-                <footer className="mt-auto flex items-center justify-between gap-4">
+                <footer
+                  className={cn(
+                    "flex items-center gap-4",
+                    questionAction
+                      ? "absolute bottom-7 left-7"
+                      : "mt-auto justify-between",
+                  )}
+                >
                   <div className="flex items-center gap-2">
                     {deploymentRecovery ? (
                       <>
@@ -1016,7 +1121,8 @@ export function DashboardPage() {
                               : "Review"}
                       </button>
                     ) : null}
-                    {!currentActionInProgress &&
+                    {!questionAction &&
+                    !currentActionInProgress &&
                     !currentAction.id.startsWith(
                       "onboarding-google-analytics-recovery-",
                     ) &&

@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -13,12 +12,13 @@ import { Switch } from "@chief/ui/components/switch";
 
 import { MissionChannelPicker } from "../../components/mission-channel-picker";
 import { MissionHeartbeatSettings } from "../../components/mission-heartbeat-settings";
+import { messageDestination } from "../../lib/app-navigation";
 import { useAuth } from "../../lib/auth/auth-context";
-import { routeForMessageDeepLink } from "../../lib/message-deep-links";
+import { useChiefNavigation } from "../../lib/chief-navigation-context";
 import { useWorkspaceChannels, useWorkspaceData } from "../../lib/runtime";
 
 export function MissionsSettings() {
-  const navigate = useNavigate();
+  const chiefNavigation = useChiefNavigation();
   const { cloudOrganizationId } = useAuth();
   const workspace = useWorkspaceData(cloudOrganizationId);
   const workspaceChannels = useWorkspaceChannels();
@@ -134,7 +134,7 @@ export function MissionsSettings() {
             }
             onRunNow={async () => {
               const target = await workspace.runMissionControlHeartbeatNow();
-              await navigate(routeForMessageDeepLink(target));
+              chiefNavigation.open(messageDestination(target));
             }}
             onSave={workspace.saveRecurringWorkSettings}
             work={heartbeat}

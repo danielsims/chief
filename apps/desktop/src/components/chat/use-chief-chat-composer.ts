@@ -67,13 +67,16 @@ export function useChiefChatComposer({
   const [threadImageAttachments, setThreadImageAttachments] = useState<
     ComposerImageAttachment[]
   >([]);
-  const [threadRootId, setThreadRootIdState] = useState<string | null>(
+  const [localThreadRootId, setLocalThreadRootId] = useState<string | null>(
     initialThreadRootId ?? null,
   );
+  const threadRootId = onThreadRootChange
+    ? (initialThreadRootId ?? null)
+    : localThreadRootId;
   const setThreadRootId = useCallback(
     (nextThreadRootId: string | null) => {
-      setThreadRootIdState(nextThreadRootId);
-      onThreadRootChange?.(nextThreadRootId);
+      if (onThreadRootChange) onThreadRootChange(nextThreadRootId);
+      else setLocalThreadRootId(nextThreadRootId);
     },
     [onThreadRootChange],
   );
