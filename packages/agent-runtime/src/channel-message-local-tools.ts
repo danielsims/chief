@@ -1,5 +1,6 @@
 import type { ChannelLocalToolContext } from "./channel-local-tools.js";
 import type { WorkspaceChannel } from "./channel-types.js";
+import { normalizeAgentText } from "./agent-output.js";
 import {
   ChannelApiFailure,
   fail,
@@ -213,7 +214,11 @@ export async function handleChannelMessageLocalTool(input: {
       if (channel.lifecycle === "archived") {
         fail("Restore this channel before posting.", 409, "channel_archived");
       }
-      const content = textValue(body.content, "content", 8_000);
+      const rawContent = textValue(body.content, "content", 8_000);
+      const content =
+        context.actor.type === "agent"
+          ? normalizeAgentText(rawContent)
+          : rawContent;
       const idempotencyKey = optionalText(
         body.idempotencyKey,
         "idempotencyKey",
@@ -411,6 +416,7 @@ export async function handleChannelMessageLocalTool(input: {
           "message_not_owned",
         );
       if (request.method === "PATCH") {
+        const rawContent = textValue(body.content, "content", 8_000);
         const expectedVersion =
           typeof body.expectedVersion === "number"
             ? body.expectedVersion
@@ -425,7 +431,10 @@ export async function handleChannelMessageLocalTool(input: {
           channelId: channel.id,
           targetEventId: message.id,
           actor: context.actor,
-          content: textValue(body.content, "content", 8_000),
+          content:
+            context.actor.type === "agent"
+              ? normalizeAgentText(rawContent)
+              : rawContent,
           sourceId: optionalText(body.idempotencyKey, "idempotencyKey", 120),
         });
         await append(context, workspaceId, event);

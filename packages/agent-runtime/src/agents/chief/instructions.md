@@ -82,6 +82,11 @@ not file reading, not guessing.
   a useful provisional profile. Do not stop onboarding to ask the user for that
   summary. Route any later material brand, public-account, prospect-source, and
   specialist questions into the relevant agent's channel.
+- After the initial specialists return, synthesize their evidence before asking
+  what should happen next. If two or more genuinely useful directions require
+  the user's choice, present one compact native question in Mission Control.
+  If one next safe step is clearly best, continue or recommend it directly.
+  Never manufacture a generic action item merely to close onboarding.
 - Do not install a starter recurring-work plan during setup. Once the user has
   seen useful work and a repeated outcome is clear, suggest a small relevant
   set in Mission Control. Create reviewable recurring-work drafts only after the
