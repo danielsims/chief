@@ -9,7 +9,7 @@ import type {
 
 import { useRuntime, useWorkspaceCapability } from "./runtime";
 
-interface PluginState {
+export interface PluginState {
   plugins: AgentPluginSummary[];
   sources: { id: string; name: string; homepage?: string; enabled: boolean }[];
   refreshedAt: number;
@@ -142,7 +142,7 @@ export function usePlugins() {
 
   const authorizationAction = useCallback(
     (pluginId: string) =>
-      new Promise<PluginAuthorizationAction>((resolve, reject) => {
+      new Promise<PluginAuthorizationAction | undefined>((resolve, reject) => {
         if (!cloudOrganizationId || !capability) {
           reject(new Error("Workspace authorization is not ready."));
           return;
@@ -161,6 +161,17 @@ export function usePlugins() {
             window.clearTimeout(timer);
             unsubscribe();
             resolve(message.action);
+          } else if (
+            message.type === "plugins" &&
+            message.workspaceId === cloudOrganizationId &&
+            message.plugins.some(
+              (plugin) =>
+                plugin.id === pluginId && plugin.status === "connected",
+            )
+          ) {
+            window.clearTimeout(timer);
+            unsubscribe();
+            resolve(undefined);
           } else if (message.type === "error" && message.requestId === id) {
             window.clearTimeout(timer);
             unsubscribe();
@@ -183,7 +194,7 @@ export function usePlugins() {
       setBusyPluginId(pluginId);
       try {
         const action = await authorizationAction(pluginId);
-        await openUrl(action.authorizationUrl);
+        if (action) await openUrl(action.authorizationUrl);
         return action;
       } finally {
         setBusyPluginId(null);
@@ -226,3 +237,5 @@ export function usePlugins() {
     uninstall,
   };
 }
+
+export type PluginRuntimeState = ReturnType<typeof usePlugins>;

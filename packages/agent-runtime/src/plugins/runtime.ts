@@ -102,7 +102,9 @@ export class PluginRuntime {
       pluginName: plugin.name,
       description: plugin.description,
       provider:
-        plugin.source.type === "discovery" ? plugin.source.domain : plugin.name,
+        plugin.source.type === "discovery" || plugin.source.type === "setup"
+          ? plugin.source.domain
+          : plugin.name,
       authorizationUrl: authorization.authorizationUrl,
       status: "authorization_required",
     };

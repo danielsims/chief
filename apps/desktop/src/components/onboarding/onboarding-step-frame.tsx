@@ -36,6 +36,8 @@ export function StepFrame({
   continueLabel = "Continue",
   actionsLeft,
   actionsAlign = "left",
+  separateActions = true,
+  className,
 }: {
   children: ReactNode;
   onContinue: () => void;
@@ -44,11 +46,23 @@ export function StepFrame({
   continueLabel?: string;
   actionsLeft?: ReactNode;
   actionsAlign?: "left" | "right";
+  separateActions?: boolean;
+  className?: string;
 }) {
   return (
-    <div className="bg-card/60 w-full rounded-xl border p-5 shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]">
+    <div
+      className={cn(
+        "bg-card/60 w-full rounded-xl border p-5 shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]",
+        className,
+      )}
+    >
       {children}
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+      <div
+        className={cn(
+          "mt-5 flex flex-wrap items-center justify-between gap-3",
+          separateActions && "border-t pt-4",
+        )}
+      >
         <div
           className={cn(
             "flex flex-wrap items-center gap-2",

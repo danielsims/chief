@@ -18,8 +18,10 @@ export function ProviderLogo({
   useEffect(() => setFailed(false), [domain]);
   const isGoogle =
     domain === "google.com" ||
+    domain === "workspace.google.com" ||
     domain === "analytics.googleapis.com" ||
-    domain === "googleads.googleapis.com";
+    domain === "googleads.googleapis.com" ||
+    domain.endsWith(".googleapis.com");
 
   return (
     <span

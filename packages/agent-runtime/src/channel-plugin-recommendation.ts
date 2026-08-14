@@ -2,11 +2,13 @@ import type { AgentPluginSummary } from "@chief/plugin-api";
 
 import type { ChannelLocalToolContext } from "./channel-local-tools.js";
 import type { ChannelEvent, WorkspaceChannel } from "./channel-types.js";
+import { normalizeAgentText } from "./agent-output.js";
 import { fail, optionalText, textValue } from "./channel-local-tool-input.js";
 import { resolveChannelMessageId } from "./channels/message-projection.js";
 import { createChannelEvent } from "./channels/nip29.js";
 
 const MAX_RECOMMENDATIONS = 8;
+const DOMAIN_IN_SERVICE = /\(([a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)\)\s*$/i;
 
 function stringList(input: unknown, name: string) {
   if (input === undefined) return [];
@@ -43,7 +45,9 @@ function normalized(value: string) {
 
 function searchable(plugin: AgentPluginSummary) {
   const sourceDomain =
-    plugin.source.type === "discovery" ? plugin.source.domain : "";
+    plugin.source.type === "discovery" || plugin.source.type === "setup"
+      ? plugin.source.domain
+      : "";
   return normalized(
     [
       plugin.id,
@@ -67,7 +71,9 @@ function matchScore(plugin: AgentPluginSummary, query: string) {
   const name = normalized(plugin.name);
   const domains = [
     ...(plugin.domains ?? []),
-    ...(plugin.source.type === "discovery" ? [plugin.source.domain] : []),
+    ...(plugin.source.type === "discovery" || plugin.source.type === "setup"
+      ? [plugin.source.domain]
+      : []),
   ].map(normalized);
   if (target === id || target === name || domains.includes(target)) return 100;
   if (name.includes(target) || target.includes(name)) return 80;
@@ -77,6 +83,26 @@ function matchScore(plugin: AgentPluginSummary, query: string) {
   return tokens.length > 0 && tokens.every((token) => haystack.includes(token))
     ? 40
     : 0;
+}
+
+function setupFallback(service: string): AgentPluginSummary | undefined {
+  const match = DOMAIN_IN_SERVICE.exec(service);
+  const domain = match?.[1]?.toLowerCase();
+  if (!match || !domain?.includes(".")) return undefined;
+  const name = service.slice(0, match.index).trim();
+  if (!name) return undefined;
+  return {
+    id: `setup-${domain.replace(/[^a-z0-9]+/g, "-")}`,
+    name,
+    description: `Connect ${name} through Chief's secure setup flow.`,
+    category: "Productivity",
+    homepage: `https://${domain}`,
+    domains: [domain],
+    source: { type: "setup", domain },
+    status: "available",
+    enabled: false,
+    trusted: false,
+  };
 }
 
 function resolvePlugins(
@@ -108,7 +134,7 @@ function resolvePlugins(
       .map((plugin) => ({ plugin, score: matchScore(plugin, service) }))
       .filter(({ score }) => score > 0)
       .sort((left, right) => right.score - left.score);
-    add(ranked[0]?.plugin, service);
+    add(ranked[0]?.plugin ?? setupFallback(service), service);
   }
   return { plugins: selected.slice(0, MAX_RECOMMENDATIONS), missing };
 }
@@ -124,7 +150,7 @@ export async function postPluginRecommendation(input: {
   if (!context.plugins) {
     fail("Plugin discovery is unavailable.", 503, "plugin_api_unavailable");
   }
-  const content = textValue(body.content, "content", 1_000);
+  const content = normalizeAgentText(textValue(body.content, "content", 1_000));
   const idempotencyKey = textValue(body.idempotencyKey, "idempotencyKey", 120);
   const sourceId = `channel-api:${idempotencyKey}`;
   const existing = events.find((event) =>
