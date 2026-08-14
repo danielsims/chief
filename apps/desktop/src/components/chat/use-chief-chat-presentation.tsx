@@ -11,6 +11,12 @@ import type { ChiefChatProps } from "./chief-chat-types";
 import type { useChiefChatComposer } from "./use-chief-chat-composer";
 import type { useChiefChatCore } from "./use-chief-chat-core";
 import type { useChiefChatTimeline } from "./use-chief-chat-timeline";
+import {
+  actionItemsInConversation,
+  actionItemsInThread,
+  legacyThreadRootIdsNeedingUser,
+  threadRootIdsNeedingUser,
+} from "../../lib/channel-action-items";
 import { withoutMarkerLines } from "../../lib/integration-setup";
 import { messageBlocks } from "../../lib/runtime";
 import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
@@ -33,19 +39,18 @@ type Timeline = ReturnType<typeof useChiefChatTimeline>;
  */
 export function useChiefChatPresentation({
   channel,
+  chatId,
   composer,
   core,
   directAgent,
-  onOpenInternalPanel,
   timeline,
-}: Pick<ChiefChatProps, "channel" | "directAgent" | "onOpenInternalPanel"> & {
+}: Pick<ChiefChatProps, "channel" | "chatId" | "directAgent"> & {
   composer: Composer;
   core: Core;
   timeline: Timeline;
 }) {
-  const { channelReactions, controls, messages, setActivityOpen, userAuthor } =
-    core;
-  const { setThreadRootId } = composer;
+  const { channelReactions, controls, messages, userAuthor } = core;
+  const { setThreadRootId, threadRootId } = composer;
   const { activeSpecialistByThread, activeThreadReplies, threadReplies } =
     timeline;
   const openActionSourceIds = useMemo(
@@ -57,10 +62,57 @@ export function useChiefChatPresentation({
       ),
     [core.workspaceData.actionItems],
   );
+  const openActionThreadRootIds = useMemo(() => {
+    const exact = threadRootIdsNeedingUser({
+      actionItems: core.workspaceData.actionItems,
+      sessions: core.workspaceData.activity,
+    });
+    for (const rootId of legacyThreadRootIdsNeedingUser({
+      actionItems: core.workspaceData.actionItems,
+      chatId,
+      messages,
+    })) {
+      exact.add(rootId);
+    }
+    return exact;
+  }, [
+    chatId,
+    core.workspaceData.actionItems,
+    core.workspaceData.activity,
+    messages,
+  ]);
   const visibleConversationBlocks = useCallback(
     (message: ChiefUIMessage) =>
       conversationVisibleBlocks(withoutMarkerLines(messageBlocks(message))),
     [],
+  );
+  const threadActions = useMemo(
+    () =>
+      threadRootId
+        ? actionItemsInThread({
+            actionItems: core.workspaceData.actionItems,
+            chatId,
+            messages,
+            sessions: core.workspaceData.activity,
+            threadRootId,
+          })
+        : [],
+    [
+      chatId,
+      core.workspaceData.actionItems,
+      core.workspaceData.activity,
+      messages,
+      threadRootId,
+    ],
+  );
+  const conversationActions = useMemo(
+    () =>
+      actionItemsInConversation({
+        actionItems: core.workspaceData.actionItems,
+        chatId,
+        sessions: core.workspaceData.activity,
+      }),
+    [chatId, core.workspaceData.actionItems, core.workspaceData.activity],
   );
   const summarizeThreadReplies = (replies: readonly ChiefUIMessage[]) => {
     const summary = summarizeThreadReplyCandidates(
@@ -104,9 +156,7 @@ export function useChiefChatPresentation({
       .flatMap((part) => (part.type === "text" ? [part.text] : []))
       .join("\n");
     const openThread = () => {
-      setActivityOpen(false);
       setThreadRootId(message.id);
-      onOpenInternalPanel?.();
     };
     const toggleReaction = (emoji: string) =>
       channelReactions.toggleReaction(message.id, emoji);
@@ -155,13 +205,14 @@ export function useChiefChatPresentation({
           reactions={channelReactions.reactions.get(message.id) ?? []}
           specialist={specialist}
           needsUser={
-            specialist
+            openActionThreadRootIds.has(message.id) ||
+            (specialist
               ? specialistNeedsUserInThread(
                   specialist,
                   message.id,
                   openActionSourceIds,
                 )
-              : false
+              : false)
           }
           onOpenThread={openThread}
           onToggleReaction={toggleReaction}
@@ -206,6 +257,8 @@ export function useChiefChatPresentation({
 
   return {
     acknowledgedDmMessageId,
+    conversationActions,
+    threadActions,
     activeThreadSummary,
     controlsForMessage,
     imageParts,

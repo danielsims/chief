@@ -6,6 +6,7 @@ import type { BrowserRunRecord } from "@chief/agent-runtime/types";
 import type { ChiefChatProps } from "./chief-chat-types";
 import { messageBlocks } from "../../lib/runtime";
 import { InputRequestSection } from "../integrations/input-request-section";
+import { TimelineActionRequestCard } from "./action-request-card";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
 import { ApprovalCard } from "./approval-card";
 import { approvalBelongsToSurface } from "./approval-presentation";
@@ -13,14 +14,6 @@ import { BrowserSessionAttachment } from "./browser-panel";
 import { ChatComposer } from "./chat-composer";
 import { ChatTimeline } from "./chat-timeline";
 import { ChiefChatAuxiliaryPanels } from "./chief-chat-auxiliary-panels";
-/**
- * Memoized per-message content. Thread rows are referentially stable after the
- * runtime merge, so unchanged messages skip re-rendering entirely instead of
- * rebuilding the whole thread on every stream/tool event — that rebuild is what
- * made opening a thread (especially one with a browser) janky and flickery.
- * progress is intentionally excluded: it only feeds tool cards, which no longer
- * render in the chat.
- */
 import {
   ChannelMembershipMessage,
   ChatSkeleton,
@@ -28,6 +21,7 @@ import {
   ConversationEmptyState,
   MessageBlocksContent,
 } from "./chief-chat-message-components";
+import { withActionTimelineEntries } from "./conversation-timeline-entries";
 import { QuestionCard } from "./question-card";
 import { RecurringWorkComposer } from "./recurring-work-composer";
 import { useChiefChatComposer } from "./use-chief-chat-composer";
@@ -37,10 +31,6 @@ import { useChiefChatTimeline } from "./use-chief-chat-timeline";
 import { useMainAgentActivity } from "./use-main-agent-activity";
 import { UserMessage } from "./user-message";
 
-/**
- * Composes the core, composer, timeline, and presentation hooks into the full
- * Chief conversation surface, including its main feed and auxiliary panels.
- */
 export function ChiefChat({
   chatId,
   isNew,
@@ -67,7 +57,6 @@ export function ChiefChat({
   onOpenChannel,
   onThreadRootChange,
   onOpenProfile,
-  onOpenInternalPanel,
   activityOpen,
   onActivityOpenChange,
   panelSizing,
@@ -119,6 +108,7 @@ export function ChiefChat({
     childSessions,
     cloudOrganizationId,
     controls,
+    currentUser,
     interrupt,
     knownAgentIds,
     markThreadRead,
@@ -206,6 +196,8 @@ export function ChiefChat({
   );
   const {
     acknowledgedDmMessageId,
+    conversationActions,
+    threadActions,
     activeThreadSummary,
     controlsForMessage,
     imageParts,
@@ -214,12 +206,16 @@ export function ChiefChat({
     visibleConversationBlocks,
   } = useChiefChatPresentation({
     channel,
+    chatId,
     composer: composerState,
     core,
     directAgent,
-    onOpenInternalPanel,
     timeline: timelineState,
   });
+  const conversationTimelineEntries = useMemo(
+    () => withActionTimelineEntries(timelineEntries, conversationActions),
+    [conversationActions, timelineEntries],
+  );
 
   return (
     <div className="relative flex h-full min-w-0 overflow-hidden">
@@ -234,9 +230,6 @@ export function ChiefChat({
             data-chat-timeline
             className="min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto py-6 pr-2"
           >
-            {/* A new chat has nothing to replay, so its identity header renders
-            immediately; existing chats wait for history so the empty state
-            never flashes before the transcript. */}
             {composerOpen && messages.length === 0 ? (
               <div className="mx-auto flex h-full w-full max-w-3xl items-center justify-center py-6">
                 <RecurringWorkComposer
@@ -279,11 +272,21 @@ export function ChiefChat({
             ) : null}
             {channelResolved || isNew ? (
               <ChatTimeline
-                entries={timelineEntries}
+                entries={conversationTimelineEntries}
                 renderEntry={(entry) => {
                   if (entry.type === "browser") {
                     return browserAttachmentNode(entry.run);
                   }
+                  if (entry.type === "action") {
+                    return (
+                      <TimelineActionRequestCard
+                        action={entry.action}
+                        currentUser={currentUser}
+                        resolve={core.workspaceData.resolveActionRequest}
+                      />
+                    );
+                  }
+                  if (entry.type === "specialist") return null;
                   const { message } = entry;
                   if (message.metadata?.channelAction) {
                     return (
@@ -471,6 +474,7 @@ export function ChiefChat({
         </div>
       </div>
       <ChiefChatAuxiliaryPanels
+        threadActions={threadActions}
         activeThreadSummary={activeThreadSummary}
         composer={composerState}
         core={core}
