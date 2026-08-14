@@ -1,8 +1,11 @@
+import { useState } from "react";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   ChevronLeft,
   ChevronRight,
   PanelLeftClose,
   PanelLeftOpen,
+  RotateCw,
 } from "lucide-react";
 
 import { cn } from "@chief/ui/lib/utils";
@@ -24,6 +27,17 @@ export function AppTopChrome({
 }) {
   const { canGoBack, canGoForward, goBack, goForward } = useNavigationHistory();
   const { client, status } = useRuntime();
+  const [recovering, setRecovering] = useState(false);
+
+  const recoverRuntime = async () => {
+    setRecovering(true);
+    try {
+      if (isTauri()) await invoke("restart_agent_runtime");
+    } finally {
+      client.reconnectNow();
+      window.setTimeout(() => setRecovering(false), 5_000);
+    }
+  };
 
   return (
     <header
@@ -68,11 +82,13 @@ export function AppTopChrome({
       {status === "disconnected" ? (
         <button
           type="button"
-          className="text-foreground/80 hover:text-foreground ml-auto flex items-center gap-2 text-xs transition-colors"
-          onClick={() => client.reconnectNow()}
+          className="text-foreground/80 hover:text-foreground ml-auto flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors hover:bg-red-500/10"
+          onClick={() => void recoverRuntime()}
+          title="Restart the local runtime"
         >
           <span className="size-1.5 rounded-full bg-red-500" />
-          Runtime disconnected
+          {recovering ? <RotateCw className="animate-spin" size={12} /> : null}
+          {recovering ? "Restarting runtime…" : "Runtime disconnected · Retry"}
         </button>
       ) : null}
     </header>
