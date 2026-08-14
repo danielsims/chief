@@ -16,6 +16,7 @@ import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { McpServerSpec } from "../types.js";
 import { workspaceSecrets } from "../workspace-secrets.js";
 import { installedPlugin } from "./catalog.js";
+import { pluginOAuthCallbackPage } from "./oauth-callback-page.js";
 import { pluginsRoot, readPluginState } from "./store.js";
 
 const CALLBACK_URL = "http://127.0.0.1:4318/plugins/oauth/callback";
@@ -28,6 +29,7 @@ interface StoredOAuthSession {
   tokens?: OAuthTokens;
   codeVerifier?: string;
   discovery?: OAuthDiscoveryState;
+  authorizedWithoutTokens?: boolean;
   updatedAt: number;
 }
 
@@ -190,6 +192,13 @@ function stateMatches(left: string, right: string) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+function accessTokenExpired(session: StoredOAuthSession) {
+  return (
+    typeof session.tokens?.expires_in === "number" &&
+    session.updatedAt + session.tokens.expires_in * 1000 <= Date.now() + 30_000
+  );
+}
+
 function interpolatePluginPath(
   value: string,
   pluginRoot: string,
@@ -200,28 +209,22 @@ function interpolatePluginPath(
     .replaceAll("${PLUGIN_DATA}", pluginData);
 }
 
-function callbackPage(title: string, detail: string, ok: boolean) {
-  const escape = (value: string) =>
-    value.replace(
-      /[&<>"']/g,
-      (character) =>
-        ({
-          "&": "&amp;",
-          "<": "&lt;",
-          ">": "&gt;",
-          '"': "&quot;",
-          "'": "&#39;",
-        })[character] ?? character,
-    );
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escape(title)}</title><style>body{background:#0b0b0b;color:#f5f5f5;font:16px system-ui;display:grid;min-height:100vh;place-items:center;margin:0}.card{max-width:34rem;padding:2rem;border:1px solid #333;border-radius:1rem;background:#191919}p{color:#aaa;line-height:1.5}</style></head><body><main class="card"><h1>${escape(title)}</h1><p>${escape(detail)}</p>${ok ? "<script>setTimeout(()=>window.close(),1800)</script>" : ""}</main></body></html>`;
-}
-
 export class PluginOAuthManager {
   private readonly pending = new Map<string, PendingAuthorization>();
+  private readonly failures = new Map<string, string>();
 
   constructor(private readonly onConnected?: (workspaceId: string) => void) {}
 
   async start(workspaceId: string, pluginId: string) {
+    this.failures.delete(`${workspaceId}\0${pluginId}`);
+    for (const [pendingState, pending] of this.pending) {
+      if (
+        pending.workspaceId === workspaceId &&
+        pending.pluginId === pluginId
+      ) {
+        this.pending.delete(pendingState);
+      }
+    }
     const { loaded } = await installedPlugin(workspaceId, pluginId);
     const remote = loaded.mcpServers.find(
       ({ spec }) => spec.type === "streamable-http" || spec.type === "sse",
@@ -241,6 +244,7 @@ export class PluginOAuthManager {
       version: 1,
       serverUrl: remote.spec.url,
       state,
+      authorizedWithoutTokens: false,
       updatedAt: Date.now(),
     };
     const provider = new ChiefOAuthProvider(
@@ -251,6 +255,9 @@ export class PluginOAuthManager {
     );
     const result = await auth(provider, { serverUrl: remote.spec.url });
     if (result === "AUTHORIZED") {
+      session.authorizedWithoutTokens = !session.tokens?.access_token;
+      session.updatedAt = Date.now();
+      await writeSession(workspaceId, pluginId, remote.name, session);
       return { status: "connected" as const, serverName: remote.name };
     }
     const authorizationUrl = provider.takeAuthorizationUrl();
@@ -271,20 +278,39 @@ export class PluginOAuthManager {
     };
   }
 
-  async connected(workspaceId: string, pluginId: string) {
+  async connectionState(workspaceId: string, pluginId: string) {
+    if (
+      [...this.pending.values()].some(
+        (pending) =>
+          pending.workspaceId === workspaceId && pending.pluginId === pluginId,
+      )
+    ) {
+      return { status: "waiting" as const };
+    }
     try {
       const { loaded } = await installedPlugin(workspaceId, pluginId);
       for (const server of loaded.mcpServers) {
         const session = await readSession(workspaceId, pluginId, server.name);
-        if (session?.tokens?.access_token) return true;
+        if (session?.authorizedWithoutTokens) {
+          return { status: "connected" as const };
+        }
+        if (!session?.tokens?.access_token) continue;
+        if (accessTokenExpired(session)) {
+          return { status: "reconnect" as const };
+        }
+        return { status: "connected" as const };
       }
     } catch {
-      // Invalid or removed plugins are not connected.
+      /* Missing or invalid plugins are not connected. */
     }
-    return false;
+    const failure = this.failures.get(`${workspaceId}\0${pluginId}`);
+    return failure
+      ? { status: "failed" as const, error: failure }
+      : { status: "authorization_required" as const };
   }
 
   async disconnect(workspaceId: string, pluginId: string) {
+    this.failures.delete(`${workspaceId}\0${pluginId}`);
     try {
       const { loaded } = await installedPlugin(workspaceId, pluginId);
       await Promise.all(
@@ -296,7 +322,7 @@ export class PluginOAuthManager {
         ),
       );
     } catch {
-      // A missing or invalid package has no usable connection to retain.
+      /* A missing plugin has no connection to retain. */
     }
     for (const [state, pending] of this.pending) {
       if (
@@ -332,7 +358,7 @@ export class PluginOAuthManager {
                 ? resolve(pluginRoot, spec.command)
                 : spec.command,
               args: (spec.args ?? []).map(interpolate),
-              cwd: resolve(pluginRoot, spec.cwd ?? "."),
+              cwd: resolve(pluginRoot, interpolate(spec.cwd ?? ".")),
               env: {
                 ...Object.fromEntries(
                   Object.entries(spec.env ?? {}).map(([key, value]) => [
@@ -347,7 +373,12 @@ export class PluginOAuthManager {
             continue;
           }
           const session = await readSession(workspaceId, installation.id, name);
-          if (!session?.tokens?.access_token) continue;
+          if (session && accessTokenExpired(session)) continue;
+          if (
+            !session?.tokens?.access_token &&
+            !session?.authorizedWithoutTokens
+          )
+            continue;
           servers.push({
             name: `plugin-${installation.id}-${name}`,
             command: "",
@@ -355,7 +386,9 @@ export class PluginOAuthManager {
             url: spec.url,
             headers: {
               ...spec.headers,
-              Authorization: `Bearer ${session.tokens.access_token}`,
+              ...(session.tokens?.access_token
+                ? { Authorization: `Bearer ${session.tokens.access_token}` }
+                : {}),
             },
           });
         }
@@ -380,7 +413,7 @@ export class PluginOAuthManager {
         "cache-control": "no-store",
       });
       res.end(
-        callbackPage(
+        pluginOAuthCallbackPage(
           "Authorization expired",
           "Return to Chief and choose Reopen to start a fresh sign-in.",
           false,
@@ -416,25 +449,32 @@ export class PluginOAuthManager {
       if (result !== "AUTHORIZED")
         throw new Error("The provider did not complete authorization.");
       this.pending.delete(state);
+      this.failures.delete(`${pending.workspaceId}\0${pending.pluginId}`);
       this.onConnected?.(pending.workspaceId);
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
       });
       res.end(
-        callbackPage(
+        pluginOAuthCallbackPage(
           `${pending.pluginName} is connected`,
           "You can close this window and return to Chief.",
           true,
         ),
       );
     } catch (error) {
+      this.pending.delete(state);
+      this.failures.set(
+        `${pending.workspaceId}\0${pending.pluginId}`,
+        error instanceof Error ? error.message : String(error),
+      );
+      this.onConnected?.(pending.workspaceId);
       res.writeHead(400, {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
       });
       res.end(
-        callbackPage(
+        pluginOAuthCallbackPage(
           "Authorization failed",
           error instanceof Error ? error.message : String(error),
           false,

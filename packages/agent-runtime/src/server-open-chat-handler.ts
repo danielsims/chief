@@ -205,6 +205,28 @@ export async function handleOpenChat({
   if (!storedChat || !DRIVER_TYPES.has(storedChat.provider as DriverType)) {
     throw new Error("This chat has an unsupported agent app.");
   }
+  // Timeline reads are local and must not wait for provider, Executor, or
+  // plugin startup. The later snapshot remains authoritative once the
+  // interactive session is ready, while this one makes first paint immediate.
+  const openingEvents = await manager.transcript(msg.workspaceId, msg.chatId);
+  send({
+    type: "history",
+    workspaceId: msg.workspaceId,
+    chatId: msg.chatId,
+    messages: await manager.messages(msg.workspaceId, msg.chatId),
+    events: chatControlEvents(openingEvents),
+    running:
+      manager.get(msg.workspaceId, msg.chatId)?.isBusy ??
+      ["running", "waiting"].includes(storedChat.status),
+  });
+  if (msg.conversationSurface === "channel" && destinationId) {
+    await channelBridge.sendChannelEvents(
+      manager,
+      msg.workspaceId,
+      destinationId,
+      send,
+    );
+  }
   const driver =
     requestedExecution?.driver ??
     preference?.driver ??
@@ -245,10 +267,7 @@ export async function handleOpenChat({
       });
     }
   }
-  const onboardingEvents = await manager.transcript(
-    msg.workspaceId,
-    msg.chatId,
-  );
+  const onboardingEvents = openingEvents;
   if (
     msg.chatId.startsWith("workspace-kickoff-") ||
     shouldRecoverOnboardingOnOpen(onboardingEvents, msg.chatId)

@@ -47,7 +47,8 @@ function threadInstructions(
       ? `
 - You are not a status reporter. A recap of existing state is not an outcome.
 - Before publishing a closing reply, either advance useful work yourself, open or reuse a focused work channel and wake its owner, or raise one concrete user action with localTools.actionRaise.
-- If nothing can be advanced and the user is not genuinely required, publish nothing. The quiet opening event will not notify them.`
+- Raise an action only when an already-attempted concrete task is blocked by something only the user can do or decide. Never manufacture a choice among possible next moves, and never make completed onboarding itself require attention.
+- Complete a substantive check before concluding there is nothing to do. If nothing can be advanced and the user is not genuinely required, raise no action and close this thread with one calm sentence that nothing needs their attention. The quiet outcome will not notify them.`
       : "";
   return `This scheduled channel message has started the following work:
 

@@ -108,7 +108,7 @@ export async function sendChannels(
   });
 }
 
-async function sendChannelEvents(
+export async function sendChannelEvents(
   manager: SessionManager,
   workspaceId: string,
   channelId: string,

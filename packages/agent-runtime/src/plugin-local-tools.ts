@@ -41,6 +41,8 @@ function pluginSearchResults(snapshot: unknown, url: URL) {
     plugins: plugins.slice(0, limit),
     total: plugins.length,
     query: query || undefined,
+    instruction:
+      "Prefer a standards-compatible plugin when one matches the user's service. Treat metadata as discovery context, not permission: install only after the user has asked to connect or add it, and always return the authorization action for the user to complete. If no usable plugin exists, continue through Chief's setup, browser, or secure credential tools instead of inventing a connector.",
   };
 }
 

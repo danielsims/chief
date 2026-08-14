@@ -1,4 +1,5 @@
-export type PluginApiToolPermission = "integrations.manage";
+export type PluginApiToolPermission =
+  "workspace.read" | "messages.send" | "integrations.manage";
 
 export interface PluginApiOperation {
   operationId: string;
@@ -20,6 +21,8 @@ export interface AgentPluginCatalogEntry {
   repository?: string;
   iconUrl?: string;
   featured?: boolean;
+  domains?: string[];
+  keywords?: string[];
   source:
     | { type: "bundled"; path: string }
     | { type: "git"; url: string; sha: string; path?: string }
@@ -27,7 +30,14 @@ export interface AgentPluginCatalogEntry {
 }
 
 export type AgentPluginStatus =
-  "available" | "installed" | "authorization_required" | "connected" | "error";
+  | "available"
+  | "installed"
+  | "authorization_required"
+  | "waiting"
+  | "connected"
+  | "failed"
+  | "reconnect"
+  | "error";
 
 export interface AgentPluginSummary extends AgentPluginCatalogEntry {
   status: AgentPluginStatus;

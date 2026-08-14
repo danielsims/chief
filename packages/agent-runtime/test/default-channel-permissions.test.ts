@@ -19,14 +19,14 @@ void test("default public channels let member agents maintain metadata", () => {
   }
 });
 
-void test("a fresh workspace starts the owner in mission control, Engineering, and General", () => {
+void test("a fresh workspace starts the owner only in General", () => {
   const joined = defaultWorkspaceChannels()
     .filter((channel) => channel.visibility !== "direct")
     .filter((channel) => channel.userIds.includes("workspace-owner"));
 
   assert.deepEqual(
     joined.map((channel) => channel.slug),
-    ["mission-control", "engineering", "general"],
+    ["general"],
   );
 });
 

@@ -7,8 +7,8 @@ import test from "node:test";
 import { LocalStore } from "../src/local-store.js";
 import { SessionManager } from "../src/manager.js";
 import {
-  ensureOnboardingEngineeringChannel,
   ensureOnboardingGeneralChannel,
+  inviteOwnerToMissionControl,
 } from "../src/onboarding-general-channel.js";
 
 process.env.CHIEF_DATABASE_ENCRYPTION_KEY =
@@ -45,30 +45,47 @@ void test("General includes the owner without onboarding messages", async () => 
   }
 });
 
-void test("Engineering is visible and staffed after onboarding", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "chief-engineering-invite-"));
+void test("Chief invites the owner to Mission Control once", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "chief-mission-invite-"));
   try {
     const store = new LocalStore(join(directory, "chief.sqlite"));
     const manager = new SessionManager(store);
     let channelUpdates = 0;
     const input = {
       manager,
-      workspaceId: "workspace-engineering",
+      workspaceId: "workspace-mission",
+      channelId: "ce83fa02-5d8d-4fc1-9e31-f670676b0741",
       onChannelsChanged: () => {
         channelUpdates += 1;
       },
     };
 
-    await ensureOnboardingEngineeringChannel(input);
-    await ensureOnboardingEngineeringChannel(input);
+    await inviteOwnerToMissionControl(input);
+    await inviteOwnerToMissionControl(input);
 
-    const engineering = (
-      await store.channelStore().list("workspace-engineering")
-    ).find((channel) => channel.slug === "engineering");
-    assert.ok(engineering);
-    assert.deepEqual(engineering.agentIds, ["chief", "engineer"]);
-    assert.deepEqual(engineering.userIds, ["workspace-owner"]);
-    assert.equal(channelUpdates, 0);
+    const mission = await store
+      .channelStore()
+      .get("workspace-mission", input.channelId);
+    assert.ok(mission);
+    assert.deepEqual(mission.userIds, ["workspace-owner"]);
+    assert.equal(channelUpdates, 1);
+    const events = await store
+      .channelStore()
+      .events("workspace-mission", mission.id);
+    assert.equal(events.length, 1);
+    const invite = events[0];
+    assert.ok(invite);
+    assert.equal(invite.content, "Chief added you to the channel.");
+    assert.ok(
+      invite.tags.some(
+        (tag) => tag[0] === "action" && tag[1] === "member-added",
+      ),
+    );
+    assert.ok(
+      invite.tags.some(
+        (tag) => tag[0] === "user" && tag[1] === "workspace-owner",
+      ),
+    );
     await store.close();
   } finally {
     rmSync(directory, { recursive: true, force: true });

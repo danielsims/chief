@@ -9,6 +9,7 @@ import {
 } from "./channel-local-tool-input.js";
 import { emitMemberAddedEvent } from "./channel-membership-local-tools.js";
 import { ensureChannelPermission } from "./channel-permissions.js";
+import { postPluginRecommendation } from "./channel-plugin-recommendation.js";
 import {
   actorOwnsMessage,
   channelMessages,
@@ -178,6 +179,22 @@ export async function handleChannelMessageLocalTool(input: {
     if (!channel) return { handled: false };
     ensureChannelMember(channel, context);
     const events = await context.channelStore.events(workspaceId, channel.id);
+
+    if (tail === "plugins/recommend" && request.method === "POST") {
+      if (channel.lifecycle === "archived") {
+        fail("Restore this channel before posting.", 409, "channel_archived");
+      }
+      return {
+        handled: true,
+        value: await postPluginRecommendation({
+          workspaceId,
+          channel,
+          events,
+          body,
+          context,
+        }),
+      };
+    }
 
     if (tail === "messages" && request.method === "GET") {
       const page = cursorPage(

@@ -24,6 +24,7 @@ import type { ChannelEvent } from "./channel-types.js";
 import type { LocalToolContext } from "./local-tools.js";
 import type { AgentSession } from "./session.js";
 import type {
+  ActionItem,
   AgentDeploymentRecord,
   AgentEvent,
   BrowserAutomationCommand,
@@ -32,7 +33,6 @@ import type {
   BrowserPresentationMode,
   ClientMessage,
   ExecutorCapability,
-  InputRequest,
   IntegrationSetupProgress,
   RuntimeNotice,
   ServerMessage,
@@ -985,6 +985,7 @@ export function startServer(port = PORT) {
     _chatId: string,
     _receipt: string,
     _capability: ExecutorCapability,
+    _threadRootId?: string,
   ) => Promise.resolve();
   let ensureChiefSession = (
     _workspaceId: string,
@@ -1128,16 +1129,7 @@ export function startServer(port = PORT) {
           sourceAgentId?: string;
           sourceSessionId?: string;
         }[];
-        actions?: {
-          id: string;
-          agentId: string;
-          title: string;
-          reason: string;
-          sourceId?: string;
-          request?: InputRequest;
-          status: "open" | "dismissed";
-          createdAt: number;
-        }[];
+        actions?: ActionItem[];
       };
       await Promise.all(
         (records.prospects ?? []).map((prospect) =>
@@ -1289,7 +1281,13 @@ export function startServer(port = PORT) {
       executionOwner: "interactive",
     });
   };
-  continueChiefSession = async (workspaceId, chatId, receipt, capability) => {
+  continueChiefSession = async (
+    workspaceId,
+    chatId,
+    receipt,
+    capability,
+    owningThreadRootId,
+  ) => {
     const dispatch = async (): Promise<void> => {
       const session = await ensureChiefSession(workspaceId, chatId, capability);
       if (session.isBusy) {
@@ -1332,7 +1330,7 @@ export function startServer(port = PORT) {
         // continuation without the threadRootId would stream its replies into
         // the main timeline while the earlier messages stay in the thread,
         // which looks like duplicates after the turn completes.
-        const threadRootId = session.activeThreadRootId;
+        const threadRootId = owningThreadRootId ?? session.activeThreadRootId;
         await session.sendPrompt(receipt, undefined, true, {
           ...(threadRootId ? { threadRootId } : {}),
         });
@@ -1511,6 +1509,7 @@ export function startServer(port = PORT) {
             body,
             callerAgentId: caller.agentId,
             callerChatId: caller.chatId,
+            callerThreadRootId: caller.threadRootId,
             attemptId: activeSetup?.attemptId,
           });
         },

@@ -6,7 +6,7 @@ import type { PluginInstallRecord, PluginWorkspaceState } from "./types.js";
 import { workspaceRoot } from "../workspace-secrets.js";
 import { loadAgentPlugin } from "./loader.js";
 
-const DEFAULT_MARKETPLACES = [
+const DEFAULT_CATALOGS = [
   {
     id: "integrations-sh",
     name: "integrations.sh",
@@ -22,7 +22,7 @@ const DEFAULT_MARKETPLACES = [
       "https://raw.githubusercontent.com/xai-org/plugin-marketplace/main/.grok-plugin/marketplace.json",
     homepage: "https://github.com/xai-org/plugin-marketplace",
     enabled: true,
-    format: "marketplace" as const,
+    format: "agent-catalog" as const,
   },
 ] as const;
 
@@ -51,7 +51,10 @@ async function writePluginSkillsIndex(
       sections.push(
         [
           `- ${loaded.manifest.name}${loaded.manifest.description ? `: ${loaded.manifest.description}` : ""}`,
-          ...loaded.skills.map((skill) => `  - ${skill.name}: ${skill.path}`),
+          ...loaded.skills.map(
+            (skill) =>
+              `  - ${skill.name}: ${skill.description} (instructions: ${skill.path})`,
+          ),
         ].join("\n"),
       );
     } catch (error) {
@@ -72,12 +75,24 @@ export async function readPluginState(
 ): Promise<PluginWorkspaceState> {
   try {
     const raw = JSON.parse(await readFile(statePath(workspaceId), "utf8")) as
-      Partial<PluginWorkspaceState> | undefined;
+      | (Partial<PluginWorkspaceState> & {
+          marketplaceSources?: PluginWorkspaceState["catalogSources"];
+        })
+      | undefined;
+    const savedSources = Array.isArray(raw?.catalogSources)
+      ? raw.catalogSources
+      : Array.isArray(raw?.marketplaceSources)
+        ? raw.marketplaceSources.map((source) => ({
+            ...source,
+            format:
+              source.format === "integrations-sh"
+                ? ("integrations-sh" as const)
+                : ("agent-catalog" as const),
+          }))
+        : undefined;
     return {
-      version: 1,
-      marketplaceSources: Array.isArray(raw?.marketplaceSources)
-        ? raw.marketplaceSources
-        : [...DEFAULT_MARKETPLACES],
+      version: 2,
+      catalogSources: savedSources ?? [...DEFAULT_CATALOGS],
       installations:
         raw?.installations && typeof raw.installations === "object"
           ? raw.installations
@@ -85,8 +100,8 @@ export async function readPluginState(
     };
   } catch {
     return {
-      version: 1,
-      marketplaceSources: [...DEFAULT_MARKETPLACES],
+      version: 2,
+      catalogSources: [...DEFAULT_CATALOGS],
       installations: {},
     };
   }

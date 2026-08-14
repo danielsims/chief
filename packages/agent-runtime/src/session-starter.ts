@@ -9,7 +9,7 @@ import type {
   AgentToolPermission,
 } from "./types.js";
 import { agentLocalToolServer } from "./agent-local-mcp.js";
-import { pluginSkillInstructions } from "./plugins/instructions.js";
+import { withPluginSkillInstructions } from "./plugins/instructions.js";
 import { scopeRemoteAgentEnvironment } from "./remote-agent-environment.js";
 import { AgentSession } from "./session.js";
 import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
@@ -56,10 +56,10 @@ export async function startManagedSession(
   ]
     .filter(Boolean)
     .join(" ");
-  const portableSkills = pluginSkillInstructions(config.workspaceId);
-  const sessionInstructions = [agent.instructions, portableSkills]
-    .filter(Boolean)
-    .join("\n\n");
+  const sessionInstructions = withPluginSkillInstructions(
+    agent.instructions,
+    config.workspaceId,
+  );
   const runtimeAgent = sessionInstructions.includes(
     `Runtime context: the current Chief session ID is ${chatId}.`,
   )

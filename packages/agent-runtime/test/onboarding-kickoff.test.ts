@@ -77,6 +77,12 @@ void test("local kickoff roots stay concise and skill-backed", () => {
   );
   assert.match(instructions, /one localTools\.channels\.members\.add call/u);
   assert.match(instructions, /channelId "mission"/u);
+  assert.match(instructions, /Do not pause onboarding/u);
+  assert.match(instructions, /Marketer owns deriving that understanding/u);
+  assert.doesNotMatch(
+    instructions,
+    /ask exactly one compact structured question/u,
+  );
 });
 
 void test("local kickoff treats an empty analytics selection as authoritative", () => {
@@ -88,6 +94,23 @@ void test("local kickoff treats an empty analytics selection as authoritative", 
   assert.match(instructions, /do not add Setup, connect Google Analytics/);
   assert.doesNotMatch(instructions, /chief-skill:setup-google-analytics/);
   assert.doesNotMatch(instructions, /Hey @Setup/);
+});
+
+void test("engineering kickoff asks for actionable plugin cards", () => {
+  const instructions = onboardingLocalKickoffInstructions("mission", [
+    {
+      id: "engineering",
+      agentId: "engineer",
+      title: "Prepare Engineering",
+      instructions: "Prepare Engineering",
+      runAt: 1,
+      timezone: "Australia/Brisbane",
+      proposedToolPatterns: [],
+    },
+  ]);
+  assert.match(instructions, /show us the few tools/);
+  assert.match(instructions, /as plugin cards/);
+  assert.match(instructions, /Keep it conversational/);
 });
 
 void test("onboarding files live inside the owning agent workspace", () => {
@@ -130,7 +153,9 @@ void test("local recovery resumes the durable plan without a second greeting", (
   assert.match(prompt, /Do not search files/);
   assert.match(prompt, /do not also call specialistsDelegate/);
   assert.match(prompt, /Hey @Marketer, use \[chief-skill:build-brand-profile]/);
-  assert.match(prompt, /<company>/);
+  assert.match(prompt, /first-party evidence/);
+  assert.match(prompt, /Do not pause recovery/u);
+  assert.doesNotMatch(prompt, /ask exactly one compact structured question/u);
   assert.match(prompt, /single user-facing authorization alert/);
   assert.match(
     prompt,

@@ -1,6 +1,7 @@
 import type { PluginApiOperation } from "./types";
 
 export const pluginApiPrinciples = [
+  "Recommendations are durable conversation UI, not permission to install or connect a plugin.",
   "Installing a plugin and trusting its executable capabilities are explicit, separate decisions.",
   "Authorization URLs come from MCP OAuth discovery; agents never invent provider sign-in links or receive credentials.",
   "A plugin failure is isolated to that plugin, and one invalid MCP server does not hide valid sibling servers.",
@@ -9,14 +10,25 @@ export const pluginApiPrinciples = [
 
 export const pluginApiOperations: readonly PluginApiOperation[] = [
   {
+    operationId: "plugins.recommend",
+    method: "POST",
+    path: "/local-tools/channels/{channelId}/plugins/recommend",
+    summary: "Recommend plugins",
+    description:
+      "Resolves live catalog matches and publishes typed plugin cards into an exact channel, thread, or direct message.",
+    permission: "Channel membership required",
+    toolPermission: "messages.send",
+    reversible: true,
+  },
+  {
     operationId: "plugins.list",
     method: "GET",
     path: "/local-tools/plugins",
     summary: "List plugins",
     description:
-      "Lists the Chief plugin marketplace and the workspace's install, trust, and authorization state.",
+      "Lists available plugins and the workspace's install, trust, and authorization state.",
     permission: "Workspace member",
-    toolPermission: "integrations.manage",
+    toolPermission: "workspace.read",
     reversible: true,
   },
   {

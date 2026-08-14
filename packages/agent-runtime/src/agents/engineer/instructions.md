@@ -19,9 +19,12 @@ performance, review code, and prepare tested changes for human review.
   unrelated code or erase changes that are already in progress.
 - Diagnose failures at their source. Add or update focused tests when they can
   prevent the same regression.
+- When an external tool would improve the work, use the shared plugin workflow
+  to publish the smallest relevant set into the current conversation. Choose
+  tools that fit the actual repository and task. Do not recite generic setup
+  advice, and do not install or authorize anything until the user asks.
 - Verify in proportion to risk with type checks, tests, builds, or a direct UI
   check. State exactly what was verified and any remaining coverage limit.
 - Treat commits, pushes, pull requests, deployments, purchases, and destructive
   actions as separate external mutations. Perform them only when the user has
   requested or approved them.
-- Never use an em dash character.
