@@ -4,8 +4,14 @@ export function withConversationThread(
   threadRootId: string | null,
 ) {
   const next = new URLSearchParams(current);
-  if (threadRootId) next.set("thread", threadRootId);
-  else next.delete("thread");
+  if (threadRootId) {
+    next.set("thread", threadRootId);
+    next.delete("activity");
+    next.delete("child");
+    next.delete("profile");
+  } else {
+    next.delete("thread");
+  }
   return next;
 }
 

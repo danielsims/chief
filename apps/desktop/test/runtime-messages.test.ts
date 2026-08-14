@@ -11,6 +11,7 @@ import {
   mergeRuntimeHistory,
   mergeRuntimeMessage,
   projectChannelTimeline,
+  projectConversationMessages,
   visibleRuntimeError,
 } from "../src/lib/runtime-messages.js";
 
@@ -126,6 +127,83 @@ void test("published channel events own visible text and keep runtime activity",
     ),
     true,
   );
+});
+
+void test("direct messages keep authored replies even when routed through a channel id", () => {
+  const messages: ChiefUIMessage[] = [
+    {
+      id: "user-request",
+      role: "user",
+      parts: [{ type: "text", text: "Set an action item for me." }],
+    },
+    {
+      id: "chief-reply",
+      role: "assistant",
+      parts: [{ type: "text", text: "Done. I raised the action item." }],
+    },
+  ];
+
+  assert.deepEqual(
+    projectConversationMessages(messages, [], "direct").map(
+      (message) => message.id,
+    ),
+    ["user-request", "chief-reply"],
+  );
+  assert.deepEqual(
+    projectConversationMessages(messages, [], "channel").map(
+      (message) => message.id,
+    ),
+    ["user-request"],
+  );
+});
+
+void test("durable plugin recommendations render in channels and direct messages", () => {
+  const plugin = {
+    id: "github",
+    name: "GitHub",
+    description: "Connect issues and pull requests.",
+    category: "Engineering",
+    homepage: "https://github.com",
+    source: {
+      type: "discovery" as const,
+      registry: "integrations.sh",
+      domain: "github.com",
+    },
+    status: "available" as const,
+    enabled: false,
+    trusted: false,
+  };
+  const events = [
+    {
+      protocol: "nip29" as const,
+      kind: 9 as const,
+      id: "plugin-event",
+      channelId: "engineering",
+      pubkey: "engineer",
+      actor: { type: "agent" as const, id: "engineer", name: "Engineer" },
+      content: "I’d start with GitHub.",
+      parts: [
+        {
+          type: "data-plugin-recommendations",
+          data: { plugins: [plugin] },
+        },
+      ],
+      tags: [["client", "channel-api:engineering-plugins"]],
+      createdAt: 2,
+    },
+  ];
+
+  for (const surface of ["channel", "direct"] as const) {
+    const projected = projectConversationMessages([], events, surface);
+    assert.equal(projected[0]?.id, "channel-api:engineering-plugins");
+    assert.deepEqual(projected[0].parts, [
+      { type: "text", text: "I’d start with GitHub." },
+      {
+        type: "data-plugin-recommendations",
+        data: { plugins: [plugin] },
+      },
+    ]);
+  }
 });
 
 void test("published replies retain the agent that authored them", () => {

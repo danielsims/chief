@@ -63,6 +63,9 @@ export function useChiefChatCore({
     name: user?.name.trim() ?? "You",
     ...(user?.image ? { image: user.image } : {}),
   };
+  const currentUser = user
+    ? { id: user.id, ...(user.image ? { image: user.image } : {}) }
+    : null;
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const channelReactions = useChannelReactions(
     channel ? (destinationChannelId ?? null) : null,
@@ -96,6 +99,7 @@ export function useChiefChatCore({
       channelId: destinationChannelId,
       agentId: directAgent?.id,
       wakeOnMentionOnly: Boolean(channel),
+      conversationSurface: channel ? "channel" : "direct",
       integrationDomain,
     },
   );
@@ -277,6 +281,7 @@ export function useChiefChatCore({
     channelReactions,
     childSessions,
     cloudOrganizationId,
+    currentUser,
     currentTurnBlocks: currentTurn.blocks,
     driver: activeExecution?.driver,
     knownAgentIds,

@@ -47,7 +47,6 @@ export interface ChiefChatProps {
   onOpenChannel?: (channelId: string) => void;
   onThreadRootChange?: (threadRootId: string | null) => void;
   onOpenProfile?: (selection: ConversationProfileSelection) => void;
-  onOpenInternalPanel?: () => void;
   activityOpen: boolean;
   onActivityOpenChange: (open: boolean) => void;
   panelSizing: ConversationAuxiliaryPanelSizing;
