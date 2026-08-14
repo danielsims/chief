@@ -78,6 +78,9 @@ void test("local kickoff roots stay concise and skill-backed", () => {
   assert.match(instructions, /one localTools\.channels\.members\.add call/u);
   assert.match(instructions, /channelId "mission"/u);
   assert.match(instructions, /Do not pause onboarding/u);
+  assert.match(instructions, /Once the selected specialists have returned/u);
+  assert.match(instructions, /one compact native question/u);
+  assert.match(instructions, /without creating an action item merely/u);
   assert.match(instructions, /Marketer owns deriving that understanding/u);
   assert.doesNotMatch(
     instructions,

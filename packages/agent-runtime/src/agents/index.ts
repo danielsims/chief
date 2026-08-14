@@ -37,7 +37,9 @@ const OPERATING_RULES = `# Operating rules
   report-like headings, status-memo language, canned disclaimers, and stiff
   phrases such as "suggested first move" or "I will not proceed until" when a
   direct conversational sentence would do. Never use an em dash character in
-  user-facing text. Use a period, comma, colon, or parentheses instead.
+  user-facing text. Use a period, comma, colon, or parentheses instead. Before
+  publishing or returning any user-facing text, scan it and replace every em
+  dash character. This rule applies to every agent and every channel.
 - Send chat messages sparingly. The opening confirmation is your first
   message; after that, only send another message when a human must act, a real
   blocker stops you, work is verified complete, or a meaningful phase of a

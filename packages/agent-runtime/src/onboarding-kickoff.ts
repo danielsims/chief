@@ -54,6 +54,7 @@ export function onboardingLocalKickoffInstructions(
       `in channelId ${JSON.stringify(channelId)}.`,
     templates.join(" "),
     "Use the full display names and mention only that message's exact agent ID. Start every selected independent job before waiting for one. Keep Analyst blocked until a selected analytics setup succeeds; if no analytics setup was selected, do not start Analyst's initial report. The channel API starts each named agent in its thread, so do not also call specialistsDelegate or claim a job started before its kickoff succeeds.",
+    "Do not manufacture a generic onboarding question after kickoff. Once the selected specialists have returned, synthesize their evidence. If two or more genuinely useful next directions require the user's choice, present one compact native question in Mission Control. If one next safe step is clearly best, continue or recommend it directly without creating an action item merely to close onboarding.",
   ].join(" ");
 }
 
@@ -142,6 +143,7 @@ export function onboardingRecoveryPrompt(
       ? "Do not ask the user for information Chief can discover. If authorization is genuinely required, complete everything else and create one distinct action per provider or user decision, with a provider-scoped stable dedupe key."
       : "Do not ask the user for information Chief can discover. A waiting Setup thread is the single user-facing authorization alert; do not mirror it into mission control as another action or browser.",
     "Missing integrations are non-blocking. Complete all public-source, brand, and prospecting work first, persist each result only in its dedicated product surface, then create only deduplicated structured setup actions with stable keys. Do not create or attach a generic initial business review file. Recording actions is not completion.",
+    "Do not manufacture a generic onboarding question after recovery. Once the selected specialists have returned, synthesize their evidence. If two or more genuinely useful next directions require the user's choice, present one compact native question in Mission Control. If one next safe step is clearly best, continue or recommend it directly without creating an action item merely to close onboarding.",
   ].join("\n\n");
 }
 

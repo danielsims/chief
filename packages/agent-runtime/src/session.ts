@@ -13,6 +13,7 @@ import type {
   McpServerSpec,
   MessageAttachment,
 } from "./types.js";
+import { normalizeAssistantEvent } from "./agent-output.js";
 import { createDriver } from "./drivers/index.js";
 import { remoteHistoryContext } from "./drivers/remote-history.js";
 import { withGenerativeDataParts } from "./generative-ui.js";
@@ -198,27 +199,23 @@ export class AgentSession extends EventEmitter {
    */
   private lastThreadRootId: string | undefined;
 
-  /** Persist-safe copy of the thread this session is anchored to. */
+  /** Persist-safe thread anchor. */
   get persistedThreadRootId() {
     return this.lastThreadRootId;
   }
 
-  /** Restore the thread anchor when a session is rebuilt after a restart. */
   set persistedThreadRootId(value: string | undefined) {
     if (value) this.lastThreadRootId = value;
   }
 
   private record(event: AgentEvent) {
-    this.events.push(event);
+    const normalized = normalizeAssistantEvent(event);
+    this.events.push(normalized);
     if (this.events.length > 500) this.events.shift();
-    this.emit("event", event);
+    this.emit("event", normalized);
   }
 
-  /**
-   * Marker an agent can emit in its streamed output to flush the text up to
-   * that point as a complete assistant message. It is designed to be very
-   * unlikely to appear in ordinary application content.
-   */
+  /** Marker that flushes streamed output as a complete assistant message. */
   private static readonly SEND_MARKER = /\[(?:message|channel):send\]/g;
 
   /**
