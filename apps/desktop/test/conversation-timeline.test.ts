@@ -1,11 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { ChiefUIMessage } from "@chief/agent-runtime/types";
+import type {
+  ActionItem,
+  ChiefUIMessage,
+  SessionRecord,
+} from "@chief/agent-runtime/types";
 
-import { conversationTimelineEntries } from "../src/components/chat/conversation-timeline-entries.js";
+import {
+  conversationTimelineEntries,
+  withActionTimelineEntries,
+  withSpecialistTimelineEntries,
+} from "../src/components/chat/conversation-timeline-entries.js";
 
-void test("channel threads contain authored replies without private specialist cards", () => {
+void test("channel threads contain authored replies before specialist projection", () => {
   const messages = [
     {
       id: "root",
@@ -30,6 +38,44 @@ void test("channel threads contain authored replies without private specialist c
   assert.equal(
     entries[0]?.type === "message" && entries[0].message.id,
     "reply",
+  );
+});
+
+void test("a specialist task remains in its owning thread after failure", () => {
+  const messages = [
+    {
+      id: "failure",
+      role: "assistant",
+      parts: [{ type: "text", text: "I could not finish this run." }],
+      metadata: { createdAt: 300, threadRootId: "root" },
+    },
+  ] as ChiefUIMessage[];
+  const task = {
+    id: "prospecting-run",
+    parentId: "channel:workspace:prospecting",
+    kind: "task",
+    visibility: "private",
+    agent: "prospector",
+    title: "Find buying signals",
+    provider: "codex",
+    status: "failed",
+    attempt: 1,
+    createdAt: 200,
+    updatedAt: 300,
+  } as SessionRecord;
+
+  const entries = withSpecialistTimelineEntries(
+    conversationTimelineEntries(messages, [], new Map(), "root"),
+    [task],
+  );
+
+  assert.deepEqual(
+    entries.map((entry) => entry.type),
+    ["specialist", "message"],
+  );
+  assert.equal(
+    entries[0]?.type === "specialist" && entries[0].task.id,
+    task.id,
   );
 });
 
@@ -67,5 +113,42 @@ void test("a specialist file card stays in its owning thread", () => {
   assert.equal(
     threadEntries[0]?.type === "message" && threadEntries[0].message.id,
     fileMessage.id,
+  );
+});
+
+void test("an answered action stays before the continuation reply it triggered", () => {
+  const messages = [
+    {
+      id: "request",
+      role: "user",
+      parts: [{ type: "text", text: "Set an action item." }],
+      metadata: { createdAt: 100 },
+    },
+    {
+      id: "continuation",
+      role: "assistant",
+      parts: [{ type: "text", text: "Thanks, I continued the work." }],
+      metadata: { createdAt: 300 },
+    },
+  ] as ChiefUIMessage[];
+  const action = {
+    id: "action",
+    agentId: "chief",
+    title: "Choose one",
+    reason: "One decision is needed.",
+    status: "resolved",
+    createdAt: 200,
+  } as ActionItem;
+
+  const entries = withActionTimelineEntries(
+    conversationTimelineEntries(messages, [], new Map(), null),
+    [action],
+  );
+
+  assert.deepEqual(
+    entries.map((entry) =>
+      entry.type === "message" ? entry.message.id : entry.type,
+    ),
+    ["request", "action", "continuation"],
   );
 });

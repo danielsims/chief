@@ -1,14 +1,18 @@
 import type {
+  ActionItem,
   BrowserRunRecord,
   ChiefUIMessage,
+  SessionRecord,
 } from "@chief/agent-runtime/types";
 
 export type TimelineEntry =
   | { type: "message"; message: ChiefUIMessage }
-  | { type: "browser"; key: string; run: BrowserRunRecord };
+  | { type: "browser"; key: string; run: BrowserRunRecord }
+  | { type: "specialist"; task: SessionRecord }
+  | { type: "action"; action: ActionItem };
 
-/** Conversation surfaces contain authored messages and rich browser handoffs;
- * private specialist executions remain available through Activity only. */
+/** Base conversation entries contain authored messages and rich browser
+ * handoffs. Public specialist summaries are projected separately. */
 export function conversationTimelineEntries(
   messages: readonly ChiefUIMessage[],
   runs: readonly BrowserRunRecord[],
@@ -40,7 +44,61 @@ export function conversationTimelineEntries(
 }
 
 export function timelineEntryCreatedAt(entry: TimelineEntry) {
-  return entry.type === "message"
-    ? entry.message.metadata?.createdAt
-    : entry.run.createdAt;
+  if (entry.type === "message") return entry.message.metadata?.createdAt;
+  if (entry.type === "browser") return entry.run.createdAt;
+  return entry.type === "specialist"
+    ? entry.task.createdAt
+    : entry.action.createdAt;
+}
+
+/**
+ * Projects a specialist execution into its owning thread without exposing the
+ * private run transcript. The task card remains after completion or failure
+ * and opens the task's Activity view.
+ */
+export function withSpecialistTimelineEntries(
+  entries: readonly TimelineEntry[],
+  tasks: readonly SessionRecord[],
+): TimelineEntry[] {
+  const result = [...entries];
+  const orderedTasks = [...tasks].sort(
+    (left, right) =>
+      left.createdAt - right.createdAt || left.id.localeCompare(right.id),
+  );
+  for (const task of orderedTasks) {
+    const insertionIndex = result.findIndex((entry) => {
+      const createdAt = timelineEntryCreatedAt(entry);
+      return createdAt !== undefined && createdAt > task.createdAt;
+    });
+    const taskEntry: TimelineEntry = { type: "specialist", task };
+    if (insertionIndex < 0) result.push(taskEntry);
+    else result.splice(insertionIndex, 0, taskEntry);
+  }
+  return result;
+}
+
+/**
+ * Places durable action UI at the point where it was raised. Keeping actions
+ * outside the transcript makes a later continuation reply render above the
+ * answered card, which looks like the reply disappeared.
+ */
+export function withActionTimelineEntries(
+  entries: readonly TimelineEntry[],
+  actions: readonly ActionItem[],
+): TimelineEntry[] {
+  const result = [...entries];
+  const orderedActions = [...actions].sort(
+    (left, right) =>
+      left.createdAt - right.createdAt || left.id.localeCompare(right.id),
+  );
+  for (const action of orderedActions) {
+    const insertionIndex = result.findIndex((entry) => {
+      const createdAt = timelineEntryCreatedAt(entry);
+      return createdAt !== undefined && createdAt > action.createdAt;
+    });
+    const actionEntry: TimelineEntry = { type: "action", action };
+    if (insertionIndex < 0) result.push(actionEntry);
+    else result.splice(insertionIndex, 0, actionEntry);
+  }
+  return result;
 }
