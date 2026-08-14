@@ -23,10 +23,12 @@ export function specialistIsStartingOrWorking(status: SessionRecord["status"]) {
 export function SpecialistStatusIndicator({
   agent,
   className,
+  size = 17,
   status,
 }: {
   agent: string;
   className?: string;
+  size?: number;
   status: SessionRecord["status"];
 }) {
   if (status === "idle" || status === "running") {
@@ -38,20 +40,17 @@ export function SpecialistStatusIndicator({
           AGENT_WORKING_COLOR[agent] ?? "text-slate-300",
           className,
         )}
-        size={17}
+        size={size}
       />
     );
   }
-  if (status === "waiting" || status === "failed" || status === "completed") {
-    const identity = Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agent)
-      ? WORKSPACE_AGENT_IDENTITIES[agent as WorkspaceAgentId]
-      : undefined;
-    return (
-      <AgentAvatar
-        className={cn("size-[17px] rounded-md", className)}
-        label={identity?.name ?? agent}
-      />
-    );
-  }
-  return null;
+  const identity = Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agent)
+    ? WORKSPACE_AGENT_IDENTITIES[agent as WorkspaceAgentId]
+    : undefined;
+  return (
+    <AgentAvatar
+      className={cn("size-[17px] rounded-md", className)}
+      label={identity?.name ?? agent}
+    />
+  );
 }

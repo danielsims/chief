@@ -6,6 +6,7 @@ import { Button } from "@chief/ui/components/button";
 import type { WorkspaceAgentId } from "../lib/workspace-channels";
 import { WORKSPACE_AGENT_IDENTITIES } from "../lib/workspace-channels";
 import { AgentAvatar } from "./agent-avatar";
+import { UserAvatar } from "./user-avatar";
 
 interface ChannelDetailsUser {
   name: string;
@@ -18,18 +19,6 @@ function getAgentIdentity(agentId: string) {
     return WORKSPACE_AGENT_IDENTITIES[agentId as WorkspaceAgentId];
   }
   return { name: agentId, role: "Workspace agent" };
-}
-
-function MemberAvatar({ image, name }: { image?: string; name: string }) {
-  return (
-    <span className="bg-muted flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-xl text-xs font-semibold">
-      {image ? (
-        <img src={image} alt="" className="size-full object-cover" />
-      ) : (
-        name.charAt(0).toLocaleUpperCase()
-      )}
-    </span>
-  );
 }
 
 function ChannelPersonRow({
@@ -75,7 +64,13 @@ export function ChannelMembersPanel({
       <div className="border-border/70 bg-muted/25 divide-y overflow-hidden rounded-2xl border">
         {user ? (
           <ChannelPersonRow
-            avatar={<MemberAvatar image={user.image} name={user.name} />}
+            avatar={
+              <UserAvatar
+                image={user.image}
+                name={user.name}
+                className="size-9 rounded-xl"
+              />
+            }
             label="You"
             name={user.name}
             secondary={user.email}
