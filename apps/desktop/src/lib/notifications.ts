@@ -6,22 +6,24 @@ import {
   requestPermission,
 } from "@tauri-apps/plugin-notification";
 
-import type { MessageDeepLinkTarget } from "./message-deep-links";
+import type { MessageNavigationTarget } from "./app-navigation";
 import {
-  dispatchMessageDeepLink,
-  messageDeepLinkUrl,
-} from "./message-deep-links";
+  chiefDeepLinkUrl,
+  dispatchChiefNavigation,
+  messageDestination,
+} from "./app-navigation";
 import {
+  claimConfiguredNotificationSound,
   desktopNotificationsEnabled,
   notificationSoundsEnabled,
-  playConfiguredNotificationSound,
+  playNotificationSound,
 } from "./notification-sounds";
 
 export type DesktopNotificationTarget =
   | {
       kind: "message";
       deepLinkUrl: string;
-      message: MessageDeepLinkTarget;
+      message: MessageNavigationTarget;
     }
   | { kind: "route"; route: string };
 
@@ -68,7 +70,7 @@ function activateTarget(target: unknown) {
       typeof candidate.message.channelId === "string" &&
       typeof candidate.message.messageId === "string"
     ) {
-      dispatchMessageDeepLink(candidate.message);
+      dispatchChiefNavigation(messageDestination(candidate.message));
     } else {
       return;
     }
@@ -259,6 +261,7 @@ export async function notifySystem(
   body?: string,
   target?: DesktopNotificationTarget,
 ) {
+  const claimedSound = claimConfiguredNotificationSound();
   let delivered = false;
   let nativeSoundDelivered = false;
   try {
@@ -267,7 +270,7 @@ export async function notifySystem(
       if (isTauri()) {
         try {
           nativeSoundDelivered =
-            notificationSoundsEnabled() &&
+            claimedSound !== null &&
             (document.visibilityState !== "visible" || !document.hasFocus());
           await invoke("show_native_notification", {
             title,
@@ -292,16 +295,18 @@ export async function notifySystem(
   } catch {
     // A notification must never break the app.
   }
-  if (!nativeSoundDelivered) playConfiguredNotificationSound();
+  if (!nativeSoundDelivered && claimedSound) {
+    playNotificationSound(claimedSound);
+  }
   return delivered;
 }
 
 export function messageNotificationTarget(
-  message: MessageDeepLinkTarget,
+  message: MessageNavigationTarget,
 ): DesktopNotificationTarget {
   return {
     kind: "message",
-    deepLinkUrl: messageDeepLinkUrl(message),
+    deepLinkUrl: chiefDeepLinkUrl(messageDestination(message)),
     message,
   };
 }
