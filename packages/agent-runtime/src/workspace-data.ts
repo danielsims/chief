@@ -66,7 +66,7 @@ export async function workspaceData(store: LocalStore, workspaceId: string) {
     store.listCampaigns(workspaceId),
     store.listRecurringWork(workspaceId),
     store.listActivitySessions(workspaceId),
-    store.listActionItems(workspaceId),
+    store.listWorkspaceActionItems(workspaceId),
   ]);
   const initialReviewIds = new Set(
     activity

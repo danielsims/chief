@@ -43,11 +43,10 @@ import { workspaceSecrets } from "./workspace-secrets.js";
 export interface ActiveAgentSessionIdentity {
   chatId: string;
   agentId: string;
+  threadRootId?: string;
 }
-
 /**
- * A workspace-scoped gateway cannot prove which concurrent agent invoked it.
- * Only an agent-bound capability may select a particular live session.
+ * A workspace gateway cannot prove the concurrent caller; only an agent-bound capability may select a live session.
  */
 export function resolveActiveAgentSession(
   busy: readonly ActiveAgentSessionIdentity[],
@@ -262,7 +261,7 @@ export class SessionManager {
     workspaceId: string,
     requestedSessionId?: string,
     requestedSessionIsCredentialBound = false,
-  ): { chatId: string; agentId: string } | undefined {
+  ): ActiveAgentSessionIdentity | undefined {
     const busy = [...this.sessions.values()].filter(
       (session) => session.config.workspaceId === workspaceId && session.isBusy,
     );
@@ -270,6 +269,7 @@ export class SessionManager {
       busy.map((session) => ({
         chatId: session.chatId,
         agentId: session.agent.id,
+        threadRootId: session.activeThreadRootId,
       })),
       requestedSessionId,
       requestedSessionIsCredentialBound,

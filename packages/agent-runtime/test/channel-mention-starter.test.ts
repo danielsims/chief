@@ -121,3 +121,25 @@ void test("onboarding repairs a public Setup channel before authentication", asy
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+void test("Engineering stays hidden until Engineer invites the owner", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "chief-engineering-channel-"));
+  try {
+    const store = new LocalStore(join(directory, "chief.sqlite"));
+    const manager = new SessionManager(store);
+
+    const engineering = await ensureOnboardingHomeChannel({
+      manager,
+      workspaceId: "workspace-engineering",
+      agentId: "engineer",
+    });
+
+    assert.ok(engineering);
+    assert.equal(engineering.slug, "engineering");
+    assert.deepEqual(engineering.agentIds, ["chief", "engineer"]);
+    assert.deepEqual(engineering.userIds, []);
+    await store.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

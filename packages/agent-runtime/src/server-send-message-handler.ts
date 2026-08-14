@@ -1,8 +1,5 @@
-import type { ChannelEvent } from "./channel-types.js";
-import type { IntegrationSetupRegistry } from "./integration-setup-state.js";
-import type { SessionManager } from "./manager.js";
-import type { AgentSession } from "./session.js";
-import type { AgentEvent, ClientMessage, ServerMessage } from "./types.js";
+import type { HandleSendMessageOptions } from "./server-send-message-types.js";
+import type { AgentEvent } from "./types.js";
 import { getAgent } from "./agents.js";
 import {
   channelReplyThreadRoot,
@@ -14,14 +11,13 @@ import {
   normalizedExecution,
   safeMessageAttachments,
 } from "./server-message-helpers.js";
+import { debugSendMessage } from "./server-send-message-debug.js";
 import { activateRequestedIntegrationSetup } from "./server-send-message-setup.js";
 import { setupSkillFromPrompt } from "./setup-skills.js";
 import { ensureExecutorWorkspace } from "./tools/control-plane.js";
 import { executorToolServer } from "./tools/spec.js";
 import { readWorkspaceContext } from "./workspace-context.js";
 import { readWorkspaceWaysOfWorking } from "./workspace-ways-of-working.js";
-
-type Message = Extract<ClientMessage, { type: "sendMessage" }>;
 
 export async function handleSendMessage({
   authorizeWorkspace,
@@ -34,31 +30,7 @@ export async function handleSendMessage({
   msg,
   pluginMcpServers,
   send,
-}: {
-  authorizeWorkspace: (
-    workspaceId: string,
-    capability: Message["executorCapability"],
-  ) => Promise<unknown>;
-  bindRootSession: (
-    workspaceId: string,
-    chatId: string,
-    session: AgentSession,
-  ) => void;
-  broadcastChannelEvent: (workspaceId: string, event: ChannelEvent) => void;
-  chatDestinations: Map<string, string>;
-  ensureChiefSession: (
-    workspaceId: string,
-    chatId: string,
-    capability: Message["executorCapability"],
-  ) => Promise<AgentSession>;
-  integrationSetups: IntegrationSetupRegistry;
-  manager: SessionManager;
-  msg: Message;
-  pluginMcpServers: (
-    workspaceId: string,
-  ) => Promise<import("./types.js").McpServerSpec[]>;
-  send: (message: ServerMessage) => void;
-}) {
+}: HandleSendMessageOptions) {
   await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
   await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
   const attachments = safeMessageAttachments(msg.attachments);
@@ -455,15 +427,13 @@ export async function handleSendMessage({
     };
     releaseOnTerminal = terminalListener;
     session.on("event", terminalListener);
-    if (process.env.CHIEF_DEBUG_SESSION_FORCE === "1") {
-      console.error(
-        `[sendMessage] chatId=${msg.chatId} threadRootId=${
-          msg.threadRootId ?? "none"
-        } mentions=${JSON.stringify(msg.mentions ?? [])} shared=${
-          isSharedChannel ? "y" : "n"
-        } resolvedThreadRoot=${replyThreadRootId ?? "none"}`,
-      );
-    }
+    debugSendMessage({
+      chatId: msg.chatId,
+      threadRootId: msg.threadRootId,
+      mentions: msg.mentions,
+      shared: isSharedChannel,
+      resolvedThreadRootId: replyThreadRootId,
+    });
     await session.sendPrompt(
       msg.text,
       msg.messageId,

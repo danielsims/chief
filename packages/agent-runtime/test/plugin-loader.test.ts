@@ -19,10 +19,17 @@ async function packageRoot() {
   return root;
 }
 
+async function writeSkill(root: string, name: string) {
+  await mkdir(join(root, "skills", name), { recursive: true });
+  await writeFile(
+    join(root, "skills", name, "SKILL.md"),
+    `---\nname: ${name}\ndescription: Use this skill for ${name} work.\n---\n\n# ${name}\n`,
+  );
+}
+
 void test("loads immediate portable skills and isolates invalid MCP siblings", async () => {
   const root = await packageRoot();
-  await mkdir(join(root, "skills", "valid"), { recursive: true });
-  await writeFile(join(root, "skills", "valid", "SKILL.md"), "# Valid\n");
+  await writeSkill(root, "valid");
   await mkdir(join(root, "skills", "missing"), { recursive: true });
   await writeFile(
     join(root, "mcp.json"),
@@ -63,8 +70,7 @@ void test("unknown manifest fields are nonfatal diagnostics", async () => {
       futureField: true,
     }),
   );
-  await mkdir(join(root, "skills", "valid"), { recursive: true });
-  await writeFile(join(root, "skills", "valid", "SKILL.md"), "# Valid\n");
+  await writeSkill(root, "valid");
   const loaded = await loadAgentPlugin(root);
   assert.match(loaded.diagnostics.join("\n"), /futureField/);
 });
@@ -98,7 +104,7 @@ void test("rejects a package without a canonical manifest schema", async () => {
     join(root, "plugin.json"),
     JSON.stringify({ $schema: "https://example.com/plugin.json", name: "bad" }),
   );
-  await assert.rejects(loadAgentPlugin(root), /must use/);
+  await assert.rejects(loadAgentPlugin(root), /unsupported schema/);
 });
 
 void test("isolates unsafe and malformed portable stdio servers", async () => {
@@ -112,7 +118,7 @@ void test("isolates unsafe and malformed portable stdio servers", async () => {
           type: "stdio",
           command: "node",
           args: ["${PLUGIN_ROOT}/server.mjs"],
-          cwd: "runtime",
+          cwd: "./runtime",
           env: { CACHE: "${PLUGIN_DATA}/cache" },
         },
         absoluteCommand: { type: "stdio", command: "/bin/sh" },
@@ -133,4 +139,51 @@ void test("isolates unsafe and malformed portable stdio servers", async () => {
   assert.match(loaded.diagnostics.join("\n"), /absoluteCommand/);
   assert.match(loaded.diagnostics.join("\n"), /escapedCwd/);
   assert.match(loaded.diagnostics.join("\n"), /nonStringEnv/);
+});
+
+void test("accepts portable extensions and plugin data working directories", async () => {
+  const root = await packageRoot();
+  await writeFile(
+    join(root, "plugin.json"),
+    JSON.stringify({
+      $schema: MANIFEST_SCHEMA,
+      name: "test-plugin",
+      extensions: { "com.example.client": { setting: true } },
+    }),
+  );
+  await writeFile(
+    join(root, "mcp.json"),
+    JSON.stringify({
+      $schema: MCP_SCHEMA,
+      mcpServers: {
+        valid: {
+          type: "stdio",
+          command: "node",
+          cwd: "${PLUGIN_DATA}/runtime",
+        },
+      },
+    }),
+  );
+  const loaded = await loadAgentPlugin(root);
+  assert.equal(loaded.diagnostics.length, 0);
+  assert.deepEqual(
+    loaded.mcpServers.map((server) => server.name),
+    ["valid"],
+  );
+});
+
+void test("isolates invalid Agent Skill metadata from valid siblings", async () => {
+  const root = await packageRoot();
+  await writeSkill(root, "valid");
+  await mkdir(join(root, "skills", "invalid"), { recursive: true });
+  await writeFile(
+    join(root, "skills", "invalid", "SKILL.md"),
+    "---\nname: wrong-name\ndescription: Invalid.\n---\n",
+  );
+  const loaded = await loadAgentPlugin(root);
+  assert.deepEqual(
+    loaded.skills.map((skill) => skill.name),
+    ["valid"],
+  );
+  assert.match(loaded.diagnostics.join("\n"), /invalid.*match directory/);
 });

@@ -106,6 +106,8 @@ void test("scheduled work creates a durable channel thread before provider work"
     true,
   );
   assert.match(heartbeat.instructions, /not a status reporter/u);
+  assert.match(heartbeat.instructions, /Never manufacture a choice/u);
+  assert.match(heartbeat.instructions, /nothing needs their attention/u);
   assert.match(heartbeat.failureMessage ?? "", /after 3 attempts/u);
 });
 

@@ -158,6 +158,7 @@ export type ClientMessage =
       requestId: string;
       answers: Record<string, string>;
       values: Record<string, string>;
+      resolvedBy: { id: string; name: string };
       setup?: { chatId: string; domain: string };
       executorCapability: ExecutorCapability;
     }
@@ -197,6 +198,8 @@ export type ClientMessage =
       channelId?: string;
       /** Agent identity used for a direct conversation. */
       agentId?: string;
+      /** UI publication boundary; relay-backed DMs remain direct. */
+      conversationSurface?: "direct" | "channel";
       executorCapability: ExecutorCapability;
     }
   | {

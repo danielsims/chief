@@ -9,8 +9,8 @@ import type {
   McpServerSpec,
   ServerMessage,
 } from "../types.js";
-import type { PluginMarketplaceSnapshot } from "./types.js";
-import { installCatalogPlugin, pluginMarketplace } from "./catalog.js";
+import type { PluginCatalogSnapshot } from "./types.js";
+import { installCatalogPlugin, pluginCatalog } from "./catalog.js";
 import { PluginOAuthManager } from "./oauth.js";
 import { removePluginInstallation, trustPluginInstallation } from "./store.js";
 
@@ -44,17 +44,25 @@ export class PluginRuntime {
   async snapshot(
     workspaceId: string,
     refresh = false,
-  ): Promise<PluginMarketplaceSnapshot> {
-    const snapshot = await pluginMarketplace(workspaceId, refresh);
+  ): Promise<PluginCatalogSnapshot> {
+    const snapshot = await pluginCatalog(workspaceId, refresh);
     return {
       ...snapshot,
       plugins: await Promise.all(
-        snapshot.plugins.map(async (plugin) =>
-          plugin.status === "authorization_required" &&
-          (await this.oauth.connected(workspaceId, plugin.id))
-            ? { ...plugin, status: "connected" as const }
-            : plugin,
-        ),
+        snapshot.plugins.map(async (plugin) => {
+          if (plugin.status !== "authorization_required") return plugin;
+          const connection = await this.oauth.connectionState(
+            workspaceId,
+            plugin.id,
+          );
+          return {
+            ...plugin,
+            status: connection.status,
+            diagnostics: connection.error
+              ? [...(plugin.diagnostics ?? []), connection.error]
+              : plugin.diagnostics,
+          };
+        }),
       ),
     };
   }
@@ -87,6 +95,7 @@ export class PluginRuntime {
       this.onChange(workspaceId);
       return { pluginId, status: "connected" };
     }
+    this.onChange(workspaceId);
     return {
       kind: "plugin_authorization",
       pluginId,
@@ -152,30 +161,51 @@ export class PluginRuntime {
     return {
       list: (force) => this.snapshot(workspaceId, force),
       install: async (pluginId, trusted) => {
-        const { entry, loaded } = await this.install(
-          workspaceId,
-          pluginId,
-          trusted,
+        const available = (await this.snapshot(workspaceId)).plugins.find(
+          (plugin) => plugin.id === pluginId,
         );
-        this.onChange(workspaceId);
-        return {
-          plugin: {
-            id: entry.id,
-            name: entry.name,
-            description: entry.description,
-            installed: true,
+        try {
+          const { entry, loaded } = await this.install(
+            workspaceId,
+            pluginId,
             trusted,
-            components: {
-              skills: loaded.skills.map((skill) => skill.name),
-              mcpServers: loaded.mcpServers.map((server) => server.name),
+          );
+          this.onChange(workspaceId);
+          return {
+            plugin: {
+              id: entry.id,
+              name: entry.name,
+              description: entry.description,
+              installed: true,
+              trusted,
+              components: {
+                skills: loaded.skills.map((skill) => skill.name),
+                mcpServers: loaded.mcpServers.map((server) => server.name),
+              },
+              diagnostics: loaded.diagnostics,
             },
-            diagnostics: loaded.diagnostics,
-          },
-          instruction:
-            loaded.mcpServers.length > 0
-              ? "The plugin is installed. Call plugins.authorize to present the user with its provider sign-in action."
-              : "The plugin is installed and its portable skills are available to future sessions.",
-        };
+            instruction:
+              loaded.mcpServers.length > 0
+                ? "The plugin is installed. Call plugins.authorize to present the user with its provider sign-in action."
+                : "The plugin is installed and its portable skills are available to future sessions.",
+          };
+        } catch (error) {
+          return {
+            plugin: {
+              id: pluginId,
+              name: available?.name ?? pluginId,
+              description: available?.description,
+              installed: false,
+            },
+            status: "setup_required" as const,
+            reason: error instanceof Error ? error.message : String(error),
+            fallback: {
+              kind: "chief_setup" as const,
+              instruction:
+                "This catalog entry is not a usable portable connection. Use Chief's setup list to find a supported Executor, browser, or secure credential path for the same capability. If none exists, explain the gap and offer a relevant plugin alternative; do not hardcode a provider-specific workaround.",
+            },
+          };
+        }
       },
       authorize: (pluginId) => this.authorize(workspaceId, pluginId),
       uninstall: async (pluginId) => {

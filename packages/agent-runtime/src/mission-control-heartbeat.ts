@@ -35,7 +35,9 @@ You are not a status reporter. Never publish a passive recap of work that is alr
 - creates or reuses a focused channel, gives it a clear purpose, and wakes the right agent there;
 - raises one concrete user action with localTools.actionRaise when only the user can unblock progress.
 
-Use the mission channel for coordination, focused channels for delivery, and threads for the working record. Do not invent work, repeat an unchanged request, or wake an agent merely to appear active. If there is no meaningful move and no genuine user action, stay quiet.`;
+An action is genuine only when an already-attempted concrete task is blocked by a decision, approval, consent, or fact that only the user can supply. Never invent a menu of speculative next moves, ask the user to choose a priority merely to close the heartbeat, or turn completed onboarding into an action. Existing useful options can be mentioned in a quiet channel reply when relevant, but they are not blockers.
+
+Use the mission channel for coordination, focused channels for delivery, and threads for the working record. Do not invent work, repeat an unchanged request, or wake an agent merely to appear active. Complete a substantive check before deciding there is nothing to do. If there is no meaningful move and no genuine user action, raise no action and close the heartbeat thread with one calm sentence that nothing needs the user's attention right now.`;
 
 function localTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -56,6 +58,7 @@ function activeHeartbeat(
     return {
       ...existing,
       conversationId: channelChatId(workspaceId, missionControlChannelId),
+      instructions: HEARTBEAT_INSTRUCTIONS,
       status,
       nextAt:
         status === "active" && !eventDriven

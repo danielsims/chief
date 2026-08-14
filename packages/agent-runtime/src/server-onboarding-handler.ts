@@ -13,8 +13,8 @@ import { channelChatId } from "./channels/nip29.js";
 import * as channelBridge from "./channels/server-bridge.js";
 import { syncMissionControlHeartbeat } from "./mission-control-heartbeat.js";
 import {
-  ensureOnboardingEngineeringChannel,
   ensureOnboardingGeneralChannel,
+  inviteOwnerToMissionControl,
 } from "./onboarding-general-channel.js";
 import {
   ONBOARDING_OPENING_MESSAGE,
@@ -228,6 +228,12 @@ export async function handleBootstrapOnboardingWork({
       if (!channel) {
         throw new Error("Chief could not find the workspace mission channel.");
       }
+      await inviteOwnerToMissionControl({
+        manager,
+        workspaceId: msg.workspaceId,
+        channelId: channel.id,
+        onChannelsChanged: () => broadcastChannels(msg.workspaceId),
+      });
       await manager.createRootChat(
         msg.workspaceId,
         chatId,
@@ -411,7 +417,6 @@ export async function handleBootstrapOnboardingWork({
       };
       await Promise.allSettled([
         ensureOnboardingGeneralChannel(ensureVisibleChannel),
-        ensureOnboardingEngineeringChannel(ensureVisibleChannel),
       ]).then((results) => {
         for (const result of results) {
           if (result.status === "rejected") {

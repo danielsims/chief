@@ -162,6 +162,10 @@ export interface GenerativeDocumentData {
   versionId: string;
 }
 
+export interface GenerativePluginRecommendationsData {
+  plugins: AgentPluginSummary[];
+}
+
 /**
  * Chief's persistent custom UI parts follow AI SDK 7's typed `data-*`
  * contract. The websocket transport remains provider-neutral; every driver
@@ -216,6 +220,7 @@ export type ChiefUIMessage = UIMessage<
     chart: GenerativeChartData;
     table: GenerativeTableData;
     document: GenerativeDocumentData;
+    "plugin-recommendations": GenerativePluginRecommendationsData;
   }
 >;
 
@@ -234,6 +239,11 @@ export type GenerativeDocumentBlock = Extract<
   { type: "data-document" }
 >;
 
+export type GenerativePluginRecommendationsBlock = Extract<
+  ChiefUIMessage["parts"][number],
+  { type: "data-plugin-recommendations" }
+>;
+
 export interface MessageAttachment {
   name: string;
   mediaType: string;
@@ -247,6 +257,7 @@ export type ContentBlock =
   | GenerativeChartBlock
   | GenerativeTableBlock
   | GenerativeDocumentBlock
+  | GenerativePluginRecommendationsBlock
   | {
       type: "tool_use";
       id: string;
@@ -316,6 +327,8 @@ export type AgentStatus = "idle" | "running" | "waiting" | "error";
 export interface AgentQuestionOption {
   label: string;
   description?: string;
+  /** Selecting this option asks the user to provide their own answer. */
+  allowsFreeText?: boolean;
 }
 
 export interface AgentQuestion {
@@ -499,14 +512,23 @@ export interface DiagnosticEventRecord {
 export type SessionArtifact =
   GenerativeChartBlock | GenerativeTableBlock | GenerativeDocumentBlock;
 
+export interface ActionResolution {
+  answers: Record<string, string>;
+  resolvedAt: number;
+  resolvedBy: { id: string; name: string };
+}
+
 export interface ActionItem {
   id: string;
   agentId: string;
   title: string;
   reason: string;
   sourceId?: string;
+  /** Exact channel thread where the action was raised. Host-bound, not model-authored. */
+  threadRootId?: string;
   request?: InputRequest;
-  status: "open" | "dismissed";
+  resolution?: ActionResolution;
+  status: "open" | "resolved" | "dismissed";
   createdAt: number;
 }
 

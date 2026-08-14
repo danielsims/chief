@@ -8,7 +8,7 @@ export interface PortablePluginManifest {
   name: string;
   version?: string;
   description?: string;
-  author?: { name: string; url?: string };
+  author?: { name?: string; email?: string; url?: string };
   homepage?: string;
   repository?: string;
   license?: string;
@@ -32,7 +32,7 @@ export type PortableMcpServer =
 export interface LoadedAgentPlugin {
   root: string;
   manifest: PortablePluginManifest;
-  skills: { name: string; path: string }[];
+  skills: { name: string; description: string; path: string }[];
   mcpServers: { name: string; spec: PortableMcpServer }[];
   diagnostics: string[];
 }
@@ -47,18 +47,18 @@ export interface PluginInstallRecord {
 }
 
 export interface PluginWorkspaceState {
-  version: 1;
-  marketplaceSources: PluginMarketplaceSource[];
+  version: 2;
+  catalogSources: PluginCatalogSource[];
   installations: Record<string, PluginInstallRecord>;
 }
 
-export interface PluginMarketplaceSource {
+export interface PluginCatalogSource {
   id: string;
   name: string;
   catalogUrl: string;
   homepage?: string;
   enabled: boolean;
-  format?: "marketplace" | "integrations-sh";
+  format: "agent-catalog" | "integrations-sh";
 }
 
 export interface RemotePluginCatalogEntry extends Omit<
@@ -74,14 +74,14 @@ export interface RemotePluginCatalogEntry extends Omit<
       }
     | { type: "bundled"; path: string }
     | { type: "discovery"; registry: string; domain: string };
-  marketplaceId: string;
+  catalogId: string;
   domains?: string[];
   keywords?: string[];
 }
 
-export interface PluginMarketplaceSnapshot {
+export interface PluginCatalogSnapshot {
   plugins: AgentPluginSummary[];
-  sources: PluginMarketplaceSource[];
+  sources: PluginCatalogSource[];
   refreshedAt: number;
   stale: boolean;
   warning?: string;

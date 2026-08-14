@@ -113,7 +113,7 @@ function actionInputRequest(
           throw new Error(`request.questions[${index}] must be an object.`);
         }
         const item = question as Record<string, unknown>;
-        const options = Array.isArray(item.options)
+        const parsedOptions = Array.isArray(item.options)
           ? item.options.slice(0, 8).map((option, optionIndex) => {
               if (
                 !option ||
@@ -138,9 +138,22 @@ function actionInputRequest(
                       300,
                     )
                   : undefined,
+                ...(value.allowsFreeText === true
+                  ? { allowsFreeText: true }
+                  : {}),
               };
             })
           : [];
+        const freeTextOptions = parsedOptions.filter(
+          (option) => option.allowsFreeText,
+        );
+        if (freeTextOptions.length > 1) {
+          throw new Error(`Question ${index} has multiple free-text options.`);
+        }
+        const options = [
+          ...parsedOptions.filter((option) => !option.allowsFreeText),
+          ...freeTextOptions,
+        ];
         return {
           question: requiredValue(
             item.question,
@@ -154,6 +167,7 @@ function actionInputRequest(
             false,
           ),
           multiSelect: item.multiSelect === true,
+          allowFreeform: item.allowFreeform === true,
           options,
         };
       })
@@ -696,6 +710,11 @@ export function localToolsOpenApi(origin: string) {
                       header: { type: "string", maxLength: 80 },
                       question: { type: "string", maxLength: 500 },
                       multiSelect: { type: "boolean" },
+                      allowFreeform: {
+                        type: "boolean",
+                        description:
+                          "Add a final Other option that opens a free-text answer. Use only when the listed choices may not cover the user's answer.",
+                      },
                       options: {
                         type: "array",
                         maxItems: 8,
@@ -706,6 +725,11 @@ export function localToolsOpenApi(origin: string) {
                           properties: {
                             label: { type: "string", maxLength: 120 },
                             description: { type: "string", maxLength: 300 },
+                            allowsFreeText: {
+                              type: "boolean",
+                              description:
+                                "Make this the free-text choice. Use at most once; Chief always presents it last.",
+                            },
                           },
                         },
                       },
@@ -1254,7 +1278,7 @@ export async function handleLocalTool(
     request,
     workspaceId,
     channelBody,
-    context.channels,
+    context.channels && { ...context.channels, plugins: context.plugins },
   );
   if (channelResult.handled) {
     return json(channelResult.value, channelResult.status);
@@ -1808,6 +1832,7 @@ export async function handleLocalTool(
         title,
         reason,
         sourceId,
+        threadRootId: value(body.threadRootId, "threadRootId", 160, false),
         request: actionInputRequest(
           body.request,
           `${id}-request`,

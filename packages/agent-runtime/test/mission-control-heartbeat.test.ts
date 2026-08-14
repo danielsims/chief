@@ -95,6 +95,9 @@ void test("mission control creates one quiet Chief heartbeat", async () => {
   ]);
   assert.match(heartbeat.instructions, /not a status reporter/u);
   assert.match(heartbeat.instructions, /no meaningful move/u);
+  assert.match(heartbeat.instructions, /Never invent a menu/u);
+  assert.match(heartbeat.instructions, /completed onboarding/u);
+  assert.match(heartbeat.instructions, /nothing needs the user's attention/u);
   assert.doesNotMatch(heartbeat.instructions, /GitHub|marketing/u);
   assert.equal(
     shouldDeliverScheduledOutcomeNotice(heartbeat, "completed"),
@@ -130,6 +133,7 @@ void test("mission control preserves an event-driven heartbeat", async () => {
   assert.ok(heartbeat);
   await state.manager.saveRecurringWork("workspace", {
     ...heartbeat,
+    instructions: "Legacy heartbeat instructions.",
     trigger: { type: "webhook" },
     nextAt: undefined,
   });
@@ -140,4 +144,9 @@ void test("mission control preserves an event-driven heartbeat", async () => {
   });
   assert.deepEqual(state.work()?.trigger, { type: "webhook" });
   assert.equal(state.work()?.nextAt, undefined);
+  assert.match(state.work()?.instructions ?? "", /Never invent a menu/u);
+  assert.doesNotMatch(
+    state.work()?.instructions ?? "",
+    /Legacy heartbeat instructions/u,
+  );
 });

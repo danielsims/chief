@@ -23,6 +23,7 @@ void test("action ids cannot cross workspace boundaries", async () => {
       agentId: "analyst",
       title: "A only",
       reason: "Private reason",
+      threadRootId: "thread-a",
       status: "open",
       createdAt: 1,
     });
@@ -44,6 +45,7 @@ void test("action ids cannot cross workspace boundaries", async () => {
         title: "A only",
         reason: "Private reason",
         sourceId: undefined,
+        threadRootId: "thread-a",
         status: "open",
         createdAt: 1,
       },
@@ -51,6 +53,61 @@ void test("action ids cannot cross workspace boundaries", async () => {
     assert.deepEqual(await store.listActionItems("workspace-b"), []);
     await store.dismissActionItem("workspace-a", "shared-id");
     assert.deepEqual(await store.listActionItems("workspace-a"), []);
+  } finally {
+    await store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+void test("resolved action decisions remain in workspace history", async () => {
+  const { directory, store } = fixture("resolved-action-history");
+  try {
+    const action = {
+      id: "decision",
+      agentId: "chief",
+      title: "Choose a direction",
+      reason: "One decision is needed.",
+      threadRootId: "thread-a",
+      request: {
+        id: "request",
+        title: "Choose a direction",
+        fields: [],
+        questions: [
+          {
+            question: "Which direction?",
+            options: [{ label: "Connect GitHub" }],
+          },
+        ],
+      },
+      status: "open" as const,
+      createdAt: 1,
+    };
+    await store.raiseActionItem("workspace-a", action);
+    await store.raiseActionItem("workspace-a", {
+      ...action,
+      status: "resolved",
+      resolution: {
+        answers: { "Which direction?": "Connect GitHub" },
+        resolvedAt: 2,
+        resolvedBy: { id: "daniel", name: "Daniel Simms" },
+      },
+    });
+
+    assert.deepEqual(await store.listActionItems("workspace-a"), []);
+    assert.deepEqual(await store.listWorkspaceActionItems("workspace-a"), [
+      {
+        ...action,
+        status: "resolved",
+        sourceId: undefined,
+        resolution: {
+          answers: { "Which direction?": "Connect GitHub" },
+          resolvedAt: 2,
+          resolvedBy: { id: "daniel", name: "Daniel Simms" },
+        },
+      },
+    ]);
+    await store.dismissActionItem("workspace-a", "decision");
+    assert.deepEqual(await store.listWorkspaceActionItems("workspace-a"), []);
   } finally {
     await store.close();
     rmSync(directory, { recursive: true, force: true });
