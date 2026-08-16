@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 
-import type { ProjectPrincipal, ProjectRecord } from "../types.js";
+import type {
+  ProjectPrincipal,
+  ProjectProviderAdapter,
+  ProjectRecord,
+} from "../types.js";
 import type { CredentialBroker } from "./credential-broker.js";
 import type { ProjectServiceAuthorization } from "./service-base.js";
 import type { ProjectPersistence } from "./store.js";
@@ -32,6 +36,10 @@ import { ProjectServiceBase } from "./service-base.js";
 /** Workspace project catalog and repository browsing behind one service. */
 export class ProjectGitService extends ProjectServiceBase {
   readonly checkouts: ProjectCheckoutService;
+  private readonly providerAdapters: ReadonlyMap<
+    string,
+    ProjectProviderAdapter
+  >;
 
   constructor(
     persistence: ProjectPersistence,
@@ -39,6 +47,7 @@ export class ProjectGitService extends ProjectServiceBase {
       root?: string;
       authorization?: ProjectServiceAuthorization;
       broker?: CredentialBroker;
+      providerAdapters?: ReadonlyMap<string, ProjectProviderAdapter>;
     } = {},
   ) {
     super(persistence, {
@@ -49,6 +58,7 @@ export class ProjectGitService extends ProjectServiceBase {
       ...(options.broker ? { broker: options.broker } : {}),
     });
     this.checkouts = new ProjectCheckoutService(persistence, options);
+    this.providerAdapters = options.providerAdapters ?? new Map();
   }
 
   async attach(
@@ -309,12 +319,87 @@ export class ProjectGitService extends ProjectServiceBase {
     const project = await this.requireProject(organizationId, projectId);
     await this.authorize(organizationId, projectId, principal, "view");
     const capabilities = projectProviderCapabilities(project.providerId);
-    if (capabilities.pullRequests) {
+    if (
+      capabilities.pullRequests &&
+      this.providerAdapters.has(organizationId)
+    ) {
       return { supported: true as const };
     }
     return {
       supported: false as const,
       reason: `Pull requests are not available for ${project.providerId} repositories in Chief yet.`,
     };
+  }
+
+  private requireProviderAdapter(organizationId: string) {
+    const adapter = this.providerAdapters.get(organizationId);
+    if (!adapter) {
+      throw new Error(
+        "This workspace has no connected provider for pull requests.",
+      );
+    }
+    return adapter;
+  }
+
+  /** Creates a pull request through the workspace's provider adapter. */
+  async createPullRequest(
+    organizationId: string,
+    projectId: string,
+    principal: ProjectPrincipal,
+    input: {
+      repositoryId?: string;
+      title: string;
+      description?: string;
+      headBranch: string;
+      baseBranch: string;
+    },
+  ) {
+    const project = await this.requireProject(organizationId, projectId);
+    await this.authorize(organizationId, projectId, principal, "publish");
+    const adapter = this.requireProviderAdapter(organizationId);
+    const repositoryId =
+      input.repositoryId ??
+      (project.canonicalRemoteUrl
+        ? adapter.resolveRemote(project.canonicalRemoteUrl)?.repositoryId
+        : undefined);
+    if (!repositoryId) {
+      throw new Error("This project is not linked to a provider repository.");
+    }
+    const pullRequest = await adapter.createPullRequest(organizationId, {
+      repositoryId,
+      title: input.title,
+      ...(input.description ? { description: input.description } : {}),
+      headBranch: input.headBranch,
+      baseBranch: input.baseBranch,
+    });
+    await this.recordOperation("publish", {
+      organizationId,
+      projectId,
+      principal,
+      branch: input.headBranch,
+      result: "success",
+      message: `Pull request #${pullRequest.number} created.`,
+    });
+    return pullRequest;
+  }
+
+  /** Reads checks for a ref through the workspace's provider adapter. */
+  async pullRequestStatus(
+    organizationId: string,
+    projectId: string,
+    principal: ProjectPrincipal,
+    ref: string,
+  ) {
+    const project = await this.requireProject(organizationId, projectId);
+    await this.authorize(organizationId, projectId, principal, "view");
+    const adapter = this.requireProviderAdapter(organizationId);
+    const repositoryId = project.canonicalRemoteUrl
+      ? adapter.resolveRemote(project.canonicalRemoteUrl)?.repositoryId
+      : undefined;
+    if (!repositoryId) {
+      throw new Error("This project is not linked to a provider repository.");
+    }
+    const checks = await adapter.getChecks({ repositoryId, ref });
+    return { repositoryId, ref, checks };
   }
 }

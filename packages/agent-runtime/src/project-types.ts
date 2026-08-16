@@ -154,6 +154,106 @@ export interface CredentialRequest {
   scopes?: string[];
 }
 
+/** A hosted provider's identity for one repository. */
+export interface ProviderRepositoryIdentity {
+  providerId: "github" | "gitlab" | "bitbucket";
+  repositoryId: string;
+  cloneUrl: string;
+  webUrl?: string;
+}
+
+/** A repository visible to a provider connection. */
+export interface ProviderRepository {
+  id: string;
+  owner: string;
+  name: string;
+  defaultBranch: string;
+  private: boolean;
+  description?: string;
+  avatarUrl?: string;
+  cloneUrl: string;
+  webUrl?: string;
+}
+
+export interface ProviderPullRequestInput {
+  repositoryId: string;
+  title: string;
+  description?: string;
+  headBranch: string;
+  baseBranch: string;
+}
+
+export interface ProviderPullRequestUpdate {
+  repositoryId: string;
+  number: number;
+  title?: string;
+  description?: string;
+  state?: "open" | "closed";
+}
+
+export interface ProviderPullRequest {
+  number: number;
+  title: string;
+  description?: string;
+  state: "open" | "closed" | "merged";
+  headBranch: string;
+  baseBranch: string;
+  url?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ProviderRefInput {
+  repositoryId: string;
+  ref: string;
+}
+
+export type ProviderCheckConclusion =
+  | "success"
+  | "failure"
+  | "neutral"
+  | "cancelled"
+  | "skipped"
+  | "timed_out"
+  | "action_required";
+
+export interface ProviderCheckSummary {
+  name: string;
+  status: "queued" | "in_progress" | "completed";
+  conclusion?: ProviderCheckConclusion;
+  startedAt?: number;
+  completedAt?: number;
+  url?: string;
+}
+
+/**
+ * Hosted forge behavior behind the capability seam. Git transport stays
+ * provider-neutral; generic Git keeps working without any adapter.
+ */
+export interface ProjectProviderAdapter {
+  readonly id: "github" | "gitlab" | "bitbucket";
+  resolveRemote(input: string): ProviderRepositoryIdentity | undefined;
+  listRepositories(
+    connectionId: string,
+    query?: string,
+    cursor?: string,
+  ): Promise<{ repositories: ProviderRepository[]; nextCursor?: string }>;
+  getRepository(
+    connectionId: string,
+    repositoryId: string,
+  ): Promise<ProviderRepository>;
+  createGitCredential(input: CredentialRequest): Promise<ShortLivedCredential>;
+  createPullRequest(
+    connectionId: string,
+    input: ProviderPullRequestInput,
+  ): Promise<ProviderPullRequest>;
+  updatePullRequest(
+    connectionId: string,
+    input: ProviderPullRequestUpdate,
+  ): Promise<ProviderPullRequest>;
+  getChecks(input: ProviderRefInput): Promise<ProviderCheckSummary[]>;
+}
+
 /** A runtime-owned isolated checkout, represented by a worktree or clone. */
 export interface ProjectCheckoutRecord {
   id: string;
