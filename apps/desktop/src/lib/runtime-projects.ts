@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type {
+  ProjectBranchComparison,
   ProjectCommitDetail,
   ProjectRecord,
   ProjectRepositoryBrowserSnapshot,
@@ -13,6 +14,7 @@ import { useRuntime, useWorkspaceCapability } from "./runtime";
 const cache = new Map<string, ProjectRepositorySnapshot[]>();
 const browserCache = new Map<string, ProjectRepositoryBrowserSnapshot>();
 const commitCache = new Map<string, ProjectCommitDetail>();
+const comparisonCache = new Map<string, ProjectBranchComparison>();
 
 function browserCacheKey(
   workspaceId: string,
@@ -30,6 +32,15 @@ function commitCacheKey(
   commit: string,
 ) {
   return `${workspaceId}\0${projectId}\0${ref}\0${commit}`;
+}
+
+function comparisonCacheKey(
+  workspaceId: string,
+  projectId: string,
+  baseRef: string,
+  compareRef: string,
+) {
+  return `${workspaceId}\0${projectId}\0${baseRef}\0${compareRef}`;
 }
 
 export function useProjects() {
@@ -322,6 +333,94 @@ export function useProjectCommit(
   return {
     detail,
     loading: Boolean(key && !detail && !error),
+    error,
+    refresh,
+  };
+}
+
+export function useProjectComparison(
+  projectId: string | undefined,
+  baseRef: string | undefined,
+  compareRef: string | undefined,
+) {
+  const { client, status } = useRuntime();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const key =
+    cloudOrganizationId && projectId && baseRef && compareRef
+      ? comparisonCacheKey(cloudOrganizationId, projectId, baseRef, compareRef)
+      : undefined;
+  const [received, setReceived] = useState<{
+    key: string;
+    comparison: ProjectBranchComparison;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const activeRequest = useRef<string | null>(null);
+  const cached = key ? comparisonCache.get(key) : undefined;
+  const comparison =
+    received && received.key === key ? received.comparison : cached;
+
+  useEffect(() => {
+    if (!key) return;
+    const unsubscribe = client.subscribe((message) => {
+      if (
+        message.type === "projectComparison" &&
+        message.workspaceId === cloudOrganizationId &&
+        message.requestId === activeRequest.current
+      ) {
+        comparisonCache.set(key, message.comparison);
+        setReceived({ key, comparison: message.comparison });
+        setError(null);
+      } else if (
+        message.type === "error" &&
+        message.requestId === activeRequest.current
+      ) {
+        setError(message.message);
+      }
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [client, cloudOrganizationId, key]);
+
+  const refresh = useCallback(() => {
+    if (
+      !cloudOrganizationId ||
+      !capability ||
+      !projectId ||
+      !baseRef ||
+      !compareRef ||
+      !key
+    ) {
+      return;
+    }
+    const requestId = crypto.randomUUID();
+    activeRequest.current = requestId;
+    client.send({
+      type: "compareProjectBranches",
+      workspaceId: cloudOrganizationId,
+      requestId,
+      projectId,
+      baseRef,
+      compareRef,
+      executorCapability: capability,
+    });
+  }, [
+    baseRef,
+    capability,
+    client,
+    cloudOrganizationId,
+    compareRef,
+    key,
+    projectId,
+  ]);
+
+  useEffect(() => {
+    if (status === "connected" && capability && key && !cached) refresh();
+  }, [cached, capability, key, refresh, status]);
+
+  return {
+    comparison,
+    loading: Boolean(key && !comparison && !error),
     error,
     refresh,
   };

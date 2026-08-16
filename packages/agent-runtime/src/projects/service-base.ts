@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type {
@@ -10,6 +11,7 @@ import type {
   ProjectRecord,
   ProjectRepositoryBindingRecord,
 } from "../project-types.js";
+import type { CredentialBroker } from "./credential-broker.js";
 import type {
   ProjectCatalogStore,
   ProjectGrantStore,
@@ -45,6 +47,7 @@ export interface ProjectServiceAuthorization {
 export abstract class ProjectServiceBase {
   private readonly persistence: ProjectPersistence;
   private readonly authorization: ProjectServiceAuthorization | undefined;
+  private readonly broker: CredentialBroker | undefined;
   private runtimeIdPromise?: Promise<string>;
   readonly root: string;
   protected readonly repositoriesRoot: string;
@@ -54,12 +57,18 @@ export abstract class ProjectServiceBase {
     options: {
       root?: string;
       authorization?: ProjectServiceAuthorization;
+      broker?: CredentialBroker;
     } = {},
   ) {
     this.persistence = persistence;
     this.authorization = options.authorization;
-    this.root = options.root ?? process.cwd();
+    this.broker = options.broker;
+    this.root = options.root ?? join(homedir(), ".chief");
     this.repositoriesRoot = join(this.root, "repositories");
+  }
+
+  protected get credentialBroker(): CredentialBroker | undefined {
+    return this.broker;
   }
 
   protected get catalog(): ProjectCatalogStore {
@@ -159,6 +168,7 @@ export abstract class ProjectServiceBase {
       checkoutId?: string;
       branch?: string;
       commitHash?: string;
+      correlationId?: string;
       message?: string;
     },
   ) {
@@ -178,6 +188,7 @@ export abstract class ProjectServiceBase {
       operation,
       result: input.result,
       ...(input.commitHash ? { commitHash: input.commitHash } : {}),
+      ...(input.correlationId ? { correlationId: input.correlationId } : {}),
       ...(input.message
         ? { message: input.message.trim().replace(/\s+/g, " ").slice(0, 240) }
         : {}),

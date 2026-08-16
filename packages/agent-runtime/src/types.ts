@@ -12,6 +12,7 @@ import type * as Artifacts from "./artifact-types.js";
 import type { ChannelServerMessage } from "./channel-types.js";
 import type { IntegrationSetupPhase } from "./integration-setup-recipes.js";
 import type {
+  ProjectBranchComparison,
   ProjectCommitDetail,
   ProjectRecord,
   ProjectRepositoryBrowserSnapshot,
@@ -888,6 +889,26 @@ export type ServerMessage =
       workspaceId: string;
       requestId: string;
       detail: ProjectCommitDetail;
+    }
+  | {
+      type: "projectComparison";
+      workspaceId: string;
+      requestId: string;
+      comparison: ProjectBranchComparison;
+    }
+  | {
+      type: "projectPublished";
+      workspaceId: string;
+      requestId: string;
+      checkoutId: string;
+      branch: string;
+      head: string;
+    }
+  | {
+      type: "projectCheckoutDiscarded";
+      workspaceId: string;
+      requestId: string;
+      checkoutId: string;
     }
   | ChannelServerMessage
   | { type: "models"; driver: DriverType; models: ProviderModelOption[] }

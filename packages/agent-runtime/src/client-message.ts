@@ -64,6 +64,33 @@ export type ClientMessage =
       commit: string;
       executorCapability: ExecutorCapability;
     }
+  | {
+      type: "compareProjectBranches";
+      workspaceId: string;
+      requestId: string;
+      projectId: string;
+      baseRef: string;
+      compareRef: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "publishProjectCheckout";
+      workspaceId: string;
+      requestId: string;
+      checkoutId: string;
+      targetBranch?: string;
+      correlationId?: string;
+      allowDefaultBranch?: boolean;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "discardProjectCheckout";
+      workspaceId: string;
+      requestId: string;
+      checkoutId: string;
+      confirmed: boolean;
+      executorCapability: ExecutorCapability;
+    }
   | ChannelClientMessage
   | Artifacts.ListArtifactsMessage
   | {

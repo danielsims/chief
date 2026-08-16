@@ -3,8 +3,10 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { ProjectPrincipal } from "../types.js";
+import type { CredentialBroker } from "./credential-broker.js";
 import type { ProjectServiceAuthorization } from "./service-base.js";
 import type { ProjectPersistence } from "./store.js";
+import { redactSecrets } from "./credential-broker.js";
 import { git, safeSegment, workspaceSegment } from "./repository-git.js";
 import { ProjectServiceBase } from "./service-base.js";
 
@@ -17,7 +19,13 @@ export interface CreateProjectCheckoutInput {
   branch?: string;
 }
 
-/** Chief-owned isolated checkouts: creation, status, commit, and release. */
+export interface PublishCheckoutInput {
+  targetBranch?: string;
+  correlationId?: string;
+  allowDefaultBranch?: boolean;
+}
+
+/** Chief-owned isolated checkouts: creation, status, commit, release, publish. */
 export class ProjectCheckoutService extends ProjectServiceBase {
   private readonly checkoutsRoot: string;
 
@@ -26,6 +34,7 @@ export class ProjectCheckoutService extends ProjectServiceBase {
     options: {
       root?: string;
       authorization?: ProjectServiceAuthorization;
+      broker?: CredentialBroker;
     } = {},
   ) {
     super(persistence, {
@@ -33,6 +42,7 @@ export class ProjectCheckoutService extends ProjectServiceBase {
       ...(options.authorization
         ? { authorization: options.authorization }
         : {}),
+      ...(options.broker ? { broker: options.broker } : {}),
     });
     this.checkoutsRoot = join(this.root, "checkouts");
   }
@@ -267,6 +277,164 @@ export class ProjectCheckoutService extends ProjectServiceBase {
   private requireOwnership(agentId: string, principal: ProjectPrincipal) {
     if (principal.type === "agent" && principal.id !== agentId) {
       throw new Error("This checkout belongs to another agent.");
+    }
+  }
+
+  /**
+   * Pushes one owned branch through an explicit refspec. Direct pushes to the
+   * default branch stay disabled unless an operator explicitly authorizes one
+   * constrained operation.
+   */
+  async publish(
+    organizationId: string,
+    checkoutId: string,
+    principal: ProjectPrincipal,
+    input: PublishCheckoutInput = {},
+  ) {
+    const checkout = await this.requireCheckout(organizationId, checkoutId);
+    this.requireOwnership(checkout.agentId, principal);
+    const project = await this.requireProject(
+      organizationId,
+      checkout.projectId,
+    );
+    const targetBranch = input.targetBranch?.trim() ?? checkout.branch;
+    await this.authorize(
+      organizationId,
+      project.id,
+      principal,
+      "publish",
+      targetBranch,
+    );
+    if (
+      targetBranch === project.defaultBranch &&
+      !(input.allowDefaultBranch && principal.type === "user")
+    ) {
+      throw new Error(
+        "Publishing directly to the default branch is disabled unless an operator explicitly authorizes it.",
+      );
+    }
+    if (!project.canonicalRemoteUrl) {
+      throw new Error("This project has no Git remote to publish to.");
+    }
+    try {
+      const binding = await this.ensureBinding(project);
+      const head = await git(["rev-parse", "HEAD"], checkout.path);
+      const refspec = `refs/heads/${checkout.branch}:refs/heads/${targetBranch}`;
+      const broker = this.credentialBroker;
+      if (broker) {
+        const credential = await broker.request({
+          organizationId,
+          projectId: project.id,
+          remoteUrl: project.canonicalRemoteUrl,
+          operation: "push",
+        });
+        try {
+          const authorization = `AUTHORIZATION: basic ${Buffer.from(
+            `${credential.username}:${credential.password}`,
+          ).toString("base64")}`;
+          await git(
+            [
+              "-c",
+              `http.extraheader=${authorization}`,
+              "push",
+              project.canonicalRemoteUrl,
+              refspec,
+            ],
+            checkout.path,
+            120_000,
+          );
+        } catch (error) {
+          throw new Error(
+            redactSecrets(
+              error instanceof Error ? error.message : String(error),
+              [credential.password, credential.username],
+            ),
+          );
+        }
+      } else {
+        await git(
+          ["push", project.canonicalRemoteUrl, refspec],
+          checkout.path,
+          120_000,
+        );
+      }
+      await this.recordOperation("publish", {
+        organizationId,
+        projectId: project.id,
+        principal,
+        agentId: checkout.agentId,
+        checkoutId: checkout.id,
+        branch: targetBranch,
+        commitHash: head,
+        correlationId: input.correlationId,
+        result: "success",
+      });
+      void binding;
+      return {
+        checkoutId: checkout.id,
+        branch: targetBranch,
+        head,
+        correlationId: input.correlationId,
+      };
+    } catch (error) {
+      await this.recordOperation("publish", {
+        organizationId,
+        projectId: project.id,
+        principal,
+        agentId: checkout.agentId,
+        checkoutId: checkout.id,
+        branch: targetBranch,
+        correlationId: input.correlationId,
+        result: "failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  /** Destroys uncommitted checkout state only after explicit confirmation. */
+  async discard(
+    organizationId: string,
+    checkoutId: string,
+    principal: ProjectPrincipal,
+    input: { confirmed: boolean },
+  ) {
+    if (!input.confirmed) {
+      throw new Error("Discard requires explicit confirmation.");
+    }
+    const checkout = await this.requireCheckout(organizationId, checkoutId);
+    this.requireOwnership(checkout.agentId, principal);
+    await this.authorize(
+      organizationId,
+      checkout.projectId,
+      principal,
+      "commit",
+    );
+    try {
+      await git(["reset", "--hard", "HEAD"], checkout.path);
+      await git(["clean", "-fd"], checkout.path);
+      await this.recordOperation("discard", {
+        organizationId,
+        projectId: checkout.projectId,
+        principal,
+        agentId: checkout.agentId,
+        checkoutId: checkout.id,
+        branch: checkout.branch,
+        result: "success",
+      });
+      return { checkoutId: checkout.id, discarded: true };
+    } catch (error) {
+      await this.recordOperation("discard", {
+        organizationId,
+        projectId: checkout.projectId,
+        principal,
+        agentId: checkout.agentId,
+        checkoutId: checkout.id,
+        branch: checkout.branch,
+        result: "failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     }
   }
 

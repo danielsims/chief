@@ -110,3 +110,34 @@ export function projectProviderLabel(providerId: ProjectProviderId) {
       ?.label ?? "Git remote"
   );
 }
+
+/** Capabilities a provider integration actually supports. Generic Git omits
+ * hosted-forge features instead of pretending to support them. */
+export interface ProjectProviderCapabilities {
+  repositoryPicker: boolean;
+  shortLivedCredentials: boolean;
+  pullRequests: boolean;
+  checks: boolean;
+  reviews: boolean;
+}
+
+export function projectProviderCapabilities(
+  providerId: ProjectProviderId,
+): ProjectProviderCapabilities {
+  if (providerId === "github") {
+    return {
+      repositoryPicker: false,
+      shortLivedCredentials: false,
+      pullRequests: false,
+      checks: false,
+      reviews: false,
+    };
+  }
+  return {
+    repositoryPicker: false,
+    shortLivedCredentials: false,
+    pullRequests: false,
+    checks: false,
+    reviews: false,
+  };
+}

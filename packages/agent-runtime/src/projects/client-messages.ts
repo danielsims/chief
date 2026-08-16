@@ -10,7 +10,10 @@ type ProjectClientMessage = Extract<
       | "attachProject"
       | "cloneProject"
       | "browseProject"
-      | "inspectProjectCommit";
+      | "inspectProjectCommit"
+      | "compareProjectBranches"
+      | "publishProjectCheckout"
+      | "discardProjectCheckout";
   }
 >;
 
@@ -23,6 +26,9 @@ function isProjectClientMessage(
     "cloneProject",
     "browseProject",
     "inspectProjectCommit",
+    "compareProjectBranches",
+    "publishProjectCheckout",
+    "discardProjectCheckout",
   ]).has(message.type);
 }
 
@@ -78,6 +84,63 @@ export async function handleProjectClientMessage(
         message.commit,
       ),
     });
+    return true;
+  }
+  if (message.type === "compareProjectBranches") {
+    send({
+      type: "projectComparison",
+      workspaceId: message.workspaceId,
+      requestId: message.requestId,
+      comparison: await service.compare(
+        message.workspaceId,
+        message.projectId,
+        principal,
+        message.baseRef,
+        message.compareRef,
+      ),
+    });
+    return true;
+  }
+  if (message.type === "publishProjectCheckout") {
+    const result = await service.checkouts.publish(
+      message.workspaceId,
+      message.checkoutId,
+      principal,
+      {
+        ...(message.targetBranch ? { targetBranch: message.targetBranch } : {}),
+        ...(message.correlationId
+          ? { correlationId: message.correlationId }
+          : {}),
+        ...(message.allowDefaultBranch
+          ? { allowDefaultBranch: message.allowDefaultBranch }
+          : {}),
+      },
+    );
+    send({
+      type: "projectPublished",
+      workspaceId: message.workspaceId,
+      requestId: message.requestId,
+      checkoutId: result.checkoutId,
+      branch: result.branch,
+      head: result.head,
+    });
+    await input.broadcast(message.workspaceId);
+    return true;
+  }
+  if (message.type === "discardProjectCheckout") {
+    await service.checkouts.discard(
+      message.workspaceId,
+      message.checkoutId,
+      principal,
+      { confirmed: message.confirmed },
+    );
+    send({
+      type: "projectCheckoutDiscarded",
+      workspaceId: message.workspaceId,
+      requestId: message.requestId,
+      checkoutId: message.checkoutId,
+    });
+    await input.broadcast(message.workspaceId);
     return true;
   }
   const project =
