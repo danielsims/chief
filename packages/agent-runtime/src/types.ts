@@ -11,6 +11,12 @@ import type {
 import type * as Artifacts from "./artifact-types.js";
 import type { ChannelServerMessage } from "./channel-types.js";
 import type { IntegrationSetupPhase } from "./integration-setup-recipes.js";
+import type {
+  ProjectCommitDetail,
+  ProjectRecord,
+  ProjectRepositoryBrowserSnapshot,
+  ProjectRepositorySnapshot,
+} from "./project-types.js";
 
 export type {
   AgentPluginSummary,
@@ -27,6 +33,7 @@ export type {
   BrowserAutomationResult,
   BrowserPageSnapshot,
 } from "./browser-types.js";
+export type * from "./project-types.js";
 
 export interface GenerativeChartPoint {
   x: string;
@@ -569,6 +576,8 @@ export interface AgentPreference {
 export type AgentToolPermission =
   | "workspace.read"
   | "workspace.write"
+  | "projects.read"
+  | "projects.write"
   | "channels.read"
   | "channels.create"
   | "channels.update"
@@ -857,6 +866,29 @@ export interface IntegrationSetupProgress {
 
 export type ServerMessage =
   | { type: "agents"; agents: AgentDefinition[] }
+  | {
+      type: "projects";
+      workspaceId: string;
+      projects: ProjectRepositorySnapshot[];
+    }
+  | {
+      type: "projectSaved";
+      workspaceId: string;
+      requestId: string;
+      project: ProjectRecord;
+    }
+  | {
+      type: "projectBrowser";
+      workspaceId: string;
+      requestId: string;
+      browser: ProjectRepositoryBrowserSnapshot;
+    }
+  | {
+      type: "projectCommit";
+      workspaceId: string;
+      requestId: string;
+      detail: ProjectCommitDetail;
+    }
   | ChannelServerMessage
   | { type: "models"; driver: DriverType; models: ProviderModelOption[] }
   | Artifacts.ArtifactsMessage

@@ -5,12 +5,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { channelOpenApiPaths, channelOpenApiSchemas } from "@chief/channel-api";
 import { pluginOpenApiPaths, pluginOpenApiSchemas } from "@chief/plugin-api";
 
-import type { BrowserLocalToolContext } from "./browser-local-tools.js";
-import type { ChannelLocalToolContext } from "./channel-local-tools.js";
-import type { IntegrationSetupLocalToolContext } from "./integration-setup-local-tools.js";
+import type { LocalToolContext } from "./local-tool-context.js";
 import type { SessionManager } from "./manager.js";
-import type { PluginLocalToolService } from "./plugin-local-tools.js";
-import type { ScheduledWorkRunner } from "./scheduled-work-local-tools.js";
 import type {
   AnalyticsDataset,
   CampaignRecord,
@@ -19,7 +15,6 @@ import type {
   ProspectRecord,
   RecurringWorkRecord,
   TrendRecord,
-  WorkspaceFileRecord,
 } from "./types.js";
 import {
   browserOpenApiPaths,
@@ -34,6 +29,11 @@ import {
   integrationSetupOpenApiSchemas,
 } from "./integration-setup-local-tools.js";
 import { handlePluginLocalTool } from "./plugin-local-tools.js";
+import {
+  handleProjectLocalTool,
+  projectOpenApiPaths,
+  projectOpenApiSchemas,
+} from "./projects/local-tools.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
 import { handleScheduledWorkLocalTool } from "./scheduled-work-local-tools.js";
 import { runSpecialistDelegation } from "./specialist-delegation.js";
@@ -431,6 +431,7 @@ export function localToolsOpenApi(origin: string) {
       },
       ...channelOpenApiPaths(body),
       ...pluginOpenApiPaths(body),
+      ...projectOpenApiPaths(body),
       "/local-tools/trends": {
         get: {
           operationId: "trends.list",
@@ -1127,6 +1128,7 @@ export function localToolsOpenApi(origin: string) {
           },
         },
         ...pluginOpenApiSchemas,
+        ...projectOpenApiSchemas,
         RecurringWorkInput: {
           type: "object",
           additionalProperties: false,
@@ -1189,63 +1191,7 @@ export function localToolsOpenApi(origin: string) {
   };
 }
 
-export type LocalToolContext = BrowserLocalToolContext &
-  IntegrationSetupLocalToolContext & {
-    channels?: ChannelLocalToolContext;
-    scheduledWork?: ScheduledWorkRunner;
-    conversationId?: string;
-    onActivity?: () => void | Promise<void>;
-    onFilesChanged?: () => void | Promise<void>;
-    onFileWritten?: (file: WorkspaceFileRecord) => void | Promise<void>;
-    activateIntegrationSetup?: (
-      sessionId: string,
-      attemptId: string,
-      domain: string,
-    ) => void | Promise<void>;
-    startSetup?: (
-      sessionId: string,
-      domain: string,
-    ) => Promise<{
-      attemptId: string;
-      domain: string;
-      label: string;
-      instructions: string;
-      available: { id: string; domain: string; label: string }[];
-    }>;
-    listSetupTasks?: () => Promise<
-      { id: string; domain: string; label: string }[]
-    >;
-    googleOAuth?: {
-      provisionClient?: (
-        sessionId: string,
-        attemptId: string,
-      ) => Promise<unknown>;
-      captureClient?: (
-        sessionId: string,
-        attemptId: string,
-      ) => Promise<unknown>;
-    };
-    googleAnalytics?: {
-      startAuthorization: (
-        sessionId: string,
-        attemptId: string,
-      ) => Promise<{
-        authorizationUrl: string;
-        state: string;
-      }>;
-      completeAuthorization: (
-        sessionId: string,
-        attemptId: string,
-        state?: string,
-      ) => Promise<unknown>;
-      selectProperty: (
-        sessionId: string,
-        attemptId: string,
-        propertyId: string,
-      ) => Promise<unknown>;
-    };
-    plugins?: PluginLocalToolService;
-  };
+export type { LocalToolContext } from "./local-tool-context.js";
 
 export async function handleLocalTool(
   request: Request,
@@ -1274,6 +1220,12 @@ export async function handleLocalTool(
     context.plugins,
   );
   if (pluginResult) return pluginResult;
+  const projectResult = await handleProjectLocalTool(
+    request,
+    channelBody,
+    context.projects,
+  );
+  if (projectResult.handled) return json(projectResult.value);
   const channelResult = await handleChannelLocalTool(
     request,
     workspaceId,
@@ -1336,44 +1288,44 @@ export async function handleLocalTool(
     const browser = await handleBrowserLocalTool(path, body, context);
     if (browser.handled) return json(browser.value);
     if (path === "/local-tools/integrations/google-oauth/provision-client") {
-      if (!context.googleOAuth?.provisionClient) {
+      if (!context.integrationSetup?.googleOAuth?.provisionClient) {
         throw new Error("Google OAuth client provisioning is unavailable.");
       }
       return json(
-        await context.googleOAuth.provisionClient(
+        await context.integrationSetup.googleOAuth.provisionClient(
           requiredValue(body.sessionId, "sessionId", 160),
           requiredValue(body.attemptId, "attemptId", 160),
         ),
       );
     }
     if (path === "/local-tools/integrations/google-oauth/capture-client") {
-      if (!context.googleOAuth?.captureClient) {
+      if (!context.integrationSetup?.googleOAuth?.captureClient) {
         throw new Error("Google OAuth credential capture is unavailable.");
       }
       return json(
-        await context.googleOAuth.captureClient(
+        await context.integrationSetup.googleOAuth.captureClient(
           requiredValue(body.sessionId, "sessionId", 160),
           requiredValue(body.attemptId, "attemptId", 160),
         ),
       );
     }
     if (path === "/local-tools/integrations/google-analytics/authorize") {
-      if (!context.googleAnalytics) {
+      if (!context.integrationSetup?.googleAnalytics) {
         throw new Error("Google Analytics setup is unavailable.");
       }
       return json(
-        await context.googleAnalytics.startAuthorization(
+        await context.integrationSetup.googleAnalytics.startAuthorization(
           requiredValue(body.sessionId, "sessionId", 160),
           requiredValue(body.attemptId, "attemptId", 160),
         ),
       );
     }
     if (path === "/local-tools/integrations/google-analytics/complete") {
-      if (!context.googleAnalytics) {
+      if (!context.integrationSetup?.googleAnalytics) {
         throw new Error("Google Analytics setup is unavailable.");
       }
       return json(
-        await context.googleAnalytics.completeAuthorization(
+        await context.integrationSetup.googleAnalytics.completeAuthorization(
           requiredValue(body.sessionId, "sessionId", 160),
           requiredValue(body.attemptId, "attemptId", 160),
           value(body.state, "state", 240, false),
@@ -1381,11 +1333,11 @@ export async function handleLocalTool(
       );
     }
     if (path === "/local-tools/integrations/google-analytics/select") {
-      if (!context.googleAnalytics) {
+      if (!context.integrationSetup?.googleAnalytics) {
         throw new Error("Google Analytics setup is unavailable.");
       }
       return json(
-        await context.googleAnalytics.selectProperty(
+        await context.integrationSetup.googleAnalytics.selectProperty(
           requiredValue(body.sessionId, "sessionId", 160),
           requiredValue(body.attemptId, "attemptId", 160),
           requiredValue(body.propertyId, "propertyId", 240),
@@ -1395,7 +1347,7 @@ export async function handleLocalTool(
     const integrationSetup = await handleIntegrationSetupLocalTool(
       path,
       body,
-      context,
+      context.integrationSetup ?? {},
     );
     if (integrationSetup.handled) return json(integrationSetup.value);
     if (path === "/local-tools/setup/list") {
