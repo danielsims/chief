@@ -480,7 +480,7 @@ export function ChiefChatAuxiliaryPanels({
       previousTurns={previousActivityTurns}
       agentLabel={activityAgentLabel}
       running={controls.status === "running"}
-      tasks={threadRootId ? activeThreadChildSessions : childSessions}
+      tasks={childSessions}
       onClose={() => setActivityOpen(false)}
       onOpenTask={onOpenChild}
       sizing={panelSizing}
