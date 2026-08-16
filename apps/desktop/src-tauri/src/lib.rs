@@ -249,6 +249,22 @@ fn runtime_unhealthy_grace(has_been_healthy: bool) -> Duration {
     }
 }
 
+#[cfg_attr(debug_assertions, allow(dead_code))]
+fn packaged_runtime_node_args() -> &'static [&'static str] {
+    // On macOS, V8's default CodeRange placement can intermittently fail near
+    // a hardened, signed Node executable before any Chief code runs. This V8
+    // mode keeps JIT enabled while trying additional valid placements instead
+    // of relying on repeated process launches to get a favorable ASLR layout.
+    #[cfg(target_os = "macos")]
+    {
+        &["--better-code-range-allocation"]
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        &[]
+    }
+}
+
 fn runtime_port_is_open() -> bool {
     let addr: SocketAddr = format!("127.0.0.1:{RUNTIME_PORT}")
         .parse()
@@ -377,7 +393,10 @@ fn is_runtime_health_response(response: &[u8]) -> bool {
 mod runtime_health_tests {
     use std::path::Path;
 
-    use super::{command_runs_executable, is_runtime_health_response, runtime_unhealthy_grace};
+    use super::{
+        command_runs_executable, is_runtime_health_response, packaged_runtime_node_args,
+        runtime_unhealthy_grace,
+    };
 
     #[test]
     fn accepts_only_the_ready_chief_runtime() {
@@ -413,6 +432,17 @@ mod runtime_health_tests {
     fn tolerates_transient_runtime_backpressure() {
         assert_eq!(runtime_unhealthy_grace(true).as_secs(), 15);
         assert_eq!(runtime_unhealthy_grace(false).as_secs(), 20);
+    }
+
+    #[test]
+    fn configures_reliable_packaged_node_code_range_allocation() {
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            packaged_runtime_node_args(),
+            &["--better-code-range-allocation"]
+        );
+        #[cfg(not(target_os = "macos"))]
+        assert!(packaged_runtime_node_args().is_empty());
     }
 }
 
@@ -566,6 +596,7 @@ fn spawn_agent_runtime(app: &tauri::AppHandle) -> Option<Child> {
     }
     let path = env::join_paths(path_entries).ok()?;
     command
+        .args(packaged_runtime_node_args())
         .arg(&script)
         .current_dir(&runtime_root)
         .env("PATH", path)
