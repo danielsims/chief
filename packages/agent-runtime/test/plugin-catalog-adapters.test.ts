@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  mergePluginCatalogEntries,
   parseAgentCatalog,
   parseIntegrationsCatalog,
 } from "../src/plugins/catalog-adapters";
@@ -61,9 +62,61 @@ void test("turns MCP surfaces into discoverable plugin entries", () => {
   assert.equal(entry.name, "PostHog");
   assert.equal(entry.category, "analytics");
   assert.equal(entry.featured, true);
+  assert.equal(entry.popularity, 20_000);
   assert.deepEqual(entry.source, {
     type: "discovery",
     registry: "integrations.sh",
     domain: "posthog.com",
   });
+});
+
+void test("uses product names for machine-named catalog surfaces", () => {
+  const [entry] = parseIntegrationsCatalog({
+    data: [
+      {
+        kind: "mcp",
+        slug: "gmail-googleapis-com",
+        name: "gmail.googleapis.com",
+        description: "Read and manage Gmail messages.",
+        domain: "gmail.googleapis.com",
+        categories: [],
+      },
+    ],
+  });
+  assert.equal(entry?.name, "Gmail");
+});
+
+void test("prefers a hosted provider connector over a same-id Git package", () => {
+  const [hosted] = parseIntegrationsCatalog({
+    data: [
+      {
+        kind: "mcp",
+        slug: "vercel",
+        name: "Vercel",
+        description: "Connect directly to Vercel.",
+        domain: "vercel.com",
+      },
+    ],
+  });
+  const [git] = parseAgentCatalog("xai", {
+    plugins: [
+      {
+        name: "vercel",
+        description: "A downloadable Vercel package.",
+        source: {
+          url: "https://github.com/vercel/vercel-plugin.git",
+          sha: "a".repeat(40),
+        },
+      },
+    ],
+  });
+  assert.ok(hosted && git);
+  assert.equal(
+    mergePluginCatalogEntries([git, hosted])[0]?.source.type,
+    "discovery",
+  );
+  assert.equal(
+    mergePluginCatalogEntries([hosted, git])[0]?.source.type,
+    "discovery",
+  );
 });

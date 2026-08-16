@@ -326,6 +326,13 @@ for (const entry of readdirSync(agentDefinitionsRoot, {
   }
 }
 
+const bundledPluginsRoot = join(packageRoot, "src/plugins-bundled");
+if (existsSync(bundledPluginsRoot)) {
+  cpSync(bundledPluginsRoot, join(runtimeRoot, "plugins-bundled"), {
+    recursive: true,
+  });
+}
+
 // App-managed deployments use a bundled, deterministic Eve workspace. The
 // desktop runtime materializes the selected canonical agent into a private
 // copy and only deploys after the user presses Deploy in Chief.

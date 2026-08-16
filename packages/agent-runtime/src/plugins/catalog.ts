@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import {
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   stat,
@@ -10,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
+import { parse, stringify } from "yaml";
 
 import type { AgentPluginSummary } from "@chief/plugin-api";
 
@@ -97,30 +99,99 @@ async function exists(path: string) {
   }
 }
 
-async function normalizeLegacyPackage(root: string, fallbackName: string) {
+function record(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function portableLegacyServer(spec: Record<string, unknown>) {
+  if (typeof spec.url === "string") {
+    return {
+      type: spec.type === "sse" ? "sse" : "streamable-http",
+      url: spec.url,
+      ...(spec.headers === undefined ? {} : { headers: spec.headers }),
+    };
+  }
+  return {
+    type: "stdio",
+    command: spec.command,
+    ...(spec.args === undefined ? {} : { args: spec.args }),
+    ...(spec.env === undefined ? {} : { env: spec.env }),
+    ...(spec.cwd === undefined ? {} : { cwd: spec.cwd }),
+  };
+}
+
+async function normalizeLegacySkills(root: string) {
+  const skillsRoot = join(root, "skills");
+  if (!(await exists(skillsRoot))) return;
+  for (const entry of await readdir(skillsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const path = join(skillsRoot, entry.name, "SKILL.md");
+    if (!(await exists(path))) continue;
+    const source = await readFile(path, "utf8");
+    const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/.exec(
+      source,
+    );
+    if (!match) continue;
+    const metadata = parse(match[1] ?? "") as unknown;
+    if (!record(metadata)) continue;
+    const portable: Record<string, unknown> = {};
+    for (const key of [
+      "name",
+      "description",
+      "license",
+      "compatibility",
+      "allowed-tools",
+    ]) {
+      if (typeof metadata[key] === "string") portable[key] = metadata[key];
+    }
+    if (record(metadata.metadata)) {
+      const strings = Object.fromEntries(
+        Object.entries(metadata.metadata).filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string",
+        ),
+      );
+      if (Object.keys(strings).length > 0) portable.metadata = strings;
+    }
+    await writeFile(
+      path,
+      `---\n${stringify(portable).trimEnd()}\n---\n${match[2] ?? ""}`,
+    );
+  }
+}
+
+export async function normalizeLegacyPackage(
+  root: string,
+  fallbackName: string,
+) {
   const manifestPath = join(root, "plugin.json");
+  let legacy = false;
   if (!(await exists(manifestPath))) {
     const legacyPath = (
       await Promise.all(
-        [".cursor-plugin/plugin.json", ".claude-plugin/plugin.json"].map(
-          async (path) => ((await exists(join(root, path))) ? path : null),
-        ),
+        [
+          ".plugin/plugin.json",
+          ".cursor-plugin/plugin.json",
+          ".claude-plugin/plugin.json",
+        ].map(async (path) => ((await exists(join(root, path))) ? path : null)),
       )
     ).find(Boolean);
     if (!legacyPath)
       throw new Error(
         "Package has no portable or recognized legacy plugin manifest.",
       );
-    const legacy = JSON.parse(
+    const legacyManifest = JSON.parse(
       await readFile(join(root, legacyPath), "utf8"),
     ) as Record<string, unknown>;
     const description =
-      typeof legacy.description === "string" ? legacy.description : undefined;
+      typeof legacyManifest.description === "string"
+        ? legacyManifest.description
+        : undefined;
     await writeFile(
       manifestPath,
       `${JSON.stringify({ $schema: PLUGIN_SCHEMA, name: fallbackName, description }, null, 2)}\n`,
       { mode: 0o600 },
     );
+    legacy = true;
   }
   const portableMcp = join(root, "mcp.json");
   const legacyMcp = join(root, ".mcp.json");
@@ -131,9 +202,7 @@ async function normalizeLegacyPackage(root: string, fallbackName: string) {
     const servers = Object.fromEntries(
       Object.entries(parsed.mcpServers ?? {}).map(([name, spec]) => [
         name,
-        spec.url
-          ? { ...spec, type: "streamable-http" }
-          : { ...spec, type: "stdio" },
+        portableLegacyServer(spec),
       ]),
     );
     await writeFile(
@@ -142,6 +211,7 @@ async function normalizeLegacyPackage(root: string, fallbackName: string) {
       { mode: 0o600 },
     );
   }
+  if (legacy) await normalizeLegacySkills(root);
 }
 
 async function materializeDiscoveredPackage(

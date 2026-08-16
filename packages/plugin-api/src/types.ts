@@ -21,6 +21,7 @@ export interface AgentPluginCatalogEntry {
   repository?: string;
   iconUrl?: string;
   featured?: boolean;
+  popularity?: number;
   domains?: string[];
   keywords?: string[];
   source:

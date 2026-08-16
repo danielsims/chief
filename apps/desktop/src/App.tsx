@@ -41,10 +41,6 @@ import { SchedulePage } from "./pages/schedule";
 import { AppearanceSettings } from "./pages/settings/appearance";
 import { DiagnosticsSettings } from "./pages/settings/diagnostics";
 import { EnvironmentSettings } from "./pages/settings/environment";
-import {
-  IntegrationSettingsDetail,
-  IntegrationsSettings,
-} from "./pages/settings/integrations";
 import { SettingsLayout } from "./pages/settings/layout";
 import { MissionsSettings } from "./pages/settings/missions";
 import { NotificationsSettings } from "./pages/settings/notifications";
@@ -342,12 +338,8 @@ function AuthenticatedApp() {
                         element={<EnvironmentSettings />}
                       />
                       <Route
-                        path="integrations"
-                        element={<IntegrationsSettings />}
-                      />
-                      <Route
-                        path="integrations/:provider"
-                        element={<IntegrationSettingsDetail />}
+                        path="integrations/*"
+                        element={<Navigate to="/plugins" replace />}
                       />
                     </Route>
                   </Route>

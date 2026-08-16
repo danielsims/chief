@@ -65,7 +65,7 @@ export function EngineeringToolsControl({
     >
       <p className="text-muted-foreground mb-4 text-sm leading-6">
         Select the code, deployment, and website platforms Chief should connect.
-        You can add or remove integrations later in Settings.
+        You can add or remove connections later from Plugins.
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         {ENGINEERING_INTEGRATIONS.map((integration) => (

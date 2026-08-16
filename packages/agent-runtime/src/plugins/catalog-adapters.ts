@@ -1,12 +1,41 @@
+import { fileURLToPath } from "node:url";
+
 import type { RemotePluginCatalogEntry } from "./types.js";
 import { readPluginState } from "./store.js";
 
 const CATALOG_TTL_MS = 15 * 60_000;
 const PLUGIN_ID = /^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]{0,62}[a-z0-9])?$/;
+const INTEGRATIONS_DISPLAY_NAMES: Record<string, string> = {
+  "gmail.googleapis.com": "Gmail",
+};
 const catalogCache = new Map<
   string,
   { entries: RemotePluginCatalogEntry[]; refreshedAt: number; warning?: string }
 >();
+
+const bundledGoogleWorkspace: RemotePluginCatalogEntry = {
+  id: "google-workspace",
+  name: "Google Workspace",
+  description:
+    "Connect Gmail and Google Drive through Google's remote MCP services.",
+  category: "Communication",
+  homepage: "https://workspace.google.com/",
+  featured: true,
+  popularity: 100_000,
+  source: {
+    type: "bundled",
+    path: fileURLToPath(
+      new URL("../plugins-bundled/google-workspace/", import.meta.url),
+    ),
+  },
+  catalogId: "chief-bundled",
+  domains: [
+    "workspace.google.com",
+    "gmail.googleapis.com",
+    "file.googleapis.com",
+  ],
+  keywords: ["Google Workspace", "Gmail", "Google Drive", "email", "files"],
+};
 
 function text(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -105,12 +134,13 @@ export function parseIntegrationsCatalog(
     return [
       {
         id,
-        name,
+        name: INTEGRATIONS_DISPLAY_NAMES[domain] ?? name,
         description,
         category: categories[0] ?? "Other",
         homepage: text(item.url) ?? `https://integrations.sh/${domain}/`,
         iconUrl: text(item.icon) ?? `https://integrations.sh/logo/${domain}`,
         featured: popularity > 10_000,
+        popularity,
         source: {
           type: "discovery" as const,
           registry: "integrations.sh",
@@ -122,6 +152,31 @@ export function parseIntegrationsCatalog(
       },
     ];
   });
+}
+
+const sourcePriority: Record<
+  RemotePluginCatalogEntry["source"]["type"],
+  number
+> = {
+  discovery: 0,
+  bundled: 1,
+  git: 2,
+};
+
+export function mergePluginCatalogEntries(
+  entries: readonly RemotePluginCatalogEntry[],
+) {
+  const merged = new Map<string, RemotePluginCatalogEntry>();
+  for (const entry of entries) {
+    const current = merged.get(entry.id);
+    if (
+      !current ||
+      sourcePriority[entry.source.type] < sourcePriority[current.source.type]
+    ) {
+      merged.set(entry.id, entry);
+    }
+  }
+  return [...merged.values()];
 }
 
 export async function fetchPluginCatalog(workspaceId: string, force = false) {
@@ -154,15 +209,16 @@ export async function fetchPluginCatalog(workspaceId: string, force = false) {
         }
       }),
   );
-  const entries = results.flatMap((result) => result.entries);
+  const remoteEntries = results.flatMap((result) => result.entries);
   const warnings = results.flatMap((result) =>
     result.warning ? [result.warning] : [],
   );
-  if (entries.length === 0 && cached) {
+  if (remoteEntries.length === 0 && cached) {
     return { ...cached, warning: warnings.join("; ") };
   }
+  const entries = [bundledGoogleWorkspace, ...remoteEntries];
   const next = {
-    entries: [...new Map(entries.map((entry) => [entry.id, entry])).values()],
+    entries: mergePluginCatalogEntries(entries),
     refreshedAt: Date.now(),
     ...(warnings.length ? { warning: warnings.join("; ") } : {}),
   };
