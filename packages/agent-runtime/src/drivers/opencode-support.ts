@@ -52,6 +52,37 @@ export function openCodeTextContent(value: unknown) {
   return typeof item.text === "string" ? item.text : "";
 }
 
+/**
+ * Chief runs OpenCode headlessly, so an `ask` permission has no provider UI in
+ * which it can be answered. Full-access sessions must therefore encode that
+ * choice up front. In particular, OpenCode otherwise pauses forever whenever
+ * an agent workspace follows a project path outside its own cwd.
+ */
+export function openCodeConfigContent(
+  options: Pick<StartOptions, "access" | "model">,
+  inherited?: string,
+) {
+  let config: Record<string, unknown> = {};
+  if (inherited) {
+    try {
+      config = openCodeRecord(JSON.parse(inherited));
+    } catch {
+      // Ignore malformed ambient config rather than preventing Chief startup.
+    }
+  }
+  if (options.model) config.model = options.model;
+  if (options.access !== "full") return JSON.stringify(config);
+
+  const existing = config.permission;
+  const permission: Record<string, unknown> =
+    typeof existing === "string"
+      ? { "*": existing }
+      : { ...openCodeRecord(existing) };
+  permission.external_directory = "allow";
+  config.permission = permission;
+  return JSON.stringify(config);
+}
+
 export async function initializeOpenCodeSession(
   options: StartOptions,
   resumeSessionId: string | undefined,
