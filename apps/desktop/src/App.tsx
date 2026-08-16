@@ -60,6 +60,11 @@ const PluginsPagePreview = lazy(() =>
     default: module.PluginsPagePreview,
   })),
 );
+const ProjectsPage = lazy(() =>
+  import("./pages/projects").then((module) => ({
+    default: module.ProjectsPage,
+  })),
+);
 
 function ConfigurationRequired() {
   return (
@@ -300,6 +305,14 @@ function AuthenticatedApp() {
                       element={<ConversationsPage />}
                     />
                     <Route path="agents" element={<AgentsPage />} />
+                    <Route
+                      path="projects/:projectId?"
+                      element={
+                        <Suspense fallback={null}>
+                          <ProjectsPage />
+                        </Suspense>
+                      }
+                    />
                     <Route
                       path="plugins"
                       element={

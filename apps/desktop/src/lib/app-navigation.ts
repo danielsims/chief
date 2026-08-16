@@ -9,6 +9,7 @@ export const CHIEF_VIEW_ROUTES = {
   schedule: "/schedule",
   prospects: "/prospects",
   trending: "/trending",
+  projects: "/projects",
   agents: "/agents",
   plugins: "/plugins",
   files: "/files",

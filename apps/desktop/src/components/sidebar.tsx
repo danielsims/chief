@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   BarChart3,
   CalendarClock,
+  FolderGit2,
   FolderOpen,
   Inbox,
   LayoutGrid,
@@ -51,6 +52,7 @@ const PRIMARY_ITEMS = [
   { to: "/", label: "Overview", icon: LayoutGrid },
   { to: "/inbox", label: "Inbox", icon: Inbox },
   { to: "/schedule", label: "Schedule", icon: CalendarClock },
+  { to: "/projects", label: "Projects", icon: FolderGit2 },
   { to: "/agents", label: "Agents", icon: Network },
   { to: "/plugins", label: "Plugins", icon: Plug },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },

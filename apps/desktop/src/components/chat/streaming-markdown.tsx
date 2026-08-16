@@ -61,10 +61,15 @@ function MarkdownLink({
 function MarkdownImage({
   src,
   alt,
+  resolveImageSrc,
   ...props
-}: ComponentPropsWithoutRef<"img">) {
-  const target = src ? markdownLinkTarget(src) : null;
-  const resolved = target?.kind === "path" ? convertFileSrc(target.value) : src;
+}: ComponentPropsWithoutRef<"img"> & {
+  resolveImageSrc?: (src: string) => string;
+}) {
+  const source = src ? (resolveImageSrc?.(src) ?? src) : src;
+  const target = source ? markdownLinkTarget(source) : null;
+  const resolved =
+    target?.kind === "path" ? convertFileSrc(target.value) : source;
   return (
     <img
       {...props}
@@ -111,18 +116,22 @@ export function StreamingMarkdown({
   channels = [],
   onOpenChannel,
   onOpenMention,
+  resolveImageSrc,
 }: {
   children: string;
   streaming?: boolean;
   channels?: readonly ChannelReferenceTarget[];
   onOpenChannel?: (channelId: string) => void;
   onOpenMention?: (agentId: WorkspaceAgentId) => void;
+  resolveImageSrc?: (src: string) => string;
 }) {
   const { inlineText } = messageSkill(children);
   const components = useMemo(
     () => ({
       a: MarkdownLink,
-      img: MarkdownImage,
+      img: (props: ComponentPropsWithoutRef<"img">) => (
+        <MarkdownImage {...props} resolveImageSrc={resolveImageSrc} />
+      ),
       p: ({
         children: paragraphChildren,
         ...props
@@ -150,7 +159,7 @@ export function StreamingMarkdown({
         </li>
       ),
     }),
-    [channels, onOpenChannel, onOpenMention],
+    [channels, onOpenChannel, onOpenMention, resolveImageSrc],
   );
   return (
     <div className="max-w-full min-w-0 overflow-hidden [overflow-wrap:anywhere] [&_a]:break-all [&_code]:break-all [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
