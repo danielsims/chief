@@ -52,6 +52,7 @@ import type {
   WorkspaceFileRecord,
   WorkspaceFileSnapshot,
 } from "./types.js";
+import { CellSqliteStore } from "./cells/sqlite-store.js";
 import { ensureChannelManagementSchema } from "./channels/schema-migration.js";
 import { ChannelStore } from "./channels/store.js";
 import { retryDatabaseWrite } from "./database-write-retry.js";
@@ -291,6 +292,7 @@ export class LocalStore {
   private readonly ready: Promise<void>;
   private channelStoreInstance: ChannelStore | undefined;
   private projectStoreInstance: ProjectSqliteStores | undefined;
+  private cellStoreInstance: CellSqliteStore | undefined;
 
   constructor(path = defaultDatabasePath()) {
     const directory = dirname(path);
@@ -518,6 +520,8 @@ export class LocalStore {
       () => this.db,
       this.ready,
     ));
+  cellStore = () =>
+    (this.cellStoreInstance ??= new CellSqliteStore(() => this.db, this.ready));
   async hasChat(chatId: string) {
     await this.ready;
     return Boolean(
