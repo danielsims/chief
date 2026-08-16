@@ -30,6 +30,33 @@ export interface ScheduledChannelThread {
   failureMessage?: string;
 }
 
+export class ScheduledChannelUnavailableError extends Error {}
+
+async function scheduledChannel(
+  manager: SessionManager,
+  workspaceId: string,
+  work: RecurringWorkRecord,
+) {
+  const waysOfWorking = readWorkspaceWaysOfWorking(workspaceId);
+  const channels = await manager.store.channelStore().list(workspaceId);
+  const channel = preferredScheduledChannel(
+    channels,
+    work,
+    waysOfWorking.missionControlChannelId,
+  );
+  if (!channel) {
+    throw new ScheduledChannelUnavailableError(
+      "Choose a channel for this scheduled work.",
+    );
+  }
+  if (channel.lifecycle !== "active") {
+    throw new ScheduledChannelUnavailableError(
+      "Choose an active channel for this scheduled work.",
+    );
+  }
+  return channel;
+}
+
 function openingMessage(work: RecurringWorkRecord) {
   return work.operationKey === "chief-mission-control-heartbeat"
     ? "Hey, I’m checking the workspace now. I’ll keep anything useful in this thread."
@@ -75,17 +102,7 @@ export async function beginScheduledChannelThread(
   broadcast: (workspaceId: string, event: ChannelEvent) => void,
   triggerContext?: Record<string, unknown>,
 ): Promise<ScheduledChannelThread> {
-  const waysOfWorking = readWorkspaceWaysOfWorking(workspaceId);
-  const channels = await manager.store.channelStore().list(workspaceId);
-  const channel = preferredScheduledChannel(
-    channels,
-    work,
-    waysOfWorking.missionControlChannelId,
-  );
-  if (!channel) throw new Error("Choose a channel for this scheduled work.");
-  if (channel.lifecycle !== "active") {
-    throw new Error("Choose an active channel for this scheduled work.");
-  }
+  const channel = await scheduledChannel(manager, workspaceId, work);
   const assignedAgent = getAgent(work.agentId) ?? getAgent("chief");
   if (!assignedAgent) throw new Error("The scheduled agent is unavailable.");
   const sourceId = randomUUID();
@@ -236,6 +253,7 @@ export async function startScheduledChannelWork({
   work: RecurringWorkRecord;
   workspaceId: string;
 }) {
+  await scheduledChannel(manager, workspaceId, work);
   const [agentConfig, executor] = await Promise.all([
     scheduledAgentConfig(manager, workspaceId, work),
     prepareWorkspaceTools(),
