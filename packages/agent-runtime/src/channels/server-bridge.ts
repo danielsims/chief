@@ -37,6 +37,13 @@ export function channelPublicationInstructions(
   ].join("\n");
 }
 
+export function channelMessageCoordinates(
+  channelId: string,
+  messageId: string,
+) {
+  return `Current channel message coordinates: channelId ${JSON.stringify(channelId)}, messageId ${JSON.stringify(messageId)}.`;
+}
+
 export async function mirrorEvent(
   manager: SessionManager,
   send: Send,
@@ -120,37 +127,6 @@ export async function sendChannelEvents(
     channelId,
     events: await manager.store.channelStore().events(workspaceId, channelId),
   });
-}
-
-export async function beginAgentActivityReaction(
-  manager: SessionManager,
-  send: Send,
-  workspaceId: string,
-  channelId: string,
-  targetEventId: string,
-  agent: { id: string; name: string },
-) {
-  const reaction = createChannelReaction({
-    workspaceId,
-    channelId,
-    targetEventId,
-    actor: { type: "agent", ...agent },
-    reaction: "👀",
-  });
-  await manager.store.channelStore().appendEvent(workspaceId, reaction);
-  send({ type: "channelEvent", workspaceId, event: reaction });
-  return reaction.id;
-}
-
-export async function endAgentActivityReaction(
-  manager: SessionManager,
-  send: Send,
-  workspaceId: string,
-  channelId: string,
-  reactionId: string,
-) {
-  await manager.store.channelStore().removeEvent(workspaceId, reactionId);
-  await sendChannelEvents(manager, workspaceId, channelId, send);
 }
 
 export async function channelForChat(

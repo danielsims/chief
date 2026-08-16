@@ -14,6 +14,7 @@ import type {
   MessageAttachment,
 } from "./types.js";
 import { normalizeAssistantEvent } from "./agent-output.js";
+import { agentEventProducedOutput } from "./agent-retry.js";
 import { createDriver } from "./drivers/index.js";
 import { remoteHistoryContext } from "./drivers/remote-history.js";
 import { withGenerativeDataParts } from "./generative-ui.js";
@@ -35,6 +36,8 @@ export interface SessionConfig {
   runtimeContext?: string;
   secretAccess?: boolean;
   maxPromptAttempts?: number;
+  /** Test and deployment override for the no-output watchdog. */
+  stallTimeoutMs?: number;
 }
 
 export class AgentSession extends EventEmitter {
@@ -49,7 +52,7 @@ export class AgentSession extends EventEmitter {
   private promptBootstrap: string | undefined;
   private workingDirectory: string | undefined;
   private stallTimer: NodeJS.Timeout | null = null;
-  private readonly stallTimeoutMs = 6 * 60_000;
+  private readonly stallTimeoutMs: number;
   private activeReplyContext:
     | {
         threadRootId?: string;
@@ -68,6 +71,12 @@ export class AgentSession extends EventEmitter {
     this.agent = agent;
     this.chatId = chatId;
     this.config = config;
+    this.stallTimeoutMs =
+      config.stallTimeoutMs ??
+      (config.executionOwner === "schedule" ||
+      config.executionOwner === "delegation"
+        ? 6 * 60_000
+        : 90_000);
     this.driver = createDriver(config.driver);
     this.events = initialEvents.map(withGenerativeDataParts).slice(-500);
     this.driver.on("event", (rawEvent: AgentEvent) => {
@@ -85,16 +94,8 @@ export class AgentSession extends EventEmitter {
                 threadRootId: this.activeReplyContext?.threadRootId,
               }
             : rawEvent;
-      // Provider streaming model: text arrives as `stream` deltas, tool calls as
-      // `tool_use` message events, and a final full-text `message` + `result`
-      // close the turn. To surface progress messages live — the way the user
-      // experiences an agent "talking while it works" — the session turns the
-      // stream into discrete assistant messages:
-      //   - `[message:send]` (or legacy `[channel:send]`) flushes the text so far
-      //   - text accumulated before a tool call is flushed as its own message
-      //   - the turn's remaining tail is flushed at the final message / result
-      // Each flushed message carries a stable id and thread context so the
-      // client renders it once, exactly like a normal agent reply.
+      // Fold provider deltas into stable messages at explicit send markers,
+      // tool boundaries, and turn completion so the client renders each once.
       const events: AgentEvent[] =
         rawEvent.type === "stream"
           ? this.splitStreamMessages(rawEvent.text)
@@ -185,7 +186,6 @@ export class AgentSession extends EventEmitter {
     );
   }
 
-  /** The explicit channel thread that owns host UI opened by this turn. */
   get activeThreadRootId() {
     return (
       this.activeReplyContext?.explicitThreadRootId ?? this.lastThreadRootId
@@ -199,7 +199,6 @@ export class AgentSession extends EventEmitter {
    */
   private lastThreadRootId: string | undefined;
 
-  /** Persist-safe thread anchor. */
   get persistedThreadRootId() {
     return this.lastThreadRootId;
   }
@@ -224,7 +223,6 @@ export class AgentSession extends EventEmitter {
    * un-flushed tail and nothing is duplicated.
    */
   private streamTail = "";
-  /** Whether this turn produced streamed text deltas (vs a single message). */
   private streamedThisTurn = false;
 
   /**
@@ -313,7 +311,7 @@ export class AgentSession extends EventEmitter {
       this.record({
         type: "error",
         message:
-          "The agent stopped after six minutes without any new output. You can retry the request.",
+          "The agent stopped after too long without any new output. You can retry the request.",
       });
       this.record({ type: "status", status: "idle" });
     }, this.stallTimeoutMs);
@@ -397,8 +395,9 @@ export class AgentSession extends EventEmitter {
       mentions: context?.mentions,
     };
     this.armStallWatchdog();
-    const bootstrap = record ? this.promptBootstrap : undefined;
+    const shouldBootstrap = Boolean(this.promptBootstrap);
     this.promptBootstrap = undefined;
+    const turnEventStart = this.events.length;
     try {
       const addressedText = context?.mentions?.length
         ? `[Channel recipient routing: this message is addressed to these agent identities: ${context.mentions.join(", ")}. The user may have mentioned them in this message or continued an already-addressed thread. Reply directly as your configured persona.]\n\n${text}`
@@ -419,11 +418,15 @@ export class AgentSession extends EventEmitter {
       ]
         .filter(Boolean)
         .join("\n\n");
+      const bootstrap = shouldBootstrap
+        ? remoteHistoryContext(this.events, text)
+        : undefined;
       await this.driver.sendPrompt(
         bootstrap
           ? `${bootstrap}\n\nContinue the conversation with this new user message:\n\n${routedText}`
           : routedText,
       );
+      return this.events.slice(turnEventStart).some(agentEventProducedOutput);
     } catch (error) {
       this.status = "idle";
       this.clearStallWatchdog();

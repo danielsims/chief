@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import type { ChannelEvent } from "../src/channel-types.js";
 import type { AgentEvent, ServerMessage } from "../src/types.js";
 import {
   channelChatId,
@@ -13,9 +12,8 @@ import {
   createChannelReaction,
 } from "../src/channels/nip29.js";
 import {
-  beginAgentActivityReaction,
+  channelMessageCoordinates,
   channelPublicationInstructions,
-  endAgentActivityReaction,
   mirrorEvent,
 } from "../src/channels/server-bridge.js";
 import { LocalStore } from "../src/local-store.js";
@@ -43,6 +41,13 @@ void test("shared channel publication names its exact destination", () => {
   assert.match(instructions, /channelId "channel-a"/u);
   assert.match(instructions, /threadRootId "thread-root-a"/u);
   assert.match(instructions, /Do not publish tool narration/u);
+});
+
+void test("current message coordinates are supplied without duplicating policy", () => {
+  assert.equal(
+    channelMessageCoordinates("channel-a", "message-a"),
+    'Current channel message coordinates: channelId "channel-a", messageId "message-a".',
+  );
 });
 
 void test("explicitly mirrored messages keep thread tags", async () => {
@@ -293,89 +298,6 @@ void test("a workspace retains mission control when other channels are removed",
     );
   } finally {
     await store.close();
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-void test("agent activity reactions wrap one idempotent channel message", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "chief-agent-activity-"));
-  const store = new LocalStore(join(directory, "chief.sqlite"));
-  const manager = new SessionManager(store);
-  try {
-    const channel = (await store.channelStore().list("workspace-a")).find(
-      (candidate) => candidate.slug === "general",
-    );
-    assert.ok(channel);
-    const sent: ServerMessage[] = [];
-    const broadcasted: ServerMessage[] = [];
-    const send = (message: ServerMessage) => sent.push(message);
-    const broadcast = (workspaceId: string, event: ChannelEvent) => {
-      broadcasted.push({ type: "channelEvent", workspaceId, event });
-    };
-    const input = {
-      type: "message" as const,
-      id: "mention-message",
-      role: "user" as const,
-      content: [{ type: "text" as const, text: "@Advertising help" }],
-      mentions: ["ads"],
-    };
-
-    const first = await mirrorEvent(
-      manager,
-      send,
-      "workspace-a",
-      channelChatId("workspace-a", channel.id),
-      input,
-      channel.id,
-      undefined,
-      broadcast,
-    );
-    const second = await mirrorEvent(
-      manager,
-      send,
-      "workspace-a",
-      channelChatId("workspace-a", channel.id),
-      input,
-      channel.id,
-    );
-    assert.ok(first);
-    assert.equal(second?.id, first.id);
-    assert.equal(
-      broadcasted.filter((message) => message.type === "channelEvent").length,
-      1,
-    );
-
-    const reactionId = await beginAgentActivityReaction(
-      manager,
-      send,
-      "workspace-a",
-      channel.id,
-      first.id,
-      { id: "ads", name: "Advertising" },
-    );
-    let events = await store.channelStore().events("workspace-a", channel.id);
-    assert.equal(events.filter((event) => event.kind === 9).length, 1);
-    const reaction = events.find((event) => event.id === reactionId);
-    assert.ok(reaction);
-    assert.equal(reaction.kind, 7);
-    assert.equal(reaction.content, "👀");
-    assert.equal(reaction.actor.id, "ads");
-
-    await endAgentActivityReaction(
-      manager,
-      send,
-      "workspace-a",
-      channel.id,
-      reactionId,
-    );
-    events = await store.channelStore().events("workspace-a", channel.id);
-    assert.equal(
-      events.some((event) => event.id === reactionId),
-      false,
-    );
-    assert.ok(sent.some((message) => message.type === "channelEvents"));
-  } finally {
-    await manager.stopAll();
     rmSync(directory, { recursive: true, force: true });
   }
 });

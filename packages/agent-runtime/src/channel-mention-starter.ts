@@ -354,6 +354,7 @@ export function startMentionedAgentThreads(input: {
       initialReview: isOnboardingMention(input.event),
       onStateChange: input.onStateChange,
       onFilesChange: input.onFilesChange,
+      onChannelEvent: input.onChannelEvent,
     }).catch((error: unknown) =>
       console.error(`[channel-mention] ${agentId} failed to start:`, error),
     );
