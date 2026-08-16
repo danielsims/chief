@@ -29,6 +29,14 @@ void test("every agent receives the mission-cell operating model", () => {
     assert.match(instructions, /subject channel as its mission cell/u);
     assert.match(instructions, /private #setup channel/u);
     assert.match(instructions, /localTools\.pluginsList/u);
+    assert.match(
+      instructions,
+      /MUST call\s+localTools\.channelsReactionsAdd with 👀 before the first work tool/u,
+    );
+    assert.match(
+      instructions,
+      /send the confirmation with\s+localTools\.channelsMessagesPost/u,
+    );
     assert.match(instructions, /primary job is to advance the user's outcome/u);
     assert.match(instructions, /last-resort handoff/u);
     assert.match(

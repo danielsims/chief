@@ -9,6 +9,7 @@ import {
   validatedAgentIds,
 } from "./channel-local-tool-input.js";
 import { emitMemberAddedEvent } from "./channel-membership-local-tools.js";
+import { normalizedChannelMentions } from "./channel-message-mentions.js";
 import { ensureChannelPermission } from "./channel-permissions.js";
 import { postPluginRecommendation } from "./channel-plugin-recommendation.js";
 import {
@@ -247,11 +248,15 @@ export async function handleChannelMessageLocalTool(input: {
         ...(idempotencyKey ? { idempotencyKey } : {}),
       });
       const mentions = validatedAgentIds(
-        Array.isArray(body.mentions)
-          ? body.mentions.filter(
-              (value): value is string => typeof value === "string",
-            )
-          : [],
+        normalizedChannelMentions({
+          availableAgentIds: context.availableAgentIds,
+          content,
+          explicitMentions: Array.isArray(body.mentions)
+            ? body.mentions.filter(
+                (value): value is string => typeof value === "string",
+              )
+            : [],
+        }),
         context.availableAgentIds,
         false,
       );

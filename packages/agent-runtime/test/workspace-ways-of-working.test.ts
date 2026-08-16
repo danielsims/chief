@@ -16,6 +16,11 @@ void test("mission control is the lightweight default", () => {
 void test("shared instructions treat channels as the operating primitives", () => {
   const instructions = composeWorkspaceInstructions("You are Chief.");
   assert.match(instructions, /channels, threads, messages, memberships/u);
+  assert.match(instructions, /Reactions are real agent actions/u);
+  assert.match(
+    instructions,
+    /Creating\s+a channel or adding an agent is not a handoff/u,
+  );
   assert.match(instructions, /not a required destination or a rigid workflow/u);
   assert.match(instructions, /grants no additional authority/u);
   assert.doesNotMatch(instructions, /missions\.create/u);

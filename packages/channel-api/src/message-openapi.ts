@@ -159,6 +159,8 @@ export const messageOpenApiSchemas = {
         type: "array",
         maxItems: 20,
         items: { type: "string", maxLength: 120 },
+        description:
+          "Agent IDs addressed by this message. Addressed agents are invited when permitted and woken to respond; visible @Agent text is normalized to the same durable recipient metadata.",
       },
       idempotencyKey: { type: "string", maxLength: 120 },
     },
