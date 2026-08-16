@@ -129,6 +129,25 @@ void test("published channel events own visible text and keep runtime activity",
   );
 });
 
+void test("distinct durable channel messages remain visible when their text repeats", () => {
+  const events = [1, 2].map((createdAt) => ({
+    protocol: "nip29" as const,
+    kind: 9 as const,
+    id: `heartbeat-${createdAt}`,
+    channelId: "mission-control",
+    pubkey: "chief",
+    actor: { type: "agent" as const, id: "chief", name: "Chief" },
+    content: "Hey, I’m checking the workspace now.",
+    tags: [],
+    createdAt,
+  }));
+
+  assert.deepEqual(
+    projectChannelTimeline([], events).map((message) => message.id),
+    ["heartbeat-1", "heartbeat-2"],
+  );
+});
+
 void test("direct messages keep authored replies even when routed through a channel id", () => {
   const messages: ChiefUIMessage[] = [
     {
@@ -256,6 +275,47 @@ void test("a delayed scheduled publication uses its channel arrival time", () =>
   );
 
   assert.equal(published?.metadata?.createdAt, 11.5 * 60 * 60 * 1_000);
+});
+
+void test("a scheduled heartbeat root and its published reply stay visible", () => {
+  const projected = projectChannelTimeline(
+    [],
+    [
+      {
+        protocol: "nip29",
+        kind: 9,
+        id: "heartbeat-root-event",
+        channelId: "mission-control",
+        pubkey: "chief",
+        actor: { type: "agent", id: "chief", name: "Chief" },
+        content: "I’m checking the workspace now.",
+        parts: [],
+        tags: [
+          ["client", "heartbeat-root"],
+          ["notification", "silent"],
+        ],
+        createdAt: 1,
+      },
+      {
+        protocol: "nip29",
+        kind: 9,
+        id: "heartbeat-reply-event",
+        channelId: "mission-control",
+        pubkey: "chief",
+        actor: { type: "agent", id: "chief", name: "Chief" },
+        content: "I found and restarted stalled work.",
+        parts: [],
+        tags: [["e", "heartbeat-root-event", "", "root"]],
+        createdAt: 2,
+      },
+    ],
+  );
+
+  assert.deepEqual(
+    projected.map((message) => message.id),
+    ["heartbeat-root", "heartbeat-reply-event"],
+  );
+  assert.equal(projected[1]?.metadata?.threadRootId, "heartbeat-root");
 });
 
 void test("hides intentional cancellation and internal runtime failures", () => {

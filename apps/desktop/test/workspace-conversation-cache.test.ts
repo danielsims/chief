@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   activateWorkspaceConversationCache,
+  cacheChannelEvent,
   cacheChannelEvents,
   cachedChannelEvents,
   cachedTranscript,
@@ -67,4 +68,33 @@ void test("conversation caches are isolated at the workspace boundary", () => {
   );
   assert.equal(cachedTranscript("workspace-b", "late-chat"), undefined);
   assert.equal(cachedChannelEvents("workspace-b", "late-channel"), undefined);
+});
+
+void test("workspace-wide live events update the channel navigation cache", () => {
+  activateWorkspaceConversationCache("workspace-a");
+  cacheChannelEvents("workspace-a", "mission-control", []);
+  const event = {
+    protocol: "nip29" as const,
+    kind: 9 as const,
+    id: "heartbeat-reply",
+    channelId: "mission-control",
+    pubkey: "chief",
+    actor: { type: "agent" as const, id: "chief", name: "Chief" },
+    content: "I moved the work forward.",
+    tags: [["e", "heartbeat-root", "", "root"]],
+    createdAt: 2,
+  };
+
+  assert.equal(cacheChannelEvent("workspace-a", event), true);
+  assert.equal(cacheChannelEvent("workspace-a", event), true);
+  assert.deepEqual(cachedChannelEvents("workspace-a", "mission-control"), [
+    event,
+  ]);
+
+  activateWorkspaceConversationCache("workspace-b");
+  assert.equal(cacheChannelEvent("workspace-a", event), false);
+  assert.equal(
+    cachedChannelEvents("workspace-b", "mission-control"),
+    undefined,
+  );
 });

@@ -316,16 +316,16 @@ export function projectChannelTimeline(
     seenIds.add(id);
   }
 
-  for (const message of messages) {
-    if (seenIds.has(message.id)) continue;
-    const visible = channelActivityOnlyMessage(message);
-    if (visible) canonical.push(visible);
-  }
-  return dropReplayedMessages(
-    canonical.sort(
-      (left, right) =>
-        (left.metadata?.createdAt ?? 0) - (right.metadata?.createdAt ?? 0),
-    ),
+  const runtimeActivity = dropReplayedMessages(
+    messages.flatMap((message) => {
+      if (seenIds.has(message.id)) return [];
+      const visible = channelActivityOnlyMessage(message);
+      return visible ? [visible] : [];
+    }),
+  );
+  return [...canonical, ...runtimeActivity].sort(
+    (left, right) =>
+      (left.metadata?.createdAt ?? 0) - (right.metadata?.createdAt ?? 0),
   );
 }
 
