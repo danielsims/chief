@@ -130,6 +130,20 @@ export function cacheChannelEvents(
   return true;
 }
 
+/**
+ * Keeps a live event received by a workspace-wide observer in the same cache
+ * used by the channel surface. This makes navigating from Inbox or a native
+ * notification show the event immediately, before the channel revalidation
+ * response arrives.
+ */
+export function cacheChannelEvent(workspaceId: string, event: ChannelEvent) {
+  if (activeCache?.workspaceId !== workspaceId) return false;
+  const current = activeCache.channelEvents.get(event.channelId) ?? [];
+  if (current.some((candidate) => candidate.id === event.id)) return true;
+  setBounded(activeCache.channelEvents, event.channelId, [...current, event]);
+  return true;
+}
+
 export function cachedWorkspaceChannels(workspaceId: string) {
   return activeCache?.workspaceId === workspaceId
     ? activeCache.channels
