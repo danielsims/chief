@@ -552,13 +552,9 @@ export function AnalyticsPage() {
                 {selectedChannel ? (
                   <Button
                     variant="outline"
-                    onClick={() =>
-                      navigate(
-                        `/settings/integrations/${encodeURIComponent(selectedChannel.provider)}`,
-                      )
-                    }
+                    onClick={() => navigate("/plugins")}
                   >
-                    Manage
+                    View plugins
                   </Button>
                 ) : null}
               </div>

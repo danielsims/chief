@@ -223,10 +223,10 @@ export function AgentConfigurationTab({
           description="Connected services this agent may use when its Executor permissions allow it."
           trailing={
             <Link
-              to="/settings/integrations"
+              to="/plugins"
               className="text-muted-foreground hover:text-foreground text-[11px] transition-colors"
             >
-              Manage integrations
+              Manage plugins
             </Link>
           }
         />

@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from "react";
+import { memo, useCallback, useDeferredValue, useMemo, useState } from "react";
 import {
   Check,
   LoaderCircle,
@@ -27,9 +27,12 @@ import { cn } from "@chief/ui/lib/utils";
 
 import type { PluginRuntimeState } from "../../lib/runtime-plugins";
 import {
+  comparePluginPresentation,
+  featuredPluginOptions,
   PLUGIN_CATEGORY_ORDER,
   pluginCategoryLabel,
   pluginDomain,
+  pluginProviderKey,
 } from "../../lib/plugin-presentation";
 import { ProviderLogo } from "../provider-logo";
 import { PluginAction } from "./plugin-action";
@@ -37,6 +40,7 @@ import { PluginAction } from "./plugin-action";
 type PluginView = "all" | "yours";
 type TypeFilter = "all" | "connectors" | "skills";
 type StatusFilter = "all" | "connected" | "attention" | "available";
+type PluginGroup = [string, AgentPluginSummary[]];
 
 function belongsToStatus(plugin: AgentPluginSummary, status: StatusFilter) {
   if (status === "all") return true;
@@ -69,10 +73,17 @@ function sourceLabel(plugin: AgentPluginSummary) {
         : "Bundled plugin";
 }
 
-function groupPlugins(plugins: AgentPluginSummary[]) {
+function groupPlugins(
+  plugins: AgentPluginSummary[],
+  includeFeatured: boolean,
+): PluginGroup[] {
   const groups = new Map<string, AgentPluginSummary[]>();
+  const featured = includeFeatured ? featuredPluginOptions(plugins) : [];
+  const featuredProviders = new Set(featured.map(pluginProviderKey));
+  if (featured.length > 0) groups.set("Featured", featured);
   for (const plugin of plugins) {
-    const label = plugin.featured ? "Featured" : pluginCategoryLabel(plugin);
+    if (featuredProviders.has(pluginProviderKey(plugin))) continue;
+    const label = pluginCategoryLabel(plugin);
     groups.set(label, [...(groups.get(label) ?? []), plugin]);
   }
   return [...groups.entries()].sort(([left], [right]) => {
@@ -91,6 +102,58 @@ function groupPlugins(plugins: AgentPluginSummary[]) {
     return left.localeCompare(right);
   });
 }
+
+const PluginSections = memo(function PluginSections({
+  grouped,
+  busyPluginId,
+  onInstall,
+  onAuthorize,
+}: {
+  grouped: PluginGroup[];
+  busyPluginId: string | null;
+  onInstall: (plugin: AgentPluginSummary) => void;
+  onAuthorize: (plugin: AgentPluginSummary) => void;
+}) {
+  return grouped.map(([label, group]) => (
+    <section
+      key={label}
+      className="[contain-intrinsic-size:auto_320px] [content-visibility:auto]"
+    >
+      <h2 className="text-muted-foreground mb-3 text-xs font-medium">
+        {label}
+      </h2>
+      <div className="grid grid-cols-1 gap-x-14 gap-y-1 xl:grid-cols-2">
+        {group.map((plugin) => (
+          <article
+            key={`${plugin.source.type}-${plugin.id}`}
+            className="hover:bg-accent/30 flex min-w-0 items-center gap-4 rounded-xl px-2 py-3 transition-colors"
+          >
+            <ProviderLogo
+              domain={pluginDomain(plugin)}
+              label={plugin.name}
+              className="size-12 shrink-0 rounded-[15px]"
+            />
+            <div className="min-w-0 flex-1 pr-5">
+              <h3 className="truncate text-sm font-medium">{plugin.name}</h3>
+              <p className="text-muted-foreground mt-0.5 truncate text-xs">
+                {plugin.description}
+              </p>
+              <span className="sr-only">{sourceLabel(plugin)}</span>
+            </div>
+            <div className="shrink-0">
+              <PluginAction
+                plugin={plugin}
+                busy={busyPluginId === plugin.id}
+                onInstall={() => onInstall(plugin)}
+                onAuthorize={() => onAuthorize(plugin)}
+              />
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  ));
+});
 
 function FilterOption({
   active,
@@ -159,140 +222,175 @@ export function PluginList({ plugins }: { plugins: PluginRuntimeState }) {
   const [trustCandidate, setTrustCandidate] =
     useState<AgentPluginSummary | null>(null);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
-  const visible = useMemo(() => {
+  const matching = useMemo(() => {
     const matching = (plugins.plugins ?? []).filter((plugin) => {
-      if (view === "yours" && plugin.status === "available") return false;
       if (!belongsToType(plugin, type)) return false;
       if (!belongsToStatus(plugin, status)) return false;
       return (
         !deferredQuery ||
-        [plugin.name, plugin.description, plugin.category, plugin.id]
+        [
+          plugin.name,
+          plugin.description,
+          plugin.category,
+          pluginCategoryLabel(plugin),
+          plugin.id,
+        ]
           .join(" ")
           .toLowerCase()
           .includes(deferredQuery)
       );
     });
-    return [...matching]
-      .sort(
-        (left, right) =>
-          Number(Boolean(right.featured)) - Number(Boolean(left.featured)) ||
-          left.name.localeCompare(right.name),
-      )
-      .slice(0, 240);
-  }, [deferredQuery, plugins.plugins, status, type, view]);
-  const grouped = useMemo(() => groupPlugins(visible), [visible]);
+    return [...matching].sort(comparePluginPresentation);
+  }, [deferredQuery, plugins.plugins, status, type]);
+  const yours = useMemo(
+    () => matching.filter((plugin) => plugin.status !== "available"),
+    [matching],
+  );
+  const allGrouped = useMemo(
+    () =>
+      groupPlugins(
+        matching,
+        type === "all" && status === "all" && !deferredQuery,
+      ),
+    [deferredQuery, matching, status, type],
+  );
+  const yoursGrouped = useMemo(() => groupPlugins(yours, false), [yours]);
 
-  const run = async (action: () => Promise<unknown>) => {
+  const run = useCallback(async (action: () => Promise<unknown>) => {
     try {
       await action();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
     }
-  };
+  }, []);
 
-  const install = (plugin: AgentPluginSummary) => {
-    if (plugin.source.type === "git") {
-      setTrustCandidate(plugin);
-      return;
-    }
-    void run(() => plugins.install(plugin.id, true));
-  };
+  const install = useCallback(
+    (plugin: AgentPluginSummary) => {
+      if (plugin.source.type === "git") {
+        setTrustCandidate(plugin);
+        return;
+      }
+      void run(() => plugins.install(plugin.id, true));
+    },
+    [plugins, run],
+  );
+  const authorize = useCallback(
+    (plugin: AgentPluginSummary) => {
+      void run(() => plugins.authorize(plugin.id));
+    },
+    [plugins, run],
+  );
+  const visibleCount = view === "all" ? matching.length : yours.length;
 
   return (
     <>
-      <div className="border-border/60 flex flex-wrap items-center gap-3 border-b pb-5">
-        <nav className="flex items-center gap-5" aria-label="Plugin views">
-          {(["all", "yours"] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setView(value)}
-              className={cn(
-                "text-muted-foreground hover:text-foreground relative h-9 text-xs font-medium capitalize transition-colors",
-                view === value && "text-foreground",
-              )}
-            >
-              {value}
-              {view === value ? (
-                <span className="bg-foreground absolute right-0 bottom-0 left-0 h-px" />
-              ) : null}
-            </button>
-          ))}
-        </nav>
-        <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                title="Filter plugins"
-                className={cn(
-                  (type !== "all" || status !== "all") && "bg-accent",
-                )}
-              >
-                <SlidersHorizontal size={16} />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-60 p-2">
-              <p className="text-muted-foreground px-2.5 py-1.5 text-xs">
-                Type
-              </p>
-              <FilterOption
-                active={type === "all"}
-                label="All types"
-                onSelect={() => setType("all")}
-              />
-              <FilterOption
-                active={type === "connectors"}
-                label="Connectors"
-                onSelect={() => setType("connectors")}
-              />
-              <FilterOption
-                active={type === "skills"}
-                label="Skills"
-                onSelect={() => setType("skills")}
-              />
-              <div className="border-border/70 my-2 border-t" />
-              <p className="text-muted-foreground px-2.5 py-1.5 text-xs">
-                Connection
-              </p>
-              {(
-                [
-                  ["all", "All"],
-                  ["connected", "Connected"],
-                  ["attention", "Needs attention"],
-                  ["available", "Available"],
-                ] as const
-              ).map(([value, label]) => (
-                <FilterOption
-                  key={value}
-                  active={status === value}
-                  label={label}
-                  onSelect={() => setStatus(value)}
-                />
-              ))}
-            </PopoverContent>
-          </Popover>
-          <div className="relative min-w-56 flex-1 sm:max-w-sm">
-            <Search
-              className="text-muted-foreground absolute top-1/2 left-2.5 -translate-y-1/2"
-              size={14}
-            />
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search plugins"
-              className="h-9 pl-8"
-            />
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            title="Refresh plugins"
-            onClick={() => plugins.refresh(true)}
+      <nav
+        className="flex items-center gap-5"
+        aria-label="Plugin views"
+        role="tablist"
+      >
+        {(
+          [
+            ["all", "All"],
+            ["yours", "Yours"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={view === value}
+            onClick={() => setView(value)}
+            className={cn(
+              "text-muted-foreground hover:text-foreground relative flex h-9 items-center text-xs font-medium transition-colors",
+              view === value && "text-foreground",
+            )}
           >
-            <RefreshCw size={14} />
-          </Button>
+            {label}
+            {view === value ? (
+              <span className="bg-foreground absolute right-0 bottom-0 left-0 h-px" />
+            ) : null}
+          </button>
+        ))}
+      </nav>
+
+      <div className="border-border/60 -mx-6 mt-0 border-t px-6 pt-4">
+        <div className="flex flex-wrap items-center gap-3 pb-2">
+          <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title="Filter plugins"
+                  className={cn(
+                    (type !== "all" || status !== "all") && "bg-accent",
+                  )}
+                >
+                  <SlidersHorizontal size={16} />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-60 p-2">
+                <p className="text-muted-foreground px-2.5 py-1.5 text-xs">
+                  Type
+                </p>
+                <FilterOption
+                  active={type === "all"}
+                  label="All types"
+                  onSelect={() => setType("all")}
+                />
+                <FilterOption
+                  active={type === "connectors"}
+                  label="Connectors"
+                  onSelect={() => setType("connectors")}
+                />
+                <FilterOption
+                  active={type === "skills"}
+                  label="Skills"
+                  onSelect={() => setType("skills")}
+                />
+                <div className="border-border/70 my-2 border-t" />
+                <p className="text-muted-foreground px-2.5 py-1.5 text-xs">
+                  Connection
+                </p>
+                {(
+                  [
+                    ["all", "All"],
+                    ["connected", "Connected"],
+                    ["attention", "Needs attention"],
+                    ["available", "Available"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <FilterOption
+                    key={value}
+                    active={status === value}
+                    label={label}
+                    onSelect={() => setStatus(value)}
+                  />
+                ))}
+              </PopoverContent>
+            </Popover>
+            <div className="relative min-w-56 flex-1 sm:max-w-sm">
+              <Search
+                className="text-muted-foreground absolute top-1/2 left-2.5 -translate-y-1/2"
+                size={14}
+              />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search plugins"
+                className="h-9 pl-8"
+              />
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Refresh plugins"
+              onClick={() => plugins.refresh(true)}
+            >
+              <RefreshCw size={14} />
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -301,50 +399,26 @@ export function PluginList({ plugins }: { plugins: PluginRuntimeState }) {
           <LoaderCircle className="animate-spin" size={16} /> Loading plugins…
         </div>
       ) : (
-        <div className="space-y-8 py-6">
-          {grouped.map(([label, group]) => (
-            <section key={label}>
-              <h2 className="text-muted-foreground mb-3 text-xs font-medium">
-                {label}
-              </h2>
-              <div className="grid grid-cols-1 gap-x-14 gap-y-1 xl:grid-cols-2">
-                {group.map((plugin) => (
-                  <article
-                    key={`${plugin.source.type}-${plugin.id}`}
-                    className="hover:bg-accent/30 flex min-w-0 items-center gap-3 rounded-xl px-2 py-3 transition-colors"
-                  >
-                    <ProviderLogo
-                      domain={pluginDomain(plugin)}
-                      label={plugin.name}
-                      className="size-12 shrink-0 overflow-hidden rounded-xl"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <h3 className="truncate text-sm font-medium">
-                        {plugin.name}
-                      </h3>
-                      <p className="text-muted-foreground mt-0.5 truncate text-xs">
-                        {plugin.description}
-                      </p>
-                      <span className="sr-only">{sourceLabel(plugin)}</span>
-                    </div>
-                    <div className="shrink-0">
-                      <PluginAction
-                        plugin={plugin}
-                        busy={plugins.busyPluginId === plugin.id}
-                        onInstall={() => install(plugin)}
-                        onAuthorize={() =>
-                          void run(() => plugins.authorize(plugin.id))
-                        }
-                      />
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+        <>
+          <div className="space-y-8 py-5" hidden={view !== "all"}>
+            <PluginSections
+              grouped={allGrouped}
+              busyPluginId={plugins.busyPluginId}
+              onInstall={install}
+              onAuthorize={authorize}
+            />
+          </div>
+          <div className="space-y-8 py-5" hidden={view !== "yours"}>
+            <PluginSections
+              grouped={yoursGrouped}
+              busyPluginId={plugins.busyPluginId}
+              onInstall={install}
+              onAuthorize={authorize}
+            />
+          </div>
+        </>
       )}
-      {!plugins.loading && visible.length === 0 ? (
+      {!plugins.loading && visibleCount === 0 ? (
         <p className="text-muted-foreground py-20 text-center text-sm">
           {view === "yours"
             ? "You have not added any plugins yet."

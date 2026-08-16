@@ -1,37 +1,25 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type {
-  OAuthClientProvider,
-  OAuthDiscoveryState,
-} from "@modelcontextprotocol/sdk/client/auth.js";
-import type {
-  OAuthClientInformationMixed,
-  OAuthClientMetadata,
-  OAuthTokens,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 
 import type { McpServerSpec } from "../types.js";
-import { workspaceSecrets } from "../workspace-secrets.js";
+import type { StoredOAuthSession } from "./oauth-provider.js";
 import { installedPlugin } from "./catalog.js";
 import { pluginOAuthCallbackPage } from "./oauth-callback-page.js";
+import {
+  accessTokenExpired,
+  ChiefOAuthProvider,
+  deleteOAuthSession,
+  oauthConnectionStatus,
+  oauthSessionConnected,
+  oauthStateMatches,
+  PLUGIN_OAUTH_CALLBACK_URL,
+  readOAuthSession,
+  writeOAuthSession,
+} from "./oauth-provider.js";
 import { pluginsRoot, readPluginState } from "./store.js";
-
-const CALLBACK_URL = "http://127.0.0.1:4318/plugins/oauth/callback";
-
-interface StoredOAuthSession {
-  version: 1;
-  serverUrl: string;
-  state: string;
-  clientInformation?: OAuthClientInformationMixed;
-  tokens?: OAuthTokens;
-  codeVerifier?: string;
-  discovery?: OAuthDiscoveryState;
-  authorizedWithoutTokens?: boolean;
-  updatedAt: number;
-}
 
 interface PendingAuthorization {
   workspaceId: string;
@@ -47,156 +35,6 @@ function displayName(value: string) {
     .split(/[.-]/g)
     .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
     .join(" ");
-}
-
-function secretName(pluginId: string, serverName: string) {
-  const safe = `${pluginId}-${serverName}`.replace(/[^A-Za-z0-9._-]/g, "_");
-  return `plugin-oauth-${safe}.json`;
-}
-
-async function readSession(
-  workspaceId: string,
-  pluginId: string,
-  serverName: string,
-): Promise<StoredOAuthSession | undefined> {
-  try {
-    const value = await workspaceSecrets.readPrivate(
-      workspaceId,
-      secretName(pluginId, serverName),
-    );
-    if (!value) return undefined;
-    const parsed = JSON.parse(value) as StoredOAuthSession;
-    return parsed;
-  } catch {
-    return undefined;
-  }
-}
-
-async function writeSession(
-  workspaceId: string,
-  pluginId: string,
-  serverName: string,
-  session: StoredOAuthSession,
-) {
-  await workspaceSecrets.storePrivate(
-    workspaceId,
-    secretName(pluginId, serverName),
-    JSON.stringify(session),
-  );
-}
-
-class ChiefOAuthProvider implements OAuthClientProvider {
-  private authorizationUrl?: URL;
-
-  constructor(
-    private readonly workspaceId: string,
-    private readonly pluginId: string,
-    private readonly serverName: string,
-    private session: StoredOAuthSession,
-  ) {}
-
-  get redirectUrl() {
-    return CALLBACK_URL;
-  }
-
-  get clientMetadata(): OAuthClientMetadata {
-    return {
-      client_name: "Chief",
-      client_uri: "https://github.com/latent-supply/chief",
-      redirect_uris: [CALLBACK_URL],
-      grant_types: ["authorization_code", "refresh_token"],
-      response_types: ["code"],
-      token_endpoint_auth_method: "client_secret_post",
-    };
-  }
-
-  state() {
-    return this.session.state;
-  }
-
-  clientInformation() {
-    return this.session.clientInformation;
-  }
-
-  async saveClientInformation(value: OAuthClientInformationMixed) {
-    this.session.clientInformation = value;
-    await this.persist();
-  }
-
-  tokens() {
-    return this.session.tokens;
-  }
-
-  async saveTokens(tokens: OAuthTokens) {
-    this.session.tokens = tokens;
-    await this.persist();
-  }
-
-  redirectToAuthorization(url: URL) {
-    if (url.protocol !== "https:" && url.hostname !== "127.0.0.1") {
-      throw new Error("OAuth authorization URL must use HTTPS.");
-    }
-    this.authorizationUrl = url;
-  }
-
-  async saveCodeVerifier(codeVerifier: string) {
-    this.session.codeVerifier = codeVerifier;
-    await this.persist();
-  }
-
-  codeVerifier() {
-    if (!this.session.codeVerifier)
-      throw new Error("OAuth code verifier is missing.");
-    return this.session.codeVerifier;
-  }
-
-  async saveDiscoveryState(discovery: OAuthDiscoveryState) {
-    this.session.discovery = discovery;
-    await this.persist();
-  }
-
-  discoveryState() {
-    return this.session.discovery;
-  }
-
-  async invalidateCredentials(
-    scope: "all" | "client" | "tokens" | "verifier" | "discovery",
-  ) {
-    if (scope === "all" || scope === "client")
-      delete this.session.clientInformation;
-    if (scope === "all" || scope === "tokens") delete this.session.tokens;
-    if (scope === "all" || scope === "verifier")
-      delete this.session.codeVerifier;
-    if (scope === "all" || scope === "discovery") delete this.session.discovery;
-    await this.persist();
-  }
-
-  takeAuthorizationUrl() {
-    return this.authorizationUrl;
-  }
-
-  private async persist() {
-    this.session.updatedAt = Date.now();
-    await writeSession(
-      this.workspaceId,
-      this.pluginId,
-      this.serverName,
-      this.session,
-    );
-  }
-}
-
-function stateMatches(left: string, right: string) {
-  const a = Buffer.from(left);
-  const b = Buffer.from(right);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
-function accessTokenExpired(session: StoredOAuthSession) {
-  return (
-    typeof session.tokens?.expires_in === "number" &&
-    session.updatedAt + session.tokens.expires_in * 1000 <= Date.now() + 30_000
-  );
 }
 
 function interpolatePluginPath(
@@ -226,55 +64,71 @@ export class PluginOAuthManager {
       }
     }
     const { loaded } = await installedPlugin(workspaceId, pluginId);
-    const remote = loaded.mcpServers.find(
+    const remotes = loaded.mcpServers.filter(
       ({ spec }) => spec.type === "streamable-http" || spec.type === "sse",
     );
-    if (
-      !remote ||
-      (remote.spec.type !== "streamable-http" && remote.spec.type !== "sse")
-    ) {
+    if (remotes.length === 0) {
       throw new Error(
         `${loaded.manifest.name} has no remote MCP server to authorize.`,
       );
     }
-    const state = randomBytes(32).toString("base64url");
-    const existing = await readSession(workspaceId, pluginId, remote.name);
-    const session: StoredOAuthSession = {
-      ...existing,
-      version: 1,
-      serverUrl: remote.spec.url,
-      state,
-      authorizedWithoutTokens: false,
-      updatedAt: Date.now(),
-    };
-    const provider = new ChiefOAuthProvider(
-      workspaceId,
-      pluginId,
-      remote.name,
-      session,
-    );
-    const result = await auth(provider, { serverUrl: remote.spec.url });
-    if (result === "AUTHORIZED") {
-      session.authorizedWithoutTokens = !session.tokens?.access_token;
-      session.updatedAt = Date.now();
-      await writeSession(workspaceId, pluginId, remote.name, session);
-      return { status: "connected" as const, serverName: remote.name };
+    for (const remote of remotes) {
+      if (
+        remote.spec.type !== "streamable-http" &&
+        remote.spec.type !== "sse"
+      ) {
+        continue;
+      }
+      const existing = await readOAuthSession(
+        workspaceId,
+        pluginId,
+        remote.name,
+      );
+      if (oauthSessionConnected(existing)) {
+        continue;
+      }
+      const state = randomBytes(32).toString("base64url");
+      const session: StoredOAuthSession = {
+        ...existing,
+        version: 1,
+        serverUrl: remote.spec.url,
+        state,
+        authorizedWithoutTokens: false,
+        updatedAt: Date.now(),
+      };
+      const provider = new ChiefOAuthProvider(
+        workspaceId,
+        pluginId,
+        remote.name,
+        session,
+      );
+      const result = await auth(provider, { serverUrl: remote.spec.url });
+      if (result === "AUTHORIZED") {
+        session.authorizedWithoutTokens = !session.tokens?.access_token;
+        session.updatedAt = Date.now();
+        await writeOAuthSession(workspaceId, pluginId, remote.name, session);
+        continue;
+      }
+      const authorizationUrl = provider.takeAuthorizationUrl();
+      if (!authorizationUrl)
+        throw new Error("MCP OAuth did not return an authorization URL.");
+      this.pending.set(state, {
+        workspaceId,
+        pluginId,
+        pluginName: displayName(pluginId),
+        serverName: remote.name,
+        serverUrl: remote.spec.url,
+        state,
+      });
+      return {
+        status: "authorization_required" as const,
+        serverName: remote.name,
+        authorizationUrl: authorizationUrl.toString(),
+      };
     }
-    const authorizationUrl = provider.takeAuthorizationUrl();
-    if (!authorizationUrl)
-      throw new Error("MCP OAuth did not return an authorization URL.");
-    this.pending.set(state, {
-      workspaceId,
-      pluginId,
-      pluginName: displayName(pluginId),
-      serverName: remote.name,
-      serverUrl: remote.spec.url,
-      state,
-    });
     return {
-      status: "authorization_required" as const,
-      serverName: remote.name,
-      authorizationUrl: authorizationUrl.toString(),
+      status: "connected" as const,
+      serverName: remotes.at(-1)?.name ?? pluginId,
     };
   }
 
@@ -287,26 +141,27 @@ export class PluginOAuthManager {
     ) {
       return { status: "waiting" as const };
     }
+    const failure = this.failures.get(`${workspaceId}\0${pluginId}`);
+    if (failure) return { status: "failed" as const, error: failure };
     try {
       const { loaded } = await installedPlugin(workspaceId, pluginId);
-      for (const server of loaded.mcpServers) {
-        const session = await readSession(workspaceId, pluginId, server.name);
-        if (session?.authorizedWithoutTokens) {
-          return { status: "connected" as const };
-        }
-        if (!session?.tokens?.access_token) continue;
-        if (accessTokenExpired(session)) {
-          return { status: "reconnect" as const };
-        }
-        return { status: "connected" as const };
+      const remotes = loaded.mcpServers.filter(
+        ({ spec }) => spec.type === "streamable-http" || spec.type === "sse",
+      );
+      if (remotes.length > 0) {
+        const status = oauthConnectionStatus(
+          await Promise.all(
+            remotes.map((server) =>
+              readOAuthSession(workspaceId, pluginId, server.name),
+            ),
+          ),
+        );
+        return { status } as const;
       }
     } catch {
       /* Missing or invalid plugins are not connected. */
     }
-    const failure = this.failures.get(`${workspaceId}\0${pluginId}`);
-    return failure
-      ? { status: "failed" as const, error: failure }
-      : { status: "authorization_required" as const };
+    return { status: "authorization_required" as const };
   }
 
   async disconnect(workspaceId: string, pluginId: string) {
@@ -315,10 +170,7 @@ export class PluginOAuthManager {
       const { loaded } = await installedPlugin(workspaceId, pluginId);
       await Promise.all(
         loaded.mcpServers.map(({ name }) =>
-          workspaceSecrets.deletePrivate(
-            workspaceId,
-            secretName(pluginId, name),
-          ),
+          deleteOAuthSession(workspaceId, pluginId, name),
         ),
       );
     } catch {
@@ -372,7 +224,11 @@ export class PluginOAuthManager {
             });
             continue;
           }
-          const session = await readSession(workspaceId, installation.id, name);
+          const session = await readOAuthSession(
+            workspaceId,
+            installation.id,
+            name,
+          );
           if (session && accessTokenExpired(session)) continue;
           if (
             !session?.tokens?.access_token &&
@@ -400,14 +256,14 @@ export class PluginOAuthManager {
   }
 
   async handleCallback(req: IncomingMessage, res: ServerResponse) {
-    const url = new URL(req.url ?? "/", CALLBACK_URL);
+    const url = new URL(req.url ?? "/", PLUGIN_OAUTH_CALLBACK_URL);
     if (req.method !== "GET" || url.pathname !== "/plugins/oauth/callback")
       return false;
     const state = url.searchParams.get("state") ?? "";
     const pending = this.pending.get(state);
     const code = url.searchParams.get("code");
     const providerError = url.searchParams.get("error");
-    if (!pending || !stateMatches(state, pending.state)) {
+    if (!pending || !oauthStateMatches(state, pending.state)) {
       res.writeHead(400, {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
@@ -428,12 +284,12 @@ export class PluginOAuthManager {
         );
       if (!code)
         throw new Error("The provider did not return an authorization code.");
-      const session = await readSession(
+      const session = await readOAuthSession(
         pending.workspaceId,
         pending.pluginId,
         pending.serverName,
       );
-      if (!session || !stateMatches(session.state, state)) {
+      if (!session || !oauthStateMatches(session.state, state)) {
         throw new Error("The saved authorization request no longer matches.");
       }
       const provider = new ChiefOAuthProvider(
@@ -450,6 +306,15 @@ export class PluginOAuthManager {
         throw new Error("The provider did not complete authorization.");
       this.pending.delete(state);
       this.failures.delete(`${pending.workspaceId}\0${pending.pluginId}`);
+      const next = await this.start(pending.workspaceId, pending.pluginId);
+      if (next.status === "authorization_required") {
+        res.writeHead(302, {
+          location: next.authorizationUrl,
+          "cache-control": "no-store",
+        });
+        res.end();
+        return true;
+      }
       this.onConnected?.(pending.workspaceId);
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",

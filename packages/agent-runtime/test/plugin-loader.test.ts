@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { normalizeLegacyPackage } from "../src/plugins/catalog";
 import { loadAgentPlugin } from "../src/plugins/loader";
 
 const MANIFEST_SCHEMA =
@@ -26,6 +27,69 @@ async function writeSkill(root: string, name: string) {
     `---\nname: ${name}\ndescription: Use this skill for ${name} work.\n---\n\n# ${name}\n`,
   );
 }
+
+void test("adapts supported multi-client plugins at the legacy boundary", async () => {
+  const root = await mkdtemp(join(tmpdir(), "chief-legacy-plugin-"));
+  await mkdir(join(root, ".plugin"), { recursive: true });
+  await writeFile(
+    join(root, ".plugin", "plugin.json"),
+    JSON.stringify({
+      name: "vercel-plugin",
+      description: "Vercel tools and guidance.",
+    }),
+  );
+  await writeFile(
+    join(root, ".mcp.json"),
+    JSON.stringify({
+      mcpServers: {
+        vercel: {
+          type: "http",
+          url: "https://mcp.vercel.com",
+          note: "Client-only connection guidance.",
+        },
+      },
+    }),
+  );
+  await mkdir(join(root, "skills", "deploy"), { recursive: true });
+  await writeFile(
+    join(root, "skills", "deploy", "SKILL.md"),
+    [
+      "---",
+      "name: deploy",
+      "description: Deploy an application to Vercel.",
+      "summary: Client-only summary.",
+      "metadata:",
+      "  priority: 8",
+      "  docs:",
+      "    - https://vercel.com/docs",
+      "---",
+      "",
+      "Deploy safely.",
+      "",
+    ].join("\n"),
+  );
+
+  await normalizeLegacyPackage(root, "vercel");
+  const loaded = await loadAgentPlugin(root);
+
+  assert.deepEqual(
+    loaded.skills.map((skill) => skill.name),
+    ["deploy"],
+  );
+  assert.deepEqual(
+    loaded.mcpServers.map(({ name, spec }) => ({ name, spec })),
+    [
+      {
+        name: "vercel",
+        spec: {
+          type: "streamable-http",
+          url: "https://mcp.vercel.com",
+        },
+      },
+    ],
+  );
+  assert.deepEqual(loaded.diagnostics, []);
+});
 
 void test("loads immediate portable skills and isolates invalid MCP siblings", async () => {
   const root = await packageRoot();

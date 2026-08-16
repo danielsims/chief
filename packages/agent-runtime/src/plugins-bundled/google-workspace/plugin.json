@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "google-workspace",
+  "version": "1.0.0",
+  "description": "Connect Gmail and Google Drive through Google's remote MCP services.",
+  "homepage": "https://workspace.google.com/",
+  "keywords": ["google-workspace", "gmail", "google-drive", "email", "files"]
+}
