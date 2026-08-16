@@ -109,6 +109,7 @@ export function ChiefChat({
     childSessions,
     cloudOrganizationId,
     controls,
+    dismissError,
     currentUser,
     interrupt,
     knownAgentIds,
@@ -218,10 +219,13 @@ export function ChiefChat({
   );
   return (
     <>
-      {controls.error ? (
+      {controls.error && !controls.errorAcknowledged ? (
         <ChatErrorStatus
           key={controls.error}
-          onOpen={() => setActivityOpen(true)}
+          onOpen={() => {
+            dismissError();
+            setActivityOpen(true);
+          }}
         />
       ) : null}
       <div className="relative flex h-full min-w-0 overflow-hidden">

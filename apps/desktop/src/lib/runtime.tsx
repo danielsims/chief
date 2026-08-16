@@ -18,7 +18,6 @@ import { toast } from "sonner";
 import type {
   AgentDefinition,
   AgentEvent,
-  AgentQuestion,
   BrowserRunRecord,
   CampaignRecord,
   ChatExecutionSelection,
@@ -46,6 +45,7 @@ import type {
   RuntimeBrowserSessions,
 } from "./browser-sessions";
 import type { ChannelReactionSummary } from "./channel-reactions";
+import type { ChatControlState } from "./runtime-chat-controls";
 import type { ScopedWorkspaceCapability } from "./workspace-capability";
 import type { WorkspaceChatSummary } from "./workspace-conversation-cache";
 import type { WorkspaceDataState } from "./workspace-data";
@@ -83,11 +83,15 @@ import {
 /** Durable NIP-29 events for channel timelines and message search. */
 import { useChannelEvents } from "./runtime-channels";
 import {
+  emptyChatControls,
+  reduceChatControls,
+  replayChatControls,
+} from "./runtime-chat-controls";
+import {
   deduplicateDocumentParts,
   mergeRuntimeHistory,
   mergeRuntimeMessage,
   projectConversationMessages,
-  visibleRuntimeError,
 } from "./runtime-messages";
 import { useManualMissionHeartbeat } from "./runtime-mission-heartbeat";
 import { useRecurringWorkSettings } from "./runtime-recurring-work";
@@ -1717,149 +1721,11 @@ export {
   useWorkspaceEnvironmentVariables,
 } from "./runtime-settings";
 
-// ---- Chat state ----
-
-export interface PendingApproval {
-  requestId: string;
-  toolName: string;
-  input: unknown;
-  threadRootId?: string;
-}
-
-export interface PendingQuestion {
-  requestId: string;
-  questions: AgentQuestion[];
-}
-
-export interface ChatControlState {
-  status: "idle" | "running";
-  /** True after the runtime has emitted real output for the current turn. */
-  hasAgentOutput: boolean;
-  /** Tool calls waiting on the user's allow/deny decision. */
-  approvals: PendingApproval[];
-  /** Agent questions waiting on the user's answers. */
-  questions: PendingQuestion[];
-  toolProgress: Record<string, string>;
-  lastCostUsd?: number;
-  error?: string;
-}
-
-const emptyChatControls: ChatControlState = {
-  status: "idle",
-  hasAgentOutput: false,
-  approvals: [],
-  questions: [],
-  toolProgress: {},
-};
-
-/** Runtime events carry process state and interactions; durable content lives
- * exclusively in the AI SDK message array. */
-function reduceChatControls(
-  controls: ChatControlState,
-  event: AgentEvent,
-): ChatControlState {
-  switch (event.type) {
-    case "stream":
-      return { ...controls, status: "running", hasAgentOutput: true };
-    case "message":
-      return {
-        ...controls,
-        status: event.role === "user" ? "running" : controls.status,
-        hasAgentOutput: event.role !== "user",
-        error: event.role === "user" ? undefined : controls.error,
-      };
-    case "toolProgress": {
-      const current = controls.toolProgress[event.toolUseId] ?? "";
-      return {
-        ...controls,
-        hasAgentOutput: true,
-        toolProgress: {
-          ...controls.toolProgress,
-          [event.toolUseId]: `${current}${event.text}`.slice(-8_000),
-        },
-      };
-    }
-    case "permission":
-      return {
-        ...controls,
-        hasAgentOutput: true,
-        approvals: controls.approvals.some(
-          (approval) => approval.requestId === event.requestId,
-        )
-          ? controls.approvals
-          : [
-              ...controls.approvals,
-              {
-                requestId: event.requestId,
-                toolName: event.toolName,
-                input: event.input,
-                threadRootId: event.threadRootId,
-              },
-            ],
-      };
-    case "permissionResolved":
-      return {
-        ...controls,
-        approvals: controls.approvals.filter(
-          (approval) => approval.requestId !== event.requestId,
-        ),
-      };
-    case "question":
-      return {
-        ...controls,
-        hasAgentOutput: true,
-        questions: controls.questions.some(
-          (question) => question.requestId === event.requestId,
-        )
-          ? controls.questions
-          : [
-              ...controls.questions,
-              { requestId: event.requestId, questions: event.questions },
-            ],
-      };
-    case "questionResolved":
-      return {
-        ...controls,
-        questions: controls.questions.filter(
-          (question) => question.requestId !== event.requestId,
-        ),
-      };
-    case "result":
-      return {
-        ...controls,
-        status: "idle",
-        approvals: [],
-        questions: [],
-        lastCostUsd: event.costUsd ?? controls.lastCostUsd,
-        error: event.ok ? undefined : visibleRuntimeError(event.error),
-      };
-    case "status":
-      return {
-        ...controls,
-        status: event.status === "running" ? "running" : "idle",
-        error: event.status === "running" ? undefined : controls.error,
-      };
-    case "error":
-      return {
-        ...controls,
-        error: visibleRuntimeError(event.message),
-        status: "idle",
-      };
-    case "exit":
-      return {
-        ...controls,
-        status: "idle",
-        error:
-          event.code && event.code !== 0
-            ? visibleRuntimeError(
-                `Agent process exited with code ${event.code}.`,
-              )
-            : controls.error,
-      };
-    default:
-      return controls;
-  }
-}
+export type {
+  ChatControlState,
+  PendingApproval,
+  PendingQuestion,
+} from "./runtime-chat-controls";
 
 export function messageBlocks(message: ChiefUIMessage): ContentBlock[] {
   return message.parts.flatMap((part): ContentBlock[] => {
@@ -2065,6 +1931,9 @@ function useRuntimeChat(
       ...current,
       status: "idle",
       error: capabilityError,
+      // Connection/capability failures have their own runtime status UI. Keep
+      // the diagnostic in Activity without recreating a chat error alert.
+      errorAcknowledged: true,
     }));
   }, [capabilityError]);
 
@@ -2131,6 +2000,7 @@ function useRuntimeChat(
         setControls((current) => ({
           ...current,
           error: msg.message,
+          errorAcknowledged: false,
           status: "idle",
         }));
         return;
@@ -2158,14 +2028,7 @@ function useRuntimeChat(
           loadedHistoryKeyRef.current = chatKey;
           setMessages(incoming);
         }
-        const replayedControls = msg.events.reduce(
-          reduceChatControls,
-          emptyChatControls,
-        );
-        setControls({
-          ...replayedControls,
-          status: msg.running ? "running" : "idle",
-        });
+        setControls(replayChatControls(msg.events, msg.running));
         setChatReady(true);
         return;
       }
@@ -2420,10 +2283,17 @@ function useRuntimeChat(
     surface: conversationSurface,
     workspaceId: cloudOrganizationId,
   });
+  const dismissError = useCallback(() => {
+    setControls((current) => {
+      if (!current.error) return current;
+      return { ...current, errorAcknowledged: true };
+    });
+  }, []);
 
   return {
     messages: visibleMessages,
     controls,
+    dismissError,
     sendMessage,
     sendMessageWithContext,
     interrupt,
