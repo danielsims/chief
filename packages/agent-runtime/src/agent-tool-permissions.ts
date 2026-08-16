@@ -14,7 +14,13 @@ export interface AgentToolPermissionDefinition {
   id: AgentToolPermission;
   label: string;
   description: string;
-  group: "Workspace" | "Channels" | "Messages" | "Scheduled work" | "Advanced";
+  group:
+    | "Workspace"
+    | "Projects"
+    | "Channels"
+    | "Messages"
+    | "Scheduled work"
+    | "Advanced";
 }
 
 export const agentToolPermissionDefinitions: readonly AgentToolPermissionDefinition[] =
@@ -30,6 +36,18 @@ export const agentToolPermissionDefinitions: readonly AgentToolPermissionDefinit
       label: "Save workspace data",
       description: "Create or update files, research and content.",
       group: "Workspace",
+    },
+    {
+      id: "projects.read",
+      label: "Inspect projects",
+      description: "Read repository status, branches, commits and checkouts.",
+      group: "Projects",
+    },
+    {
+      id: "projects.write",
+      label: "Work in projects",
+      description: "Create isolated checkouts and commit agent changes.",
+      group: "Projects",
     },
     {
       id: "channels.read",
@@ -197,6 +215,16 @@ for (const [permission, names] of Object.entries({
     "brandProfileSave",
     "recurringWorkPropose",
   ],
+  "projects.read": [
+    "projectsList",
+    "projectsInspect",
+    "projectsCheckoutStatus",
+  ],
+  "projects.write": [
+    "projectsCreateCheckout",
+    "projectsCommit",
+    "projectsReleaseCheckout",
+  ],
   "browser.use": [
     "browserOpen",
     "browserSnapshot",
@@ -311,6 +339,16 @@ const exactLocalToolPermissions = new Map<string, AgentToolPermission>([
     "/local-tools/recurring-work",
     "/local-tools/action",
   ].map((path) => [`POST ${path}`, "workspace.write"] as const),
+  ["GET /local-tools/projects", "projects.read"],
+  ...[
+    "/local-tools/projects/inspect",
+    "/local-tools/projects/checkouts/status",
+  ].map((path) => [`POST ${path}`, "projects.read"] as const),
+  ...[
+    "/local-tools/projects/checkouts",
+    "/local-tools/projects/checkouts/commit",
+    "/local-tools/projects/checkouts/release",
+  ].map((path) => [`POST ${path}`, "projects.write"] as const),
   ...[
     "open",
     "close",

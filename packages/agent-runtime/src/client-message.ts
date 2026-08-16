@@ -23,6 +23,47 @@ import type {
 
 export type ClientMessage =
   | { type: "listAgents" }
+  | {
+      type: "listProjects";
+      workspaceId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "attachProject";
+      workspaceId: string;
+      requestId: string;
+      path: string;
+      name?: string;
+      description?: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "cloneProject";
+      workspaceId: string;
+      requestId: string;
+      remoteUrl: string;
+      name?: string;
+      description?: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "browseProject";
+      workspaceId: string;
+      requestId: string;
+      projectId: string;
+      ref?: string;
+      path?: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "inspectProjectCommit";
+      workspaceId: string;
+      requestId: string;
+      projectId: string;
+      ref?: string;
+      commit: string;
+      executorCapability: ExecutorCapability;
+    }
   | ChannelClientMessage
   | Artifacts.ListArtifactsMessage
   | {
