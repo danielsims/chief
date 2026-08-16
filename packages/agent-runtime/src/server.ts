@@ -97,7 +97,7 @@ import { OnboardingMessagePacer } from "./onboarding-message-pacing.js";
 import { authorizeOrganizationRole } from "./organization-authorization.js";
 import { PluginRuntime } from "./plugins/runtime.js";
 import { handleProjectClientMessage } from "./projects/client-messages.js";
-import { ProjectGitService } from "./projects/git-service.js";
+import { createProjectServices } from "./projects/services.js";
 import { ProviderAuthentication } from "./provider-authentication.js";
 import {
   rotateRecurringWorkWebhook,
@@ -168,11 +168,7 @@ const PORT = Number(process.env.CHIEF_RUNTIME_PORT ?? 4318);
 export function startServer(port = PORT) {
   const localToolCapabilities = new AgentSessionCapabilityRegistry();
   const manager = new SessionManager();
-  const projectStore = manager.store.projectStore();
-  const projects = new ProjectGitService({
-    catalog: projectStore,
-    runtime: projectStore,
-  });
+  const projects = createProjectServices(manager.store.projectStore());
   const localCapabilities = new Map<
     string,
     { apiBaseUrl: string; verifiedAt: number; workspaceId: string }
@@ -2163,10 +2159,11 @@ export function startServer(port = PORT) {
     sendWorkspace(workspaceId, message);
   };
   broadcastProjects = async (workspaceId) => {
+    const operator = await projects.operatorPrincipal(workspaceId);
     const message = JSON.stringify({
       type: "projects",
       workspaceId,
-      projects: await projects.list(workspaceId),
+      projects: await projects.list(workspaceId, operator),
     } satisfies ServerMessage);
     sendWorkspace(workspaceId, message);
   };

@@ -12,6 +12,7 @@ import type {
   ProjectRepositoryBindingRecord,
   ProjectRepositorySnapshot,
 } from "../types.js";
+import { redactUrlCredentials } from "./credential-broker.js";
 import { projectIconDataUrl } from "./project-icon.js";
 
 const executeFile = promisify(execFile);
@@ -90,10 +91,10 @@ function gitError(error: unknown) {
     stdout?: string;
     message?: string;
   };
-  return (
+  return redactUrlCredentials(
     [record.stderr?.trim(), record.stdout?.trim(), record.message].find(
       (value) => Boolean(value),
-    ) ?? "Git could not complete the operation."
+    ) ?? "Git could not complete the operation.",
   );
 }
 

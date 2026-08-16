@@ -74,7 +74,7 @@ import {
   uiEventMessages,
   userTexts,
 } from "./local-store-messages.js";
-import { ProjectStore } from "./projects/store.js";
+import { ProjectSqliteStores } from "./projects/sqlite-store.js";
 import { TRANSIENT_RETRY_DELAY_MS } from "./retry-policy.js";
 import { hasPotentialSideEffects } from "./run-safety.js";
 
@@ -290,7 +290,7 @@ export class LocalStore {
   private db: LibSQLDatabase;
   private readonly ready: Promise<void>;
   private channelStoreInstance: ChannelStore | undefined;
-  private projectStoreInstance: ProjectStore | undefined;
+  private projectStoreInstance: ProjectSqliteStores | undefined;
 
   constructor(path = defaultDatabasePath()) {
     const directory = dirname(path);
@@ -514,7 +514,10 @@ export class LocalStore {
   channelStore = () =>
     (this.channelStoreInstance ??= new ChannelStore(() => this.db, this.ready));
   projectStore = () =>
-    (this.projectStoreInstance ??= new ProjectStore(() => this.db, this.ready));
+    (this.projectStoreInstance ??= new ProjectSqliteStores(
+      () => this.db,
+      this.ready,
+    ));
   async hasChat(chatId: string) {
     await this.ready;
     return Boolean(

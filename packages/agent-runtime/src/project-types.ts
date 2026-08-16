@@ -34,6 +34,123 @@ export interface ProjectRepositoryBindingRecord {
 export type ProjectCheckoutStrategy = "worktree" | "clone";
 export type ProjectCheckoutStatus = "active" | "released";
 
+/** A workspace-owned Git project. Repository paths live on runtime bindings. */
+export type ProjectPrincipalType = "user" | "agent" | "role";
+
+/** The principal performing a project operation. */
+export interface ProjectPrincipal {
+  type: ProjectPrincipalType;
+  id: string;
+}
+
+export type ProjectCapability =
+  "view" | "checkout" | "commit" | "publish" | "review" | "administer";
+
+export const projectCapabilityLevels = [
+  "view",
+  "checkout",
+  "commit",
+  "publish",
+  "review",
+  "administer",
+] as const satisfies readonly ProjectCapability[];
+
+/** Optional branch, environment, or expiry constraints on a project grant. */
+export interface ProjectGrantConstraint {
+  branches?: string[];
+  expiresAt?: number;
+}
+
+/** One explicit project capability grant. */
+export interface ProjectGrantRecord {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  principalType: ProjectPrincipalType;
+  principalId: string;
+  capability: ProjectCapability;
+  constraintJson?: ProjectGrantConstraint;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type ProviderConnectionStatus =
+  "active" | "expired" | "revoked" | "error";
+
+/** A workspace authorization to a hosted provider. Holds references, not secrets. */
+export interface ProviderConnectionRecord {
+  id: string;
+  organizationId: string;
+  providerId: "github" | "gitlab" | "bitbucket";
+  installationId?: string;
+  accountLabel?: string;
+  secretReference?: string;
+  status: ProviderConnectionStatus;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Links one project to one provider connection and repository identifier. */
+export interface ProjectProviderLinkRecord {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  connectionId: string;
+  providerRepositoryId: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type ProjectOperationType =
+  | "attach"
+  | "clone"
+  | "list"
+  | "inspect"
+  | "browse"
+  | "inspect_commit"
+  | "checkout"
+  | "commit"
+  | "release"
+  | "remove"
+  | "grant"
+  | "denied";
+
+export type ProjectOperationResult = "success" | "denied" | "failed";
+
+/** Immutable, sanitized audit record. Never contains file contents or credentials. */
+export interface ProjectOperationRecord {
+  id: string;
+  organizationId: string;
+  projectId?: string;
+  principalType?: ProjectPrincipalType;
+  principalId?: string;
+  agentId?: string;
+  checkoutId?: string;
+  branch?: string;
+  operation: ProjectOperationType;
+  result: ProjectOperationResult;
+  commitHash?: string;
+  correlationId?: string;
+  message?: string;
+  createdAt: number;
+}
+
+/** A short-lived credential scoped to one trusted operation. */
+export interface ShortLivedCredential {
+  username: string;
+  password: string;
+  expiresAt?: number;
+}
+
+/** What a credential broker is asked to provide for one Git operation. */
+export interface CredentialRequest {
+  organizationId: string;
+  projectId: string;
+  remoteUrl: string;
+  operation: "fetch" | "push";
+  scopes?: string[];
+}
+
 /** A runtime-owned isolated checkout, represented by a worktree or clone. */
 export interface ProjectCheckoutRecord {
   id: string;

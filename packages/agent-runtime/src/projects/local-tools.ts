@@ -1,3 +1,4 @@
+import type { ProjectPrincipal } from "../types.js";
 import type { ProjectGitService } from "./git-service.js";
 
 function requiredString(input: unknown, name: string, maximum = 240) {
@@ -19,6 +20,10 @@ export interface ProjectLocalToolContext {
   agentId: string;
   conversationId?: string;
   onProjectsChanged?: () => void | Promise<void>;
+}
+
+function agentPrincipal(context: ProjectLocalToolContext): ProjectPrincipal {
+  return { type: "agent", id: context.agentId };
 }
 
 export function projectOpenApiPaths(
@@ -134,12 +139,18 @@ export async function handleProjectLocalTool(
   if (request.method === "GET" && path === "/local-tools/projects") {
     return {
       handled: true,
-      value: { projects: await context.service.list(context.organizationId) },
+      value: {
+        projects: await context.service.list(
+          context.organizationId,
+          agentPrincipal(context),
+        ),
+      },
     };
   }
   if (request.method !== "POST")
     throw new Error("Unsupported project operation.");
   const organizationId = context.organizationId;
+  const principal = agentPrincipal(context);
 
   if (path === "/local-tools/projects/inspect") {
     return {
@@ -147,47 +158,54 @@ export async function handleProjectLocalTool(
       value: await context.service.inspect(
         organizationId,
         requiredString(body.projectId, "projectId", 160),
+        principal,
       ),
     };
   }
   if (path === "/local-tools/projects/checkouts") {
     const baseRef = optionalString(body.baseRef);
     const branch = optionalString(body.branch);
-    const checkout = await context.service.createCheckout({
-      organizationId,
-      projectId: requiredString(body.projectId, "projectId", 160),
-      agentId: context.agentId,
-      ...(context.conversationId ? { sessionId: context.conversationId } : {}),
-      ...(baseRef ? { baseRef } : {}),
-      ...(branch ? { branch } : {}),
-    });
+    const checkout = await context.service.checkouts.createCheckout(
+      {
+        organizationId,
+        projectId: requiredString(body.projectId, "projectId", 160),
+        agentId: context.agentId,
+        ...(context.conversationId
+          ? { sessionId: context.conversationId }
+          : {}),
+        ...(baseRef ? { baseRef } : {}),
+        ...(branch ? { branch } : {}),
+      },
+      principal,
+    );
     await context.onProjectsChanged?.();
     return { handled: true, value: checkout };
   }
   if (path === "/local-tools/projects/checkouts/status") {
     return {
       handled: true,
-      value: await context.service.checkoutStatus(
+      value: await context.service.checkouts.checkoutStatus(
         organizationId,
         requiredString(body.checkoutId, "checkoutId", 160),
+        principal,
       ),
     };
   }
   if (path === "/local-tools/projects/checkouts/commit") {
-    const result = await context.service.commit(
+    const result = await context.service.checkouts.commit(
       organizationId,
       requiredString(body.checkoutId, "checkoutId", 160),
       requiredString(body.message, "message", 240),
-      context.agentId,
+      principal,
     );
     await context.onProjectsChanged?.();
     return { handled: true, value: result };
   }
   if (path === "/local-tools/projects/checkouts/release") {
-    const result = await context.service.releaseCheckout(
+    const result = await context.service.checkouts.releaseCheckout(
       organizationId,
       requiredString(body.checkoutId, "checkoutId", 160),
-      context.agentId,
+      principal,
     );
     await context.onProjectsChanged?.();
     return { handled: true, value: result };

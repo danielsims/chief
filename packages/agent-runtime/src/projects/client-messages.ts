@@ -41,11 +41,12 @@ export async function handleProjectClientMessage(
   if (!isProjectClientMessage(message)) return false;
   const { service, send } = input;
   await input.authorize(message.workspaceId, message.executorCapability);
+  const principal = await service.operatorPrincipal(message.workspaceId);
   if (message.type === "listProjects") {
     send({
       type: "projects",
       workspaceId: message.workspaceId,
-      projects: await service.list(message.workspaceId),
+      projects: await service.list(message.workspaceId, principal),
     });
     return true;
   }
@@ -57,6 +58,7 @@ export async function handleProjectClientMessage(
       browser: await service.browse(
         message.workspaceId,
         message.projectId,
+        principal,
         message.ref,
         message.path,
       ),
@@ -71,6 +73,7 @@ export async function handleProjectClientMessage(
       detail: await service.inspectCommit(
         message.workspaceId,
         message.projectId,
+        principal,
         message.ref,
         message.commit,
       ),
@@ -79,11 +82,11 @@ export async function handleProjectClientMessage(
   }
   const project =
     message.type === "attachProject"
-      ? await service.attach(message.workspaceId, message.path, {
+      ? await service.attach(message.workspaceId, message.path, principal, {
           ...(message.name ? { name: message.name } : {}),
           ...(message.description ? { description: message.description } : {}),
         })
-      : await service.clone(message.workspaceId, message.remoteUrl, {
+      : await service.clone(message.workspaceId, message.remoteUrl, principal, {
           ...(message.name ? { name: message.name } : {}),
           ...(message.description ? { description: message.description } : {}),
         });
