@@ -296,18 +296,23 @@ export function ConversationsPage() {
     });
   };
   const setActivityPanel = (open: boolean) => {
-    setParams((current) => {
-      const next = new URLSearchParams(current);
-      if (open) {
-        next.delete("thread");
-        next.delete("child");
-        next.delete("profile");
-        next.set("activity", "1");
-      } else {
-        next.delete("activity");
-      }
-      return next;
-    });
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (open) {
+          next.delete("thread");
+          next.delete("child");
+          next.delete("profile");
+          next.set("activity", "1");
+        } else {
+          next.delete("activity");
+        }
+        return next;
+      },
+      // Keep the explicit navigation identity while swapping internal panels.
+      // Dropping it changes ChiefChat's key and replays the whole conversation.
+      { state: location.state as unknown },
+    );
   };
   const continueArtifact = (artifact: { id: string; title: string }) => {
     startTransition(() =>
