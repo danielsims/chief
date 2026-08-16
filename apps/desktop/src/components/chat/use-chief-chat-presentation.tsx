@@ -49,7 +49,7 @@ export function useChiefChatPresentation({
   core: Core;
   timeline: Timeline;
 }) {
-  const { channelReactions, controls, messages, userAuthor } = core;
+  const { channelReactions, messages, userAuthor } = core;
   const { setThreadRootId, threadRootId } = composer;
   const { activeSpecialistByThread, activeThreadReplies, threadReplies } =
     timeline;
@@ -220,27 +220,6 @@ export function useChiefChatPresentation({
       ),
     };
   };
-  const acknowledgedDmMessageId = useMemo(() => {
-    if (channel || controls.status !== "running") return undefined;
-    let userIndex = messages.length - 1;
-    while (
-      userIndex >= 0 &&
-      (messages[userIndex]?.role !== "user" ||
-        messages[userIndex]?.metadata?.threadRootId)
-    ) {
-      userIndex -= 1;
-    }
-    if (userIndex < 0) return undefined;
-    const visibleReplyStarted = messages
-      .slice(userIndex + 1)
-      .some(
-        (message) =>
-          message.role === "assistant" &&
-          !message.metadata?.threadRootId &&
-          visibleConversationBlocks(message).length > 0,
-      );
-    return visibleReplyStarted ? undefined : messages[userIndex]?.id;
-  }, [channel, controls.status, messages, visibleConversationBlocks]);
   const imageParts = (message: ChiefUIMessage): MessageAttachment[] =>
     messageBlocks(message).flatMap((block) =>
       block.type === "image"
@@ -256,7 +235,6 @@ export function useChiefChatPresentation({
   const activeThreadSummary = summarizeThreadReplies(activeThreadReplies);
 
   return {
-    acknowledgedDmMessageId,
     conversationActions,
     threadActions,
     activeThreadSummary,
