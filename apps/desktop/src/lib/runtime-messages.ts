@@ -1,4 +1,8 @@
-import type { ChannelEvent, ChiefUIMessage } from "@chief/agent-runtime/types";
+import type {
+  AgentPluginSummary,
+  ChannelEvent,
+  ChiefUIMessage,
+} from "@chief/agent-runtime/types";
 
 import { channelActionFromEvent } from "./channel-actions";
 import {
@@ -42,6 +46,58 @@ function settledParts(message: ChiefUIMessage) {
     const { state: _state, ...settled } = part;
     return settled;
   });
+}
+
+function isPluginSummary(value: unknown): value is AgentPluginSummary {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const plugin = value as Partial<AgentPluginSummary>;
+  return Boolean(
+    typeof plugin.id === "string" &&
+    typeof plugin.name === "string" &&
+    typeof plugin.description === "string" &&
+    typeof plugin.category === "string" &&
+    typeof plugin.status === "string" &&
+    typeof plugin.enabled === "boolean" &&
+    typeof plugin.trusted === "boolean" &&
+    plugin.source &&
+    typeof plugin.source === "object",
+  );
+}
+
+function channelEventParts(event: ChannelEvent): ChiefUIMessage["parts"] {
+  if (event.kind !== 9 || !Array.isArray(event.parts)) return [];
+  return event.parts.flatMap((part) => {
+    if (!part || typeof part !== "object" || Array.isArray(part)) return [];
+    const candidate = part as {
+      type?: unknown;
+      data?: { plugins?: unknown };
+    };
+    if (
+      candidate.type !== "data-plugin-recommendations" ||
+      !Array.isArray(candidate.data?.plugins)
+    ) {
+      return [];
+    }
+    const plugins = candidate.data.plugins.filter(isPluginSummary).slice(0, 8);
+    return plugins.length > 0
+      ? [{ type: "data-plugin-recommendations", data: { plugins } } as const]
+      : [];
+  });
+}
+
+function withChannelEventParts(
+  message: ChiefUIMessage,
+  parts: ChiefUIMessage["parts"],
+) {
+  if (parts.length === 0) return message;
+  const eventTypes = new Set(parts.map((part) => part.type));
+  return {
+    ...message,
+    parts: [
+      ...message.parts.filter((part) => !eventTypes.has(part.type)),
+      ...parts,
+    ],
+  };
 }
 
 function withText(message: ChiefUIMessage, text: string): ChiefUIMessage {
@@ -201,7 +257,9 @@ export function projectChannelTimeline(
   const canonical: ChiefUIMessage[] = [];
 
   for (const event of events) {
-    if (event.kind !== 9 || !event.content.trim()) continue;
+    if (event.kind !== 9) continue;
+    const eventParts = channelEventParts(event);
+    if (!event.content.trim() && eventParts.length === 0) continue;
     const id = channelEventSourceId(event) ?? event.id;
     if (id.endsWith("-welcome") || seenIds.has(id)) continue;
     const direct = directById.get(id);
@@ -216,28 +274,37 @@ export function projectChannelTimeline(
       Boolean(threadRootId && threadRootId !== direct.metadata?.threadRootId) ||
       Boolean(channelAction && !direct.metadata?.channelAction) ||
       Boolean(agentId && agentId !== direct.metadata?.agentId) ||
+      eventParts.length > 0 ||
       direct.metadata?.createdAt !== event.createdAt;
     canonical.push(
       !needsEnrichment
         ? direct
         : direct
-          ? {
-              ...direct,
-              metadata: {
-                ...direct.metadata,
-                // Publication is the moment a private runtime message becomes
-                // visible in the channel. A delayed schedule must not sort a
-                // newly published message back at its planned run time.
-                createdAt: event.createdAt,
-                ...(agentId ? { agentId } : {}),
-                ...(threadRootId ? { threadRootId } : {}),
-                ...(channelAction ? { channelAction } : {}),
+          ? withChannelEventParts(
+              {
+                ...direct,
+                metadata: {
+                  ...direct.metadata,
+                  // Publication is the moment a private runtime message becomes
+                  // visible in the channel. A delayed schedule must not sort a
+                  // newly published message back at its planned run time.
+                  createdAt: event.createdAt,
+                  ...(agentId ? { agentId } : {}),
+                  ...(threadRootId ? { threadRootId } : {}),
+                  ...(channelAction ? { channelAction } : {}),
+                },
               },
-            }
+              eventParts,
+            )
           : {
               id,
               role: event.actor.type === "user" ? "user" : "assistant",
-              parts: [{ type: "text", text: event.content }],
+              parts: [
+                ...(event.content.trim()
+                  ? [{ type: "text" as const, text: event.content }]
+                  : []),
+                ...eventParts,
+              ],
               metadata: {
                 createdAt: event.createdAt,
                 ...(agentId ? { agentId } : {}),
@@ -249,17 +316,62 @@ export function projectChannelTimeline(
     seenIds.add(id);
   }
 
-  for (const message of messages) {
-    if (seenIds.has(message.id)) continue;
-    const visible = channelActivityOnlyMessage(message);
-    if (visible) canonical.push(visible);
-  }
-  return dropReplayedMessages(
-    canonical.sort(
-      (left, right) =>
-        (left.metadata?.createdAt ?? 0) - (right.metadata?.createdAt ?? 0),
-    ),
+  const runtimeActivity = dropReplayedMessages(
+    messages.flatMap((message) => {
+      if (seenIds.has(message.id)) return [];
+      const visible = channelActivityOnlyMessage(message);
+      return visible ? [visible] : [];
+    }),
   );
+  return [...canonical, ...runtimeActivity].sort(
+    (left, right) =>
+      (left.metadata?.createdAt ?? 0) - (right.metadata?.createdAt ?? 0),
+  );
+}
+
+/**
+ * Project one runtime transcript for its user-facing surface. Direct messages
+ * may still carry a relay channel id for routing, but their authored assistant
+ * text is private transcript content and must not wait for channel publication.
+ */
+export function projectConversationMessages(
+  messages: ChiefUIMessage[],
+  events: ChannelEvent[],
+  surface: "direct" | "channel",
+) {
+  return surface === "channel"
+    ? projectChannelTimeline(messages, events)
+    : projectDirectConversation(messages, events);
+}
+
+function projectDirectConversation(
+  messages: ChiefUIMessage[],
+  events: ChannelEvent[],
+) {
+  const publishedParts = events.flatMap((event) => {
+    const parts = channelEventParts(event);
+    if (event.kind !== 9 || parts.length === 0) return [];
+    const id = channelEventSourceId(event) ?? event.id;
+    const threadRootId = channelEventThreadRootId(event) ?? undefined;
+    return [
+      {
+        id,
+        role: event.actor.type === "user" ? "user" : "assistant",
+        parts: [
+          ...(event.content.trim()
+            ? [{ type: "text" as const, text: event.content }]
+            : []),
+          ...parts,
+        ],
+        metadata: {
+          createdAt: event.createdAt,
+          ...(event.actor.type === "agent" ? { agentId: event.actor.id } : {}),
+          ...(threadRootId ? { threadRootId } : {}),
+        },
+      } satisfies ChiefUIMessage,
+    ];
+  });
+  return dropReplayedMessages(mergeRuntimeHistory(messages, publishedParts));
 }
 
 /**

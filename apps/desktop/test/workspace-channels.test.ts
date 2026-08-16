@@ -8,6 +8,7 @@ import {
   actionConversation,
   channelChatId,
   channelIdFromChatId,
+  directMessageAgentIdFromChatId,
   directMessageChatId,
   directMessageIdsForChats,
   placePinnedChannel,
@@ -87,6 +88,16 @@ void test("gives every agent direct message a private stable destination", () =>
   assert.ok(chatIds.every((chatId) => chatId.startsWith("channel:")));
   assert.ok(
     WORKSPACE_DIRECT_MESSAGES.some((message) => message.id === "engineer"),
+  );
+  assert.equal(
+    directMessageAgentIdFromChatId(directMessageChatId("chief", "workspace-a")),
+    "chief",
+  );
+  assert.equal(
+    directMessageAgentIdFromChatId(
+      channelChatId("mission-control", "workspace-a"),
+    ),
+    null,
   );
 });
 

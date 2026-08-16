@@ -11,6 +11,7 @@ import {
   mergeRuntimeHistory,
   mergeRuntimeMessage,
   projectChannelTimeline,
+  projectConversationMessages,
   visibleRuntimeError,
 } from "../src/lib/runtime-messages.js";
 
@@ -128,6 +129,102 @@ void test("published channel events own visible text and keep runtime activity",
   );
 });
 
+void test("distinct durable channel messages remain visible when their text repeats", () => {
+  const events = [1, 2].map((createdAt) => ({
+    protocol: "nip29" as const,
+    kind: 9 as const,
+    id: `heartbeat-${createdAt}`,
+    channelId: "mission-control",
+    pubkey: "chief",
+    actor: { type: "agent" as const, id: "chief", name: "Chief" },
+    content: "Hey, I’m checking the workspace now.",
+    tags: [],
+    createdAt,
+  }));
+
+  assert.deepEqual(
+    projectChannelTimeline([], events).map((message) => message.id),
+    ["heartbeat-1", "heartbeat-2"],
+  );
+});
+
+void test("direct messages keep authored replies even when routed through a channel id", () => {
+  const messages: ChiefUIMessage[] = [
+    {
+      id: "user-request",
+      role: "user",
+      parts: [{ type: "text", text: "Set an action item for me." }],
+    },
+    {
+      id: "chief-reply",
+      role: "assistant",
+      parts: [{ type: "text", text: "Done. I raised the action item." }],
+    },
+  ];
+
+  assert.deepEqual(
+    projectConversationMessages(messages, [], "direct").map(
+      (message) => message.id,
+    ),
+    ["user-request", "chief-reply"],
+  );
+  assert.deepEqual(
+    projectConversationMessages(messages, [], "channel").map(
+      (message) => message.id,
+    ),
+    ["user-request"],
+  );
+});
+
+void test("durable plugin recommendations render in channels and direct messages", () => {
+  const plugin = {
+    id: "github",
+    name: "GitHub",
+    description: "Connect issues and pull requests.",
+    category: "Engineering",
+    homepage: "https://github.com",
+    source: {
+      type: "discovery" as const,
+      registry: "integrations.sh",
+      domain: "github.com",
+    },
+    status: "available" as const,
+    enabled: false,
+    trusted: false,
+  };
+  const events = [
+    {
+      protocol: "nip29" as const,
+      kind: 9 as const,
+      id: "plugin-event",
+      channelId: "engineering",
+      pubkey: "engineer",
+      actor: { type: "agent" as const, id: "engineer", name: "Engineer" },
+      content: "I’d start with GitHub.",
+      parts: [
+        {
+          type: "data-plugin-recommendations",
+          data: { plugins: [plugin] },
+        },
+      ],
+      tags: [["client", "channel-api:engineering-plugins"]],
+      createdAt: 2,
+    },
+  ];
+
+  for (const surface of ["channel", "direct"] as const) {
+    const projected = projectConversationMessages([], events, surface);
+    assert.equal(projected[0]?.id, "channel-api:engineering-plugins");
+    assert.deepEqual(projected[0].parts, [
+      { type: "text", text: "I’d start with GitHub." },
+      {
+        type: "data-plugin-recommendations",
+        data: { plugins: [plugin] },
+      },
+    ]);
+  }
+});
+
 void test("published replies retain the agent that authored them", () => {
   const [reply] = projectChannelTimeline(
     [],
@@ -178,6 +275,47 @@ void test("a delayed scheduled publication uses its channel arrival time", () =>
   );
 
   assert.equal(published?.metadata?.createdAt, 11.5 * 60 * 60 * 1_000);
+});
+
+void test("a scheduled heartbeat root and its published reply stay visible", () => {
+  const projected = projectChannelTimeline(
+    [],
+    [
+      {
+        protocol: "nip29",
+        kind: 9,
+        id: "heartbeat-root-event",
+        channelId: "mission-control",
+        pubkey: "chief",
+        actor: { type: "agent", id: "chief", name: "Chief" },
+        content: "I’m checking the workspace now.",
+        parts: [],
+        tags: [
+          ["client", "heartbeat-root"],
+          ["notification", "silent"],
+        ],
+        createdAt: 1,
+      },
+      {
+        protocol: "nip29",
+        kind: 9,
+        id: "heartbeat-reply-event",
+        channelId: "mission-control",
+        pubkey: "chief",
+        actor: { type: "agent", id: "chief", name: "Chief" },
+        content: "I found and restarted stalled work.",
+        parts: [],
+        tags: [["e", "heartbeat-root-event", "", "root"]],
+        createdAt: 2,
+      },
+    ],
+  );
+
+  assert.deepEqual(
+    projected.map((message) => message.id),
+    ["heartbeat-root", "heartbeat-reply-event"],
+  );
+  assert.equal(projected[1]?.metadata?.threadRootId, "heartbeat-root");
 });
 
 void test("hides intentional cancellation and internal runtime failures", () => {

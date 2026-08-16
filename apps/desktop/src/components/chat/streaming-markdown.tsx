@@ -5,6 +5,8 @@ import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { ChannelReferenceTarget } from "./channel-reference-parser";
+import { normalizeChiefNavigationLinks } from "../../lib/app-navigation";
+import { useChiefNavigation } from "../../lib/chief-navigation-context";
 import {
   markdownLinkTarget,
   normalizeLocalFileLinks,
@@ -28,6 +30,7 @@ function MarkdownLink({
   children,
   ...props
 }: ComponentPropsWithoutRef<"a">) {
+  const navigation = useChiefNavigation();
   return (
     <a
       {...props}
@@ -37,6 +40,10 @@ function MarkdownLink({
         if (!href) return;
         const target = markdownLinkTarget(href);
         if (!target) return;
+        if (target.kind === "app") {
+          navigation.open(target.value);
+          return;
+        }
         const result =
           target.kind === "path"
             ? openPath(target.value)
@@ -166,7 +173,7 @@ export function StreamingMarkdown({
           isAnimating={streaming}
           linkSafety={{ enabled: false }}
         >
-          {normalizeLocalFileLinks(inlineText)}
+          {normalizeLocalFileLinks(normalizeChiefNavigationLinks(inlineText))}
         </Streamdown>
       </Suspense>
     </div>

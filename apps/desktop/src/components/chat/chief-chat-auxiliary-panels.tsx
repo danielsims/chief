@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useRef } from "react";
 
 import type {
+  ActionItem,
   BrowserRunRecord,
   ChiefUIMessage,
   ContentBlock,
@@ -14,8 +15,9 @@ import type { useChiefChatCore } from "./use-chief-chat-core";
 import type { useChiefChatTimeline } from "./use-chief-chat-timeline";
 import { messageBlocks } from "../../lib/runtime";
 import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import { TimelineActionRequestCard } from "./action-request-card";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
-import { AgentActivityPanel, taskAgentLabel } from "./agent-activity-panel";
+import { AgentActivityPanel } from "./agent-activity-panel";
 import {
   formatAgentActivityStatus,
   mergeAgentActivityPresence,
@@ -37,8 +39,16 @@ import {
   ConversationAuxiliaryPanelBody,
   ConversationAuxiliaryPanelHeader,
 } from "./conversation-auxiliary-panel";
+import {
+  withActionTimelineEntries,
+  withSpecialistTimelineEntries,
+} from "./conversation-timeline-entries";
 import { ObservedChat } from "./observed-chat";
 import { QuestionCard } from "./question-card";
+import {
+  taskActivitySubtitle,
+  ThreadSpecialistTaskCard,
+} from "./specialist-task-card";
 import { UserMessage } from "./user-message";
 
 type Core = ReturnType<typeof useChiefChatCore>;
@@ -64,6 +74,7 @@ interface ThreadSummary {
  * threads, agent activity, specialist work, and profiles, beside the main feed.
  */
 export function ChiefChatAuxiliaryPanels({
+  threadActions,
   activeThreadSummary,
   composer,
   core,
@@ -73,6 +84,7 @@ export function ChiefChatAuxiliaryPanels({
   threadBlocks,
   timeline,
 }: {
+  threadActions: readonly ActionItem[];
   activeThreadSummary: ThreadSummary;
   composer: Composer;
   core: Core;
@@ -148,6 +160,17 @@ export function ChiefChatAuxiliaryPanels({
     childSessionOwners,
     threadReplyEntries,
   } = timeline;
+  const threadTimelineEntries = useMemo(
+    () =>
+      withActionTimelineEntries(
+        withSpecialistTimelineEntries(
+          threadReplyEntries,
+          activeThreadChildSessions,
+        ),
+        threadActions,
+      ),
+    [activeThreadChildSessions, threadActions, threadReplyEntries],
+  );
   const threadPictureInPictureContainerRef = useRef<HTMLDivElement>(null);
   const threadComposerRef = useRef<HTMLDivElement>(null);
   const threadPictureInPictureAvoidRefs = useMemo(
@@ -233,7 +256,7 @@ export function ChiefChatAuxiliaryPanels({
               }
             />
           }
-          subtitle={`${activeChild.title} · ${taskAgentLabel(activeChild.agent)} · ${taskStatusLabel(activeChild.status)}`}
+          subtitle={taskActivitySubtitle(activeChild)}
           onClose={closeAuxiliaryWorkspace}
         />
         <ConversationAuxiliaryPanelBody className="overflow-hidden">
@@ -297,11 +320,28 @@ export function ChiefChatAuxiliaryPanels({
               ) : null,
             )}
             <ChatTimeline
-              entries={threadReplyEntries}
+              entries={threadTimelineEntries}
               initialTimestamp={activeThreadRoot?.metadata?.createdAt}
               renderEntry={(entry) => {
                 if (entry.type === "browser") {
                   return threadBrowserAttachmentNode(entry.run);
+                }
+                if (entry.type === "action") {
+                  return (
+                    <TimelineActionRequestCard
+                      action={entry.action}
+                      currentUser={core.currentUser}
+                      resolve={core.workspaceData.resolveActionRequest}
+                    />
+                  );
+                }
+                if (entry.type === "specialist") {
+                  return (
+                    <ThreadSpecialistTaskCard
+                      task={entry.task}
+                      onOpenTask={onOpenChild}
+                    />
+                  );
                 }
                 const { message } = entry;
                 if (message.role === "user") {
@@ -436,11 +476,10 @@ export function ChiefChatAuxiliaryPanels({
   return activityOpen && !profileOpen && !activeChild ? (
     <AgentActivityPanel
       blocks={currentTurnBlocks}
+      error={controls.error}
       previousTurns={previousActivityTurns}
       agentLabel={activityAgentLabel}
-      contextLabel={channel ? `#${channel.label}` : "this direct message"}
       running={controls.status === "running"}
-      statusLabel={statusLabel}
       tasks={childSessions}
       onClose={() => setActivityOpen(false)}
       onOpenTask={onOpenChild}
@@ -453,12 +492,4 @@ function messageText(message: ChiefUIMessage) {
   return messageBlocks(message)
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("\n");
-}
-
-function taskStatusLabel(status: string) {
-  if (status === "completed") return "Complete";
-  if (status === "idle") return "Starting";
-  if (status === "waiting") return "Waiting for you";
-  if (status === "running") return "Working";
-  return status;
 }

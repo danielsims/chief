@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { CircleAlert, Hash, Lock, MoreHorizontal, PinOff } from "lucide-react";
+import { Hash, Lock, MoreHorizontal, PinOff } from "lucide-react";
 
 import {
   ContextMenu,
@@ -20,6 +20,7 @@ import { cn } from "@chief/ui/lib/utils";
 import type { SidebarPinnedItem } from "../lib/workspace-channels";
 import type { SidebarChannel } from "./channel-browser-dialog";
 import { sidebarPinnedItemKey } from "../lib/workspace-channels";
+import { AttentionPill } from "./attention-pill";
 import {
   ChannelContextActions,
   ChannelPopoverActions,
@@ -27,6 +28,7 @@ import {
 
 interface ChannelRowProps {
   canDelete: boolean;
+  compactAttention: boolean;
   channel: SidebarChannel;
   active: boolean;
   pinned: boolean;
@@ -43,6 +45,7 @@ interface ChannelRowProps {
 
 export function ChannelRow({
   canDelete,
+  compactAttention,
   channel,
   active,
   pinned,
@@ -99,7 +102,12 @@ export function ChannelRow({
             onClick={onOpen}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full min-w-0 cursor-grab touch-none items-center gap-2 rounded-lg px-2 pr-9 text-left text-[13px] transition-colors select-none active:cursor-grabbing",
+              "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground flex h-8 w-full min-w-0 cursor-grab touch-none items-center gap-2 rounded-lg px-2 text-left text-[13px] transition-[padding,color,background-color] select-none active:cursor-grabbing",
+              needsUser
+                ? menuOpen
+                  ? "pr-9"
+                  : "pr-2 group-focus-within/channel:pr-9 group-hover/channel:pr-9"
+                : "pr-9",
               active && "bg-sidebar-accent text-sidebar-foreground font-medium",
               !active &&
                 unreadCount > 0 &&
@@ -124,10 +132,7 @@ export function ChannelRow({
             {needsUser || unreadCount > 0 ? (
               <span className="ml-auto flex shrink-0 items-center gap-1.5">
                 {needsUser ? (
-                  <span className="flex items-center gap-1 text-[11px] font-medium text-amber-300">
-                    <CircleAlert aria-hidden size={12} strokeWidth={2} />
-                    Needs you
-                  </span>
+                  <AttentionPill compact={compactAttention} />
                 ) : null}
                 {unreadCount > 0 ? (
                   <span

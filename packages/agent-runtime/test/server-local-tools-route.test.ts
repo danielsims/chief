@@ -15,7 +15,7 @@ const workspaceId = "workspace-route-test";
 const capability = { apiBaseUrl: "https://executor.test", token: "executor" };
 
 interface RouteState {
-  caller?: { agentId: string; chatId: string };
+  caller?: { agentId: string; chatId: string; threadRootId?: string };
   enabled: boolean;
   permissions?: readonly AgentToolPermission[];
 }
@@ -203,6 +203,22 @@ void test("injects authoritative context and invokes an authorized local tool", 
 });
 
 void test("caller scope preserves public delegation but owns browser, setup, and files", () => {
+  const action = {
+    sourceId: "model-authored",
+    threadRootId: "model-authored",
+  };
+  prepareCallerScopedToolBody({
+    path: "/local-tools/action",
+    body: action,
+    callerAgentId: "chief",
+    callerChatId: "channel:mission-control",
+    callerThreadRootId: "heartbeat-thread",
+  });
+  assert.deepEqual(action, {
+    sourceId: "channel:mission-control",
+    threadRootId: "heartbeat-thread",
+  });
+
   const delegation = {
     conversationId: "channel:mission-control",
     sessionId: "model-authored",

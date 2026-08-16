@@ -9,6 +9,7 @@ import type {
   AgentToolPermission,
 } from "./types.js";
 import { agentLocalToolServer } from "./agent-local-mcp.js";
+import { withPluginSkillInstructions } from "./plugins/instructions.js";
 import { scopeRemoteAgentEnvironment } from "./remote-agent-environment.js";
 import { AgentSession } from "./session.js";
 import { workspaceRoot, workspaceSecrets } from "./workspace-secrets.js";
@@ -55,13 +56,17 @@ export async function startManagedSession(
   ]
     .filter(Boolean)
     .join(" ");
-  const runtimeAgent = agent.instructions.includes(
+  const sessionInstructions = withPluginSkillInstructions(
+    agent.instructions,
+    config.workspaceId,
+  );
+  const runtimeAgent = sessionInstructions.includes(
     `Runtime context: the current Chief session ID is ${chatId}.`,
   )
-    ? agent
+    ? { ...agent, instructions: sessionInstructions }
     : {
         ...agent,
-        instructions: `${agent.instructions}\n\n${runtimeContext}`,
+        instructions: `${sessionInstructions}\n\n${runtimeContext}`,
       };
   const sessionEnvironment = context.sessionEnvironmentProvider?.({
     workspaceId: config.workspaceId,

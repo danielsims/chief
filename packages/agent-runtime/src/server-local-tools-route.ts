@@ -11,6 +11,7 @@ import { localToolRequest } from "./http-runtime.js";
 interface ActiveLocalToolCaller {
   agentId: string;
   chatId: string;
+  threadRootId?: string;
 }
 
 interface LocalToolRouteManager {
@@ -53,8 +54,18 @@ export function prepareCallerScopedToolBody(input: {
   body: Record<string, unknown>;
   callerAgentId: string;
   callerChatId: string;
+  callerThreadRootId?: string;
   attemptId?: string;
 }) {
+  if (input.path === "/local-tools/action") {
+    input.body.sourceId = input.callerChatId;
+    if (input.callerThreadRootId) {
+      input.body.threadRootId = input.callerThreadRootId;
+    } else {
+      delete input.body.threadRootId;
+    }
+    return;
+  }
   if (input.path.startsWith("/local-tools/browser/")) {
     input.body.conversationId = input.callerChatId;
     return;

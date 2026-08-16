@@ -3,10 +3,19 @@
 import type { UIMessage } from "ai";
 
 import type { ScheduledWorkTrigger } from "@chief/channel-api";
+import type {
+  AgentPluginSummary,
+  PluginAuthorizationAction,
+} from "@chief/plugin-api";
 
 import type * as Artifacts from "./artifact-types.js";
 import type { ChannelServerMessage } from "./channel-types.js";
 import type { IntegrationSetupPhase } from "./integration-setup-recipes.js";
+
+export type {
+  AgentPluginSummary,
+  PluginAuthorizationAction,
+} from "@chief/plugin-api";
 
 export type {
   ChannelActor,
@@ -153,6 +162,10 @@ export interface GenerativeDocumentData {
   versionId: string;
 }
 
+export interface GenerativePluginRecommendationsData {
+  plugins: AgentPluginSummary[];
+}
+
 /**
  * Chief's persistent custom UI parts follow AI SDK 7's typed `data-*`
  * contract. The websocket transport remains provider-neutral; every driver
@@ -207,6 +220,7 @@ export type ChiefUIMessage = UIMessage<
     chart: GenerativeChartData;
     table: GenerativeTableData;
     document: GenerativeDocumentData;
+    "plugin-recommendations": GenerativePluginRecommendationsData;
   }
 >;
 
@@ -225,6 +239,11 @@ export type GenerativeDocumentBlock = Extract<
   { type: "data-document" }
 >;
 
+export type GenerativePluginRecommendationsBlock = Extract<
+  ChiefUIMessage["parts"][number],
+  { type: "data-plugin-recommendations" }
+>;
+
 export interface MessageAttachment {
   name: string;
   mediaType: string;
@@ -238,6 +257,7 @@ export type ContentBlock =
   | GenerativeChartBlock
   | GenerativeTableBlock
   | GenerativeDocumentBlock
+  | GenerativePluginRecommendationsBlock
   | {
       type: "tool_use";
       id: string;
@@ -307,6 +327,8 @@ export type AgentStatus = "idle" | "running" | "waiting" | "error";
 export interface AgentQuestionOption {
   label: string;
   description?: string;
+  /** Selecting this option asks the user to provide their own answer. */
+  allowsFreeText?: boolean;
 }
 
 export interface AgentQuestion {
@@ -490,14 +512,23 @@ export interface DiagnosticEventRecord {
 export type SessionArtifact =
   GenerativeChartBlock | GenerativeTableBlock | GenerativeDocumentBlock;
 
+export interface ActionResolution {
+  answers: Record<string, string>;
+  resolvedAt: number;
+  resolvedBy: { id: string; name: string };
+}
+
 export interface ActionItem {
   id: string;
   agentId: string;
   title: string;
   reason: string;
   sourceId?: string;
+  /** Exact channel thread where the action was raised. Host-bound, not model-authored. */
+  threadRootId?: string;
   request?: InputRequest;
-  status: "open" | "dismissed";
+  resolution?: ActionResolution;
+  status: "open" | "resolved" | "dismissed";
   createdAt: number;
 }
 
@@ -597,6 +628,8 @@ export interface McpServerSpec {
   name: string;
   command: string;
   args: string[];
+  /** Working directory for stdio servers. */
+  cwd?: string;
   env?: Record<string, string>;
   /**
    * Streamable-HTTP endpoint for the same server, for clients whose MCP
@@ -1025,6 +1058,26 @@ export type ServerMessage =
       type: "localIntegrationStatus";
       workspaceId: string;
       integrations: LocalIntegrationStatus[];
+    }
+  | {
+      type: "plugins";
+      workspaceId: string;
+      plugins: AgentPluginSummary[];
+      sources: {
+        id: string;
+        name: string;
+        homepage?: string;
+        enabled: boolean;
+      }[];
+      refreshedAt: number;
+      stale: boolean;
+      warning?: string;
+    }
+  | {
+      type: "pluginAuthorization";
+      workspaceId: string;
+      requestId: string;
+      action: PluginAuthorizationAction;
     }
   | {
       type: "integrationDisconnected";

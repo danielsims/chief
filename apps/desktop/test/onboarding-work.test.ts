@@ -3,137 +3,109 @@ import test from "node:test";
 
 import { buildOnboardingWorkJobs } from "../src/lib/onboarding-work.ts";
 
+const github = {
+  domain: "github.com",
+  name: "GitHub",
+  description: "Repositories and pull requests",
+  kinds: ["mcp"],
+  url: "https://integrations.sh/github.com/",
+};
+
+const vercel = {
+  domain: "vercel.com",
+  name: "Vercel",
+  description: "Deployments and projects",
+  kinds: ["mcp"],
+  url: "https://integrations.sh/vercel.com/",
+};
+
 const base = {
   workspaceId: "workspace",
   companyName: "Program",
   websiteUrl: "https://program.video",
   timezone: "Australia/Brisbane",
   brand: { mode: "research", notes: "", files: [] },
-  analytics: { integrations: [] },
-  ads: { integrations: [] },
-  aeo: { trackAiReferrals: false },
-  engineering: { enabled: false, integrations: [] },
+  plugins: { integrations: [] },
 };
 
-void test("initial onboarding schedules one Marketer and one Prospector", () => {
+void test("initial onboarding starts bounded brand, engineering, and prospect work", () => {
   const jobs = buildOnboardingWorkJobs(base);
   assert.deepEqual(
     jobs.map((job) => job.agentId),
-    ["brand", "prospector"],
+    ["brand", "engineer", "prospector"],
   );
-  assert.match(jobs[1]?.instructions ?? "", /prospectsSave/);
-  assert.match(jobs[1]?.instructions ?? "", /direct HTTP source URL/);
+  assert.match(jobs[2]?.instructions ?? "", /prospectsSave/);
+  assert.match(jobs[2]?.instructions ?? "", /direct HTTP source URL/);
 });
 
-void test("skipping brand research still populates prospects", () => {
+void test("skipping brand research still prepares Engineering and prospects", () => {
   const jobs = buildOnboardingWorkJobs({
     ...base,
     brand: { ...base.brand, mode: "skip" },
   });
   assert.deepEqual(
     jobs.map((job) => job.agentId),
-    ["prospector"],
+    ["engineer", "prospector"],
   );
 });
 
-void test("selected engineering tools brief Engineer in its channel", () => {
+void test("tools already in use are context, not automatic connection jobs", () => {
   const jobs = buildOnboardingWorkJobs({
     ...base,
-    engineering: {
-      enabled: true,
-      integrations: [
-        {
-          domain: "github.com",
-          name: "GitHub",
-          description: "Repositories and pull requests",
-          kinds: ["mcp"],
-          url: "https://integrations.sh/github.com/",
-        },
-      ],
-    },
+    plugins: { integrations: [github, vercel] },
   });
 
-  assert.deepEqual(
-    jobs.map((job) => job.agentId),
-    ["brand", "engineer", "prospector"],
-  );
-  const engineering = jobs[1];
+  const engineering = jobs.find((job) => job.agentId === "engineer");
   assert.match(engineering?.instructions ?? "", /GitHub \(github\.com\)/);
-  assert.match(engineering?.instructions ?? "", /intent, not proof/);
-  assert.match(engineering?.instructions ?? "", /upcoming plugin flow/);
-});
-
-void test("an explicit analytics opt-out cannot launch stale setup work", () => {
-  const jobs = buildOnboardingWorkJobs({
-    ...base,
-    analytics: {
-      selection: "none",
-      integrations: [
-        {
-          domain: "analytics.googleapis.com",
-          name: "Google Analytics",
-          description: "GA4",
-          kinds: ["openapi"],
-          url: "https://integrations.sh/analytics.googleapis.com/",
-        },
-      ],
-    },
-  });
-
-  assert.deepEqual(
-    jobs.map((job) => job.agentId),
-    ["brand", "prospector"],
+  assert.match(engineering?.instructions ?? "", /Vercel \(vercel\.com\)/);
+  assert.match(engineering?.instructions ?? "", /relevance, never as proof/);
+  assert.match(
+    engineering?.instructions ?? "",
+    /required baseline recommendation/,
+  );
+  assert.match(
+    engineering?.instructions ?? "",
+    /every selected service as an actionable inline card/,
+  );
+  assert.match(
+    engineering?.instructions ?? "",
+    /Do not replace a selected service/,
+  );
+  assert.match(engineering?.instructions ?? "", /localTools\.pluginsList/);
+  assert.match(engineering?.instructions ?? "", /localTools\.pluginsRecommend/);
+  assert.match(engineering?.instructions ?? "", /actionable inline card/);
+  assert.ok(
+    engineering?.proposedToolPatterns.includes(
+      "tools.chief-local.org.localworkspace.localTools.pluginsList",
+    ),
+  );
+  assert.ok(
+    engineering?.proposedToolPatterns.includes(
+      "tools.chief-local.org.localworkspace.localTools.pluginsRecommend",
+    ),
   );
   assert.equal(
     jobs.some((job) => job.setupDomain),
     false,
   );
   assert.equal(
-    jobs.some((job) => /Google Analytics/i.test(job.title)),
+    jobs.some((job) => job.agentId === "setup"),
     false,
   );
 });
 
-void test("independent post-onboarding work launches before analytics", () => {
-  const jobs = buildOnboardingWorkJobs({
-    ...base,
-    analytics: {
-      integrations: [
-        {
-          domain: "analytics.googleapis.com",
-          name: "Google Analytics",
-          description: "GA4",
-          kinds: ["openapi"],
-          url: "https://integrations.sh/analytics.googleapis.com/",
-        },
-      ],
-    },
-    ads: {
-      integrations: [
-        {
-          domain: "googleads.googleapis.com",
-          name: "Google Ads",
-          description: "Google Ads",
-          kinds: ["openapi"],
-          url: "https://integrations.sh/googleads.googleapis.com/",
-        },
-      ],
-    },
-    aeo: { trackAiReferrals: true },
-  });
+void test("specialists progressively gather only material missing context", () => {
+  const jobs = buildOnboardingWorkJobs(base);
+  const marketer = jobs.find((job) => job.agentId === "brand");
+  const prospector = jobs.find((job) => job.agentId === "prospector");
 
-  assert.deepEqual(
-    jobs.map((job) => job.agentId),
-    ["brand", "setup", "setup", "prospector", "analyst"],
+  assert.match(marketer?.instructions ?? "", /one compact structured question/);
+  assert.match(
+    prospector?.instructions ?? "",
+    /one compact structured question/,
   );
-  const analyticsSetup = jobs[1];
-  assert.ok(analyticsSetup);
-  assert.match(analyticsSetup.instructions, /analytics\.googleapis\.com/);
-  assert.match(analyticsSetup.instructions, /setupAttemptId=/);
-  assert.equal(analyticsSetup.setupDomain, "analytics.googleapis.com");
-  assert.ok(analyticsSetup.setupAttemptId);
-  assert.match(analyticsSetup.instructions, /initial concurrent kickoff/);
-  assert.match(jobs[0]?.instructions ?? "", /must never block Setup/);
-  assert.match(jobs[3]?.instructions ?? "", /Do not wait for brand research/);
-  assert.match(jobs[4]?.instructions ?? "", /analyticsSaveDataset/);
+  assert.match(
+    prospector?.instructions ?? "",
+    /Do not assume setup already captured/,
+  );
 });

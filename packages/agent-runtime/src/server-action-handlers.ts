@@ -44,6 +44,7 @@ export async function handleResolveActionRequest({
     chatId: string,
     prompt: string,
     capability: ResolveMessage["executorCapability"],
+    threadRootId?: string,
   ) => Promise<void>;
   dismissCloudAction: (workspaceId: string, actionId: string) => Promise<void>;
   integrationSetups: IntegrationSetupRegistry;
@@ -61,6 +62,8 @@ export async function handleResolveActionRequest({
   );
   const fieldKeys = new Set(action.request.fields.map((field) => field.key));
   if (
+    !msg.resolvedBy.id.trim() ||
+    !msg.resolvedBy.name.trim() ||
     Object.keys(msg.answers).some((key) => !questionKeys.has(key)) ||
     Object.keys(msg.values).some((key) => !fieldKeys.has(key)) ||
     [...questionKeys].some((key) => !(msg.answers[key] ?? "").trim()) ||
@@ -177,6 +180,33 @@ export async function handleResolveActionRequest({
     ...saved.map((destination) => `- Saved input to ${destination}`),
     "Continue the setup or review now using these answers. This is explicit authorization to run the supported local integration setup and open its browser consent flow. Never expose stored credential values, and complete every remaining independent part.",
   ].join("\n");
+  const resolvedAction = {
+    ...action,
+    status: "resolved" as const,
+    resolution: {
+      answers: Object.fromEntries(
+        Object.entries(msg.answers).map(([question, answer]) => [
+          question,
+          answer.trim(),
+        ]),
+      ),
+      resolvedAt: Date.now(),
+      resolvedBy: {
+        id: msg.resolvedBy.id.trim(),
+        name: msg.resolvedBy.name.trim(),
+      },
+    },
+  };
+  await manager.raiseActionItem(msg.workspaceId, resolvedAction);
+  await dismissCloudAction(msg.workspaceId, action.id);
+  send({
+    type: "actionRequestResolved",
+    workspaceId: msg.workspaceId,
+    actionItemId: action.id,
+    requestId: msg.requestId,
+    action: resolvedAction,
+  });
+  await broadcastWorkspaceData(msg.workspaceId);
   const sourceId = action.sourceId;
   if (sourceId && !directGoogleSetup) {
     await continueChiefSession(
@@ -184,17 +214,9 @@ export async function handleResolveActionRequest({
       sourceId,
       receipt,
       msg.executorCapability,
+      action.threadRootId,
     );
   }
-  await manager.dismissActionItem(msg.workspaceId, action.id);
-  await dismissCloudAction(msg.workspaceId, action.id);
-  send({
-    type: "actionRequestResolved",
-    workspaceId: msg.workspaceId,
-    actionItemId: action.id,
-    requestId: msg.requestId,
-  });
-  await broadcastWorkspaceData(msg.workspaceId);
   return;
 }
 

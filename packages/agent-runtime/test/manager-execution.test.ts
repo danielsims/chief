@@ -296,7 +296,10 @@ void test("action.raise persists its session source and rejects cross-workspace 
                 {
                   header: "Property",
                   question: "Which property should Chief report on?",
-                  options: [{ label: "Program" }, { label: "Another" }],
+                  options: [
+                    { label: "Something else", allowsFreeText: true },
+                    { label: "Program" },
+                  ],
                 },
               ],
               fields: [
@@ -331,7 +334,16 @@ void test("action.raise persists its session source and rejects cross-workspace 
       await manager.workspaceData("workspace-a")
     ).actionItems.filter((item) => item.title === "Connect analytics");
     assert.equal(storedStructured.length, 1);
-    assert.equal(storedStructured[0]?.request?.questions?.length, 1);
+    const storedRequest = storedStructured[0]?.request;
+    assert.ok(storedRequest);
+    assert.equal(storedRequest.questions?.length, 1);
+    assert.deepEqual(storedRequest.questions[0]?.options, [
+      { label: "Program" },
+      {
+        label: "Something else",
+        allowsFreeText: true,
+      },
+    ]);
     const collision = await handleLocalTool(
       new Request("http://localhost/local-tools/action", {
         method: "POST",
@@ -417,7 +429,7 @@ void test("action.raise persists its session source and rejects cross-workspace 
     );
     assert.match(
       JSON.stringify(localToolsOpenApi("http://localhost")),
-      /dedupeKey|questions|envKey/,
+      /dedupeKey|questions|allowsFreeText|envKey/,
     );
   } finally {
     await manager.stopAll();

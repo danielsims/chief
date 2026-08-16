@@ -198,6 +198,14 @@ export function directMessageChatId(
   return channelChatId(message.relayId, workspaceId);
 }
 
+export function directMessageAgentIdFromChatId(chatId: string | null) {
+  const relayId = channelIdFromChatId(chatId);
+  return (
+    WORKSPACE_DIRECT_MESSAGES.find((message) => message.relayId === relayId)
+      ?.id ?? null
+  );
+}
+
 export function directMessageIdsForChats(
   chats: readonly { id: string; lastText: string }[],
   workspaceId?: string | null,

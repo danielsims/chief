@@ -142,10 +142,7 @@ export function defaultWorkspaceChannels(now = Date.now()): WorkspaceChannel[] {
     topic: "",
     agentIds: [...channel.agentIds],
     userIds:
-      channel.id === MISSION_CONTROL_CHANNEL_ID ||
-      channel.slug === "engineering" ||
-      channel.slug === "general" ||
-      "visibility" in channel
+      channel.slug === "general" || "visibility" in channel
         ? ["workspace-owner"]
         : [],
     protocol: "nip29",

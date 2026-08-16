@@ -3,6 +3,10 @@ import {
   channelApiOperations,
   scheduledWorkApiOperations,
 } from "@chief/channel-api";
+import {
+  pluginApiOperationForRequest,
+  pluginApiOperations,
+} from "@chief/plugin-api";
 
 import type { AgentToolPermission } from "./types.js";
 
@@ -136,6 +140,7 @@ const executorOperationsByPermissionMutable = Object.fromEntries(
 for (const operation of [
   ...channelApiOperations,
   ...scheduledWorkApiOperations,
+  ...pluginApiOperations,
 ]) {
   if (!operation.toolPermission) continue;
   executorOperationsByPermissionMutable[operation.toolPermission].push(
@@ -341,5 +346,7 @@ export function permissionForLocalTool(
   const verb = method.toUpperCase();
   const apiOperation = agentApiOperationForRequest(verb, pathname);
   if (apiOperation?.toolPermission) return apiOperation.toolPermission;
+  const pluginOperation = pluginApiOperationForRequest(verb, pathname);
+  if (pluginOperation?.toolPermission) return pluginOperation.toolPermission;
   return exactLocalToolPermissions.get(`${verb} ${pathname}`);
 }

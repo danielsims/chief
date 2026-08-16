@@ -27,7 +27,9 @@ import { siInstagram, siReddit, siTiktok, siX, siYoutube } from "simple-icons";
 import type {
   AgentDeploymentRecord,
   AgentDeploymentTarget,
+  AgentPluginSummary,
   DriverType,
+  OnboardingSchedule,
 } from "@chief/agent-runtime/types";
 import { api } from "@chief/backend/convex/_generated/api";
 import { Button } from "@chief/ui/components/button";
@@ -49,10 +51,6 @@ import type { SocialPlatform } from "../lib/social-platforms";
 import { ConvexLogo } from "../components/convex-logo";
 import { IntegrationAvatarStack } from "../components/integrations/integration-avatar-stack";
 import { IntegrationChoiceCard } from "../components/integrations/integration-choice-card";
-import {
-  EngineeringAccessControl,
-  EngineeringToolsControl,
-} from "../components/onboarding/engineering-setup-controls";
 import {
   Chip,
   StepFrame,
@@ -86,10 +84,14 @@ import {
   LOCAL_ONBOARDING_FALLBACK,
   nextOnboardingStep,
   ONBOARDING_STEPS,
+  resumableOnboardingStep,
 } from "../lib/onboarding-flow";
-import { buildOnboardingSchedules } from "../lib/onboarding-schedules";
 import { buildOnboardingWorkJobs } from "../lib/onboarding-work";
 import { getPlaybook, playbookInstructions, PLAYBOOKS } from "../lib/playbooks";
+import {
+  onboardingPluginOptions,
+  pluginDomain,
+} from "../lib/plugin-presentation";
 import {
   updatePendingOnboardingDriver,
   useAgentPreferences,
@@ -98,6 +100,7 @@ import {
   useStoredInputs,
   useWorkspaceData,
 } from "../lib/runtime";
+import { usePlugins } from "../lib/runtime-plugins";
 import { SOCIAL_PLATFORMS } from "../lib/social-platforms";
 import { workspaceContextFromOrganization } from "../lib/workspace-context";
 
@@ -151,6 +154,9 @@ interface OnboardingDraft {
     details: string;
     keywords: string;
   };
+  plugins: {
+    integrations: IntegrationSearchResult[];
+  };
   analytics: {
     integrations: IntegrationSearchResult[];
     /** Preserves an explicit opt-out separately from an unanswered step. */
@@ -195,12 +201,7 @@ const questions: Record<StepKey, string> = {
   time: "How much time can you spend on marketing each week?",
   monitoring:
     "Where should your agents proactively search for prospects, buying signals and relevant conversations?",
-  analytics: "Which analytics platforms do you use today?",
-  ads: "Where do you run paid ads today?",
-  adsBudget: "Roughly how much could you put toward paid ads each month?",
-  aeo: "One last thing. Want to know when ChatGPT, Claude or Perplexity send you customers?",
-  engineering: "Would you like Chief to make code changes to your website?",
-  engineeringTools: "Which tools power your website?",
+  plugins: "What apps do you already use?",
   automation:
     "Here is the recurring work I recommend starting with. Review the schedule, then activate what you want.",
   finish: "You're in.",
@@ -221,17 +222,6 @@ const timeOptions = [
   "5-10 hours",
   "10-20 hours",
   "20+ hours",
-];
-
-const adsBudgetOptions = [
-  "No budget yet",
-  "$5 to $20 a month",
-  "$20 to $50 a month",
-  "$50 to $100 a month",
-  "$100 to $300 a month",
-  "$300 to $1,000 a month",
-  "$1,000 to $3,000 a month",
-  "$3,000+ a month",
 ];
 
 const weekDays = [
@@ -326,73 +316,76 @@ const monitoringOptions = [
   { key: "communities", label: "Communities", Icon: Globe },
 ];
 
-const fallbackAnalyticsIntegrations: IntegrationSearchResult[] = [
-  {
-    domain: "analytics.googleapis.com",
-    name: "Google Analytics",
-    description: "GA4 reporting through Google Analytics Admin and Data APIs.",
-    kinds: ["openapi", "cli"],
-    url: "https://integrations.sh/analytics.googleapis.com/",
-  },
-  {
-    domain: "posthog.com",
-    name: "PostHog",
-    description:
-      "Product analytics and event data through the PostHog MCP server.",
-    kinds: ["mcp"],
-    url: "https://integrations.sh/posthog.com/",
-  },
-  {
-    domain: "pendo.io",
-    name: "Pendo",
-    description:
-      "Product analytics and behavioral data through MCP and API surfaces.",
-    kinds: ["mcp", "openapi"],
-    url: "https://integrations.sh/pendo.io/",
-  },
-  {
-    domain: "mixpanel.com",
-    name: "Mixpanel",
-    description:
-      "Product analytics integration from the integrations.sh registry.",
-    kinds: ["mcp"],
-    url: "https://integrations.sh/mixpanel.com/",
-  },
-];
+const fallbackEverydayIntegrations = (
+  [
+    ["workspace.google.com", "Google Workspace"],
+    ["slack.com", "Slack"],
+    ["granola.ai", "Granola"],
+    ["notion.com", "Notion"],
+    ["github.com", "GitHub"],
+    ["vercel.com", "Vercel"],
+    ["pscale.dev", "PlanetScale"],
+    ["posthog.com", "PostHog"],
+    ["linear.app", "Linear"],
+    ["atlassian.com", "Jira"],
+    ["figma.com", "Figma"],
+    ["hubspot.com", "HubSpot"],
+    ["salesforce.com", "Salesforce"],
+    ["linkedin.com", "LinkedIn"],
+    ["zoom.com", "Zoom"],
+    ["canva.com", "Canva"],
+    ["asana.com", "Asana"],
+    ["airtable.com", "Airtable"],
+    ["clickup.com", "ClickUp"],
+    ["monday.com", "monday.com"],
+    ["intercom.com", "Intercom"],
+    ["convex.dev", "Convex"],
+    ["box.com", "Box"],
+    ["miro.com", "Miro"],
+    ["resend.com", "Resend"],
+    ["sentry.io", "Sentry"],
+    ["supabase.com", "Supabase"],
+    ["stripe.com", "Stripe"],
+    ["clay.com", "Clay"],
+    ["apollo.io", "Apollo.io"],
+    ["fireflies.ai", "Fireflies"],
+    ["webflow.com", "Webflow"],
+    ["cloudflare.com", "Cloudflare"],
+    ["calendly.com", "Calendly"],
+  ] as const
+).map(([domain, name]): IntegrationSearchResult => ({
+  domain,
+  name,
+  description: `${name} connection`,
+  kinds: ["mcp"],
+  url: `https://integrations.sh/${domain}/`,
+}));
+const preferredEverydayIntegrations = fallbackEverydayIntegrations.slice(0, 30);
 
-const fallbackAdsIntegrations: IntegrationSearchResult[] = [
-  {
-    domain: "googleads.googleapis.com",
-    name: "Google Ads",
-    description:
-      "Google Ads campaign and conversion data through the Google Ads API.",
-    kinds: ["openapi"],
-    url: "https://integrations.sh/googleads.googleapis.com/",
-  },
-  {
-    domain: "graph.facebook.com",
-    name: "Meta Ads",
-    description:
-      "Meta campaign, ad set and ad performance data through the Graph API.",
-    kinds: ["openapi"],
-    url: "https://integrations.sh/graph.facebook.com/",
-  },
-  {
-    domain: "api.linkedin.com",
-    name: "LinkedIn Ads",
-    description: "LinkedIn campaign and ad analytics through the LinkedIn API.",
-    kinds: ["openapi"],
-    url: "https://integrations.sh/api.linkedin.com/",
-  },
-  {
-    domain: "business-api.tiktok.com",
-    name: "TikTok Ads",
-    description:
-      "TikTok business campaign and reporting data through the Business API.",
-    kinds: ["openapi"],
-    url: "https://integrations.sh/business-api.tiktok.com/",
-  },
-];
+function integrationDomainKey(domain: string) {
+  if (domain === "notion.so") return "notion.com";
+  if (domain === "zoom.us") return "zoom.com";
+  return domain;
+}
+
+function pluginIntegration(
+  plugin: AgentPluginSummary,
+): IntegrationSearchResult {
+  const domain = pluginDomain(plugin);
+  return {
+    domain,
+    name: plugin.name,
+    description: plugin.description,
+    kinds: [
+      plugin.source.type === "discovery"
+        ? "mcp"
+        : plugin.source.type === "setup"
+          ? "setup"
+          : "plugin",
+    ],
+    url: plugin.homepage ?? `https://integrations.sh/${domain}/`,
+  };
+}
 
 const socialIcons: Partial<Record<SocialPlatform, SimpleIcon>> = {
   x: siX,
@@ -475,13 +468,16 @@ function baseDraft(): OnboardingDraft {
     goals: {
       selling: "",
       audience: "",
-      success: ["$5k MRR with signal"],
-      timeBudget: "5-10 hours",
+      success: [],
+      timeBudget: "",
     },
     monitoring: {
-      channels: ["X", "Reddit"],
+      channels: [],
       details: "",
       keywords: "",
+    },
+    plugins: {
+      integrations: [],
     },
     analytics: {
       integrations: [],
@@ -489,10 +485,10 @@ function baseDraft(): OnboardingDraft {
     },
     ads: {
       integrations: [],
-      budget: adsBudgetOptions[0]!,
+      budget: "",
     },
     aeo: {
-      trackAiReferrals: true,
+      trackAiReferrals: false,
     },
     engineering: {
       enabled: null,
@@ -500,7 +496,7 @@ function baseDraft(): OnboardingDraft {
     },
     automation: {
       defaultsVersion: 2,
-      mode: "automatic",
+      mode: "manual",
       timezone:
         Intl.DateTimeFormat().resolvedOptions().timeZone ||
         "Australia/Brisbane",
@@ -589,6 +585,10 @@ function draftFromOrg(
     onboarding.monitoring && typeof onboarding.monitoring === "object"
       ? (onboarding.monitoring as Record<string, unknown>)
       : {};
+  const plugins =
+    onboarding.plugins && typeof onboarding.plugins === "object"
+      ? (onboarding.plugins as Partial<OnboardingDraft["plugins"]>)
+      : {};
   const analytics =
     onboarding.analytics && typeof onboarding.analytics === "object"
       ? (onboarding.analytics as Partial<OnboardingDraft["analytics"]>)
@@ -669,15 +669,17 @@ function draftFromOrg(
           )
         : typeof goals.success === "string"
           ? [goals.success]
-          : ["$5k MRR with signal"],
-      timeBudget:
-        typeof goals.timeBudget === "string" ? goals.timeBudget : "5-10 hours",
+          : [],
+      timeBudget: typeof goals.timeBudget === "string" ? goals.timeBudget : "",
     },
     monitoring: {
-      channels: normaliseChannels(monitoring.channels, ["X", "Reddit"]),
+      channels: normaliseChannels(monitoring.channels, []),
       details: typeof monitoring.details === "string" ? monitoring.details : "",
       keywords:
         typeof monitoring.keywords === "string" ? monitoring.keywords : "",
+    },
+    plugins: {
+      integrations: normaliseIntegrations(plugins.integrations),
     },
     analytics: {
       integrations: normaliseIntegrations(analytics.integrations),
@@ -690,14 +692,13 @@ function draftFromOrg(
     },
     ads: {
       integrations: normaliseIntegrations(ads.integrations),
-      budget:
-        typeof ads.budget === "string" && ads.budget
-          ? ads.budget
-          : adsBudgetOptions[0]!,
+      budget: typeof ads.budget === "string" && ads.budget ? ads.budget : "",
     },
     aeo: {
       trackAiReferrals:
-        typeof aeo.trackAiReferrals === "boolean" ? aeo.trackAiReferrals : true,
+        typeof aeo.trackAiReferrals === "boolean"
+          ? aeo.trackAiReferrals
+          : false,
     },
     engineering: {
       enabled:
@@ -736,6 +737,8 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
       parsed.workspaceMode === "local" || parsed.workspaceMode === "cloud";
     const parsedMonitoring = parsed.monitoring as
       Partial<OnboardingDraft["monitoring"]> | undefined;
+    const parsedPlugins = parsed.plugins as
+      Partial<OnboardingDraft["plugins"]> | undefined;
     const parsedAnalytics = parsed.analytics as
       Partial<OnboardingDraft["analytics"]> | undefined;
     const parsedAds = parsed.ads as Partial<OnboardingDraft["ads"]> | undefined;
@@ -817,6 +820,9 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
           base.monitoring.channels,
         ),
       },
+      plugins: {
+        integrations: normaliseIntegrations(parsedPlugins?.integrations),
+      },
       analytics: {
         integrations: normaliseIntegrations(parsedAnalytics?.integrations),
         selection:
@@ -866,15 +872,18 @@ function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
         plan: normaliseAutomationPlan(parsedAutomation?.plan),
       },
       step:
-        storedStep === "analyticsConnect"
-          ? "ads"
-          : storedStep === "adsConnect"
-            ? normaliseIntegrations(parsedAds?.integrations).length > 0
-              ? "aeo"
-              : "adsBudget"
-            : parsed.step && steps.includes(parsed.step) && hasSetupMode
-              ? parsed.step
-              : base.step,
+        storedStep === "analyticsConnect" ||
+        storedStep === "adsConnect" ||
+        storedStep === "analytics" ||
+        storedStep === "ads" ||
+        storedStep === "adsBudget" ||
+        storedStep === "aeo" ||
+        storedStep === "engineering" ||
+        storedStep === "engineeringTools"
+          ? "plugins"
+          : parsed.step && hasSetupMode
+            ? resumableOnboardingStep(parsed.step)
+            : base.step,
     };
   } catch {
     return base;
@@ -1030,9 +1039,6 @@ function questionText(step: StepKey, draft: OnboardingDraft) {
   if (step === "inference" && draft.workspaceMode === "cloud") {
     return "Which cloud provider should Chief use?";
   }
-  if (step === "adsBudget" && draft.ads.integrations.length > 0) {
-    return "Roughly how much do you spend on paid ads each month?";
-  }
   return questions[step];
 }
 
@@ -1169,54 +1175,11 @@ function AnswerPreview({
     );
   }
 
-  if (step === "analytics") {
+  if (step === "plugins") {
     return (
       <UserBubble>
-        {draft.analytics.selection === "none"
-          ? "I don't use analytics"
-          : draft.analytics.selection === "skipped"
-            ? "Skipped analytics for now"
-            : (selectedIntegrationNames(draft.analytics.integrations) ??
-              "No analytics selected")}
-      </UserBubble>
-    );
-  }
-
-  if (step === "ads") {
-    return (
-      <UserBubble>
-        {selectedIntegrationNames(draft.ads.integrations) ?? "No paid ads"}
-      </UserBubble>
-    );
-  }
-
-  if (step === "adsBudget") {
-    return <UserBubble>{draft.ads.budget}</UserBubble>;
-  }
-
-  if (step === "aeo") {
-    return (
-      <UserBubble>
-        {draft.aeo.trackAiReferrals ? "Track AI referrals" : "Not now"}
-      </UserBubble>
-    );
-  }
-
-  if (step === "engineering") {
-    return (
-      <UserBubble>
-        {draft.engineering.enabled
-          ? "Yes, help with technical setup"
-          : "Not right now"}
-      </UserBubble>
-    );
-  }
-
-  if (step === "engineeringTools") {
-    return (
-      <UserBubble>
-        {selectedIntegrationNames(draft.engineering.integrations) ??
-          "No engineering tools selected"}
+        {selectedIntegrationNames(draft.plugins.integrations) ??
+          "I'll connect tools later"}
       </UserBubble>
     );
   }
@@ -1567,6 +1530,11 @@ function ProviderControl({
       "bg-background hover:border-foreground flex min-h-[112px] items-start gap-3 rounded-xl border p-4 text-left transition-colors",
       selected && "border-foreground bg-muted",
     );
+  const agentAppOptionClass = (selected: boolean) =>
+    cn(
+      "bg-background hover:border-foreground flex h-16 items-center gap-3 rounded-xl border px-3 py-2 text-left transition-colors",
+      selected && "border-foreground bg-muted",
+    );
 
   if (draft.workspaceMode === "cloud") {
     return (
@@ -1704,42 +1672,30 @@ function ProviderControl({
         </Button>
       }
     >
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-2 sm:grid-cols-3">
         <button
           type="button"
           onClick={() =>
             setField({ providerMode: "local", provider: "claude", model: "" })
           }
-          className={optionClass(
+          className={agentAppOptionClass(
             draft.providerMode === "local" && draft.provider === "claude",
           )}
         >
-          <Claude.Color size={18} className="mt-0.5 shrink-0" />
-          <span>
-            <span className="block text-sm font-medium">Claude</span>
-            <span className="text-muted-foreground mt-1 block text-xs leading-5">
-              Uses your existing Claude subscription on this Mac. Good for
-              strategy, research and writing work.
-            </span>
-          </span>
+          <Claude.Color size={32} className="shrink-0" />
+          <span className="block text-sm font-medium">Claude</span>
         </button>
         <button
           type="button"
           onClick={() =>
             setField({ providerMode: "local", provider: "codex", model: "" })
           }
-          className={optionClass(
+          className={agentAppOptionClass(
             draft.providerMode === "local" && draft.provider === "codex",
           )}
         >
-          <OpenAI size={18} className="mt-0.5 shrink-0" />
-          <span>
-            <span className="block text-sm font-medium">Codex</span>
-            <span className="text-muted-foreground mt-1 block text-xs leading-5">
-              Uses your existing Codex setup. Good when the agent needs to work
-              in repos, files and local tools.
-            </span>
-          </span>
+          <OpenAI size={32} className="shrink-0" />
+          <span className="block text-sm font-medium">Codex</span>
         </button>
         <button
           type="button"
@@ -1750,18 +1706,12 @@ function ProviderControl({
               model: "",
             })
           }
-          className={optionClass(
+          className={agentAppOptionClass(
             draft.providerMode === "local" && draft.provider === "opencode",
           )}
         >
-          <OpenCode size={18} className="mt-0.5 shrink-0" />
-          <span>
-            <span className="block text-sm font-medium">OpenCode</span>
-            <span className="text-muted-foreground mt-1 block text-xs leading-5">
-              Uses your existing OpenCode setup on this Mac. Open and flexible
-              for general agent work in any project.
-            </span>
-          </span>
+          <OpenCode size={32} className="shrink-0" />
+          <span className="block text-sm font-medium">OpenCode</span>
         </button>
       </div>
     </StepFrame>
@@ -2048,6 +1998,11 @@ function SellingControl({
       saving={saving}
       disabled={!draft.goals.selling.trim()}
     >
+      <p className="text-muted-foreground mb-4 text-sm leading-6">
+        Pick any tools you want Chief to help connect. Your agents will suggest
+        the best available plugin in the relevant channel and ask before opening
+        sign-in.
+      </p>
       <Input
         autoFocus
         value={draft.goals.selling}
@@ -2536,10 +2491,6 @@ function IntegrationPickerControl({
   fallbackIntegrations,
   defaultSearchQuery,
   searchPlaceholder,
-  emptySelectionLabel,
-  skipLabel,
-  onEmptySelection,
-  onSkip,
   onContinue,
   saving,
 }: {
@@ -2548,10 +2499,6 @@ function IntegrationPickerControl({
   fallbackIntegrations: IntegrationSearchResult[];
   defaultSearchQuery: string;
   searchPlaceholder: string;
-  emptySelectionLabel: string;
-  skipLabel: string;
-  onEmptySelection: () => void;
-  onSkip: () => void;
   onContinue: () => void;
   saving: boolean;
 }) {
@@ -2560,6 +2507,8 @@ function IntegrationPickerControl({
     () => cachedIntegrationSearch(defaultSearchQuery) ?? fallbackIntegrations,
   );
   const [loading, setLoading] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const [canScrollDown, setCanScrollDown] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -2572,6 +2521,7 @@ function IntegrationPickerControl({
       return;
     }
     setLoading(true);
+    setResults([]);
     const timeout = window.setTimeout(() => {
       void searchIntegrations(trimmed)
         .then((items) => {
@@ -2594,20 +2544,40 @@ function IntegrationPickerControl({
 
   const options = useMemo(() => {
     const seen = new Set<string>();
-    return [...selected, ...fallbackIntegrations, ...results].filter(
-      (integration) => {
-        if (seen.has(integration.domain)) return false;
-        seen.add(integration.domain);
-        return true;
-      },
+    const candidates = query.trim()
+      ? [...results, ...selected]
+      : [...fallbackIntegrations, ...selected];
+    return candidates.filter((integration) => {
+      const key = integrationDomainKey(integration.domain);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [fallbackIntegrations, query, results, selected]);
+
+  const updateScrollCue = useCallback(() => {
+    const list = listRef.current;
+    if (!list) return;
+    setCanScrollDown(
+      list.scrollHeight - list.scrollTop - list.clientHeight > 2,
     );
-  }, [fallbackIntegrations, results, selected]);
+  }, []);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(updateScrollCue);
+    return () => window.cancelAnimationFrame(frame);
+  }, [options.length, updateScrollCue]);
 
   const toggle = (integration: IntegrationSearchResult) => {
-    const exists = selected.some((item) => item.domain === integration.domain);
+    const domainKey = integrationDomainKey(integration.domain);
+    const exists = selected.some(
+      (item) => integrationDomainKey(item.domain) === domainKey,
+    );
     setSelected(
       exists
-        ? selected.filter((item) => item.domain !== integration.domain)
+        ? selected.filter(
+            (item) => integrationDomainKey(item.domain) !== domainKey,
+          )
         : [...selected, integration],
     );
   };
@@ -2616,120 +2586,46 @@ function IntegrationPickerControl({
     <StepFrame
       onContinue={onContinue}
       saving={saving}
-      disabled={!selected.length}
       continueLabel="Continue"
       actionsAlign="right"
-      actionsLeft={
-        <>
-          <Button type="button" variant="ghost" onClick={onSkip}>
-            {skipLabel}
-          </Button>
-          {selected.length === 0 ? (
-            <Button type="button" onClick={onEmptySelection}>
-              {emptySelectionLabel}
-            </Button>
-          ) : null}
-        </>
-      }
+      separateActions={false}
+      className="bg-[color-mix(in_srgb,var(--card)_60%,var(--background))]"
     >
       <Input
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         placeholder={searchPlaceholder}
       />
-      <div className="text-muted-foreground mt-3 flex items-center justify-between text-xs">
-        <span>Powered by integrations.sh</span>
-        <span>{loading ? "Searching..." : `${options.length} options`}</span>
-      </div>
-      <div className="mt-4 grid h-[360px] auto-rows-[100px] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
-        {options.map((integration) => (
-          <IntegrationChoiceCard
-            key={integration.domain}
-            integration={integration}
-            selected={selected.some(
-              (item) => item.domain === integration.domain,
-            )}
-            onClick={() => toggle(integration)}
-          />
-        ))}
-      </div>
-    </StepFrame>
-  );
-}
-
-function AdsBudgetControl({
-  budget,
-  setBudget,
-  onContinue,
-  saving,
-}: {
-  budget: string;
-  setBudget: (budget: string) => void;
-  onContinue: () => void;
-  saving: boolean;
-}) {
-  const index = Math.max(0, adsBudgetOptions.indexOf(budget));
-  return (
-    <StepFrame onContinue={onContinue} saving={saving}>
-      <p className="text-muted-foreground max-w-xl text-sm leading-6">
-        You don't have to run ads yourself. Your agents can plan them, launch
-        them and keep an eye on the spend, and nothing goes live without your
-        OK. Roughly what could you put toward ads each month?
-      </p>
-      <div className="mt-2 px-1 py-3">
-        <div className="text-center text-sm font-medium">{budget}</div>
-        <input
-          type="range"
-          aria-label="Monthly advertising budget"
-          min={0}
-          max={adsBudgetOptions.length - 1}
-          value={index}
-          onChange={(event) =>
-            setBudget(adsBudgetOptions[Number(event.target.value)]!)
-          }
-          className="[&::-moz-range-track]:bg-border [&::-webkit-slider-runnable-track]:bg-border mt-3 h-9 w-full cursor-pointer appearance-none bg-transparent accent-white focus-visible:outline-none [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-moz-range-track]:h-1 [&::-moz-range-track]:rounded-full [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-thumb]:-mt-2 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
-        />
-        <div className="text-muted-foreground mt-4 flex justify-between text-xs">
-          <span>Not yet</span>
-          <span>More</span>
+      <div className="relative mt-3">
+        <div
+          ref={listRef}
+          onScroll={updateScrollCue}
+          className={cn(
+            "grid max-h-[368px] gap-2 overflow-y-auto pr-1 pb-16 transition-opacity sm:grid-cols-3",
+            loading && "opacity-70",
+          )}
+        >
+          {options.map((integration) => (
+            <IntegrationChoiceCard
+              key={integrationDomainKey(integration.domain)}
+              integration={integration}
+              selected={selected.some(
+                (item) =>
+                  integrationDomainKey(item.domain) ===
+                  integrationDomainKey(integration.domain),
+              )}
+              onClick={() => toggle(integration)}
+              compact
+            />
+          ))}
         </div>
+        {canScrollDown ? (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute right-1 bottom-0 left-0 h-20 bg-gradient-to-b from-transparent to-[color-mix(in_srgb,var(--card)_60%,var(--background))]"
+          />
+        ) : null}
       </div>
-    </StepFrame>
-  );
-}
-
-function AeoControl({
-  selected,
-  setSelected,
-  onContinue,
-  saving,
-}: {
-  selected: boolean;
-  setSelected: (trackAiReferrals: boolean) => void;
-  onContinue: () => void;
-  saving: boolean;
-}) {
-  return (
-    <StepFrame onContinue={onContinue} saving={saving}>
-      <p className="text-muted-foreground text-sm leading-6">
-        AI assistants increasingly recommend products before buyers visit your
-        site. Chief watches analytics for AI referrals and reports what is
-        sending traffic.
-      </p>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Chip selected={selected} onClick={() => setSelected(true)}>
-          Track AI referrals
-        </Chip>
-        <Chip selected={!selected} onClick={() => setSelected(false)}>
-          Not now
-        </Chip>
-      </div>
-      {selected ? (
-        <p className="text-muted-foreground mt-4 text-xs leading-5">
-          Chief will report attributable AI referrals from the analytics source
-          you connect, while keeping unknown direct traffic separate.
-        </p>
-      ) : null}
     </StepFrame>
   );
 }
@@ -2777,6 +2673,36 @@ export function OnboardingPage() {
   const { cloudOrganizationId, user, signOut } = useAuth();
   const { status: runtimeStatus } = useRuntime();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
+  const plugins = usePlugins();
+  const everydayIntegrations = useMemo(() => {
+    const catalog = onboardingPluginOptions(plugins.plugins ?? [], 60).map(
+      pluginIntegration,
+    );
+    const catalogByDomain = new Map(
+      catalog.map((integration) => [
+        integrationDomainKey(integration.domain),
+        integration,
+      ]),
+    );
+    const candidates = [
+      ...preferredEverydayIntegrations.map((preferred) => ({
+        ...(catalogByDomain.get(integrationDomainKey(preferred.domain)) ??
+          preferred),
+        name: preferred.name,
+      })),
+      ...catalog,
+      ...fallbackEverydayIntegrations,
+    ];
+    const seen = new Set<string>();
+    return candidates
+      .filter((integration) => {
+        const key = integrationDomainKey(integration.domain);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 30);
+  }, [plugins.plugins]);
   const agentPreferences = useAgentPreferences(cloudOrganizationId);
   const deploymentState = useAgentDeployments(cloudOrganizationId);
   const { isAuthenticated: convexReady } = useConvexAuth();
@@ -2800,8 +2726,7 @@ export function OnboardingPage() {
       ? [AI_GATEWAY_API_KEY]
       : null,
   );
-  // Deep link: /onboarding?step=analytics reopens setup at that step (the
-  // dashboard's finish-setting-up card uses this to resume skipped items).
+  // Deep links may reopen any current onboarding step.
   const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
@@ -2831,10 +2756,7 @@ export function OnboardingPage() {
   }, [cloudOrganizationId, searchParams, setSearchParams, user?.name]);
 
   useEffect(() => {
-    void Promise.allSettled([
-      searchIntegrations("analytics"),
-      searchIntegrations("ads"),
-    ]);
+    void searchIntegrations("business tools");
   }, []);
 
   useEffect(() => {
@@ -2905,54 +2827,13 @@ export function OnboardingPage() {
     [],
   );
 
-  const setAnalyticsIntegrations = useCallback(
+  const setPluginIntegrations = useCallback(
     (integrations: IntegrationSearchResult[]) => {
       setDraft((current) =>
         current
           ? {
               ...current,
-              analytics: {
-                ...current.analytics,
-                integrations,
-                selection: integrations.length > 0 ? "selected" : null,
-              },
-            }
-          : current,
-      );
-    },
-    [],
-  );
-
-  const setAdsIntegrations = useCallback(
-    (integrations: IntegrationSearchResult[]) => {
-      setDraft((current) =>
-        current
-          ? { ...current, ads: { ...current.ads, integrations } }
-          : current,
-      );
-    },
-    [],
-  );
-
-  const setAdsBudget = useCallback((budget: string) => {
-    setDraft((current) =>
-      current ? { ...current, ads: { ...current.ads, budget } } : current,
-    );
-  }, []);
-
-  const setAeo = useCallback((patch: Partial<OnboardingDraft["aeo"]>) => {
-    setDraft((current) =>
-      current ? { ...current, aeo: { ...current.aeo, ...patch } } : current,
-    );
-  }, []);
-
-  const setEngineering = useCallback(
-    (patch: Partial<OnboardingDraft["engineering"]>) => {
-      setDraft((current) =>
-        current
-          ? {
-              ...current,
-              engineering: { ...current.engineering, ...patch },
+              plugins: { integrations },
             }
           : current,
       );
@@ -2973,43 +2854,6 @@ export function OnboardingPage() {
     },
     [],
   );
-
-  const clearAnalyticsSelection = useCallback(
-    (selection: "none" | "skipped") => {
-      setNotice(null);
-      setError(null);
-      setDraft((current) =>
-        current
-          ? {
-              ...current,
-              analytics: {
-                ...current.analytics,
-                integrations: [],
-                selection,
-              },
-              ...(editingStep ? {} : { step: "ads" as const }),
-            }
-          : current,
-      );
-      if (editingStep) setEditingStep(null);
-    },
-    [editingStep],
-  );
-
-  const clearAdsSelection = useCallback(() => {
-    setNotice(null);
-    setError(null);
-    setDraft((current) =>
-      current
-        ? {
-            ...current,
-            ads: { ...current.ads, integrations: [] },
-            ...(editingStep ? {} : { step: "adsBudget" as const }),
-          }
-        : current,
-    );
-    if (editingStep) setEditingStep(null);
-  }, [editingStep]);
 
   const goNext = useCallback(() => {
     setNotice(null);
@@ -3193,6 +3037,14 @@ export function OnboardingPage() {
           ? { ...(metadata.onboarding as Record<string, unknown>) }
           : {};
       delete persistedOnboarding.provisional;
+      const deferredAutomation = {
+        ...draft.automation,
+        mode: "manual" as const,
+        plan: draft.automation.plan.map((item) => ({
+          ...item,
+          enabled: false,
+        })),
+      };
       const kickoffMetadata = {
         ...metadata,
         websiteUrl: draft.websiteUrl.trim(),
@@ -3217,11 +3069,12 @@ export function OnboardingPage() {
           },
           goals: draft.goals,
           monitoring: draft.monitoring,
+          plugins: draft.plugins,
           analytics: draft.analytics,
           ads: draft.ads,
           aeo: draft.aeo,
           engineering: draft.engineering,
-          automation: draft.automation,
+          automation: deferredAutomation,
         },
       };
       const jobs = buildOnboardingWorkJobs({
@@ -3230,12 +3083,9 @@ export function OnboardingPage() {
         websiteUrl: draft.websiteUrl,
         timezone: draft.automation.timezone,
         brand: draft.brand,
-        analytics: draft.analytics,
-        ads: draft.ads,
-        aeo: draft.aeo,
-        engineering: draft.engineering,
+        plugins: draft.plugins,
       });
-      const schedules = buildOnboardingSchedules(draft.automation, org.id);
+      const schedules: OnboardingSchedule[] = [];
       const completedMetadata = {
         ...kickoffMetadata,
         onboarding: {
@@ -3320,17 +3170,6 @@ export function OnboardingPage() {
         await completeOnboarding();
         return;
       }
-      if (!editingStep && step === "engineering") {
-        setDraft((current) =>
-          current
-            ? {
-                ...current,
-                step: current.engineering.enabled ? "engineeringTools" : "aeo",
-              }
-            : current,
-        );
-        return;
-      }
       finishCurrentStep();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -3340,7 +3179,6 @@ export function OnboardingPage() {
   }, [
     completeOnboarding,
     draft,
-    editingStep,
     finishCurrentStep,
     persistContext,
     prepareWorkspace,
@@ -3520,80 +3358,14 @@ export function OnboardingPage() {
         />
       );
     }
-    if (step === "analytics") {
+    if (step === "plugins") {
       return (
         <IntegrationPickerControl
-          selected={draft.analytics.integrations}
-          setSelected={setAnalyticsIntegrations}
-          fallbackIntegrations={fallbackAnalyticsIntegrations}
-          defaultSearchQuery="analytics"
-          searchPlaceholder="Search analytics tools"
-          emptySelectionLabel={"I don't use analytics"}
-          skipLabel="Skip for now"
-          onEmptySelection={() => clearAnalyticsSelection("none")}
-          onSkip={() => clearAnalyticsSelection("skipped")}
-          onContinue={advance}
-          saving={saving}
-        />
-      );
-    }
-    if (step === "ads") {
-      return (
-        <IntegrationPickerControl
-          selected={draft.ads.integrations}
-          setSelected={setAdsIntegrations}
-          fallbackIntegrations={fallbackAdsIntegrations}
-          defaultSearchQuery="ads"
-          searchPlaceholder="Search ads tools"
-          emptySelectionLabel="I don't run ads"
-          skipLabel="Skip for now"
-          onEmptySelection={clearAdsSelection}
-          onSkip={clearAdsSelection}
-          onContinue={advance}
-          saving={saving}
-        />
-      );
-    }
-    if (step === "adsBudget") {
-      return (
-        <AdsBudgetControl
-          budget={draft.ads.budget}
-          setBudget={setAdsBudget}
-          onContinue={advance}
-          saving={saving}
-        />
-      );
-    }
-    if (step === "engineering") {
-      return (
-        <EngineeringAccessControl
-          selected={draft.engineering.enabled}
-          setSelected={(enabled) =>
-            setEngineering({
-              enabled,
-              ...(enabled ? {} : { integrations: [] }),
-            })
-          }
-          onContinue={advance}
-          saving={saving}
-        />
-      );
-    }
-    if (step === "engineeringTools") {
-      return (
-        <EngineeringToolsControl
-          selected={draft.engineering.integrations}
-          setSelected={(integrations) => setEngineering({ integrations })}
-          onContinue={advance}
-          saving={saving}
-        />
-      );
-    }
-    if (step === "aeo") {
-      return (
-        <AeoControl
-          selected={draft.aeo.trackAiReferrals}
-          setSelected={(trackAiReferrals) => setAeo({ trackAiReferrals })}
+          selected={draft.plugins.integrations}
+          setSelected={setPluginIntegrations}
+          fallbackIntegrations={everydayIntegrations}
+          defaultSearchQuery="business tools"
+          searchPlaceholder="Search apps"
           onContinue={advance}
           saving={saving}
         />
@@ -3624,20 +3396,15 @@ export function OnboardingPage() {
     gatewayInputs,
     convexReady,
     draft,
+    everydayIntegrations,
     org,
     runtimeStatus,
     saving,
     setField,
     setBrand,
     setGoals,
-    setAeo,
-    setEngineering,
     setAutomation,
-    setAdsIntegrations,
-    setAdsBudget,
-    setAnalyticsIntegrations,
-    clearAdsSelection,
-    clearAnalyticsSelection,
+    setPluginIntegrations,
     setMonitoring,
     setSocial,
     socialAccounts,
@@ -3665,13 +3432,7 @@ export function OnboardingPage() {
         <div className="min-h-0 flex-1 space-y-7 overflow-y-auto pr-1 pb-6">
           {steps
             .slice(0, currentIndex)
-            .filter(
-              (pastStep) =>
-                pastStep !== editingStep &&
-                !(
-                  pastStep === "engineeringTools" && !draft.engineering.enabled
-                ),
-            )
+            .filter((pastStep) => pastStep !== editingStep)
             .map((pastStep) => (
               <div key={pastStep} className="space-y-3">
                 <AgentBubble text={questionText(pastStep, draft)} />
@@ -3710,7 +3471,7 @@ export function OnboardingPage() {
               {currentControl}
             </div>
             <div className="min-h-5">
-              {notice && step !== "analytics" ? (
+              {notice ? (
                 <p className="text-muted-foreground text-xs">{notice}</p>
               ) : null}
               {error ? (

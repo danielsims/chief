@@ -244,6 +244,17 @@ await build({
         }));
       },
     },
+    {
+      name: "bundle-chief-plugin-api",
+      setup(build) {
+        build.onResolve({ filter: /^@chief\/plugin-api$/ }, () => ({
+          path: join(repoRoot, "packages/plugin-api/src/index.ts"),
+        }));
+        build.onResolve({ filter: /^@chief\/plugin-api\/reference$/ }, () => ({
+          path: join(repoRoot, "packages/plugin-api/src/reference.ts"),
+        }));
+      },
+    },
   ],
   platform: "node",
   target: "node24",
@@ -279,6 +290,16 @@ if (
 ) {
   throw new Error("Chief channel API escaped the desktop runtime bundle.");
 }
+if (
+  bundledRuntime.includes('"@chief/plugin-api"') ||
+  bundledRuntime.includes("'@chief/plugin-api'")
+) {
+  throw new Error("Chief plugin API escaped the desktop runtime bundle.");
+}
+rmSync(join(runtimeRoot, "node_modules/@chief/plugin-api"), {
+  recursive: true,
+  force: true,
+});
 
 // Prompts are runtime assets, not bundled strings. Shipping the canonical
 // filesystem tree keeps local Codex, Claude and OpenCode sessions on the same
@@ -303,6 +324,13 @@ for (const entry of readdirSync(agentDefinitionsRoot, {
   if (existsSync(skills)) {
     cpSync(skills, join(targetDirectory, "skills"), { recursive: true });
   }
+}
+
+const bundledPluginsRoot = join(packageRoot, "src/plugins-bundled");
+if (existsSync(bundledPluginsRoot)) {
+  cpSync(bundledPluginsRoot, join(runtimeRoot, "plugins-bundled"), {
+    recursive: true,
+  });
 }
 
 // App-managed deployments use a bundled, deterministic Eve workspace. The

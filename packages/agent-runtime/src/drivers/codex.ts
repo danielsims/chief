@@ -351,6 +351,7 @@ export class CodexDriver extends BaseDriver {
         }
       } else {
         lines.push(`command = ${JSON.stringify(server.command)}`);
+        if (server.cwd) lines.push(`cwd = ${JSON.stringify(server.cwd)}`);
         lines.push(
           `args = [${server.args.map((value) => JSON.stringify(value)).join(", ")}]`,
         );

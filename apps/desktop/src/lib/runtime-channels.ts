@@ -8,13 +8,18 @@ import type {
 
 import { useAuth } from "./auth/auth-context";
 import { useRuntime, useWorkspaceCapability } from "./runtime";
-
-const channelCache = new Map<string, WorkspaceChannel[]>();
-const channelEventCache = new Map<string, ChannelEvent[]>();
+import {
+  activateWorkspaceConversationCache,
+  cacheChannelEvents,
+  cachedChannelEvents,
+  cachedWorkspaceChannels,
+  cacheWorkspaceChannels,
+} from "./workspace-conversation-cache";
 
 export function useChannelEvents(channelId: string | null) {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  activateWorkspaceConversationCache(cloudOrganizationId);
   const cacheKey =
     cloudOrganizationId && channelId
       ? `${cloudOrganizationId}\0${channelId}`
@@ -25,17 +30,27 @@ export function useChannelEvents(channelId: string | null) {
     loaded: boolean;
   }>(() => ({
     cacheKey,
-    events: cacheKey ? (channelEventCache.get(cacheKey) ?? []) : [],
-    loaded: cacheKey ? channelEventCache.has(cacheKey) : true,
+    events:
+      cloudOrganizationId && channelId
+        ? (cachedChannelEvents(cloudOrganizationId, channelId) ?? [])
+        : [],
+    loaded:
+      cloudOrganizationId && channelId
+        ? cachedChannelEvents(cloudOrganizationId, channelId) !== undefined
+        : true,
   }));
+  const cachedEvents =
+    cloudOrganizationId && channelId
+      ? cachedChannelEvents(cloudOrganizationId, channelId)
+      : undefined;
   const events =
-    eventState.cacheKey === cacheKey
-      ? eventState.events
-      : cacheKey
-        ? (channelEventCache.get(cacheKey) ?? [])
-        : [];
+    eventState.cacheKey === cacheKey ? eventState.events : (cachedEvents ?? []);
   const eventsLoaded =
-    eventState.cacheKey === cacheKey ? eventState.loaded : false;
+    cacheKey === null
+      ? true
+      : eventState.cacheKey === cacheKey
+        ? eventState.loaded
+        : cachedEvents !== undefined;
 
   useEffect(() => {
     if (
@@ -53,7 +68,7 @@ export function useChannelEvents(channelId: string | null) {
         message.workspaceId === cloudOrganizationId &&
         message.channelId === channelId
       ) {
-        channelEventCache.set(activeCacheKey, message.events);
+        cacheChannelEvents(cloudOrganizationId, channelId, message.events);
         setEventState({
           cacheKey: activeCacheKey,
           events: message.events,
@@ -70,7 +85,7 @@ export function useChannelEvents(channelId: string | null) {
           const current =
             currentState.cacheKey === activeCacheKey
               ? currentState.events
-              : (channelEventCache.get(activeCacheKey) ?? []);
+              : (cachedChannelEvents(cloudOrganizationId, channelId) ?? []);
           if (current.some((event) => event.id === message.event.id)) {
             return {
               cacheKey: activeCacheKey,
@@ -79,7 +94,7 @@ export function useChannelEvents(channelId: string | null) {
             };
           }
           const next = [...current, message.event];
-          channelEventCache.set(activeCacheKey, next);
+          cacheChannelEvents(cloudOrganizationId, channelId, next);
           return {
             cacheKey: activeCacheKey,
             events: next,
@@ -102,11 +117,11 @@ export function useChannelEvents(channelId: string | null) {
   return { events, loaded: eventsLoaded };
 }
 
-/** Durable NIP-29 destinations, including user-created workspace channels. */
 export function useWorkspaceChannels() {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
   const { sessionToken } = useAuth();
+  activateWorkspaceConversationCache(cloudOrganizationId);
   const pendingCreates = useRef(
     new Map<
       string,
@@ -147,8 +162,18 @@ export function useWorkspaceChannels() {
     >(),
   );
   const [channels, setChannels] = useState<WorkspaceChannel[]>(() =>
-    cloudOrganizationId ? (channelCache.get(cloudOrganizationId) ?? []) : [],
+    cloudOrganizationId
+      ? (cachedWorkspaceChannels(cloudOrganizationId) ?? [])
+      : [],
   );
+  const [channelsWorkspaceId, setChannelsWorkspaceId] =
+    useState(cloudOrganizationId);
+  const visibleChannels =
+    channelsWorkspaceId === cloudOrganizationId
+      ? channels
+      : cloudOrganizationId
+        ? (cachedWorkspaceChannels(cloudOrganizationId) ?? [])
+        : [];
 
   useEffect(() => {
     if (!cloudOrganizationId || !capability || status !== "connected") return;
@@ -157,7 +182,8 @@ export function useWorkspaceChannels() {
         message.type === "channels" &&
         message.workspaceId === cloudOrganizationId
       ) {
-        channelCache.set(cloudOrganizationId, message.channels);
+        cacheWorkspaceChannels(cloudOrganizationId, message.channels);
+        setChannelsWorkspaceId(cloudOrganizationId);
         setChannels(message.channels);
       }
       if (
@@ -170,7 +196,7 @@ export function useWorkspaceChannels() {
           )
             ? current
             : [...current, message.channel];
-          channelCache.set(cloudOrganizationId, next);
+          cacheWorkspaceChannels(cloudOrganizationId, next);
           return next;
         });
         const pending = pendingCreates.current.get(message.requestId);
@@ -188,7 +214,7 @@ export function useWorkspaceChannels() {
           const next = current.map((channel) =>
             channel.id === message.channel.id ? message.channel : channel,
           );
-          channelCache.set(cloudOrganizationId, next);
+          cacheWorkspaceChannels(cloudOrganizationId, next);
           return next;
         });
         const pending = pendingUpdates.current.get(message.requestId);
@@ -217,7 +243,7 @@ export function useWorkspaceChannels() {
           const next = current.map((channel) =>
             channel.id === message.channel.id ? message.channel : channel,
           );
-          channelCache.set(cloudOrganizationId, next);
+          cacheWorkspaceChannels(cloudOrganizationId, next);
           return next;
         });
         const pending = pendingPolicies.current.get(message.requestId);
@@ -246,7 +272,7 @@ export function useWorkspaceChannels() {
           const next = current.filter(
             (channel) => channel.id !== message.channelId,
           );
-          channelCache.set(cloudOrganizationId, next);
+          cacheWorkspaceChannels(cloudOrganizationId, next);
           return next;
         });
         const pending = pendingDeletes.current.get(message.requestId);
@@ -311,7 +337,7 @@ export function useWorkspaceChannels() {
             ? { ...channel, agentIds, updatedAt: Date.now() }
             : channel,
         );
-        channelCache.set(cloudOrganizationId, next);
+        cacheWorkspaceChannels(cloudOrganizationId, next);
         return next;
       });
       client.send({
@@ -453,7 +479,7 @@ export function useWorkspaceChannels() {
   );
 
   return {
-    channels,
+    channels: visibleChannels,
     createChannel,
     deleteChannel,
     setChannelArchived,
@@ -461,8 +487,4 @@ export function useWorkspaceChannels() {
     updateChannel,
     updateChannelAgents,
   };
-}
-
-export function reactionIntentKey(messageId: string, emoji: string) {
-  return `${messageId}\0${emoji}`;
 }

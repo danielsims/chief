@@ -18,6 +18,7 @@ import type {
 } from "@chief/channel-api";
 
 import type {
+  ActionResolution,
   AnalyticsDataset,
   ChannelActor,
   InputRequest,
@@ -459,8 +460,10 @@ export const actions = sqliteTable(
     title: text().notNull(),
     reason: text().notNull(),
     sourceId: text("source_id"),
+    threadRootId: text("thread_root_id"),
     request: text({ mode: "json" }).$type<InputRequest>(),
-    status: text({ enum: ["open", "dismissed"] }).notNull(),
+    resolution: text({ mode: "json" }).$type<ActionResolution>(),
+    status: text({ enum: ["open", "resolved", "dismissed"] }).notNull(),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [

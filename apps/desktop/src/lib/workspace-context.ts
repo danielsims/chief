@@ -29,6 +29,7 @@ export function workspaceContextFromOrganization(
   const ads = record(onboarding.ads);
   const aeo = record(onboarding.aeo);
   const monitoring = record(onboarding.monitoring);
+  const plugins = record(onboarding.plugins);
   const analytics = record(onboarding.analytics);
   const automation = record(onboarding.automation);
   const brand = record(onboarding.brand);
@@ -36,6 +37,9 @@ export function workspaceContextFromOrganization(
   const lines: string[] = [];
   const website = text(metadata.websiteUrl);
   lines.push(`Company: ${org.name}${website ? ` (${website})` : ""}`);
+  lines.push(
+    "Discovery is progressive: setup intentionally did not ask for positioning, audience, brand voice, public accounts, prospect sources, success criteria, or recurring work. Research first. When one missing answer would materially change the work, the relevant specialist should ask one compact structured question in its owning channel, then continue from the answer. Do not turn missing optional context into an intake questionnaire.",
+  );
   const selling = text(goals.selling);
   if (selling) lines.push(`What they sell: ${selling}`);
   const audience = text(goals.audience);
@@ -71,6 +75,16 @@ export function workspaceContextFromOrganization(
     : [];
   if (channels.length > 0) {
     lines.push(`Channels being watched: ${channels.join(", ")}`);
+  }
+  const requestedPlugins = Array.isArray(plugins.integrations)
+    ? plugins.integrations
+        .map((item) => text(record(item).name))
+        .filter(Boolean)
+    : [];
+  if (requestedPlugins.length > 0) {
+    lines.push(
+      `Tools the user already uses: ${requestedPlugins.join(", ")}. These selections express relevance, not connection status. Prefer a matching Chief plugin when one is available; otherwise use Chief's secure setup and Executor capabilities. Always ask before opening sign-in or changing an external account.`,
+    );
   }
   const integrations = Array.isArray(analytics.integrations)
     ? analytics.integrations

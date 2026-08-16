@@ -30,6 +30,33 @@ export interface ScheduledChannelThread {
   failureMessage?: string;
 }
 
+export class ScheduledChannelUnavailableError extends Error {}
+
+async function scheduledChannel(
+  manager: SessionManager,
+  workspaceId: string,
+  work: RecurringWorkRecord,
+) {
+  const waysOfWorking = readWorkspaceWaysOfWorking(workspaceId);
+  const channels = await manager.store.channelStore().list(workspaceId);
+  const channel = preferredScheduledChannel(
+    channels,
+    work,
+    waysOfWorking.missionControlChannelId,
+  );
+  if (!channel) {
+    throw new ScheduledChannelUnavailableError(
+      "Choose a channel for this scheduled work.",
+    );
+  }
+  if (channel.lifecycle !== "active") {
+    throw new ScheduledChannelUnavailableError(
+      "Choose an active channel for this scheduled work.",
+    );
+  }
+  return channel;
+}
+
 function openingMessage(work: RecurringWorkRecord) {
   return work.operationKey === "chief-mission-control-heartbeat"
     ? "Hey, I’m checking the workspace now. I’ll keep anything useful in this thread."
@@ -47,7 +74,8 @@ function threadInstructions(
       ? `
 - You are not a status reporter. A recap of existing state is not an outcome.
 - Before publishing a closing reply, either advance useful work yourself, open or reuse a focused work channel and wake its owner, or raise one concrete user action with localTools.actionRaise.
-- If nothing can be advanced and the user is not genuinely required, publish nothing. The quiet opening event will not notify them.`
+- Raise an action only when an already-attempted concrete task is blocked by something only the user can do or decide. Never manufacture a choice among possible next moves, and never make completed onboarding itself require attention.
+- Complete a substantive check before concluding there is nothing to do. If nothing can be advanced and the user is not genuinely required, raise no action and close this thread with one calm sentence that nothing needs their attention. The quiet outcome will not notify them.`
       : "";
   return `This scheduled channel message has started the following work:
 
@@ -74,17 +102,7 @@ export async function beginScheduledChannelThread(
   broadcast: (workspaceId: string, event: ChannelEvent) => void,
   triggerContext?: Record<string, unknown>,
 ): Promise<ScheduledChannelThread> {
-  const waysOfWorking = readWorkspaceWaysOfWorking(workspaceId);
-  const channels = await manager.store.channelStore().list(workspaceId);
-  const channel = preferredScheduledChannel(
-    channels,
-    work,
-    waysOfWorking.missionControlChannelId,
-  );
-  if (!channel) throw new Error("Choose a channel for this scheduled work.");
-  if (channel.lifecycle !== "active") {
-    throw new Error("Choose an active channel for this scheduled work.");
-  }
+  const channel = await scheduledChannel(manager, workspaceId, work);
   const assignedAgent = getAgent(work.agentId) ?? getAgent("chief");
   if (!assignedAgent) throw new Error("The scheduled agent is unavailable.");
   const sourceId = randomUUID();
@@ -235,6 +253,7 @@ export async function startScheduledChannelWork({
   work: RecurringWorkRecord;
   workspaceId: string;
 }) {
+  await scheduledChannel(manager, workspaceId, work);
   const [agentConfig, executor] = await Promise.all([
     scheduledAgentConfig(manager, workspaceId, work),
     prepareWorkspaceTools(),

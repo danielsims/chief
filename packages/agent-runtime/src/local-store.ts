@@ -25,6 +25,7 @@ import {
   isNull,
   like,
   lte,
+  ne,
   or,
 } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
@@ -1775,6 +1776,21 @@ export class LocalStore {
       .run();
   }
 
+  private actionItemRecord(item: typeof schema.actions.$inferSelect) {
+    return {
+      id: item.id,
+      agentId: item.agentId,
+      title: item.title,
+      reason: item.reason,
+      sourceId: item.sourceId ?? undefined,
+      ...(item.threadRootId ? { threadRootId: item.threadRootId } : {}),
+      ...(item.request ? { request: item.request } : {}),
+      ...(item.resolution ? { resolution: item.resolution } : {}),
+      status: item.status,
+      createdAt: item.createdAt,
+    } satisfies ActionItem;
+  }
+
   async listActionItems(workspaceId: string): Promise<ActionItem[]> {
     await this.ready;
     const rows = await this.db
@@ -1788,16 +1804,24 @@ export class LocalStore {
       )
       .orderBy(desc(schema.actions.createdAt))
       .all();
-    return rows.map((item) => ({
-      id: item.id,
-      agentId: item.agentId,
-      title: item.title,
-      reason: item.reason,
-      sourceId: item.sourceId ?? undefined,
-      ...(item.request ? { request: item.request } : {}),
-      status: item.status,
-      createdAt: item.createdAt,
-    }));
+    return rows.map((item) => this.actionItemRecord(item));
+  }
+
+  /** Includes resolved decisions so their thread cards remain durable history. */
+  async listWorkspaceActionItems(workspaceId: string): Promise<ActionItem[]> {
+    await this.ready;
+    const rows = await this.db
+      .select()
+      .from(schema.actions)
+      .where(
+        and(
+          eq(schema.actions.organizationId, workspaceId),
+          ne(schema.actions.status, "dismissed"),
+        ),
+      )
+      .orderBy(desc(schema.actions.createdAt))
+      .all();
+    return rows.map((item) => this.actionItemRecord(item));
   }
 
   async raiseActionItem(workspaceId: string, item: ActionItem) {
@@ -1828,7 +1852,9 @@ export class LocalStore {
         .values({
           ...item,
           sourceId: item.sourceId ?? null,
+          threadRootId: item.threadRootId ?? null,
           request: item.request ?? null,
+          resolution: item.resolution ?? null,
           organizationId: workspaceId,
         })
         .onConflictDoUpdate({
@@ -1838,7 +1864,9 @@ export class LocalStore {
             title: item.title,
             reason: item.reason,
             sourceId: item.sourceId ?? null,
+            threadRootId: item.threadRootId ?? null,
             request: item.request ?? null,
+            resolution: item.resolution ?? null,
             status: item.status,
             createdAt: item.createdAt,
           },
@@ -1873,18 +1901,7 @@ export class LocalStore {
         ),
       )
       .get();
-    return item
-      ? {
-          id: item.id,
-          agentId: item.agentId,
-          title: item.title,
-          reason: item.reason,
-          sourceId: item.sourceId ?? undefined,
-          ...(item.request ? { request: item.request } : {}),
-          status: item.status,
-          createdAt: item.createdAt,
-        }
-      : null;
+    return item ? this.actionItemRecord(item) : null;
   }
 
   async dueRecurringWork(now: number) {
@@ -2597,6 +2614,8 @@ export class LocalStore {
           .values({
             ...item,
             sourceId: item.sourceId ?? null,
+            threadRootId: item.threadRootId ?? null,
+            request: item.request ?? null,
             organizationId: workspaceId,
           })
           .onConflictDoUpdate({
@@ -2606,6 +2625,8 @@ export class LocalStore {
               title: item.title,
               reason: item.reason,
               sourceId: item.sourceId ?? null,
+              threadRootId: item.threadRootId ?? null,
+              request: item.request ?? null,
               status: item.status,
               createdAt: item.createdAt,
             },

@@ -17,10 +17,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 import type { StoredSession } from "./session";
-import {
-  dispatchMessageDeepLink,
-  parseMessageDeepLink,
-} from "../message-deep-links";
+import { dispatchChiefNavigation, parseChiefDeepLink } from "../app-navigation";
 import { AUTH_BASE_URL } from "./better-auth-client";
 import { clearPkceVerifier, getPkceVerifier } from "./pkce";
 
@@ -117,9 +114,9 @@ async function handleDeepLink(url: string, options: SetupOptions) {
 
     const parsedUrl = new URL(url);
 
-    const messageTarget = parseMessageDeepLink(url);
-    if (messageTarget) {
-      dispatchMessageDeepLink(messageTarget);
+    const navigationTarget = parseChiefDeepLink(url);
+    if (navigationTarget) {
+      dispatchChiefNavigation(navigationTarget);
       return;
     }
 

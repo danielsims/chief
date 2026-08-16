@@ -115,6 +115,7 @@ export class ClaudeDriver extends BaseDriver {
                   type: "stdio" as const,
                   command: server.command,
                   args: server.args,
+                  ...(server.cwd ? { cwd: server.cwd } : {}),
                   env: server.env ?? {},
                 },
           ]),

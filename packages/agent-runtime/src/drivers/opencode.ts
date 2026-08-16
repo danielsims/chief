@@ -12,6 +12,7 @@ import { agentEnvironment } from "./environment.js";
 import {
   findOpenCode,
   initializeOpenCodeSession,
+  openCodeConfigContent,
   OpenCodeHostServices,
   openCodeRecord as record,
   openCodeTextContent as textContent,
@@ -67,9 +68,10 @@ export class OpenCodeDriver extends BaseDriver {
     env.GIT_ASKPASS = "/bin/true";
     env.GIT_PAGER = "cat";
     env.PAGER = "cat";
-    if (options.model) {
-      env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ model: options.model });
-    }
+    env.OPENCODE_CONFIG_CONTENT = openCodeConfigContent(
+      options,
+      env.OPENCODE_CONFIG_CONTENT,
+    );
     const child = spawn(findOpenCode(), ["acp"], {
       cwd: options.cwd,
       env,

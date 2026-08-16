@@ -55,6 +55,14 @@ void test("agent-bound MCP exposes Chief local operations with resolved schemas"
     true,
   );
   assert.equal(operations.has("localTools.specialistsDelegate"), true);
+  const removeReaction = operations.get("localTools.channelsReactionsRemove");
+  assert.ok(removeReaction);
+  assert.equal(removeReaction.method, "DELETE");
+  assert.deepEqual(removeReaction.inputSchema.required, [
+    "channelId",
+    "messageId",
+    "emoji",
+  ]);
 });
 
 void test("agent-bound MCP rejects workspace tokens and forwards the session capability", async () => {
