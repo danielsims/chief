@@ -270,7 +270,7 @@ export class ProjectGitService {
       ? input.baseRef.trim()
       : project.defaultBranch;
     await git(
-      ["rev-parse", "--verify", `${baseRef}^{commit}`],
+      ["rev-parse", "--verify", "--end-of-options", `${baseRef}^{commit}`],
       binding.repositoryPath,
     );
     const path = join(

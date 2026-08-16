@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { realpath } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 import type {
@@ -15,6 +17,23 @@ import { projectIconDataUrl } from "./project-icon.js";
 const executeFile = promisify(execFile);
 const GIT_TIMEOUT_MS = 30_000;
 const GIT_OUTPUT_LIMIT = 4 * 1024 * 1024;
+
+let hooksPathPromise: Promise<string> | undefined;
+
+/**
+ * An empty, Chief-owned hooks directory. Repository hooks and `.git/config`
+ * are untrusted input, so server-side Git must never execute them. Passing
+ * `core.hooksPath` to an empty directory disables every hook for one command
+ * without touching the repository's configuration.
+ */
+async function emptyHooksPath() {
+  hooksPathPromise ??= (async () => {
+    const path = join(tmpdir(), "chief-no-hooks");
+    await mkdir(path, { recursive: true, mode: 0o700 });
+    return path;
+  })();
+  return hooksPathPromise;
+}
 
 export function safeSegment(value: string, fallback: string) {
   return (
@@ -84,7 +103,7 @@ export async function git(
   timeout = GIT_TIMEOUT_MS,
 ) {
   try {
-    const result = await executeFile("git", args, {
+    const result = await executeFile("git", await gitCommand(args), {
       ...(cwd ? { cwd } : {}),
       encoding: "utf8",
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" },
@@ -102,10 +121,11 @@ export async function gitBuffer(
   cwd: string,
   timeout = GIT_TIMEOUT_MS,
 ) {
+  const command = await gitCommand(args);
   return new Promise<Buffer>((resolve, reject) => {
     execFile(
       "git",
-      args,
+      command,
       {
         cwd,
         encoding: "buffer",
@@ -129,6 +149,11 @@ export async function gitBuffer(
       },
     );
   });
+}
+
+async function gitCommand(args: string[]) {
+  const hooksPath = await emptyHooksPath();
+  return ["-c", `core.hooksPath=${hooksPath}`, ...args];
 }
 
 export async function optionalGit(args: string[], cwd: string) {
@@ -219,16 +244,17 @@ export async function repositorySnapshot(
     };
   }
   try {
-    const [status, iconDataUrl] = await Promise.all([
-      git(["status", "--porcelain=v2", "--branch"], binding.repositoryPath),
-      projectIconDataUrl(binding.repositoryPath),
-    ]);
+    const status = await git(
+      ["status", "--porcelain=v2", "--branch"],
+      binding.repositoryPath,
+    );
     const branch = /^# branch\.head (.+)$/m.exec(status)?.[1];
     const head = /^# branch\.oid (.+)$/m.exec(status)?.[1];
     const divergence = /^# branch\.ab \+(\d+) -(\d+)$/m.exec(status);
     const changedFiles = status
       .split("\n")
       .filter((line) => line && !line.startsWith("#")).length;
+    const iconDataUrl = await projectIconDataUrl(binding.repositoryPath, head);
     const branchOutput = await git(
       ["for-each-ref", "--format=%(refname:short)", "refs/heads"],
       binding.repositoryPath,
