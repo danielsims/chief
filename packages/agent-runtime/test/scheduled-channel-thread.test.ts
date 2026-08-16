@@ -12,6 +12,7 @@ import {
 import {
   beginScheduledChannelThread,
   runScheduledChannelThread,
+  startScheduledChannelWork,
 } from "../src/scheduled-channel-thread.js";
 
 const workspaceId = `manual-heartbeat-test-${process.pid}`;
@@ -186,6 +187,34 @@ void test("legacy onboarding schedules move to the assigned agent channel", asyn
     id: "prospector",
     name: "Prospector",
   });
+});
+
+void test("an inactive scheduled channel fails before provisioning workspace tools", async () => {
+  let prepared = false;
+  const manager = {
+    store: {
+      channelStore: () => ({
+        list: () => Promise.resolve([{ ...channel, lifecycle: "archived" }]),
+      }),
+    },
+  } as unknown as SessionManager;
+
+  await assert.rejects(
+    () =>
+      startScheduledChannelWork({
+        bindSession: () => undefined,
+        broadcast: () => undefined,
+        manager,
+        prepareWorkspaceTools: () => {
+          prepared = true;
+          return Promise.resolve(null);
+        },
+        work,
+        workspaceId,
+      }),
+    /Choose an active channel/u,
+  );
+  assert.equal(prepared, false);
 });
 
 void test("scheduled work keeps provider work and its closing update in the thread", async () => {

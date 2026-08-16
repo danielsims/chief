@@ -40,6 +40,8 @@ import {
   deferForAgentConfiguration,
   scheduledAgentConfig,
 } from "./scheduled-agent-config.js";
+import { ScheduledChannelUnavailableError } from "./scheduled-channel-thread.js";
+import { pauseScheduledWorkForMissingChannel } from "./scheduled-work-recovery.js";
 import { executorToolServer } from "./tools/spec.js";
 import { readWorkspaceContext } from "./workspace-context.js";
 import { workspaceKey } from "./workspace-secrets.js";
@@ -90,7 +92,6 @@ function requestedInput(summary: string | undefined): InputRequest | null {
     return null;
   }
 }
-
 function requestedSourceRequirement(
   summary: string | undefined,
   work: RecurringWorkRecord,
@@ -123,7 +124,7 @@ function requestedSourceRequirement(
           : (fallbackReason ?? "A required source is not connected.");
       return { category, providers, reason };
     } catch {
-      // Fall through to the agent-specific source description below.
+      /* Use fallback. */
     }
   }
   if (!fallbackReason) return null;
@@ -392,7 +393,6 @@ export class RecurringWorkScheduler {
     ) => Promise<boolean> = () => Promise.resolve(false),
   ) {}
 
-  /** Notices are best-effort; they must never break scheduled work. */
   private notice(workspaceId: string, notice: RuntimeNotice) {
     try {
       this.onNotice(workspaceId, notice);
@@ -487,7 +487,6 @@ export class RecurringWorkScheduler {
     await this.runNow(workspaceId, recurringWorkId);
   }
 
-  /** Keep one ordered execution lane because workspace tools share state. */
   private enqueue(
     workspaceId: string,
     recurringWorkId: string,
@@ -606,18 +605,30 @@ export class RecurringWorkScheduler {
     const skipped = work.skipDates?.includes(
       runDateKey(scheduledFor, work.timezone),
     );
-    if (
-      !skipped &&
-      (await this.dispatchScheduledMessage(
-        workspaceId,
-        work,
-        scheduledFor,
-        triggerContext,
-      ))
-    ) {
-      // The visible channel event has already been published. Suppress a
-      // duplicate occurrence in this process even if advancing the durable
-      // schedule briefly contends with another SQLite writer.
+    let dispatched = false;
+    if (!skipped) {
+      try {
+        dispatched = await this.dispatchScheduledMessage(
+          workspaceId,
+          work,
+          scheduledFor,
+          triggerContext,
+        );
+      } catch (error) {
+        if (!claim || !(error instanceof ScheduledChannelUnavailableError)) {
+          throw error;
+        }
+        await pauseScheduledWorkForMissingChannel({
+          manager: this.manager,
+          onChange: this.onChange,
+          message: error.message,
+          work,
+          workspaceId,
+        });
+        return;
+      }
+    }
+    if (dispatched) {
       this.lastDeliveryTimes.set(workKey, scheduledFor);
       const completedAt = Date.now();
       const timeTriggered =
