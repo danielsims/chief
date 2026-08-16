@@ -15,11 +15,13 @@ export function ProjectBranchPicker({
   current,
   defaultBranch,
   onSelect,
+  label,
 }: {
   branches: string[];
   current: string;
   defaultBranch: string;
   onSelect: (branch: string) => void;
+  label?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -48,6 +50,9 @@ export function ProjectBranchPicker({
           size="sm"
           className="w-56 max-w-full min-w-0 justify-start overflow-hidden [&_[data-slot=button-content]]:w-full [&_[data-slot=button-content]]:min-w-0"
         >
+          {label ? (
+            <span className="text-muted-foreground shrink-0">{label}</span>
+          ) : null}
           <GitBranch size={14} className="shrink-0" />
           <span className="min-w-0 flex-1 truncate text-left">{current}</span>
           <ChevronDown

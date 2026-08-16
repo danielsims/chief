@@ -3,10 +3,15 @@ import { mkdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 import type { ProjectPrincipal, ProjectRecord } from "../types.js";
+import type { CredentialBroker } from "./credential-broker.js";
 import type { ProjectServiceAuthorization } from "./service-base.js";
 import type { ProjectPersistence } from "./store.js";
 import { ProjectCheckoutService } from "./checkouts.js";
-import { resolveProjectProvider } from "./providers.js";
+import { compareRepositoryBranches } from "./compare.js";
+import {
+  projectProviderCapabilities,
+  resolveProjectProvider,
+} from "./providers.js";
 import {
   browseRepository,
   inspectRepositoryCommit,
@@ -33,6 +38,7 @@ export class ProjectGitService extends ProjectServiceBase {
     options: {
       root?: string;
       authorization?: ProjectServiceAuthorization;
+      broker?: CredentialBroker;
     } = {},
   ) {
     super(persistence, {
@@ -40,6 +46,7 @@ export class ProjectGitService extends ProjectServiceBase {
       ...(options.authorization
         ? { authorization: options.authorization }
         : {}),
+      ...(options.broker ? { broker: options.broker } : {}),
     });
     this.checkouts = new ProjectCheckoutService(persistence, options);
   }
@@ -273,5 +280,41 @@ export class ProjectGitService extends ProjectServiceBase {
       ref?.length ? ref : project.defaultBranch,
       commit,
     );
+  }
+
+  async compare(
+    organizationId: string,
+    projectId: string,
+    principal: ProjectPrincipal,
+    baseRef: string,
+    compareRef: string,
+  ) {
+    const project = await this.requireProject(organizationId, projectId);
+    await this.authorize(organizationId, projectId, principal, "view");
+    const binding = await this.ensureBinding(project);
+    return compareRepositoryBranches(
+      project.id,
+      binding.repositoryPath,
+      baseRef,
+      compareRef,
+    );
+  }
+
+  /** Whether this project's provider can host pull requests today. */
+  async pullRequestCapability(
+    organizationId: string,
+    projectId: string,
+    principal: ProjectPrincipal,
+  ) {
+    const project = await this.requireProject(organizationId, projectId);
+    await this.authorize(organizationId, projectId, principal, "view");
+    const capabilities = projectProviderCapabilities(project.providerId);
+    if (capabilities.pullRequests) {
+      return { supported: true as const };
+    }
+    return {
+      supported: false as const,
+      reason: `Pull requests are not available for ${project.providerId} repositories in Chief yet.`,
+    };
   }
 }

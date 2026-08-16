@@ -87,6 +87,56 @@ export function projectOpenApiPaths(
         responses: { "200": { description: "Released checkout" } },
       },
     },
+    "/local-tools/projects/diff": {
+      post: {
+        operationId: "projects.diff",
+        summary: "Compare two branches with a bounded diff",
+        description:
+          "Returns merge status, commit list, and a bounded combined diff between a base and compare ref. Inspect this before publishing work.",
+        requestBody: body("ProjectBranchCompareInput"),
+        responses: { "200": { description: "Branch comparison" } },
+      },
+    },
+    "/local-tools/projects/checkouts/publish": {
+      post: {
+        operationId: "projects.publish",
+        summary: "Publish one owned branch through the trusted credential flow",
+        description:
+          "Pushes the caller's branch to its Git remote with an explicit refspec. Publishing to the default branch is disabled unless an operator explicitly authorizes it.",
+        requestBody: body("ProjectPublishInput"),
+        responses: { "200": { description: "Published branch" } },
+      },
+    },
+    "/local-tools/projects/checkouts/discard": {
+      post: {
+        operationId: "projects.discardCheckout",
+        summary: "Discard uncommitted checkout changes after confirmation",
+        description:
+          "Permanently removes uncommitted and untracked changes inside the caller's isolated checkout. Requires explicit confirmation.",
+        requestBody: body("ProjectDiscardCheckoutInput"),
+        responses: { "200": { description: "Discarded checkout" } },
+      },
+    },
+    "/local-tools/projects/pull-requests": {
+      post: {
+        operationId: "projects.pullRequest.create",
+        summary: "Create a provider pull request when the provider supports it",
+        description:
+          "Creates a pull request from headBranch to baseBranch. Returns a typed unsupported response for repositories without pull request support.",
+        requestBody: body("ProjectPullRequestCreateInput"),
+        responses: { "200": { description: "Pull request result" } },
+      },
+    },
+    "/local-tools/projects/pull-requests/status": {
+      post: {
+        operationId: "projects.pullRequest.status",
+        summary: "Read checks and review state for a provider pull request",
+        description:
+          "Returns a typed unsupported response for repositories without pull request support.",
+        requestBody: body("ProjectPullRequestStatusInput"),
+        responses: { "200": { description: "Pull request status" } },
+      },
+    },
   };
 }
 
@@ -123,6 +173,64 @@ export const projectOpenApiSchemas = {
     properties: {
       checkoutId: { type: "string" },
       message: { type: "string", maxLength: 240 },
+    },
+  },
+  ProjectBranchCompareInput: {
+    type: "object",
+    required: ["projectId", "baseRef", "compareRef"],
+    properties: {
+      projectId: { type: "string" },
+      baseRef: { type: "string", description: "Base branch to compare from" },
+      compareRef: {
+        type: "string",
+        description: "Branch whose changes are being reviewed",
+      },
+    },
+  },
+  ProjectPublishInput: {
+    type: "object",
+    required: ["checkoutId"],
+    properties: {
+      checkoutId: { type: "string" },
+      targetBranch: {
+        type: "string",
+        description: "Optional remote branch. Defaults to the checkout branch.",
+      },
+      correlationId: {
+        type: "string",
+        description:
+          "Idempotency key that ties a retry to the original publish",
+      },
+    },
+  },
+  ProjectDiscardCheckoutInput: {
+    type: "object",
+    required: ["checkoutId", "confirmed"],
+    properties: {
+      checkoutId: { type: "string" },
+      confirmed: {
+        type: "boolean",
+        description: "Must be true; uncommitted changes are destroyed",
+      },
+    },
+  },
+  ProjectPullRequestCreateInput: {
+    type: "object",
+    required: ["projectId", "title", "headBranch", "baseBranch"],
+    properties: {
+      projectId: { type: "string" },
+      title: { type: "string", maxLength: 240 },
+      description: { type: "string", maxLength: 2000 },
+      headBranch: { type: "string" },
+      baseBranch: { type: "string" },
+    },
+  },
+  ProjectPullRequestStatusInput: {
+    type: "object",
+    required: ["projectId", "number"],
+    properties: {
+      projectId: { type: "string" },
+      number: { type: "integer", minimum: 1 },
     },
   },
 } as const;
@@ -209,6 +317,61 @@ export async function handleProjectLocalTool(
     );
     await context.onProjectsChanged?.();
     return { handled: true, value: result };
+  }
+  if (path === "/local-tools/projects/diff") {
+    return {
+      handled: true,
+      value: {
+        comparison: await context.service.compare(
+          organizationId,
+          requiredString(body.projectId, "projectId", 160),
+          principal,
+          requiredString(body.baseRef, "baseRef"),
+          requiredString(body.compareRef, "compareRef"),
+        ),
+      },
+    };
+  }
+  if (path === "/local-tools/projects/checkouts/publish") {
+    const correlationId = optionalString(body.correlationId, 160);
+    const targetBranch = optionalString(body.targetBranch);
+    const result = await context.service.checkouts.publish(
+      organizationId,
+      requiredString(body.checkoutId, "checkoutId", 160),
+      principal,
+      {
+        ...(targetBranch ? { targetBranch } : {}),
+        ...(correlationId ? { correlationId } : {}),
+      },
+    );
+    await context.onProjectsChanged?.();
+    return { handled: true, value: result };
+  }
+  if (path === "/local-tools/projects/checkouts/discard") {
+    const result = await context.service.checkouts.discard(
+      organizationId,
+      requiredString(body.checkoutId, "checkoutId", 160),
+      principal,
+      { confirmed: body.confirmed === true },
+    );
+    await context.onProjectsChanged?.();
+    return { handled: true, value: result };
+  }
+  if (path === "/local-tools/projects/pull-requests") {
+    const capability = await context.service.pullRequestCapability(
+      organizationId,
+      requiredString(body.projectId, "projectId", 160),
+      principal,
+    );
+    return { handled: true, value: capability };
+  }
+  if (path === "/local-tools/projects/pull-requests/status") {
+    const capability = await context.service.pullRequestCapability(
+      organizationId,
+      requiredString(body.projectId, "projectId", 160),
+      principal,
+    );
+    return { handled: true, value: capability };
   }
   throw new Error("Unknown project operation.");
 }

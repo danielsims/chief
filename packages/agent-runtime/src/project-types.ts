@@ -108,8 +108,11 @@ export type ProjectOperationType =
   | "inspect"
   | "browse"
   | "inspect_commit"
+  | "compare"
   | "checkout"
   | "commit"
+  | "publish"
+  | "discard"
   | "release"
   | "remove"
   | "grant"
@@ -251,4 +254,25 @@ export interface ProjectRepositoryBrowserSnapshot {
   contributors: ProjectContributorSummary[];
   readme?: ProjectReadmeSnapshot;
   file?: ProjectFileSnapshot;
+}
+
+/** A bounded branch-to-branch comparison used before review or publish. */
+export interface ProjectBranchComparison {
+  projectId: string;
+  baseRef: string;
+  compareRef: string;
+  mergeBase?: string;
+  /** Commits in compareRef that are not in baseRef. */
+  ahead: number;
+  /** Commits in baseRef that are not in compareRef. */
+  behind: number;
+  commits: ProjectCommitSummary[];
+  filesChanged: number;
+  additions: number;
+  deletions: number;
+  patch: string;
+  truncated: boolean;
+  /** True when a three-way merge would conflict; undefined when unknown. */
+  mergeConflict?: boolean;
+  error?: string;
 }

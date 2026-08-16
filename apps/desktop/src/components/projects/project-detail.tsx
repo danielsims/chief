@@ -14,6 +14,7 @@ import {
   useProjectBrowser,
   useProjectCommit,
 } from "../../lib/runtime-projects";
+import { ProjectBranchCompareView } from "./project-branch-compare";
 import { ProjectCommitHistory } from "./project-commit-history";
 import { ProjectFileBrowser } from "./project-file-browser";
 import { ProjectIcon } from "./project-icon";
@@ -42,11 +43,17 @@ export function ProjectDetail({
     snapshot.branch ?? project.defaultBranch,
   );
   const [selectedPath, setSelectedPath] = useState("");
-  const [view, setView] = useState<"files" | "commits" | "commit">("files");
+  const [view, setView] = useState<"files" | "commits" | "commit" | "compare">(
+    "files",
+  );
   const [selectedCommit, setSelectedCommit] =
     useState<ProjectCommitSummary | null>(null);
   const [commitBackView, setCommitBackView] = useState<"files" | "commits">(
     "commits",
+  );
+  const [compareBaseRef, setCompareBaseRef] = useState(project.defaultBranch);
+  const [compareRef, setCompareRef] = useState(
+    snapshot.checkouts[0]?.branch ?? project.defaultBranch,
   );
   const browser = useProjectBrowser(project.id, selectedRef, selectedPath);
   const commitDetail = useProjectCommit(
@@ -62,6 +69,13 @@ export function ProjectDetail({
     setSelectedCommit(commit);
     setCommitBackView(returnView);
     setView("commit");
+  };
+
+  const openCompare = (baseRef?: string, compareRef?: string) => {
+    if (baseRef) setCompareBaseRef(baseRef);
+    if (compareRef) setCompareRef(compareRef);
+    setSelectedCommit(null);
+    setView("compare");
   };
 
   const refresh = () => {
@@ -138,6 +152,7 @@ export function ProjectDetail({
           setSelectedCommit(null);
           setView("commits");
         }}
+        onOpenCompare={() => openCompare()}
       />
 
       <div
@@ -147,7 +162,21 @@ export function ProjectDetail({
         )}
       >
         <main className="min-w-0">
-          {view === "commit" && selectedCommit ? (
+          {view === "compare" ? (
+            <ProjectBranchCompareView
+              snapshot={snapshot}
+              baseRef={compareBaseRef}
+              compareRef={compareRef}
+              currentUser={user}
+              onBaseChange={setCompareBaseRef}
+              onCompareChange={setCompareRef}
+              onSwap={() => {
+                setCompareBaseRef(compareRef);
+                setCompareRef(compareBaseRef);
+              }}
+              onBack={() => setView("files")}
+            />
+          ) : view === "commit" && selectedCommit ? (
             <Suspense fallback={<div className="min-h-40" />}>
               <ProjectCommitDetailView
                 commit={selectedCommit}
@@ -191,6 +220,9 @@ export function ProjectDetail({
             browser={browser.browser}
             currentUser={user}
             onSelectCommit={(commit) => openCommit(commit, "files")}
+            onReviewCheckout={(branch) =>
+              openCompare(project.defaultBranch, branch)
+            }
           />
         ) : null}
       </div>

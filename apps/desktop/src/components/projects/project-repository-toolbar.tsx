@@ -9,11 +9,13 @@ export function ProjectRepositoryToolbar({
   selectedRef,
   onSelectRef,
   onOpenHistory,
+  onOpenCompare,
 }: {
   snapshot: ProjectRepositorySnapshot;
   selectedRef: string;
   onSelectRef: (ref: string) => void;
   onOpenHistory: () => void;
+  onOpenCompare: () => void;
 }) {
   const { project } = snapshot;
   return (
@@ -36,10 +38,14 @@ export function ProjectRepositoryToolbar({
         <GitCommitHorizontal size={14} />
         Commits
       </button>
-      <span className="text-muted-foreground flex items-center gap-1.5">
+      <button
+        type="button"
+        onClick={onOpenCompare}
+        className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors"
+      >
         <GitCompareArrows size={14} />
-        {snapshot.ahead ?? 0} ahead, {snapshot.behind ?? 0} behind
-      </span>
+        Compare
+      </button>
       <span className="text-muted-foreground ml-auto">
         {snapshot.clean
           ? "Working tree clean"
