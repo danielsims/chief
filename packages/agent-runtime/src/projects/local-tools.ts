@@ -227,10 +227,13 @@ export const projectOpenApiSchemas = {
   },
   ProjectPullRequestStatusInput: {
     type: "object",
-    required: ["projectId", "number"],
+    required: ["projectId", "ref"],
     properties: {
       projectId: { type: "string" },
-      number: { type: "integer", minimum: 1 },
+      ref: {
+        type: "string",
+        description: "Branch or commit to read checks for",
+      },
     },
   },
 } as const;
@@ -363,7 +366,22 @@ export async function handleProjectLocalTool(
       requiredString(body.projectId, "projectId", 160),
       principal,
     );
-    return { handled: true, value: capability };
+    if (!capability.supported) return { handled: true, value: capability };
+    const pullRequest = await context.service.createPullRequest(
+      organizationId,
+      requiredString(body.projectId, "projectId", 160),
+      principal,
+      {
+        title: requiredString(body.title, "title", 240),
+        ...(optionalString(body.description, 2000)
+          ? { description: optionalString(body.description, 2000) }
+          : {}),
+        headBranch: requiredString(body.headBranch, "headBranch"),
+        baseBranch: requiredString(body.baseBranch, "baseBranch"),
+      },
+    );
+    await context.onProjectsChanged?.();
+    return { handled: true, value: pullRequest };
   }
   if (path === "/local-tools/projects/pull-requests/status") {
     const capability = await context.service.pullRequestCapability(
@@ -371,7 +389,14 @@ export async function handleProjectLocalTool(
       requiredString(body.projectId, "projectId", 160),
       principal,
     );
-    return { handled: true, value: capability };
+    if (!capability.supported) return { handled: true, value: capability };
+    const status = await context.service.pullRequestStatus(
+      organizationId,
+      requiredString(body.projectId, "projectId", 160),
+      principal,
+      requiredString(body.ref, "ref"),
+    );
+    return { handled: true, value: status };
   }
   throw new Error("Unknown project operation.");
 }

@@ -126,11 +126,11 @@ export function projectProviderCapabilities(
 ): ProjectProviderCapabilities {
   if (providerId === "github") {
     return {
-      repositoryPicker: false,
-      shortLivedCredentials: false,
-      pullRequests: false,
-      checks: false,
-      reviews: false,
+      repositoryPicker: true,
+      shortLivedCredentials: true,
+      pullRequests: true,
+      checks: true,
+      reviews: true,
     };
   }
   return {
