@@ -1,16 +1,17 @@
 import { useMemo, useState } from "react";
 import { ArrowUpRight, CheckCheck, Inbox, MessageSquare } from "lucide-react";
-import { useNavigate } from "react-router";
 
 import { Button } from "@chief/ui/components/button";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { ChannelInboxMessage } from "../lib/channel-inbox";
 import { AgentAvatar } from "../components/agent-avatar";
+import { AttentionPill } from "../components/attention-pill";
 import { PageTitle } from "../components/page-title";
 import { useAuth } from "../lib/auth/auth-context";
 import { channelIdsNeedingUser } from "../lib/channel-action-items";
 import { useChannelReadState } from "../lib/channel-read-state-context";
+import { useChiefNavigation } from "../lib/chief-navigation-context";
 import { useWorkspaceChannels, useWorkspaceData } from "../lib/runtime";
 
 type InboxFilter = "all" | "unread" | "needs-you";
@@ -25,7 +26,7 @@ function relativeTime(timestamp: number) {
   return `${days}d`;
 }
 
-function messageRoute(
+function messageDestination(
   message: ChannelInboxMessage,
   channel: {
     id: string;
@@ -34,19 +35,19 @@ function messageRoute(
     agentIds: readonly string[];
   },
 ) {
-  const params = new URLSearchParams();
-  if (channel.visibility === "direct" && channel.agentIds[0]) {
-    params.set("dm", channel.agentIds[0]);
-  } else {
-    params.set("channel", channel.id || channel.slug);
-  }
-  if (message.threadSourceId) params.set("thread", message.threadSourceId);
-  params.set("message", message.sourceId ?? message.id);
-  return `/conversations?${params.toString()}`;
+  return {
+    kind: "conversation" as const,
+    channelId: channel.id,
+    channelSlug: channel.slug,
+    directAgentId:
+      channel.visibility === "direct" ? channel.agentIds[0] : undefined,
+    threadRootId: message.threadSourceId,
+    messageId: message.sourceId ?? message.id,
+  };
 }
 
 export function InboxPage() {
-  const navigate = useNavigate();
+  const chiefNavigation = useChiefNavigation();
   const { cloudOrganizationId } = useAuth();
   const { inboxMessages, markChannelRead, markThreadRead } =
     useChannelReadState();
@@ -105,7 +106,7 @@ export function InboxPage() {
   const openMessage = (message: ChannelInboxMessage) => {
     const channel = channelsById.get(message.channelId);
     if (!channel) return;
-    void navigate(messageRoute(message, channel));
+    chiefNavigation.open(messageDestination(message, channel));
   };
   const markSelectedRead = () => {
     if (!selected) return;
@@ -188,9 +189,7 @@ export function InboxPage() {
                         {channel?.visibility === "direct"
                           ? "Direct message"
                           : `#${channel?.name ?? "channel"}`}
-                        {needsYou ? (
-                          <span className="text-amber-500">Needs you</span>
-                        ) : null}
+                        {needsYou ? <AttentionPill className="ml-1" /> : null}
                       </span>
                     </span>
                     {message.unread ? (
@@ -220,9 +219,7 @@ export function InboxPage() {
                       </p>
                     </div>
                     {needsUserMessageIds.has(selected.id) ? (
-                      <span className="ml-auto rounded-md bg-amber-500/10 px-2 py-1 text-[10px] font-medium text-amber-500">
-                        Needs you
-                      </span>
+                      <AttentionPill className="ml-auto" />
                     ) : null}
                   </div>
                   <div className="min-h-0 flex-1 overflow-y-auto px-8 py-8">

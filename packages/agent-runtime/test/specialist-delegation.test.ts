@@ -69,6 +69,11 @@ void test("an initial review creates one Marketer despite rewritten concurrent c
     configurable: true,
     value(this: AgentSession, text: string) {
       prompts += 1;
+      assert.equal(
+        this.agent.instructions.match(/Reactions are real agent actions/gu)
+          ?.length,
+        1,
+      );
       this.recordUserMessage(text);
       queueMicrotask(() => {
         this.recordAssistantMessage(

@@ -1,5 +1,6 @@
 import type { ChannelLocalToolContext } from "./channel-local-tools.js";
 import type { WorkspaceChannel } from "./channel-types.js";
+import { normalizeAgentText } from "./agent-output.js";
 import {
   ChannelApiFailure,
   fail,
@@ -8,7 +9,9 @@ import {
   validatedAgentIds,
 } from "./channel-local-tool-input.js";
 import { emitMemberAddedEvent } from "./channel-membership-local-tools.js";
+import { normalizedChannelMentions } from "./channel-message-mentions.js";
 import { ensureChannelPermission } from "./channel-permissions.js";
+import { postPluginRecommendation } from "./channel-plugin-recommendation.js";
 import {
   actorOwnsMessage,
   channelMessages,
@@ -179,6 +182,22 @@ export async function handleChannelMessageLocalTool(input: {
     ensureChannelMember(channel, context);
     const events = await context.channelStore.events(workspaceId, channel.id);
 
+    if (tail === "plugins/recommend" && request.method === "POST") {
+      if (channel.lifecycle === "archived") {
+        fail("Restore this channel before posting.", 409, "channel_archived");
+      }
+      return {
+        handled: true,
+        value: await postPluginRecommendation({
+          workspaceId,
+          channel,
+          events,
+          body,
+          context,
+        }),
+      };
+    }
+
     if (tail === "messages" && request.method === "GET") {
       const page = cursorPage(
         timelineWithThreadContext(events, context.actor),
@@ -196,7 +215,11 @@ export async function handleChannelMessageLocalTool(input: {
       if (channel.lifecycle === "archived") {
         fail("Restore this channel before posting.", 409, "channel_archived");
       }
-      const content = textValue(body.content, "content", 8_000);
+      const rawContent = textValue(body.content, "content", 8_000);
+      const content =
+        context.actor.type === "agent"
+          ? normalizeAgentText(rawContent)
+          : rawContent;
       const idempotencyKey = optionalText(
         body.idempotencyKey,
         "idempotencyKey",
@@ -225,11 +248,15 @@ export async function handleChannelMessageLocalTool(input: {
         ...(idempotencyKey ? { idempotencyKey } : {}),
       });
       const mentions = validatedAgentIds(
-        Array.isArray(body.mentions)
-          ? body.mentions.filter(
-              (value): value is string => typeof value === "string",
-            )
-          : [],
+        normalizedChannelMentions({
+          availableAgentIds: context.availableAgentIds,
+          content,
+          explicitMentions: Array.isArray(body.mentions)
+            ? body.mentions.filter(
+                (value): value is string => typeof value === "string",
+              )
+            : [],
+        }),
         context.availableAgentIds,
         false,
       );
@@ -394,6 +421,7 @@ export async function handleChannelMessageLocalTool(input: {
           "message_not_owned",
         );
       if (request.method === "PATCH") {
+        const rawContent = textValue(body.content, "content", 8_000);
         const expectedVersion =
           typeof body.expectedVersion === "number"
             ? body.expectedVersion
@@ -408,7 +436,10 @@ export async function handleChannelMessageLocalTool(input: {
           channelId: channel.id,
           targetEventId: message.id,
           actor: context.actor,
-          content: textValue(body.content, "content", 8_000),
+          content:
+            context.actor.type === "agent"
+              ? normalizeAgentText(rawContent)
+              : rawContent,
           sourceId: optionalText(body.idempotencyKey, "idempotencyKey", 120),
         });
         await append(context, workspaceId, event);

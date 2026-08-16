@@ -42,6 +42,7 @@ import {
   useWorkspaceCapability,
   useWorkspaceChannels,
 } from "./runtime";
+import * as cache from "./workspace-conversation-cache";
 import { useWorkspaceUnreadCounts } from "./workspace-unread-counts";
 
 interface ChannelReadStateValue {
@@ -321,6 +322,8 @@ function ScopedChannelReadStateProvider({
         return;
       if (message.workspaceId !== workspaceId) return;
       if (message.type === "channelEvents") {
+        const { channelId, events } = message;
+        cache.cacheChannelEvents(workspaceId, channelId, events);
         const nextMessages = channelMessagesFrom(message.events);
         sourceAliasesRef.current.set(
           message.channelId,
@@ -380,6 +383,7 @@ function ScopedChannelReadStateProvider({
         }
         return;
       }
+      cache.cacheChannelEvent(workspaceId, message.event);
       if (message.event.kind === 9) {
         const sourceId = message.event.tags.find(
           (tag) => tag[0] === "client",

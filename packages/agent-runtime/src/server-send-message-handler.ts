@@ -1,8 +1,5 @@
-import type { ChannelEvent } from "./channel-types.js";
-import type { IntegrationSetupRegistry } from "./integration-setup-state.js";
-import type { SessionManager } from "./manager.js";
-import type { AgentSession } from "./session.js";
-import type { AgentEvent, ClientMessage, ServerMessage } from "./types.js";
+import type { HandleSendMessageOptions } from "./server-send-message-types.js";
+import type { AgentEvent } from "./types.js";
 import { getAgent } from "./agents.js";
 import {
   channelReplyThreadRoot,
@@ -14,14 +11,14 @@ import {
   normalizedExecution,
   safeMessageAttachments,
 } from "./server-message-helpers.js";
+import { debugSendMessage } from "./server-send-message-debug.js";
+import { sendMessagePromptContext } from "./server-send-message-prompt.js";
 import { activateRequestedIntegrationSetup } from "./server-send-message-setup.js";
 import { setupSkillFromPrompt } from "./setup-skills.js";
 import { ensureExecutorWorkspace } from "./tools/control-plane.js";
 import { executorToolServer } from "./tools/spec.js";
 import { readWorkspaceContext } from "./workspace-context.js";
 import { readWorkspaceWaysOfWorking } from "./workspace-ways-of-working.js";
-
-type Message = Extract<ClientMessage, { type: "sendMessage" }>;
 
 export async function handleSendMessage({
   authorizeWorkspace,
@@ -32,29 +29,9 @@ export async function handleSendMessage({
   integrationSetups,
   manager,
   msg,
+  pluginMcpServers,
   send,
-}: {
-  authorizeWorkspace: (
-    workspaceId: string,
-    capability: Message["executorCapability"],
-  ) => Promise<unknown>;
-  bindRootSession: (
-    workspaceId: string,
-    chatId: string,
-    session: AgentSession,
-  ) => void;
-  broadcastChannelEvent: (workspaceId: string, event: ChannelEvent) => void;
-  chatDestinations: Map<string, string>;
-  ensureChiefSession: (
-    workspaceId: string,
-    chatId: string,
-    capability: Message["executorCapability"],
-  ) => Promise<AgentSession>;
-  integrationSetups: IntegrationSetupRegistry;
-  manager: SessionManager;
-  msg: Message;
-  send: (message: ServerMessage) => void;
-}) {
+}: HandleSendMessageOptions) {
   await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
   await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
   const attachments = safeMessageAttachments(msg.attachments);
@@ -80,7 +57,6 @@ export async function handleSendMessage({
   let openedSession = (await manager.rootChat(msg.workspaceId, msg.chatId))
     .session;
   if (!openedSession) {
-    // Restore durable provider state after an in-memory session ends.
     const restored = await ensureChiefSession(
       msg.workspaceId,
       msg.chatId,
@@ -178,10 +154,6 @@ export async function handleSendMessage({
     respondingAgentId && destinationChannel
       ? new AddressedChannelReplyFallback()
       : undefined;
-  // Follow-ups are durable before any interruption or execution
-  // wait. That keeps the user's message visible even if stopping the
-  // active provider takes a moment or fails and must fall back to a
-  // normal wait.
   const shouldPreempt = [msg.interruptActive, openedSession.isBusy].some(
     Boolean,
   );
@@ -205,11 +177,9 @@ export async function handleSendMessage({
       });
     }
   }
-  let agentActivity: { channelId: string; reactionId: string } | undefined;
   let channelMessageMirrored = false;
   if (respondingAgentId && destinationChannel) {
-    const respondingAgent = getAgent(respondingAgentId);
-    if (!respondingAgent) {
+    if (!getAgent(respondingAgentId)) {
       throw new Error(
         `${respondingAgentId} persona is missing from this workspace.`,
       );
@@ -238,49 +208,14 @@ export async function handleSendMessage({
       broadcastChannelEvent,
     );
     channelMessageMirrored = Boolean(targetEvent);
-    if (targetEvent) {
-      try {
-        agentActivity = {
-          channelId: destinationChannel.id,
-          reactionId: await channelBridge.beginAgentActivityReaction(
-            manager,
-            send,
-            msg.workspaceId,
-            destinationChannel.id,
-            targetEvent.id,
-            {
-              id: respondingAgent.id,
-              name: respondingAgent.name,
-            },
-          ),
-        };
-      } catch (error) {
-        console.error("[runtime] agent activity reaction:", error);
-      }
-    }
   }
   if (isSharedChannel && !respondingAgentId) {
     return;
   }
-  const finishAgentActivity = async () => {
-    const current = agentActivity;
-    agentActivity = undefined;
-    if (!current) return;
-    await channelBridge.endAgentActivityReaction(
-      manager,
-      send,
-      msg.workspaceId,
-      current.channelId,
-      current.reactionId,
-    );
-  };
   if (shouldPreempt) {
     try {
       await openedSession.interrupt();
     } catch (error) {
-      // The follow-up is already durable. If the provider cannot be
-      // interrupted cleanly, execution acquisition below waits for
-      // its terminal event instead of dropping the user's message.
       console.error("[runtime] interrupt before follow-up:", error);
     } finally {
       manager.releaseExecution(msg.workspaceId, msg.chatId, "interactive");
@@ -288,7 +223,9 @@ export async function handleSendMessage({
   }
   let releaseExecution: (() => void) | undefined;
   let session = openedSession;
-  let releaseOnTerminal: ((event: AgentEvent) => void) | undefined;
+  let releaseOnTerminal:
+    | { session: typeof session; listener: (event: AgentEvent) => void }
+    | undefined;
   try {
     releaseExecution = await manager.acquireExecutionWhenAvailable(
       msg.workspaceId,
@@ -303,11 +240,11 @@ export async function handleSendMessage({
         setupSkill.domain,
       );
     }
-    // Reattach the workspace tool server immediately before an addressed turn.
     const executorWorkspace = await ensureExecutorWorkspace(
       msg.workspaceId,
       msg.executorCapability,
     );
+    const pluginServers = await pluginMcpServers(msg.workspaceId);
     session = await manager.ensureRootChat(session.agent, msg.chatId, {
       ...session.config,
       mcpServers: [
@@ -319,6 +256,7 @@ export async function handleSendMessage({
               ? "model"
               : "browser",
         ),
+        ...pluginServers,
       ],
     });
     bindRootSession(msg.workspaceId, msg.chatId, session);
@@ -405,93 +343,119 @@ export async function handleSendMessage({
       text: msg.text,
       threadRootId: msg.threadRootId,
     });
-    const terminalListener = (event: AgentEvent) => {
-      channelReplyFallback?.observe(event);
-      if (
-        event.type === "result" ||
-        event.type === "error" ||
-        event.type === "exit"
-      ) {
-        session.off("event", terminalListener);
-        releaseExecution?.();
-        releaseExecution = undefined;
-        const fallback = channelReplyFallback?.completed(event);
-        if (fallback && respondingAgentId && destinationChannel) {
-          const respondingAgent = getAgent(respondingAgentId);
-          if (respondingAgent) {
-            void channelBridge
-              .mirrorEvent(
-                manager,
-                send,
-                msg.workspaceId,
-                msg.chatId,
-                {
-                  ...fallback,
-                  id: fallback.id ?? `${msg.messageId}:addressed-reply`,
-                  threadRootId: fallback.threadRootId ?? replyThreadRootId,
-                },
-                destinationChannel.id,
-                { id: respondingAgent.id, name: respondingAgent.name },
-                broadcastChannelEvent,
-              )
-              .catch((error: unknown) =>
-                console.error(
-                  "[runtime] addressed channel reply fallback:",
-                  error,
-                ),
-              );
+    const listenForTerminal = (targetSession: typeof session) => {
+      const terminalListener = (event: AgentEvent) => {
+        channelReplyFallback?.observe(event);
+        if (
+          event.type === "result" ||
+          event.type === "error" ||
+          event.type === "exit"
+        ) {
+          targetSession.off("event", terminalListener);
+          releaseExecution?.();
+          releaseExecution = undefined;
+          const fallback = channelReplyFallback?.completed(event);
+          if (fallback && respondingAgentId && destinationChannel) {
+            const respondingAgent = getAgent(respondingAgentId);
+            if (respondingAgent) {
+              void channelBridge
+                .mirrorEvent(
+                  manager,
+                  send,
+                  msg.workspaceId,
+                  msg.chatId,
+                  {
+                    ...fallback,
+                    id: fallback.id ?? `${msg.messageId}:addressed-reply`,
+                    threadRootId: fallback.threadRootId ?? replyThreadRootId,
+                  },
+                  destinationChannel.id,
+                  { id: respondingAgent.id, name: respondingAgent.name },
+                  broadcastChannelEvent,
+                )
+                .catch((error: unknown) =>
+                  console.error(
+                    "[runtime] addressed channel reply fallback:",
+                    error,
+                  ),
+                );
+            }
           }
         }
-        void finishAgentActivity().catch((error: unknown) =>
-          console.error("[runtime] agent activity reaction cleanup:", error),
-        );
-      }
+      };
+      releaseOnTerminal = {
+        session: targetSession,
+        listener: terminalListener,
+      };
+      targetSession.on("event", terminalListener);
     };
-    releaseOnTerminal = terminalListener;
-    session.on("event", terminalListener);
-    if (process.env.CHIEF_DEBUG_SESSION_FORCE === "1") {
-      console.error(
-        `[sendMessage] chatId=${msg.chatId} threadRootId=${
-          msg.threadRootId ?? "none"
-        } mentions=${JSON.stringify(msg.mentions ?? [])} shared=${
-          isSharedChannel ? "y" : "n"
-        } resolvedThreadRoot=${replyThreadRootId ?? "none"}`,
-      );
-    }
-    await session.sendPrompt(
+    listenForTerminal(session);
+    debugSendMessage({
+      chatId: msg.chatId,
+      threadRootId: msg.threadRootId,
+      mentions: msg.mentions,
+      shared: isSharedChannel,
+      resolvedThreadRootId: replyThreadRootId,
+    });
+    const promptContext = sendMessagePromptContext({
+      threadRootId: replyThreadRootId,
+      mentions: msg.mentions,
+      attachments,
+      setupSkill,
+      publicationInstructions:
+        destinationChannel && destinationChannel.visibility !== "direct"
+          ? channelBridge.channelPublicationInstructions(
+              destinationChannel.id,
+              replyThreadRootId,
+            )
+          : undefined,
+      channelCoordinates: destinationChannel
+        ? channelBridge.channelMessageCoordinates(
+            destinationChannel.id,
+            msg.messageId,
+          )
+        : undefined,
+    });
+    let producedOutput = await session.sendPrompt(
       msg.text,
       msg.messageId,
       !recordedBeforeExecution,
-      {
-        threadRootId: replyThreadRootId,
-        mentions: msg.mentions,
-        attachments,
-        privateInstructions:
-          [
-            ...(setupSkill
-              ? [`Setup skill ${setupSkill.id}:\n${setupSkill.instructions}`]
-              : []),
-            ...(destinationChannel && destinationChannel.visibility !== "direct"
-              ? [
-                  channelBridge.channelPublicationInstructions(
-                    destinationChannel.id,
-                    replyThreadRootId,
-                  ),
-                ]
-              : []),
-          ].join("\n\n") || undefined,
-      },
+      promptContext,
     );
+    if (!producedOutput) {
+      console.error(
+        `[runtime] ${msg.chatId} completed without agent output; starting a fresh provider continuation.`,
+      );
+      const recoveryAgent = session.agent;
+      const recoveryConfig = session.config;
+      session = await manager.restartRootChatContinuation(
+        recoveryAgent,
+        msg.chatId,
+        recoveryConfig,
+      );
+      bindRootSession(msg.workspaceId, msg.chatId, session);
+      releaseExecution = await manager.acquireExecutionWhenAvailable(
+        msg.workspaceId,
+        msg.chatId,
+        "interactive",
+      );
+      listenForTerminal(session);
+      producedOutput = await session.sendPrompt(
+        msg.text,
+        msg.messageId,
+        false,
+        promptContext,
+      );
+      if (!producedOutput) {
+        throw new Error(
+          "The agent completed without a reply after reconnecting. Please try again.",
+        );
+      }
+    }
   } catch (error) {
     if (releaseOnTerminal) {
-      session.off("event", releaseOnTerminal);
+      releaseOnTerminal.session.off("event", releaseOnTerminal.listener);
     }
-    await finishAgentActivity().catch((reactionError: unknown) =>
-      console.error(
-        "[runtime] agent activity reaction cleanup:",
-        reactionError,
-      ),
-    );
     releaseExecution?.();
     throw error;
   }

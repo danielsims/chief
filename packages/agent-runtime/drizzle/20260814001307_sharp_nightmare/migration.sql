@@ -1,0 +1,1 @@
+ALTER TABLE `action` ADD `resolution` text;

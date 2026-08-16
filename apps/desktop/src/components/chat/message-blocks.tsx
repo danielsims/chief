@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Fragment, useEffect, useState } from "react";
-import { ArrowRight, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
 import type {
   AgentCapabilityId,
@@ -12,14 +12,9 @@ import { cn } from "@chief/ui/lib/utils";
 import type { ChannelReferenceTarget } from "./channel-reference-parser";
 import { renderGenerativePart } from "../generative-ui/registry";
 import { executorToolLabel } from "./executor-tool-label";
-import {
-  INLINE_RESULT_CARD_CLASS,
-  INLINE_RESULT_ICON_CLASS,
-} from "./inline-result-card";
-import {
-  specialistIsStartingOrWorking,
-  SpecialistStatusIndicator,
-} from "./specialist-status-indicator";
+import { PluginToolCard } from "./plugin-tool-card";
+import { isPluginTool } from "./plugin-tool-data";
+import { SpecialistTaskCard } from "./specialist-task-card";
 import { specialistTasksForInput } from "./specialist-task-display";
 import { StreamingMarkdown } from "./streaming-markdown";
 
@@ -112,61 +107,6 @@ export function toolSummary(input: unknown): string {
   return "";
 }
 
-export function SpecialistTaskCard({
-  task,
-  onOpenTask,
-}: {
-  task: SessionRecord;
-  onOpenTask?: (taskId: string) => void;
-}) {
-  const working = specialistIsStartingOrWorking(task.status);
-  const agent =
-    task.agent === "brand"
-      ? "Marketer"
-      : task.agent === "content"
-        ? "Content Writer"
-        : task.agent === "analyst"
-          ? "Analyst"
-          : task.agent === "prospector"
-            ? "Prospector"
-            : task.agent === "ads"
-              ? "Ads Manager"
-              : task.agent;
-  return (
-    <button
-      type="button"
-      onClick={() => onOpenTask?.(task.id)}
-      className={cn(INLINE_RESULT_CARD_CLASS, "text-xs")}
-    >
-      <span className={INLINE_RESULT_ICON_CLASS}>
-        <SpecialistStatusIndicator agent={task.agent} status={task.status} />
-      </span>
-      <span className="min-w-0 flex-1">
-        <strong className="block truncate font-medium">{task.title}</strong>
-        <small className="text-muted-foreground mt-0.5 block text-[11px]">
-          {agent} ·{" "}
-          {working
-            ? task.status === "idle"
-              ? "Starting"
-              : task.status === "waiting"
-                ? "Waiting for you"
-                : "Working"
-            : task.status === "completed"
-              ? "Complete"
-              : task.status === "failed"
-                ? "Failed"
-                : "Stopped"}
-        </small>
-      </span>
-      <ArrowRight
-        aria-hidden
-        className="text-muted-foreground/55 shrink-0"
-        size={12}
-      />
-    </button>
-  );
-}
-
 function ToolCard({
   block,
   result,
@@ -249,7 +189,10 @@ function ToolCard({
   }
 
   return (
-    <details className="group bg-card/50 w-96 max-w-full min-w-0 overflow-hidden rounded-2xl border shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_72%,transparent)]">
+    <details
+      className="group bg-card/50 w-96 max-w-full min-w-0 overflow-hidden rounded-2xl border shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_6%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_72%,transparent)]"
+      open
+    >
       <summary className="flex min-h-14 cursor-pointer list-none items-center gap-2.5 px-3 py-2.5 text-[13px] leading-5 [&::-webkit-details-marker]:hidden">
         <span
           className={cn(
@@ -383,6 +326,7 @@ export function Blocks({
               <details
                 key={index}
                 className="group text-muted-foreground text-xs"
+                open
               >
                 <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
                   <span className="inline-flex items-center gap-1.5">
@@ -393,7 +337,7 @@ export function Blocks({
                     />
                   </span>
                 </summary>
-                <p className="text-muted-foreground/80 mt-2 max-w-full border-l pl-3 leading-5 [overflow-wrap:anywhere] break-all whitespace-pre-wrap">
+                <p className="text-muted-foreground mt-2 max-w-full text-[12px] leading-4 font-normal [overflow-wrap:anywhere] whitespace-pre-wrap">
                   {block.thinking}
                 </p>
               </details>
@@ -406,6 +350,15 @@ export function Blocks({
             );
             if (attachment !== undefined) {
               return <Fragment key={block.id}>{attachment}</Fragment>;
+            }
+            if (isPluginTool(block.name)) {
+              return (
+                <PluginToolCard
+                  key={block.id}
+                  block={block}
+                  result={results.get(block.id)}
+                />
+              );
             }
             const blockTasks = specialistTasksForInput(block.input, tasks);
             const visibleTasks = blockTasks.filter(

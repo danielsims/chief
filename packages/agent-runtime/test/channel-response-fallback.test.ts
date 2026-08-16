@@ -15,25 +15,61 @@ void test("a successful text-only addressed reply is publishable", () => {
   assert.deepEqual(fallback.completed({ type: "result", ok: true }), reply);
 });
 
-void test("tool-using and failed turns never auto-publish narration", () => {
+void test("a useful reply survives later tool failure", () => {
   const withTool = new AddressedChannelReplyFallback();
   withTool.observe({
     type: "message",
     role: "assistant",
-    content: [{ type: "text", text: "Let me inspect that." }],
+    content: [{ type: "text", text: "I'm on it. I found the repository." }],
   });
   withTool.observe({
     type: "message",
     role: "assistant",
     content: [{ type: "tool_use", id: "tool-1", name: "search", input: {} }],
   });
-  assert.equal(withTool.completed({ type: "result", ok: true }), undefined);
-
-  const failed = new AddressedChannelReplyFallback();
-  failed.observe({
+  assert.deepEqual(withTool.completed({ type: "error", message: "stalled" }), {
     type: "message",
     role: "assistant",
-    content: [{ type: "text", text: "A partial reply." }],
+    content: [{ type: "text", text: "I'm on it. I found the repository." }],
   });
-  assert.equal(failed.completed({ type: "result", ok: false }), undefined);
+});
+
+void test("an explicit channel publication is never duplicated", () => {
+  const fallback = new AddressedChannelReplyFallback();
+  fallback.observe({
+    type: "message",
+    role: "assistant",
+    content: [{ type: "text", text: "The durable result is ready." }],
+  });
+  fallback.observe({
+    type: "message",
+    role: "assistant",
+    content: [
+      {
+        type: "tool_use",
+        id: "publish-1",
+        name: "chief local localTools channelsMessagesPost",
+        input: {},
+      },
+    ],
+  });
+  assert.equal(fallback.completed({ type: "result", ok: true }), undefined);
+});
+
+void test("a successful tool-assisted turn must use the channel message tool", () => {
+  const fallback = new AddressedChannelReplyFallback();
+  fallback.observe({
+    type: "message",
+    role: "assistant",
+    content: [{ type: "tool_use", id: "tool-1", name: "search", input: {} }],
+  });
+  fallback.observe({
+    type: "message",
+    role: "assistant",
+    content: [
+      { type: "thinking", thinking: "private reasoning" },
+      { type: "text", text: "I found and fixed the routing issue." },
+    ],
+  });
+  assert.equal(fallback.completed({ type: "result", ok: true }), undefined);
 });

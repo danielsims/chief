@@ -6,6 +6,7 @@ import {
   Inbox,
   LayoutGrid,
   Network,
+  Plug,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 
@@ -21,8 +22,13 @@ import {
   canDeleteChannels,
   canManageChannels,
 } from "../lib/auth/organization-role";
-import { channelIdsNeedingUser } from "../lib/channel-action-items";
+import {
+  channelAttentionTargets,
+  channelIdsNeedingUser,
+  directMessageAttentionTargets,
+} from "../lib/channel-action-items";
 import { useChannelReadState } from "../lib/channel-read-state-context";
+import { useChiefNavigation } from "../lib/chief-navigation-context";
 import {
   useLocalChats,
   useWorkspaceChannels,
@@ -46,6 +52,7 @@ const PRIMARY_ITEMS = [
   { to: "/inbox", label: "Inbox", icon: Inbox },
   { to: "/schedule", label: "Schedule", icon: CalendarClock },
   { to: "/agents", label: "Agents", icon: Network },
+  { to: "/plugins", label: "Plugins", icon: Plug },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/files", label: "Files", icon: FolderOpen },
 ] as const;
@@ -135,6 +142,7 @@ export function Sidebar({
   const { unreadChannelCounts } = useChannelReadState();
   const location = useLocation();
   const navigate = useNavigate();
+  const chiefNavigation = useChiefNavigation();
   const [pinnedItems, setPinnedItems] = useState(() =>
     readPinnedItems(cloudOrganizationId),
   );
@@ -208,6 +216,21 @@ export function Sidebar({
       workspaceData.recurringWork,
     ],
   );
+  const attentionTargets = useMemo(
+    () =>
+      channelAttentionTargets({
+        actionItems: workspaceData.actionItems,
+        sessions: workspaceData.activity,
+        recurringWork: workspaceData.recurringWork,
+        channelIds: publicChannels.map((channel) => channel.id),
+      }),
+    [
+      publicChannels,
+      workspaceData.actionItems,
+      workspaceData.activity,
+      workspaceData.recurringWork,
+    ],
+  );
   const normalizedPinnedItems = pinnedItems.flatMap<SidebarPinnedItem>(
     (item) => {
       if (item.kind === "agent") return [item];
@@ -230,9 +253,24 @@ export function Sidebar({
       channel.userIds.includes("workspace-owner") &&
       !leftIds.includes(channel.id),
   );
-  const directMessageIds = directMessageIdsForChats(
-    localChats.chats,
-    cloudOrganizationId,
+  const directMessageIds = useMemo(
+    () => directMessageIdsForChats(localChats.chats, cloudOrganizationId),
+    [cloudOrganizationId, localChats.chats],
+  );
+  const directAttentionTargets = useMemo(
+    () =>
+      directMessageAttentionTargets({
+        actionItems: workspaceData.actionItems,
+        sessions: workspaceData.activity,
+        recurringWork: workspaceData.recurringWork,
+        directMessageIds,
+      }),
+    [
+      directMessageIds,
+      workspaceData.actionItems,
+      workspaceData.activity,
+      workspaceData.recurringWork,
+    ],
   );
   const unreadDirectMessageCounts = new Map(
     WORKSPACE_DIRECT_MESSAGES.map((message) => [
@@ -261,9 +299,26 @@ export function Sidebar({
       const next = leftIds.filter((id) => id !== channelId);
       updateLeftChannels(next);
     }
-    void navigate(`/conversations?channel=${channelId}`, {
-      state: options?.focusComposer ? { focusComposerFor: channelId } : null,
-    });
+    const attentionTarget = options?.focusComposer
+      ? undefined
+      : attentionTargets.get(channelId);
+    if (attentionTarget) {
+      chiefNavigation.open({
+        kind: "conversation",
+        channelId,
+        threadRootId: attentionTarget.threadRootId,
+        messageId: attentionTarget.messageId,
+      });
+      return;
+    }
+    chiefNavigation.open(
+      { kind: "conversation", channelId },
+      {
+        state: options?.focusComposer
+          ? { focusComposerFor: channelId }
+          : undefined,
+      },
+    );
   };
 
   const updatePinned = (nextItems: SidebarPinnedItem[]) => {
@@ -339,6 +394,7 @@ export function Sidebar({
           ))}
         </div>
         <SidebarChannels
+          compactAttention={width < 285}
           canDeleteChannels={canDeleteChannels(organizationRole)}
           canManageChannels={canManageChannels(organizationRole)}
           channels={visiblePublicChannels}
@@ -350,14 +406,22 @@ export function Sidebar({
               : null
           }
           directMessageIds={directMessageIds}
+          directMessageAttentionTargets={directAttentionTargets}
           pinnedItems={normalizedPinnedItems}
           channelsNeedingUser={channelsNeedingUser}
           unreadChannelCounts={unreadChannelCounts}
           unreadDirectMessageCounts={unreadDirectMessageCounts}
           onOpen={openChannel}
-          onOpenDirectMessage={(agentId: WorkspaceAgentId) =>
-            void navigate(`/conversations?dm=${agentId}`)
-          }
+          onOpenDirectMessage={(agentId: WorkspaceAgentId, target) => {
+            const directMessage = workspaceDirectMessage(agentId);
+            if (!directMessage) return;
+            chiefNavigation.open({
+              kind: "conversation",
+              channelId: directMessage.relayId,
+              directAgentId: agentId,
+              ...target,
+            });
+          }}
           onCreateChannel={workspaceChannels.createChannel}
           onDeleteChannel={deleteChannel}
           onSetChannelArchived={workspaceChannels.setChannelArchived}

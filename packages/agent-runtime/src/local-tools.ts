@@ -3,11 +3,13 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { channelOpenApiPaths, channelOpenApiSchemas } from "@chief/channel-api";
+import { pluginOpenApiPaths, pluginOpenApiSchemas } from "@chief/plugin-api";
 
 import type { BrowserLocalToolContext } from "./browser-local-tools.js";
 import type { ChannelLocalToolContext } from "./channel-local-tools.js";
 import type { IntegrationSetupLocalToolContext } from "./integration-setup-local-tools.js";
 import type { SessionManager } from "./manager.js";
+import type { PluginLocalToolService } from "./plugin-local-tools.js";
 import type { ScheduledWorkRunner } from "./scheduled-work-local-tools.js";
 import type {
   AnalyticsDataset,
@@ -31,6 +33,7 @@ import {
   integrationSetupOpenApiPaths,
   integrationSetupOpenApiSchemas,
 } from "./integration-setup-local-tools.js";
+import { handlePluginLocalTool } from "./plugin-local-tools.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
 import { handleScheduledWorkLocalTool } from "./scheduled-work-local-tools.js";
 import { runSpecialistDelegation } from "./specialist-delegation.js";
@@ -110,7 +113,7 @@ function actionInputRequest(
           throw new Error(`request.questions[${index}] must be an object.`);
         }
         const item = question as Record<string, unknown>;
-        const options = Array.isArray(item.options)
+        const parsedOptions = Array.isArray(item.options)
           ? item.options.slice(0, 8).map((option, optionIndex) => {
               if (
                 !option ||
@@ -135,9 +138,22 @@ function actionInputRequest(
                       300,
                     )
                   : undefined,
+                ...(value.allowsFreeText === true
+                  ? { allowsFreeText: true }
+                  : {}),
               };
             })
           : [];
+        const freeTextOptions = parsedOptions.filter(
+          (option) => option.allowsFreeText,
+        );
+        if (freeTextOptions.length > 1) {
+          throw new Error(`Question ${index} has multiple free-text options.`);
+        }
+        const options = [
+          ...parsedOptions.filter((option) => !option.allowsFreeText),
+          ...freeTextOptions,
+        ];
         return {
           question: requiredValue(
             item.question,
@@ -151,6 +167,7 @@ function actionInputRequest(
             false,
           ),
           multiSelect: item.multiSelect === true,
+          allowFreeform: item.allowFreeform === true,
           options,
         };
       })
@@ -413,6 +430,7 @@ export function localToolsOpenApi(origin: string) {
         },
       },
       ...channelOpenApiPaths(body),
+      ...pluginOpenApiPaths(body),
       "/local-tools/trends": {
         get: {
           operationId: "trends.list",
@@ -692,6 +710,11 @@ export function localToolsOpenApi(origin: string) {
                       header: { type: "string", maxLength: 80 },
                       question: { type: "string", maxLength: 500 },
                       multiSelect: { type: "boolean" },
+                      allowFreeform: {
+                        type: "boolean",
+                        description:
+                          "Add a final Other option that opens a free-text answer. Use only when the listed choices may not cover the user's answer.",
+                      },
                       options: {
                         type: "array",
                         maxItems: 8,
@@ -702,6 +725,11 @@ export function localToolsOpenApi(origin: string) {
                           properties: {
                             label: { type: "string", maxLength: 120 },
                             description: { type: "string", maxLength: 300 },
+                            allowsFreeText: {
+                              type: "boolean",
+                              description:
+                                "Make this the free-text choice. Use at most once; Chief always presents it last.",
+                            },
                           },
                         },
                       },
@@ -1098,6 +1126,7 @@ export function localToolsOpenApi(origin: string) {
             revenue: { type: "number", minimum: 0 },
           },
         },
+        ...pluginOpenApiSchemas,
         RecurringWorkInput: {
           type: "object",
           additionalProperties: false,
@@ -1215,6 +1244,7 @@ export type LocalToolContext = BrowserLocalToolContext &
         propertyId: string,
       ) => Promise<unknown>;
     };
+    plugins?: PluginLocalToolService;
   };
 
 export async function handleLocalTool(
@@ -1238,11 +1268,17 @@ export async function handleLocalTool(
     !Array.isArray(rawChannelBody)
       ? (rawChannelBody as Record<string, unknown>)
       : {};
+  const pluginResult = await handlePluginLocalTool(
+    request,
+    channelBody,
+    context.plugins,
+  );
+  if (pluginResult) return pluginResult;
   const channelResult = await handleChannelLocalTool(
     request,
     workspaceId,
     channelBody,
-    context.channels,
+    context.channels && { ...context.channels, plugins: context.plugins },
   );
   if (channelResult.handled) {
     return json(channelResult.value, channelResult.status);
@@ -1796,6 +1832,7 @@ export async function handleLocalTool(
         title,
         reason,
         sourceId,
+        threadRootId: value(body.threadRootId, "threadRootId", 160, false),
         request: actionInputRequest(
           body.request,
           `${id}-request`,

@@ -63,6 +63,9 @@ export function ConversationsPage() {
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const [params, setParams] = useSearchParams();
   const location = useLocation();
+  const chiefNavigationRequestId = (
+    location.state as { chiefNavigationRequestId?: number } | null
+  )?.chiefNavigationRequestId;
   const navigate = useNavigate();
   const handoffId = params.get("handoff");
   const initialHandoff = useMemo(() => composerHandoff(handoffId), [handoffId]);
@@ -292,26 +295,24 @@ export function ConversationsPage() {
       return next;
     });
   };
-  const openInternalPanel = () => {
-    setParams((current) => {
-      const next = new URLSearchParams(current);
-      next.delete("child");
-      next.delete("profile");
-      return next;
-    });
-  };
   const setActivityPanel = (open: boolean) => {
-    setParams((current) => {
-      const next = new URLSearchParams(current);
-      if (open) {
-        next.delete("child");
-        next.delete("profile");
-        next.set("activity", "1");
-      } else {
-        next.delete("activity");
-      }
-      return next;
-    });
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (open) {
+          next.delete("thread");
+          next.delete("child");
+          next.delete("profile");
+          next.set("activity", "1");
+        } else {
+          next.delete("activity");
+        }
+        return next;
+      },
+      // Keep the explicit navigation identity while swapping internal panels.
+      // Dropping it changes ChiefChat's key and replays the whole conversation.
+      { state: location.state as unknown },
+    );
   };
   const continueArtifact = (artifact: { id: string; title: string }) => {
     startTransition(() =>
@@ -379,7 +380,7 @@ export function ConversationsPage() {
           ) : activeChatId ? (
             <ConversationErrorBoundary resetKey={activeChatId}>
               <ChiefChat
-                key={`${activeChatId}:${params.get("thread") ?? ""}:${params.get("message") ?? ""}`}
+                key={`${activeChatId}:${chiefNavigationRequestId ?? ""}`}
                 chatId={activeChatId}
                 initialMessageId={params.get("message") ?? undefined}
                 initialThreadRootId={params.get("thread") ?? undefined}
@@ -451,7 +452,6 @@ export function ConversationsPage() {
                     { replace: true },
                   )
                 }
-                onOpenInternalPanel={openInternalPanel}
                 activityOpen={activityOpen}
                 onActivityOpenChange={setActivityPanel}
                 onOpenProfile={openProfile}

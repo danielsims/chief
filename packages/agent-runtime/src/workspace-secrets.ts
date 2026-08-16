@@ -206,6 +206,26 @@ class WorkspaceSecrets {
     await this.refresh(workspaceId);
   }
 
+  /**
+   * Client-owned protocol credentials that must never be projected into an
+   * agent process. These records live in Keychain but deliberately stay out of
+   * secret-index.json and the materialized workspace environment.
+   */
+  async readPrivate(workspaceId: string, name: string) {
+    return keychainRead(account(workspaceId, "file", safeFileName(name)));
+  }
+
+  async storePrivate(workspaceId: string, name: string, value: string) {
+    await keychainWrite(
+      account(workspaceId, "file", safeFileName(name)),
+      value,
+    );
+  }
+
+  async deletePrivate(workspaceId: string, name: string) {
+    await keychainDelete(account(workspaceId, "file", safeFileName(name)));
+  }
+
   async storeFile(workspaceId: string, requestedPath: string, value: string) {
     const name = safeFileName(requestedPath);
     await keychainWrite(account(workspaceId, "file", name), value);

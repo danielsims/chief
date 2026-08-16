@@ -1,4 +1,4 @@
-import { Brain, ChevronDown, ListChecks } from "lucide-react";
+import { Brain, ChevronDown } from "lucide-react";
 
 import type { ContentBlock } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
@@ -26,7 +26,6 @@ export function ToolActivityGroup({
   const thoughts = blocks.filter((block) => block.type === "thinking");
   if (tools.length === 0 && thoughts.length === 0) return null;
   const completed = tools.filter((tool) => results.has(tool.id)).length;
-  const failed = tools.filter((tool) => results.get(tool.id)?.is_error).length;
   const incomplete = tools.length - completed;
   const working = active && incomplete > 0;
   const stopped = !active && incomplete > 0;
@@ -34,11 +33,10 @@ export function ToolActivityGroup({
   return (
     <details
       className="group w-96 max-w-full overflow-hidden rounded-xl bg-black/[0.018] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_5%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--foreground)_4%,transparent)] dark:bg-white/[0.018]"
-      open={active || undefined}
+      open
     >
-      <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3.5 py-2.5 text-xs [&::-webkit-details-marker]:hidden">
-        <ListChecks className="text-muted-foreground" size={14} />
-        <span className="font-medium">
+      <summary className="flex min-h-14 cursor-pointer list-none items-center gap-2.5 px-3.5 py-2.5 text-xs [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0 flex-1 truncate font-medium">
           {working
             ? "Working"
             : stopped
@@ -47,24 +45,12 @@ export function ToolActivityGroup({
                 ? "Workspace activity"
                 : "Reasoning"}
         </span>
-        <span className="text-muted-foreground min-w-0 flex-1 truncate">
-          {tools.length > 0
-            ? `${tools.length} ${tools.length === 1 ? "step" : "steps"}`
-            : `${thoughts.length} ${thoughts.length === 1 ? "thought" : "thoughts"}`}
-        </span>
-        <span
-          className={cn(
-            "text-muted-foreground text-[10px]",
-            failed > 0 && "text-red-400",
-          )}
-        >
-          {failed > 0
-            ? `${failed} failed`
-            : working
-              ? `${completed}/${tools.length}`
-              : stopped
-                ? `${completed}/${tools.length} complete`
-                : "Done"}
+        <span className="text-muted-foreground text-[12px] leading-4 font-normal">
+          {working
+            ? `${completed}/${tools.length}`
+            : stopped
+              ? `${completed}/${tools.length} complete`
+              : "Done"}
         </span>
         <ChevronDown
           size={12}
@@ -88,7 +74,7 @@ export function ToolActivityGroup({
                 />
                 <div className="min-w-0 flex-1">
                   <span className="text-xs font-medium">Thinking</span>
-                  <p className="text-muted-foreground/80 mt-1 max-h-28 overflow-y-auto text-[11px] leading-5 [overflow-wrap:anywhere] whitespace-pre-wrap">
+                  <p className="text-muted-foreground mt-1 max-h-28 overflow-y-auto text-[12px] leading-4 font-normal [overflow-wrap:anywhere] whitespace-pre-wrap">
                     {thought}
                   </p>
                 </div>

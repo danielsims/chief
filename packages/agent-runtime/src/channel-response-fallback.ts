@@ -11,28 +11,39 @@ type AssistantMessage = Extract<AgentEvent, { type: "message" }> & {
  */
 export class AddressedChannelReplyFallback {
   private candidate: AssistantMessage | undefined;
-  private usedToolsOrRichOutput = false;
+  private usedAnyTool = false;
+  private publishedThroughChannelTool = false;
 
   observe(event: AgentEvent) {
-    if (event.type === "toolProgress") {
-      this.usedToolsOrRichOutput = true;
-      return;
-    }
     if (event.type !== "message" || event.role !== "assistant") return;
-    if (event.content.some((block) => block.type !== "text")) {
-      this.usedToolsOrRichOutput = true;
-    }
+    this.usedAnyTool ||= event.content.some(
+      (block) => block.type === "tool_use",
+    );
+    this.publishedThroughChannelTool ||= event.content.some(
+      (block) =>
+        block.type === "tool_use" &&
+        /channelsMessages(?:Post|Replies)/iu.test(block.name),
+    );
     const text = event.content
       .flatMap((block) => (block.type === "text" ? [block.text] : []))
       .join("\n")
       .trim();
-    if (text) this.candidate = event as AssistantMessage;
+    if (text) {
+      this.candidate = {
+        ...event,
+        content: [{ type: "text", text }],
+      } as AssistantMessage;
+    }
   }
 
   completed(event: AgentEvent): AssistantMessage | undefined {
-    if (event.type !== "result" || !event.ok || this.usedToolsOrRichOutput) {
-      return undefined;
+    if (this.publishedThroughChannelTool) return undefined;
+    if (event.type === "error" || event.type === "exit") {
+      return this.candidate;
     }
-    return this.candidate;
+    if (event.type === "result" && (!event.ok || !this.usedAnyTool)) {
+      return this.candidate;
+    }
+    return undefined;
   }
 }

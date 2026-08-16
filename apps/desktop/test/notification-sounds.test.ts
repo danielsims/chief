@@ -5,6 +5,7 @@ import type { ChannelEvent } from "@chief/agent-runtime/types";
 
 import { newSnapshotNotificationMessages } from "../src/lib/channel-read-state-storage";
 import {
+  notificationSoundIsOutsideBurst,
   parseNotificationSoundPreferences,
   shouldPlayChannelNotification,
 } from "../src/lib/notification-sounds";
@@ -67,6 +68,12 @@ void test("reaction events never create notification sounds", () => {
     content: "👀",
   };
   assert.equal(shouldPlayChannelNotification(reaction), false);
+});
+
+void test("coalesces only sounds dispatched in the same 100ms burst", () => {
+  assert.equal(notificationSoundIsOutsideBurst(1_000, 1_050), false);
+  assert.equal(notificationSoundIsOutsideBurst(1_000, 1_099), false);
+  assert.equal(notificationSoundIsOutsideBurst(1_000, 1_100), true);
 });
 
 void test("recovers notifications for messages missed during channel subscription", () => {

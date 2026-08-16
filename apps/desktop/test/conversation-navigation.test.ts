@@ -35,6 +35,21 @@ void test("closing nested work entirely clears child and thread", () => {
   assert.equal(closed.get("child"), null);
 });
 
+void test("opening a thread atomically replaces incompatible panels", () => {
+  const opened = withConversationThread(
+    new URLSearchParams(
+      "channel=engineering&activity=1&child=subagent-1&profile=engineer",
+    ),
+    "thread-1",
+  );
+
+  assert.equal(opened.get("thread"), "thread-1");
+  assert.equal(opened.get("activity"), null);
+  assert.equal(opened.get("child"), null);
+  assert.equal(opened.get("profile"), null);
+  assert.equal(opened.get("channel"), "engineering");
+});
+
 void test("opening nested work in a DM does not inject a channel", () => {
   const child = withConversationChild(
     new URLSearchParams("dm=setup&thread=thread-2"),

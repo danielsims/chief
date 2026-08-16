@@ -158,6 +158,7 @@ export type ClientMessage =
       requestId: string;
       answers: Record<string, string>;
       values: Record<string, string>;
+      resolvedBy: { id: string; name: string };
       setup?: { chatId: string; domain: string };
       executorCapability: ExecutorCapability;
     }
@@ -197,6 +198,8 @@ export type ClientMessage =
       channelId?: string;
       /** Agent identity used for a direct conversation. */
       agentId?: string;
+      /** UI publication boundary; relay-backed DMs remain direct. */
+      conversationSurface?: "direct" | "channel";
       executorCapability: ExecutorCapability;
     }
   | {
@@ -306,6 +309,34 @@ export type ClientMessage =
   | {
       type: "inspectWorkspaceIntegrations";
       workspaceId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "listPlugins";
+      workspaceId: string;
+      refresh?: boolean;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "installPlugin";
+      workspaceId: string;
+      pluginId: string;
+      trusted: boolean;
+      requestId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "authorizePlugin";
+      workspaceId: string;
+      pluginId: string;
+      requestId: string;
+      executorCapability: ExecutorCapability;
+    }
+  | {
+      type: "uninstallPlugin";
+      workspaceId: string;
+      pluginId: string;
+      requestId: string;
       executorCapability: ExecutorCapability;
     }
   | {

@@ -9,6 +9,7 @@ import type {
   ClientMessage,
   DriverType,
   ExecutorCapability,
+  McpServerSpec,
   ServerMessage,
 } from "./types.js";
 import { getAgent } from "./agents.js";
@@ -82,6 +83,7 @@ export async function handleOpenChat({
   manager,
   msg,
   onboardingBootstraps,
+  pluginMcpServers,
   send,
 }: {
   authorizeWorkspace: (
@@ -115,6 +117,7 @@ export async function handleOpenChat({
   manager: SessionManager;
   msg: Message;
   onboardingBootstraps: Map<string, { ready: Promise<string> }>;
+  pluginMcpServers: (workspaceId: string) => Promise<McpServerSpec[]>;
   send: (message: ServerMessage) => void;
 }) {
   await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
@@ -202,6 +205,28 @@ export async function handleOpenChat({
   if (!storedChat || !DRIVER_TYPES.has(storedChat.provider as DriverType)) {
     throw new Error("This chat has an unsupported agent app.");
   }
+  // Timeline reads are local and must not wait for provider, Executor, or
+  // plugin startup. The later snapshot remains authoritative once the
+  // interactive session is ready, while this one makes first paint immediate.
+  const openingEvents = await manager.transcript(msg.workspaceId, msg.chatId);
+  send({
+    type: "history",
+    workspaceId: msg.workspaceId,
+    chatId: msg.chatId,
+    messages: await manager.messages(msg.workspaceId, msg.chatId),
+    events: chatControlEvents(openingEvents),
+    running:
+      manager.get(msg.workspaceId, msg.chatId)?.isBusy ??
+      ["running", "waiting"].includes(storedChat.status),
+  });
+  if (msg.conversationSurface === "channel" && destinationId) {
+    await channelBridge.sendChannelEvents(
+      manager,
+      msg.workspaceId,
+      destinationId,
+      send,
+    );
+  }
   const driver =
     requestedExecution?.driver ??
     preference?.driver ??
@@ -242,10 +267,7 @@ export async function handleOpenChat({
       });
     }
   }
-  const onboardingEvents = await manager.transcript(
-    msg.workspaceId,
-    msg.chatId,
-  );
+  const onboardingEvents = openingEvents;
   if (
     msg.chatId.startsWith("workspace-kickoff-") ||
     shouldRecoverOnboardingOnOpen(onboardingEvents, msg.chatId)
@@ -361,6 +383,7 @@ export async function handleOpenChat({
           workspaceContext,
           readWorkspaceWaysOfWorking(msg.workspaceId).missionControlChannelId,
         );
+        const pluginServers = await pluginMcpServers(msg.workspaceId);
         const config = {
           driver,
           access:
@@ -377,8 +400,9 @@ export async function handleOpenChat({
                     ? "model"
                     : "browser",
                 ),
+                ...pluginServers,
               ]
-            : [],
+            : pluginServers,
           executionOwner: "interactive",
         } as const;
         return storedChat.provider !== driver || storedChat.model !== model

@@ -8,6 +8,7 @@ import {
   LayoutGrid,
   MessageSquare,
   Network,
+  Plug,
   Search,
 } from "lucide-react";
 import { useNavigate } from "react-router";
@@ -38,6 +39,7 @@ const DESTINATIONS = [
     icon: CalendarClock,
   },
   { label: "Agents", hint: "Your team", to: "/agents", icon: Network },
+  { label: "Plugins", hint: "Connected tools", to: "/plugins", icon: Plug },
   {
     label: "Analytics",
     hint: "Measurement and reporting",

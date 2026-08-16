@@ -5,6 +5,7 @@ import {
   channelApiOperations,
   scheduledWorkApiOperations,
 } from "@chief/channel-api";
+import { pluginApiOperations } from "@chief/plugin-api";
 
 import type { AgentToolPermission } from "../src/types.js";
 import {
@@ -75,6 +76,13 @@ void test("local operations map to an exact enforceable permission", () => {
     ["POST", "/local-tools/specialists/delegate", "agents.delegate"],
     ["GET", "/local-tools/files", "workspace.read"],
     ["POST", "/local-tools/files/write", "workspace.write"],
+    ["GET", "/local-tools/plugins", "workspace.read"],
+    [
+      "POST",
+      "/local-tools/channels/engineering/plugins/recommend",
+      "messages.send",
+    ],
+    ["POST", "/local-tools/plugins/github/install", "integrations.manage"],
   ] as const;
   for (const [method, path, expected] of cases) {
     assert.equal(permissionForLocalTool(method, path), expected, path);
@@ -85,6 +93,7 @@ void test("every documented agent API operation shares its runtime permission", 
   for (const operation of [
     ...channelApiOperations,
     ...scheduledWorkApiOperations,
+    ...pluginApiOperations,
   ]) {
     if (!operation.path.startsWith("/local-tools/")) continue;
     assert.ok(
@@ -131,6 +140,14 @@ void test("Executor tool paths use the same permission vocabulary", () => {
   assert.equal(
     permissionForExecutorTool("localTools.integrationOpenProviderPage"),
     "integrations.manage",
+  );
+  assert.equal(
+    permissionForExecutorTool("localTools.pluginsList"),
+    "workspace.read",
+  );
+  assert.equal(
+    permissionForExecutorTool("localTools.pluginsRecommend"),
+    "messages.send",
   );
 });
 

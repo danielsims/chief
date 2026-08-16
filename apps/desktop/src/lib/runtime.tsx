@@ -18,7 +18,6 @@ import { toast } from "sonner";
 import type {
   AgentDefinition,
   AgentEvent,
-  AgentQuestion,
   BrowserRunRecord,
   CampaignRecord,
   ChatExecutionSelection,
@@ -46,7 +45,9 @@ import type {
   RuntimeBrowserSessions,
 } from "./browser-sessions";
 import type { ChannelReactionSummary } from "./channel-reactions";
+import type { ChatControlState } from "./runtime-chat-controls";
 import type { ScopedWorkspaceCapability } from "./workspace-capability";
+import type { WorkspaceChatSummary } from "./workspace-conversation-cache";
 import type { WorkspaceDataState } from "./workspace-data";
 import { useAuth } from "./auth/auth-context";
 import {
@@ -80,20 +81,31 @@ import {
   writeCachedProviderModels,
 } from "./provider-model-cache";
 /** Durable NIP-29 events for channel timelines and message search. */
-import { reactionIntentKey, useChannelEvents } from "./runtime-channels";
+import { useChannelEvents } from "./runtime-channels";
+import {
+  emptyChatControls,
+  reduceChatControls,
+  replayChatControls,
+} from "./runtime-chat-controls";
 import {
   deduplicateDocumentParts,
-  dropReplayedMessages,
   mergeRuntimeHistory,
   mergeRuntimeMessage,
-  projectChannelTimeline,
-  visibleRuntimeError,
+  projectConversationMessages,
 } from "./runtime-messages";
 import { useManualMissionHeartbeat } from "./runtime-mission-heartbeat";
 import { useRecurringWorkSettings } from "./runtime-recurring-work";
 import { useWaysOfWorkingSaver } from "./runtime-ways-of-working";
 import { capabilityForWorkspace } from "./workspace-capability";
 import { buildWorkspaceContext } from "./workspace-context";
+import {
+  activateWorkspaceConversationCache,
+  cachedTranscript,
+  cachedWorkspaceChats,
+  cacheTranscript,
+  cacheWorkspaceChats,
+} from "./workspace-conversation-cache";
+import { useConversationHydration } from "./workspace-conversation-hydration";
 import { emptyWorkspaceData, normalizeWorkspaceData } from "./workspace-data";
 
 // "localhost" (not 127.0.0.1) — macOS ATS only exempts the literal
@@ -820,42 +832,36 @@ export function useRuntime() {
   return ctx;
 }
 
-export interface LocalChatSummary {
-  id: string;
-  agent: string;
-  title: string;
-  lastText: string;
-  lastAt: number;
-  driver?: DriverType;
-  model?: string;
-  running: boolean;
-}
-
-// Last-known workspace state, kept across component mounts so re-entering a
-// page renders the previous data immediately and revalidates in place
-// instead of flashing an empty frame.
-const chatsCache = new Map<string, LocalChatSummary[]>();
+export type LocalChatSummary = WorkspaceChatSummary;
 
 /** Durable chats from the runtime-owned local libSQL database. */
 export function useLocalChats(workspaceId: string | null) {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const scopedWorkspaceId =
+    workspaceId && workspaceId === cloudOrganizationId ? workspaceId : null;
+  if (!cloudOrganizationId) activateWorkspaceConversationCache(null);
+  else if (scopedWorkspaceId) {
+    activateWorkspaceConversationCache(scopedWorkspaceId);
+  }
   const [chats, setChats] = useState<LocalChatSummary[]>(() =>
-    workspaceId ? (chatsCache.get(workspaceId) ?? []) : [],
+    workspaceId ? (cachedWorkspaceChats(workspaceId) ?? []) : [],
   );
   const [resolved, setResolved] = useState(() =>
-    Boolean(workspaceId && chatsCache.has(workspaceId)),
+    Boolean(workspaceId && cachedWorkspaceChats(workspaceId)),
   );
-  const chatsWorkspaceRef = useRef<string | null>(workspaceId);
+  const [chatsWorkspaceId, setChatsWorkspaceId] = useState(workspaceId);
+  const visibleChats = !scopedWorkspaceId
+    ? []
+    : chatsWorkspaceId === workspaceId
+      ? chats
+      : (cachedWorkspaceChats(scopedWorkspaceId) ?? []);
+  const visibleResolved =
+    Boolean(scopedWorkspaceId) && chatsWorkspaceId === workspaceId
+      ? resolved
+      : Boolean(scopedWorkspaceId && cachedWorkspaceChats(scopedWorkspaceId));
 
   useEffect(() => {
-    // Reset only when the workspace itself changes; a runtime reconnect or
-    // capability refresh keeps the last list mounted while it revalidates.
-    if (chatsWorkspaceRef.current !== workspaceId) {
-      chatsWorkspaceRef.current = workspaceId;
-      setChats(workspaceId ? (chatsCache.get(workspaceId) ?? []) : []);
-      setResolved(Boolean(workspaceId && chatsCache.has(workspaceId)));
-    }
     if (
       !workspaceId ||
       workspaceId !== cloudOrganizationId ||
@@ -866,7 +872,8 @@ export function useLocalChats(workspaceId: string | null) {
     }
     const unsubscribe = client.subscribe((message) => {
       if (message.type === "chats" && message.workspaceId === workspaceId) {
-        chatsCache.set(workspaceId, message.chats);
+        cacheWorkspaceChats(workspaceId, message.chats);
+        setChatsWorkspaceId(workspaceId);
         setChats(message.chats);
         setResolved(true);
       }
@@ -887,7 +894,7 @@ export function useLocalChats(workspaceId: string | null) {
     }
     setChats((current) => {
       const next = current.filter((chat) => chat.id !== chatId);
-      chatsCache.set(workspaceId, next);
+      cacheWorkspaceChats(workspaceId, next);
       return next;
     });
     client.send({
@@ -898,18 +905,14 @@ export function useLocalChats(workspaceId: string | null) {
     });
   };
 
-  return { chats, loading: !resolved, remove };
+  return { chats: visibleChats, loading: !visibleResolved, remove };
 }
 
-/**
- * Last-known transcripts keyed by `workspaceId:chatId`. Retained across chat
- * switches so returning to a channel renders its content immediately instead of
- * flashing an empty frame while history reloads; the server snapshot replaces
- * it moments later.
- */
-const chatTranscriptCache = new Map<string, ChiefUIMessage[]>();
-
 export { useChannelEvents, useWorkspaceChannels } from "./runtime-channels";
+
+function reactionIntentKey(messageId: string, emoji: string) {
+  return `${messageId}\0${emoji}`;
+}
 
 /** Durable NIP-25 reactions folded onto the local IDs used by chat messages. */
 export function useChannelReactions(channelId: string | null) {
@@ -1055,7 +1058,7 @@ export function updatePendingOnboardingDriver(
 
 function useWorkspaceDataSource(workspaceId: string | null) {
   const { client, status } = useRuntime();
-  const { sessionToken } = useAuth();
+  const { sessionToken, user } = useAuth();
   const {
     cloudOrganizationId,
     capability,
@@ -1522,6 +1525,9 @@ function useWorkspaceDataSource(workspaceId: string | null) {
     if (!workspaceId || workspaceId !== cloudOrganizationId || !capability) {
       return Promise.reject(new Error("Workspace runtime is unavailable."));
     }
+    if (!user) {
+      return Promise.reject(new Error("Sign in again to answer this request."));
+    }
     return new Promise<void>((resolve, reject) => {
       const existing = pendingActionRequestsRef.current.get(requestId);
       if (existing) window.clearTimeout(existing.timer);
@@ -1545,6 +1551,7 @@ function useWorkspaceDataSource(workspaceId: string | null) {
         requestId,
         answers,
         values,
+        resolvedBy: { id: user.id, name: user.name },
         setup,
         executorCapability: capability,
       });
@@ -1714,149 +1721,11 @@ export {
   useWorkspaceEnvironmentVariables,
 } from "./runtime-settings";
 
-// ---- Chat state ----
-
-export interface PendingApproval {
-  requestId: string;
-  toolName: string;
-  input: unknown;
-  threadRootId?: string;
-}
-
-export interface PendingQuestion {
-  requestId: string;
-  questions: AgentQuestion[];
-}
-
-export interface ChatControlState {
-  status: "idle" | "running";
-  /** True after the runtime has emitted real output for the current turn. */
-  hasAgentOutput: boolean;
-  /** Tool calls waiting on the user's allow/deny decision. */
-  approvals: PendingApproval[];
-  /** Agent questions waiting on the user's answers. */
-  questions: PendingQuestion[];
-  toolProgress: Record<string, string>;
-  lastCostUsd?: number;
-  error?: string;
-}
-
-const emptyChatControls: ChatControlState = {
-  status: "idle",
-  hasAgentOutput: false,
-  approvals: [],
-  questions: [],
-  toolProgress: {},
-};
-
-/** Runtime events carry process state and interactions; durable content lives
- * exclusively in the AI SDK message array. */
-function reduceChatControls(
-  controls: ChatControlState,
-  event: AgentEvent,
-): ChatControlState {
-  switch (event.type) {
-    case "stream":
-      return { ...controls, status: "running", hasAgentOutput: true };
-    case "message":
-      return {
-        ...controls,
-        status: event.role === "user" ? "running" : controls.status,
-        hasAgentOutput: event.role !== "user",
-        error: event.role === "user" ? undefined : controls.error,
-      };
-    case "toolProgress": {
-      const current = controls.toolProgress[event.toolUseId] ?? "";
-      return {
-        ...controls,
-        hasAgentOutput: true,
-        toolProgress: {
-          ...controls.toolProgress,
-          [event.toolUseId]: `${current}${event.text}`.slice(-8_000),
-        },
-      };
-    }
-    case "permission":
-      return {
-        ...controls,
-        hasAgentOutput: true,
-        approvals: controls.approvals.some(
-          (approval) => approval.requestId === event.requestId,
-        )
-          ? controls.approvals
-          : [
-              ...controls.approvals,
-              {
-                requestId: event.requestId,
-                toolName: event.toolName,
-                input: event.input,
-                threadRootId: event.threadRootId,
-              },
-            ],
-      };
-    case "permissionResolved":
-      return {
-        ...controls,
-        approvals: controls.approvals.filter(
-          (approval) => approval.requestId !== event.requestId,
-        ),
-      };
-    case "question":
-      return {
-        ...controls,
-        hasAgentOutput: true,
-        questions: controls.questions.some(
-          (question) => question.requestId === event.requestId,
-        )
-          ? controls.questions
-          : [
-              ...controls.questions,
-              { requestId: event.requestId, questions: event.questions },
-            ],
-      };
-    case "questionResolved":
-      return {
-        ...controls,
-        questions: controls.questions.filter(
-          (question) => question.requestId !== event.requestId,
-        ),
-      };
-    case "result":
-      return {
-        ...controls,
-        status: "idle",
-        approvals: [],
-        questions: [],
-        lastCostUsd: event.costUsd ?? controls.lastCostUsd,
-        error: event.ok ? undefined : visibleRuntimeError(event.error),
-      };
-    case "status":
-      return {
-        ...controls,
-        status: event.status === "running" ? "running" : "idle",
-        error: event.status === "running" ? undefined : controls.error,
-      };
-    case "error":
-      return {
-        ...controls,
-        error: visibleRuntimeError(event.message),
-        status: "idle",
-      };
-    case "exit":
-      return {
-        ...controls,
-        status: "idle",
-        error:
-          event.code && event.code !== 0
-            ? visibleRuntimeError(
-                `Agent process exited with code ${event.code}.`,
-              )
-            : controls.error,
-      };
-    default:
-      return controls;
-  }
-}
+export type {
+  ChatControlState,
+  PendingApproval,
+  PendingQuestion,
+} from "./runtime-chat-controls";
 
 export function messageBlocks(message: ChiefUIMessage): ContentBlock[] {
   return message.parts.flatMap((part): ContentBlock[] => {
@@ -1907,7 +1776,8 @@ export function messageBlocks(message: ChiefUIMessage): ContentBlock[] {
     if (
       part.type === "data-chart" ||
       part.type === "data-table" ||
-      part.type === "data-document"
+      part.type === "data-document" ||
+      part.type === "data-plugin-recommendations"
     ) {
       return [part];
     }
@@ -1942,10 +1812,13 @@ function useRuntimeChat(
   channelId?: string,
   agentId?: string,
   wakeOnMentionOnly = false,
+  conversationSurface: "direct" | "channel" = "direct",
 ) {
   const { client, status: runtimeStatus } = useRuntime();
   const { events: channelEvents, loaded: channelEventsLoaded } =
-    useChannelEvents(channelId ?? null);
+    useChannelEvents(
+      conversationSurface === "channel" ? (channelId ?? null) : null,
+    );
   const { user } = useAuth();
   const senderName = user?.name.trim();
   const {
@@ -2050,6 +1923,7 @@ function useRuntimeChat(
   });
   const initializedChatKeyRef = useRef<string | null>(null);
   const loadedHistoryKeyRef = useRef<string | null>(null);
+  const [messagesChatKey, setMessagesChatKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (!capabilityError) return;
@@ -2057,6 +1931,9 @@ function useRuntimeChat(
       ...current,
       status: "idle",
       error: capabilityError,
+      // Connection/capability failures have their own runtime status UI. Keep
+      // the diagnostic in Activity without recreating a chat error alert.
+      errorAcknowledged: true,
     }));
   }, [capabilityError]);
 
@@ -2073,13 +1950,14 @@ function useRuntimeChat(
     const changedChat = initializedChatKeyRef.current !== chatKey;
     if (changedChat) {
       initializedChatKeyRef.current = chatKey;
+      setMessagesChatKey(chatKey);
       loadedHistoryKeyRef.current = null;
       setControls(emptyChatControls);
       pendingStreamRef.current = "";
       // Restore the last-known transcript so returning to a channel is instant
       // instead of flashing an empty frame while history reloads. The server
       // snapshot replaces/merges it moments later.
-      const cached = chatTranscriptCache.get(chatKey);
+      const cached = cachedTranscript(cloudOrganizationId, chatId);
       setMessages(cached ? deduplicateDocumentParts(cached) : []);
       setChatReady(cached ? true : false);
       setExecution(undefined);
@@ -2111,6 +1989,7 @@ function useRuntimeChat(
             integrationDomain,
             channelId,
             agentId,
+            conversationSurface,
             executorCapability,
           });
         });
@@ -2121,6 +2000,7 @@ function useRuntimeChat(
         setControls((current) => ({
           ...current,
           error: msg.message,
+          errorAcknowledged: false,
           status: "idle",
         }));
         return;
@@ -2141,21 +2021,14 @@ function useRuntimeChat(
       ) {
         pendingStreamRef.current = replayStreamingText(msg.events);
         const incoming = deduplicateDocumentParts(msg.messages);
-        chatTranscriptCache.set(chatKey, incoming);
+        cacheTranscript(cloudOrganizationId, chatId, incoming);
         if (loadedHistoryKeyRef.current === chatKey) {
           setMessages((current) => mergeRuntimeHistory(current, incoming));
         } else {
           loadedHistoryKeyRef.current = chatKey;
           setMessages(incoming);
         }
-        const replayedControls = msg.events.reduce(
-          reduceChatControls,
-          emptyChatControls,
-        );
-        setControls({
-          ...replayedControls,
-          status: msg.running ? "running" : "idle",
-        });
+        setControls(replayChatControls(msg.events, msg.running));
         setChatReady(true);
         return;
       }
@@ -2204,6 +2077,7 @@ function useRuntimeChat(
               {
                 id: `stream:${chatId}`,
                 role: "assistant",
+                metadata: { createdAt: Date.now() },
                 parts: [
                   { type: "text", text: bufferedText, state: "streaming" },
                 ],
@@ -2234,6 +2108,7 @@ function useRuntimeChat(
           {
             id: `stream:${chatId}`,
             role: "assistant",
+            metadata: { createdAt: Date.now() },
             parts: [{ type: "text", text: completedText, state: "streaming" }],
           },
         ]);
@@ -2269,6 +2144,7 @@ function useRuntimeChat(
     integrationDomain,
     channelId,
     agentId,
+    conversationSurface,
   ]);
 
   const interrupt = () => {
@@ -2359,20 +2235,65 @@ function useRuntimeChat(
   );
 
   const visibleMessages = useMemo(() => {
+    const activeChatKey =
+      cloudOrganizationId && chatId ? `${cloudOrganizationId}:${chatId}` : null;
+    const scopedMessages =
+      activeChatKey && messagesChatKey === activeChatKey
+        ? messages
+        : cloudOrganizationId && chatId
+          ? (cachedTranscript(cloudOrganizationId, chatId) ?? [])
+          : [];
     // A provider restart replays the session's history through the driver, and
     // each replayed message is emitted as a fresh transcript message (new id,
     // same toolCallId/text, no threadRootId). Those copies would render the
-    // thread's tool/browser UI in the main timeline. dropReplayedMessages keeps
-    // only the original thread-attached copies.
-    if (!channelId) {
-      return dropReplayedMessages(messages);
-    }
-    return projectChannelTimeline(messages, channelEvents);
-  }, [channelEvents, channelId, messages]);
+    // thread's tool/browser UI in the main timeline. Direct-message relay IDs
+    // are routing metadata, so their private authored text remains visible.
+    return projectConversationMessages(
+      scopedMessages,
+      channelEvents,
+      conversationSurface,
+    );
+  }, [
+    channelEvents,
+    chatId,
+    cloudOrganizationId,
+    conversationSurface,
+    messages,
+    messagesChatKey,
+  ]);
+
+  const activeChatKey =
+    cloudOrganizationId && chatId ? `${cloudOrganizationId}:${chatId}` : null;
+  const activeChatReady =
+    Boolean(activeChatKey) &&
+    (messagesChatKey === activeChatKey
+      ? chatReady
+      : Boolean(
+          cloudOrganizationId &&
+          chatId &&
+          cachedTranscript(cloudOrganizationId, chatId),
+        ));
+  const currentConversationResolved =
+    activeChatReady &&
+    (conversationSurface === "direct" || channelEventsLoaded);
+  const conversationResolved = useConversationHydration({
+    channelId,
+    chatId,
+    currentlyResolved: currentConversationResolved,
+    surface: conversationSurface,
+    workspaceId: cloudOrganizationId,
+  });
+  const dismissError = useCallback(() => {
+    setControls((current) => {
+      if (!current.error) return current;
+      return { ...current, errorAcknowledged: true };
+    });
+  }, []);
 
   return {
     messages: visibleMessages,
     controls,
+    dismissError,
     sendMessage,
     sendMessageWithContext,
     interrupt,
@@ -2380,10 +2301,11 @@ function useRuntimeChat(
     respondPermission,
     respondQuestion,
     provideInput,
-    chatReady,
-    // The channel content is only rendered once both the transcript and its
-    // channel events have resolved, so elements never pop in after entry.
-    channelResolved: chatReady && (!channelId || channelEventsLoaded),
+    chatReady: activeChatReady || conversationResolved,
+    // The first visit waits for both transcript and channel events. Once that
+    // conversation has hydrated, revisits render its cached timeline
+    // immediately while both sources revalidate invisibly.
+    channelResolved: conversationResolved,
     execution,
     sessionAgentId,
   };
@@ -2404,6 +2326,7 @@ export function useChiefChat(
     agentId?: string;
     wakeOnMentionOnly?: boolean;
     integrationDomain?: string;
+    conversationSurface?: "direct" | "channel";
   },
 ) {
   return useRuntimeChat(
@@ -2417,6 +2340,7 @@ export function useChiefChat(
     destination?.channelId,
     destination?.agentId,
     destination?.wakeOnMentionOnly,
+    destination?.conversationSurface,
   );
 }
 

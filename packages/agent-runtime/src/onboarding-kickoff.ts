@@ -11,18 +11,23 @@ export function onboardingLocalKickoffInstructions(
 ) {
   const brandSelected = jobs?.some((job) => job.agentId === "brand");
   const prospectorSelected = jobs?.some((job) => job.agentId === "prospector");
+  const engineerSelected = jobs?.some((job) => job.agentId === "engineer");
   const setupJobs = jobs?.filter((job) => job.agentId === "setup") ?? [];
   const kickoffAgentIds = [
     ...(brandSelected ? ["brand"] : []),
     ...(prospectorSelected ? ["prospector"] : []),
+    ...(engineerSelected ? ["engineer"] : []),
     ...(setupJobs.length > 0 ? ["setup"] : []),
   ];
   const templates = [
     brandSelected || jobs === undefined
-      ? 'For the brand job use exactly: "Hey @Marketer, use [chief-skill:build-brand-profile] to create a profile for <company> from <website>. Ground its voice, vocabulary, audience, and claims in first-party evidence." Use agent ID "brand" and idempotency key "onboarding-marketer-thread".'
+      ? 'For the brand job use exactly: "Hey @Marketer, use [chief-skill:build-brand-profile] to create a useful working profile from our first-party evidence. Ask one focused question here only if a missing preference materially changes it." Use agent ID "brand" and idempotency key "onboarding-marketer-thread".'
       : undefined,
     prospectorSelected || jobs === undefined
-      ? 'For the prospecting job use exactly: "Hey @Prospector, use [chief-skill:find-buying-signals] to find our first real buying signals. Focus on <selected sources> and save only evidence-backed prospects." Use agent ID "prospector" and idempotency key "onboarding-prospector-thread".'
+      ? 'For the prospecting job use exactly: "Hey @Prospector, use [chief-skill:find-buying-signals] to find our first real buying signals from the best available evidence. Ask one focused question here only if it materially changes qualification." Use agent ID "prospector" and idempotency key "onboarding-prospector-thread".'
+      : undefined,
+    engineerSelected
+      ? 'For the engineering welcome use exactly: "Hey @Engineer, say hello in Engineering and show us the few tools that fit this workspace as plugin cards. Keep it conversational. Do not change code or deploy anything yet." Use agent ID "engineer" and idempotency key "onboarding-engineer-thread".'
       : undefined,
     ...setupJobs.map((job) => {
       const domain = job.setupDomain?.trim() ?? "selected-provider";
@@ -42,12 +47,14 @@ export function onboardingLocalKickoffInstructions(
 
   return [
     "Read onboarding/onboarding.md from the current working directory.",
+    "Do not pause onboarding to ask what the company sells or who it serves. Launch the selected specialist work with the available workspace context. Marketer owns deriving that understanding from the website and other first-party evidence, saving a useful provisional profile, and asking later in Marketing only if one missing fact makes the work unsafe or materially misleading.",
     `The saved onboarding jobs and this selected-agent list are the only authority for initial work: ${jobs === undefined ? "derive the exact list from the saved file" : kickoffAgentIds.length > 0 ? kickoffAgentIds.map((agentId) => JSON.stringify(agentId)).join(", ") : "none"}. Never launch an agent or provider absent from that list, even if a template, capability, or general workspace instruction mentions it. An empty analytics selection is an opt-out, not permission to choose a default.`,
     setupBoundary,
     "Do not search files, inspect agent definitions, or call channel discovery tools to rediscover agents. Add only the selected agent IDs together through one localTools.channels.members.add call. Then publish one top-level kickoff for each selected independent job through localTools.channelsMessagesPost " +
       `in channelId ${JSON.stringify(channelId)}.`,
     templates.join(" "),
     "Use the full display names and mention only that message's exact agent ID. Start every selected independent job before waiting for one. Keep Analyst blocked until a selected analytics setup succeeds; if no analytics setup was selected, do not start Analyst's initial report. The channel API starts each named agent in its thread, so do not also call specialistsDelegate or claim a job started before its kickoff succeeds.",
+    "Do not manufacture a generic onboarding question after kickoff. Once the selected specialists have returned, synthesize their evidence. If two or more genuinely useful next directions require the user's choice, present one compact native question in Mission Control. If one next safe step is clearly best, continue or recommend it directly without creating an action item merely to close onboarding.",
   ].join(" ");
 }
 
@@ -124,6 +131,7 @@ export function onboardingRecoveryPrompt(
     includeOpening
       ? `Resume the initial business review for this workspace. Start by publishing this exact text with localTools.channelsMessagesPost using channelId ${JSON.stringify(channelId)}:\n\n${ONBOARDING_OPENING_MESSAGE}\n\nDo not write it as ordinary assistant text. Continue working in the same turn without another acknowledgement.`
       : "Resume the initial business review for this workspace. The opening message is already visible, so begin with the first tool call and do not greet the user again.",
+    "Do not pause recovery to ask what the company sells or who it serves. Delegate with the available workspace context. Marketer owns deriving that understanding from the website and other first-party evidence, saving a useful provisional profile, and asking later in Marketing only if one missing fact makes the work unsafe or materially misleading.",
     driver === "remote"
       ? "Use current workspace context and connected cloud sources. Launch Marketer and Prospector concurrently and exactly once through Eve's declared subagents before waiting for either. Persist the brand profile through chief files.save, and persist five to eight qualified prospects with direct source URLs through chief prospects.save."
       : `${onboardingLocalKickoffInstructions(channelId, jobs)} Resume every unfinished selected job recorded in the onboarding file. Marketer's returned profile is persisted against its specialist session, so do not save or republish it from Chief.`,
@@ -135,6 +143,7 @@ export function onboardingRecoveryPrompt(
       ? "Do not ask the user for information Chief can discover. If authorization is genuinely required, complete everything else and create one distinct action per provider or user decision, with a provider-scoped stable dedupe key."
       : "Do not ask the user for information Chief can discover. A waiting Setup thread is the single user-facing authorization alert; do not mirror it into mission control as another action or browser.",
     "Missing integrations are non-blocking. Complete all public-source, brand, and prospecting work first, persist each result only in its dedicated product surface, then create only deduplicated structured setup actions with stable keys. Do not create or attach a generic initial business review file. Recording actions is not completion.",
+    "Do not manufacture a generic onboarding question after recovery. Once the selected specialists have returned, synthesize their evidence. If two or more genuinely useful next directions require the user's choice, present one compact native question in Mission Control. If one next safe step is clearly best, continue or recommend it directly without creating an action item merely to close onboarding.",
   ].join("\n\n");
 }
 

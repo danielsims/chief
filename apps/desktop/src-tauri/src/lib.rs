@@ -14,6 +14,7 @@ use std::{
 };
 
 mod native_notifications;
+mod runtime_supervisor;
 
 use native_notifications::{
     notification_environment, request_native_notification_permission, show_native_notification,
@@ -23,6 +24,7 @@ use native_notifications::{
 use std::os::unix::process::CommandExt;
 
 struct RuntimeProcess {
+    restart: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     supervisor: Mutex<Option<JoinHandle<()>>>,
 }
@@ -85,103 +87,18 @@ impl RuntimeProcess {
         terminate_unrecognized_runtime_on_port();
 
         let stop = Arc::new(AtomicBool::new(false));
-        let supervisor_stop = Arc::clone(&stop);
-        let supervisor = thread::spawn(move || {
-            let mut child: Option<Child> = None;
-            let mut unhealthy_since: Option<Instant> = None;
-            let mut healthy_since: Option<Instant> = None;
-            let mut has_been_healthy = false;
-            let mut restart_delay = Duration::from_secs(1);
-            let mut next_spawn_at = Instant::now();
-
-            while !supervisor_stop.load(Ordering::Relaxed) {
-                let now = Instant::now();
-                if let Some(runtime) = child.as_mut() {
-                    match runtime.try_wait() {
-                        Ok(Some(status)) => {
-                            eprintln!("[runtime] agent runtime exited with {status}; restarting");
-                            child = None;
-                            unhealthy_since = None;
-                            healthy_since = None;
-                            has_been_healthy = false;
-                            next_spawn_at = restart_at(&mut restart_delay);
-                        }
-                        Ok(None) => {
-                            if runtime_is_running() {
-                                has_been_healthy = true;
-                                unhealthy_since = None;
-                                let became_healthy = healthy_since.get_or_insert(now);
-                                if became_healthy.elapsed() >= Duration::from_secs(30) {
-                                    restart_delay = Duration::from_secs(1);
-                                }
-                            } else {
-                                healthy_since = None;
-                                let became_unhealthy = unhealthy_since.get_or_insert(now);
-                                let grace = runtime_unhealthy_grace(has_been_healthy);
-                                if became_unhealthy.elapsed() >= grace {
-                                    eprintln!("[runtime] agent runtime is unhealthy; restarting");
-                                    terminate_runtime(runtime);
-                                    child = None;
-                                    unhealthy_since = None;
-                                    has_been_healthy = false;
-                                    next_spawn_at = restart_at(&mut restart_delay);
-                                }
-                            }
-                        }
-                        Err(error) => {
-                            eprintln!(
-                                "[runtime] could not inspect agent runtime: {error}; restarting"
-                            );
-                            terminate_runtime(runtime);
-                            child = None;
-                            unhealthy_since = None;
-                            healthy_since = None;
-                            has_been_healthy = false;
-                            next_spawn_at = restart_at(&mut restart_delay);
-                        }
-                    }
-                } else if runtime_is_running() {
-                    // A developer-run runtime may already own the port. Leave it
-                    // alone while healthy, but take over if it later disappears.
-                    restart_delay = Duration::from_secs(1);
-                    next_spawn_at = now;
-                } else if runtime_port_is_open() {
-                    if now >= next_spawn_at {
-                        if terminate_unrecognized_runtime_on_port() {
-                            next_spawn_at = now + Duration::from_millis(500);
-                        } else {
-                            eprintln!(
-                                "[runtime] port {RUNTIME_PORT} is owned by another process; waiting"
-                            );
-                            next_spawn_at = restart_at(&mut restart_delay);
-                        }
-                    }
-                } else if now >= next_spawn_at {
-                    child = spawn_agent_runtime(&app);
-                    if child.is_some() {
-                        if let Some(runtime) = child.as_ref() {
-                            record_runtime_process(&app, runtime.id());
-                        }
-                        unhealthy_since = Some(now);
-                        healthy_since = None;
-                        has_been_healthy = false;
-                    } else {
-                        next_spawn_at = restart_at(&mut restart_delay);
-                    }
-                }
-
-                thread::sleep(Duration::from_millis(500));
-            }
-
-            if let Some(runtime) = child.as_mut() {
-                terminate_runtime(runtime);
-            }
-        });
+        let restart = Arc::new(AtomicBool::new(false));
+        let supervisor = runtime_supervisor::spawn(app, Arc::clone(&stop), Arc::clone(&restart));
 
         Self {
+            restart,
             stop,
             supervisor: Mutex::new(Some(supervisor)),
         }
+    }
+
+    fn request_restart(&self) {
+        self.restart.store(true, Ordering::Relaxed);
     }
 
     fn shutdown(&self) {
@@ -332,6 +249,22 @@ fn runtime_unhealthy_grace(has_been_healthy: bool) -> Duration {
     }
 }
 
+#[cfg_attr(debug_assertions, allow(dead_code))]
+fn packaged_runtime_node_args() -> &'static [&'static str] {
+    // On macOS, V8's default CodeRange placement can intermittently fail near
+    // a hardened, signed Node executable before any Chief code runs. This V8
+    // mode keeps JIT enabled while trying additional valid placements instead
+    // of relying on repeated process launches to get a favorable ASLR layout.
+    #[cfg(target_os = "macos")]
+    {
+        &["--better-code-range-allocation"]
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        &[]
+    }
+}
+
 fn runtime_port_is_open() -> bool {
     let addr: SocketAddr = format!("127.0.0.1:{RUNTIME_PORT}")
         .parse()
@@ -460,7 +393,10 @@ fn is_runtime_health_response(response: &[u8]) -> bool {
 mod runtime_health_tests {
     use std::path::Path;
 
-    use super::{command_runs_executable, is_runtime_health_response, runtime_unhealthy_grace};
+    use super::{
+        command_runs_executable, is_runtime_health_response, packaged_runtime_node_args,
+        runtime_unhealthy_grace,
+    };
 
     #[test]
     fn accepts_only_the_ready_chief_runtime() {
@@ -496,6 +432,17 @@ mod runtime_health_tests {
     fn tolerates_transient_runtime_backpressure() {
         assert_eq!(runtime_unhealthy_grace(true).as_secs(), 15);
         assert_eq!(runtime_unhealthy_grace(false).as_secs(), 20);
+    }
+
+    #[test]
+    fn configures_reliable_packaged_node_code_range_allocation() {
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            packaged_runtime_node_args(),
+            &["--better-code-range-allocation"]
+        );
+        #[cfg(not(target_os = "macos"))]
+        assert!(packaged_runtime_node_args().is_empty());
     }
 }
 
@@ -649,6 +596,7 @@ fn spawn_agent_runtime(app: &tauri::AppHandle) -> Option<Child> {
     }
     let path = env::join_paths(path_entries).ok()?;
     command
+        .args(packaged_runtime_node_args())
         .arg(&script)
         .current_dir(&runtime_root)
         .env("PATH", path)
@@ -712,6 +660,11 @@ fn activate_app_window(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
+fn restart_agent_runtime(state: tauri::State<'_, RuntimeProcess>) {
+    state.request_restart();
+}
+
+#[tauri::command]
 fn take_pending_notification_activation(
     state: tauri::State<'_, PendingNotificationActivation>,
 ) -> Option<serde_json::Value> {
@@ -750,6 +703,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             activate_app_window,
+            restart_agent_runtime,
             notification_environment,
             request_native_notification_permission,
             show_native_notification,

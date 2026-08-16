@@ -75,7 +75,7 @@ function modeContext(
   return [
     "Mode: Mission control",
     `Mission channel ID: ${missionControlChannelId}`,
-    "Use the assigned mission channel as the workspace's coordination home. Chief may assess the workspace and compose the existing channel, message, membership, schedule, file, action, and notification primitives as the situation requires. There is no prescribed project workflow, channel lifecycle, or requirement to post. If nothing useful needs attention, stay quiet.",
+    "Use the assigned mission channel as the workspace's coordination home. Keep narrow coordination in its owning thread. When substantial delivery has an independent objective plus its own team, lifecycle, artifacts, dependency, or approval boundary, prefer a focused feature channel, move the relevant agents and work there, and archive it after the owner accepts the outcome. Chief may compose the existing channel, message, membership, schedule, file, action, and notification primitives as the situation requires. If nothing useful needs attention, stay quiet.",
   ].join("\n\n");
 }
 

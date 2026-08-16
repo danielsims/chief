@@ -15,7 +15,7 @@ type JsonObject = Record<string, unknown>;
 interface LocalOperation {
   description: string;
   inputSchema: JsonObject;
-  method: "GET" | "POST";
+  method: "DELETE" | "GET" | "PATCH" | "POST";
   path: string;
   title: string;
 }
@@ -126,7 +126,7 @@ export function agentLocalOperations(openApi: unknown) {
   const operations = new Map<string, LocalOperation>();
   for (const [path, pathValue] of Object.entries(paths)) {
     const pathItem = object(pathValue);
-    for (const method of ["get", "post"] as const) {
+    for (const method of ["get", "post", "patch", "delete"] as const) {
       const operation = object(pathItem[method]);
       const operationId = operation.operationId;
       if (typeof operationId !== "string" || !operationId) continue;
@@ -139,7 +139,7 @@ export function agentLocalOperations(openApi: unknown) {
               ? operation.summary
               : operationId,
         inputSchema,
-        method: method.toUpperCase() as "GET" | "POST",
+        method: method.toUpperCase() as LocalOperation["method"],
         path,
         title:
           typeof operation.summary === "string"
@@ -290,11 +290,11 @@ export function createAgentLocalMcpHandler(dependencies: {
         method: operation.method,
         headers: {
           authorization: `Bearer ${token}`,
-          ...(operation.method === "POST"
+          ...(operation.method !== "GET"
             ? { "content-type": "application/json" }
             : {}),
         },
-        ...(operation.method === "POST"
+        ...(operation.method !== "GET"
           ? { body: JSON.stringify(target.remaining) }
           : {}),
       });

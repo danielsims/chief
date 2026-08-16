@@ -6,7 +6,11 @@ import { ChatDateSeparator, chatDayKey } from "./chat-date-time";
 import { timelineEntryCreatedAt } from "./conversation-timeline-entries";
 
 function timelineEntryKey(entry: TimelineEntry) {
-  return entry.type === "browser" ? entry.key : entry.message.id;
+  if (entry.type === "browser") return entry.key;
+  if (entry.type === "specialist") return `specialist:${entry.task.id}`;
+  return entry.type === "action"
+    ? `action:${entry.action.id}`
+    : entry.message.id;
 }
 
 export function ChatTimeline({

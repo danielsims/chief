@@ -28,8 +28,10 @@ const DEFAULT_PREFERENCES: NotificationSoundPreferences = {
   enabled: true,
   sound: "chime",
 };
+export const NOTIFICATION_SOUND_BURST_MS = 100;
 
 let cachedPreferences: NotificationSoundPreferences | null = null;
+let lastNotificationSoundAt = Number.NEGATIVE_INFINITY;
 const listeners = new Set<() => void>();
 
 export function isNotificationSound(
@@ -115,15 +117,34 @@ export function previewNotificationSound(sound: NotificationSound) {
   play(sound, { volume: 0.78 });
 }
 
+export function notificationSoundIsOutsideBurst(
+  previousAt: number,
+  now: number,
+  burstMs = NOTIFICATION_SOUND_BURST_MS,
+) {
+  return now < previousAt || now - previousAt >= burstMs;
+}
+
+/** Reserve one sound for a tight burst while leaving every banner intact. */
+export function claimConfiguredNotificationSound(now = Date.now()) {
+  const preferences = readPreferences();
+  if (
+    !preferences.enabled ||
+    !notificationSoundIsOutsideBurst(lastNotificationSoundAt, now)
+  ) {
+    return null;
+  }
+  lastNotificationSoundAt = now;
+  return preferences.sound;
+}
+
 export function shouldPlayChannelNotification(event: ChannelEvent) {
   return observedChannelMessage(event) !== null;
 }
 
-export function playConfiguredNotificationSound() {
-  const preferences = readPreferences();
-  if (!preferences.enabled) return;
+export function playNotificationSound(sound: NotificationSound) {
   try {
-    play(preferences.sound, { volume: 0.78 });
+    play(sound, { volume: 0.78 });
   } catch {
     // Audio is best effort; notification delivery must never fail because a
     // browser/WebView audio context is unavailable or still locked.

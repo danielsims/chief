@@ -4,21 +4,24 @@ import test from "node:test";
 import {
   LOCAL_ONBOARDING_FALLBACK,
   nextOnboardingStep,
+  resumableOnboardingStep,
 } from "../src/lib/onboarding-flow.js";
 
 void test("onboarding chooses execution before company context", () => {
   assert.equal(nextOnboardingStep("mode"), "inference");
   assert.equal(nextOnboardingStep("inference"), "health");
   assert.equal(nextOnboardingStep("health"), "context");
-  assert.equal(nextOnboardingStep("context"), "brand");
+  assert.equal(nextOnboardingStep("context"), "plugins");
 });
 
-void test("integration choices capture intent without setup screens", () => {
-  assert.equal(nextOnboardingStep("analytics"), "ads");
-  assert.equal(nextOnboardingStep("ads"), "adsBudget");
-  assert.equal(nextOnboardingStep("engineering"), "engineeringTools");
-  assert.equal(nextOnboardingStep("engineeringTools"), "aeo");
-  assert.equal(nextOnboardingStep("aeo"), "automation");
+void test("tools are the last onboarding question", () => {
+  assert.equal(nextOnboardingStep("plugins"), "finish");
+});
+
+void test("legacy drafts resume without revisiting removed questions", () => {
+  assert.equal(resumableOnboardingStep("brand"), "plugins");
+  assert.equal(resumableOnboardingStep("monitoring"), "plugins");
+  assert.equal(resumableOnboardingStep("automation"), "finish");
 });
 
 void test("cloud deployment can fall back to local setup atomically", () => {
