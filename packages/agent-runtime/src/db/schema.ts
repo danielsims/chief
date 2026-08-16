@@ -28,6 +28,7 @@ import { schedules } from "./schedule-schema.js";
 
 export { schedules } from "./schedule-schema.js";
 export * from "./project-schema.js";
+export * from "./cell-schema.js";
 
 export const channels = sqliteTable(
   "channel",

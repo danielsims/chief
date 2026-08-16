@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./types": "./src/types.ts",
+    "./cells": "./src/cells/types.ts",
     "./artifact-types": "./src/artifact-types.ts",
     "./agents": "./src/agents.ts",
     "./agent-roster": "./src/agent-roster.ts",
