@@ -476,6 +476,7 @@ export function ChiefChatAuxiliaryPanels({
   return activityOpen && !profileOpen && !activeChild ? (
     <AgentActivityPanel
       blocks={currentTurnBlocks}
+      error={controls.error}
       previousTurns={previousActivityTurns}
       agentLabel={activityAgentLabel}
       running={controls.status === "running"}

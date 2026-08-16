@@ -1,3 +1,5 @@
+import { CircleAlert } from "lucide-react";
+
 import type { ContentBlock, SessionRecord } from "@chief/agent-runtime/types";
 
 import type { ConversationActivityTurn } from "./conversation-activity-history";
@@ -18,6 +20,7 @@ const ACTIVITY_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
 
 export function AgentActivityPanel({
   blocks,
+  error,
   previousTurns,
   agentLabel,
   running,
@@ -27,6 +30,7 @@ export function AgentActivityPanel({
   sizing,
 }: {
   blocks: ContentBlock[];
+  error?: string;
   previousTurns: readonly ConversationActivityTurn[];
   agentLabel: string;
   running: boolean;
@@ -43,6 +47,17 @@ export function AgentActivityPanel({
       <ConversationAuxiliaryPanelHeader title="Activity" onClose={onClose} />
 
       <ConversationAuxiliaryPanelBody className="p-4">
+        {error ? (
+          <section className="border-destructive/20 bg-destructive/5 mb-5 rounded-lg border p-3">
+            <div className="text-destructive flex items-center gap-1.5 text-xs font-medium">
+              <CircleAlert size={13} />
+              Error
+            </div>
+            <p className="text-muted-foreground mt-2 text-xs leading-5">
+              {error}
+            </p>
+          </section>
+        ) : null}
         {hasActivity ? (
           <div>
             <p className="text-muted-foreground mb-2 px-1 text-[12px] leading-4 font-normal">

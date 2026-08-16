@@ -79,10 +79,14 @@ export function AppTopChrome({
           <ChevronRight size={16} />
         </button>
       </div>
+      <div
+        id="chief-app-status"
+        className="ml-auto flex items-center gap-1.5"
+      />
       {status === "disconnected" ? (
         <button
           type="button"
-          className="text-foreground/80 hover:text-foreground ml-auto flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors hover:bg-red-500/10"
+          className="text-foreground/80 hover:text-foreground flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors hover:bg-red-500/10"
           onClick={() => void recoverRuntime()}
           title="Restart the local runtime"
         >
