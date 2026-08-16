@@ -4,6 +4,7 @@ import { extname, join, relative, sep } from "node:path";
 const MAX_ICON_BYTES = 512 * 1024;
 const MAX_SCAN_DEPTH = 4;
 const MAX_SCANNED_ENTRIES = 2_000;
+const MAX_ICON_CACHE_ENTRIES = 256;
 const ignoredDirectories = new Set([
   ".git",
   ".next",
@@ -59,6 +60,7 @@ async function scanProjectIcon(repositoryPath: string) {
     for (const entry of entries) {
       scanned += 1;
       if (scanned > MAX_SCANNED_ENTRIES) break;
+      if (entry.isSymbolicLink()) continue;
       const absolutePath = join(current.path, entry.name);
       if (entry.isDirectory()) {
         if (
@@ -103,11 +105,16 @@ async function scanProjectIcon(repositoryPath: string) {
 }
 
 /** Finds a safe raster app icon without exposing arbitrary local file paths. */
-export function projectIconDataUrl(repositoryPath: string) {
-  let cached = iconCache.get(repositoryPath);
+export function projectIconDataUrl(repositoryPath: string, revision?: string) {
+  const key = `${repositoryPath}\0${revision ?? ""}`;
+  let cached = iconCache.get(key);
   if (!cached) {
     cached = scanProjectIcon(repositoryPath);
-    iconCache.set(repositoryPath, cached);
+    iconCache.set(key, cached);
+    if (iconCache.size > MAX_ICON_CACHE_ENTRIES) {
+      const oldest = iconCache.keys().next().value;
+      if (typeof oldest === "string") iconCache.delete(oldest);
+    }
   }
   return cached;
 }

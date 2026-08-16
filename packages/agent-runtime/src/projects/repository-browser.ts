@@ -39,6 +39,26 @@ function safePath(value: string | undefined) {
   return trimmed.replace(/^\.\//, "").replace(/\/$/, "");
 }
 
+function hasControlCharacter(value: string) {
+  for (const character of value) {
+    if (character.charCodeAt(0) < 32) return true;
+  }
+  return false;
+}
+
+function safeRef(value: string | undefined) {
+  const trimmed = value?.trim() ?? "";
+  if (
+    !trimmed ||
+    trimmed.length > 1024 ||
+    trimmed.startsWith("-") ||
+    hasControlCharacter(trimmed)
+  ) {
+    throw new Error("Use a valid Git ref.");
+  }
+  return trimmed;
+}
+
 function parseCommit(record: string): ProjectCommitSummary | undefined {
   const [hash, shortHash, subject, authorName, authorEmail, authoredAt] = record
     .trim()
@@ -357,7 +377,7 @@ export async function browseRepository(
   requestedRef: string,
   requestedPath?: string,
 ): Promise<ProjectRepositoryBrowserSnapshot> {
-  const ref = requestedRef.trim();
+  const ref = safeRef(requestedRef);
   const path = safePath(requestedPath);
   await git(
     ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`],
@@ -415,7 +435,7 @@ export async function inspectRepositoryCommit(
   requestedRef: string,
   requestedCommit: string,
 ): Promise<ProjectCommitDetail> {
-  const ref = requestedRef.trim();
+  const ref = safeRef(requestedRef);
   const commitInput = requestedCommit.trim();
   if (!/^[0-9a-f]{7,64}$/i.test(commitInput)) {
     throw new Error("Use a valid commit hash.");
