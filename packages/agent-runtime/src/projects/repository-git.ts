@@ -257,9 +257,18 @@ export async function repositorySnapshot(
       .filter((line) => line && !line.startsWith("#")).length;
     const iconDataUrl = await projectIconDataUrl(binding.repositoryPath, head);
     const branchOutput = await git(
-      ["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+      [
+        "for-each-ref",
+        "--count=40",
+        "--format=%(refname:short)%x1f%(objectname:short)%x1f%(subject)",
+        "refs/heads",
+      ],
       binding.repositoryPath,
     );
+    const branchSummaries = branchOutput.split("\n").flatMap((line) => {
+      const [name, shortHash, subject] = line.split("\x1f");
+      return name && shortHash && subject ? [{ name, shortHash, subject }] : [];
+    });
     return {
       project,
       binding,
@@ -271,7 +280,8 @@ export async function repositorySnapshot(
       ahead: Number(divergence?.[1] ?? 0),
       behind: Number(divergence?.[2] ?? 0),
       changedFiles,
-      branches: branchOutput.split("\n").filter(Boolean),
+      branches: branchSummaries.map((branch) => branch.name),
+      branchSummaries,
       commits: await recentCommits(binding.repositoryPath),
       checkouts,
       ...(iconDataUrl ? { iconDataUrl } : {}),

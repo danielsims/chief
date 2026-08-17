@@ -346,7 +346,11 @@ export function useProjectComparison(
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
   const key =
-    cloudOrganizationId && projectId && baseRef && compareRef
+    cloudOrganizationId &&
+    projectId &&
+    baseRef &&
+    compareRef &&
+    baseRef !== compareRef
       ? comparisonCacheKey(cloudOrganizationId, projectId, baseRef, compareRef)
       : undefined;
   const [received, setReceived] = useState<{
