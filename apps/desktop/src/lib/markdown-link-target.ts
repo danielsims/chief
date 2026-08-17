@@ -4,7 +4,8 @@ import { parseChiefNavigationHref } from "./app-navigation";
 export type MarkdownLinkTarget =
   | { kind: "app"; value: ChiefNavigationDestination }
   | { kind: "path"; value: string }
-  | { kind: "url"; value: string };
+  | { kind: "url"; value: string }
+  | { kind: "repoPath"; value: string };
 
 function decodedPath(value: string) {
   try {
@@ -27,6 +28,15 @@ export function markdownLinkTarget(href: string): MarkdownLinkTarget | null {
     url = new URL(href);
   } catch {
     return null;
+  }
+  // Repository-relative README links are routed back into the repository
+  // browser instead of being opened as a web URL.
+  if (
+    url.hostname === "chief.local" &&
+    url.pathname.startsWith("/readme-links/")
+  ) {
+    const path = decodedPath(url.pathname.slice("/readme-links/".length));
+    return path ? { kind: "repoPath", value: path } : null;
   }
   if (url.protocol === "http:" || url.protocol === "https:") {
     return { kind: "url", value: url.toString() };

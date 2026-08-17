@@ -3,7 +3,6 @@ import {
   ChevronRight,
   FileCode2,
   Folder,
-  GitCommitHorizontal,
   History,
   Package,
 } from "lucide-react";
@@ -128,10 +127,6 @@ function CommitHeader({
   if (!commit) return null;
   return (
     <div className="border-border/70 bg-muted/45 flex min-h-12 items-center gap-3 border-b px-4 py-2.5 text-[13px]">
-      <GitCommitHorizontal
-        size={16}
-        className="text-muted-foreground shrink-0"
-      />
       <span className="min-w-0 flex-1 truncate">
         <span className="font-medium">{commit.authorName}</span>{" "}
         <span className="text-muted-foreground">{commit.subject}</span>

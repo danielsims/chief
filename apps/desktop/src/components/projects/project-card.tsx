@@ -38,19 +38,15 @@ export function ProjectCard({
             {snapshot.branch ?? project.defaultBranch}
           </span>
         </span>
-        <span>
-          {snapshot.available
-            ? snapshot.clean
-              ? "Clean"
-              : `${snapshot.changedFiles ?? 0} changed`
-            : snapshot.portable
-              ? "Not on this runtime"
-              : "Local only"}
-        </span>
         {snapshot.commits[0] ? (
           <span className="ml-auto flex min-w-0 items-center gap-1.5">
             <GitCommitHorizontal size={13} />
             <span className="truncate">{snapshot.commits[0].shortHash}</span>
+          </span>
+        ) : null}
+        {!snapshot.portable ? (
+          <span className="border-border/60 text-muted-foreground shrink-0 rounded-full border px-2 py-0.5 text-[11px]">
+            Local only
           </span>
         ) : null}
       </span>
