@@ -27,6 +27,71 @@ function refOptions(snapshot: ProjectRepositorySnapshot) {
   );
 }
 
+function CompareEmptyState({
+  snapshot,
+  baseRef,
+  onCompareChange,
+}: {
+  snapshot: ProjectRepositorySnapshot;
+  baseRef: string;
+  onCompareChange: (ref: string) => void;
+}) {
+  const branches = (snapshot.branchSummaries ?? []).slice(0, 8);
+  return (
+    <div className="border-border/70 mt-5 rounded-xl border">
+      <div className="flex flex-col items-center px-6 py-12 text-center">
+        <GitCompareArrows size={28} className="text-muted-foreground/60" />
+        <h4 className="mt-3 text-[16px] font-medium">
+          Compare and review changes
+        </h4>
+        <p className="text-muted-foreground mt-1 max-w-md text-[13px] leading-5">
+          Choose different branches above to review changes before publishing or
+          opening a pull request.
+        </p>
+      </div>
+
+      {branches.length ? (
+        <div className="border-border/70 border-t">
+          <div className="border-border/70 flex h-10 items-center border-b px-4 text-[12px] font-medium">
+            Recent branches
+          </div>
+          {branches.map((branch) => (
+            <button
+              key={branch.name}
+              type="button"
+              onClick={() =>
+                branch.name !== baseRef && onCompareChange(branch.name)
+              }
+              className="border-border/70 hover:bg-muted/40 grid w-full grid-cols-[minmax(120px,1fr)_minmax(140px,1.5fr)_auto] items-center gap-3 border-b px-4 py-2.5 text-left text-[13px] last:border-b-0"
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="truncate font-medium">{branch.name}</span>
+                {branch.name === snapshot.project.defaultBranch ? (
+                  <span className="text-muted-foreground shrink-0 text-[11px]">
+                    Default
+                  </span>
+                ) : null}
+              </span>
+              <span className="text-muted-foreground min-w-0 truncate">
+                {branch.subject}
+              </span>
+              {branch.name === baseRef ? (
+                <span className="text-muted-foreground shrink-0 text-[12px]">
+                  Base
+                </span>
+              ) : (
+                <span className="shrink-0 font-mono text-[12px]">
+                  {branch.shortHash}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ProjectBranchCompareView({
   snapshot,
   baseRef,
@@ -47,10 +112,11 @@ export function ProjectBranchCompareView({
   onBack: () => void;
 }) {
   const { resolved } = useTheme();
+  const ready = baseRef !== compareRef;
   const { comparison, loading, error } = useProjectComparison(
     snapshot.project.id,
-    baseRef,
-    compareRef,
+    ready ? baseRef : undefined,
+    ready ? compareRef : undefined,
   );
   const options = refOptions(snapshot);
 
@@ -92,13 +158,17 @@ export function ProjectBranchCompareView({
         </Button>
       </div>
 
-      {error ? (
+      {!ready ? (
+        <CompareEmptyState
+          snapshot={snapshot}
+          baseRef={baseRef}
+          onCompareChange={onCompareChange}
+        />
+      ) : error ? (
         <div className="border-destructive/20 bg-destructive/[0.05] text-destructive mt-5 rounded-xl border px-4 py-3 text-[13px]">
           {error}
         </div>
-      ) : null}
-
-      {loading || !comparison ? (
+      ) : loading || !comparison ? (
         <div className="border-border/70 mt-5 min-h-40 rounded-xl border" />
       ) : (
         <>

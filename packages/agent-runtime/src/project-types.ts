@@ -305,6 +305,7 @@ export interface ProjectRepositorySnapshot {
   behind?: number;
   changedFiles?: number;
   branches: string[];
+  branchSummaries?: ProjectBranchSummary[];
   commits: ProjectCommitSummary[];
   checkouts: ProjectCheckoutRecord[];
   iconDataUrl?: string;
@@ -325,6 +326,13 @@ export interface ProjectContributorSummary {
   name: string;
   email: string;
   commits: number;
+}
+
+/** A branch with its tip commit, for lists and empty states. */
+export interface ProjectBranchSummary {
+  name: string;
+  shortHash: string;
+  subject: string;
 }
 
 export interface ProjectReadmeSnapshot {
