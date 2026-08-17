@@ -426,7 +426,8 @@ export async function handleProjectLocalTool(
         handled: true,
         value: {
           supported: false,
-          reason: "Self-service project grants are disabled.",
+          reason:
+            "Self-service project grants are disabled. Ask the workspace operator to restart Chief with CHIEF_PROJECT_GRANT_TOOL=1 to enable QA self-service grants, or to grant your agent access directly.",
         },
       };
     }

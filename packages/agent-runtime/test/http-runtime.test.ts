@@ -61,7 +61,8 @@ void test("an async request failure returns 500 without closing the server", asy
       );
       assert.equal(response.status, 500);
       assert.deepEqual(await response.json(), {
-        error: "Chief could not complete this local request.",
+        error: "bad request",
+        code: "local_tool_failed",
       });
     }
     assert.equal(errors.length, 2);
