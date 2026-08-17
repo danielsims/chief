@@ -260,13 +260,13 @@ export async function repositorySnapshot(
       [
         "for-each-ref",
         "--count=40",
-        "--format=%(refname:short)%x1f%(objectname:short)%x1f%(subject)",
+        "--format=%(refname:short)%00%(objectname:short)%00%(subject)",
         "refs/heads",
       ],
       binding.repositoryPath,
     );
     const branchSummaries = branchOutput.split("\n").flatMap((line) => {
-      const [name, shortHash, subject] = line.split("\x1f");
+      const [name, shortHash, subject] = line.split("\0");
       return name && shortHash && subject ? [{ name, shortHash, subject }] : [];
     });
     return {
