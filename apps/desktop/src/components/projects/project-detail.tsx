@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { ArrowLeft, ExternalLink, FolderOpen, RefreshCw } from "lucide-react";
 
@@ -82,6 +82,11 @@ export function ProjectDetail({
     onRefresh();
     browser.refresh();
   };
+
+  const openReadmePath = useCallback((path: string) => {
+    setSelectedPath(path);
+    setView("files");
+  }, []);
 
   return (
     <div className="mx-auto w-full max-w-7xl">
@@ -213,10 +218,7 @@ export function ProjectDetail({
           browser.browser.readme ? (
             <ProjectReadme
               readme={browser.browser.readme}
-              onOpenPath={(path) => {
-                setSelectedPath(path);
-                setView("files");
-              }}
+              onOpenPath={openReadmePath}
             />
           ) : null}
         </main>
