@@ -28,8 +28,9 @@ const Streamdown = lazy(() =>
 function MarkdownLink({
   href,
   children,
+  onRepoPath,
   ...props
-}: ComponentPropsWithoutRef<"a">) {
+}: ComponentPropsWithoutRef<"a"> & { onRepoPath?: (path: string) => void }) {
   const navigation = useChiefNavigation();
   return (
     <a
@@ -42,6 +43,10 @@ function MarkdownLink({
         if (!target) return;
         if (target.kind === "app") {
           navigation.open(target.value);
+          return;
+        }
+        if (target.kind === "repoPath") {
+          onRepoPath?.(target.value);
           return;
         }
         const result =
@@ -117,6 +122,7 @@ export function StreamingMarkdown({
   onOpenChannel,
   onOpenMention,
   resolveImageSrc,
+  onRepoPath,
 }: {
   children: string;
   streaming?: boolean;
@@ -124,11 +130,14 @@ export function StreamingMarkdown({
   onOpenChannel?: (channelId: string) => void;
   onOpenMention?: (agentId: WorkspaceAgentId) => void;
   resolveImageSrc?: (src: string) => string;
+  onRepoPath?: (path: string) => void;
 }) {
   const { inlineText } = messageSkill(children);
   const components = useMemo(
     () => ({
-      a: MarkdownLink,
+      a: (props: ComponentPropsWithoutRef<"a">) => (
+        <MarkdownLink {...props} onRepoPath={onRepoPath} />
+      ),
       img: (props: ComponentPropsWithoutRef<"img">) => (
         <MarkdownImage {...props} resolveImageSrc={resolveImageSrc} />
       ),
@@ -159,7 +168,7 @@ export function StreamingMarkdown({
         </li>
       ),
     }),
-    [channels, onOpenChannel, onOpenMention, resolveImageSrc],
+    [channels, onOpenChannel, onOpenMention, onRepoPath, resolveImageSrc],
   );
   return (
     <div className="max-w-full min-w-0 overflow-hidden [overflow-wrap:anywhere] [&_a]:break-all [&_code]:break-all [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">

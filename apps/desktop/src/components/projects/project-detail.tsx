@@ -211,7 +211,13 @@ export function ProjectDetail({
           {view === "files" &&
           browser.browser?.kind === "tree" &&
           browser.browser.readme ? (
-            <ProjectReadme readme={browser.browser.readme} />
+            <ProjectReadme
+              readme={browser.browser.readme}
+              onOpenPath={(path) => {
+                setSelectedPath(path);
+                setView("files");
+              }}
+            />
           ) : null}
         </main>
         {view === "files" ? (

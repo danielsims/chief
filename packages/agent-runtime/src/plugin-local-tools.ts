@@ -42,7 +42,7 @@ function pluginSearchResults(snapshot: unknown, url: URL) {
     total: plugins.length,
     query: query || undefined,
     instruction:
-      "Prefer a standards-compatible plugin when one matches the user's service. Treat metadata as discovery context, not permission: install only after the user has asked to connect or add it, and always return the authorization action for the user to complete. If no usable plugin exists, continue through Chief's setup, browser, or secure credential tools instead of inventing a connector.",
+      "Honor the workspace context's onboarding-selected tools first: surface EVERY tool the user chose during setup as a card before any other tool, using a matching plugin card when one is available and the matching setup skill or secure credential flow otherwise. Never skip an onboarding-selected tool because its plugin card is missing. After covering all of them, add at most a couple of related extras if genuinely useful. Treat metadata as discovery context, not permission: install only after the user has asked to connect or add it, and always return the authorization action for the user to complete. If no usable plugin exists, continue through Chief's setup, browser, or secure credential tools instead of inventing a connector.",
   };
 }
 

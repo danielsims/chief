@@ -83,7 +83,7 @@ export function workspaceContextFromOrganization(
     : [];
   if (requestedPlugins.length > 0) {
     lines.push(
-      `Tools the user already uses: ${requestedPlugins.join(", ")}. These selections express relevance, not connection status. Prefer a matching Chief plugin when one is available; otherwise use Chief's secure setup and Executor capabilities. Always ask before opening sign-in or changing an external account.`,
+      `Tools the user already uses: ${requestedPlugins.join(", ")}. These were chosen during onboarding, so surface EVERY one of them first in your opening message as a connection or setup card — as a matching Chief plugin card when one is available, otherwise through the matching setup skill or secure Executor capability. Do not skip one just because a plugin card is missing. After covering all of them, you may add at most a couple of related extras if genuinely useful. Always ask before opening sign-in or changing an external account.`,
     );
   }
   const integrations = Array.isArray(analytics.integrations)
