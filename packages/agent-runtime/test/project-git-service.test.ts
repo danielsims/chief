@@ -217,6 +217,14 @@ void test("project browsing returns a committed tree, README, contributors, file
     const [snapshot] = await service.list("workspace-a", operator);
     assert.ok(snapshot);
     assert.match(snapshot.iconDataUrl ?? "", /^data:image\/png;base64,/);
+    assert.deepEqual(
+      snapshot.branches.map((branch) => branch),
+      ["main"],
+      "branches stay populated on the snapshot",
+    );
+    const branchSummaries = snapshot.branchSummaries ?? [];
+    assert.equal(branchSummaries[0]?.name, "main");
+    assert.match(branchSummaries[0].subject, /Initial commit/);
 
     writeFileSync(
       join(repository, "README.md"),
