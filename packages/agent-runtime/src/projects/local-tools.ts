@@ -1,4 +1,4 @@
-import type { ProjectPrincipal } from "../types.js";
+import type { ProjectCapability, ProjectPrincipal } from "../types.js";
 import type { ProjectGitService } from "./git-service.js";
 
 function requiredString(input: unknown, name: string, maximum = 240) {
@@ -137,6 +137,16 @@ export function projectOpenApiPaths(
         responses: { "200": { description: "Pull request status" } },
       },
     },
+    "/local-tools/projects/grant": {
+      post: {
+        operationId: "projects.grant",
+        summary: "Grant this agent a capability on a project (QA mode only)",
+        description:
+          "DEV/QA tool. Lets an agent request its own project capability so local testing can exercise checkout, commit, and publish. Disabled unless the runtime is started with CHIEF_PROJECT_GRANT_TOOL=1.",
+        requestBody: body("ProjectSelfGrantInput"),
+        responses: { "200": { description: "Granted capability" } },
+      },
+    },
   };
 }
 
@@ -233,6 +243,18 @@ export const projectOpenApiSchemas = {
       ref: {
         type: "string",
         description: "Branch or commit to read checks for",
+      },
+    },
+  },
+  ProjectSelfGrantInput: {
+    type: "object",
+    required: ["projectId", "capability"],
+    properties: {
+      projectId: { type: "string" },
+      capability: {
+        type: "string",
+        enum: ["view", "checkout", "commit", "publish", "review", "administer"],
+        description: "Capability this agent requests on the project",
       },
     },
   },
@@ -397,6 +419,25 @@ export async function handleProjectLocalTool(
       requiredString(body.ref, "ref"),
     );
     return { handled: true, value: status };
+  }
+  if (path === "/local-tools/projects/grant") {
+    if (process.env.CHIEF_PROJECT_GRANT_TOOL !== "1") {
+      return {
+        handled: true,
+        value: {
+          supported: false,
+          reason: "Self-service project grants are disabled.",
+        },
+      };
+    }
+    const grant = await context.service.selfGrant(
+      organizationId,
+      requiredString(body.projectId, "projectId", 160),
+      context.agentId,
+      requiredString(body.capability, "capability", 24) as ProjectCapability,
+    );
+    await context.onProjectsChanged?.();
+    return { handled: true, value: { supported: true, ...grant } };
   }
   throw new Error("Unknown project operation.");
 }
