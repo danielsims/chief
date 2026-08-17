@@ -1,6 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import type {
+  ProjectAccessRequestRecord,
   ProviderPullRequest,
   ServerMessage,
 } from "@chief/agent-runtime/types";
@@ -184,5 +185,121 @@ export function useProjectPullRequest() {
     created,
     clearError: () => setError(null),
     create,
+  };
+}
+
+/** Pending agent access requests and their approve/deny decisions. */
+export function useProjectAccessRequests() {
+  const { client, status } = useRuntime();
+  const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const [received, setReceived] = useState<{
+    workspaceId: string;
+    requests: ProjectAccessRequestRecord[];
+  } | null>(null);
+  const requests =
+    cloudOrganizationId && received?.workspaceId === cloudOrganizationId
+      ? received.requests
+      : null;
+  const [busy, setBusy] = useState<{
+    workspaceId: string;
+    requestId: string;
+  } | null>(null);
+  const busyId =
+    cloudOrganizationId && busy?.workspaceId === cloudOrganizationId
+      ? busy.requestId
+      : null;
+  const [failure, setFailure] = useState<{
+    workspaceId: string;
+    message: string;
+  } | null>(null);
+  const error =
+    cloudOrganizationId && failure?.workspaceId === cloudOrganizationId
+      ? failure.message
+      : null;
+
+  useEffect(() => {
+    if (!cloudOrganizationId) return;
+    const unsubscribe = client.subscribe((message: ServerMessage) => {
+      if (
+        message.type === "projectAccessRequests" &&
+        message.workspaceId === cloudOrganizationId
+      ) {
+        setReceived({
+          workspaceId: cloudOrganizationId,
+          requests: message.requests,
+        });
+      }
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [client, cloudOrganizationId]);
+
+  const refresh = useCallback(() => {
+    if (!cloudOrganizationId || !capability || status !== "connected") return;
+    client.send({
+      type: "listProjectAccessRequests",
+      workspaceId: cloudOrganizationId,
+      executorCapability: capability,
+    });
+  }, [capability, client, cloudOrganizationId, status]);
+
+  const resolve = useCallback(
+    (requestId: string, decision: "approved" | "denied") => {
+      if (!cloudOrganizationId || !capability || status !== "connected") return;
+      setBusy({ workspaceId: cloudOrganizationId, requestId });
+      setFailure(null);
+      const requestToken = crypto.randomUUID();
+      const unsubscribe = client.subscribe((message: ServerMessage) => {
+        if (
+          message.type === "projectAccessRequestResolved" &&
+          message.requestId === requestToken &&
+          message.workspaceId === cloudOrganizationId
+        ) {
+          unsubscribe();
+          setBusy(null);
+          setReceived((current) =>
+            current?.workspaceId === cloudOrganizationId
+              ? {
+                  ...current,
+                  requests: current.requests.filter(
+                    (request) => request.id !== requestId,
+                  ),
+                }
+              : current,
+          );
+        } else if (
+          message.type === "error" &&
+          message.requestId === requestToken
+        ) {
+          unsubscribe();
+          setBusy(null);
+          setFailure({
+            workspaceId: cloudOrganizationId,
+            message: message.message,
+          });
+        }
+      });
+      client.send({
+        type: "resolveProjectAccessRequest",
+        workspaceId: cloudOrganizationId,
+        requestId: requestToken,
+        accessRequestId: requestId,
+        decision,
+        executorCapability: capability,
+      });
+    },
+    [capability, client, cloudOrganizationId, status],
+  );
+
+  return {
+    requests,
+    loading: requests === null,
+    error,
+    clearError: () => setFailure(null),
+    refresh,
+    approve: (requestId: string) => resolve(requestId, "approved"),
+    deny: (requestId: string) => resolve(requestId, "denied"),
+    busyId,
   };
 }
