@@ -1,7 +1,8 @@
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 
 import type {
+  ProjectAccessRequestRecord,
   ProjectGrantRecord,
   ProjectOperationRecord,
   ProjectPrincipalType,
@@ -9,11 +10,16 @@ import type {
   ProviderConnectionRecord,
 } from "../types.js";
 import type {
+  ProjectAccessRequestStore,
   ProjectGrantStore,
   ProjectOperationStore,
   ProjectProviderStore,
 } from "./store.js";
 import * as schema from "../db/schema.js";
+import {
+  highestProjectCapability,
+  projectCapabilitiesThrough,
+} from "../project-types.js";
 
 type Database = LibSQLDatabase;
 
@@ -84,9 +90,29 @@ function operationRecord(
   };
 }
 
-/** Tenant-scoped grants, provider references, and audit persistence. */
+function accessRequestRecord(
+  row: typeof schema.projectAccessRequests.$inferSelect,
+): ProjectAccessRequestRecord {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    projectId: row.projectId,
+    agentId: row.agentId,
+    capabilities: projectCapabilitiesThrough(row.capability),
+    status: row.status,
+    requestedAt: row.requestedAt,
+    ...(row.resolvedAt ? { resolvedAt: row.resolvedAt } : {}),
+    ...(row.resolvedBy ? { resolvedBy: row.resolvedBy } : {}),
+  };
+}
+
+/** Tenant-scoped grants, provider references, access requests, and audit. */
 export class ProjectSecurityStore
-  implements ProjectGrantStore, ProjectProviderStore, ProjectOperationStore
+  implements
+    ProjectGrantStore,
+    ProjectProviderStore,
+    ProjectOperationStore,
+    ProjectAccessRequestStore
 {
   constructor(
     private readonly database: () => Database,
@@ -308,5 +334,75 @@ export class ProjectSecurityStore
       .limit(limit)
       .all();
     return rows.map(operationRecord);
+  }
+
+  async saveAccessRequest(request: ProjectAccessRequestRecord) {
+    await this.ready;
+    const { capabilities, ...record } = request;
+    await this.database()
+      .insert(schema.projectAccessRequests)
+      .values({
+        ...record,
+        capability: highestProjectCapability(capabilities),
+      });
+    return request;
+  }
+
+  async accessRequest(organizationId: string, requestId: string) {
+    await this.ready;
+    const row = await this.database()
+      .select()
+      .from(schema.projectAccessRequests)
+      .where(
+        and(
+          eq(schema.projectAccessRequests.organizationId, organizationId),
+          eq(schema.projectAccessRequests.id, requestId),
+        ),
+      )
+      .get();
+    return row ? accessRequestRecord(row) : undefined;
+  }
+
+  async pendingAccessRequests(organizationId: string) {
+    await this.ready;
+    const rows = await this.database()
+      .select()
+      .from(schema.projectAccessRequests)
+      .where(
+        and(
+          eq(schema.projectAccessRequests.organizationId, organizationId),
+          eq(schema.projectAccessRequests.status, "pending"),
+        ),
+      )
+      .orderBy(asc(schema.projectAccessRequests.requestedAt))
+      .all();
+    return rows.map(accessRequestRecord);
+  }
+
+  async resolveAccessRequest(
+    organizationId: string,
+    requestId: string,
+    status: "approved" | "denied",
+    resolvedBy: string,
+  ) {
+    await this.ready;
+    const resolvedAt = Date.now();
+    const result = await this.database()
+      .update(schema.projectAccessRequests)
+      .set({
+        status,
+        resolvedAt,
+        resolvedBy,
+      })
+      .where(
+        and(
+          eq(schema.projectAccessRequests.organizationId, organizationId),
+          eq(schema.projectAccessRequests.id, requestId),
+          eq(schema.projectAccessRequests.status, "pending"),
+        ),
+      )
+      .run();
+    if (result.rowsAffected === 0) return undefined;
+    return this.accessRequest(organizationId, requestId);
   }
 }

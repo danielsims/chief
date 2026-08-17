@@ -25,7 +25,6 @@
     "smoke:convex": "tsx scripts/smoke-convex-deployment.mts",
     "smoke:agent-live": "CHIEF_LIVE_MODEL=opencode-go/deepseek-v4-flash tsx scripts/smoke-live-channel-agent.mts",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
-    "qa:seed-grants": "tsx scripts/qa-seed-project-grants.mts",
     "start": "tsx src/server.ts",
     "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts",
     "test:pressure": "CHIEF_PRESSURE_ITERATIONS=100 node --import tsx --test --test-concurrency=1 test/channel-agent-pressure.test.ts test/channel-response-fallback.test.ts test/session-recovery.test.ts",

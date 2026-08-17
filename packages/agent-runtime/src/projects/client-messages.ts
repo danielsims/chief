@@ -14,7 +14,9 @@ type ProjectClientMessage = Extract<
       | "compareProjectBranches"
       | "publishProjectCheckout"
       | "discardProjectCheckout"
-      | "createProjectPullRequest";
+      | "createProjectPullRequest"
+      | "listProjectAccessRequests"
+      | "resolveProjectAccessRequest";
   }
 >;
 
@@ -31,7 +33,25 @@ function isProjectClientMessage(
     "publishProjectCheckout",
     "discardProjectCheckout",
     "createProjectPullRequest",
+    "listProjectAccessRequests",
+    "resolveProjectAccessRequest",
   ]).has(message.type);
+}
+
+/** Current project state sent to every connected client in one workspace. */
+export async function projectWorkspaceSnapshotMessages(
+  service: ProjectGitService,
+  workspaceId: string,
+): Promise<ServerMessage[]> {
+  const operator = await service.operatorPrincipal(workspaceId);
+  const [projects, requests] = await Promise.all([
+    service.list(workspaceId, operator),
+    service.administration.pendingAccessRequests(workspaceId, operator),
+  ]);
+  return [
+    { type: "projects", workspaceId, projects },
+    { type: "projectAccessRequests", workspaceId, requests },
+  ];
 }
 
 export async function handleProjectClientMessage(
@@ -163,6 +183,39 @@ export async function handleProjectClientMessage(
       requestId: message.requestId,
       pullRequest,
     });
+    return true;
+  }
+  if (message.type === "listProjectAccessRequests") {
+    send({
+      type: "projectAccessRequests",
+      workspaceId: message.workspaceId,
+      requests: await service.administration.pendingAccessRequests(
+        message.workspaceId,
+        principal,
+      ),
+    });
+    return true;
+  }
+  if (message.type === "resolveProjectAccessRequest") {
+    const request =
+      message.decision === "approved"
+        ? await service.administration.approveProjectAccess(
+            message.workspaceId,
+            message.accessRequestId,
+            principal,
+          )
+        : await service.administration.denyProjectAccess(
+            message.workspaceId,
+            message.accessRequestId,
+            principal,
+          );
+    void request;
+    send({
+      type: "projectAccessRequestResolved",
+      workspaceId: message.workspaceId,
+      requestId: message.requestId,
+    });
+    await input.broadcast(message.workspaceId);
     return true;
   }
   const project =

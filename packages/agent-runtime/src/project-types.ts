@@ -55,6 +55,31 @@ export const projectCapabilityLevels = [
   "administer",
 ] as const satisfies readonly ProjectCapability[];
 
+/** Every effective scope granted by one capability in the ordered hierarchy. */
+export function projectCapabilitiesThrough(
+  capability: ProjectCapability,
+): ProjectCapability[] {
+  return projectCapabilityLevels.slice(
+    0,
+    projectCapabilityLevels.indexOf(capability) + 1,
+  );
+}
+
+/** The single grant that covers every requested capability. */
+export function highestProjectCapability(
+  capabilities: readonly ProjectCapability[],
+): ProjectCapability {
+  if (capabilities.length === 0) {
+    throw new Error("At least one project capability is required.");
+  }
+  return capabilities.reduce((highest, capability) =>
+    projectCapabilityLevels.indexOf(capability) >
+    projectCapabilityLevels.indexOf(highest)
+      ? capability
+      : highest,
+  );
+}
+
 /** Optional branch, environment, or expiry constraints on a project grant. */
 export interface ProjectGrantConstraint {
   branches?: string[];
@@ -136,6 +161,21 @@ export interface ProjectOperationRecord {
   correlationId?: string;
   message?: string;
   createdAt: number;
+}
+
+export type ProjectAccessRequestStatus = "pending" | "approved" | "denied";
+
+/** An agent's effective project scopes, awaiting one human decision. */
+export interface ProjectAccessRequestRecord {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  agentId: string;
+  capabilities: ProjectCapability[];
+  status: ProjectAccessRequestStatus;
+  requestedAt: number;
+  resolvedAt?: number;
+  resolvedBy?: string;
 }
 
 /** A short-lived credential scoped to one trusted operation. */

@@ -12,6 +12,7 @@ import type * as Artifacts from "./artifact-types.js";
 import type { ChannelServerMessage } from "./channel-types.js";
 import type { IntegrationSetupPhase } from "./integration-setup-recipes.js";
 import type {
+  ProjectAccessRequestRecord,
   ProjectBranchComparison,
   ProjectCommitDetail,
   ProjectRecord,
@@ -916,6 +917,16 @@ export type ServerMessage =
       workspaceId: string;
       requestId: string;
       pullRequest: ProviderPullRequest;
+    }
+  | {
+      type: "projectAccessRequests";
+      workspaceId: string;
+      requests: ProjectAccessRequestRecord[];
+    }
+  | {
+      type: "projectAccessRequestResolved";
+      workspaceId: string;
+      requestId: string;
     }
   | ChannelServerMessage
   | { type: "models"; driver: DriverType; models: ProviderModelOption[] }

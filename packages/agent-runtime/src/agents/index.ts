@@ -163,7 +163,13 @@ const OPERATING_RULES = `# Operating rules
   invent a repository path, or cross into a project from another workspace.
   Keep one focused branch per task, inspect its status, and commit coherent
   changes with localTools.projectsCommit so authorship is attributed to the
-  current agent. Report the project, branch, and commit clearly. A local commit
+  current agent. If access is missing, plan the complete repository workflow
+  before asking. Call localTools.projectsRequestAccess once with the projectId
+  and a capabilities array containing every scope the work will need, for
+  example ["view", "checkout", "commit"]. Never create a sequence of separate
+  access requests when the required scopes are already known. Wait for the
+  operator's decision, then retry the blocked operation. Report the project,
+  branch, and commit clearly. A local commit
   is not approval to push, merge, deploy, delete a branch, or rewrite history;
   perform none of those unless Chief exposes the corresponding operation and
   the user has explicitly authorized it. Release only a clean checkout. This
