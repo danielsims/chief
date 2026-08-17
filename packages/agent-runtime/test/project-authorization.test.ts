@@ -324,45 +324,30 @@ void test("expired grants are denied and foreign principals stay blocked", async
   }
 });
 
-void test("list only exposes projects the principal can view", async () => {
+void test("agents can discover projects but need a view grant to inspect them", async () => {
   const { directory, repository, service, projectStore } = fixture();
   try {
     const project = await service.attach("workspace-a", repository, operator);
-    await grant(projectStore, "workspace-a", project.id, engineer, "view");
-    const visible = await service.list("workspace-a", engineer);
-    assert.equal(visible.length, 1);
-    assert.equal(visible[0]?.project.id, project.id);
 
-    const directoryB = mkdtempSync(join(tmpdir(), "chief-authz-b-"));
-    try {
-      const repositoryB = join(directoryB, "other");
-      execFileSync("git", ["init", "--initial-branch=main", repositoryB]);
-      writeFileSync(join(repositoryB, "README.md"), "# other repo\n");
-      git(repositoryB, "add", "README.md");
-      git(
-        repositoryB,
-        "-c",
-        "user.name=Daniel",
-        "-c",
-        "user.email=daniel@example.com",
-        "commit",
-        "-m",
-        "Initial commit",
-      );
-      const otherProject = await service.attach(
-        "workspace-a",
-        repositoryB,
-        operator,
-      );
-      const hidden = await service.list("workspace-a", engineer);
-      assert.equal(
-        hidden.some((snapshot) => snapshot.project.id === otherProject.id),
-        false,
-        "projects without a view grant stay hidden from agents",
-      );
-    } finally {
-      rmSync(directoryB, { recursive: true, force: true });
-    }
+    const beforeGrant = await service.list("workspace-a", engineer);
+    assert.equal(beforeGrant.length, 1);
+    assert.equal(beforeGrant[0]?.project.id, project.id);
+    assert.equal(
+      beforeGrant[0].available,
+      false,
+      "repository state stays hidden without view access",
+    );
+    assert.match(beforeGrant[0].error ?? "", /do not have view access/);
+    await assert.rejects(
+      service.browse("workspace-a", project.id, engineer, "main"),
+      ProjectAuthorizationError,
+    );
+
+    await grant(projectStore, "workspace-a", project.id, engineer, "view");
+    const afterGrant = await service.list("workspace-a", engineer);
+    assert.equal(afterGrant[0]?.available, true);
+    const snapshot = await service.inspect("workspace-a", project.id, engineer);
+    assert.equal(snapshot.available, true);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

@@ -13,7 +13,8 @@ type ProjectClientMessage = Extract<
       | "inspectProjectCommit"
       | "compareProjectBranches"
       | "publishProjectCheckout"
-      | "discardProjectCheckout";
+      | "discardProjectCheckout"
+      | "createProjectPullRequest";
   }
 >;
 
@@ -29,6 +30,7 @@ function isProjectClientMessage(
     "compareProjectBranches",
     "publishProjectCheckout",
     "discardProjectCheckout",
+    "createProjectPullRequest",
   ]).has(message.type);
 }
 
@@ -141,6 +143,26 @@ export async function handleProjectClientMessage(
       checkoutId: message.checkoutId,
     });
     await input.broadcast(message.workspaceId);
+    return true;
+  }
+  if (message.type === "createProjectPullRequest") {
+    const pullRequest = await service.createPullRequest(
+      message.workspaceId,
+      message.projectId,
+      principal,
+      {
+        title: message.title,
+        ...(message.description ? { description: message.description } : {}),
+        headBranch: message.headBranch,
+        baseBranch: message.baseBranch,
+      },
+    );
+    send({
+      type: "projectPullRequestCreated",
+      workspaceId: message.workspaceId,
+      requestId: message.requestId,
+      pullRequest,
+    });
     return true;
   }
   const project =

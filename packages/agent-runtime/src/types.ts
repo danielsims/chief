@@ -17,6 +17,7 @@ import type {
   ProjectRecord,
   ProjectRepositoryBrowserSnapshot,
   ProjectRepositorySnapshot,
+  ProviderPullRequest,
 } from "./project-types.js";
 
 export type {
@@ -909,6 +910,12 @@ export type ServerMessage =
       workspaceId: string;
       requestId: string;
       checkoutId: string;
+    }
+  | {
+      type: "projectPullRequestCreated";
+      workspaceId: string;
+      requestId: string;
+      pullRequest: ProviderPullRequest;
     }
   | ChannelServerMessage
   | { type: "models"; driver: DriverType; models: ProviderModelOption[] }

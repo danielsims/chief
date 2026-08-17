@@ -6,7 +6,6 @@ import type {
   ProjectCapability,
   ProjectPrincipal,
   ProjectProviderAdapter,
-  ProjectRecord,
 } from "../types.js";
 import type { CredentialBroker } from "./credential-broker.js";
 import type { ProjectServiceAuthorization } from "./service-base.js";
@@ -203,17 +202,24 @@ export class ProjectGitService extends ProjectServiceBase {
   async list(organizationId: string, principal: ProjectPrincipal) {
     const projects = await this.catalog.list(organizationId);
     const runtimeId = await this.runtimeId();
-    const visible: ProjectRecord[] = [];
-    for (const project of projects) {
-      try {
-        await this.authorize(organizationId, project.id, principal, "view");
-        visible.push(project);
-      } catch {
-        // A principal only sees the projects it is authorized to view.
-      }
-    }
     return Promise.all(
-      visible.map(async (project) => {
+      projects.map(async (project) => {
+        try {
+          await this.authorize(organizationId, project.id, principal, "view");
+        } catch {
+          // Discovery keeps the project handle visible so an agent can request
+          // access; the repository state stays hidden until it has view access.
+          return {
+            project,
+            portable: Boolean(project.canonicalRemoteUrl),
+            available: false,
+            branches: [],
+            commits: [],
+            checkouts: [],
+            error:
+              "You do not have view access to this project yet. Request access with projects.grant when it is enabled.",
+          };
+        }
         const [binding, checkouts] = await Promise.all([
           this.runtime.binding(organizationId, project.id, runtimeId),
           this.runtime.listCheckouts(
