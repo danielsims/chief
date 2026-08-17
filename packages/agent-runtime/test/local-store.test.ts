@@ -575,6 +575,7 @@ void test("baseline contains only the required singular one-word tables", async 
         "post",
         "preference",
         "project",
+        "project_access_request",
         "project_grant",
         "project_operation",
         "project_provider_link",

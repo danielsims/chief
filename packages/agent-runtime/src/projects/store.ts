@@ -1,4 +1,5 @@
 import type {
+  ProjectAccessRequestRecord,
   ProjectCheckoutRecord,
   ProjectGrantRecord,
   ProjectOperationRecord,
@@ -92,6 +93,26 @@ export interface ProjectOperationStore {
   ): Promise<ProjectOperationRecord[]>;
 }
 
+/** Pending agent access requests awaiting a human decision. */
+export interface ProjectAccessRequestStore {
+  saveAccessRequest(
+    request: ProjectAccessRequestRecord,
+  ): Promise<ProjectAccessRequestRecord>;
+  accessRequest(
+    organizationId: string,
+    requestId: string,
+  ): Promise<ProjectAccessRequestRecord | undefined>;
+  pendingAccessRequests(
+    organizationId: string,
+  ): Promise<ProjectAccessRequestRecord[]>;
+  resolveAccessRequest(
+    organizationId: string,
+    requestId: string,
+    status: "approved" | "denied",
+    resolvedBy: string,
+  ): Promise<ProjectAccessRequestRecord | undefined>;
+}
+
 /** One tenant-scoped persistence bundle shared by all project services. */
 export interface ProjectPersistence {
   catalog: ProjectCatalogStore;
@@ -99,4 +120,5 @@ export interface ProjectPersistence {
   grants: ProjectGrantStore;
   providers: ProjectProviderStore;
   operations: ProjectOperationStore;
+  access: ProjectAccessRequestStore;
 }

@@ -375,37 +375,125 @@ void test("only operators can create projects", async () => {
   }
 });
 
-void test("QA self-service grants unblock an agent only when the flag is on", async () => {
-  const { directory, repository, service, checkouts } = fixture();
+void test("agent access requests require operator approval before taking effect", async () => {
+  const {
+    directory,
+    repository,
+    service,
+    checkouts,
+    administration,
+    projectStore,
+  } = fixture();
   try {
     const project = await service.attach("workspace-a", repository, operator);
-    await assert.rejects(
-      service.selfGrant("workspace-a", project.id, "engineer", "administer"),
-      /disabled/,
+    const request = await administration.requestProjectAccess(
+      "workspace-a",
+      project.id,
+      "engineer",
+      ["view", "checkout", "commit"],
     );
-    const previous = process.env.CHIEF_PROJECT_GRANT_TOOL;
-    process.env.CHIEF_PROJECT_GRANT_TOOL = "1";
-    try {
-      const granted = await service.selfGrant(
-        "workspace-a",
-        project.id,
-        "engineer",
-        "administer",
-      );
-      assert.equal(granted.capability, "administer");
-      const checkout = await checkouts.createCheckout(
+    assert.equal(request.status, "pending");
+    assert.deepEqual(request.capabilities, ["view", "checkout", "commit"]);
+    assert.equal(
+      (
+        await administration.requestProjectAccess(
+          "workspace-a",
+          project.id,
+          "engineer",
+          ["commit", "view"],
+        )
+      ).id,
+      request.id,
+      "retries reuse the pending request instead of creating duplicate prompts",
+    );
+    const pending = await administration.pendingAccessRequests(
+      "workspace-a",
+      operator,
+    );
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0]?.id, request.id);
+    await assert.rejects(
+      administration.approveProjectAccess("workspace-a", request.id, foreign),
+      ProjectAuthorizationError,
+    );
+    await assert.rejects(
+      administration.approveProjectAccess("workspace-b", request.id, operator),
+      /does not belong to the workspace/,
+    );
+    await assert.rejects(
+      checkouts.createCheckout(
         {
           organizationId: "workspace-a",
           projectId: project.id,
           agentId: "engineer",
         },
         engineer,
-      );
-      assert.match(checkout.branch, /^chief\/engineer\//);
-    } finally {
-      if (previous === undefined) delete process.env.CHIEF_PROJECT_GRANT_TOOL;
-      else process.env.CHIEF_PROJECT_GRANT_TOOL = previous;
-    }
+      ),
+      ProjectAuthorizationError,
+      "the agent stays blocked until approval",
+    );
+    const approved = await administration.approveProjectAccess(
+      "workspace-a",
+      request.id,
+      operator,
+    );
+    assert.equal(approved.status, "approved");
+    const grants = await projectStore.grants.grants(
+      "workspace-a",
+      project.id,
+      engineer,
+    );
+    assert.deepEqual(
+      grants.map((grant) => grant.capability),
+      ["commit"],
+      "one highest-scope grant covers the approved capability batch",
+    );
+    const checkout = await checkouts.createCheckout(
+      {
+        organizationId: "workspace-a",
+        projectId: project.id,
+        agentId: "engineer",
+      },
+      engineer,
+    );
+    assert.match(checkout.branch, /^chief\/engineer\//);
+    assert.equal(
+      (await administration.pendingAccessRequests("workspace-a", operator))
+        .length,
+      0,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+void test("denied access requests never create a grant", async () => {
+  const { directory, repository, service, checkouts, administration } =
+    fixture();
+  try {
+    const project = await service.attach("workspace-a", repository, operator);
+    const request = await administration.requestProjectAccess(
+      "workspace-a",
+      project.id,
+      "engineer",
+      ["view", "checkout", "commit"],
+    );
+    await administration.denyProjectAccess("workspace-a", request.id, operator);
+    await assert.rejects(
+      checkouts.createCheckout(
+        {
+          organizationId: "workspace-a",
+          projectId: project.id,
+          agentId: "engineer",
+        },
+        engineer,
+      ),
+      ProjectAuthorizationError,
+    );
+    await assert.rejects(
+      administration.approveProjectAccess("workspace-a", request.id, operator),
+      /no longer pending/,
+    );
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

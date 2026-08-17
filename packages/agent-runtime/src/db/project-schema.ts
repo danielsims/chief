@@ -253,3 +253,32 @@ export const projectOperations = sqliteTable(
     ),
   ],
 );
+
+export const projectAccessRequests = sqliteTable(
+  "project_access_request",
+  {
+    id: text().notNull(),
+    organizationId: text("organization_id").notNull(),
+    projectId: text("project_id").notNull(),
+    agentId: text("agent_id").notNull(),
+    capability: text({
+      enum: ["view", "checkout", "commit", "publish", "review", "administer"],
+    }).notNull(),
+    status: text({ enum: ["pending", "approved", "denied"] }).notNull(),
+    requestedAt: integer("requested_at").notNull(),
+    resolvedAt: integer("resolved_at"),
+    resolvedBy: text("resolved_by"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.organizationId, table.id] }),
+    index("project_access_request_pending").on(
+      table.organizationId,
+      table.status,
+      table.requestedAt,
+    ),
+    index("project_access_request_project").on(
+      table.organizationId,
+      table.projectId,
+    ),
+  ],
+);

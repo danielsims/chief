@@ -13,6 +13,7 @@ import type {
 } from "../project-types.js";
 import type { CredentialBroker } from "./credential-broker.js";
 import type {
+  ProjectAccessRequestStore,
   ProjectCatalogStore,
   ProjectGrantStore,
   ProjectOperationStore,
@@ -89,6 +90,10 @@ export abstract class ProjectServiceBase {
 
   protected get operationsStore(): ProjectOperationStore {
     return this.persistence.operations;
+  }
+
+  protected get accessRequestsStore(): ProjectAccessRequestStore {
+    return this.persistence.access;
   }
 
   protected runtimeId() {

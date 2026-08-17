@@ -7,6 +7,7 @@ import type {
   ProjectRepositoryBindingRecord,
 } from "../types.js";
 import type {
+  ProjectAccessRequestStore,
   ProjectCatalogStore,
   ProjectPersistence,
   ProjectRuntimeStore,
@@ -281,6 +282,7 @@ export class ProjectSqliteStores implements ProjectPersistence {
   readonly grants: ProjectSecurityStore;
   readonly providers: ProjectSecurityStore;
   readonly operations: ProjectSecurityStore;
+  readonly access: ProjectAccessRequestStore;
 
   constructor(database: PersistenceDatabase, ready: Promise<void>) {
     this.catalog = new ProjectCatalogRuntimeStore(database, ready);
@@ -288,5 +290,6 @@ export class ProjectSqliteStores implements ProjectPersistence {
     this.grants = new ProjectSecurityStore(database, ready);
     this.providers = this.grants;
     this.operations = this.grants;
+    this.access = this.grants;
   }
 }

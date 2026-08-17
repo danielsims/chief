@@ -1,5 +1,6 @@
 import type * as Artifacts from "./artifact-types.js";
 import type { ChannelClientMessage } from "./channel-types.js";
+import type { ProjectClientMessage } from "./projects/client-message.js";
 import type {
   AccessMode,
   AgentDeploymentChannel,
@@ -23,85 +24,7 @@ import type {
 
 export type ClientMessage =
   | { type: "listAgents" }
-  | {
-      type: "listProjects";
-      workspaceId: string;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "attachProject";
-      workspaceId: string;
-      requestId: string;
-      path: string;
-      name?: string;
-      description?: string;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "cloneProject";
-      workspaceId: string;
-      requestId: string;
-      remoteUrl: string;
-      name?: string;
-      description?: string;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "browseProject";
-      workspaceId: string;
-      requestId: string;
-      projectId: string;
-      ref?: string;
-      path?: string;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "inspectProjectCommit";
-      workspaceId: string;
-      requestId: string;
-      projectId: string;
-      ref?: string;
-      commit: string;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "compareProjectBranches";
-      workspaceId: string;
-      requestId: string;
-      projectId: string;
-      baseRef: string;
-      compareRef: string;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "publishProjectCheckout";
-      workspaceId: string;
-      requestId: string;
-      checkoutId: string;
-      targetBranch?: string;
-      correlationId?: string;
-      allowDefaultBranch?: boolean;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "discardProjectCheckout";
-      workspaceId: string;
-      requestId: string;
-      checkoutId: string;
-      confirmed: boolean;
-      executorCapability: ExecutorCapability;
-    }
-  | {
-      type: "createProjectPullRequest";
-      workspaceId: string;
-      requestId: string;
-      projectId: string;
-      title: string;
-      description?: string;
-      headBranch: string;
-      baseBranch: string;
-      executorCapability: ExecutorCapability;
-    }
+  | ProjectClientMessage
   | ChannelClientMessage
   | Artifacts.ListArtifactsMessage
   | {

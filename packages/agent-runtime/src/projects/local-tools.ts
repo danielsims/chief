@@ -1,5 +1,6 @@
 import type { ProjectCapability, ProjectPrincipal } from "../types.js";
 import type { ProjectGitService } from "./git-service.js";
+import { projectCapabilityLevels } from "../project-types.js";
 
 function requiredString(input: unknown, name: string, maximum = 240) {
   if (typeof input !== "string" || !input.trim()) {
@@ -12,6 +13,27 @@ function optionalString(input: unknown, maximum = 240) {
   return typeof input === "string" && input.trim()
     ? input.trim().slice(0, maximum)
     : undefined;
+}
+
+function requiredProjectCapabilities(input: unknown): ProjectCapability[] {
+  if (!Array.isArray(input) || input.length === 0) {
+    throw new Error(
+      `capabilities must be a non-empty array containing one or more of: ${projectCapabilityLevels.join(", ")}.`,
+    );
+  }
+  const capabilities = [...new Set(input)];
+  if (
+    capabilities.some(
+      (capability) =>
+        typeof capability !== "string" ||
+        !projectCapabilityLevels.includes(capability as ProjectCapability),
+    )
+  ) {
+    throw new Error(
+      `Every requested capability must be one of: ${projectCapabilityLevels.join(", ")}.`,
+    );
+  }
+  return capabilities as ProjectCapability[];
 }
 
 export interface ProjectLocalToolContext {
@@ -35,7 +57,7 @@ export function projectOpenApiPaths(
         operationId: "projects.list",
         summary: "List the workspace's Git projects",
         description:
-          "Returns every Git project attached to this workspace, with the repository's current state and active isolated agent checkouts. Projects you cannot view yet still appear so you can discover their id, but their repository state stays hidden. If a project is not accessible, request access with projects.grant when it is enabled.",
+          "Returns every Git project attached to this workspace, with the repository's current state and active isolated agent checkouts. Projects you cannot view yet still appear so you can discover their id, but their repository state stays hidden. If a project is not accessible, request access with projects.requestAccess.",
         responses: { "200": { description: "Workspace Git projects" } },
       },
     },
@@ -137,14 +159,14 @@ export function projectOpenApiPaths(
         responses: { "200": { description: "Pull request status" } },
       },
     },
-    "/local-tools/projects/grant": {
+    "/local-tools/projects/access-request": {
       post: {
-        operationId: "projects.grant",
-        summary: "Grant this agent a capability on a project (QA mode only)",
+        operationId: "projects.requestAccess",
+        summary: "Request all required project scopes in one approval",
         description:
-          "DEV/QA tool. Lets an agent request its own project capability so local testing can exercise checkout, commit, and publish. Disabled unless the runtime is started with CHIEF_PROJECT_GRANT_TOOL=1.",
-        requestBody: body("ProjectSelfGrantInput"),
-        responses: { "200": { description: "Granted capability" } },
+          'Request every scope needed for the intended work at once using capabilities, for example {"projectId":"project-id","capabilities":["view","checkout","commit"]}. Valid scopes are view, checkout, commit, publish, review, and administer. Scopes are cumulative, so approval is stored as the highest requested scope and includes every scope below it. The request stays pending until a workspace operator approves or denies it; nothing is granted automatically. After approval, retry the blocked operation.',
+        requestBody: body("ProjectAccessRequestInput"),
+        responses: { "200": { description: "Pending access request" } },
       },
     },
   };
@@ -246,15 +268,28 @@ export const projectOpenApiSchemas = {
       },
     },
   },
-  ProjectSelfGrantInput: {
+  ProjectAccessRequestInput: {
     type: "object",
-    required: ["projectId", "capability"],
+    required: ["projectId", "capabilities"],
     properties: {
       projectId: { type: "string" },
-      capability: {
-        type: "string",
-        enum: ["view", "checkout", "commit", "publish", "review", "administer"],
-        description: "Capability this agent requests on the project",
+      capabilities: {
+        type: "array",
+        minItems: 1,
+        uniqueItems: true,
+        items: {
+          type: "string",
+          enum: [
+            "view",
+            "checkout",
+            "commit",
+            "publish",
+            "review",
+            "administer",
+          ],
+        },
+        description:
+          "Every scope needed for the intended work. Request them together rather than creating sequential requests.",
       },
     },
   },
@@ -420,25 +455,23 @@ export async function handleProjectLocalTool(
     );
     return { handled: true, value: status };
   }
-  if (path === "/local-tools/projects/grant") {
-    if (process.env.CHIEF_PROJECT_GRANT_TOOL !== "1") {
-      return {
-        handled: true,
-        value: {
-          supported: false,
-          reason:
-            "Self-service project grants are disabled. Ask the workspace operator to restart Chief with CHIEF_PROJECT_GRANT_TOOL=1 to enable QA self-service grants, or to grant your agent access directly.",
-        },
-      };
-    }
-    const grant = await context.service.selfGrant(
+  if (path === "/local-tools/projects/access-request") {
+    const request = await context.service.administration.requestProjectAccess(
       organizationId,
       requiredString(body.projectId, "projectId", 160),
       context.agentId,
-      requiredString(body.capability, "capability", 24) as ProjectCapability,
+      requiredProjectCapabilities(body.capabilities),
     );
     await context.onProjectsChanged?.();
-    return { handled: true, value: { supported: true, ...grant } };
+    return {
+      handled: true,
+      value: {
+        status: request.status,
+        requestId: request.id,
+        capabilities: request.capabilities,
+        message: `Access requested for ${request.capabilities.join(", ")}. A workspace operator must approve this request before those scopes take effect; retry the blocked operation afterward.`,
+      },
+    };
   }
   throw new Error("Unknown project operation.");
 }

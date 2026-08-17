@@ -96,7 +96,10 @@ import { listModels } from "./models.js";
 import { OnboardingMessagePacer } from "./onboarding-message-pacing.js";
 import { authorizeOrganizationRole } from "./organization-authorization.js";
 import { PluginRuntime } from "./plugins/runtime.js";
-import { handleProjectClientMessage } from "./projects/client-messages.js";
+import {
+  handleProjectClientMessage,
+  projectWorkspaceSnapshotMessages,
+} from "./projects/client-messages.js";
 import { createProjectServices } from "./projects/services.js";
 import { ProviderAuthentication } from "./provider-authentication.js";
 import {
@@ -2159,13 +2162,12 @@ export function startServer(port = PORT) {
     sendWorkspace(workspaceId, message);
   };
   broadcastProjects = async (workspaceId) => {
-    const operator = await projects.operatorPrincipal(workspaceId);
-    const message = JSON.stringify({
-      type: "projects",
+    for (const message of await projectWorkspaceSnapshotMessages(
+      projects,
       workspaceId,
-      projects: await projects.list(workspaceId, operator),
-    } satisfies ServerMessage);
-    sendWorkspace(workspaceId, message);
+    )) {
+      sendWorkspace(workspaceId, JSON.stringify(message));
+    }
   };
   broadcastChannels = async (workspaceId) => {
     const message = JSON.stringify({
