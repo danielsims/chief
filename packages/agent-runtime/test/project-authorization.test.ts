@@ -389,3 +389,39 @@ void test("only operators can create projects", async () => {
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+void test("QA self-service grants unblock an agent only when the flag is on", async () => {
+  const { directory, repository, service, checkouts } = fixture();
+  try {
+    const project = await service.attach("workspace-a", repository, operator);
+    await assert.rejects(
+      service.selfGrant("workspace-a", project.id, "engineer", "administer"),
+      /disabled/,
+    );
+    const previous = process.env.CHIEF_PROJECT_GRANT_TOOL;
+    process.env.CHIEF_PROJECT_GRANT_TOOL = "1";
+    try {
+      const granted = await service.selfGrant(
+        "workspace-a",
+        project.id,
+        "engineer",
+        "administer",
+      );
+      assert.equal(granted.capability, "administer");
+      const checkout = await checkouts.createCheckout(
+        {
+          organizationId: "workspace-a",
+          projectId: project.id,
+          agentId: "engineer",
+        },
+        engineer,
+      );
+      assert.match(checkout.branch, /^chief\/engineer\//);
+    } finally {
+      if (previous === undefined) delete process.env.CHIEF_PROJECT_GRANT_TOOL;
+      else process.env.CHIEF_PROJECT_GRANT_TOOL = previous;
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

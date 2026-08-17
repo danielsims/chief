@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 import type {
+  ProjectCapability,
   ProjectPrincipal,
   ProjectProviderAdapter,
   ProjectRecord,
@@ -339,6 +340,43 @@ export class ProjectGitService extends ProjectServiceBase {
       );
     }
     return adapter;
+  }
+
+  /**
+   * DEV/QA ONLY. Lets an agent grant itself a project capability so a local
+   * QA box can exercise checkout/commit/publish without a permissions UI.
+   * Enabled only when the runtime runs with CHIEF_PROJECT_GRANT_TOOL=1.
+   */
+  async selfGrant(
+    organizationId: string,
+    projectId: string,
+    agentId: string,
+    capability: ProjectCapability,
+  ) {
+    if (process.env.CHIEF_PROJECT_GRANT_TOOL !== "1") {
+      throw new Error("Self-service project grants are disabled.");
+    }
+    const project = await this.requireProject(organizationId, projectId);
+    const now = Date.now();
+    const principal: ProjectPrincipal = { type: "agent", id: agentId };
+    await this.grantsStore.saveGrant({
+      id: randomUUID(),
+      organizationId,
+      projectId: project.id,
+      principalType: "agent",
+      principalId: agentId,
+      capability,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await this.recordOperation("grant", {
+      organizationId,
+      projectId: project.id,
+      principal,
+      result: "success",
+      message: "QA self-service grant",
+    });
+    return { projectId: project.id, agentId, capability };
   }
 
   /** Creates a pull request through the workspace's provider adapter. */
