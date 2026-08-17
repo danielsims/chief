@@ -1,11 +1,21 @@
-import { lazy, Suspense } from "react";
-import { ArrowLeft, ArrowRight, GitCompareArrows } from "lucide-react";
+import { lazy, Suspense, useState } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  GitCompareArrows,
+  GitPullRequest,
+} from "lucide-react";
 
-import type { ProjectRepositorySnapshot } from "@chief/agent-runtime/types";
+import type {
+  ProjectRepositorySnapshot,
+  ProviderPullRequest,
+} from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
+import { Input } from "@chief/ui/components/input";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { ProjectCurrentUser } from "./project-user-avatar";
+import { useProjectPullRequest } from "../../lib/runtime-project-actions";
 import { useProjectComparison } from "../../lib/runtime-projects";
 import { ProjectBranchPicker } from "./project-branch-picker";
 import { ProjectCommitList } from "./project-commit-list";
@@ -15,6 +25,33 @@ const ProjectDiffLazy = lazy(() =>
     default: module.ProjectDiffView,
   })),
 );
+
+function CreatedPullRequest({
+  pullRequest,
+}: {
+  pullRequest: ProviderPullRequest;
+}) {
+  return (
+    <p className="mt-2 text-[12px] text-emerald-600">
+      Pull request #{pullRequest.number} created
+      {pullRequest.url ? (
+        <>
+          {" — "}
+          <a
+            href={pullRequest.url}
+            className="underline"
+            onClick={(event) => {
+              event.preventDefault();
+              window.open(pullRequest.url, "_blank");
+            }}
+          >
+            Open on GitHub
+          </a>
+        </>
+      ) : null}
+    </p>
+  );
+}
 
 function refOptions(snapshot: ProjectRepositorySnapshot) {
   const branches = new Set(snapshot.branches);
@@ -117,6 +154,11 @@ export function ProjectBranchCompareView({
     ready ? compareRef : undefined,
   );
   const options = refOptions(snapshot);
+  const pullRequests = snapshot.project.providerId === "github";
+  const pullRequest = useProjectPullRequest();
+  const [drafting, setDrafting] = useState(false);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
 
   return (
     <section className="min-w-0">
@@ -170,7 +212,101 @@ export function ProjectBranchCompareView({
         <div className="border-border/70 mt-5 min-h-40 rounded-xl border" />
       ) : (
         <>
-          <div className="border-border/70 mt-5 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border px-4 py-3 text-[12px]">
+          <div className="border-border/70 mt-5 flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3">
+            <span className="min-w-0 flex-1 text-[13px] leading-5">
+              Discuss and review the changes in this comparison with others.
+            </span>
+            {pullRequests ? (
+              <Button
+                size="sm"
+                disabled={pullRequest.busy}
+                onClick={() => {
+                  setTitle(
+                    title || `Changes from ${compareRef} into ${baseRef}`,
+                  );
+                  setDrafting(true);
+                  pullRequest.clearError();
+                }}
+              >
+                <GitPullRequest size={13} />
+                Create pull request
+              </Button>
+            ) : (
+              <span className="text-muted-foreground text-[12px]">
+                Pull requests are not available for this repository.
+              </span>
+            )}
+          </div>
+
+          {pullRequests && drafting ? (
+            <form
+              className="border-border/70 mt-3 rounded-xl border px-4 py-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!title.trim()) return;
+                void pullRequest
+                  .create(snapshot.project.id, {
+                    title: title.trim(),
+                    ...(description.trim()
+                      ? { description: description.trim() }
+                      : {}),
+                    headBranch: compareRef,
+                    baseBranch: baseRef,
+                  })
+                  .then(() => setDrafting(false));
+              }}
+            >
+              <div className="text-muted-foreground flex min-w-0 items-center gap-2 text-[12px]">
+                <span className="shrink-0 font-mono">{baseRef}</span>
+                <ArrowRight size={12} className="shrink-0" />
+                <span className="shrink-0 font-mono">{compareRef}</span>
+              </div>
+              <Input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Pull request title"
+                className="mt-2 h-9 text-[13px]"
+                autoFocus
+              />
+              <Input
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="Description (optional)"
+                className="mt-2 h-9 text-[13px]"
+              />
+              {pullRequest.error ? (
+                <p className="border-destructive/20 bg-destructive/[0.05] text-destructive mt-2 rounded-lg border px-3 py-2 text-[12px]">
+                  {pullRequest.error}
+                </p>
+              ) : null}
+              {pullRequest.created ? (
+                <CreatedPullRequest pullRequest={pullRequest.created} />
+              ) : null}
+              <div className="mt-3 flex items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setDrafting(false);
+                    pullRequest.clearError();
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  loading={pullRequest.busy}
+                  disabled={!title.trim()}
+                >
+                  Create pull request
+                </Button>
+              </div>
+            </form>
+          ) : null}
+
+          <div className="border-border/70 mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border px-4 py-3 text-[12px]">
             <span className="text-[14px] font-medium">
               {comparison.filesChanged}{" "}
               {comparison.filesChanged === 1 ? "file" : "files"} changed

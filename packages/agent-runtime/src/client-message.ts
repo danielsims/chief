@@ -91,6 +91,17 @@ export type ClientMessage =
       confirmed: boolean;
       executorCapability: ExecutorCapability;
     }
+  | {
+      type: "createProjectPullRequest";
+      workspaceId: string;
+      requestId: string;
+      projectId: string;
+      title: string;
+      description?: string;
+      headBranch: string;
+      baseBranch: string;
+      executorCapability: ExecutorCapability;
+    }
   | ChannelClientMessage
   | Artifacts.ListArtifactsMessage
   | {

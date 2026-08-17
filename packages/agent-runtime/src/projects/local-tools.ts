@@ -35,7 +35,7 @@ export function projectOpenApiPaths(
         operationId: "projects.list",
         summary: "List the workspace's Git projects",
         description:
-          "Returns real repositories attached to this workspace, their current Git state, and active isolated agent checkouts.",
+          "Returns every Git project attached to this workspace, with the repository's current state and active isolated agent checkouts. Projects you cannot view yet still appear so you can discover their id, but their repository state stays hidden. If a project is not accessible, request access with projects.grant when it is enabled.",
         responses: { "200": { description: "Workspace Git projects" } },
       },
     },
