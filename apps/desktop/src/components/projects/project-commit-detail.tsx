@@ -1,4 +1,3 @@
-import { PatchDiff } from "@pierre/diffs/react";
 import { ArrowLeft, GitCommitHorizontal } from "lucide-react";
 
 import type {
@@ -8,7 +7,7 @@ import type {
 import { Button } from "@chief/ui/components/button";
 
 import type { ProjectCurrentUser } from "./project-user-avatar";
-import { useTheme } from "../../lib/theme";
+import { ProjectDiffView } from "./project-diff";
 import { formatProjectTime } from "./project-format";
 import { ProjectUserAvatar } from "./project-user-avatar";
 
@@ -27,8 +26,6 @@ export function ProjectCommitDetailView({
   error: string | null;
   onBack: () => void;
 }) {
-  const { resolved } = useTheme();
-
   return (
     <section className="min-w-0">
       <div className="flex min-h-9 items-center gap-3">
@@ -100,19 +97,8 @@ export function ProjectCommitDetailView({
       ) : null}
 
       {detail?.patch ? (
-        <div className="mt-6 min-w-0 overflow-x-auto text-[13px]">
-          <PatchDiff
-            patch={detail.patch}
-            disableWorkerPool
-            options={{
-              theme: { dark: "github-dark", light: "github-light" },
-              themeType: resolved,
-              diffStyle: "unified",
-              hunkSeparators: "line-info",
-              overflow: "scroll",
-              stickyHeader: true,
-            }}
-          />
+        <div className="mt-6">
+          <ProjectDiffView patch={detail.patch} />
         </div>
       ) : null}
     </section>

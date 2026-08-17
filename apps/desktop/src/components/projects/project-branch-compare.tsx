@@ -7,13 +7,12 @@ import { cn } from "@chief/ui/lib/utils";
 
 import type { ProjectCurrentUser } from "./project-user-avatar";
 import { useProjectComparison } from "../../lib/runtime-projects";
-import { useTheme } from "../../lib/theme";
 import { ProjectBranchPicker } from "./project-branch-picker";
 import { ProjectCommitList } from "./project-commit-list";
 
-const PatchDiff = lazy(() =>
-  import("@pierre/diffs/react").then((module) => ({
-    default: module.PatchDiff,
+const ProjectDiffLazy = lazy(() =>
+  import("./project-diff").then((module) => ({
+    default: module.ProjectDiffView,
   })),
 );
 
@@ -111,7 +110,6 @@ export function ProjectBranchCompareView({
   onSwap: () => void;
   onBack: () => void;
 }) {
-  const { resolved } = useTheme();
   const ready = baseRef !== compareRef;
   const { comparison, loading, error } = useProjectComparison(
     snapshot.project.id,
@@ -218,19 +216,8 @@ export function ProjectBranchCompareView({
             </div>
           ) : comparison.patch ? (
             <Suspense fallback={<div className="mt-5 min-h-40" />}>
-              <div className="mt-6 min-w-0 overflow-x-auto text-[13px]">
-                <PatchDiff
-                  patch={comparison.patch}
-                  disableWorkerPool
-                  options={{
-                    theme: { dark: "github-dark", light: "github-light" },
-                    themeType: resolved,
-                    diffStyle: "unified",
-                    hunkSeparators: "line-info",
-                    overflow: "scroll",
-                    stickyHeader: true,
-                  }}
-                />
+              <div className="mt-6">
+                <ProjectDiffLazy patch={comparison.patch} />
               </div>
             </Suspense>
           ) : null}
