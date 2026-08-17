@@ -56,9 +56,14 @@ export function guardedRequestHandler(
         "content-type": "application/json",
         "cache-control": "no-store",
       });
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Chief could not complete this local request.";
       response.end(
         JSON.stringify({
-          error: "Chief could not complete this local request.",
+          error: message,
+          ...(error instanceof Error ? { code: "local_tool_failed" } : {}),
         }),
       );
     });

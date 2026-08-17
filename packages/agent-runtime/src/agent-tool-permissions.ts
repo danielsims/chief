@@ -343,11 +343,17 @@ const exactLocalToolPermissions = new Map<string, AgentToolPermission>([
   ...[
     "/local-tools/projects/inspect",
     "/local-tools/projects/checkouts/status",
+    "/local-tools/projects/diff",
+    "/local-tools/projects/pull-requests/status",
   ].map((path) => [`POST ${path}`, "projects.read"] as const),
   ...[
     "/local-tools/projects/checkouts",
     "/local-tools/projects/checkouts/commit",
     "/local-tools/projects/checkouts/release",
+    "/local-tools/projects/checkouts/publish",
+    "/local-tools/projects/checkouts/discard",
+    "/local-tools/projects/pull-requests",
+    "/local-tools/projects/grant",
   ].map((path) => [`POST ${path}`, "projects.write"] as const),
   ...[
     "open",
