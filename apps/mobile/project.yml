@@ -1,0 +1,87 @@
+name: ChiefMobile
+options:
+  bundleIdPrefix: sh.heychief
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+    SWIFT_VERSION: 6.0
+    ENABLE_USER_SCRIPT_SANDBOXING: true
+targets:
+  Chief:
+    type: application
+    platform: iOS
+    sources:
+      - path: Chief
+        excludes:
+          - Resources
+          - Vendored/lib
+          - Vendored/CelldKit/agent.js
+      - path: Chief/Resources
+        buildPhase: resources
+      - path: Chief/Vendored/CelldC
+        headerVisibility: public
+        createIntermediateGroups: true
+      - path: Chief/Vendored/CelldKit/CelldC.swift
+      - path: Chief/Vendored/CelldKit/ChiefCellRuntime.swift
+      - path: Chief/Vendored/CelldKit/ChiefOpenCodeAgentHost.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: sh.heychief.mobile
+        PRODUCT_NAME: Chief
+        DEVELOPMENT_TEAM: PS66GXMC55
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_CFBundleDisplayName: Chief
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.business
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: true
+        INFOPLIST_KEY_UILaunchScreen_Generation: true
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_CFBundleURLTypes:
+          - CFBundleTypeRole: Editor
+            CFBundleURLName: sh.heychief.mobile
+            CFBundleURLSchemes:
+              - chief-mobile
+        LIBRARY_SEARCH_PATHS:
+          - "$(SRCROOT)/Chief/Vendored/lib"
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-lworker_core"
+          - "-lc++"
+        ENABLE_BITCODE: NO
+        DEAD_CODE_STRIPPING: YES
+        CLANG_ENABLE_MODULES: YES
+        SWIFT_OBJC_BRIDGING_HEADER: Chief/Vendored/CelldC/Chief-Bridging-Header.h
+        OTHER_SWIFT_FLAGS:
+          - "-DCELL_RUNTIME"
+    scheme:
+      testTargets:
+        - ChiefTests
+        - ChiefUITests
+  ChiefTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ChiefTests
+    dependencies:
+      - target: Chief
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: sh.heychief.mobile.tests
+        GENERATE_INFOPLIST_FILE: true
+  ChiefUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: ChiefUITests
+    dependencies:
+      - target: Chief
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: sh.heychief.mobile.uitests
+        GENERATE_INFOPLIST_FILE: true

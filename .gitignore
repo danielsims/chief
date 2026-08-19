@@ -50,3 +50,8 @@ docs/
 
 # local workflow runtime state
 apps/workspace/.workflow-data/
+
+# Vendored cell build artifacts (binary + redundant worker copies) — regenerate
+# via apps/mobile/scripts/sync-vendored.sh from the ios-durable-agent project.
+apps/mobile/Chief/Vendored/lib/
+apps/mobile/Chief/Vendored/CelldKit/agent.js
