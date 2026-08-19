@@ -110,7 +110,7 @@ function SignInContent() {
 
   return (
     <main className="bg-background text-foreground flex min-h-screen w-full flex-col">
-      <header className="p-8">
+      <header className="px-6 pt-6">
         <img
           alt="Chief"
           className="h-8 w-8"
@@ -118,7 +118,7 @@ function SignInContent() {
         />
       </header>
 
-      <div className="flex flex-1 items-center justify-center px-8 pb-24">
+      <div className="flex flex-1 flex-col items-center px-8 pt-10">
         <div className="mx-auto flex w-full max-w-sm flex-col text-center">
           <h1 className="text-3xl leading-tight font-normal">
             {isDesktopFlow ? "Connect the desktop app" : "Sign in to Chief"}
@@ -129,7 +129,7 @@ function SignInContent() {
               : "Sign in to continue to your workspace."}
           </p>
           <Button
-            className="mt-12 h-11 w-full"
+            className="mt-8 h-11 w-full"
             variant="outline"
             onClick={handleGoogleSignIn}
             disabled={isLoading || loadingProvider !== null}
@@ -144,9 +144,6 @@ function SignInContent() {
             )}
             {isLoading ? "Loading…" : "Continue with Google"}
           </Button>
-          <p className="text-muted-foreground/60 mt-6 text-xs leading-relaxed">
-            Your data and agents stay on your machine.
-          </p>
         </div>
       </div>
     </main>
