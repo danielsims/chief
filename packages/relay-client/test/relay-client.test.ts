@@ -28,9 +28,8 @@ void test("scopes requests to one workspace and keeps bearer tokens out of socke
           openApiUrl: "https://relay.test/v1/openapi.json",
           capabilities: ["workspaces", "conversations", "durable-agents"],
           authentication: {
-            issuer: "https://identity.test",
-            audience: "chief-relay",
-            jwksUrl: "https://identity.test/.well-known/jwks.json",
+            scheme: "NIP-98",
+            signingAlgorithm: "secp256k1-schnorr",
           },
         }),
       );

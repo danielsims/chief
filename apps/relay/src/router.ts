@@ -1,3 +1,4 @@
+import type { AuthenticatedIdentity } from "@chief/relay-contracts";
 import {
   agentIdSchema,
   conversationIdSchema,
@@ -44,6 +45,30 @@ const connectRoute = "/v1/connect";
 const createWorkspaceRoute = "/v1/workspaces";
 const activeWorkspaceRoute = "/v1/me/workspace";
 
+/**
+ * Authenticate a request with NIP-98, buffering POST bodies so the signed
+ * `payload` tag can be verified against the actual body. Returns the identity
+ * and a re-created Request whose body is readable by the route handler.
+ */
+async function authenticate(
+  request: Request,
+): Promise<{ identity: AuthenticatedIdentity; request: Request }> {
+  let body: string | null | undefined;
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    body = await request.text();
+  }
+  const identity = await new RelayAuthenticator().authenticate(request, body);
+  if (body === undefined) return { identity, request };
+  return {
+    identity,
+    request: new Request(request.url, {
+      method: request.method,
+      headers: request.headers,
+      body,
+    }),
+  };
+}
+
 export async function routeRelayRequest(
   request: Request,
   env: Env,
@@ -72,12 +97,14 @@ export async function routeRelayRequest(
     }
 
     if (url.pathname === createWorkspaceRoute && request.method === "POST") {
-      const identity = await new RelayAuthenticator(env).authenticate(request);
+      const { identity, request: authed } = await authenticate(request);
+      request = authed;
       const command = createWorkspaceCommandSchema.parse(await request.json());
       return await createManagedWorkspace(env, identity, command);
     }
     if (url.pathname === activeWorkspaceRoute && request.method === "GET") {
-      const identity = await new RelayAuthenticator(env).authenticate(request);
+      const { identity, request: authed } = await authenticate(request);
+      request = authed;
       return await activeManagedWorkspace(env, identity);
     }
 
@@ -86,7 +113,8 @@ export async function routeRelayRequest(
       const workspaceId = workspaceIdSchema.parse(
         decodeURIComponent(claimMatch[1] ?? ""),
       );
-      const identity = await new RelayAuthenticator(env).authenticate(request);
+      const { identity, request: authed } = await authenticate(request);
+      request = authed;
       return await claimWorkspace(env, request, {
         identity,
         requestId,
@@ -107,7 +135,8 @@ export async function routeRelayRequest(
       const workspaceId = workspaceIdSchema.parse(
         decodeURIComponent(logsMatch[1] ?? ""),
       );
-      const identity = await new RelayAuthenticator(env).authenticate(request);
+      const { identity, request: authed } = await authenticate(request);
+      request = authed;
       await authorizeWorkspace(env, { identity, requestId, workspaceId });
       return await routeWorkspaceLogs(env, request, {
         identity,
@@ -124,7 +153,8 @@ export async function routeRelayRequest(
       const agentId = agentIdSchema.parse(
         decodeURIComponent(agentMsgMatch[2] ?? ""),
       );
-      const identity = await new RelayAuthenticator(env).authenticate(request);
+      const { identity, request: authed } = await authenticate(request);
+      request = authed;
       const principal = await authorizeWorkspace(env, {
         identity,
         requestId,
@@ -147,7 +177,8 @@ export async function routeRelayRequest(
         decodeURIComponent(jobMatch[2] ?? ""),
       );
       const operation = jobMatch[3] === "complete" ? "complete" : "claim";
-      const identity = await new RelayAuthenticator(env).authenticate(request);
+      const { identity, request: authed } = await authenticate(request);
+      request = authed;
       const principal = await authorizeWorkspace(env, {
         identity,
         requestId,
@@ -212,7 +243,8 @@ export async function routeRelayRequest(
         }),
       );
     }
-    const identity = await new RelayAuthenticator(env).authenticate(request);
+    const { identity, request: authed } = await authenticate(request);
+    request = authed;
     const principal = await authorizeWorkspace(env, {
       identity,
       requestId,
@@ -281,9 +313,8 @@ function discovery(url: URL, env: Env) {
       "logs",
     ],
     authentication: {
-      issuer: env.AUTH_ISSUER,
-      audience: env.AUTH_AUDIENCE,
-      jwksUrl: env.AUTH_JWKS_URL,
+      scheme: "NIP-98",
+      signingAlgorithm: "secp256k1-schnorr",
     },
   });
 }

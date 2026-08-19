@@ -18,9 +18,8 @@ export const relayDiscoverySchema = z.object({
   openApiUrl: z.url(),
   capabilities: z.array(relayCapabilitySchema),
   authentication: z.object({
-    issuer: z.url(),
-    audience: z.string().trim().min(1),
-    jwksUrl: z.url(),
+    scheme: z.literal("NIP-98"),
+    signingAlgorithm: z.literal("secp256k1-schnorr"),
   }),
 });
 
