@@ -1,0 +1,475 @@
+import SwiftUI
+
+struct OnboardingView: View {
+  @Environment(AppModel.self) private var model
+  private let steps = ["Runtime", "Inference", "Company", "Apps"]
+
+  var body: some View {
+    @Bindable var model = model
+    ZStack(alignment: .bottom) {
+      ChiefTheme.background.ignoresSafeArea()
+      VStack(spacing: 0) {
+        HStack {
+          Text("Set up Chief").font(.system(size: 17, weight: .semibold))
+          Spacer()
+          Text("\(model.onboarding.step + 1) of \(steps.count)")
+            .font(.system(size: 14))
+            .foregroundStyle(ChiefTheme.secondary)
+        }
+        .padding(.horizontal, ChiefTheme.pagePadding)
+        .padding(.vertical, 16)
+
+        ProgressView(
+          value: Double(model.onboarding.step + 1),
+          total: Double(steps.count)
+        )
+        .tint(.white)
+        .padding(.horizontal, ChiefTheme.pagePadding)
+
+        Group {
+          switch model.onboarding.step {
+          case 0: RuntimeStep(draft: $model.onboarding)
+          case 1:
+            InferenceStep(
+              draft: $model.onboarding,
+              credential: $model.inferenceCredential
+            )
+          case 2: CompanyStep(draft: $model.onboarding)
+          default: AppsStep(draft: $model.onboarding)
+          }
+        }
+        .padding(.top, 40)
+        .frame(maxHeight: .infinity)
+
+        VStack(spacing: 11) {
+          Button(model.onboarding.step == steps.count - 1 ? "Enter workspace" : "Continue") {
+            if model.onboarding.step == steps.count - 1 {
+              Task { await model.completeOnboarding() }
+            } else {
+              model.onboarding.step += 1
+            }
+          }
+          .buttonStyle(PrimaryButtonStyle())
+          .disabled(!model.canAdvanceOnboarding)
+
+          if model.onboarding.step > 0 {
+            Button("Back") { model.onboarding.step -= 1 }
+              .font(.system(size: 13, weight: .medium))
+              .foregroundStyle(ChiefTheme.secondary)
+              .frame(height: 24)
+              .buttonStyle(.plain)
+          } else if model.canCancelOnboarding {
+            Button("Cancel") { model.cancelWorkspaceSetup() }
+              .font(.system(size: 13, weight: .medium))
+              .foregroundStyle(ChiefTheme.secondary)
+              .frame(height: 24)
+              .buttonStyle(.plain)
+          }
+        }
+        .padding(.horizontal, ChiefTheme.pagePadding)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+      }
+
+      if let error = model.onboardingError {
+        Text(error)
+          .font(.system(size: 13, weight: .medium))
+          .foregroundStyle(.white)
+          .padding(.horizontal, 14)
+          .padding(.vertical, 10)
+          .background(.regularMaterial, in: Capsule())
+          .padding(.bottom, 92)
+      }
+    }
+    .task {
+      // Warm the plugin catalog and all its logos up front so the Apps step
+      // renders the full, resolved list with every icon already cached.
+      let plugins = await PluginCatalogClient.shared.preferredPlugins()
+      await BrandLogoImage.prefetch(urls: plugins.compactMap(\.iconURL))
+    }
+  }
+}
+
+private struct RuntimeStep: View {
+  @Binding var draft: OnboardingDraft
+
+  var body: some View {
+    OnboardingStepLayout(
+      title: "Where should your agents run?",
+      detail: "Start on this iPhone or keep them available in Chief Cloud."
+    ) {
+      OptionRow(
+        icon: { Image(systemName: "iphone") },
+        title: "This iPhone",
+        detail: "Run a lightweight agent privately on this device.",
+        selected: draft.runtime == .phone
+      ) { draft.runtime = .phone }
+      Divider().overlay(ChiefTheme.line)
+      OptionRow(
+        icon: { Image(systemName: "cloud") },
+        title: "Chief Cloud",
+        detail: "Keep agents working even when your devices are offline.",
+        selected: draft.runtime == .cloud
+      ) { draft.runtime = .cloud }
+    }
+  }
+}
+
+private struct InferenceStep: View {
+  @Binding var draft: OnboardingDraft
+  @Binding var credential: String
+  @Environment(AppModel.self) private var model
+  @State private var modelPickerPresented = false
+
+  var body: some View {
+    OnboardingStepLayout(
+      title: "How should your agents think?",
+      detail: "Choose the inference provider that powers your agents."
+    ) {
+      OptionRow(
+        icon: { Image(systemName: "internaldrive") },
+        title: "On device",
+        detail: "Download a private model that runs directly on this iPhone.",
+        selected: draft.inferenceProvider == .onDevice
+      ) {
+        withAnimation(.easeInOut(duration: 0.22)) {
+          draft.inferenceProvider = .onDevice
+          draft.inferenceModel = ""
+          draft.deviceModelID = nil
+        }
+        modelPickerPresented = true
+      }
+
+      Divider().overlay(ChiefTheme.line)
+
+      OptionRow(
+        icon: { OpenCodeMark(size: 20) },
+        title: "OpenCode Go",
+        detail: "Use your OpenCode Go models and subscription.",
+        selected: draft.inferenceProvider == .openCodeGo
+      ) {
+        withAnimation(.easeInOut(duration: 0.22)) {
+          draft.inferenceProvider = .openCodeGo
+          draft.inferenceModel = "deepseek-v4-flash"
+          draft.deviceModelID = nil
+        }
+      }
+
+      if draft.inferenceProvider == .openCodeGo {
+        VStack(alignment: .leading, spacing: 10) {
+          SecureField("OpenCode API key", text: $credential)
+            .textContentType(.password)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .textFieldStyle(ChiefTextFieldStyle())
+            .privacySensitive()
+          Link(destination: URL(string: "https://opencode.ai/auth")!) {
+            Label("Get your OpenCode key", systemImage: "arrow.up.right")
+              .font(.system(size: 13, weight: .medium))
+              .foregroundStyle(ChiefTheme.secondary)
+          }
+        }
+        .transition(.opacity.combined(with: .move(edge: .top)))
+      }
+    }
+    .animation(.easeInOut(duration: 0.22), value: draft.inferenceProvider)
+    .sheet(isPresented: $modelPickerPresented) {
+      DeviceModelPickerSheet(
+        selectedID: $draft.deviceModelID,
+        store: model.deviceModels
+      ) { model in
+        draft.inferenceModel = model.id
+      }
+      .presentationDetents([.medium, .large])
+      .presentationDragIndicator(.visible)
+    }
+  }
+}
+
+/// Ported from the iOS Durable Agent's model manager: an on-device model
+/// picker as a sheet, with chip icons (never a provider logo) and download
+/// controls per model.
+private struct DeviceModelPickerSheet: View {
+  @Binding var selectedID: String?
+  let store: OnDeviceModelStore
+  let onSelect: (DeviceModel) -> Void
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    VStack(spacing: 0) {
+      HStack {
+        Text("On-device models")
+          .font(.system(size: 17, weight: .semibold))
+        Spacer()
+        Button("Done") { dismiss() }
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(.white)
+      }
+      .padding(.horizontal, 24)
+      .padding(.top, 20)
+      .padding(.bottom, 16)
+
+      ScrollView {
+        VStack(spacing: 8) {
+          ForEach(store.models) { model in
+            DeviceModelSheetRow(
+              model: model,
+              selected: selectedID == model.id,
+              store: store
+            ) {
+              selectedID = model.id
+              onSelect(model)
+            }
+          }
+          Text(
+            "Models download onto this iPhone and stay available offline. You can swap models for your agents at any time."
+          )
+          .font(.system(size: 12))
+          .foregroundStyle(ChiefTheme.tertiary)
+          .padding(.horizontal, 24)
+          .padding(.top, 8)
+        }
+        .padding(.horizontal, 12)
+      }
+    }
+    .background(ChiefTheme.background)
+    .tint(ChiefTheme.accent)
+  }
+}
+
+private struct DeviceModelSheetRow: View {
+  let model: DeviceModel
+  let selected: Bool
+  let store: OnDeviceModelStore
+  let onSelect: () -> Void
+
+  var body: some View {
+    Button(action: onSelect) {
+      HStack(alignment: .top, spacing: 12) {
+        Image(systemName: "cpu")
+          .font(.system(size: 17, weight: .medium))
+          .foregroundStyle(ChiefTheme.secondary)
+          .frame(width: 34, height: 34)
+          .background(ChiefTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        VStack(alignment: .leading, spacing: 3) {
+          Text(model.displayName).font(.system(size: 15, weight: .semibold))
+          Text(model.summary)
+            .font(.system(size: 13))
+            .foregroundStyle(ChiefTheme.secondary)
+            .lineLimit(2)
+          Text("\(model.sizeLabel) download")
+            .font(.system(size: 12))
+            .foregroundStyle(ChiefTheme.tertiary)
+        }
+        Spacer(minLength: 8)
+        controls
+      }
+      .padding(12)
+      .background(
+        selected ? Color.white.opacity(0.08) : Color.clear,
+        in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+      )
+      .overlay {
+        RoundedRectangle(cornerRadius: 13, style: .continuous)
+          .stroke(selected ? ChiefTheme.line : Color.clear)
+      }
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityValue(selected ? "Selected" : "Not selected")
+  }
+
+  @ViewBuilder
+  private var controls: some View {
+    if store.isDownloaded(model.id) {
+      Image(systemName: selected ? "checkmark.circle.fill" : "checkmark.circle")
+        .font(.system(size: 22))
+        .foregroundStyle(selected ? .white : ChiefTheme.secondary)
+    } else if store.isDownloading(model.id) {
+      ProgressView()
+    } else {
+      Button("Download") {
+        Task { await store.download(model) }
+      }
+      .font(.system(size: 13, weight: .medium))
+      .buttonStyle(.bordered)
+      .tint(.white)
+    }
+  }
+}
+
+private struct CompanyStep: View {
+  @Binding var draft: OnboardingDraft
+
+  var body: some View {
+    OnboardingStepLayout(
+      title: "What company is this workspace for?",
+      detail: "This gives every agent the right starting context."
+    ) {
+      TextField("Company name", text: $draft.companyName)
+        .textFieldStyle(ChiefTextFieldStyle())
+      TextField("Website", text: $draft.website)
+        .textContentType(.URL)
+        .textInputAutocapitalization(.never)
+        .keyboardType(.URL)
+        .textFieldStyle(ChiefTextFieldStyle())
+    }
+  }
+}
+
+private struct AppsStep: View {
+  @Binding var draft: OnboardingDraft
+
+  var body: some View {
+    OnboardingStepLayout(
+      title: "What apps do you already use?",
+      detail: "Chief will suggest connections when they are useful."
+    ) {
+      LazyVGrid(
+        columns: Array(repeating: GridItem(.flexible()), count: 3),
+        spacing: 9
+      ) {
+        ForEach(apps) { app in
+          BrandChoice(
+            title: app.name,
+            domain: app.domain,
+            iconURL: app.iconURL,
+            selected: draft.selectedApps.contains(app.name)
+          ) {
+            if draft.selectedApps.contains(app.name) {
+              draft.selectedApps.remove(app.name)
+            } else {
+              draft.selectedApps.insert(app.name)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /// The catalog is warmed when onboarding starts, so this list is fully
+  /// resolved before the Apps step is ever shown.
+  private var apps: [PluginOption] {
+    PluginCatalogClient.shared.cached ?? PluginOption.preferred
+  }
+}
+
+private struct OnboardingStepLayout<Content: View>: View {
+  let title: String
+  let detail: String
+  @ViewBuilder let content: Content
+
+  var body: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 12) {
+        Text(title)
+          .font(.system(size: 30, weight: .regular, design: .rounded))
+          .tracking(-0.8)
+        Text(detail)
+          .font(.system(size: 15))
+          .foregroundStyle(ChiefTheme.secondary)
+          .lineSpacing(3)
+        VStack(spacing: 10) { content }.padding(.top, 20)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, ChiefTheme.pagePadding)
+      .padding(.bottom, ChiefTheme.pagePadding)
+    }
+  }
+}
+
+/// An elegant, list-style option: a soft icon tile, two lines of text, and a
+/// selection checkmark. No boxed card, per the onboarding design direction.
+private struct OptionRow<Icon: View>: View {
+  @ViewBuilder let icon: () -> Icon
+  let title: String
+  let detail: String
+  let selected: Bool
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 14) {
+        icon()
+          .font(.system(size: 17, weight: .medium))
+          .foregroundStyle(selected ? .white : ChiefTheme.secondary)
+          .frame(width: 40, height: 40)
+          .background(
+            selected ? Color.white.opacity(0.14) : ChiefTheme.elevated,
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+          )
+        VStack(alignment: .leading, spacing: 3) {
+          Text(title).font(.system(size: 16, weight: .medium))
+          Text(detail)
+            .font(.system(size: 14))
+            .foregroundStyle(ChiefTheme.secondary)
+            .lineSpacing(1)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        Spacer()
+        Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+          .font(.system(size: 20))
+          .foregroundStyle(selected ? .white : ChiefTheme.tertiary)
+      }
+      .padding(.vertical, 14)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(title)
+    .accessibilityHint(detail)
+  }
+}
+
+private struct BrandChoice: View {
+  let title: String
+  let domain: String
+  let iconURL: URL?
+  let selected: Bool
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      VStack(alignment: .leading, spacing: 11) {
+        BrandLogoView(domain: domain, iconURL: iconURL, size: 32)
+        Text(title).font(.system(size: 13, weight: .medium)).lineLimit(2)
+      }
+      .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
+      .padding(10)
+      .background(
+        selected ? ChiefTheme.accent.opacity(0.10) : ChiefTheme.surface,
+        in: RoundedRectangle(cornerRadius: 13)
+      )
+      .overlay {
+        RoundedRectangle(cornerRadius: 13)
+          .stroke(selected ? ChiefTheme.accent : ChiefTheme.line)
+      }
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(title)
+  }
+}
+
+private struct ChiefTextFieldStyle: TextFieldStyle {
+  func _body(configuration: TextField<_Label>) -> some View {
+    configuration
+      .padding(15)
+      .background(ChiefTheme.surface, in: RoundedRectangle(cornerRadius: 13))
+      .overlay { RoundedRectangle(cornerRadius: 13).stroke(ChiefTheme.line) }
+  }
+}
+
+private struct PrimaryButtonStyle: ButtonStyle {
+  @Environment(\.isEnabled) private var isEnabled
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .font(.system(size: 15, weight: .semibold))
+      .frame(maxWidth: .infinity)
+      .frame(height: 50)
+      .background(
+        .white.opacity(isEnabled ? (configuration.isPressed ? 0.78 : 1) : 0.28),
+        in: RoundedRectangle(cornerRadius: 13)
+      )
+      .foregroundStyle(.black.opacity(isEnabled ? 1 : 0.54))
+  }
+}
