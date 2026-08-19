@@ -1,0 +1,39 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "chief-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-17",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "WORKSPACES", "class_name": "WorkspaceObject" },
+      { "name": "ACCOUNTS", "class_name": "AccountObject" },
+      { "name": "CONVERSATIONS", "class_name": "ConversationObject" },
+      { "name": "AGENTS", "class_name": "AgentObject" },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "WorkspaceObject",
+        "ConversationObject",
+        "AgentObject",
+      ],
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["AccountObject"],
+    },
+  ],
+  "r2_buckets": [
+    { "binding": "ARTIFACTS", "bucket_name": "chief-relay-artifacts" },
+  ],
+  "vars": {
+    "RELAY_DEPLOYMENT": "chief-cloud",
+    "AUTH_AUDIENCE": "convex",
+    "AUTH_ISSUER": "https://aromatic-lobster-846.convex.site",
+    "AUTH_JWKS_URL": "https://aromatic-lobster-846.convex.site/api/auth/convex/jwks",
+  },
+  "observability": { "enabled": true },
+}
