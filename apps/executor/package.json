@@ -1,0 +1,33 @@
+{
+  "name": "@chief/executor",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/server.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/server.mjs",
+    "clean": "git clean -xdf .cache .turbo dist node_modules",
+    "dev": "tsx watch src/server.ts",
+    "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
+    "lint": "eslint --flag unstable_native_nodejs_ts_config",
+    "start": "node dist/server.mjs",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@chief/relay-contracts": "workspace:*",
+    "jose": "^6.2.3",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@chief/eslint-config": "workspace:*",
+    "@chief/prettier-config": "workspace:*",
+    "@chief/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "esbuild": "^0.27.0",
+    "eslint": "catalog:",
+    "prettier": "catalog:",
+    "tsx": "^4.20.3",
+    "typescript": "catalog:"
+  },
+  "prettier": "@chief/prettier-config"
+}
