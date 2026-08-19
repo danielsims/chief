@@ -55,3 +55,7 @@ apps/workspace/.workflow-data/
 # via apps/mobile/scripts/sync-vendored.sh from the ios-durable-agent project.
 apps/mobile/Chief/Vendored/lib/
 apps/mobile/Chief/Vendored/CelldKit/agent.js
+# Vendored secp256k1 source dependency (local path package in project.yml). Kept
+# local to avoid committing ~200MB of third-party source; restore it if a fresh
+# clone needs to build the mobile target.
+apps/mobile/Chief/Vendored/swift-secp256k1/

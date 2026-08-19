@@ -17,6 +17,7 @@ import { relayDocsHtml } from "./docs";
 import { HttpError, json, relayError } from "./http";
 import {
   withTrustedContext,
+  withTrustedIdentity,
   withTrustedSocketTicket,
 } from "./internal-context";
 import {
@@ -24,13 +25,13 @@ import {
   authorizeWorkspace,
   claimWorkspace,
   createManagedWorkspace,
+  registerAgentKey,
   routeAgentJob,
-  routeAgentMessage,
   routeWorkspaceLogs,
 } from "./workspace-authority";
 
 const messageRoute =
-  /^\/v1\/workspaces\/([^/]+)\/conversations\/([^/]+)\/messages$/u;
+  /^\/v1\/workspaces\/([^/]+)\/conversations\/([^/]+)\/messages(?:$|\/)/u;
 const eventRoute =
   /^\/v1\/workspaces\/([^/]+)\/conversations\/([^/]+)\/events$/u;
 const socketTicketRoute =
@@ -39,11 +40,11 @@ const claimWorkspaceRoute = /^\/v1\/workspaces\/([^/]+)\/bootstrap\/claim$/u;
 const workspaceLogsRoute = /^\/v1\/workspaces\/([^/]+)\/logs$/u;
 const agentJobsRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/jobs\/(claim|complete)$/u;
-const agentMessageRoute =
-  /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/messages$/u;
+const agentKeysRoute = /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/keys$/u;
 const connectRoute = "/v1/connect";
 const createWorkspaceRoute = "/v1/workspaces";
 const activeWorkspaceRoute = "/v1/me/workspace";
+const metricsRoute = "/v1/metrics";
 
 /**
  * Authenticate a request with NIP-98, buffering POST bodies so the signed
@@ -57,7 +58,7 @@ async function authenticate(
   if (request.method !== "GET" && request.method !== "HEAD") {
     body = await request.text();
   }
-  const identity = await new RelayAuthenticator().authenticate(request, body);
+  const identity = new RelayAuthenticator().authenticate(request, body);
   if (body === undefined) return { identity, request };
   return {
     identity,
@@ -94,6 +95,37 @@ export async function routeRelayRequest(
         relayDocsHtml(`${publicOrigin(url, env)}/v1/openapi.json`),
         { headers: { "content-type": "text/html; charset=utf-8" } },
       );
+    }
+
+    if (url.pathname === metricsRoute && request.method === "GET") {
+      const { identity } = await authenticate(request);
+      if (identity.kind !== "user") {
+        throw new AuthorizationError(
+          "A user identity is required for metrics.",
+        );
+      }
+      const since = url.searchParams.get("since") ?? "";
+      const stub = env.METRICS.get(env.METRICS.idFromName("global"));
+      const trusted = withTrustedIdentity(
+        {
+          identity: {
+            kind: "user",
+            userId: identity.userId,
+            pubkey: identity.pubkey,
+          },
+          requestId,
+          workspaceId: workspaceIdSchema.parse("workspace-system"),
+        },
+        {
+          method: "POST",
+          headers: { "x-chief-internal-operation": "aggregate" },
+        },
+      );
+      const target = new Request(
+        `https://metrics.internal/aggregate?since=${encodeURIComponent(since)}`,
+        trusted,
+      );
+      return stub.fetch(target);
     }
 
     if (url.pathname === createWorkspaceRoute && request.method === "POST") {
@@ -145,13 +177,13 @@ export async function routeRelayRequest(
       });
     }
 
-    const agentMsgMatch = agentMessageRoute.exec(url.pathname);
-    if (agentMsgMatch && request.method === "POST") {
+    const agentKeysMatch = agentKeysRoute.exec(url.pathname);
+    if (agentKeysMatch && request.method === "POST") {
       const workspaceId = workspaceIdSchema.parse(
-        decodeURIComponent(agentMsgMatch[1] ?? ""),
+        decodeURIComponent(agentKeysMatch[1] ?? ""),
       );
       const agentId = agentIdSchema.parse(
-        decodeURIComponent(agentMsgMatch[2] ?? ""),
+        decodeURIComponent(agentKeysMatch[2] ?? ""),
       );
       const { identity, request: authed } = await authenticate(request);
       request = authed;
@@ -160,7 +192,12 @@ export async function routeRelayRequest(
         requestId,
         workspaceId,
       });
-      return await routeAgentMessage(env, request, {
+      if (principal.kind !== "user" || principal.role !== "owner") {
+        throw new AuthorizationError(
+          "Only a workspace owner can register an agent key.",
+        );
+      }
+      return await registerAgentKey(env, request, {
         owner: principal,
         requestId,
         workspaceId,

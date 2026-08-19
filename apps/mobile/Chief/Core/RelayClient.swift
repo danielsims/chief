@@ -22,6 +22,38 @@ protocol RelayServing: Sendable {
     completion: AgentJobCompletion
   ) async throws
   func recordLogs(workspaceID: String, _ entries: [RelayLogEntry]) async throws
+  func registerAgentKey(
+    workspaceID: String,
+    agentID: String,
+    pubkey: String
+  ) async throws
+  func sendAsAgent(
+    body: String,
+    workspaceID: String,
+    conversationID: String,
+    threadRootID: String?,
+    mentions: [String],
+    signingIdentity: NostrIdentity
+  ) async throws -> ConversationMessage
+  func replies(
+    workspaceID: String,
+    conversationID: String,
+    rootMessageID: String,
+    after sequence: Int?
+  ) async throws -> [ConversationMessage]
+  func searchMessages(
+    workspaceID: String,
+    conversationID: String,
+    query: String
+  ) async throws -> [ConversationMessage]
+  func react(
+    workspaceID: String,
+    conversationID: String,
+    messageID: String,
+    emoji: String,
+    add: Bool,
+    signingIdentity: NostrIdentity
+  ) async throws -> ConversationMessage
 }
 
 struct AgentJobCompletion: Sendable, Equatable {
@@ -151,6 +183,55 @@ actor URLSessionRelayClient: RelayServing {
     return result.message
   }
 
+  func registerAgentKey(
+    workspaceID: String,
+    agentID: String,
+    pubkey: String
+  ) async throws {
+    struct RegisterAgentKey: Encodable {
+      let agentId: String
+      let pubkey: String
+    }
+    let body = try JSONEncoder().encode(
+      RegisterAgentKey(agentId: agentID, pubkey: pubkey)
+    )
+    let _: RegisterAgentKeyResult = try await request(
+      path: "/v1/workspaces/\(workspaceID)/agents/\(agentID)/keys",
+      method: "POST",
+      body: body
+    )
+  }
+
+  func sendAsAgent(
+    body: String,
+    workspaceID: String,
+    conversationID: String,
+    threadRootID: String?,
+    mentions: [String],
+    signingIdentity: NostrIdentity
+  ) async throws -> ConversationMessage {
+    let command = AppendMessageInput(
+      commandId: UUID().uuidString,
+      occurredAt: ISO8601DateFormatter.chief().string(from: .now),
+      payload: .init(
+        messageId: UUID().uuidString,
+        conversationId: conversationID,
+        threadRootId: threadRootID,
+        body: body,
+        mentions: mentions,
+        components: []
+      )
+    )
+    let encoded = try JSONEncoder().encode(command)
+    let result: AppendMessageResult = try await request(
+      path: "/v1/workspaces/\(workspaceID)/conversations/\(conversationID)/messages",
+      method: "POST",
+      body: encoded,
+      signer: signingIdentity
+    )
+    return result.message
+  }
+
   func claimAgentJob(workspaceID: String, agentID: String) async throws -> AgentJobLease? {
     let body = try JSONEncoder().encode(
       ClaimAgentJobInput(workerId: "chief-mobile-\(UUID().uuidString)", leaseSeconds: 120)
@@ -164,6 +245,54 @@ actor URLSessionRelayClient: RelayServing {
     } catch RelayError.httpStatus(204) {
       return nil
     }
+  }
+
+  func replies(
+    workspaceID: String,
+    conversationID: String,
+    rootMessageID: String,
+    after sequence: Int?
+  ) async throws -> [ConversationMessage] {
+    var path =
+      "/v1/workspaces/\(workspaceID)/conversations/\(conversationID)/messages/\(rootMessageID)/replies?limit=200"
+    if let sequence { path += "&after=\(sequence)" }
+    let page: MessagePage = try await request(path: path, method: "GET")
+    return page.messages
+  }
+
+  func searchMessages(
+    workspaceID: String,
+    conversationID: String,
+    query: String
+  ) async throws -> [ConversationMessage] {
+    guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+    let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+    let path =
+      "/v1/workspaces/\(workspaceID)/conversations/\(conversationID)/messages?limit=50&q=\(encodedQuery)"
+    let page: MessagePage = try await request(path: path, method: "GET")
+    return page.messages
+  }
+
+  func react(
+    workspaceID: String,
+    conversationID: String,
+    messageID: String,
+    emoji: String,
+    add: Bool,
+    signingIdentity: NostrIdentity
+  ) async throws -> ConversationMessage {
+    struct ReactInput: Encodable {
+      let messageId: String
+      let emoji: String
+    }
+    let body = try JSONEncoder().encode(ReactInput(messageId: messageID, emoji: emoji))
+    let result: ReactResult = try await request(
+      path: "/v1/workspaces/\(workspaceID)/conversations/\(conversationID)/messages/\(messageID)/reactions",
+      method: add ? "POST" : "DELETE",
+      body: body,
+      signer: signingIdentity
+    )
+    return result.message
   }
 
   func completeAgentJob(
@@ -197,7 +326,8 @@ actor URLSessionRelayClient: RelayServing {
   private func request<Response: Decodable>(
     path: String,
     method: String,
-    body: Data? = nil
+    body: Data? = nil,
+    signer: NostrIdentity? = nil
   ) async throws -> Response {
     let url = URL(string: path, relativeTo: configuration.relayURL)!.absoluteURL
     var request = URLRequest(url: url)
@@ -205,10 +335,15 @@ actor URLSessionRelayClient: RelayServing {
     request.timeoutInterval = 20
     request.httpBody = body
     request.setValue("application/json", forHTTPHeaderField: "content-type")
-    let sessionStore = KeychainSessionStore()
-    var chiefSession = try? sessionStore.load()
-    if let token = chiefSession?.accessToken {
-      request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+    // Authenticate with NIP-98: sign an ephemeral kind-27235 event with a
+    // secp256k1 identity. Agent sends use the agent's own key so the relay
+    // resolves the author to the agent; otherwise the device user's key.
+    let identity =
+      signer ?? (try? NostrKeychainStore().load())
+    if let identity {
+      let header = try NIP98Signer(identity: identity)
+        .header(method: method, url: url, body: body ?? Data())
+      request.setValue(header, forHTTPHeaderField: "authorization")
     }
     var data: Data
     var response: URLResponse
@@ -218,24 +353,6 @@ actor URLSessionRelayClient: RelayServing {
       relayLog.error("\(method) \(path) failed: \(error.localizedDescription)")
       print("[Chief] relay \(method) \(path) failed: \(error.localizedDescription)")
       throw RelayError.unavailable
-    }
-    if let http = response as? HTTPURLResponse, http.statusCode == 401,
-      let stored = chiefSession
-    {
-      let refreshed = try await refreshRelayToken(sessionToken: stored.sessionToken)
-      chiefSession = ChiefSession(
-        accessToken: refreshed,
-        sessionToken: stored.sessionToken,
-        user: stored.user,
-        workspaceID: stored.workspaceID
-      )
-      if let chiefSession { try? sessionStore.save(chiefSession) }
-      request.setValue("Bearer \(refreshed)", forHTTPHeaderField: "authorization")
-      do {
-        (data, response) = try await session.data(for: request)
-      } catch {
-        throw RelayError.unavailable
-      }
     }
     guard let http = response as? HTTPURLResponse else {
       relayLog.error("\(method) \(path) non-HTTP response")
@@ -253,17 +370,6 @@ actor URLSessionRelayClient: RelayServing {
     if http.statusCode == 204 { throw RelayError.httpStatus(204) }
     return try decoder.decode(Response.self, from: data)
   }
-
-  private func refreshRelayToken(sessionToken: String) async throws -> String {
-    let url = configuration.authenticationAPIURL.appending(path: "convex/token")
-    var request = URLRequest(url: url)
-    request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "authorization")
-    request.setValue("application/json", forHTTPHeaderField: "accept")
-    let (data, response) = try await session.data(for: request)
-    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode)
-    else { throw RelayError.unauthorized }
-    return try decoder.decode(RelayTokenEnvelope.self, from: data).token
-  }
 }
 
 enum RelayError: Error, Equatable {
@@ -274,7 +380,11 @@ enum RelayError: Error, Equatable {
 
 private struct MessagePage: Codable { let messages: [ConversationMessage] }
 private struct AppendMessageResult: Codable { let message: ConversationMessage }
-private struct RelayTokenEnvelope: Codable { let token: String }
+private struct ReactResult: Codable { let message: ConversationMessage }
+private struct RegisterAgentKeyResult: Codable {
+  let agentId: String
+  let pubkey: String
+}
 struct AgentJobLease: Codable, Equatable, Sendable {
   struct Job: Codable, Equatable, Sendable {
     let id: String

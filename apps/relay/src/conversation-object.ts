@@ -7,7 +7,9 @@ import type {
 } from "@chief/relay-contracts";
 import {
   appendMessageCommandSchema,
+  messageIdSchema,
   principalSchema,
+  reactToMessagePayloadSchema,
   socketTicketSchema,
 } from "@chief/relay-contracts";
 
@@ -17,6 +19,10 @@ import {
   readTrustedContext,
   readTrustedSocketTicket,
 } from "./internal-context";
+import { recordMetrics } from "./metrics";
+
+const repliesRoute = /\/messages\/([^/]+)\/replies$/u;
+const reactionsRoute = /\/messages\/([^/]+)\/reactions$/u;
 
 export class ConversationObject extends DurableObject<Env> {
   private readonly store: SqlConversationStore;
@@ -44,13 +50,29 @@ export class ConversationObject extends DurableObject<Env> {
         );
       }
       if (request.method === "GET") {
-        return new URL(request.url).pathname.endsWith("/events")
-          ? this.listEvents(request)
-          : this.listMessages(request);
+        const pathname = new URL(request.url).pathname;
+        if (pathname.endsWith("/events")) return this.listEvents(request);
+        const replies = repliesRoute.exec(pathname);
+        if (replies) {
+          return this.replies(request, replies[1] ?? "");
+        }
+        const reactions = reactionsRoute.exec(pathname);
+        if (reactions) return this.reactions(reactions[1] ?? "");
+        return this.listMessages(request);
       }
-      if (request.method === "POST") {
-        if (new URL(request.url).pathname.endsWith("/socket-tickets")) {
+      if (request.method === "POST" || request.method === "DELETE") {
+        const pathname = new URL(request.url).pathname;
+        if (pathname.endsWith("/socket-tickets")) {
           return await this.createSocketTicket(context.principal);
+        }
+        const reactions = reactionsRoute.exec(pathname);
+        if (reactions) {
+          return await this.react(
+            request,
+            context,
+            reactions[1] ?? "",
+            request.method === "POST",
+          );
         }
         return await this.append(
           request,
@@ -98,7 +120,10 @@ export class ConversationObject extends DurableObject<Env> {
       actor: principal,
       author: authorFor(principal),
     });
-    if (!result.duplicate) this.broadcast(result.event);
+    if (!result.duplicate) {
+      this.broadcast(result.event);
+      recordMetrics(this.env, ["message"]);
+    }
     return json({ duplicate: result.duplicate, message: result.message });
   }
 
@@ -106,7 +131,64 @@ export class ConversationObject extends DurableObject<Env> {
     const url = new URL(request.url);
     const after = parseInteger(url.searchParams.get("after"), 0, 0);
     const limit = parseInteger(url.searchParams.get("limit"), 50, 1, 200);
-    return json(this.store.list(after, limit));
+    const query = url.searchParams.get("q")?.trim();
+    return json(this.store.list(after, limit, query));
+  }
+
+  private replies(request: Request, rootId: string) {
+    const url = new URL(request.url);
+    const after = parseInteger(url.searchParams.get("after"), 0, 0);
+    const limit = parseInteger(url.searchParams.get("limit"), 50, 1, 200);
+    return json(
+      this.store.replies(messageIdSchema.parse(rootId), after, limit),
+    );
+  }
+
+  private reactions(messageId: string) {
+    const message = this.store.getMessage(messageIdSchema.parse(messageId));
+    if (!message) {
+      throw new HttpError(
+        404,
+        "message_not_found",
+        "The message was not found.",
+      );
+    }
+    return json({ reactions: message.reactions });
+  }
+
+  private async react(
+    request: Request,
+    context: ReturnType<typeof readTrustedContext>,
+    messageId: string,
+    add: boolean,
+  ) {
+    const command = reactToMessagePayloadSchema.parse(await parseJson(request));
+    if (command.messageId !== messageId) {
+      throw new HttpError(
+        409,
+        "message_mismatch",
+        "The reaction does not match the routed message.",
+      );
+    }
+    const pubkey = reactorPubkey(context.principal);
+    if (!pubkey) {
+      throw new HttpError(
+        403,
+        "principal_required",
+        "Only a keyed user or agent can react.",
+      );
+    }
+    const { changed, result, event } = this.store.react({
+      messageId,
+      emoji: command.emoji,
+      pubkey,
+      add,
+      actor: context.principal,
+      workspaceId: context.workspaceId,
+      correlationId: context.requestId,
+    });
+    if (changed && event) this.broadcast(event);
+    return json(result);
   }
 
   private listEvents(request: Request) {
@@ -162,6 +244,13 @@ function authorFor(principal: Principal): MessageAuthor {
   if (principal.kind === "agent")
     return { kind: "agent", id: principal.agentId };
   return { kind: "system", id: "chief-relay" };
+}
+
+function reactorPubkey(principal: Principal): string | undefined {
+  if (principal.kind === "user" || principal.kind === "agent") {
+    return principal.pubkey;
+  }
+  return undefined;
 }
 
 function parseInteger(

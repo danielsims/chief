@@ -1,5 +1,5 @@
 import type { AuthenticatedIdentity } from "@chief/relay-contracts";
-import { userIdSchema } from "@chief/relay-contracts";
+import { hexPubkeySchema, userIdSchema } from "@chief/relay-contracts";
 
 import { sha256PayloadTag, verifyNip98Auth } from "./nip98";
 
@@ -10,10 +10,7 @@ import { sha256PayloadTag, verifyNip98Auth } from "./nip98";
  * caller's identity. Convex is not part of the runtime path.
  */
 export class RelayAuthenticator {
-  async authenticate(
-    request: Request,
-    body?: string | null,
-  ): Promise<AuthenticatedIdentity> {
+  authenticate(request: Request, body?: string | null): AuthenticatedIdentity {
     const pubkey = verifyNip98Auth(request.headers.get("authorization"), {
       url: request.url,
       method: request.method,
@@ -22,6 +19,7 @@ export class RelayAuthenticator {
     return {
       kind: "user",
       userId: userIdSchema.parse(pubkey),
+      pubkey: hexPubkeySchema.parse(pubkey),
     };
   }
 }

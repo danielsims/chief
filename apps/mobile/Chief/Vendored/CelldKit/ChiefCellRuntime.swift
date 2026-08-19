@@ -16,9 +16,13 @@ actor ChiefCellRuntime {
     category: "CellRuntime"
   )
 
-  private var started = false
+  nonisolated(unsafe) private var started = false
   private var agentBundle: String?
   private var host: (any ChiefAgentHosting)?
+
+  /// Whether the cell engine has booted successfully (idempotent; `start` may be
+  /// re-invoked by the app until this becomes true).
+  nonisolated var isStarted: Bool { started }
 
   private init() {}
 

@@ -6,9 +6,8 @@ import type {
   WorkspaceId,
 } from "@chief/relay-contracts";
 import {
-  agentIdSchema,
-  appendMessageCommandSchema,
-  conversationIdSchema,
+  hexPubkeySchema,
+  userIdSchema,
   workspaceAuthorizationResultSchema,
 } from "@chief/relay-contracts";
 
@@ -19,6 +18,7 @@ import {
   withTrustedContext,
   withTrustedIdentity,
 } from "./internal-context";
+import { recordMetrics } from "./metrics";
 
 interface WorkspaceDirectoryEntry {
   workspaceId: WorkspaceId;
@@ -64,6 +64,13 @@ export async function createManagedWorkspace(
     ),
   );
   if (!response.ok) return response;
+  recordMetrics(env, ["signup", "workspace-created"], {
+    kind: "user",
+    userId: identity.userId,
+    pubkey: identity.pubkey,
+    workspaceId: entry.workspaceId,
+    role: "owner",
+  });
   await enqueueOnboarding(env, identity, entry);
   return response;
 }
@@ -207,52 +214,40 @@ export async function routeAgentJob(
   );
 }
 
-export async function routeAgentMessage(
+export async function registerAgentKey(
   env: Env,
   request: Request,
   input: {
-    owner: Principal;
+    owner: UserPrincipal;
     requestId: string;
     workspaceId: WorkspaceId;
     agentId: string;
   },
 ) {
-  if (input.owner.kind !== "user" || input.owner.role !== "owner") {
-    throw new AuthorizationError(
-      "Only a workspace owner can post on behalf of an agent on this device.",
-    );
-  }
-  const command = appendMessageCommandSchema.parse(await request.json());
-  const conversationId = conversationIdSchema.parse(
-    command.payload.conversationId,
-  );
-  const agent: Principal & { kind: "agent" } = {
-    kind: "agent",
-    agentId: agentIdSchema.parse(input.agentId),
-    workspaceId: input.workspaceId,
-  };
-  const stub = env.CONVERSATIONS.get(
-    env.CONVERSATIONS.idFromName(`${input.workspaceId}:${conversationId}`),
-  );
-  return stub.fetch(
-    withTrustedContext(
-      new Request("https://conversation.internal/messages", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(command),
-      }),
+  const workspace = workspaceStub(env, input.workspaceId);
+  const body = await request.text();
+  return workspace.fetch(
+    withTrustedIdentity(
       {
-        principal: agent,
+        identity: {
+          kind: "user",
+          userId: userIdSchema.parse(input.owner.userId),
+          pubkey: hexPubkeySchema.parse(input.owner.pubkey),
+        },
         requestId: input.requestId,
         workspaceId: input.workspaceId,
-        conversationId,
+      },
+      {
+        method: "POST",
+        headers: {
+          "content-type": request.headers.get("content-type") ?? "",
+          "x-chief-internal-operation": "register-agent-key",
+        },
+        body,
       },
     ),
   );
 }
-
 function workspaceStub(env: Env, workspaceId: WorkspaceId) {
   return env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId));
 }
@@ -269,6 +264,7 @@ async function enqueueOnboarding(
   const principal: UserPrincipal = {
     kind: "user",
     userId: identity.userId,
+    pubkey: hexPubkeySchema.parse(identity.pubkey),
     workspaceId: entry.workspaceId,
     role: "owner",
   };

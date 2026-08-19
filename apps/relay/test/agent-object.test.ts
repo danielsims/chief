@@ -4,9 +4,11 @@ import { describe, expect, it } from "vitest";
 import { agentIdSchema, workspaceIdSchema } from "@chief/relay-contracts";
 
 import { withTrustedContext } from "../src/internal-context";
+import { hexKey } from "./helpers";
 
 const workspaceId = workspaceIdSchema.parse("agent-queue-test");
 const agentId = agentIdSchema.parse("engineer");
+const agentPubkey = hexKey("engineer");
 
 describe("AgentObject", () => {
   it("returns a failed job to the queue when a retry is scheduled", async () => {
@@ -67,7 +69,7 @@ function post(stub: DurableObjectStub, operation: string, body: unknown) {
       body: JSON.stringify(body),
     }),
     {
-      principal: { kind: "agent", agentId, workspaceId },
+      principal: { kind: "agent", agentId, pubkey: agentPubkey, workspaceId },
       requestId: crypto.randomUUID(),
       workspaceId,
     },

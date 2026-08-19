@@ -1,4 +1,5 @@
 export * from "./agents";
+export * from "./channels";
 export * from "./discovery";
 export * from "./logs";
 export * from "./envelopes";

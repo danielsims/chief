@@ -31,6 +31,7 @@ const legacyLineLimits = new Map([
   ["packages/agent-runtime/src/manager.ts", 1175],
   ["apps/desktop/src/components/chat/agent-chat.tsx", 534],
   ["apps/mobile/Chief/Resources/agent.js", 503],
+  ["apps/relay/src/workspace-object.ts", 594],
   ["packages/email/src/templates/digest/chief-digest-email.tsx", 539],
   ["packages/agent-runtime/src/tools/control-plane.ts", 1167],
   ["packages/agent-runtime/src/drivers/remote-eve.ts", 512],

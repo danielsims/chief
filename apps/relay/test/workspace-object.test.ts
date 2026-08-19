@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { userIdSchema, workspaceIdSchema } from "@chief/relay-contracts";
 
 import { withTrustedIdentity } from "../src/internal-context";
+import { hexKey } from "./helpers";
 
 const workspaceId = workspaceIdSchema.parse("workspace-authority-test");
 const ownerId = userIdSchema.parse("owner-user");
@@ -34,11 +35,21 @@ describe("WorkspaceObject", () => {
     expect(claim.status).toBe(201);
     expect(await claim.json()).toMatchObject({
       workspaceId,
-      principal: { kind: "user", userId: ownerId, role: "owner" },
+      principal: {
+        kind: "user",
+        userId: ownerId,
+        pubkey: hexKey(ownerId),
+        role: "owner",
+      },
     });
     expect(authorized.status).toBe(200);
     expect(await authorized.json()).toMatchObject({
-      principal: { kind: "user", userId: ownerId, role: "owner" },
+      principal: {
+        kind: "user",
+        userId: ownerId,
+        pubkey: hexKey(ownerId),
+        role: "owner",
+      },
     });
     expect(outsider.status).toBe(403);
   });
@@ -139,6 +150,39 @@ describe("WorkspaceObject", () => {
       error: { code: "workspace_mismatch" },
     });
   });
+
+  it("resolves a registered agent pubkey to an agent principal on authorize", async () => {
+    const stub = workspaceStub();
+    const agentPubkey = hexKey("engineer-key");
+    const register = await stub.fetch(
+      trustedRequest("register-agent-key", ownerId, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentId: "engineer", pubkey: agentPubkey }),
+      }),
+    );
+    expect(register.status).toBe(200);
+
+    const listed = await stub.fetch(
+      trustedRequest("agent-keys", ownerId, { method: "POST" }),
+    );
+    expect(await listed.json()).toMatchObject({
+      agents: [{ agentId: "engineer", pubkey: agentPubkey }],
+    });
+
+    const authorized = await stub.fetch(
+      trustedAgentRequest("engineer", agentPubkey),
+    );
+    expect(authorized.status).toBe(200);
+    expect(await authorized.json()).toMatchObject({
+      principal: {
+        kind: "agent",
+        agentId: "engineer",
+        pubkey: agentPubkey,
+        workspaceId,
+      },
+    });
+  });
 });
 
 function workspaceStub() {
@@ -148,15 +192,22 @@ function workspaceStub() {
 }
 
 function trustedRequest(
-  operation: "authorize" | "claim" | "record-logs" | "list-logs",
+  operation:
+    | "authorize"
+    | "claim"
+    | "record-logs"
+    | "list-logs"
+    | "register-agent-key"
+    | "agent-keys",
   userId: typeof ownerId,
   init: RequestInit,
+  identityPubkey = hexKey(userId),
 ) {
   const headers = new Headers(init.headers);
   headers.set("x-chief-internal-operation", operation);
   return withTrustedIdentity(
     {
-      identity: { kind: "user", userId },
+      identity: { kind: "user", userId, pubkey: identityPubkey },
       requestId: crypto.randomUUID(),
       workspaceId,
     },
@@ -164,5 +215,22 @@ function trustedRequest(
       ...init,
       headers,
     },
+  );
+}
+
+function trustedAgentRequest(agentId: string, pubkey: string) {
+  const headers = new Headers();
+  headers.set("x-chief-internal-operation", "authorize");
+  return withTrustedIdentity(
+    {
+      identity: {
+        kind: "user",
+        userId: userIdSchema.parse(agentId),
+        pubkey,
+      },
+      requestId: crypto.randomUUID(),
+      workspaceId,
+    },
+    { method: "POST", headers },
   );
 }

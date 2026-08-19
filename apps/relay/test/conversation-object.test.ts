@@ -7,6 +7,7 @@ import {
   withTrustedContext,
   withTrustedSocketTicket,
 } from "../src/internal-context";
+import { hexKey } from "./helpers";
 
 const workspaceId = workspaceIdSchema.parse("workspace-a");
 const userId = userIdSchema.parse("user-a");
@@ -38,7 +39,7 @@ describe("ConversationObject", () => {
     expect(events.events[0]).toMatchObject({
       sequence: 1,
       type: "conversation.message.appended",
-      actor: { kind: "user", userId },
+      actor: { kind: "user", userId, pubkey: hexKey(userId) },
     });
   });
 
@@ -83,6 +84,109 @@ describe("ConversationObject", () => {
       error: { code: "invalid_socket_ticket" },
     });
   });
+
+  it("adds and removes a reaction idempotently and broadcasts one event", async () => {
+    const stub = conversationStub();
+    const command = appendCommand({
+      commandId: "8c01d06c-89fd-42e9-9643-a56a5f6e6d01",
+      messageId: "reaction-root",
+    });
+    expect((await post(stub, command)).status).toBe(200);
+
+    const add = await react(stub, "reaction-root", "🔥");
+    const addAgain = await react(stub, "reaction-root", "🔥");
+    const remove = await react(stub, "reaction-root", "🔥", "DELETE");
+    const removeAgain = await react(stub, "reaction-root", "🔥", "DELETE");
+
+    expect(add.status).toBe(200);
+    expect(await add.json()).toMatchObject({
+      add: true,
+      message: {
+        id: "reaction-root",
+        reactions: [{ emoji: "🔥", pubkeys: [hexKey(userId)] }],
+      },
+    });
+    expect(await addAgain.json()).toMatchObject({
+      add: true,
+      message: { reactions: [{ emoji: "🔥", pubkeys: [hexKey(userId)] }] },
+    });
+    expect(await remove.json()).toMatchObject({
+      add: false,
+      message: { reactions: [] },
+    });
+    expect(await removeAgain.json()).toMatchObject({
+      add: false,
+      message: { reactions: [] },
+    });
+
+    // A duplicate add/remove must not append duplicate reaction events. Only
+    // the first add and the first remove change the set, so exactly two
+    // reaction events are expected.
+    const events = await listEvents(stub);
+    const reactionEvents = events.events.filter(
+      (event) => event.type === "conversation.message.reacted",
+    );
+    expect(reactionEvents).toHaveLength(2);
+  });
+
+  it("lists thread replies for a root message", async () => {
+    const stub = conversationStub();
+    await post(
+      stub,
+      appendCommand({
+        commandId: "1d93e3d0-9c92-44b6-8cf2-3c9820b25001",
+        messageId: "thread-root",
+      }),
+    );
+    const reply = await post(
+      stub,
+      appendCommand({
+        commandId: "6e93e3d0-9c92-44b6-8cf2-3c9820b25002",
+        messageId: "thread-reply",
+        threadRootId: "thread-root",
+      }),
+    );
+    expect(reply.status).toBe(200);
+
+    const response = await stub.fetch(
+      trustedRequest(
+        "https://relay.test/internal/messages/thread-root/replies?after=0&limit=50",
+      ),
+    );
+    expect(response.status).toBe(200);
+    const page = (await response.json()) as { messages: Array<{ id: string }> };
+    expect(page.messages).toHaveLength(1);
+    expect(page.messages[0]).toMatchObject({ id: "thread-reply" });
+  });
+
+  it("searches message bodies with a query parameter", async () => {
+    const stub = conversationStub();
+    await post(
+      stub,
+      appendCommand({
+        commandId: "7a9a3d09-9c92-44b6-8cf2-3c9820b25003",
+        messageId: "search-one",
+      }),
+    );
+    await post(
+      stub,
+      appendCommand({
+        commandId: "7a9a3d09-9c92-44b6-8cf2-3c9820b25004",
+        messageId: "search-two",
+        body: "Budget review for Q3 is ready.",
+      }),
+    );
+
+    const response = await stub.fetch(
+      trustedRequest(
+        "https://relay.test/internal/messages?after=0&limit=50&q=Budget",
+      ),
+    );
+    expect(response.status).toBe(200);
+    const page = (await response.json()) as { messages: Array<{ id: string }> };
+    expect(page.messages).toHaveLength(1);
+    expect(page.messages[0]).toMatchObject({ id: "search-two" });
+  });
 });
 
 function conversationStub() {
@@ -97,6 +201,8 @@ function appendCommand(input: {
   commandId: string;
   messageId: string;
   routedConversationId?: string;
+  threadRootId?: string;
+  body?: string;
 }) {
   return {
     commandId: input.commandId,
@@ -105,10 +211,28 @@ function appendCommand(input: {
     payload: {
       messageId: input.messageId,
       conversationId: input.routedConversationId ?? conversationId,
-      body: "Hello from the durable relay.",
+      threadRootId: input.threadRootId,
+      body: input.body ?? "Hello from the durable relay.",
       components: [],
     },
   };
+}
+
+async function react(
+  stub: DurableObjectStub,
+  messageId: string,
+  emoji: string,
+  method: "POST" | "DELETE" = "POST",
+) {
+  const request = trustedRequest(
+    `https://relay.test/internal/messages/${messageId}/reactions`,
+    {
+      method,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messageId, emoji }),
+    },
+  );
+  return stub.fetch(request);
 }
 
 async function post(stub: DurableObjectStub, body: unknown) {
@@ -139,7 +263,7 @@ async function listEvents(stub: DurableObjectStub) {
     events: Array<{
       sequence: number;
       type: string;
-      actor: { kind: string; userId?: string };
+      actor: { kind: string; userId?: string; pubkey?: string };
     }>;
   };
 }
@@ -149,6 +273,7 @@ function trustedRequest(url: string, init?: RequestInit) {
     principal: {
       kind: "user",
       userId,
+      pubkey: hexKey(userId),
       workspaceId,
       role: "owner",
     },
