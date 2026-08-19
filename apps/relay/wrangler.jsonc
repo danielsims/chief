@@ -31,9 +31,6 @@
   ],
   "vars": {
     "RELAY_DEPLOYMENT": "chief-cloud",
-    "AUTH_AUDIENCE": "convex",
-    "AUTH_ISSUER": "https://aromatic-lobster-846.convex.site",
-    "AUTH_JWKS_URL": "https://aromatic-lobster-846.convex.site/api/auth/convex/jwks",
   },
   "observability": { "enabled": true },
 }

@@ -1,46 +1,31 @@
-import { createRemoteJWKSet, jwtVerify } from "jose";
-
 import type { AuthenticatedIdentity } from "@chief/relay-contracts";
-import {
-  authenticatedIdentitySchema,
-  userIdSchema,
-} from "@chief/relay-contracts";
+import { userIdSchema } from "@chief/relay-contracts";
 
-interface TokenClaims {
-  identity?: unknown;
-}
+import { sha256PayloadTag, verifyNip98Auth } from "./nip98";
 
+/**
+ * Authenticates relay requests with NIP-98 nostr HTTP auth. There is no issuer,
+ * JWKS, or external identity provider: the secp256k1 Schnorr signature over a
+ * kind-27235 event proves possession of the private key whose public key is the
+ * caller's identity. Convex is not part of the runtime path.
+ */
 export class RelayAuthenticator {
-  private readonly jwks: ReturnType<typeof createRemoteJWKSet>;
-
-  constructor(private readonly env: Env) {
-    this.jwks = createRemoteJWKSet(new URL(env.AUTH_JWKS_URL));
-  }
-
-  async authenticate(request: Request): Promise<AuthenticatedIdentity> {
-    const authorization = request.headers.get("authorization");
-    if (!authorization?.startsWith("Bearer ")) {
-      throw new AuthenticationError("A bearer token is required.");
-    }
-
-    const token = authorization.slice("Bearer ".length).trim();
-    try {
-      const result = await jwtVerify<TokenClaims>(token, this.jwks, {
-        issuer: this.env.AUTH_ISSUER,
-        audience: this.env.AUTH_AUDIENCE,
-      });
-      if (result.payload.identity !== undefined) {
-        return authenticatedIdentitySchema.parse(result.payload.identity);
-      }
-      return authenticatedIdentitySchema.parse({
-        kind: "user",
-        userId: userIdSchema.parse(result.payload.sub),
-      });
-    } catch {
-      throw new AuthenticationError("The bearer token is not valid.");
-    }
+  async authenticate(
+    request: Request,
+    body?: string | null,
+  ): Promise<AuthenticatedIdentity> {
+    const pubkey = verifyNip98Auth(request.headers.get("authorization"), {
+      url: request.url,
+      method: request.method,
+      body,
+    });
+    return {
+      kind: "user",
+      userId: userIdSchema.parse(pubkey),
+    };
   }
 }
 
+export { sha256PayloadTag };
 export class AuthenticationError extends Error {}
 export class AuthorizationError extends Error {}

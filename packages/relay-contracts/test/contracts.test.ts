@@ -75,9 +75,8 @@ void test("relay discovery is portable across hosting providers", () => {
     openApiUrl: "https://relay.example.com/openapi.json",
     capabilities: ["workspaces", "conversations", "durable-agents"],
     authentication: {
-      issuer: "https://relay.example.com",
-      audience: "chief-relay",
-      jwksUrl: "https://relay.example.com/.well-known/jwks.json",
+      scheme: "NIP-98",
+      signingAlgorithm: "secp256k1-schnorr",
     },
   });
 
