@@ -6,10 +6,13 @@ import type {
   UserPrincipal,
 } from "@chief/relay-contracts";
 import {
+  agentIdSchema,
   claimedWorkspaceSchema,
   claimWorkspaceCommandSchema,
   createWorkspaceCommandSchema,
+  hexPubkeySchema,
   logBatchSchema,
+  registerAgentKeyCommandSchema,
   workspaceIdSchema,
   workspaceOnboardingResultSchema,
   workspaceSnapshotSchema,
@@ -17,6 +20,7 @@ import {
 
 import { HttpError, json, parseJson, relayError } from "./http";
 import { readTrustedIdentity } from "./internal-context";
+import { recordMetrics } from "./metrics";
 import {
   appendWorkspaceLogs,
   initializeWorkspaceLog,
@@ -27,6 +31,12 @@ interface MemberRow extends Record<string, SqlStorageValue> {
   principal_kind: AuthenticatedIdentity["kind"];
   principal_id: string;
   role: "owner" | "admin" | "member";
+}
+
+interface AgentKeyRow extends Record<string, SqlStorageValue> {
+  agent_id: string;
+  pubkey: string;
+  created_at: string;
 }
 
 interface WorkspaceRow extends Record<string, SqlStorageValue> {
@@ -56,6 +66,11 @@ export class WorkspaceObject extends DurableObject<Env> {
           role TEXT NOT NULL,
           created_at TEXT NOT NULL,
           PRIMARY KEY (principal_kind, principal_id)
+        );
+        CREATE TABLE IF NOT EXISTS agent_keys (
+          agent_id TEXT PRIMARY KEY,
+          pubkey TEXT NOT NULL UNIQUE,
+          created_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS policy (
           key TEXT PRIMARY KEY,
@@ -95,6 +110,12 @@ export class WorkspaceObject extends DurableObject<Env> {
       if (operation === "list-logs") {
         return this.listLogs(request);
       }
+      if (operation === "register-agent-key") {
+        return await this.registerAgentKey(request, context);
+      }
+      if (operation === "agent-keys") {
+        return this.agentKeys();
+      }
       return relayError(404, "not_found", "Workspace operation not found.");
     } catch (error) {
       if (error instanceof HttpError) {
@@ -109,12 +130,25 @@ export class WorkspaceObject extends DurableObject<Env> {
   }
 
   private authorize(identity: AuthenticatedIdentity) {
+    // A pubkey may be an agent: if the authenticated key matches a registered
+    // agent key, the agent acts on its own identity (no owner impersonation).
+    const agent =
+      identity.kind === "user"
+        ? firstRow<AgentKeyRow>(
+            this.ctx.storage.sql.exec(
+              "SELECT agent_id, pubkey, created_at FROM agent_keys WHERE pubkey = ?",
+              identity.pubkey,
+            ),
+          )
+        : undefined;
+    const kind = agent ? "agent" : "user";
+    const principalId = agent ? agent.agent_id : identityId(identity);
     const member = firstRow<MemberRow>(
       this.ctx.storage.sql.exec(
         `SELECT principal_kind, principal_id, role FROM members
          WHERE principal_kind = ? AND principal_id = ?`,
-        identity.kind,
-        identityId(identity),
+        kind,
+        principalId,
       ),
     );
     const workspace = firstRow<WorkspaceRow>(
@@ -127,7 +161,68 @@ export class WorkspaceObject extends DurableObject<Env> {
         "This identity is not a workspace member.",
       );
     }
-    return json({ principal: toPrincipal(identity, member, workspace) });
+    const resolved: AuthenticatedIdentity = agent
+      ? {
+          kind: "agent",
+          agentId: agentIdSchema.parse(agent.agent_id),
+          pubkey: hexPubkeySchema.parse(agent.pubkey),
+        }
+      : identity;
+    return json({ principal: toPrincipal(resolved, member, workspace) });
+  }
+
+  private async registerAgentKey(
+    request: Request,
+    context: ReturnType<typeof readTrustedIdentity>,
+  ) {
+    if (context.identity.kind !== "user") {
+      return relayError(
+        403,
+        "user_required",
+        "A user identity is required to register an agent key.",
+      );
+    }
+    const owner = this.memberRole("user", context.identity.userId);
+    if (owner !== "owner") {
+      return relayError(
+        403,
+        "owner_required",
+        "Only a workspace owner can register agent keys.",
+      );
+    }
+    const input = registerAgentKeyCommandSchema.parse(await parseJson(request));
+    const createdAt = new Date().toISOString();
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec(
+        `INSERT OR REPLACE INTO agent_keys (agent_id, pubkey, created_at)
+         VALUES (?, ?, ?)`,
+        input.agentId,
+        input.pubkey,
+        createdAt,
+      );
+      // Agents are equals: registering a key also grants workspace membership.
+      this.ctx.storage.sql.exec(
+        `INSERT INTO members (principal_kind, principal_id, role, created_at)
+         VALUES ('agent', ?, 'member', ?)
+         ON CONFLICT(principal_kind, principal_id) DO NOTHING`,
+        input.agentId,
+        createdAt,
+      );
+    });
+    recordMetrics(this.env, ["agent-created"]);
+    return json({ agentId: input.agentId, pubkey: input.pubkey });
+  }
+
+  private agentKeys() {
+    const rows = this.ctx.storage.sql
+      .exec("SELECT agent_id, pubkey FROM agent_keys ORDER BY agent_id")
+      .toArray() as AgentKeyRow[];
+    return json({
+      agents: rows.map((row) => ({
+        agentId: agentIdSchema.parse(String(row.agent_id)),
+        pubkey: hexPubkeySchema.parse(String(row.pubkey)),
+      })),
+    });
   }
 
   private async claim(
@@ -195,6 +290,7 @@ export class WorkspaceObject extends DurableObject<Env> {
     const principal: UserPrincipal = {
       kind: "user",
       userId: ownerIdentity.userId,
+      pubkey: ownerIdentity.pubkey,
       workspaceId: context.workspaceId,
       role: "owner",
     };
@@ -327,7 +423,7 @@ export class WorkspaceObject extends DurableObject<Env> {
       isPrivate: true,
       unreadCount: 1,
       requiresAttention: false,
-      lastMessage: result.openingMessage ?? result.publishedMessage?.body,
+      lastMessage: result.openingMessage,
     };
     const snapshot = workspaceSnapshotSchema.parse({
       ...previous,
@@ -424,6 +520,18 @@ export class WorkspaceObject extends DurableObject<Env> {
     }
     return member;
   }
+
+  private memberRole(kind: string, principalId: string) {
+    const member = firstRow<MemberRow>(
+      this.ctx.storage.sql.exec(
+        `SELECT principal_kind, principal_id, role FROM members
+         WHERE principal_kind = ? AND principal_id = ?`,
+        kind,
+        principalId,
+      ),
+    );
+    return member?.role ?? null;
+  }
 }
 
 function identityId(identity: AuthenticatedIdentity) {
@@ -441,6 +549,7 @@ function toPrincipal(
     return {
       kind: "user",
       userId: identity.userId,
+      pubkey: identity.pubkey,
       workspaceId: workspaceIdSchema.parse(workspace.workspace_id),
       role: member.role,
     };
@@ -449,6 +558,7 @@ function toPrincipal(
     return {
       kind: "agent",
       agentId: identity.agentId,
+      pubkey: identity.pubkey,
       workspaceId: workspaceIdSchema.parse(workspace.workspace_id),
     };
   }

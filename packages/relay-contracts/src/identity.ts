@@ -1,11 +1,17 @@
 import { z } from "zod";
 
-import { agentIdSchema, userIdSchema, workspaceIdSchema } from "./identifiers";
+import {
+  agentIdSchema,
+  hexPubkeySchema,
+  userIdSchema,
+  workspaceIdSchema,
+} from "./identifiers";
 
 export const authenticatedUserIdentitySchema = z
   .object({
     kind: z.literal("user"),
     userId: userIdSchema,
+    pubkey: hexPubkeySchema,
   })
   .strict();
 
@@ -13,6 +19,7 @@ export const authenticatedAgentIdentitySchema = z
   .object({
     kind: z.literal("agent"),
     agentId: agentIdSchema,
+    pubkey: hexPubkeySchema,
   })
   .strict();
 
@@ -31,9 +38,17 @@ export const authenticatedIdentitySchema = z.discriminatedUnion("kind", [
 
 export const workspaceRoleSchema = z.enum(["owner", "admin", "member"]);
 
+export const registerAgentKeyCommandSchema = z
+  .object({
+    agentId: agentIdSchema,
+    pubkey: hexPubkeySchema,
+  })
+  .strict();
+
 export const userPrincipalSchema = z.object({
   kind: z.literal("user"),
   userId: userIdSchema,
+  pubkey: hexPubkeySchema,
   workspaceId: workspaceIdSchema,
   role: workspaceRoleSchema,
 });
@@ -41,6 +56,7 @@ export const userPrincipalSchema = z.object({
 export const agentPrincipalSchema = z.object({
   kind: z.literal("agent"),
   agentId: agentIdSchema,
+  pubkey: hexPubkeySchema,
   workspaceId: workspaceIdSchema,
 });
 

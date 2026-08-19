@@ -14,6 +14,7 @@ import {
   activeManagedWorkspace,
   createManagedWorkspace,
 } from "../src/workspace-authority";
+import { hexKey } from "./helpers";
 
 describe("managed workspace onboarding", () => {
   it("creates an account workspace and durably queues Chief setup", async () => {
@@ -23,6 +24,7 @@ describe("managed workspace onboarding", () => {
     const identity = {
       kind: "user" as const,
       userId: userIdSchema.parse("managed-owner"),
+      pubkey: hexKey("managed-owner"),
     };
     const command = createWorkspaceCommandSchema.parse({
       commandId: "3384c105-6bf9-443f-b447-0898cfa40d48",
@@ -41,6 +43,7 @@ describe("managed workspace onboarding", () => {
     const principal = {
       kind: "user" as const,
       userId: identity.userId,
+      pubkey: identity.pubkey,
       workspaceId: snapshot.id,
       role: "owner" as const,
     };

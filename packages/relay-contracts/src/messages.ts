@@ -4,6 +4,7 @@ import { commandEnvelopeSchema, eventEnvelopeSchema } from "./envelopes";
 import {
   agentIdSchema,
   conversationIdSchema,
+  hexPubkeySchema,
   isoDateTimeSchema,
   messageIdSchema,
   userIdSchema,
@@ -26,6 +27,13 @@ export const messageComponentSchema = z
   })
   .strict();
 
+export const messageReactionSchema = z
+  .object({
+    emoji: z.string().trim().min(1).max(64),
+    pubkeys: z.array(hexPubkeySchema).max(128).default([]),
+  })
+  .strict();
+
 export const conversationMessageSchema = z.object({
   id: messageIdSchema,
   workspaceId: workspaceIdSchema,
@@ -35,8 +43,21 @@ export const conversationMessageSchema = z.object({
   body: z.string().max(100_000),
   mentions: z.array(agentIdSchema).max(16).default([]),
   components: z.array(messageComponentSchema).max(32).default([]),
+  reactions: z.array(messageReactionSchema).default([]),
   createdAt: isoDateTimeSchema,
   sequence: z.int().nonnegative(),
+});
+
+export const reactToMessagePayloadSchema = z
+  .object({
+    messageId: messageIdSchema,
+    emoji: z.string().trim().min(1).max(64),
+  })
+  .strict();
+
+export const reactToMessageResultSchema = z.object({
+  add: z.boolean(),
+  message: conversationMessageSchema,
 });
 
 export const appendMessagePayloadSchema = z
@@ -56,7 +77,11 @@ export const appendMessageCommandSchema = commandEnvelopeSchema(
 
 export const messageAppendedEventSchema = eventEnvelopeSchema(
   z.object({ message: conversationMessageSchema }),
-);
+).extend({ type: z.literal("conversation.message.appended") });
+
+export const messageReactedEventSchema = eventEnvelopeSchema(
+  z.object({ message: conversationMessageSchema }),
+).extend({ type: z.literal("conversation.message.reacted") });
 
 export const conversationSchema = z.object({
   id: conversationIdSchema,
@@ -86,7 +111,10 @@ export const messagePageSchema = z.object({
   nextSequence: z.int().nonnegative().nullable(),
 });
 
-export const conversationEventSchema = messageAppendedEventSchema;
+export const conversationEventSchema = z.discriminatedUnion("type", [
+  messageAppendedEventSchema,
+  messageReactedEventSchema,
+]);
 
 export const conversationEventPageSchema = z.object({
   events: z.array(conversationEventSchema),
@@ -107,6 +135,7 @@ export const trustedCommandContextSchema = z.object({
 
 export type MessageAuthor = z.infer<typeof messageAuthorSchema>;
 export type MessageComponent = z.infer<typeof messageComponentSchema>;
+export type MessageReaction = z.infer<typeof messageReactionSchema>;
 export type ConversationMessage = z.infer<typeof conversationMessageSchema>;
 export type AppendMessageCommand = z.infer<typeof appendMessageCommandSchema>;
 export type AppendMessageResult = z.infer<typeof appendMessageResultSchema>;

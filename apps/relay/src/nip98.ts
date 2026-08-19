@@ -55,9 +55,7 @@ export function verifyNip98Auth(
   const encoded = authorization.slice(5).trim();
   let event: Nip98Event;
   try {
-    event = JSON.parse(
-      Buffer.from(encoded, "base64").toString("utf8"),
-    ) as Nip98Event;
+    event = JSON.parse(decodeBase64(encoded)) as Nip98Event;
   } catch {
     throw new AuthenticationError("The Nostr event is not valid base64 JSON.");
   }
@@ -82,7 +80,7 @@ export function verifyNip98Auth(
     );
   }
   const methodTag = tag(event.tags, "method");
-  if (!methodTag || methodTag.toUpperCase() !== options.method.toUpperCase()) {
+  if (methodTag?.toUpperCase() !== options.method.toUpperCase()) {
     throw new AuthenticationError(
       "The Nostr event is not bound to this HTTP method.",
     );
@@ -132,4 +130,13 @@ export function sha256PayloadTag(body: string | null | undefined): string {
 
 function tag(tags: readonly string[][], key: string): string | undefined {
   return tags.find((entry) => entry[0] === key)?.[1];
+}
+
+/** Decode a base64 (or base64url) encoded value into its UTF-8 string. */
+function decodeBase64(encoded: string): string {
+  const standard = encoded
+    .replace(/-/gu, "+")
+    .replace(/_/gu, "/")
+    .padEnd(Math.ceil(encoded.length / 4) * 4, "=");
+  return atob(standard);
 }

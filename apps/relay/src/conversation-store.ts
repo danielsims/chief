@@ -1,9 +1,12 @@
+import type { z } from "zod";
+
 import type {
   AppendMessageCommand,
   AppendMessageResult,
   ConversationEvent,
   ConversationMessage,
   MessageAuthor,
+  MessageReaction,
   Principal,
   WorkspaceId,
 } from "@chief/relay-contracts";
@@ -12,6 +15,7 @@ import {
   conversationEventPageSchema,
   conversationEventSchema,
   messagePageSchema,
+  reactToMessageResultSchema,
 } from "@chief/relay-contracts";
 
 interface AppendInput {
@@ -21,16 +25,41 @@ interface AppendInput {
   actor: Principal;
 }
 
+interface ReactInput {
+  messageId: string;
+  emoji: string;
+  pubkey: string;
+  add: boolean;
+  actor: Principal;
+  workspaceId: WorkspaceId;
+  correlationId: string;
+}
+
 type StoredAppend = AppendMessageResult & { event: Record<string, unknown> };
 
 export interface ConversationStore {
   append(input: AppendInput): StoredAppend;
+  getMessage(messageId: string): ConversationMessage | null;
   list(
+    after: number,
+    limit: number,
+    query?: string,
+  ): {
+    messages: ConversationMessage[];
+    nextSequence: number | null;
+  };
+  replies(
+    rootId: string,
     after: number,
     limit: number,
   ): {
     messages: ConversationMessage[];
     nextSequence: number | null;
+  };
+  react(input: ReactInput): {
+    changed: boolean;
+    result: z.infer<typeof reactToMessageResultSchema>;
+    event: Record<string, unknown> | null;
   };
   listEvents(
     after: number,
@@ -63,9 +92,11 @@ export class SqlConversationStore implements ConversationStore {
         body TEXT NOT NULL,
         mentions_json TEXT NOT NULL DEFAULT '[]',
         components_json TEXT NOT NULL,
+        reactions_json TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS messages_sequence_idx ON messages (sequence);
+      CREATE INDEX IF NOT EXISTS messages_thread_idx ON messages (thread_root_id);
       CREATE TABLE IF NOT EXISTS events (
         sequence INTEGER PRIMARY KEY,
         event_id TEXT NOT NULL UNIQUE,
@@ -83,10 +114,18 @@ export class SqlConversationStore implements ConversationStore {
       CREATE INDEX IF NOT EXISTS socket_tickets_expiry_idx
         ON socket_tickets (expires_at);
     `);
-    // Lightweight migration: existing cells predate the mentions column.
+    // Lightweight migrations: existing cells predate the mentions/reactions
+    // columns.
     try {
       this.storage.sql.exec(
         "ALTER TABLE messages ADD COLUMN mentions_json TEXT NOT NULL DEFAULT '[]'",
+      );
+    } catch {
+      // Column already exists — nothing to migrate.
+    }
+    try {
+      this.storage.sql.exec(
+        "ALTER TABLE messages ADD COLUMN reactions_json TEXT NOT NULL DEFAULT '[]'",
       );
     } catch {
       // Column already exists — nothing to migrate.
@@ -153,8 +192,9 @@ export class SqlConversationStore implements ConversationStore {
         threadRootId: input.command.payload.threadRootId,
         author: input.author,
         body: input.command.payload.body,
-        mentions: input.command.payload.mentions ?? [],
+        mentions: input.command.payload.mentions,
         components: input.command.payload.components,
+        reactions: [],
         createdAt,
         sequence: counter.value,
       } satisfies ConversationMessage;
@@ -192,7 +232,7 @@ export class SqlConversationStore implements ConversationStore {
         message.author.kind,
         message.author.id,
         message.body,
-        JSON.stringify(message.mentions ?? []),
+        JSON.stringify(message.mentions),
         JSON.stringify(message.components),
         message.createdAt,
       );
@@ -211,11 +251,47 @@ export class SqlConversationStore implements ConversationStore {
     });
   }
 
-  list(after: number, limit: number) {
+  getMessage(messageId: string): ConversationMessage | null {
+    const row = firstRow<MessageRow>(
+      this.storage.sql.exec(
+        "SELECT * FROM messages WHERE message_id = ?",
+        messageId,
+      ),
+    );
+    return row ? (toMessage(row) as unknown as ConversationMessage) : null;
+  }
+
+  list(after: number, limit: number, query?: string) {
+    const normalizedQuery = query?.trim() ?? "";
+    const rows = [
+      ...this.storage.sql.exec<MessageRow>(
+        normalizedQuery
+          ? `SELECT * FROM messages
+             WHERE sequence > ? AND body LIKE ? ESCAPE '\\' COLLATE NOCASE
+             ORDER BY sequence ASC LIMIT ?`
+          : `SELECT * FROM messages
+             WHERE sequence > ? ORDER BY sequence ASC LIMIT ?`,
+        ...(normalizedQuery
+          ? [after, `%${escapeLike(normalizedQuery)}%`, limit + 1]
+          : [after, limit + 1]),
+      ),
+    ];
+    const hasMore = rows.length > limit;
+    const messages = rows.slice(0, limit).map(toMessage);
+    return messagePageSchema.parse({
+      messages,
+      nextSequence: hasMore ? messages.at(-1)?.sequence : null,
+    });
+  }
+
+  replies(rootId: string, after: number, limit: number) {
     const rows = [
       ...this.storage.sql.exec<MessageRow>(
         `SELECT * FROM messages
-         WHERE sequence > ? ORDER BY sequence ASC LIMIT ?`,
+         WHERE thread_root_id = ?
+           AND sequence > ?
+         ORDER BY sequence ASC LIMIT ?`,
+        rootId,
         after,
         limit + 1,
       ),
@@ -226,6 +302,95 @@ export class SqlConversationStore implements ConversationStore {
       messages,
       nextSequence: hasMore ? messages.at(-1)?.sequence : null,
     });
+  }
+
+  react(input: ReactInput) {
+    return this.storage.transactionSync(() => {
+      const row = firstRow<MessageRow>(
+        this.storage.sql.exec(
+          "SELECT * FROM messages WHERE message_id = ?",
+          input.messageId,
+        ),
+      );
+      if (!row) throw new Error("Unknown message.");
+      const reactions = parseReactions(row.reactions_json);
+      const entry = reactions.find(
+        (reaction) => reaction.emoji === input.emoji,
+      );
+      const present = entry ? entry.pubkeys.includes(input.pubkey) : false;
+      let changed = false;
+
+      if (input.add) {
+        if (entry) {
+          if (!present) {
+            entry.pubkeys.push(input.pubkey);
+            changed = true;
+          }
+        } else {
+          reactions.push({ emoji: input.emoji, pubkeys: [input.pubkey] });
+          changed = true;
+        }
+      } else if (entry && present) {
+        entry.pubkeys = entry.pubkeys.filter((key) => key !== input.pubkey);
+        if (entry.pubkeys.length === 0) {
+          reactions.splice(reactions.indexOf(entry), 1);
+        }
+        changed = true;
+      }
+
+      if (changed) {
+        const nextReactions = reactions
+          .filter((reaction) => reaction.pubkeys.length > 0)
+          .slice(0, 128);
+        this.storage.sql.exec(
+          "UPDATE messages SET reactions_json = ? WHERE message_id = ?",
+          JSON.stringify(nextReactions),
+          input.messageId,
+        );
+      }
+
+      const updated = toMessage({
+        ...row,
+        reactions_json: JSON.stringify(reactions),
+      });
+      const result = reactToMessageResultSchema.parse({
+        add: input.add,
+        message: updated as unknown as ConversationMessage,
+      });
+      let event: Record<string, unknown> | null = null;
+      if (changed) {
+        event = {
+          eventId: crypto.randomUUID(),
+          sequence: 0,
+          protocolVersion: 1,
+          workspaceId: input.workspaceId,
+          streamId: `conversation:${updated.conversationId}`,
+          type: "conversation.message.reacted",
+          actor: input.actor,
+          correlationId: input.correlationId,
+          causationId: input.correlationId,
+          occurredAt: new Date().toISOString(),
+          payload: { message: updated },
+        };
+        this.storage.sql.exec(
+          "INSERT INTO events (sequence, event_id, event_json) VALUES (?, ?, ?)",
+          this.nextEventSequence(),
+          event.eventId,
+          JSON.stringify(event),
+        );
+      }
+      return { changed, result, event };
+    });
+  }
+
+  private nextEventSequence() {
+    const counter = firstRow<{ value: number }>(
+      this.storage.sql.exec(
+        "UPDATE counters SET value = value + 1 WHERE name = 'sequence' RETURNING value",
+      ),
+    );
+    if (!counter) throw new Error("Conversation sequence is unavailable.");
+    return counter.value;
   }
 
   listEvents(after: number, limit: number) {
@@ -259,6 +424,7 @@ interface MessageRow extends Record<string, SqlStorageValue> {
   body: string;
   mentions_json: string;
   components_json: string;
+  reactions_json: string;
   created_at: string;
 }
 
@@ -283,8 +449,28 @@ function toMessage(row: MessageRow) {
     body: row.body,
     mentions: JSON.parse(row.mentions_json) as unknown,
     components: JSON.parse(row.components_json) as unknown,
+    reactions: parseReactions(row.reactions_json),
     createdAt: row.created_at,
   };
+}
+
+function parseReactions(json: string): MessageReaction[] {
+  const parsed: unknown = JSON.parse(json);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter(
+    (entry): entry is MessageReaction =>
+      entry !== null &&
+      typeof entry === "object" &&
+      typeof (entry as MessageReaction).emoji === "string" &&
+      Array.isArray((entry as MessageReaction).pubkeys),
+  );
+}
+
+function escapeLike(value: string) {
+  return value
+    .replace(/\\/gu, "\\\\")
+    .replace(/%/gu, "\\%")
+    .replace(/_/gu, "\\_");
 }
 
 function firstRow<T>(cursor: Iterable<T>): T | undefined {

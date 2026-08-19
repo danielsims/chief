@@ -10,6 +10,7 @@
       { "name": "ACCOUNTS", "class_name": "AccountObject" },
       { "name": "CONVERSATIONS", "class_name": "ConversationObject" },
       { "name": "AGENTS", "class_name": "AgentObject" },
+      { "name": "METRICS", "class_name": "AnalyticsObject" },
     ],
   },
   "migrations": [
@@ -24,6 +25,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["AccountObject"],
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["AnalyticsObject"],
     },
   ],
   "r2_buckets": [

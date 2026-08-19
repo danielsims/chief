@@ -163,6 +163,14 @@ struct ConversationView: View {
         let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty, let workspaceID = model.workspace?.id else { return }
         let mentions = AgentMentionParser.mentions(in: draft)
+        let threadRootID: String? = nil
+        // Desktop parity (wake-on-mention only): a channel message wakes an
+        // agent only when addressed; DMs and agent-rooted threads always wake.
+        let wake = model.shouldWakeAgent(
+            conversationID: conversationID,
+            mentions: mentions,
+            threadRootID: threadRootID
+        )
         draft = ""
         sending = true
         Task {
@@ -172,12 +180,18 @@ struct ConversationView: View {
                     body: body,
                     workspaceID: workspaceID,
                     conversationID: conversationID,
-                    threadRootID: nil,
+                    threadRootID: threadRootID,
                     mentions: mentions
                 )
                 model.conversations.merge(message)
-                print("[Chief] sent message to \(conversationID) mentions=\(mentions)")
-                await model.runAgentTurn(conversationID: conversationID, mentions: mentions)
+                print("[Chief] sent message to \(conversationID) mentions=\(mentions) wake=\(wake)")
+                if wake {
+                    await model.runAgentTurn(
+                        conversationID: conversationID,
+                        threadRootID: threadRootID,
+                        mentions: mentions
+                    )
+                }
             } catch {
                 print("[Chief] send to \(conversationID) failed: \(error)")
             }
@@ -210,6 +224,7 @@ private struct MessageView: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 0)
         }
     }
@@ -230,34 +245,99 @@ private struct MessageView: View {
     }
 }
 
-/// Renders a message body with `@Agent` mentions as inline chips, mirroring the
-/// desktop `AgentMentionText`.
+/// Renders a message body with `@Agent` mentions as inline rounded pills,
+/// mirroring the desktop `AgentMentionText`. Runs through a flow layout so
+/// mentions get real horizontal padding + rounded background without breaking
+/// natural text wrapping.
 private struct MentionBody: View {
     let text: String
 
     var body: some View {
-        Text(attributed)
-            .font(.system(size: 15))
-            .lineSpacing(4)
-            .textSelection(.enabled)
-    }
-
-    private var attributed: AttributedString {
-        var output = AttributedString()
-        for segment in AgentMentionParser.split(text) {
-            if segment.kind == .mention, let agentID = segment.agentID,
-                let agent = WorkspaceAgentCatalog.agent(forID: agentID)
-            {
-                var chip = AttributedString("@\(agent.name)")
-                chip.font = .system(size: 15, weight: .semibold)
-                chip.foregroundColor = ChiefTheme.accent
-                chip.backgroundColor = ChiefTheme.accent.opacity(0.12)
-                output += chip
-            } else {
-                output += AttributedString(segment.value)
+        FlowLayout(horizontalSpacing: AgentMentionStyle.interSegment, verticalSpacing: 4) {
+            ForEach(Array(AgentMentionParser.split(text).enumerated()), id: \.offset) { _, segment in
+                if segment.kind == .mention, let agentID = segment.agentID,
+                    let agent = WorkspaceAgentCatalog.agent(forID: agentID) {
+                    Text("@\(agent.name)")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(ChiefTheme.accent)
+                        .padding(.horizontal, AgentMentionStyle.pillHorizontalPadding)
+                        .padding(.vertical, AgentMentionStyle.pillVerticalPadding)
+                        .background(
+                            ChiefTheme.accent.opacity(0.12),
+                            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        )
+                } else {
+                    Text(segment.value).font(.system(size: 15))
+                }
             }
         }
-        return output
+    }
+}
+
+/// Spacing/font metrics shared by the pill renderer, matching the desktop
+/// `AgentMentionText` (px-1.5, rounded-md, inline-flex).
+private enum AgentMentionStyle {
+    static let interSegment: CGFloat = 2
+    static let pillHorizontalPadding: CGFloat = 6
+    static let pillVerticalPadding: CGFloat = 1.5
+}
+
+/// A wrapping (flow) layout that lays out subviews left-to-right, breaking to a
+/// new row when they overflow the available width. Used so mention pills keep
+/// their padding and rounded corners while the surrounding text still wraps.
+private struct FlowLayout: Layout {
+    let horizontalSpacing: CGFloat
+    let verticalSpacing: CGFloat
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        guard !subviews.isEmpty else { return .zero }
+        var rowWidth: CGFloat = 0
+        var totalHeight: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if rowWidth > 0, rowWidth + size.width > maxWidth {
+                totalHeight += rowHeight + verticalSpacing
+                rowWidth = 0
+                rowHeight = 0
+            }
+            rowWidth += size.width + (rowWidth > 0 ? horizontalSpacing : 0)
+            rowHeight = max(rowHeight, size.height)
+        }
+        totalHeight += rowHeight
+        let safety = maxWidth == .infinity ? rowWidth : min(rowWidth, maxWidth)
+        return CGSize(width: safety, height: totalHeight)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + verticalSpacing
+                rowHeight = 0
+            }
+            subview.place(
+                at: CGPoint(x: x, y: y),
+                anchor: .topLeading,
+                proposal: .unspecified
+            )
+            x += size.width + horizontalSpacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }
 

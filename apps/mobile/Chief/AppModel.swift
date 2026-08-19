@@ -102,6 +102,11 @@ final class AppModel {
   }
 
   func start() async {
+    // Ensure this device has its signing identities before any request can be
+    // made. Provisioning used to run only on sign-in, so a session resumed on a
+    // later launch (or after an reinstall that kept the old session) had no key
+    // and every relay request failed unsigned against the NIP-98 relay.
+    provisionIdentityIfNeeded()
     #if DEBUG
     if ProcessInfo.processInfo.arguments.contains("--preview-onboarding") {
       session = .fixture
@@ -155,15 +160,20 @@ final class AppModel {
   /// Boots the on-phone cell runtime (V8 + per-conversation cells) so the agent
   /// can live on the device, inference via OpenCode Go, publishing into the
   /// relay-backed channel. Wrapped so a missing device worker never blocks the
-  /// workspace from opening.
+  /// workspace from opening. Retries until the engine is actually started, so a
+  /// turn that arrives before first boot self-heals.
   private func bootCellRuntimeIfNeeded() async {
     #if CELL_RUNTIME
-    guard !cellRuntimeBooted, phase == .workspace else { return }
-    cellRuntimeBooted = true
+    guard phase == .workspace else { return }
+    if ChiefCellRuntime.shared.isStarted {
+      cellRuntimeBooted = true
+      return
+    }
     let host = ChiefOpenCodeAgentHost(relay: relay, credentials: inferenceCredentials)
     do {
       print("[Chief] cell runtime: starting on device")
       try await ChiefCellRuntime.shared.start(host: host)
+      cellRuntimeBooted = true
       print("[Chief] cell runtime booted on device")
     } catch {
       onboardingLog.error("chief cell runtime boot failed: \(error)")
@@ -175,9 +185,19 @@ final class AppModel {
   /// Runs one agent turn for a conversation on the phone after the user message
   /// has already been persisted. Feeds the durable transcript through the cell
   /// and publishes the agent's reply back into the same relay channel.
-  func runAgentTurn(conversationID: String, mentions: [String] = []) async {
+  func runAgentTurn(
+    conversationID: String,
+    threadRootID: String? = nil,
+    mentions: [String] = []
+  ) async {
     guard let workspaceID = workspace?.id else { return }
     #if CELL_RUNTIME
+    // The cell runtime is booted when entering the workspace, but a first-run
+    // conversation can reach a turn before that boot attempt (which is gated on
+    // `phase == .workspace`). Boot it lazily here so a reply is always possible.
+    if !ChiefCellRuntime.shared.isStarted {
+      await bootCellRuntimeIfNeeded()
+    }
     let transcript = await MainActor.run {
       conversations.messages(workspaceID: workspaceID, conversationID: conversationID)
     }
@@ -196,12 +216,16 @@ final class AppModel {
       )
       let reply = try extractReply(from: result)
       print("[Chief] agent turn reply: \(reply.prefix(60))")
-      let message = try await relay.send(
+      // Post as the on-device agent (self-auth) so the relay attributes the
+      // reply to the agent, not the workspace owner.
+      let agentIdentity = try AgentIdentityStore().ensure()
+      let message = try await relay.sendAsAgent(
         body: reply,
         workspaceID: workspaceID,
         conversationID: conversationID,
-        threadRootID: nil,
-        mentions: []
+        threadRootID: threadRootID,
+        mentions: [],
+        signingIdentity: agentIdentity
       )
       await MainActor.run { conversations.merge(message) }
       print("[Chief] agent reply published to \(conversationID)")
@@ -210,6 +234,39 @@ final class AppModel {
       print("[Chief] agent turn failed: \(error)")
     }
     #endif
+  }
+
+  /// Mirror desktop wake-on-mention: only wake an agent for (a) a direct
+  /// conversation with a single agent, (b) an explicit @-mention, or (c) a
+  /// thread rooted to an agent. An untagged channel message gets no reply.
+  func shouldWakeAgent(
+    conversationID: String,
+    mentions: [String],
+    threadRootID: String? = nil
+  ) -> Bool {
+    guard let workspace else { return false }
+    guard
+      let conversation = workspace.conversations.first(where: { $0.id == conversationID })
+    else { return false }
+    // (b) Explicit @-mention always wakes the mentioned agent.
+    if mentions.contains(where: { WorkspaceAgentCatalog.agent(forID: $0) != nil }) {
+      return true
+    }
+    // (a) A direct conversation models a single agent; its id is the agent id in
+    // a 1:1 (e.g. the "chief" DM), otherwise the workspace lead.
+    if conversation.kind == .direct {
+      return WorkspaceAgentCatalog.agent(forID: conversationID) != nil
+        || WorkspaceAgentCatalog.agent(forID: "chief") != nil
+    }
+    // (c) A thread rooted to an agent wakes that root's author.
+    if let threadRootID {
+      let root = conversations.messages(
+        workspaceID: workspace.id,
+        conversationID: conversationID
+      ).first(where: { $0.id == threadRootID })
+      if case .agent = root?.author { return true }
+    }
+    return false
   }
 
   /// The cell worker returns the durable transcript as `{"status":...,"body":"{...}"}`
@@ -258,9 +315,42 @@ final class AppModel {
       onboardingLog.error("session persistence failed: \(error)")
       return
     }
+    provisionIdentityIfNeeded()
     session = signedIn
     phase = .onboarding
     Task { await hydrateWorkspace() }
+  }
+
+  /// Ensure identity keypairs exist on this device so relay requests can be
+  /// signed (NIP-98). Generates the user identity and the on-device agent's
+  /// identity once, persisting both in the Keychain.
+  private func provisionIdentityIfNeeded() {
+    let userStore = NostrKeychainStore()
+    if (try? userStore.load()) == nil {
+      do {
+        let identity = try NostrIdentity.generate()
+        try userStore.save(identity)
+        onboardingLog.info(
+          "provisioned device identity \(identity.publicKeyHex.prefix(8), privacy: .public)"
+        )
+        print("[Chief] provisioned device identity \(identity.publicKeyHex.prefix(8))")
+      } catch {
+        onboardingError = "Chief could not create this device's signing key. Please try again."
+        onboardingLog.error("identity provisioning failed: \(error)")
+        print("[Chief] identity provisioning failed: \(error)")
+      }
+    }
+    do {
+      let agentIdentity = try AgentIdentityStore().ensure()
+      onboardingLog.info(
+        "provisioned agent identity \(agentIdentity.publicKeyHex.prefix(8), privacy: .public)"
+      )
+      print("[Chief] provisioned agent identity \(agentIdentity.publicKeyHex.prefix(8))")
+    } catch {
+      onboardingError = "Chief could not create this device's agent key. Please try again."
+      onboardingLog.error("agent identity provisioning failed: \(error)")
+      print("[Chief] agent identity provisioning failed: \(error)")
+    }
   }
 
   func hydrateWorkspace() async {
@@ -274,6 +364,7 @@ final class AppModel {
         "hydrated workspace \(loaded.id, privacy: .public) complete=\(loaded.onboardingComplete)"
       )
       print("[Chief] hydrated workspace \(loaded.id) complete=\(loaded.onboardingComplete)")
+      await registerAgentKeyIfNeeded(workspaceID: loaded.id)
       startAgentLoopIfNeeded()
     } catch RelayError.unauthorized {
       // A relay token can be temporarily rejected while a fresh device session
@@ -286,6 +377,25 @@ final class AppModel {
       // Authentication succeeded. Keep the user in onboarding while a relay is
       // unavailable or while no workspace has been created yet.
       phase = workspace == nil ? .onboarding : .workspace
+    }
+  }
+
+  /// Register the on-device agent's pubkey with a workspace so the agent can
+  /// self-authenticate and post as itself. Idempotent: re-registering an
+  /// existing key is a no-op on the relay.
+  private func registerAgentKeyIfNeeded(workspaceID: String) async {
+    guard let agentIdentity = try? AgentIdentityStore().ensure() else { return }
+    do {
+      try await relay.registerAgentKey(
+        workspaceID: workspaceID,
+        agentID: "chief",
+        pubkey: agentIdentity.publicKeyHex
+      )
+      onboardingLog.info("registered chief agent key with workspace")
+    } catch {
+      onboardingLog.warning(
+        "could not register chief agent key: \(error.localizedDescription)"
+      )
     }
   }
 
@@ -490,10 +600,11 @@ final class AppModel {
       guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode)
       else { throw WorkspaceSetupError.inferenceFailed }
       let output = try JSONDecoder().decode(OpenCodeResponse.self, from: data)
-      guard let message = output.choices.first?.message.content
-        .trimmingCharacters(in: .whitespacesAndNewlines), !message.isEmpty
+      guard
+        let content = output.choices.first?.message.content,
+        !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       else { throw WorkspaceSetupError.inferenceFailed }
-      return message
+      return content
     }.value
   }
 

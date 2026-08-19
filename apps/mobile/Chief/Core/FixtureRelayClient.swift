@@ -60,6 +60,77 @@ actor FixtureRelayClient: RelayServing {
     ) async throws {}
 
     func recordLogs(workspaceID: String, _ entries: [RelayLogEntry]) async throws {}
+
+    func registerAgentKey(
+        workspaceID: String,
+        agentID: String,
+        pubkey: String
+    ) async throws {}
+
+    func sendAsAgent(
+        body: String,
+        workspaceID: String,
+        conversationID: String,
+        threadRootID: String?,
+        mentions: [String],
+        signingIdentity: NostrIdentity
+    ) async throws -> ConversationMessage {
+        try await send(
+            body: body,
+            workspaceID: workspaceID,
+            conversationID: conversationID,
+            threadRootID: threadRootID,
+            mentions: mentions
+        )
+    }
+
+    func replies(
+        workspaceID: String,
+        conversationID: String,
+        rootMessageID: String,
+        after sequence: Int?
+    ) async throws -> [ConversationMessage] {
+        fixtureMessages.filter {
+            $0.workspaceID == workspaceID
+                && $0.conversationID == conversationID
+                && $0.threadRootID == rootMessageID
+        }
+    }
+
+    func searchMessages(
+        workspaceID: String,
+        conversationID: String,
+        query: String
+    ) async throws -> [ConversationMessage] {
+        fixtureMessages.filter {
+            $0.workspaceID == workspaceID
+                && $0.conversationID == conversationID
+                && $0.body.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    func react(
+        workspaceID: String,
+        conversationID: String,
+        messageID: String,
+        emoji: String,
+        add: Bool,
+        signingIdentity: NostrIdentity
+    ) async throws -> ConversationMessage {
+        fixtureMessages
+            .first { $0.id == messageID }
+            ?? ConversationMessage(
+                id: messageID,
+                workspaceID: workspaceID,
+                conversationID: conversationID,
+                threadRootID: nil,
+                author: .agent(id: "chief", name: "Chief"),
+                body: "",
+                components: [],
+                createdAt: .now,
+                sequence: (fixtureMessages.map(\.sequence).max() ?? 0) + 1
+            )
+    }
 }
 
 enum DemoWorkspace {

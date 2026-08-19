@@ -4,6 +4,7 @@ import { commandEnvelopeSchema, eventEnvelopeSchema } from "./envelopes";
 import {
   agentIdSchema,
   conversationIdSchema,
+  hexPubkeySchema,
   isoDateTimeSchema,
   jobIdSchema,
   workspaceIdSchema,
@@ -13,6 +14,7 @@ export const agentJobSchema = z.object({
   id: jobIdSchema,
   workspaceId: workspaceIdSchema,
   agentId: agentIdSchema,
+  agentPubkey: hexPubkeySchema.optional(),
   kind: z.string().trim().min(1).max(128),
   payload: z.record(z.string(), z.unknown()),
   status: z.enum(["pending", "leased", "completed", "failed"]),

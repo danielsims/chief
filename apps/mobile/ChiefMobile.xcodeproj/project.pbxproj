@@ -19,23 +19,28 @@
 		231C7D90EB2CCB0BDD76D46B /* FixtureRelayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B37845645D8446028ACD087 /* FixtureRelayClient.swift */; };
 		2659BF1227AFE3B857F36DB3 /* ChiefLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBA96C6CA7B0FF4C704AC556 /* ChiefLaunchTests.swift */; };
 		27B26ACF4FE0C9DE6EA3C763 /* WorkspaceRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44DCD3C27E9EA7B6DAC7C39A /* WorkspaceRootView.swift */; };
+		37A794B56CA03C05B2808CF6 /* NostrIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2667CB3C7758571BCF9E87B /* NostrIdentity.swift */; };
 		38940D2B65EDE5194AEC7297 /* PhoneWorkspaceSetupWorker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9192AB8998021758A1C90CD0 /* PhoneWorkspaceSetupWorker.swift */; };
 		4562F4102DB9FEABBCC9A4A7 /* WorkspaceAgentLoop.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6FE4EB21AE5A93E91A4EBE8 /* WorkspaceAgentLoop.swift */; };
 		4B45A30339F88FB27ABB5E9D /* celld.c in Sources */ = {isa = PBXBuildFile; fileRef = EF563DA3A76B89B15BD42C10 /* celld.c */; };
 		4B78E287F77BD8CBC67003BD /* ChiefMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 425DE3C91A48D6A27436E67D /* ChiefMobileApp.swift */; };
 		512E8A8202C973DAF8CEC1DE /* AppConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 827C563FA43B5D2B554975A4 /* AppConfiguration.swift */; };
+		5152FA96DCF73F242326BD52 /* RelayAPITools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90093880B1D0B7E1754C3367 /* RelayAPITools.swift */; };
 		5BC1131B993D0B23C4FC57C8 /* DeviceAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88B244069CF1A69AD1A71496 /* DeviceAuthorizationTests.swift */; };
+		6B454BC8F3277BA9692F1C20 /* RelayTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142E40382CA835D0D7DA0995 /* RelayTools.swift */; };
 		6BD9EC0693A14950C067CB1C /* FixtureRelayClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C9EC4A3EF72707C2C4F0DA /* FixtureRelayClientTests.swift */; };
 		74B40049EDECAA26972C3379 /* CelldC.swift in Sources */ = {isa = PBXBuildFile; fileRef = C94655488DC2BD184AEE1E8E /* CelldC.swift */; };
 		8227EC50501F0208AA9B62FA /* AgentMention.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70AEB2FCF466C666294039C8 /* AgentMention.swift */; };
 		855FFAAA4EA257E2C3E84380 /* RelayLiveClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A0E5C9C2F4F1B9942C6BBC /* RelayLiveClient.swift */; };
 		8A4F99F18DD6A88EBDEDFDA2 /* ConversationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E8D35A69CA1DA238E60641B /* ConversationCache.swift */; };
+		8D8F7B69835162A1A8E7C1E8 /* AgentIdentityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98236C72F2593788B89CC371 /* AgentIdentityStore.swift */; };
 		9BA5D2709A039FE9B9ED9BC0 /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47AF163EBB8E467D6209B2C /* ConversationView.swift */; };
 		9BE0B3D902F7FD9C538DBACA /* agent.js in Resources */ = {isa = PBXBuildFile; fileRef = 301BD2A9B043DB80B0BBB26A /* agent.js */; };
 		A3D5A80C279A85DB1ADE204E /* MobileAuthenticationSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3220FF0DE5ACD36BBD17B0A8 /* MobileAuthenticationSession.swift */; };
 		A3FDCCE90813A3B5003A9603 /* ProjectsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA984E00D3577086B6840159 /* ProjectsView.swift */; };
 		A964556B85725CE16533AEA5 /* ConversationCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FC765FC6E4635E005AB4AF1 /* ConversationCacheTests.swift */; };
 		ACB425C2997D4C61C7662EC4 /* RelayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0EDEC45AA1FA51F3C92BC12 /* RelayClient.swift */; };
+		AD7263B560D1B8E16E261033 /* P256K in Frameworks */ = {isa = PBXBuildFile; productRef = CA74DA9987546A975B45A1C8 /* P256K */; };
 		B2F4BEF9B58FA4627A52A063 /* OnDeviceModelStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43A2A6690C5EDC8EF62A3FFA /* OnDeviceModelStore.swift */; };
 		B7424C935AF344F1A7B1CD7C /* AppConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15333FB517188ED08371E31B /* AppConfigurationTests.swift */; };
 		D0111F1C1AAD046FC24F835D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5676842BCAA14D424394C3A8 /* Assets.xcassets */; };
@@ -48,6 +53,7 @@
 		E65DABEBB7DFB04EF2B2BB51 /* BrandLogo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60FC02DC37EEC3DFDD4E131C /* BrandLogo.swift */; };
 		E6D3F21E651FAC203533CB27 /* MobileBrandAssetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87DAFCC7B197A77180358CE3 /* MobileBrandAssetTests.swift */; };
 		EC9D02B21E9FF422D19CCB82 /* InferenceCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 232F3C996B7EF2957E299392 /* InferenceCredentialStore.swift */; };
+		FE723A7672D269B60A616495 /* NIP98Signer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3830638007AF1DAA98075318 /* NIP98Signer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -70,15 +76,18 @@
 /* Begin PBXFileReference section */
 		10350F4DC1F18F6CD5041566 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		137F89E6D0013172646B5FD4 /* ChiefTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ChiefTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		142E40382CA835D0D7DA0995 /* RelayTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayTools.swift; sourceTree = "<group>"; };
 		15333FB517188ED08371E31B /* AppConfigurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfigurationTests.swift; sourceTree = "<group>"; };
 		1C8BF5647B8487F59E140D8B /* WorkspaceSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarView.swift; sourceTree = "<group>"; };
 		21A0E5C9C2F4F1B9942C6BBC /* RelayLiveClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayLiveClient.swift; sourceTree = "<group>"; };
 		232F3C996B7EF2957E299392 /* InferenceCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InferenceCredentialStore.swift; sourceTree = "<group>"; };
 		29FE591E605DD0B9CAD48758 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		2AF5F8D7A5A0F723E542CEB4 /* swift-secp256k1 */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "swift-secp256k1"; path = "Chief/Vendored/swift-secp256k1"; sourceTree = SOURCE_ROOT; };
 		301BD2A9B043DB80B0BBB26A /* agent.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = agent.js; sourceTree = "<group>"; };
 		30754C9A259B352E485B5B3E /* AppModelAuthenticationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelAuthenticationTests.swift; sourceTree = "<group>"; };
 		3220FF0DE5ACD36BBD17B0A8 /* MobileAuthenticationSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAuthenticationSession.swift; sourceTree = "<group>"; };
 		35B66B218036AA14837F6044 /* Chief-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Chief-Bridging-Header.h"; sourceTree = "<group>"; };
+		3830638007AF1DAA98075318 /* NIP98Signer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NIP98Signer.swift; sourceTree = "<group>"; };
 		425DE3C91A48D6A27436E67D /* ChiefMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefMobileApp.swift; sourceTree = "<group>"; };
 		43A2A6690C5EDC8EF62A3FFA /* OnDeviceModelStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceModelStore.swift; sourceTree = "<group>"; };
 		44DCD3C27E9EA7B6DAC7C39A /* WorkspaceRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRootView.swift; sourceTree = "<group>"; };
@@ -94,7 +103,9 @@
 		87DAFCC7B197A77180358CE3 /* MobileBrandAssetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrandAssetTests.swift; sourceTree = "<group>"; };
 		88B244069CF1A69AD1A71496 /* DeviceAuthorizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceAuthorizationTests.swift; sourceTree = "<group>"; };
 		8FC765FC6E4635E005AB4AF1 /* ConversationCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationCacheTests.swift; sourceTree = "<group>"; };
+		90093880B1D0B7E1754C3367 /* RelayAPITools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayAPITools.swift; sourceTree = "<group>"; };
 		9192AB8998021758A1C90CD0 /* PhoneWorkspaceSetupWorker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneWorkspaceSetupWorker.swift; sourceTree = "<group>"; };
+		98236C72F2593788B89CC371 /* AgentIdentityStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentIdentityStore.swift; sourceTree = "<group>"; };
 		9B37845645D8446028ACD087 /* FixtureRelayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FixtureRelayClient.swift; sourceTree = "<group>"; };
 		9E8D35A69CA1DA238E60641B /* ConversationCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationCache.swift; sourceTree = "<group>"; };
 		9FF07B5BC261A633C9B533FF /* DeviceAuthorizationClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceAuthorizationClient.swift; sourceTree = "<group>"; };
@@ -108,6 +119,7 @@
 		D05B570A10E52ECAC1A2D674 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
 		D6FE4EB21AE5A93E91A4EBE8 /* WorkspaceAgentLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAgentLoop.swift; sourceTree = "<group>"; };
 		DC730247A44DA157E01158C9 /* ChiefOpenCodeAgentHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefOpenCodeAgentHost.swift; sourceTree = "<group>"; };
+		E2667CB3C7758571BCF9E87B /* NostrIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NostrIdentity.swift; sourceTree = "<group>"; };
 		EE9A152284C2548ABF0E6FBE /* WorkspaceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStore.swift; sourceTree = "<group>"; };
 		EF563DA3A76B89B15BD42C10 /* celld.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = celld.c; sourceTree = "<group>"; };
 		F0EDEC45AA1FA51F3C92BC12 /* RelayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayClient.swift; sourceTree = "<group>"; };
@@ -115,6 +127,17 @@
 		FA984E00D3577086B6840159 /* ProjectsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsView.swift; sourceTree = "<group>"; };
 		FBF66A16F6B4A653B6EC83D1 /* ChiefCellRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefCellRuntime.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		809592BC5676B728A8CEA4B1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AD7263B560D1B8E16E261033 /* P256K in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		21D42E563D5DD01A1D791F13 /* Vendored */ = {
@@ -149,12 +172,21 @@
 			path = Design;
 			sourceTree = "<group>";
 		};
+		51C369B244C98F6371A52978 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				2AF5F8D7A5A0F723E542CEB4 /* swift-secp256k1 */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
 		5F30BCB3A86D443043ECADDF = {
 			isa = PBXGroup;
 			children = (
 				9F5737732C50AC8C9B271F5E /* Chief */,
 				399A7A31F1B9224FC88198A0 /* ChiefTests */,
 				B201E92B94C05A72811D1993 /* ChiefUITests */,
+				51C369B244C98F6371A52978 /* Packages */,
 				CC25F9AB70668630797E8E41 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -262,17 +294,22 @@
 		E649CDB432315A206B39A506 /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				98236C72F2593788B89CC371 /* AgentIdentityStore.swift */,
 				70AEB2FCF466C666294039C8 /* AgentMention.swift */,
 				827C563FA43B5D2B554975A4 /* AppConfiguration.swift */,
 				9E8D35A69CA1DA238E60641B /* ConversationCache.swift */,
 				9B37845645D8446028ACD087 /* FixtureRelayClient.swift */,
 				232F3C996B7EF2957E299392 /* InferenceCredentialStore.swift */,
 				B68460474AB4963BCB1DC8BF /* Models.swift */,
+				3830638007AF1DAA98075318 /* NIP98Signer.swift */,
+				E2667CB3C7758571BCF9E87B /* NostrIdentity.swift */,
 				43A2A6690C5EDC8EF62A3FFA /* OnDeviceModelStore.swift */,
 				9192AB8998021758A1C90CD0 /* PhoneWorkspaceSetupWorker.swift */,
 				531611CDDD3D04D3709C4D98 /* PluginCatalogClient.swift */,
+				90093880B1D0B7E1754C3367 /* RelayAPITools.swift */,
 				F0EDEC45AA1FA51F3C92BC12 /* RelayClient.swift */,
 				21A0E5C9C2F4F1B9942C6BBC /* RelayLiveClient.swift */,
+				142E40382CA835D0D7DA0995 /* RelayTools.swift */,
 				66EAB9C5A9F296BA7DB1457A /* SessionStore.swift */,
 				D6FE4EB21AE5A93E91A4EBE8 /* WorkspaceAgentLoop.swift */,
 				EE9A152284C2548ABF0E6FBE /* WorkspaceStore.swift */,
@@ -342,6 +379,7 @@
 			buildPhases = (
 				51B26310A311CFAE5C881E60 /* Sources */,
 				A2E6DFB102139B353514D707 /* Resources */,
+				809592BC5676B728A8CEA4B1 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -349,6 +387,7 @@
 			);
 			name = Chief;
 			packageProductDependencies = (
+				CA74DA9987546A975B45A1C8 /* P256K */,
 			);
 			productName = Chief;
 			productReference = 647D5726FC9678DAF4A5C574 /* Chief.app */;
@@ -381,6 +420,9 @@
 			);
 			mainGroup = 5F30BCB3A86D443043ECADDF;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				161B22919F394EAD1878831B /* XCLocalSwiftPackageReference "Chief/Vendored/swift-secp256k1" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CC25F9AB70668630797E8E41 /* Products */;
 			projectDirPath = "";
@@ -410,6 +452,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8D8F7B69835162A1A8E7C1E8 /* AgentIdentityStore.swift in Sources */,
 				8227EC50501F0208AA9B62FA /* AgentMention.swift in Sources */,
 				512E8A8202C973DAF8CEC1DE /* AppConfiguration.swift in Sources */,
 				077810EBFD3D48677A0D741D /* AppModel.swift in Sources */,
@@ -426,13 +469,17 @@
 				EC9D02B21E9FF422D19CCB82 /* InferenceCredentialStore.swift in Sources */,
 				A3D5A80C279A85DB1ADE204E /* MobileAuthenticationSession.swift in Sources */,
 				00FA4EE4139A43C3484F9322 /* Models.swift in Sources */,
+				FE723A7672D269B60A616495 /* NIP98Signer.swift in Sources */,
+				37A794B56CA03C05B2808CF6 /* NostrIdentity.swift in Sources */,
 				B2F4BEF9B58FA4627A52A063 /* OnDeviceModelStore.swift in Sources */,
 				D24F1910F651C6D47BEEECEE /* OnboardingView.swift in Sources */,
 				38940D2B65EDE5194AEC7297 /* PhoneWorkspaceSetupWorker.swift in Sources */,
 				E1EDB8495AD62275E2212AF1 /* PluginCatalogClient.swift in Sources */,
 				A3FDCCE90813A3B5003A9603 /* ProjectsView.swift in Sources */,
+				5152FA96DCF73F242326BD52 /* RelayAPITools.swift in Sources */,
 				ACB425C2997D4C61C7662EC4 /* RelayClient.swift in Sources */,
 				855FFAAA4EA257E2C3E84380 /* RelayLiveClient.swift in Sources */,
+				6B454BC8F3277BA9692F1C20 /* RelayTools.swift in Sources */,
 				DB275FA90816646915CDC0F3 /* SessionStore.swift in Sources */,
 				0618CFE11A31577E19514E91 /* SignInView.swift in Sources */,
 				4562F4102DB9FEABBCC9A4A7 /* WorkspaceAgentLoop.swift in Sources */,
@@ -603,8 +650,9 @@
 				DEVELOPMENT_TEAM = PS66GXMC55;
 				ENABLE_BITCODE = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Chief/Vendored/swift-secp256k1/.build/plugins/cache/SharedSourcesPlugin.dSYM/Contents/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Chief;
-				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLSchemes\": [\"chief-mobile\"], \"CFBundleTypeRole\": \"Editor\", \"CFBundleURLName\": \"sh.heychief.mobile\"]]";
+				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLSchemes\": [\"chief-mobile\"], \"CFBundleURLName\": \"sh.heychief.mobile\", \"CFBundleTypeRole\": \"Editor\"]]";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -644,8 +692,9 @@
 				DEVELOPMENT_TEAM = PS66GXMC55;
 				ENABLE_BITCODE = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Chief/Vendored/swift-secp256k1/.build/plugins/cache/SharedSourcesPlugin.dSYM/Contents/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Chief;
-				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLSchemes\": [\"chief-mobile\"], \"CFBundleTypeRole\": \"Editor\", \"CFBundleURLName\": \"sh.heychief.mobile\"]]";
+				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLSchemes\": [\"chief-mobile\"], \"CFBundleURLName\": \"sh.heychief.mobile\", \"CFBundleTypeRole\": \"Editor\"]]";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -797,6 +846,20 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		161B22919F394EAD1878831B /* XCLocalSwiftPackageReference "Chief/Vendored/swift-secp256k1" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "Chief/Vendored/swift-secp256k1";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		CA74DA9987546A975B45A1C8 /* P256K */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = P256K;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 6EC9C63618C1B7FE838023C7 /* Project object */;
 }

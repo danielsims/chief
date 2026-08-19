@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 
 import type {
   AgentPrincipal,
+  Principal,
   UserPrincipal,
   WorkspaceId,
 } from "@chief/relay-contracts";
@@ -184,6 +185,7 @@ export class AgentObject extends DurableObject<Env> {
         job,
         result.publishedMessage,
         crypto.randomUUID(),
+        actorPubkey(context.principal),
       );
     }
     if (
@@ -215,18 +217,20 @@ export class AgentObject extends DurableObject<Env> {
     message: {
       conversationId: string;
       body: string;
-      components?: Array<{
+      components?: {
         id: string;
         kind: string;
         version: number;
         payload: Record<string, unknown>;
-      }>;
+      }[];
     },
     commandId: string,
+    actorPubkey?: string,
   ) {
     const agent: AgentPrincipal = {
       kind: "agent",
       agentId: job.agentId,
+      pubkey: (job.agentPubkey ?? actorPubkey)?.toLowerCase() ?? "0".repeat(64),
       workspaceId: job.workspaceId,
     };
     const command = appendMessageCommandSchema.parse({
@@ -297,7 +301,11 @@ export class AgentObject extends DurableObject<Env> {
     const snapshotResponse = await workspace.fetch(
       withTrustedIdentity(
         {
-          identity: { kind: "user", userId: owner.userId },
+          identity: {
+            kind: "user",
+            userId: owner.userId,
+            pubkey: owner.pubkey,
+          },
           requestId: job.id,
           workspaceId: job.workspaceId,
         },
@@ -318,7 +326,7 @@ export class AgentObject extends DurableObject<Env> {
         "Chief's workspace setup could not be finalized.",
       );
     }
-    await this.enqueueKickoff(job, owner, result);
+    await this.enqueueKickoff(job, owner);
   }
 
   /**
@@ -330,22 +338,24 @@ export class AgentObject extends DurableObject<Env> {
   private async enqueueKickoff(
     job: ReturnType<typeof agentJobSchema.parse>,
     owner: UserPrincipal,
-    result: ReturnType<typeof workspaceOnboardingResultSchema.parse>,
   ) {
-    const payload = (job.payload ?? {}) as Record<string, unknown>;
-    const name = String(payload.name ?? "this workspace");
-    const website = String(payload.website ?? "");
+    const payload = job.payload;
+    const name =
+      typeof payload.name === "string" && payload.name.trim()
+        ? payload.name
+        : "this workspace";
+    const website = typeof payload.website === "string" ? payload.website : "";
     const selectedApps = Array.isArray(payload.selectedApps)
-      ? (payload.selectedApps as unknown[]).map(String)
+      ? payload.selectedApps.map((value) => String(value))
       : [];
     const now = new Date();
     const activateAt = new Date(now.getTime() + 3_000).toISOString();
-    const jobsToEnqueue: Array<{
+    const jobsToEnqueue: {
       agentId: string;
       kind: string;
       jobPayload: Record<string, unknown>;
       availableAt: string;
-    }> = [
+    }[] = [
       {
         agentId: "chief",
         kind: "workspace.activate",
@@ -423,4 +433,10 @@ function initialize(storage: DurableObjectStorage) {
 
 function firstRow<T>(cursor: Iterable<T>): T | undefined {
   return cursor[Symbol.iterator]().next().value as T | undefined;
+}
+
+function actorPubkey(principal: Principal): string | undefined {
+  return principal.kind === "agent" || principal.kind === "user"
+    ? principal.pubkey
+    : undefined;
 }
