@@ -10,7 +10,7 @@ import {
 } from "@chief/relay-contracts";
 
 import { requireAgentPrincipal } from "./agent-job-store";
-import { json, parseJson } from "./http";
+import { HttpError, json, parseJson } from "./http";
 
 interface BrandRow extends Record<string, SqlStorageValue> {
   markdown: string;
@@ -158,13 +158,19 @@ async function saveBrandProfile(
     authorAgentId: agentId,
     updatedAt: now,
   });
-  const file = fileFromRow(
-    firstRow<FileRow>(
-      storage.sql.exec(
-        "SELECT * FROM workspace_files WHERE file_id = 'brand-profile'",
-      ),
-    )!,
+  const fileRow = firstRow<FileRow>(
+    storage.sql.exec(
+      "SELECT * FROM workspace_files WHERE file_id = 'brand-profile'",
+    ),
   );
+  if (!fileRow) {
+    throw new HttpError(
+      500,
+      "brand_profile_persistence_failed",
+      "The saved brand profile could not be read back.",
+    );
+  }
+  const file = fileFromRow(fileRow);
   return json(brandProfileResultSchema.parse({ profile, file }));
 }
 
