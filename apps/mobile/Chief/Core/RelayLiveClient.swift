@@ -3,15 +3,23 @@ import os
 
 let liveLog = Logger(subsystem: "sh.heychief.mobile", category: "live")
 
+/// A live event from a conversation socket. Appends add a message; reactions,
+/// edits, and deletes update an existing message in place.
+enum LiveEvent: Sendable {
+  case appended(ConversationMessage)
+  case reacted(ConversationMessage)
+  case edited(ConversationMessage)
+  case deleted(ConversationMessage)
+}
+
 /// Live message delivery over the relay's WebSocket (`/v1/connect`). Replaces
-/// polling: the relay broadcasts `conversation.message.appended` events to every
-/// connected socket, and this client surfaces them to the app as they happen.
+/// polling: the relay broadcasts `conversation.message.appended` and
+/// `conversation.message.reacted` events to every connected socket, and this
+/// client surfaces them to the app as they happen.
 ///
-/// One instance per open conversation. When a new message arrives it is decoded
-/// and handed to the `onMessage` callback (the UI merges it into its cache).
+/// One instance per open conversation.
 actor RelayLiveClient {
   private let configuration: AppConfiguration
-  private let sessionStore: SessionStore
   private let session: URLSession
 
   private var socket: URLSessionWebSocketTask?
@@ -19,20 +27,18 @@ actor RelayLiveClient {
 
   init(
     configuration: AppConfiguration,
-    sessionStore: SessionStore = KeychainSessionStore(),
     session: URLSession = .shared
   ) {
     self.configuration = configuration
-    self.sessionStore = sessionStore
     self.session = session
   }
 
-  /// Connect to a conversation's live event stream. `onMessage` is called on
-  /// the calling actor for each decoded appended message.
+  /// Connect to a conversation's live event stream. `onEvent` is called on the
+  /// calling actor for each decoded event.
   func connect(
     workspaceID: String,
     conversationID: String,
-    onMessage: @escaping @Sendable (ConversationMessage) -> Void
+    onEvent: @escaping @Sendable (LiveEvent) -> Void
   ) async throws {
     disconnect()
     let ticket = try await fetchTicket(workspaceID: workspaceID, conversationID: conversationID)
@@ -54,7 +60,7 @@ actor RelayLiveClient {
     socket.resume()
     self.socket = socket
     messageTask = Task { [weak self] in
-      await self?.receiveLoop(onMessage: onMessage)
+      await self?.receiveLoop(onEvent: onEvent)
     }
   }
 
@@ -65,6 +71,62 @@ actor RelayLiveClient {
     socket = nil
   }
 
+  /// Suspends until the current conversation socket ends. Workspace-level
+  /// supervision uses this to reconnect with bounded exponential backoff;
+  /// reconnecting a failed socket is not message polling.
+  func waitUntilDisconnected() async {
+    guard let messageTask else { return }
+    await messageTask.value
+  }
+
+  /// Holds an agent-authenticated mailbox connection open and invokes
+  /// `onJobAvailable` whenever that agent's Durable Object enqueues work. The
+  /// caller owns reconnect policy; job claiming remains a durable catch-up
+  /// operation and is never timer-polled.
+  func listenAgentMailbox(
+    workspaceID: String,
+    agentID: String,
+    onConnected: @escaping @Sendable () async -> Void,
+    onJobAvailable: @escaping @Sendable () async -> Void
+  ) async throws {
+    disconnect()
+    let ticket = try await fetchAgentTicket(workspaceID: workspaceID, agentID: agentID)
+    var components = URLComponents(
+      url: configuration.relayURL.appending(path: "v1/connect"),
+      resolvingAgainstBaseURL: false
+    )!
+    components.queryItems = [
+      URLQueryItem(name: "workspaceId", value: workspaceID),
+      URLQueryItem(name: "agentId", value: agentID),
+      URLQueryItem(name: "ticket", value: ticket),
+    ]
+    let url = components.url!
+      .absoluteString
+      .replacingOccurrences(of: "https://", with: "wss://")
+      .replacingOccurrences(of: "http://", with: "ws://")
+    let mailboxSocket = session.webSocketTask(with: URL(string: url)!)
+    mailboxSocket.resume()
+    socket = mailboxSocket
+    // A one-shot durable catch-up only after the authenticated socket is open
+    // closes the enqueue-before-listen race without introducing a timer.
+    await onConnected()
+    defer {
+      mailboxSocket.cancel(with: .goingAway, reason: nil)
+      socket = nil
+    }
+    try await withTaskCancellationHandler {
+      while !Task.isCancelled {
+        let message = try await mailboxSocket.receive()
+        guard case .string(let text) = message else { continue }
+        guard Self.isJobAvailable(text, agentID: agentID) else { continue }
+        await onJobAvailable()
+      }
+      throw CancellationError()
+    } onCancel: {
+      mailboxSocket.cancel(with: .goingAway, reason: nil)
+    }
+  }
+
   deinit {
     socket?.cancel(with: .goingAway, reason: nil)
   }
@@ -72,15 +134,15 @@ actor RelayLiveClient {
   // MARK: - Receive
 
   private func receiveLoop(
-    onMessage: @escaping @Sendable (ConversationMessage) -> Void
+    onEvent: @escaping @Sendable (LiveEvent) -> Void
   ) async {
     while !Task.isCancelled, let socket {
       do {
         let message = try await socket.receive()
         switch message {
         case .string(let text):
-          if let decoded = Self.decodeMessage(text) {
-            onMessage(decoded)
+          if let event = Self.decodeEvent(text) {
+            onEvent(event)
           }
         case .data:
           break
@@ -92,21 +154,31 @@ actor RelayLiveClient {
         break
       }
     }
-    // Socket dropped — the caller can reconnect by calling connect again.
     liveLog.info("live stream ended for conversation")
   }
 
-  /// The relay broadcasts `{...event, type:"conversation.message.appended",
-  /// payload:{message}}`. Pull the message out of the event envelope.
-  private static func decodeMessage(_ text: String) -> ConversationMessage? {
+  /// Decode a `conversation.message.appended` / `conversation.message.reacted`
+  /// event into a LiveEvent, or nil for anything else.
+  private static func decodeEvent(_ text: String) -> LiveEvent? {
     guard
       let data = text.data(using: .utf8),
       let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      (object["type"] as? String) == "conversation.message.appended",
       let payload = object["payload"] as? [String: Any],
-      let messageData = try? JSONSerialization.data(withJSONObject: payload["message"] as Any)
+      let messageData = try? JSONSerialization.data(withJSONObject: payload["message"] as Any),
+      let message = try? JSONDecoder().decode(ConversationMessage.self, from: messageData)
     else { return nil }
-    return try? JSONDecoder().decode(ConversationMessage.self, from: messageData)
+    switch object["type"] as? String {
+    case "conversation.message.appended":
+      return .appended(message)
+    case "conversation.message.reacted":
+      return .reacted(message)
+    case "conversation.message.edited":
+      return .edited(message)
+    case "conversation.message.deleted":
+      return .deleted(message)
+    default:
+      return nil
+    }
   }
 
   // MARK: - Ticket
@@ -119,14 +191,51 @@ actor RelayLiveClient {
     request.httpMethod = "POST"
     request.timeoutInterval = 20
     request.setValue("application/json", forHTTPHeaderField: "accept")
-    if let token = try? sessionStore.load()?.accessToken {
-      request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
-    }
+    // The relay authenticates with NIP-98 now; sign the ticket request with the
+    // device identity (no Bearer token).
+    let header = try NIP98Authenticator.header(method: "POST", url: url)
+    request.setValue(header, forHTTPHeaderField: "authorization")
     let (data, response) = try await session.data(for: request)
     guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
       throw RelayError.unavailable
     }
     struct Envelope: Decodable { let ticket: String }
     return try JSONDecoder().decode(Envelope.self, from: data).ticket
+  }
+
+  private func fetchAgentTicket(workspaceID: String, agentID: String) async throws -> String {
+    let path = "/v1/workspaces/\(workspaceID)/agents/\(agentID)/socket-tickets"
+    let url = URL(string: path, relativeTo: configuration.relayURL)!.absoluteURL
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.timeoutInterval = 20
+    request.setValue("application/json", forHTTPHeaderField: "accept")
+    let identity = try AgentIdentityStore(
+      workspaceID: workspaceID,
+      agentID: agentID
+    ).ensure()
+    let header = try NIP98Authenticator.header(
+      identity: identity,
+      method: "POST",
+      url: url
+    )
+    request.setValue(header, forHTTPHeaderField: "authorization")
+    let (data, response) = try await session.data(for: request)
+    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+      throw RelayError.unavailable
+    }
+    struct Envelope: Decodable { let ticket: String }
+    return try JSONDecoder().decode(Envelope.self, from: data).ticket
+  }
+
+  private static func isJobAvailable(_ text: String, agentID: String) -> Bool {
+    guard
+      let data = text.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      object["type"] as? String == "agent.job.available",
+      let payload = object["payload"] as? [String: Any],
+      payload["agentId"] as? String == agentID
+    else { return false }
+    return true
   }
 }

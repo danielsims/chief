@@ -43,6 +43,8 @@ struct ChiefSession: Codable, Equatable, Sendable {
 struct WorkspaceSnapshot: Codable, Equatable, Identifiable, Sendable {
   let id: String
   let name: String
+  let website: String?
+  let selectedApps: [String]?
   let imageURL: URL?
   let onboardingComplete: Bool
   let conversations: [ConversationSummary]
@@ -52,6 +54,8 @@ struct WorkspaceSnapshot: Codable, Equatable, Identifiable, Sendable {
   init(
     id: String,
     name: String,
+    website: String? = nil,
+    selectedApps: [String]? = nil,
     imageURL: URL? = nil,
     onboardingComplete: Bool,
     conversations: [ConversationSummary],
@@ -60,6 +64,8 @@ struct WorkspaceSnapshot: Codable, Equatable, Identifiable, Sendable {
   ) {
     self.id = id
     self.name = name
+    self.website = website
+    self.selectedApps = selectedApps
     self.imageURL = imageURL
     self.onboardingComplete = onboardingComplete
     self.conversations = conversations
@@ -68,15 +74,204 @@ struct WorkspaceSnapshot: Codable, Equatable, Identifiable, Sendable {
   }
 }
 
+/// A lightweight organization/workspace entry the switcher lists. The active
+/// workspace's full snapshot is loaded on switch.
+struct WorkspaceSummary: Codable, Equatable, Identifiable, Sendable {
+  let id: String
+  let name: String
+  let isActive: Bool
+  let onboardingComplete: Bool
+}
+
 struct ConversationSummary: Codable, Equatable, Identifiable, Sendable {
   enum Kind: String, Codable, Sendable { case channel, direct }
   let id: String
   let name: String
   let kind: Kind
   let isPrivate: Bool
-  let unreadCount: Int
+  var archived: Bool
+  var unreadCount: Int
   let requiresAttention: Bool
-  let lastMessage: String?
+  var lastMessage: String?
+
+  enum CodingKeys: String, CodingKey {
+    case id, name, kind, isPrivate, archived, unreadCount, requiresAttention, lastMessage
+  }
+
+  init(
+    id: String,
+    name: String,
+    kind: Kind,
+    isPrivate: Bool,
+    unreadCount: Int,
+    requiresAttention: Bool,
+    lastMessage: String?,
+    archived: Bool = false
+  ) {
+    self.id = id
+    self.name = name
+    self.kind = kind
+    self.isPrivate = isPrivate
+    self.archived = archived
+    self.unreadCount = unreadCount
+    self.requiresAttention = requiresAttention
+    self.lastMessage = lastMessage
+  }
+
+  init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    id = try values.decode(String.self, forKey: .id)
+    name = try values.decode(String.self, forKey: .name)
+    kind = try values.decode(Kind.self, forKey: .kind)
+    isPrivate = try values.decode(Bool.self, forKey: .isPrivate)
+    archived = try values.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+    unreadCount = try values.decodeIfPresent(Int.self, forKey: .unreadCount) ?? 0
+    requiresAttention = try values.decodeIfPresent(Bool.self, forKey: .requiresAttention) ?? false
+    lastMessage = try values.decodeIfPresent(String.self, forKey: .lastMessage)
+  }
+}
+
+/// A channel record from the relay (`channelRecordSchema`).
+struct ChannelRecord: Codable, Equatable, Identifiable, Sendable {
+  let id: String
+  let workspaceId: String
+  let name: String
+  let isPrivate: Bool
+  let archived: Bool
+  let createdAt: Date
+
+  enum CodingKeys: String, CodingKey {
+    case id, workspaceId, name, isPrivate, archived, createdAt
+  }
+
+  init(id: String, workspaceId: String, name: String, isPrivate: Bool, archived: Bool, createdAt: Date) {
+    self.id = id
+    self.workspaceId = workspaceId
+    self.name = name
+    self.isPrivate = isPrivate
+    self.archived = archived
+    self.createdAt = createdAt
+  }
+
+  init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    id = try values.decode(String.self, forKey: .id)
+    workspaceId = try values.decode(String.self, forKey: .workspaceId)
+    name = try values.decode(String.self, forKey: .name)
+    isPrivate = try values.decode(Bool.self, forKey: .isPrivate)
+    archived = try values.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+    createdAt = try ModelsDate.decode(from: values, forKey: .createdAt)
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var values = encoder.container(keyedBy: CodingKeys.self)
+    try values.encode(id, forKey: .id)
+    try values.encode(workspaceId, forKey: .workspaceId)
+    try values.encode(name, forKey: .name)
+    try values.encode(isPrivate, forKey: .isPrivate)
+    try values.encode(archived, forKey: .archived)
+    try values.encode(createdAt, forKey: .createdAt)
+  }
+}
+
+/// A workspace-level membership row from the relay (`members` table).
+struct WorkspaceMember: Codable, Equatable, Identifiable, Sendable {
+  let kind: String
+  let principalId: String
+  let role: String
+  var id: String { "\(kind):\(principalId)" }
+}
+
+struct DirectMessageRecipient: Equatable, Identifiable, Sendable {
+  let kind: String
+  let principalID: String
+  let name: String
+  let role: String
+
+  var id: String { "\(kind):\(principalID)" }
+  var isAgent: Bool { kind == "agent" }
+}
+
+/// A channel membership record from the relay (`channelMemberSchema`).
+struct ChannelMember: Codable, Equatable, Identifiable, Sendable {
+  let kind: String
+  let principalId: String
+  let role: String
+  let joinedAt: Date
+  let name: String?
+
+  var id: String { "\(kind):\(principalId)" }
+
+  enum CodingKeys: String, CodingKey {
+    case kind, principalId, role, joinedAt, name
+  }
+
+  init(kind: String, principalId: String, role: String, joinedAt: Date, name: String? = nil) {
+    self.kind = kind
+    self.principalId = principalId
+    self.role = role
+    self.joinedAt = joinedAt
+    self.name = name
+  }
+
+  init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    kind = try values.decode(String.self, forKey: .kind)
+    principalId = try values.decode(String.self, forKey: .principalId)
+    role = try values.decode(String.self, forKey: .role)
+    name = try values.decodeIfPresent(String.self, forKey: .name)
+    joinedAt = try ModelsDate.decode(from: values, forKey: .joinedAt)
+  }
+}
+
+/// A workspace-wide channel membership row (memberships endpoint): adds the
+/// conversation the membership belongs to.
+struct ChannelMembership: Codable, Equatable, Identifiable, Sendable {
+  let conversationId: String
+  let kind: String
+  let principalId: String
+  let role: String
+  let joinedAt: Date
+
+  var id: String { "\(conversationId):\(kind):\(principalId)" }
+
+  enum CodingKeys: String, CodingKey {
+    case conversationId, kind, principalId, role, joinedAt
+  }
+
+  init(conversationId: String, kind: String, principalId: String, role: String, joinedAt: Date) {
+    self.conversationId = conversationId
+    self.kind = kind
+    self.principalId = principalId
+    self.role = role
+    self.joinedAt = joinedAt
+  }
+
+  init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    conversationId = try values.decode(String.self, forKey: .conversationId)
+    kind = try values.decode(String.self, forKey: .kind)
+    principalId = try values.decode(String.self, forKey: .principalId)
+    role = try values.decode(String.self, forKey: .role)
+    joinedAt = try ModelsDate.decode(from: values, forKey: .joinedAt)
+  }
+}
+
+/// Shared ISO8601 (with or without fractional seconds) date decoding helper.
+enum ModelsDate {
+  static func decode<Key: CodingKey>(
+    from container: KeyedDecodingContainer<Key>,
+    forKey key: Key
+  ) throws -> Date {
+    let raw = try container.decode(String.self, forKey: key)
+    if let date = ISO8601DateFormatter.chief().date(from: raw) { return date }
+    if let date = ISO8601DateFormatter.noFraction().date(from: raw) { return date }
+    throw DecodingError.dataCorruptedError(
+      forKey: key,
+      in: container,
+      debugDescription: "Unrecognized date: \(raw)"
+    )
+  }
 }
 
 struct AgentSummary: Codable, Equatable, Identifiable, Sendable {
@@ -102,14 +297,23 @@ struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
     case system
   }
 
+  /// An aggregate reaction: an emoji plus the pubkeys that added it.
+  struct Reaction: Codable, Equatable, Sendable {
+    let emoji: String
+    let pubkeys: [String]
+  }
+
   let id: String
   let workspaceID: String
   let conversationID: String
   let threadRootID: String?
   let author: Author
-  let body: String
+  var body: String
   let mentions: [String]
   let components: [MessageComponent]
+  let reactions: [Reaction]
+  var edited: Bool
+  var deleted: Bool
   let createdAt: Date
   let sequence: Int
 
@@ -122,6 +326,9 @@ struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
     case body
     case mentions
     case components
+    case reactions
+    case edited
+    case deleted
     case createdAt
     case sequence
   }
@@ -135,6 +342,9 @@ struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
     body: String,
     mentions: [String] = [],
     components: [MessageComponent],
+    reactions: [Reaction] = [],
+    edited: Bool = false,
+    deleted: Bool = false,
     createdAt: Date,
     sequence: Int
   ) {
@@ -146,6 +356,9 @@ struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
     self.body = body
     self.mentions = mentions
     self.components = components
+    self.reactions = reactions
+    self.edited = edited
+    self.deleted = deleted
     self.createdAt = createdAt
     self.sequence = sequence
   }
@@ -161,8 +374,12 @@ struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
       try values.decodeIfPresent([String].self, forKey: .mentions) ?? []
     self.components =
       try values.decodeIfPresent([MessageComponent].self, forKey: .components) ?? []
+    self.reactions =
+      try values.decodeIfPresent([Reaction].self, forKey: .reactions) ?? []
+    self.edited = try values.decodeIfPresent(Bool.self, forKey: .edited) ?? false
+    self.deleted = try values.decodeIfPresent(Bool.self, forKey: .deleted) ?? false
     self.sequence = try values.decode(Int.self, forKey: .sequence)
-    self.createdAt = try Self.decodeDate(from: values, forKey: .createdAt)
+    self.createdAt = try ModelsDate.decode(from: values, forKey: .createdAt)
     let authorContainer = try values.nestedContainer(
       keyedBy: AuthorCodingKeys.self,
       forKey: .author
@@ -179,6 +396,9 @@ struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
     try values.encode(body, forKey: .body)
     try values.encode(mentions, forKey: .mentions)
     try values.encode(components, forKey: .components)
+    try values.encode(reactions, forKey: .reactions)
+    try values.encode(edited, forKey: .edited)
+    try values.encode(deleted, forKey: .deleted)
     try values.encode(sequence, forKey: .sequence)
     try values.encode(ISO8601DateFormatter.chief().string(from: createdAt), forKey: .createdAt)
     var authorEnc = values.nestedContainer(
@@ -196,22 +416,6 @@ struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
       try authorEnc.encode("agent", forKey: .kind)
       try authorEnc.encode(id, forKey: .id)
     }
-  }
-
-  private static func decodeDate(
-    from container: KeyedDecodingContainer<CodingKeys>,
-    forKey key: CodingKeys
-  ) throws -> Date {
-    let raw = try container.decode(String.self, forKey: key)
-    if let date = ISO8601DateFormatter.chief().date(from: raw) { return date }
-    if let date = ISO8601DateFormatter.noFraction().date(from: raw) {
-      return date
-    }
-    throw DecodingError.dataCorruptedError(
-      forKey: key,
-      in: container,
-      debugDescription: "Unrecognized date: \(raw)"
-    )
   }
 
   enum AuthorCodingKeys: String, CodingKey {
@@ -320,7 +524,12 @@ enum JSONValue: Decodable, Sendable {
     } else if let value = try? container.decode(Double.self) {
       self = .number(value)
     } else {
-      _ = try container.decodeNil()
+      guard container.decodeNil() else {
+        throw DecodingError.typeMismatch(
+          JSONValue.self,
+          .init(codingPath: decoder.codingPath, debugDescription: "Unsupported JSON value")
+        )
+      }
       self = .null
     }
   }
@@ -336,7 +545,7 @@ struct OnboardingDraft: Equatable, Sendable {
   var step = 0
   var runtime: RuntimeLocation?
   var inferenceProvider: InferenceProvider?
-  var inferenceModel = "deepseek-v4-flash"
+  var inferenceModel = OpenCodeModelCatalog.recommendedFreeModelID
   var deviceModelID: String?
   var companyName = ""
   var website = ""

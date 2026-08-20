@@ -42,15 +42,21 @@ struct OnboardingView: View {
         .frame(maxHeight: .infinity)
 
         VStack(spacing: 11) {
-          Button(model.onboarding.step == steps.count - 1 ? "Enter workspace" : "Continue") {
+          Button {
             if model.onboarding.step == steps.count - 1 {
               Task { await model.completeOnboarding() }
             } else {
               model.onboarding.step += 1
             }
+          } label: {
+            if model.onboardingInProgress {
+              ProgressView().tint(.black)
+            } else {
+              Text(model.onboarding.step == steps.count - 1 ? "Enter workspace" : "Continue")
+            }
           }
           .buttonStyle(PrimaryButtonStyle())
-          .disabled(!model.canAdvanceOnboarding)
+          .disabled(!model.canAdvanceOnboarding || model.onboardingInProgress)
 
           if model.onboarding.step > 0 {
             Button("Back") { model.onboarding.step -= 1 }
@@ -120,6 +126,8 @@ private struct InferenceStep: View {
   @Binding var credential: String
   @Environment(AppModel.self) private var model
   @State private var modelPickerPresented = false
+  @State private var openCodeModels = OpenCodeModelCatalog.fallback
+  @State private var loadingOpenCodeModels = false
 
   var body: some View {
     OnboardingStepLayout(
@@ -144,19 +152,26 @@ private struct InferenceStep: View {
 
       OptionRow(
         icon: { OpenCodeMark(size: 20) },
-        title: "OpenCode Go",
-        detail: "Use your OpenCode Go models and subscription.",
+        title: "OpenCode",
+        detail: "Choose a free Zen model or use your OpenCode Go subscription.",
         selected: draft.inferenceProvider == .openCodeGo
       ) {
         withAnimation(.easeInOut(duration: 0.22)) {
           draft.inferenceProvider = .openCodeGo
-          draft.inferenceModel = "deepseek-v4-flash"
+          if draft.inferenceModel.isEmpty {
+            draft.inferenceModel = OpenCodeModelCatalog.recommendedFreeModelID
+          }
           draft.deviceModelID = nil
         }
       }
 
       if draft.inferenceProvider == .openCodeGo {
         VStack(alignment: .leading, spacing: 10) {
+          OpenCodeModelPicker(
+            selectedID: $draft.inferenceModel,
+            models: openCodeModels,
+            loading: loadingOpenCodeModels
+          )
           SecureField("OpenCode API key", text: $credential)
             .textContentType(.password)
             .textInputAutocapitalization(.never)
@@ -173,6 +188,16 @@ private struct InferenceStep: View {
       }
     }
     .animation(.easeInOut(duration: 0.22), value: draft.inferenceProvider)
+    .task(id: draft.inferenceProvider) {
+      guard draft.inferenceProvider == .openCodeGo else { return }
+      loadingOpenCodeModels = true
+      openCodeModels = await OpenCodeModelCatalog.load()
+      if !openCodeModels.contains(where: { $0.id == draft.inferenceModel }) {
+        draft.inferenceModel =
+          openCodeModels.first?.id ?? OpenCodeModelCatalog.recommendedFreeModelID
+      }
+      loadingOpenCodeModels = false
+    }
     .sheet(isPresented: $modelPickerPresented) {
       DeviceModelPickerSheet(
         selectedID: $draft.deviceModelID,
@@ -180,9 +205,60 @@ private struct InferenceStep: View {
       ) { model in
         draft.inferenceModel = model.id
       }
-      .presentationDetents([.medium, .large])
-      .presentationDragIndicator(.visible)
+      .chiefSheet([.medium, .large])
     }
+  }
+}
+
+private struct OpenCodeModelPicker: View {
+  @Binding var selectedID: String
+  let models: [OpenCodeModelOption]
+  let loading: Bool
+
+  private var selected: OpenCodeModelOption? {
+    models.first { $0.id == selectedID }
+  }
+
+  var body: some View {
+    Menu {
+      ForEach(models) { model in
+        Button {
+          selectedID = model.id
+          Haptics.medium()
+        } label: {
+          Label(
+            "\(model.displayName) · \(model.access.rawValue)",
+            systemImage: selectedID == model.id ? "checkmark" : "circle"
+          )
+        }
+      }
+    } label: {
+      HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Model")
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(ChiefTheme.tertiary)
+          Text(loading ? "Loading models…" : (selected?.displayName ?? selectedID))
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(.white)
+        }
+        Spacer()
+        Image(systemName: "chevron.up.chevron.down")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(ChiefTheme.tertiary)
+      }
+      .padding(.horizontal, 13)
+      .frame(minHeight: 52)
+      .background(ChiefTheme.elevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .stroke(ChiefTheme.line)
+      }
+    }
+    .buttonStyle(.plain)
+    .disabled(loading || models.isEmpty)
+    .accessibilityLabel("OpenCode model")
+    .accessibilityValue(selected.map { "\($0.displayName), \($0.access.rawValue)" } ?? selectedID)
   }
 }
 
@@ -232,7 +308,7 @@ private struct DeviceModelPickerSheet: View {
         .padding(.horizontal, 12)
       }
     }
-    .background(ChiefTheme.background)
+    .background(ChiefSheetPalette.background)
     .tint(ChiefTheme.accent)
   }
 }
@@ -250,7 +326,8 @@ private struct DeviceModelSheetRow: View {
           .font(.system(size: 17, weight: .medium))
           .foregroundStyle(ChiefTheme.secondary)
           .frame(width: 34, height: 34)
-          .background(ChiefTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+          .background(
+            ChiefTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         VStack(alignment: .leading, spacing: 3) {
           Text(model.displayName).font(.system(size: 15, weight: .semibold))
           Text(model.summary)

@@ -1,15 +1,27 @@
 import Foundation
+import Security
 
-/// The on-device agent's own secp256k1 identity, held separately from the
-/// human's. Registers with the workspace as `chief` and signs agent reply
-/// messages so the relay attributes them to the agent rather than the user.
+/// A per-agent secp256k1 identity, held separately from the human's. Every agent
+/// in the roster gets its OWN identity in its OWN Keychain slot, registered with
+/// the workspace as itself (`agent_keys`), so the relay always attributes its
+/// messages to the agent rather than the user or Chief.
 struct AgentIdentityStore {
-  private let keychain = NostrKeychainStore.forService(
-    service: "sh.heychief.mobile.agent-identity",
-    account: "chief"
-  )
+  static let service = "sh.heychief.mobile.agent-identity"
+  let workspaceID: String
+  let agentID: String
 
-  var agentID = "chief"
+  init(workspaceID: String, agentID: String = "chief") {
+    self.workspaceID = workspaceID
+    self.agentID = agentID
+  }
+
+  private var keychain: NostrKeychainStore {
+    NostrKeychainStore.forService(
+      service: Self.service,
+      account: "\(workspaceID):\(agentID)",
+      accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    )
+  }
 
   func load() throws -> NostrIdentity? {
     try keychain.load()
@@ -29,7 +41,15 @@ struct AgentIdentityStore {
 }
 
 extension NostrKeychainStore {
-  static func forService(service: String, account: String) -> NostrKeychainStore {
-    NostrKeychainStore(service: service, account: account)
+  static func forService(
+    service: String,
+    account: String,
+    accessibility: CFString = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+  ) -> NostrKeychainStore {
+    NostrKeychainStore(
+      service: service,
+      account: account,
+      accessibility: accessibility
+    )
   }
 }

@@ -16,6 +16,7 @@ struct ChiefMobileApp: App {
 
 struct AppRootView: View {
   @Environment(AppModel.self) private var model
+  @Environment(\.scenePhase) private var scenePhase
 
   var body: some View {
     Group {
@@ -32,6 +33,23 @@ struct AppRootView: View {
     }
     .animation(.easeInOut(duration: 0.2), value: model.phase)
     .tint(ChiefTheme.accent)
+    .onChange(of: scenePhase) { _, phase in
+      model.setAppActive(phase == .active)
+    }
+    .onReceive(
+      NotificationCenter.default.publisher(for: MobileNotifications.didOpenConversation)
+    ) { notification in
+      guard
+        let workspaceID = notification.userInfo?["workspaceID"] as? String,
+        let conversationID = notification.userInfo?["conversationID"] as? String
+      else { return }
+      Task {
+        if workspaceID != model.workspace?.id {
+          await model.switchWorkspace(workspaceID: workspaceID)
+        }
+        model.openConversation(conversationID)
+      }
+    }
   }
 }
 

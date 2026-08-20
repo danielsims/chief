@@ -5,7 +5,7 @@ import CryptoKit
 ///
 /// An ephemeral `kind 27235` event is signed with secp256k1 (BIP-340) over its
 /// SHA-256 id. The event carries `u` (absolute request URL), `method`, a SHA-256
-/// `payload` tag binding the request body, and a `nonce` to keep events unique.
+/// `payload` tag binding the request body, and a request tag to keep events unique.
 /// It is sent as `Authorization: Nostr <base64(event)>`.
 struct NIP98Signer {
   let identity: NostrIdentity
@@ -23,20 +23,17 @@ struct NIP98Signer {
     if !body.isEmpty {
       tags.append(["payload", payloadHash])
     }
-    tags.append(["nonce", UUID().uuidString.lowercased()])
+    tags.append(["request", UUID().uuidString.lowercased()])
 
     let createdAt = Int(Date().timeIntervalSince1970)
-    let event: [String: Any] = [
-      "pubkey": identity.publicKeyHex,
-      "content": "",
-      "kind": 27235,
-      "created_at": createdAt,
-      "tags": tags,
-    ]
-
-    // The event id is the SHA-256 of the JSON-serialized event (without id/sig).
-    let serialized = try serializeEvent(event)
-    let idBytes = SHA256.hash(data: Data(serialized.utf8))
+    // NIP-01 defines the event id as the SHA-256 of this exact six-element
+    // array. Signing the wire object instead is not Nostr-compatible and does
+    // not let a verifier prove that the request tags were signed.
+    let serialized = try JSONSerialization.data(
+      withJSONObject: [0, identity.publicKeyHex, createdAt, 27235, tags, ""],
+      options: [.withoutEscapingSlashes]
+    )
+    let idBytes = SHA256.hash(data: serialized)
     let id = idBytes.map { String(format: "%02x", $0) }.joined()
     // BIP-340 signs the 32-byte message directly (the event id).
     let sigBytes = try identity.schnorrSign(message: Data(idBytes))
@@ -55,25 +52,4 @@ struct NIP98Signer {
     return "Nostr \(json.base64EncodedString())"
   }
 
-  /// Serialize the event fields in deterministic order (no id/sig yet).
-  /// Swift dictionaries are unordered, so build the canonical JSON manually.
-  private func serializeEvent(_ event: [String: Any]) throws -> String {
-    let pubkey = event["pubkey"] as! String
-    let content = event["content"] as! String
-    let kind = event["kind"] as! Int
-    let createdAt = event["created_at"] as! Int
-    let tags = event["tags"] as! [[String]]
-    let tagsJSON = tags.map { tag -> String in
-      let parts = tag.map { escapedJSON($0) }.joined(separator: ",")
-      return "[\(parts)]"
-    }.joined(separator: ",")
-    return #"{"pubkey":"\#(pubkey)","content":"\#(content)","kind":\#(kind),"created_at":\#(createdAt),"tags":[\#(tagsJSON)]}"#
-  }
-
-  private func escapedJSON(_ value: String) -> String {
-    let escaped = value
-      .replacingOccurrences(of: "\\", with: "\\\\")
-      .replacingOccurrences(of: "\"", with: "\\\"")
-    return "\"\(escaped)\""
-  }
 }

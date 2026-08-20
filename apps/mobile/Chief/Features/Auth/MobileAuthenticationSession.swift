@@ -97,9 +97,13 @@ final class MobileAuthenticationSession: NSObject, ObservableObject {
 
 extension MobileAuthenticationSession: ASWebAuthenticationPresentationContextProviding {
   func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-    UIApplication.shared.connectedScenes
-      .compactMap { $0 as? UIWindowScene }
-      .flatMap(\.windows)
-      .first(where: \.isKeyWindow) ?? ASPresentationAnchor()
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    if let keyWindow = scenes.flatMap(\.windows).first(where: \.isKeyWindow) {
+      return keyWindow
+    }
+    guard let scene = scenes.first else {
+      preconditionFailure("Authentication requires an active window scene.")
+    }
+    return ASPresentationAnchor(windowScene: scene)
   }
 }

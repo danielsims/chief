@@ -26,7 +26,7 @@ struct KeychainSessionStore: SessionStore {
         SecItemDelete(query(returningData: false) as CFDictionary)
         var values = query(returningData: false)
         values[kSecValueData as String] = data
-        values[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        values[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         let status = SecItemAdd(values as CFDictionary, nil)
         guard status == errSecSuccess else { throw KeychainError(status) }
     }

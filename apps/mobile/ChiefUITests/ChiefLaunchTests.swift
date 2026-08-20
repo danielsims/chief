@@ -1,5 +1,6 @@
 import XCTest
 
+@MainActor
 final class ChiefLaunchTests: XCTestCase {
   func testDemoWorkspaceOpensTheSameCoreSurfacesAsDesktop() {
     let app = XCUIApplication()

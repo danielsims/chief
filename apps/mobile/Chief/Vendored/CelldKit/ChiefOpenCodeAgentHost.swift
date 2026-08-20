@@ -1,6 +1,13 @@
 import Foundation
 import os
 
+typealias AgentActivityCallback = @Sendable (
+  _ workspaceID: String,
+  _ conversationID: String,
+  _ agentID: String,
+  _ component: MessageComponent
+) async -> Void
+
 /// Adapter that powers one agent turn in a cell: inference via OpenCode Go and
 /// a small phone-local toolset that posts to the workspace relay (the mobile
 /// analog of the durable agent's channel tools).
@@ -11,6 +18,73 @@ protocol ChiefAgentHosting: Sendable {
   func respond(scope: String, messagesJSON: String) async -> String
 }
 
+private struct ReasoningSegment: Sendable {
+  let text: String
+  let durationMilliseconds: Double
+}
+
+/// Owns one model-request reasoning segment. A new instance is created after
+/// every tool boundary, so the activity panel retains the provider's actual
+/// reasoning → tool → reasoning sequence instead of hoisting thoughts.
+private actor ReasoningActivityEmitter {
+  let workspaceID: String
+  let conversationID: String
+  let agentID: String
+  let callback: AgentActivityCallback
+
+  private let componentID = "reasoning-\(UUID().uuidString)"
+  private var text = ""
+  private var startedAt: ContinuousClock.Instant?
+
+  init(
+    workspaceID: String,
+    conversationID: String,
+    agentID: String,
+    callback: @escaping AgentActivityCallback
+  ) {
+    self.workspaceID = workspaceID
+    self.conversationID = conversationID
+    self.agentID = agentID
+    self.callback = callback
+  }
+
+  func append(_ delta: String) async {
+    guard !delta.isEmpty else { return }
+    if startedAt == nil {
+      startedAt = .now
+      print("[Chief] agent \(agentID) reasoning stream started")
+    }
+    text += delta
+    await publish(status: "running")
+  }
+
+  func finish() async -> ReasoningSegment? {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, let startedAt else { return nil }
+    await publish(status: "completed")
+    print("[Chief] agent \(agentID) reasoning stream completed")
+    let duration = startedAt.duration(to: .now)
+    return ReasoningSegment(
+      text: trimmed,
+      durationMilliseconds: Double(duration.components.seconds) * 1_000
+        + Double(duration.components.attoseconds) / 1e15
+    )
+  }
+
+  private func publish(status: String) async {
+    await callback(
+      workspaceID,
+      conversationID,
+      agentID,
+      MessageComponent(
+        id: componentID,
+        kind: "thinking",
+        payload: ["text": text, "status": status]
+      )
+    )
+  }
+}
+
 /// Concrete host that runs inference through the OpenCode Go API and executes
 /// the package-level relay tools natively (running them in an OpenAI-style
 /// tool loop). Tool invocations are returned in the envelope's `tools` so the
@@ -19,21 +93,37 @@ protocol ChiefAgentHosting: Sendable {
 actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
   private let relay: any RelayServing
   private let credentials: InferenceCredentialStore
+  private let onActivity: AgentActivityCallback
   private let logger = Logger(subsystem: "sh.heychief.mobile", category: "AgentHost")
 
-  private static let maxToolRounds = 6
+  private static let maxToolRounds = 24
 
-  init(relay: any RelayServing, credentials: InferenceCredentialStore) {
+  init(
+    relay: any RelayServing,
+    credentials: InferenceCredentialStore,
+    onActivity: @escaping AgentActivityCallback = { _, _, _, _ in }
+  ) {
     self.relay = relay
     self.credentials = credentials
+    self.onActivity = onActivity
   }
 
   func respond(scope: String, messagesJSON: String) async -> String {
     do {
-      let (reply, tools) = try await runTurn(scope: scope, messagesJSON: messagesJSON)
-      return Self.envelope(reply: reply, tools: tools)
+      let (reply, tools, activity) = try await runTurn(
+        scope: scope,
+        messagesJSON: messagesJSON
+      )
+      return Self.envelope(reply: reply, tools: tools, activity: activity)
     } catch {
       logger.error("turn failed: \(error.localizedDescription)")
+      let (workspaceID, agentID) = Self.scopeParts(scope)
+      await onActivity(
+        workspaceID,
+        Self.conversationID(from: messagesJSON),
+        agentID,
+        AgentRunFailure(error).component()
+      )
       // Report the failure to the worker as an error envelope (no reply), so it
       // keeps the turn pending and the UI can offer a retry — never fabricate.
       return Self.errorEnvelope(error)
@@ -41,15 +131,29 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
   }
 
   /// Build the `env.AI.respond` envelope with correct JSON escaping.
-  private static func envelope(reply: String, tools: [[String: Any]]) -> String {
-    let payload: [String: Any] = ["reply": reply, "tools": tools]
+  private static func envelope(
+    reply: String,
+    tools: [[String: Any]],
+    activity: [[String: Any]]
+  ) -> String {
+    let payload: [String: Any] = [
+      "reply": reply,
+      "tools": tools,
+      "activity": activity,
+    ]
     let data = (try? JSONSerialization.data(withJSONObject: payload)) ?? Data()
     return String(data: data, encoding: .utf8) ?? #"{"reply":"","tools":[]}"#
   }
 
   private static func errorEnvelope(_ error: Error) -> String {
-    let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
-    let payload: [String: Any] = ["error": message]
+    let failure = AgentRunFailure(error)
+    var payload: [String: Any] = [
+      "reply": "",
+      "tools": [],
+      "activity": [],
+      "error": failure.message,
+      "errorCode": failure.code,
+    ]
     let data = (try? JSONSerialization.data(withJSONObject: payload)) ?? Data()
     return String(data: data, encoding: .utf8) ?? #"{"error":"inference failed"}"#
   }
@@ -59,79 +163,240 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
   private func runTurn(
     scope: String,
     messagesJSON: String
-  ) async throws -> (String, [[String: Any]]) {
-    let (workspaceID, conversationID) = Self.scopeParts(scope)
-    let identity = try AgentIdentityStore().ensure()
-    let workspace = try await relay.loadWorkspace()
-    let context = ToolContext(
-      relay: relay,
-      identity: identity,
+  ) async throws -> (String, [[String: Any]], [[String: Any]]) {
+    let (workspaceID, agentID) = Self.scopeParts(scope)
+    let conversationID = Self.conversationID(from: messagesJSON)
+    let agent =
+      WorkspaceAgentCatalog.agent(forID: agentID)
+      ?? MentionAgent(
+        id: agentID,
+        name: agentID.capitalized,
+        role: "Agent"
+      )
+    let identity = try AgentIdentityStore(
       workspaceID: workspaceID,
-      conversationID: conversationID,
-      channels: workspace.conversations
+      agentID: agentID
+    ).ensure()
+    let config =
+      AgentConfigStore().load(
+        workspaceID: workspaceID,
+        agentID: agentID
+      ) ?? AgentConfig.defaults(for: agentID)
+    guard config.enabled else {
+      throw ToolError.permissionDenied("runtime")
+    }
+    let existingBrandProfile = try? await relay.loadBrandProfile(
+      workspaceID: workspaceID,
+      signingIdentity: identity
+    )
+    let loadedWorkspace = try? await relay.loadWorkspace()
+    let workspaceContext = AgentWorkspaceContext.resolve(
+      workspace: loadedWorkspace,
+      expectedWorkspaceID: workspaceID,
+      messagesJSON: messagesJSON
     )
 
     var convoy = [OpenCodeRequest.Message]()
+    let attachedSkill = AgentSkillBundle.instructions(
+      referencedBy: messagesJSON,
+      agentID: agentID
+    )
+    let packageInstructions = AgentPackageBundle.instructions(agentID: agentID)
     convoy.append(
       OpenCodeRequest.Message(
         role: "system",
         content: """
-        You are Chief, a proactive chief of staff agent that lives on the owner's iPhone and represents them in a workspace. Be concise, warm, and natural. Never use em dashes. When you need workspace information or want to act in a conversation, call the provided relay tools; do not claim work has happened unless a tool result proves it. Keep replies to 1-3 short sentences unless the work genuinely needs more.
-        """
+          You are \(agent.name), a \(agent.role) in a workspace owned by a builder. You speak for yourself and act under your own identity; never pretend to be the owner or another agent. Sound like a relaxed, thoughtful teammate in chat. Use natural contractions such as I'm, we'll, you're, and don't whenever they fit. Use sentence case, not stiff announcement language, and never use em dashes. When an instruction requires a relay action, you MUST call the corresponding relay tools before writing the final reply. Instructions and prior assistant claims are never proof that an action happened; only a successful tool result is proof. Do not claim work has happened unless that result exists. Keep replies to 1-3 short sentences unless the work genuinely needs more.
+
+          Canonical agent package instructions:
+          \(packageInstructions ?? "No package instructions were bundled. Follow the identity and task boundaries above.")
+
+          iOS host binding map: browser_navigate/browser_snapshot/browser_click/browser_type/browser_scroll/browser_back/browser_release are the visible native browser. brand_profile_save fulfills both localTools.brandProfileSave and the editable brand-profile file write. prospects_list and prospects_save fulfill the corresponding local workspace data operations. The relay collaboration tools fulfill the channel and message operations. A package instruction never grants a tool: only the tools advertised for this turn are available.
+
+          Browser research runs in your own isolated on-device WebKit session. Start with browser_navigate, inspect every loaded page with browser_snapshot, use only evidence actually present in snapshots, and finish browser work with browser_release. Stay focused: for onboarding, inspect at most three useful pages and use at most ten browser action calls. Persist the requested workspace result before releasing the browser. Never invent a page, claim, person, company, quotation, or URL.
+
+          Authoritative workspace context from onboarding:
+          \(workspaceContext.systemPrompt)
+
+          \(attachedSkill.map { "Attached skill instructions:\n\($0)" } ?? "")
+
+          \(existingBrandProfile.map { "Current shared workspace brand profile:\n\($0.markdown)" } ?? "")
+          """
       )
     )
     convoy.append(contentsOf: try loadConvoy(messagesJSON))
 
-    let definitions = RelayToolRegistry.openAIDefinitions()
     var toolRecords: [[String: Any]] = []
+    var activityRecords: [[String: Any]] = []
+    var completedToolNames: Set<String> = []
+    let requiresSpecialistKickoffTools = convoy.contains { message in
+      message.content?.contains("MUST call relay_channels_create") == true
+    }
+    let requiresChiefDelegationTools = convoy.contains { message in
+      message.content?.contains("CHIEF_DELEGATION_REQUIRED") == true
+    }
+    var requiredTools: Set<String> =
+      requiresSpecialistKickoffTools
+      ? KickoffToolEvidence.specialistRequiredTools
+      : requiresChiefDelegationTools
+        ? KickoffToolEvidence.chiefRequiredTools
+        : []
+    if convoy.contains(where: {
+      $0.content?.contains("[chief-skill:build-brand-profile]") == true
+    }) {
+      requiredTools.formUnion([
+        BrowserNavigateTool.name,
+        BrowserSnapshotTool.name,
+        BrandProfileSaveTool.name,
+        BrowserReleaseTool.name,
+      ])
+    }
+    if convoy.contains(where: {
+      $0.content?.contains("[chief-skill:find-buying-signals]") == true
+    }) {
+      requiredTools.formUnion([
+        BrowserNavigateTool.name,
+        BrowserSnapshotTool.name,
+        ProspectsListTool.name,
+        ProspectSaveTool.name,
+        BrowserReleaseTool.name,
+      ])
+    }
+    let attachedSkillIDs = Set(
+      ["build-brand-profile", "find-buying-signals"].filter {
+        messagesJSON.contains("[chief-skill:\($0)]")
+      }
+    )
+    let allowedToolNames = AgentTurnToolPolicy.names(
+      requiresChiefDelegation: requiresChiefDelegationTools,
+      attachedSkillIDs: attachedSkillIDs
+    )
+    let definitions = RelayToolRegistry.openAIDefinitions(
+      allowing: allowedToolNames
+    )
+    let context = ToolContext(
+      relay: relay,
+      identity: identity,
+      agentID: agentID,
+      workspaceID: workspaceID,
+      conversationID: conversationID,
+      config: config,
+      allowedToolNames: allowedToolNames
+    )
+    await MainActor.run {
+      AgentBrowserSession.beginTurn(for: context.browserScope)
+    }
     var timeout = 90
 
     for _ in 0..<Self.maxToolRounds {
-      let (data, response) = try await complete(
+      let needsRequiredTool = !requiredTools.isSubset(of: completedToolNames)
+      let reasoning = ReasoningActivityEmitter(
+        workspaceID: workspaceID,
+        conversationID: conversationID,
+        agentID: agentID,
+        callback: onActivity
+      )
+      let result = try await complete(
         convoy: convoy,
         tools: definitions,
-        timeout: timeout
+        model: config.model,
+        timeout: timeout,
+        onReasoning: { delta in await reasoning.append(delta) }
       )
-      guard let http = response as? HTTPURLResponse,
-        (200..<300).contains(http.statusCode)
-      else {
-        throw WorkspaceSetupError.inferenceFailed
+      if let segment = await reasoning.finish() {
+        activityRecords.append([
+          "kind": "reasoning",
+          "reasoning": [
+            "text": segment.text,
+            "durationMs": segment.durationMilliseconds,
+          ],
+        ])
       }
-      let output = try JSONDecoder().decode(OpenCodeResponse.self, from: data)
-      guard let message = output.choices.first?.message else {
+      guard (200..<300).contains(result.response.statusCode) else {
+        if result.response.statusCode == 429 {
+          let detail = Self.providerErrorSummary(data: result.errorBody)
+          print("[Chief] OpenCode usage limit reached\(detail)")
+          throw WorkspaceSetupError.providerUsageLimit
+        }
+        print(
+          "[Chief] OpenCode completion failed status=\(result.response.statusCode) agent=\(agentID)"
+        )
         throw WorkspaceSetupError.inferenceFailed
       }
 
-      if let toolCalls = message.toolCalls, !toolCalls.isEmpty {
+      if !result.toolCalls.isEmpty {
         timeout = 120
-        for call in toolCalls {
-          let record = try await Self.executeTool(
+        for call in result.toolCalls {
+          let record = try await executeTool(
             call,
             convoy: &convoy,
-            context: context
+            context: context,
+            completedToolNames: completedToolNames,
+            releasePrerequisites: requiredTools.intersection([
+              BrandProfileSaveTool.name,
+              ProspectSaveTool.name,
+            ])
           )
           toolRecords.append(record)
+          activityRecords.append(["kind": "tool", "tool": record])
+          if record["status"] as? String == "completed",
+            let name = record["name"] as? String
+          {
+            completedToolNames.insert(name)
+          }
         }
         continue
       }
 
-      guard let content = message.content?.trimmingCharacters(in: .whitespacesAndNewlines),
-        !content.isEmpty
+      let content = result.content.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !content.isEmpty
       else {
         throw WorkspaceSetupError.inferenceFailed
       }
-      return (content, toolRecords)
+      if needsRequiredTool {
+        convoy.append(OpenCodeRequest.Message(role: "assistant", content: content))
+        let missing = requiredTools
+          .subtracting(completedToolNames)
+          .sorted()
+          .joined(separator: ", ")
+        convoy.append(
+          OpenCodeRequest.Message(
+            role: "user",
+            content:
+              "That reply cannot be accepted yet. Call these required tools successfully before replying: \(missing). Continue with the tools now."
+          )
+        )
+        continue
+      }
+      return (content, toolRecords, activityRecords)
     }
     throw WorkspaceSetupError.inferenceFailed
   }
 
   /// Executes one tool call natively, echoes it into the conversation, and
   /// returns its record for the transcript.
-  private static func executeTool(
+  private func executeTool(
     _ call: OpenCodeResponse.Choice.Message.ToolCall,
     convoy: inout [OpenCodeRequest.Message],
-    context: ToolContext
+    context: ToolContext,
+    completedToolNames: Set<String>,
+    releasePrerequisites: Set<String>
   ) async throws -> [String: Any] {
+    let componentID = "tool-\(call.id)"
+    await onActivity(
+      context.workspaceID,
+      context.conversationID,
+      context.agentID,
+      MessageComponent(
+        id: componentID,
+        kind: "tool",
+        payload: [
+          "name": call.function.name,
+          "status": "running",
+          "input": call.function.arguments,
+        ]
+      )
+    )
     convoy.append(
       OpenCodeRequest.Message(
         role: "assistant",
@@ -147,6 +412,13 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
     )
     let (result, status, errorMessage): (String, String, String?)
     do {
+      if call.function.name == BrowserReleaseTool.name,
+        !releasePrerequisites.isSubset(of: completedToolNames)
+      {
+        throw ToolError.invalidArgument(
+          "browser_release must follow the required durable save"
+        )
+      }
       let output = try await RelayToolRegistry.execute(
         name: call.function.name,
         arguments: call.function.arguments,
@@ -165,37 +437,87 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
       OpenCodeRequest.Message(role: "tool", content: result, toolCallID: call.id)
     )
     var record: [String: Any] = [
+      "id": call.id,
       "name": call.function.name,
       "status": status,
       "output": result,
+      "input": call.function.arguments,
     ]
     if let errorMessage { record["error"] = errorMessage }
+    var activityPayload = [
+      "name": call.function.name,
+      "status": status,
+      "input": call.function.arguments,
+      "output": result,
+    ]
+    if let errorMessage { activityPayload["error"] = errorMessage }
+    await onActivity(
+      context.workspaceID,
+      context.conversationID,
+      context.agentID,
+      MessageComponent(id: componentID, kind: "tool", payload: activityPayload)
+    )
+    print(
+      "[Chief] agent \(context.agentID) tool \(call.function.name) \(status)"
+    )
+    logger.info(
+      "agent \(context.agentID, privacy: .public) tool \(call.function.name, privacy: .public) \(status, privacy: .public)"
+    )
     return record
   }
 
   private func complete(
     convoy: [OpenCodeRequest.Message],
     tools: [OpenCodeRequest.ToolDefinition],
-    timeout: Int
-  ) async throws -> (Data, URLResponse) {
+    model: String,
+    timeout: Int,
+    onReasoning: @escaping @Sendable (String) async -> Void
+  ) async throws -> OpenCodeStreamResult {
     guard let key = try credentials.load(.openCodeGo), !key.isEmpty else {
       throw WorkspaceSetupError.missingCredential
     }
-    let endpoint = URL(string: "https://opencode.ai/zen/go/v1/chat/completions")!
+    let body = try JSONEncoder().encode(
+      OpenCodeRequest(
+        model: model,
+        messages: convoy,
+        maxTokens: 1_800,
+        tools: tools.isEmpty ? nil : tools,
+        toolChoice: nil,
+        stream: true
+      )
+    )
+    let endpoint = OpenCodeModelCatalog.completionEndpoint(for: model)
     var request = URLRequest(url: endpoint)
     request.httpMethod = "POST"
     request.timeoutInterval = TimeInterval(timeout)
     request.setValue("application/json", forHTTPHeaderField: "content-type")
     request.setValue("Bearer \(key)", forHTTPHeaderField: "authorization")
-    request.httpBody = try JSONEncoder().encode(
-      OpenCodeRequest(
-        model: "deepseek-v4-flash",
-        messages: convoy,
-        maxTokens: 400,
-        tools: tools.isEmpty ? nil : tools
-      )
+    request.httpBody = body
+    return try await OpenCodeStreamingClient.complete(
+      request: request,
+      onReasoning: onReasoning
     )
-    return try await URLSession.shared.data(for: request)
+  }
+
+  private static func providerErrorSummary(data: Data) -> String {
+    guard
+      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let error = object["error"]
+    else { return "" }
+    let raw: String
+    if let dictionary = error as? [String: Any] {
+      raw = [dictionary["code"], dictionary["type"], dictionary["message"]]
+        .compactMap { $0.map(String.init(describing:)) }
+        .filter { !$0.isEmpty }
+        .joined(separator: ": ")
+    } else {
+      raw = String(describing: error)
+    }
+    let singleLine = raw
+      .replacingOccurrences(of: "\n", with: " ")
+      .replacingOccurrences(of: "\r", with: " ")
+    guard !singleLine.isEmpty else { return "" }
+    return " (\(String(singleLine.prefix(240))))"
   }
 
   /// Convert the cell's durable transcript (JSON array of {role, content, at})
@@ -205,7 +527,7 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
       let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
     else { return [] }
     var result: [OpenCodeRequest.Message] = []
-    for item in array.prefix(40) {
+    for item in array.suffix(60) {
       guard let role = item["role"] as? String,
         let content = item["content"] as? String
       else { continue }
@@ -219,12 +541,20 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
     return result
   }
 
-  /// Split a cell scope of the form `workspaceId:conversationId`.
+  /// Split the one-agent/one-cell scope `workspaceId:agentId`.
   private static func scopeParts(_ scope: String) -> (String, String) {
     let parts = scope.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
     let workspaceID = String(parts[0])
-    let conversationID = parts.count > 1 ? String(parts[1]) : scope
-    return (workspaceID, conversationID)
+    let agentID = parts.count > 1 ? String(parts[1]) : "chief"
+    return (workspaceID, agentID)
+  }
+
+  private static func conversationID(from messagesJSON: String) -> String {
+    guard
+      let data = messagesJSON.data(using: .utf8),
+      let messages = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+    else { return "general" }
+    return messages.reversed().compactMap { $0["conversationId"] as? String }.first
+      ?? "general"
   }
 }
-
