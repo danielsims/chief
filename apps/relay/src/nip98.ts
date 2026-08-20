@@ -22,6 +22,7 @@ import { AuthenticationError } from "./auth";
 
 export const NIP98_EVENT_KIND = 27235;
 export const NIP98_MAX_AGE_SECONDS = 60;
+const NIP98_MAX_AUTHORIZATION_LENGTH = 16_384;
 
 export interface Nip98Event {
   id: string;
@@ -48,6 +49,11 @@ export function verifyNip98Auth(
   if (!authorization) {
     throw new AuthenticationError("A Nostr Authorization header is required.");
   }
+  if (authorization.length > NIP98_MAX_AUTHORIZATION_LENGTH) {
+    throw new AuthenticationError(
+      "The Nostr Authorization header is too large.",
+    );
+  }
   const scheme = authorization.slice(0, 5).toLowerCase();
   if (scheme !== "nostr") {
     throw new AuthenticationError("The Authorization scheme must be Nostr.");
@@ -55,7 +61,7 @@ export function verifyNip98Auth(
   const encoded = authorization.slice(5).trim();
   let event: Nip98Event;
   try {
-    event = JSON.parse(decodeBase64(encoded)) as Nip98Event;
+    event = parseNip98Event(JSON.parse(decodeBase64(encoded)));
   } catch {
     throw new AuthenticationError("The Nostr event is not valid base64 JSON.");
   }
@@ -65,6 +71,11 @@ export function verifyNip98Auth(
   if (event.kind !== NIP98_EVENT_KIND) {
     throw new AuthenticationError(
       `The Nostr event kind must be ${NIP98_EVENT_KIND}.`,
+    );
+  }
+  if (event.content !== "") {
+    throw new AuthenticationError(
+      "The Nostr HTTP auth event content must be empty.",
     );
   }
   if (!Number.isInteger(event.created_at)) {
@@ -86,6 +97,16 @@ export function verifyNip98Auth(
     );
   }
   const payloadTag = tag(event.tags, "payload");
+  if (
+    options.body !== undefined &&
+    options.body !== null &&
+    options.body.length > 0 &&
+    !payloadTag
+  ) {
+    throw new AuthenticationError(
+      "A Nostr payload tag is required for requests with a body.",
+    );
+  }
   if (payloadTag) {
     if (options.body === undefined) {
       throw new AuthenticationError(
@@ -111,6 +132,13 @@ export function verifyNip98Auth(
     throw new AuthenticationError("The Nostr event signature is invalid.");
   }
 
+  const expectedId = computeNostrEventId(event);
+  if (event.id !== expectedId) {
+    throw new AuthenticationError(
+      "The Nostr event id does not match its signed fields.",
+    );
+  }
+
   const ok = schnorr.verify(
     hexToBytes(event.sig),
     hexToBytes(event.id),
@@ -122,6 +150,27 @@ export function verifyNip98Auth(
   return event.pubkey;
 }
 
+/**
+ * Computes the NIP-01 event id. Nostr signs the SHA-256 of the canonical
+ * six-element event array, not the JSON event object sent over the wire.
+ */
+export function computeNostrEventId(
+  event: Pick<
+    Nip98Event,
+    "pubkey" | "created_at" | "kind" | "tags" | "content"
+  >,
+): string {
+  const serialized = JSON.stringify([
+    0,
+    event.pubkey,
+    event.created_at,
+    event.kind,
+    event.tags,
+    event.content,
+  ]);
+  return bytesToHex(sha256(new TextEncoder().encode(serialized)));
+}
+
 /** SHA-256 payload tag for POST bodies (hex). */
 export function sha256PayloadTag(body: string | null | undefined): string {
   const source = body ?? "";
@@ -129,7 +178,38 @@ export function sha256PayloadTag(body: string | null | undefined): string {
 }
 
 function tag(tags: readonly string[][], key: string): string | undefined {
-  return tags.find((entry) => entry[0] === key)?.[1];
+  const matches = tags.filter((entry) => entry[0] === key);
+  if (matches.length > 1) {
+    throw new AuthenticationError(`The Nostr event has duplicate ${key} tags.`);
+  }
+  return matches[0]?.[1];
+}
+
+function parseNip98Event(value: unknown): Nip98Event {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new AuthenticationError("The Nostr event must be an object.");
+  }
+  const event = value as Record<string, unknown>;
+  if (
+    typeof event.id !== "string" ||
+    typeof event.pubkey !== "string" ||
+    typeof event.content !== "string" ||
+    typeof event.kind !== "number" ||
+    typeof event.created_at !== "number" ||
+    typeof event.sig !== "string" ||
+    !Array.isArray(event.tags) ||
+    !event.tags.every(
+      (entry) =>
+        Array.isArray(entry) &&
+        entry.length > 0 &&
+        entry.length <= 4 &&
+        entry.every((part) => typeof part === "string" && part.length <= 8_192),
+    ) ||
+    event.tags.length > 32
+  ) {
+    throw new AuthenticationError("The Nostr event shape is invalid.");
+  }
+  return event as unknown as Nip98Event;
 }
 
 /** Decode a base64 (or base64url) encoded value into its UTF-8 string. */

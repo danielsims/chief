@@ -7,6 +7,7 @@ import type {
 } from "@chief/relay-contracts";
 import {
   hexPubkeySchema,
+  registerAgentKeyCommandSchema,
   userIdSchema,
   workspaceAuthorizationResultSchema,
 } from "@chief/relay-contracts";
@@ -105,6 +106,41 @@ export async function activeManagedWorkspace(
   );
 }
 
+export async function listManagedWorkspaces(
+  env: Env,
+  identity: AuthenticatedIdentity,
+) {
+  if (identity.kind !== "user") {
+    throw new AuthorizationError("A user identity is required.");
+  }
+  return accountStub(env, identity.userId).fetch(
+    withTrustedAccountIdentity(identity, {
+      method: "POST",
+      headers: { "x-chief-internal-operation": "list-workspaces" },
+    }),
+  );
+}
+
+export async function switchManagedWorkspace(
+  env: Env,
+  identity: AuthenticatedIdentity,
+  workspaceId: WorkspaceId,
+) {
+  if (identity.kind !== "user") {
+    throw new AuthorizationError("A user identity is required.");
+  }
+  return accountStub(env, identity.userId).fetch(
+    withTrustedAccountIdentity(identity, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-chief-internal-operation": "switch-workspace",
+      },
+      body: JSON.stringify({ workspaceId }),
+    }),
+  );
+}
+
 export async function authorizeWorkspace(
   env: Env,
   input: {
@@ -126,6 +162,35 @@ export async function authorizeWorkspace(
   }
   return workspaceAuthorizationResultSchema.parse(await response.json())
     .principal;
+}
+
+export async function authorizeConversation(
+  env: Env,
+  input: {
+    principal: Principal;
+    requestId: string;
+    workspaceId: WorkspaceId;
+    conversationId: string;
+  },
+) {
+  const url = new URL("https://workspace.internal/authorize-conversation");
+  url.searchParams.set("conversationId", input.conversationId);
+  const response = await workspaceStub(env, input.workspaceId).fetch(
+    withTrustedContext(
+      new Request(url, {
+        method: "POST",
+        headers: {
+          "x-chief-internal-operation": "authorize-conversation",
+        },
+      }),
+      input,
+    ),
+  );
+  if (!response.ok) {
+    throw new AuthorizationError(
+      "The conversation is not available to this identity.",
+    );
+  }
 }
 
 export async function claimWorkspace(
@@ -176,6 +241,40 @@ export async function routeWorkspaceLogs(
   );
 }
 
+/** Forwards a channels RPC to the workspace DO using the resolved principal
+ * context so registered agents can create channels and add members during
+ * kick-off (matching how agent jobs are routed). */
+export async function routeChannelOperation(
+  env: Env,
+  request: Request,
+  input: {
+    principal: Principal;
+    requestId: string;
+    workspaceId: WorkspaceId;
+    operation: string;
+  },
+) {
+  const body = await request.text();
+  const internalUrl = new URL("https://workspace.internal");
+  internalUrl.search = new URL(request.url).search;
+  const trusted = withTrustedContext(
+    new Request(internalUrl, {
+      method: "POST",
+      headers: {
+        "content-type": request.headers.get("content-type") ?? "",
+        "x-chief-internal-operation": input.operation,
+      },
+      body,
+    }),
+    {
+      principal: input.principal,
+      requestId: input.requestId,
+      workspaceId: input.workspaceId,
+    },
+  );
+  return workspaceStub(env, input.workspaceId).fetch(trusted);
+}
+
 export async function routeAgentJob(
   env: Env,
   request: Request,
@@ -187,10 +286,17 @@ export async function routeAgentJob(
     operation: "claim" | "complete";
   },
 ) {
-  if (input.principal.kind !== "user" || input.principal.role !== "owner") {
+  if (
+    input.principal.kind !== "agent" ||
+    input.principal.agentId !== input.agentId
+  ) {
     throw new AuthorizationError(
-      "Only a workspace owner can run an agent on this device.",
+      "An agent can only claim or complete its own mailbox jobs.",
     );
+  }
+  if (input.operation === "claim") {
+    const authorization = await authorizeAgentRuntime(env, input);
+    if (!authorization.ok) return authorization;
   }
   const body = await request.text();
   const stub = env.AGENTS.get(
@@ -214,6 +320,68 @@ export async function routeAgentJob(
   );
 }
 
+export async function routeAgentMailboxTicket(
+  env: Env,
+  input: {
+    principal: Principal;
+    requestId: string;
+    workspaceId: WorkspaceId;
+    agentId: string;
+  },
+) {
+  if (
+    input.principal.kind !== "agent" ||
+    input.principal.agentId !== input.agentId
+  ) {
+    throw new AuthorizationError(
+      "An agent can only subscribe to its own mailbox.",
+    );
+  }
+  const authorization = await authorizeAgentRuntime(env, input);
+  if (!authorization.ok) return authorization;
+  const stub = env.AGENTS.get(
+    env.AGENTS.idFromName(`${input.workspaceId}:${input.agentId}`),
+  );
+  return stub.fetch(
+    withTrustedContext(
+      new Request(
+        `https://agent.internal/socket-tickets?agentId=${encodeURIComponent(input.agentId)}`,
+        { method: "POST" },
+      ),
+      {
+        principal: input.principal,
+        requestId: input.requestId,
+        workspaceId: input.workspaceId,
+      },
+    ),
+  );
+}
+
+async function authorizeAgentRuntime(
+  env: Env,
+  input: {
+    principal: Principal;
+    requestId: string;
+    workspaceId: WorkspaceId;
+  },
+) {
+  return workspaceStub(env, input.workspaceId).fetch(
+    withTrustedContext(
+      new Request("https://workspace.internal", {
+        method: "POST",
+        headers: {
+          "x-chief-internal-operation": "authorize-agent-runtime",
+        },
+      }),
+      {
+        principal: input.principal,
+        requestId: input.requestId,
+        workspaceId: input.workspaceId,
+      },
+    ),
+  );
+}
+
 export async function registerAgentKey(
   env: Env,
   request: Request,
@@ -225,7 +393,16 @@ export async function registerAgentKey(
   },
 ) {
   const workspace = workspaceStub(env, input.workspaceId);
-  const body = await request.text();
+  const command = registerAgentKeyCommandSchema.parse(
+    JSON.parse(await request.text()),
+  );
+  if (command.agentId !== input.agentId) {
+    throw new HttpError(
+      409,
+      "agent_route_mismatch",
+      "The registered agent must match the agent in the request path.",
+    );
+  }
   return workspace.fetch(
     withTrustedIdentity(
       {
@@ -243,7 +420,7 @@ export async function registerAgentKey(
           "content-type": request.headers.get("content-type") ?? "",
           "x-chief-internal-operation": "register-agent-key",
         },
-        body,
+        body: JSON.stringify(command),
       },
     ),
   );

@@ -163,6 +163,40 @@ describe("WorkspaceObject", () => {
     );
     expect(register.status).toBe(200);
 
+    const idempotent = await stub.fetch(
+      trustedRequest("register-agent-key", ownerId, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentId: "engineer", pubkey: agentPubkey }),
+      }),
+    );
+    const implicitRotation = await stub.fetch(
+      trustedRequest("register-agent-key", ownerId, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          agentId: "engineer",
+          pubkey: hexKey("replacement-engineer-key"),
+        }),
+      }),
+    );
+    const sharedKey = await stub.fetch(
+      trustedRequest("register-agent-key", ownerId, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentId: "chief", pubkey: agentPubkey }),
+      }),
+    );
+    expect(idempotent.status).toBe(200);
+    expect(implicitRotation.status).toBe(409);
+    expect(await implicitRotation.json()).toMatchObject({
+      error: { code: "agent_key_already_registered" },
+    });
+    expect(sharedKey.status).toBe(409);
+    expect(await sharedKey.json()).toMatchObject({
+      error: { code: "agent_key_reuse_denied" },
+    });
+
     const listed = await stub.fetch(
       trustedRequest("agent-keys", ownerId, { method: "POST" }),
     );
