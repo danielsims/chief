@@ -3,7 +3,11 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { describe, expect, it } from "vitest";
 
-import { sha256PayloadTag, verifyNip98Auth } from "../src/nip98";
+import {
+  computeNostrEventId,
+  sha256PayloadTag,
+  verifyNip98Auth,
+} from "../src/nip98";
 
 interface EventInput {
   pubkey: string;
@@ -21,9 +25,7 @@ function signEvent(input: EventInput) {
     created_at: input.created_at,
     tags: input.tags,
   };
-  const id = bytesToHex(
-    sha256(new TextEncoder().encode(JSON.stringify(event))),
-  );
+  const id = computeNostrEventId(event);
   const sig = bytesToHex(schnorr.sign(hexToBytes(id), testSecretKey));
   return { id, ...event, sig };
 }
@@ -104,6 +106,27 @@ describe("verifyNip98Auth", () => {
     ).toThrow(/kind must be 27235/);
   });
 
+  it("rejects non-empty NIP-98 event content", () => {
+    const event = signEvent({
+      pubkey,
+      created_at: Math.floor(Date.now() / 1000),
+      content: "not HTTP authentication",
+      tags: [
+        ["u", url],
+        ["method", method],
+      ],
+    });
+    expect(() =>
+      verifyNip98Auth(`Nostr ${base64Event(event)}`, { url, method }),
+    ).toThrow(/content must be empty/);
+  });
+
+  it("rejects oversized authorization input before decoding", () => {
+    expect(() =>
+      verifyNip98Auth(`Nostr ${"a".repeat(20_000)}`, { url, method }),
+    ).toThrow(/too large/);
+  });
+
   it("rejects an expired event", () => {
     const event = signEvent({
       pubkey,
@@ -155,7 +178,8 @@ describe("verifyNip98Auth", () => {
         ["method", method],
       ],
     });
-    const forged = { ...event, sig: event.sig.slice(0, 127) + "0" };
+    const last = event.sig.at(-1) === "0" ? "1" : "0";
+    const forged = { ...event, sig: event.sig.slice(0, -1) + last };
     expect(() =>
       verifyNip98Auth(`Nostr ${base64Event(forged)}`, { url, method }),
     ).toThrow(/signature/);
@@ -175,6 +199,45 @@ describe("verifyNip98Auth", () => {
     expect(() =>
       verifyNip98Auth(`Nostr ${base64Event(event)}`, { url, method }),
     ).toThrow(/signature/);
+  });
+
+  it("rejects request tags changed after the event was signed", () => {
+    const event = signEvent({
+      pubkey,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ["u", "https://evil.example/target"],
+        ["method", method],
+      ],
+    });
+    event.tags[0] = ["u", url];
+    expect(() =>
+      verifyNip98Auth(`Nostr ${base64Event(event)}`, { url, method }),
+    ).toThrow(/id does not match its signed fields/);
+  });
+
+  it("rejects the legacy object-shaped event serialization", () => {
+    const unsigned = {
+      pubkey,
+      content: "",
+      kind: 27235,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ["u", url],
+        ["method", method],
+      ],
+    };
+    const id = bytesToHex(
+      sha256(new TextEncoder().encode(JSON.stringify(unsigned))),
+    );
+    const event = {
+      id,
+      ...unsigned,
+      sig: bytesToHex(schnorr.sign(hexToBytes(id), testSecretKey)),
+    };
+    expect(() =>
+      verifyNip98Auth(`Nostr ${base64Event(event)}`, { url, method }),
+    ).toThrow(/id does not match its signed fields/);
   });
 
   it("hashes a payload body for the payload tag", () => {
@@ -231,5 +294,23 @@ describe("verifyNip98Auth", () => {
     expect(() =>
       verifyNip98Auth(`Nostr ${base64Event(event)}`, { url, method }),
     ).toThrow(/body was not checked/);
+  });
+
+  it("rejects a non-empty request body without a payload tag", () => {
+    const event = signEvent({
+      pubkey,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ["u", url],
+        ["method", method],
+      ],
+    });
+    expect(() =>
+      verifyNip98Auth(`Nostr ${base64Event(event)}`, {
+        url,
+        method,
+        body: '{"message":"unsigned"}',
+      }),
+    ).toThrow(/payload tag is required/);
   });
 });

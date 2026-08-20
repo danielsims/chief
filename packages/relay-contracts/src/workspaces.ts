@@ -29,6 +29,27 @@ export const workspaceAuthorizationResultSchema = z
   .object({ principal: principalSchema })
   .strict();
 
+export const switchWorkspaceCommandSchema = z
+  .object({ workspaceId: workspaceIdSchema })
+  .strict();
+
+export const workspaceSummarySchema = z
+  .object({
+    id: workspaceIdSchema,
+    name: z.string().trim().min(1).max(120),
+    isActive: z.boolean(),
+    onboardingComplete: z.boolean(),
+  })
+  .strict();
+
+export const workspaceListResultSchema = z
+  .object({ workspaces: z.array(workspaceSummarySchema) })
+  .strict();
+
+export const workspaceSwitchResultSchema = z
+  .object({ workspaceId: workspaceIdSchema, isActive: z.literal(true) })
+  .strict();
+
 export const createWorkspaceCommandSchema = z
   .object({
     commandId: commandIdSchema,
@@ -41,11 +62,12 @@ export const createWorkspaceCommandSchema = z
   })
   .strict();
 
-const conversationSummarySchema = z.object({
+export const conversationSummarySchema = z.object({
   id: z.string().min(1).max(128),
   name: z.string().min(1).max(120),
   kind: z.enum(["channel", "direct"]),
   isPrivate: z.boolean(),
+  archived: z.boolean().default(false),
   unreadCount: z.int().nonnegative(),
   requiresAttention: z.boolean(),
   lastMessage: z.string().max(4_000).nullable(),
@@ -62,6 +84,11 @@ export const workspaceSnapshotSchema = z
   .object({
     id: workspaceIdSchema,
     name: z.string().min(1).max(120),
+    website: z.string().trim().max(2_048).default(""),
+    selectedApps: z
+      .array(z.string().trim().min(1).max(128))
+      .max(100)
+      .default([]),
     imageURL: z.url().nullable(),
     onboardingComplete: z.boolean(),
     conversations: z.array(conversationSummarySchema),
@@ -85,3 +112,7 @@ export type CreateWorkspaceCommand = z.infer<
   typeof createWorkspaceCommandSchema
 >;
 export type WorkspaceSnapshot = z.infer<typeof workspaceSnapshotSchema>;
+export type SwitchWorkspaceCommand = z.infer<
+  typeof switchWorkspaceCommandSchema
+>;
+export type WorkspaceSummary = z.infer<typeof workspaceSummarySchema>;

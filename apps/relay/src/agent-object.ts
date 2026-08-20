@@ -1,11 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 
-import type {
-  AgentPrincipal,
-  Principal,
-  UserPrincipal,
-  WorkspaceId,
-} from "@chief/relay-contracts";
+import type { AgentPrincipal, WorkspaceId } from "@chief/relay-contracts";
 import {
   agentJobCompletionResultSchema,
   agentJobSchema,
@@ -13,37 +8,59 @@ import {
   claimAgentJobSchema,
   completeAgentJobSchema,
   enqueueAgentJobCommandSchema,
-  workspaceOnboardingResultSchema,
+  principalSchema,
+  socketTicketSchema,
 } from "@chief/relay-contracts";
 
+import {
+  actorPubkey,
+  firstAgentRow as firstRow,
+  initializeAgentJobs,
+  requireAgentOwnsJob,
+  requireAgentPrincipal,
+} from "./agent-job-store";
+import { validateSpecialistKickoff } from "./agent-kickoff-verification";
+import { publishOnboardingResult } from "./agent-onboarding";
 import { HttpError, json, parseJson, relayError } from "./http";
 import {
+  readTrustedAgentSocketTicket,
   readTrustedContext,
   withTrustedContext,
-  withTrustedIdentity,
 } from "./internal-context";
+import {
+  consumeSocketTicket,
+  createSocketTicket,
+  initializeSocketTickets,
+} from "./socket-ticket-store";
 
 export class AgentObject extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
     void state.blockConcurrencyWhile(() => {
-      initialize(state.storage);
+      initializeAgentJobs(state.storage);
+      initializeSocketTickets(state.storage);
       return Promise.resolve();
     });
   }
 
   async fetch(request: Request) {
     try {
+      if (request.headers.get("upgrade") === "websocket") {
+        return await this.connectWebSocket(request);
+      }
       const context = readTrustedContext(request);
       const path = new URL(request.url).pathname;
       if (request.method === "POST" && path.endsWith("/enqueue")) {
         return await this.enqueue(request, context.workspaceId);
       }
       if (request.method === "POST" && path.endsWith("/claim")) {
-        return await this.claim(request);
+        return await this.claim(request, context);
       }
       if (request.method === "POST" && path.endsWith("/complete")) {
         return await this.complete(request, context);
+      }
+      if (request.method === "POST" && path.endsWith("/socket-tickets")) {
+        return await this.createMailboxSocketTicket(request, context);
       }
       return relayError(404, "not_found", "Agent operation not found.");
     } catch (error) {
@@ -102,10 +119,139 @@ export class AgentObject extends DurableObject<Env> {
         JSON.stringify(job),
       );
     });
+    if (Date.parse(job.availableAt) <= Date.now()) {
+      this.broadcastAvailable(job, now);
+    } else {
+      await this.scheduleNextAlarm();
+    }
     return json({ duplicate: false, job });
   }
 
-  private async claim(request: Request) {
+  /// Wakes sockets for scheduled work and expired leases. A socket event is a
+  /// hint only; the authenticated agent still has to claim its durable row.
+  async alarm() {
+    const now = new Date().toISOString();
+    const due = firstRow<{ job_json: string }>(
+      this.ctx.storage.sql.exec(
+        `SELECT job_json FROM jobs
+         WHERE (status = 'pending' AND available_at <= ?)
+            OR (status = 'leased' AND lease_expires_at <= ?)
+         ORDER BY available_at ASC, rowid ASC LIMIT 1`,
+        now,
+        now,
+      ),
+    );
+    if (due) {
+      this.broadcastAvailable(
+        agentJobSchema.parse(JSON.parse(due.job_json)),
+        now,
+      );
+      return;
+    }
+    await this.scheduleNextAlarm();
+  }
+
+  private async createMailboxSocketTicket(
+    request: Request,
+    context: ReturnType<typeof readTrustedContext>,
+  ) {
+    requireAgentPrincipal(context.principal);
+    const agentId = new URL(request.url).searchParams.get("agentId");
+    if (agentId !== context.principal.agentId) {
+      throw new HttpError(
+        403,
+        "agent_mailbox_access_denied",
+        "An agent can only subscribe to its own mailbox.",
+      );
+    }
+    return json(
+      socketTicketSchema.parse(
+        await createSocketTicket(this.ctx.storage, context.principal),
+      ),
+      { status: 201 },
+    );
+  }
+
+  private async connectWebSocket(request: Request) {
+    const context = readTrustedAgentSocketTicket(request);
+    const principalJson = await consumeSocketTicket(
+      this.ctx.storage,
+      context.ticket,
+    );
+    if (!principalJson) {
+      return relayError(
+        401,
+        "invalid_socket_ticket",
+        "The socket ticket is invalid or expired.",
+      );
+    }
+    const principal = principalSchema.parse(JSON.parse(principalJson));
+    if (principal.kind !== "agent" || principal.agentId !== context.agentId) {
+      return relayError(
+        403,
+        "agent_mailbox_access_denied",
+        "The socket ticket does not belong to this agent.",
+      );
+    }
+    const pair = new WebSocketPair();
+    const client = pair[0];
+    const server = pair[1];
+    this.ctx.acceptWebSocket(server);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  private broadcast(event: Record<string, unknown>) {
+    const serialized = JSON.stringify(event);
+    for (const socket of this.ctx.getWebSockets()) {
+      try {
+        socket.send(serialized);
+      } catch {
+        socket.close(1011, "Delivery failed");
+      }
+    }
+  }
+
+  private broadcastAvailable(
+    job: ReturnType<typeof agentJobSchema.parse>,
+    occurredAt: string,
+  ) {
+    this.broadcast({
+      type: "agent.job.available",
+      occurredAt,
+      payload: { agentId: job.agentId, jobId: job.id, kind: job.kind },
+    });
+  }
+
+  private async scheduleNextAlarm() {
+    const row = firstRow<{ next_at: string | null }>(
+      this.ctx.storage.sql.exec(
+        `SELECT MIN(next_at) AS next_at FROM (
+           SELECT available_at AS next_at FROM jobs WHERE status = 'pending'
+           UNION ALL
+           SELECT lease_expires_at AS next_at FROM jobs
+             WHERE status = 'leased' AND lease_expires_at IS NOT NULL
+         )`,
+      ),
+    );
+    if (!row?.next_at) {
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+    const next = Date.parse(row.next_at);
+    if (Number.isFinite(next) && next > Date.now()) {
+      await this.ctx.storage.setAlarm(next);
+    }
+  }
+
+  webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
+    if (message === "ping") socket.send("pong");
+  }
+
+  private async claim(
+    request: Request,
+    context: ReturnType<typeof readTrustedContext>,
+  ) {
+    requireAgentPrincipal(context.principal);
     const input = claimAgentJobSchema.parse(await parseJson(request));
     const now = new Date();
     const candidate = firstRow<{ job_id: string; job_json: string }>(
@@ -118,13 +264,17 @@ export class AgentObject extends DurableObject<Env> {
         now.toISOString(),
       ),
     );
-    if (!candidate) return new Response(null, { status: 204 });
+    if (!candidate) {
+      await this.scheduleNextAlarm();
+      return new Response(null, { status: 204 });
+    }
 
     const leaseToken = crypto.randomUUID();
     const leaseExpiresAt = new Date(
       now.getTime() + input.leaseSeconds * 1_000,
     ).toISOString();
     const previous = agentJobSchema.parse(JSON.parse(candidate.job_json));
+    requireAgentOwnsJob(context.principal, previous.agentId);
     const job = agentJobSchema.parse({
       ...previous,
       status: "leased",
@@ -141,6 +291,7 @@ export class AgentObject extends DurableObject<Env> {
       now.toISOString(),
       job.id,
     );
+    await this.scheduleNextAlarm();
     return json({ job, leaseToken });
   }
 
@@ -148,6 +299,7 @@ export class AgentObject extends DurableObject<Env> {
     request: Request,
     context: ReturnType<typeof readTrustedContext>,
   ) {
+    requireAgentPrincipal(context.principal);
     const input = completeAgentJobSchema.parse(await parseJson(request));
     const row = firstRow<{ job_id: string; job_json: string }>(
       this.ctx.storage.sql.exec(
@@ -163,6 +315,7 @@ export class AgentObject extends DurableObject<Env> {
       );
     }
     const previous = agentJobSchema.parse(JSON.parse(row.job_json));
+    requireAgentOwnsJob(context.principal, previous.agentId);
     const now = new Date().toISOString();
     const retryAt =
       input.outcome.status === "failed" ? input.outcome.retryAt : undefined;
@@ -180,7 +333,14 @@ export class AgentObject extends DurableObject<Env> {
       jobCompleted && input.outcome.status === "completed"
         ? agentJobCompletionResultSchema.parse(input.outcome.result)
         : null;
-    if (jobCompleted && result?.publishedMessage) {
+    if (
+      jobCompleted &&
+      job.kind !== "workspace.onboarding" &&
+      result?.publishedMessage
+    ) {
+      if (job.kind.startsWith("workspace.kickoff.")) {
+        await validateSpecialistKickoff(this.env, job, context.principal);
+      }
       await this.publishMessage(
         job,
         result.publishedMessage,
@@ -188,15 +348,14 @@ export class AgentObject extends DurableObject<Env> {
         actorPubkey(context.principal),
       );
     }
-    if (
-      jobCompleted &&
-      job.kind === "workspace.onboarding" &&
-      context.principal.kind === "user"
-    ) {
-      await this.publishOnboardingResult(
+    if (jobCompleted && job.kind === "workspace.onboarding") {
+      await publishOnboardingResult(
+        this.env,
         job,
         context.principal,
         result as unknown as Record<string, unknown>,
+        (targetJob, message, commandId, pubkey) =>
+          this.publishMessage(targetJob, message, commandId, pubkey),
       );
     }
     this.ctx.storage.sql.exec(
@@ -209,6 +368,11 @@ export class AgentObject extends DurableObject<Env> {
       now,
       job.id,
     );
+    if (job.status === "pending" && Date.parse(job.availableAt) <= Date.now()) {
+      this.broadcastAvailable(job, now);
+    } else {
+      await this.scheduleNextAlarm();
+    }
     return json({ job, outcome: input.outcome });
   }
 
@@ -233,6 +397,35 @@ export class AgentObject extends DurableObject<Env> {
       pubkey: (job.agentPubkey ?? actorPubkey)?.toLowerCase() ?? "0".repeat(64),
       workspaceId: job.workspaceId,
     };
+    const workspace = this.env.WORKSPACES.get(
+      this.env.WORKSPACES.idFromName(job.workspaceId),
+    );
+    const authorization = await workspace.fetch(
+      withTrustedContext(
+        new Request(
+          `https://workspace.internal?conversationId=${encodeURIComponent(message.conversationId)}`,
+          {
+            method: "POST",
+            headers: {
+              "x-chief-internal-operation": "authorize-conversation",
+            },
+          },
+        ),
+        {
+          principal: agent,
+          requestId: commandId,
+          workspaceId: job.workspaceId,
+          conversationId: message.conversationId,
+        },
+      ),
+    );
+    if (!authorization.ok) {
+      throw new HttpError(
+        authorization.status,
+        "job_conversation_denied",
+        "The agent cannot publish to that conversation.",
+      );
+    }
     const command = appendMessageCommandSchema.parse({
       commandId,
       protocolVersion: 1,
@@ -272,171 +465,4 @@ export class AgentObject extends DurableObject<Env> {
       );
     }
   }
-
-  private async publishOnboardingResult(
-    job: ReturnType<typeof agentJobSchema.parse>,
-    owner: UserPrincipal,
-    rawResult: Record<string, unknown>,
-  ) {
-    const result = workspaceOnboardingResultSchema.parse(rawResult);
-    if (result.publishedMessage) {
-      await this.publishMessage(
-        job,
-        result.publishedMessage,
-        crypto.randomUUID(),
-      );
-    } else {
-      await this.publishMessage(
-        job,
-        {
-          conversationId: "mission-control",
-          body: result.openingMessage,
-        },
-        crypto.randomUUID(),
-      );
-    }
-    const workspace = this.env.WORKSPACES.get(
-      this.env.WORKSPACES.idFromName(job.workspaceId),
-    );
-    const snapshotResponse = await workspace.fetch(
-      withTrustedIdentity(
-        {
-          identity: {
-            kind: "user",
-            userId: owner.userId,
-            pubkey: owner.pubkey,
-          },
-          requestId: job.id,
-          workspaceId: job.workspaceId,
-        },
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-chief-internal-operation": "complete-onboarding",
-          },
-          body: JSON.stringify(result),
-        },
-      ),
-    );
-    if (!snapshotResponse.ok) {
-      throw new HttpError(
-        502,
-        "onboarding_snapshot_failed",
-        "Chief's workspace setup could not be finalized.",
-      );
-    }
-    await this.enqueueKickoff(job, owner);
-  }
-
-  /**
-   * Mirrors the desktop bootstrap: after onboarding completes, queue a small
-   * amount of real follow-up work the mobile (or a future cloud) executor can
-   * claim and run. These jobs carry derived payloads (company, apps) so the
-   * next turn has genuine context instead of fabricated activity.
-   */
-  private async enqueueKickoff(
-    job: ReturnType<typeof agentJobSchema.parse>,
-    owner: UserPrincipal,
-  ) {
-    const payload = job.payload;
-    const name =
-      typeof payload.name === "string" && payload.name.trim()
-        ? payload.name
-        : "this workspace";
-    const website = typeof payload.website === "string" ? payload.website : "";
-    const selectedApps = Array.isArray(payload.selectedApps)
-      ? payload.selectedApps.map((value) => String(value))
-      : [];
-    const now = new Date();
-    const activateAt = new Date(now.getTime() + 3_000).toISOString();
-    const jobsToEnqueue: {
-      agentId: string;
-      kind: string;
-      jobPayload: Record<string, unknown>;
-      availableAt: string;
-    }[] = [
-      {
-        agentId: "chief",
-        kind: "workspace.activate",
-        jobPayload: {
-          name,
-          website,
-          selectedApps,
-          instruction:
-            "Welcome the owner to their new workspace. Confirm what is set up, name the first useful thing you'll inspect given the selected apps, and note that specialists will join as useful work is identified. Support the opening message, do not repeat it.",
-        },
-        availableAt: activateAt,
-      },
-    ];
-    for (const entry of jobsToEnqueue) {
-      const jobId = crypto.randomUUID();
-      const command = {
-        commandId: crypto.randomUUID(),
-        protocolVersion: 1,
-        occurredAt: new Date().toISOString(),
-        payload: {
-          id: jobId,
-          agentId: entry.agentId,
-          kind: entry.kind,
-          payload: entry.jobPayload,
-          availableAt: entry.availableAt,
-        },
-      };
-      const stub = this.env.AGENTS.get(
-        this.env.AGENTS.idFromName(`${job.workspaceId}:${entry.agentId}`),
-      );
-      const response = await stub.fetch(
-        withTrustedContext(
-          new Request("https://agent.internal/enqueue", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(command),
-          }),
-          {
-            principal: owner,
-            requestId: job.id,
-            workspaceId: job.workspaceId,
-          },
-        ),
-      );
-      if (!response.ok) {
-        throw new HttpError(
-          502,
-          "kickoff_enqueue_failed",
-          "Chief's follow-up work could not be queued.",
-        );
-      }
-    }
-  }
-}
-
-function initialize(storage: DurableObjectStorage) {
-  storage.sql.exec(`
-    CREATE TABLE IF NOT EXISTS jobs (
-      job_id TEXT PRIMARY KEY,
-      job_json TEXT NOT NULL,
-      status TEXT NOT NULL,
-      available_at TEXT NOT NULL,
-      lease_token TEXT UNIQUE,
-      lease_expires_at TEXT,
-      updated_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS jobs_claim_idx
-      ON jobs (status, available_at, lease_expires_at);
-    CREATE TABLE IF NOT EXISTS receipts (
-      command_id TEXT PRIMARY KEY,
-      job_json TEXT NOT NULL
-    );
-  `);
-}
-
-function firstRow<T>(cursor: Iterable<T>): T | undefined {
-  return cursor[Symbol.iterator]().next().value as T | undefined;
-}
-
-function actorPubkey(principal: Principal): string | undefined {
-  return principal.kind === "agent" || principal.kind === "user"
-    ? principal.pubkey
-    : undefined;
 }

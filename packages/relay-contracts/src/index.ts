@@ -1,6 +1,9 @@
 export * from "./agents";
+export * from "./attachments";
 export * from "./channels";
 export * from "./discovery";
+export * from "./directs";
+export * from "./device-identities";
 export * from "./logs";
 export * from "./envelopes";
 export * from "./execution";
@@ -8,3 +11,4 @@ export * from "./identifiers";
 export * from "./identity";
 export * from "./messages";
 export * from "./workspaces";
+export * from "./workspace-data";

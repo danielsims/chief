@@ -44,9 +44,38 @@ export const conversationMessageSchema = z.object({
   mentions: z.array(agentIdSchema).max(16).default([]),
   components: z.array(messageComponentSchema).max(32).default([]),
   reactions: z.array(messageReactionSchema).default([]),
+  edited: z.boolean().default(false),
+  deleted: z.boolean().default(false),
   createdAt: isoDateTimeSchema,
   sequence: z.int().nonnegative(),
 });
+
+export const editMessagePayloadSchema = z
+  .object({
+    messageId: messageIdSchema,
+    body: z.string().max(100_000),
+  })
+  .strict();
+
+export const editMessageCommandSchema = commandEnvelopeSchema(
+  editMessagePayloadSchema,
+);
+
+export const deleteMessagePayloadSchema = z
+  .object({ messageId: messageIdSchema })
+  .strict();
+
+export const deleteMessageCommandSchema = commandEnvelopeSchema(
+  deleteMessagePayloadSchema,
+);
+
+export const editMessageResultSchema = z
+  .object({ message: conversationMessageSchema })
+  .strict();
+
+export const deleteMessageResultSchema = z
+  .object({ message: conversationMessageSchema })
+  .strict();
 
 export const reactToMessagePayloadSchema = z
   .object({
@@ -83,6 +112,14 @@ export const messageReactedEventSchema = eventEnvelopeSchema(
   z.object({ message: conversationMessageSchema }),
 ).extend({ type: z.literal("conversation.message.reacted") });
 
+export const messageEditedEventSchema = eventEnvelopeSchema(
+  z.object({ message: conversationMessageSchema }),
+).extend({ type: z.literal("conversation.message.edited") });
+
+export const messageDeletedEventSchema = eventEnvelopeSchema(
+  z.object({ message: conversationMessageSchema }),
+).extend({ type: z.literal("conversation.message.deleted") });
+
 export const conversationSchema = z.object({
   id: conversationIdSchema,
   workspaceId: workspaceIdSchema,
@@ -114,6 +151,8 @@ export const messagePageSchema = z.object({
 export const conversationEventSchema = z.discriminatedUnion("type", [
   messageAppendedEventSchema,
   messageReactedEventSchema,
+  messageEditedEventSchema,
+  messageDeletedEventSchema,
 ]);
 
 export const conversationEventPageSchema = z.object({
@@ -139,6 +178,8 @@ export type MessageReaction = z.infer<typeof messageReactionSchema>;
 export type ConversationMessage = z.infer<typeof conversationMessageSchema>;
 export type AppendMessageCommand = z.infer<typeof appendMessageCommandSchema>;
 export type AppendMessageResult = z.infer<typeof appendMessageResultSchema>;
+export type EditMessagePayload = z.infer<typeof editMessagePayloadSchema>;
+export type DeleteMessagePayload = z.infer<typeof deleteMessagePayloadSchema>;
 export type ConversationEvent = z.infer<typeof conversationEventSchema>;
 export type Conversation = z.infer<typeof conversationSchema>;
 export type TrustedCommandContext = z.infer<typeof trustedCommandContextSchema>;

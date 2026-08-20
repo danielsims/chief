@@ -7,6 +7,9 @@ import type {
 } from "@chief/relay-contracts";
 import {
   appendMessageCommandSchema,
+  deleteMessageResultSchema,
+  editMessagePayloadSchema,
+  editMessageResultSchema,
   messageIdSchema,
   principalSchema,
   reactToMessagePayloadSchema,
@@ -23,6 +26,8 @@ import { recordMetrics } from "./metrics";
 
 const repliesRoute = /\/messages\/([^/]+)\/replies$/u;
 const reactionsRoute = /\/messages\/([^/]+)\/reactions$/u;
+const editRoute = /\/messages\/([^/]+)\/edit$/u;
+const deleteRoute = /\/messages\/([^/]+)$/u;
 
 export class ConversationObject extends DurableObject<Env> {
   private readonly store: SqlConversationStore;
@@ -73,6 +78,18 @@ export class ConversationObject extends DurableObject<Env> {
             reactions[1] ?? "",
             request.method === "POST",
           );
+        }
+        if (request.method === "POST") {
+          const edit = editRoute.exec(pathname);
+          if (edit) {
+            return await this.edit(request, context, edit[1] ?? "");
+          }
+        }
+        if (request.method === "DELETE") {
+          const deleteMatch = deleteRoute.exec(pathname);
+          if (deleteMatch) {
+            return this.deleteMessage(request, context, deleteMatch[1] ?? "");
+          }
         }
         return await this.append(
           request,
@@ -196,6 +213,71 @@ export class ConversationObject extends DurableObject<Env> {
     const after = parseInteger(url.searchParams.get("after"), 0, 0);
     const limit = parseInteger(url.searchParams.get("limit"), 50, 1, 200);
     return json(this.store.listEvents(after, limit));
+  }
+
+  private async edit(
+    request: Request,
+    context: ReturnType<typeof readTrustedContext>,
+    messageId: string,
+  ) {
+    const payload = editMessagePayloadSchema.parse(await parseJson(request));
+    if (payload.messageId !== messageId) {
+      throw new HttpError(
+        409,
+        "message_mismatch",
+        "The edit does not match the routed message.",
+      );
+    }
+    this.assertCanMutate(messageId, context.principal);
+    const { message, event } = this.store.edit({
+      messageId,
+      body: payload.body,
+      actor: context.principal,
+      workspaceId: context.workspaceId,
+      correlationId: context.requestId,
+    });
+    if (event) this.broadcast(event);
+    return json(editMessageResultSchema.parse({ message }));
+  }
+
+  private deleteMessage(
+    request: Request,
+    context: ReturnType<typeof readTrustedContext>,
+    messageId: string,
+  ) {
+    messageIdSchema.parse(messageId);
+    this.assertCanMutate(messageId, context.principal);
+    const { message, event } = this.store.delete({
+      messageId,
+      actor: context.principal,
+      workspaceId: context.workspaceId,
+      correlationId: context.requestId,
+    });
+    if (event) this.broadcast(event);
+    return json(deleteMessageResultSchema.parse({ message }));
+  }
+
+  private assertCanMutate(messageId: string, principal: Principal) {
+    const message = this.store.getMessage(messageId);
+    if (!message) {
+      throw new HttpError(
+        404,
+        "message_not_found",
+        "The message was not found.",
+      );
+    }
+    const actorAuthor = authorFor(principal);
+    const isAuthor =
+      actorAuthor.kind === message.author.kind &&
+      actorAuthor.id === message.author.id;
+    const isOwner = principal.kind === "user" && principal.role === "owner";
+    if (!isAuthor && !isOwner) {
+      throw new HttpError(
+        403,
+        "message_mutation_denied",
+        "Only the message author or a workspace owner can edit or delete this message.",
+      );
+    }
   }
 
   private async createSocketTicket(principal: Principal) {

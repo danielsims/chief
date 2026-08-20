@@ -4,6 +4,7 @@ import type {
   WorkspaceId,
 } from "@chief/relay-contracts";
 import {
+  agentIdSchema,
   authenticatedIdentitySchema,
   principalSchema,
   workspaceIdSchema,
@@ -15,6 +16,7 @@ const requestIdHeader = "x-chief-request-id";
 const workspaceHeader = "x-chief-workspace-id";
 const conversationHeader = "x-chief-conversation-id";
 const socketTicketHeader = "x-chief-trusted-socket-ticket";
+const agentHeader = "x-chief-agent-id";
 
 export function withTrustedAccountIdentity(
   identity: AuthenticatedIdentity,
@@ -126,5 +128,39 @@ export function readTrustedSocketTicket(request: Request) {
     requestId,
     workspaceId: workspaceIdSchema.parse(workspaceId),
     conversationId,
+  };
+}
+
+export function withTrustedAgentSocketTicket(
+  request: Request,
+  input: {
+    ticket: string;
+    requestId: string;
+    workspaceId: WorkspaceId;
+    agentId: string;
+  },
+) {
+  const headers = new Headers();
+  headers.set("upgrade", "websocket");
+  headers.set(socketTicketHeader, input.ticket);
+  headers.set(requestIdHeader, input.requestId);
+  headers.set(workspaceHeader, input.workspaceId);
+  headers.set(agentHeader, input.agentId);
+  return new Request(request.url, { method: "GET", headers });
+}
+
+export function readTrustedAgentSocketTicket(request: Request) {
+  const ticket = request.headers.get(socketTicketHeader);
+  const requestId = request.headers.get(requestIdHeader);
+  const workspaceId = request.headers.get(workspaceHeader);
+  const agentId = request.headers.get(agentHeader);
+  if (!ticket || !requestId || !workspaceId || !agentId) {
+    throw new Error("Missing trusted agent socket ticket.");
+  }
+  return {
+    ticket,
+    requestId,
+    workspaceId: workspaceIdSchema.parse(workspaceId),
+    agentId: agentIdSchema.parse(agentId),
   };
 }

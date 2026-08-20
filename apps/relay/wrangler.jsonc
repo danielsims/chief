@@ -11,6 +11,7 @@
       { "name": "CONVERSATIONS", "class_name": "ConversationObject" },
       { "name": "AGENTS", "class_name": "AgentObject" },
       { "name": "METRICS", "class_name": "AnalyticsObject" },
+      { "name": "IDENTITIES", "class_name": "IdentityObject" },
     ],
   },
   "migrations": [
@@ -30,12 +31,19 @@
       "tag": "v3",
       "new_sqlite_classes": ["AnalyticsObject"],
     },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["IdentityObject"],
+    },
   ],
   "r2_buckets": [
     { "binding": "ARTIFACTS", "bucket_name": "chief-relay-artifacts" },
   ],
   "vars": {
     "RELAY_DEPLOYMENT": "chief-cloud",
+    "ACCOUNT_IDENTITY_MODE": "chief-account",
+    "AUTH_ISSUER": "https://aromatic-lobster-846.convex.site",
+    "AUTH_JWKS_URL": "https://heychief.sh/api/auth/convex/jwks",
   },
   "observability": { "enabled": true },
 }

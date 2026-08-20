@@ -10,6 +10,30 @@ import {
   workspaceIdSchema,
 } from "./identifiers";
 
+export const agentConfigSchema = z
+  .object({
+    enabled: z.boolean(),
+    driver: z.string().trim().min(1).max(64),
+    model: z.string().trim().min(1).max(128),
+    approvals: z.enum(["auto", "ask"]),
+    capabilities: z.array(z.string().trim().min(1).max(64)).max(64),
+    integrations: z.array(z.string().trim().min(1).max(128)).max(128),
+    toolPermissions: z.array(z.string().trim().min(1).max(64)).max(32),
+  })
+  .strict();
+
+export const defaultAgentConfig = agentConfigSchema.parse({
+  enabled: true,
+  driver: "openCodeGo",
+  model: "deepseek-v4-flash-free",
+  approvals: "auto",
+  capabilities: [],
+  integrations: [],
+  toolPermissions: ["workspace", "channels", "messages", "scheduled-work"],
+});
+
+export type AgentConfig = z.infer<typeof agentConfigSchema>;
+
 export const agentJobSchema = z.object({
   id: jobIdSchema,
   workspaceId: workspaceIdSchema,

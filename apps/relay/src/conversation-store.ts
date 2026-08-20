@@ -6,7 +6,6 @@ import type {
   ConversationEvent,
   ConversationMessage,
   MessageAuthor,
-  MessageReaction,
   Principal,
   WorkspaceId,
 } from "@chief/relay-contracts";
@@ -14,9 +13,21 @@ import {
   appendMessageResultSchema,
   conversationEventPageSchema,
   conversationEventSchema,
+  conversationMessageSchema,
   messagePageSchema,
   reactToMessageResultSchema,
 } from "@chief/relay-contracts";
+
+import type { EventRow, MessageRow } from "./conversation-rows";
+import {
+  escapeLike,
+  firstConversationRow as firstRow,
+  parseReactions,
+  toMessage,
+} from "./conversation-rows";
+import { initializeConversationStorage } from "./conversation-schema";
+import { HttpError } from "./http";
+import { consumeSocketTicket, createSocketTicket } from "./socket-ticket-store";
 
 interface AppendInput {
   command: AppendMessageCommand;
@@ -30,6 +41,21 @@ interface ReactInput {
   emoji: string;
   pubkey: string;
   add: boolean;
+  actor: Principal;
+  workspaceId: WorkspaceId;
+  correlationId: string;
+}
+
+interface EditInput {
+  messageId: string;
+  body: string;
+  actor: Principal;
+  workspaceId: WorkspaceId;
+  correlationId: string;
+}
+
+interface DeleteInput {
+  messageId: string;
   actor: Principal;
   workspaceId: WorkspaceId;
   correlationId: string;
@@ -61,6 +87,14 @@ export interface ConversationStore {
     result: z.infer<typeof reactToMessageResultSchema>;
     event: Record<string, unknown> | null;
   };
+  edit(input: EditInput): {
+    message: ConversationMessage;
+    event: Record<string, unknown> | null;
+  };
+  delete(input: DeleteInput): {
+    message: ConversationMessage;
+    event: Record<string, unknown> | null;
+  };
   listEvents(
     after: number,
     limit: number,
@@ -74,94 +108,15 @@ export class SqlConversationStore implements ConversationStore {
   constructor(private readonly storage: DurableObjectStorage) {}
 
   initialize() {
-    this.storage.sql.exec(`
-      CREATE TABLE IF NOT EXISTS counters (
-        name TEXT PRIMARY KEY,
-        value INTEGER NOT NULL
-      );
-      INSERT OR IGNORE INTO counters (name, value) VALUES ('sequence', 0);
-      CREATE TABLE IF NOT EXISTS messages (
-        message_id TEXT PRIMARY KEY,
-        command_id TEXT NOT NULL UNIQUE,
-        sequence INTEGER NOT NULL UNIQUE,
-        workspace_id TEXT NOT NULL,
-        conversation_id TEXT NOT NULL,
-        thread_root_id TEXT,
-        author_kind TEXT NOT NULL,
-        author_id TEXT NOT NULL,
-        body TEXT NOT NULL,
-        mentions_json TEXT NOT NULL DEFAULT '[]',
-        components_json TEXT NOT NULL,
-        reactions_json TEXT NOT NULL DEFAULT '[]',
-        created_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS messages_sequence_idx ON messages (sequence);
-      CREATE INDEX IF NOT EXISTS messages_thread_idx ON messages (thread_root_id);
-      CREATE TABLE IF NOT EXISTS events (
-        sequence INTEGER PRIMARY KEY,
-        event_id TEXT NOT NULL UNIQUE,
-        event_json TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS receipts (
-        command_id TEXT PRIMARY KEY,
-        result_json TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS socket_tickets (
-        ticket_hash TEXT PRIMARY KEY,
-        principal_json TEXT NOT NULL,
-        expires_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS socket_tickets_expiry_idx
-        ON socket_tickets (expires_at);
-    `);
-    // Lightweight migrations: existing cells predate the mentions/reactions
-    // columns.
-    try {
-      this.storage.sql.exec(
-        "ALTER TABLE messages ADD COLUMN mentions_json TEXT NOT NULL DEFAULT '[]'",
-      );
-    } catch {
-      // Column already exists — nothing to migrate.
-    }
-    try {
-      this.storage.sql.exec(
-        "ALTER TABLE messages ADD COLUMN reactions_json TEXT NOT NULL DEFAULT '[]'",
-      );
-    } catch {
-      // Column already exists — nothing to migrate.
-    }
+    initializeConversationStorage(this.storage);
   }
 
   async createSocketTicket(principal: Principal) {
-    const ticket = randomTicket();
-    const expiresAt = new Date(Date.now() + 30_000).toISOString();
-    this.storage.sql.exec(
-      `INSERT INTO socket_tickets (ticket_hash, principal_json, expires_at)
-       VALUES (?, ?, ?)`,
-      await hashTicket(ticket),
-      JSON.stringify(principal),
-      expiresAt,
-    );
-    this.storage.sql.exec(
-      "DELETE FROM socket_tickets WHERE expires_at < ?",
-      new Date().toISOString(),
-    );
-    return { ticket, expiresAt };
+    return createSocketTicket(this.storage, principal);
   }
 
   async consumeSocketTicket(ticket: string) {
-    const ticketHash = await hashTicket(ticket);
-    return this.storage.transactionSync(() => {
-      const row = firstRow<SocketTicketRow>(
-        this.storage.sql.exec(
-          `DELETE FROM socket_tickets WHERE ticket_hash = ?
-           RETURNING principal_json, expires_at`,
-          ticketHash,
-        ),
-      );
-      if (!row || row.expires_at < new Date().toISOString()) return null;
-      return row.principal_json;
-    });
+    return consumeSocketTicket(this.storage, ticket);
   }
 
   append(input: AppendInput): StoredAppend {
@@ -195,6 +150,8 @@ export class SqlConversationStore implements ConversationStore {
         mentions: input.command.payload.mentions,
         components: input.command.payload.components,
         reactions: [],
+        edited: false,
+        deleted: false,
         createdAt,
         sequence: counter.value,
       } satisfies ConversationMessage;
@@ -383,6 +340,110 @@ export class SqlConversationStore implements ConversationStore {
     });
   }
 
+  edit(input: EditInput) {
+    return this.storage.transactionSync(() => {
+      const row = firstRow<MessageRow>(
+        this.storage.sql.exec(
+          "SELECT * FROM messages WHERE message_id = ?",
+          input.messageId,
+        ),
+      );
+      if (!row) {
+        throw new HttpError(
+          404,
+          "message_not_found",
+          "The message was not found.",
+        );
+      }
+      const previous = toMessage(row) as ConversationMessage;
+      if (previous.body === input.body && previous.edited) {
+        return { message: previous, event: null };
+      }
+      const updated = conversationMessageSchema.parse({
+        ...previous,
+        body: input.body,
+        edited: true,
+        deleted: false,
+      });
+      this.storage.sql.exec(
+        "UPDATE messages SET body = ?, edited = 1, deleted = 0 WHERE message_id = ?",
+        updated.body,
+        input.messageId,
+      );
+      const event = {
+        eventId: crypto.randomUUID(),
+        sequence: this.nextEventSequence(),
+        protocolVersion: 1,
+        workspaceId: input.workspaceId,
+        streamId: `conversation:${updated.conversationId}`,
+        type: "conversation.message.edited",
+        actor: input.actor,
+        correlationId: input.correlationId,
+        causationId: input.correlationId,
+        occurredAt: new Date().toISOString(),
+        payload: { message: updated },
+      };
+      this.storage.sql.exec(
+        "INSERT INTO events (sequence, event_id, event_json) VALUES (?, ?, ?)",
+        event.sequence,
+        event.eventId,
+        JSON.stringify(event),
+      );
+      return { message: updated, event };
+    });
+  }
+
+  delete(input: DeleteInput) {
+    return this.storage.transactionSync(() => {
+      const row = firstRow<MessageRow>(
+        this.storage.sql.exec(
+          "SELECT * FROM messages WHERE message_id = ?",
+          input.messageId,
+        ),
+      );
+      if (!row) {
+        throw new HttpError(
+          404,
+          "message_not_found",
+          "The message was not found.",
+        );
+      }
+      const previous = toMessage(row) as ConversationMessage;
+      if (previous.deleted) return { message: previous, event: null };
+      const updated = conversationMessageSchema.parse({
+        ...previous,
+        body: "⚠️ This message was deleted.",
+        edited: false,
+        deleted: true,
+      });
+      this.storage.sql.exec(
+        "UPDATE messages SET body = ?, edited = 0, deleted = 1 WHERE message_id = ?",
+        updated.body,
+        input.messageId,
+      );
+      const event = {
+        eventId: crypto.randomUUID(),
+        sequence: this.nextEventSequence(),
+        protocolVersion: 1,
+        workspaceId: input.workspaceId,
+        streamId: `conversation:${updated.conversationId}`,
+        type: "conversation.message.deleted",
+        actor: input.actor,
+        correlationId: input.correlationId,
+        causationId: input.correlationId,
+        occurredAt: new Date().toISOString(),
+        payload: { message: updated },
+      };
+      this.storage.sql.exec(
+        "INSERT INTO events (sequence, event_id, event_json) VALUES (?, ?, ?)",
+        event.sequence,
+        event.eventId,
+        JSON.stringify(event),
+      );
+      return { message: updated, event };
+    });
+  }
+
   private nextEventSequence() {
     const counter = firstRow<{ value: number }>(
       this.storage.sql.exec(
@@ -411,85 +472,4 @@ export class SqlConversationStore implements ConversationStore {
       nextSequence: hasMore ? events.at(-1)?.sequence : null,
     });
   }
-}
-
-interface MessageRow extends Record<string, SqlStorageValue> {
-  message_id: string;
-  sequence: number;
-  workspace_id: string;
-  conversation_id: string;
-  thread_root_id: string | null;
-  author_kind: "user" | "agent" | "system";
-  author_id: string;
-  body: string;
-  mentions_json: string;
-  components_json: string;
-  reactions_json: string;
-  created_at: string;
-}
-
-interface EventRow extends Record<string, SqlStorageValue> {
-  sequence: number;
-  event_json: string;
-}
-
-interface SocketTicketRow extends Record<string, SqlStorageValue> {
-  principal_json: string;
-  expires_at: string;
-}
-
-function toMessage(row: MessageRow) {
-  return {
-    id: row.message_id,
-    sequence: row.sequence,
-    workspaceId: row.workspace_id,
-    conversationId: row.conversation_id,
-    threadRootId: row.thread_root_id ?? undefined,
-    author: { kind: row.author_kind, id: row.author_id },
-    body: row.body,
-    mentions: JSON.parse(row.mentions_json) as unknown,
-    components: JSON.parse(row.components_json) as unknown,
-    reactions: parseReactions(row.reactions_json),
-    createdAt: row.created_at,
-  };
-}
-
-function parseReactions(json: string): MessageReaction[] {
-  const parsed: unknown = JSON.parse(json);
-  if (!Array.isArray(parsed)) return [];
-  return parsed.filter(
-    (entry): entry is MessageReaction =>
-      entry !== null &&
-      typeof entry === "object" &&
-      typeof (entry as MessageReaction).emoji === "string" &&
-      Array.isArray((entry as MessageReaction).pubkeys),
-  );
-}
-
-function escapeLike(value: string) {
-  return value
-    .replace(/\\/gu, "\\\\")
-    .replace(/%/gu, "\\%")
-    .replace(/_/gu, "\\_");
-}
-
-function firstRow<T>(cursor: Iterable<T>): T | undefined {
-  return cursor[Symbol.iterator]().next().value as T | undefined;
-}
-
-function randomTicket() {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary)
-    .replace(/\+/gu, "-")
-    .replace(/\//gu, "_")
-    .replace(/=+$/gu, "");
-}
-
-async function hashTicket(ticket: string) {
-  const digest = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(ticket)),
-  );
-  return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }

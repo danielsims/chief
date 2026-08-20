@@ -67,7 +67,19 @@ export const channelMemberSchema = z
     principalId: z.union([userIdSchema, agentIdSchema]),
     role: z.enum(["owner", "admin", "member"]),
     joinedAt: isoDateTimeSchema,
+    name: z.string().trim().min(1).max(120).optional(),
   })
+  .strict();
+
+export const channelDetailSchema = z
+  .object({
+    channel: channelRecordSchema,
+    members: z.array(channelMemberSchema),
+  })
+  .strict();
+
+export const channelActionResultSchema = z
+  .object({ ok: z.literal(true) })
   .strict();
 
 export const channelMembersResultSchema = z
@@ -75,13 +87,31 @@ export const channelMembersResultSchema = z
   .strict();
 
 export const channelMemberAddCommandSchema = commandEnvelopeSchema(
-  z
-    .object({
-      conversationId: conversationIdSchema,
-      kind: z.enum(["user", "agent"]),
-      principalId: z.union([userIdSchema, agentIdSchema]),
-    })
-    .strict(),
+  z.union([
+    z
+      .object({
+        conversationId: conversationIdSchema,
+        kind: z.enum(["user", "agent"]),
+        principalId: z.union([userIdSchema, agentIdSchema]),
+      })
+      .strict(),
+    z
+      .object({
+        conversationId: conversationIdSchema,
+        members: z
+          .array(
+            z
+              .object({
+                kind: z.enum(["user", "agent"]),
+                principalId: z.union([userIdSchema, agentIdSchema]),
+              })
+              .strict(),
+          )
+          .min(1)
+          .max(32),
+      })
+      .strict(),
+  ]),
 );
 
 export const channelMemberRemoveCommandSchema = commandEnvelopeSchema(
@@ -96,6 +126,7 @@ export const channelMemberRemoveCommandSchema = commandEnvelopeSchema(
 
 export type ChannelRecord = z.infer<typeof channelRecordSchema>;
 export type ChannelMember = z.infer<typeof channelMemberSchema>;
+export type ChannelDetail = z.infer<typeof channelDetailSchema>;
 export type ChannelCreateCommand = z.infer<typeof channelCreateCommandSchema>;
 export type ChannelUpdateCommand = z.infer<typeof channelUpdateCommandSchema>;
 export type ChannelMemberAddCommand = z.infer<

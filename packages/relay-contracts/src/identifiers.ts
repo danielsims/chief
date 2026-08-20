@@ -1,11 +1,15 @@
 import { z } from "zod";
 
 const identifier = z.string().trim().min(1).max(128);
+const routedIdentifier = identifier.regex(
+  /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u,
+  "Identifiers may only contain letters, numbers, dots, underscores, and hyphens.",
+);
 
-export const workspaceIdSchema = identifier.brand<"WorkspaceId">();
-export const conversationIdSchema = identifier.brand<"ConversationId">();
+export const workspaceIdSchema = routedIdentifier.brand<"WorkspaceId">();
+export const conversationIdSchema = routedIdentifier.brand<"ConversationId">();
 export const messageIdSchema = identifier.brand<"MessageId">();
-export const agentIdSchema = identifier.brand<"AgentId">();
+export const agentIdSchema = routedIdentifier.brand<"AgentId">();
 export const userIdSchema = identifier.brand<"UserId">();
 export const commandIdSchema = z.uuid().brand<"CommandId">();
 export const eventIdSchema = z.uuid().brand<"EventId">();

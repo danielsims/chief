@@ -1,5 +1,24 @@
 import { z } from "zod";
 
+import {
+  attachmentUploadPayloadSchema,
+  attachmentUploadResultSchema,
+} from "./attachments";
+import {
+  channelActionResultSchema,
+  channelArchiveCommandSchema,
+  channelCreateCommandSchema,
+  channelDetailSchema,
+  channelJoinCommandSchema,
+  channelLeaveCommandSchema,
+  channelListResultSchema,
+  channelMemberAddCommandSchema,
+  channelMemberRemoveCommandSchema,
+  channelMembersResultSchema,
+  channelRecordSchema,
+  channelUnarchiveCommandSchema,
+  channelUpdateCommandSchema,
+} from "./channels";
 import { relayDiscoverySchema } from "./discovery";
 import { relayErrorSchema } from "./envelopes";
 import { logBatchSchema, logPageSchema, logReceiptSchema } from "./logs";
@@ -7,6 +26,10 @@ import {
   appendMessageCommandSchema,
   appendMessageResultSchema,
   conversationEventPageSchema,
+  deleteMessageCommandSchema,
+  deleteMessageResultSchema,
+  editMessageCommandSchema,
+  editMessageResultSchema,
   messagePageSchema,
   socketTicketSchema,
 } from "./messages";
@@ -271,6 +294,345 @@ export function createRelayOpenApiDocument(origin: string) {
             },
           },
         },
+      "/v1/workspaces/{workspaceId}/conversations/{conversationId}/messages/{messageId}/edit":
+        {
+          post: {
+            operationId: "editConversationMessage",
+            parameters: [
+              pathParameter("workspaceId"),
+              pathParameter("conversationId"),
+              pathParameter("messageId"),
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                "application/json": {
+                  schema: jsonSchema(editMessageCommandSchema),
+                },
+              },
+            },
+            responses: {
+              "200": jsonResponse(
+                "The message with its edited body and flag.",
+                editMessageResultSchema,
+              ),
+              "400": errorResponse,
+              "401": errorResponse,
+              "403": errorResponse,
+              "404": errorResponse,
+              "409": errorResponse,
+            },
+          },
+        },
+      "/v1/workspaces/{workspaceId}/conversations/{conversationId}/messages/{messageId}":
+        {
+          delete: {
+            operationId: "deleteConversationMessage",
+            parameters: [
+              pathParameter("workspaceId"),
+              pathParameter("conversationId"),
+              pathParameter("messageId"),
+            ],
+            responses: {
+              "200": jsonResponse(
+                "The deleted message tombstone.",
+                deleteMessageResultSchema,
+              ),
+              "401": errorResponse,
+              "403": errorResponse,
+              "404": errorResponse,
+            },
+          },
+        },
+      "/v1/workspaces/{workspaceId}/conversations/{conversationId}/attachments":
+        {
+          post: {
+            operationId: "uploadAttachment",
+            parameters: [
+              pathParameter("workspaceId"),
+              pathParameter("conversationId"),
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                "application/json": {
+                  schema: jsonSchema(attachmentUploadPayloadSchema),
+                },
+              },
+            },
+            responses: {
+              "201": jsonResponse(
+                "The stored attachment's public URL and key.",
+                attachmentUploadResultSchema,
+              ),
+              "400": errorResponse,
+              "401": errorResponse,
+              "403": errorResponse,
+              "413": errorResponse,
+              "415": errorResponse,
+            },
+          },
+        },
+      "/v1/attachments/{key}": {
+        get: {
+          operationId: "getAttachment",
+          security: [],
+          parameters: [pathParameter("key")],
+          responses: {
+            "200": { description: "The attachment bytes with its media type." },
+            "404": errorResponse,
+          },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/channels": {
+        get: {
+          operationId: "listChannels",
+          parameters: [pathParameter("workspaceId")],
+          responses: {
+            "200": jsonResponse(
+              "The workspace channels, non-archived first.",
+              channelListResultSchema,
+            ),
+            "401": errorResponse,
+            "403": errorResponse,
+          },
+        },
+        post: {
+          operationId: "createChannel",
+          parameters: [pathParameter("workspaceId")],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: jsonSchema(channelCreateCommandSchema),
+              },
+            },
+          },
+          responses: {
+            "201": jsonResponse(
+              "The created channel with its members.",
+              channelDetailSchema,
+            ),
+            "400": errorResponse,
+            "401": errorResponse,
+            "403": errorResponse,
+            "409": errorResponse,
+          },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/channels/{conversationId}": {
+        get: {
+          operationId: "getChannel",
+          parameters: [
+            pathParameter("workspaceId"),
+            pathParameter("conversationId"),
+          ],
+          responses: {
+            "200": jsonResponse(
+              "The channel with its members.",
+              channelDetailSchema,
+            ),
+            "401": errorResponse,
+            "403": errorResponse,
+            "404": errorResponse,
+          },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/channels/{conversationId}/update": {
+        post: {
+          operationId: "updateChannel",
+          parameters: [
+            pathParameter("workspaceId"),
+            pathParameter("conversationId"),
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: jsonSchema(channelUpdateCommandSchema),
+              },
+            },
+          },
+          responses: {
+            "200": jsonResponse(
+              "The updated channel record.",
+              channelListResultSchema,
+            ),
+            "400": errorResponse,
+            "401": errorResponse,
+            "403": errorResponse,
+            "404": errorResponse,
+          },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/channels/{conversationId}/archive": {
+        post: {
+          operationId: "archiveChannel",
+          parameters: [
+            pathParameter("workspaceId"),
+            pathParameter("conversationId"),
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: jsonSchema(channelArchiveCommandSchema),
+              },
+            },
+          },
+          responses: {
+            "200": jsonResponse("The archived channel.", channelRecordSchema),
+            "401": errorResponse,
+            "403": errorResponse,
+            "404": errorResponse,
+          },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/channels/{conversationId}/unarchive": {
+        post: {
+          operationId: "unarchiveChannel",
+          parameters: [
+            pathParameter("workspaceId"),
+            pathParameter("conversationId"),
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: jsonSchema(channelUnarchiveCommandSchema),
+              },
+            },
+          },
+          responses: {
+            "200": jsonResponse("The restored channel.", channelRecordSchema),
+            "401": errorResponse,
+            "403": errorResponse,
+            "404": errorResponse,
+          },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/channels/{conversationId}/join": {
+        post: {
+          operationId: "joinChannel",
+          parameters: [
+            pathParameter("workspaceId"),
+            pathParameter("conversationId"),
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: jsonSchema(channelJoinCommandSchema),
+              },
+            },
+          },
+          responses: {
+            "200": jsonResponse(
+              "The actor joined the channel.",
+              channelActionResultSchema,
+            ),
+            "401": errorResponse,
+            "403": errorResponse,
+            "404": errorResponse,
+          },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/channels/{conversationId}/leave": {
+        post: {
+          operationId: "leaveChannel",
+          parameters: [
+            pathParameter("workspaceId"),
+            pathParameter("conversationId"),
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: jsonSchema(channelLeaveCommandSchema),
+              },
+            },
+          },
+          responses: {
+            "200": jsonResponse(
+              "The actor left the channel.",
+              channelActionResultSchema,
+            ),
+            "401": errorResponse,
+            "403": errorResponse,
+            "404": errorResponse,
+          },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/channels/{conversationId}/members": {
+        get: {
+          operationId: "listChannelMembers",
+          parameters: [
+            pathParameter("workspaceId"),
+            pathParameter("conversationId"),
+          ],
+          responses: {
+            "200": jsonResponse(
+              "The channel membership with best-effort names.",
+              channelMembersResultSchema,
+            ),
+            "401": errorResponse,
+            "403": errorResponse,
+            "404": errorResponse,
+          },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/channels/{conversationId}/members/add": {
+        post: {
+          operationId: "addChannelMember",
+          parameters: [
+            pathParameter("workspaceId"),
+            pathParameter("conversationId"),
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: jsonSchema(channelMemberAddCommandSchema),
+              },
+            },
+          },
+          responses: {
+            "200": jsonResponse(
+              "The member was added.",
+              channelActionResultSchema,
+            ),
+            "401": errorResponse,
+            "403": errorResponse,
+            "404": errorResponse,
+          },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/channels/{conversationId}/members/remove": {
+        post: {
+          operationId: "removeChannelMember",
+          parameters: [
+            pathParameter("workspaceId"),
+            pathParameter("conversationId"),
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: jsonSchema(channelMemberRemoveCommandSchema),
+              },
+            },
+          },
+          responses: {
+            "200": jsonResponse(
+              "The member was removed.",
+              channelActionResultSchema,
+            ),
+            "401": errorResponse,
+            "403": errorResponse,
+            "404": errorResponse,
+          },
+        },
+      },
     },
     components: {
       securitySchemes: {
