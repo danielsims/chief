@@ -31,6 +31,7 @@ struct DeviceAuthorizationChallenge: Decodable, Equatable, Sendable {
 protocol DeviceAuthorizationServing: Sendable {
   func requestAuthorization() async throws -> DeviceAuthorizationChallenge
   func exchange(_ challenge: DeviceAuthorizationChallenge) async throws -> ChiefSession
+  func refreshAccountToken(sessionToken: String) async throws -> String
 }
 
 actor URLSessionDeviceAuthorizationClient: DeviceAuthorizationServing {
@@ -92,6 +93,13 @@ actor URLSessionDeviceAuthorizationClient: DeviceAuthorizationServing {
     throw DeviceAuthorizationError.expired
   }
 
+  /// Exchanges the longer-lived first-party session for a short-lived signed
+  /// account assertion. The relay accepts this assertion only while binding a
+  /// device's own NIP-98 key; ordinary relay traffic never uses bearer auth.
+  func refreshAccountToken(sessionToken: String) async throws -> String {
+    try await loadRelayToken(sessionToken: sessionToken)
+  }
+
   private func requestToken(deviceCode: String) async -> DeviceTokenResult {
     do {
       let body = try JSONEncoder().encode(
@@ -137,7 +145,13 @@ actor URLSessionDeviceAuthorizationClient: DeviceAuthorizationServing {
     var request = URLRequest(url: endpoint(path: "convex/token"))
     request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "authorization")
     request.setValue("application/json", forHTTPHeaderField: "accept")
-    let (data, response) = try await session.data(for: request)
+    let data: Data
+    let response: URLResponse
+    do {
+      (data, response) = try await session.data(for: request)
+    } catch {
+      throw DeviceAuthorizationError.network
+    }
     guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode)
     else { throw DeviceAuthorizationError.invalidSession }
     return try decoder.decode(RelayTokenEnvelope.self, from: data).token

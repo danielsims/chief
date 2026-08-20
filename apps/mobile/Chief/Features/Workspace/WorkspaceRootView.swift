@@ -4,6 +4,7 @@ struct WorkspaceRootView: View {
   @Environment(AppModel.self) private var model
   @State private var homePath: [String] = []
   @State private var dmsPath: [String] = []
+  @State private var agentsPath: [String] = []
 
   var body: some View {
     @Bindable var model = model
@@ -18,16 +19,24 @@ struct WorkspaceRootView: View {
         case .projects:
           NavigationStack { ProjectsRootView() }
         case .agents:
-          NavigationStack { AgentsView() }
+          NavigationStack(path: $agentsPath) { AgentsView() }
         }
       }
-      .safeAreaPadding(.bottom, inConversation ? 0 : 84)
+      .safeAreaPadding(.bottom, inConversation ? 0 : 72)
 
       if !inConversation {
         ChiefTabBar(selection: $model.selectedTab, unreadCount: totalUnread)
+          .padding(.horizontal, 18)
+          .padding(.bottom, 5)
       }
     }
     .background(ChiefTheme.background.ignoresSafeArea())
+    .task(id: model.selectedConversationID) {
+      guard let conversationID = model.selectedConversationID else { return }
+      model.selectedTab = .home
+      homePath = [conversationID]
+      model.selectedConversationID = nil
+    }
   }
 
   /// Hide the bottom tab bar in favour of the conversation composer when a
@@ -36,6 +45,7 @@ struct WorkspaceRootView: View {
     switch model.selectedTab {
     case .home: return !homePath.isEmpty
     case .dms: return !dmsPath.isEmpty
+    case .agents: return !agentsPath.isEmpty
     default: return false
     }
   }
@@ -48,7 +58,7 @@ struct WorkspaceRootView: View {
 struct WorkspaceHeader: View {
   @Environment(AppModel.self) private var model
   @State private var workspaceSheet = false
-  @State private var profileSheet = false
+  @State private var profilePage = false
 
   var body: some View {
     HStack(spacing: 12) {
@@ -72,7 +82,7 @@ struct WorkspaceHeader: View {
       Spacer()
 
       Button {
-        profileSheet = true
+        profilePage = true
       } label: {
         UserAvatar(user: model.session?.user, size: 32)
       }
@@ -83,7 +93,7 @@ struct WorkspaceHeader: View {
     .frame(maxWidth: .infinity, minHeight: 52, maxHeight: 52)
     .background(ChiefTheme.background)
     .sheet(isPresented: $workspaceSheet) { WorkspaceSwitcherSheet() }
-    .sheet(isPresented: $profileSheet) { ProfileSheet() }
+    .navigationDestination(isPresented: $profilePage) { UserProfileView() }
   }
 }
 
@@ -96,14 +106,13 @@ private struct ChiefTabBar: View {
       tab(.home, "Home", "house.fill", badge: unreadCount)
       tab(.dms, "DMs", "bubble.left.and.bubble.right")
       tab(.projects, "Projects", "shippingbox")
-      tab(.agents, "Agents", "brain")
+      tab(.agents, "Agents", "person.2.fill")
     }
-    .padding(5)
+    .padding(4)
     .frame(maxWidth: .infinity, minHeight: 60)
-    .padding(.horizontal, 14)
-    .chiefLiquidGlass(in: Capsule())
-    .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
-    .padding(.bottom, 6)
+    .background(.ultraThinMaterial, in: Capsule())
+    .overlay { Capsule().stroke(Color.white.opacity(0.09), lineWidth: 0.5) }
+    .shadow(color: .black.opacity(0.18), radius: 12, y: 5)
   }
 
   private func tab(_ tab: WorkspaceTab, _ label: String, _ icon: String, badge: Int = 0)
@@ -117,17 +126,23 @@ private struct ChiefTabBar: View {
           Image(systemName: icon)
             .font(.system(size: 16, weight: selection == tab ? .semibold : .regular))
           if badge > 0 && tab == .home {
-            Circle()
-              .fill(Color.white)
-              .frame(width: 6, height: 6)
-              .offset(x: 5, y: -2)
+            Text(badge > 99 ? "99+" : "\(badge)")
+              .font(.system(size: 9, weight: .bold))
+              .foregroundStyle(.black)
+              .padding(.horizontal, 4)
+              .frame(minWidth: 16, minHeight: 16)
+              .background(.white, in: Capsule())
+              .offset(x: 12, y: -7)
           }
         }
         Text(label).font(.system(size: 10.5, weight: selection == tab ? .semibold : .medium))
       }
       .foregroundStyle(selection == tab ? Color.white : ChiefTheme.secondary)
-      .frame(maxWidth: .infinity, minHeight: 46)
-      .background(selection == tab ? Color.white.opacity(0.10) : .clear, in: Capsule())
+      .frame(maxWidth: .infinity, minHeight: 50)
+      .background(
+        selection == tab ? Color.black.opacity(0.24) : .clear,
+        in: Capsule()
+      )
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
@@ -142,21 +157,41 @@ private struct WorkspaceSwitcherSheet: View {
   var body: some View {
     NavigationStack {
       List {
-        Section {
-          Button {
-            dismiss()
-          } label: {
-            HStack(spacing: 12) {
-              WorkspaceAvatar(workspace: model.workspace, size: 38)
-              VStack(alignment: .leading, spacing: 3) {
-                Text(model.workspace?.name ?? "Chief").font(.system(size: 15, weight: .semibold))
-                Text("Connected").font(.system(size: 13)).foregroundStyle(ChiefTheme.secondary)
+        Section("Your workspaces") {
+          ForEach(orderedWorkspaces) { summary in
+            Button {
+              if summary.id != model.workspace?.id {
+                Task {
+                  await model.switchWorkspace(workspaceID: summary.id)
+                  dismiss()
+                }
+              } else {
+                dismiss()
               }
-              Spacer()
-              Image(systemName: "checkmark").foregroundStyle(ChiefTheme.accent)
+            } label: {
+              HStack(spacing: 12) {
+                Text(String(summary.name.prefix(1)).uppercased())
+                  .font(.system(size: 15, weight: .bold))
+                  .frame(width: 38, height: 38)
+                  .background(
+                    ChiefTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 10)
+                  )
+                  .foregroundStyle(ChiefTheme.accent)
+                VStack(alignment: .leading, spacing: 3) {
+                  Text(summary.name).font(.system(size: 15, weight: .semibold))
+                  Text(statusText(for: summary))
+                    .font(.system(size: 13))
+                    .foregroundStyle(ChiefTheme.secondary)
+                }
+                Spacer()
+                if summary.isActive {
+                  Image(systemName: "checkmark").foregroundStyle(ChiefTheme.accent)
+                }
+              }
             }
+            .buttonStyle(.plain)
+            .disabled(summary.id == model.workspace?.id)
           }
-          .buttonStyle(.plain)
         }
         Section {
           Button {
@@ -168,12 +203,37 @@ private struct WorkspaceSwitcherSheet: View {
         }
       }
       .scrollContentBackground(.hidden)
-      .background(ChiefTheme.background)
+      .background(ChiefSheetPalette.background)
       .navigationTitle("Workspaces")
       .navigationBarTitleDisplayMode(.inline)
+      .task { await model.refreshWorkspaces() }
     }
-    .presentationDetents([.medium, .large])
-    .presentationDragIndicator(.visible)
+    .chiefSheet([.height(460), .large])
+  }
+
+  private var orderedWorkspaces: [WorkspaceSummary] {
+    let active = model.workspaceSummaries
+    let current =
+      active.first { $0.id == model.workspace?.id }
+      ?? (model.workspace.map {
+        WorkspaceSummary(
+          id: $0.id, name: $0.name, isActive: true, onboardingComplete: $0.onboardingComplete)
+      })
+    var list = active
+    if let current, !list.contains(where: { $0.id == current.id }) {
+      list.append(current)
+    }
+    return list.sorted {
+      $0.id == model.workspace?.id
+        ? true : ($1.id == model.workspace?.id ? false : $0.name < $1.name)
+    }
+  }
+
+  private func statusText(for summary: WorkspaceSummary) -> String {
+    if summary.id == model.workspace?.id {
+      return "Connected"
+    }
+    return summary.onboardingComplete ? "Workspace" : "Setup needed"
   }
 }
 
@@ -206,47 +266,35 @@ private struct WorkspaceAvatar: View {
   }
 }
 
-extension View {
-  @ViewBuilder
-  fileprivate func chiefLiquidGlass<S: Shape>(in shape: S) -> some View {
-    if #available(iOS 26.0, *) {
-      glassEffect(.regular.interactive(), in: shape)
-    } else {
-      background(.ultraThinMaterial, in: shape)
-        .overlay { shape.stroke(Color.white.opacity(0.10)) }
-    }
-  }
-}
-
-private struct ProfileSheet: View {
+struct UserProfileView: View {
   @Environment(AppModel.self) private var model
   var body: some View {
-    NavigationStack {
-      List {
-        Section {
-          HStack(spacing: 14) {
-            UserAvatar(user: model.session?.user, size: 46)
-            VStack(alignment: .leading, spacing: 3) {
-              Text(model.session?.user.name ?? "Account").font(.system(size: 16, weight: .semibold))
-              Text("Available").font(.system(size: 13)).foregroundStyle(ChiefTheme.secondary)
-            }
+    List {
+      Section {
+        HStack(spacing: 14) {
+          UserAvatar(user: model.session?.user, size: 52)
+          VStack(alignment: .leading, spacing: 3) {
+            Text(model.session?.user.name ?? "Account").font(.system(size: 18, weight: .semibold))
+            Text("Available").font(.system(size: 13)).foregroundStyle(ChiefTheme.secondary)
           }
         }
-        Section {
-          Label("Connections", systemImage: "link")
+      }
+      Section {
+        Label("Connections", systemImage: "link")
+        NavigationLink {
+          NotificationSettingsView()
+        } label: {
           Label("Notifications", systemImage: "bell")
         }
-        Section {
-          Button("Sign out", role: .destructive, action: model.signOut)
-        }
       }
-      .scrollContentBackground(.hidden)
-      .background(ChiefTheme.background)
-      .navigationTitle("Profile")
-      .navigationBarTitleDisplayMode(.inline)
+      Section {
+        Button("Sign out", role: .destructive, action: model.signOut)
+      }
     }
-    .presentationDetents([.medium, .large])
-    .presentationDragIndicator(.visible)
+    .scrollContentBackground(.hidden)
+    .background(ChiefTheme.background)
+    .navigationTitle("Profile")
+    .navigationBarTitleDisplayMode(.inline)
   }
 }
 
@@ -286,7 +334,7 @@ struct HomeView: View {
         LazyVStack(alignment: .leading, spacing: 20) {
           greeting
           if model.workspaceSyncFailed {
-            LocalOnlyBanner()
+            RelayUnavailableBanner()
           }
           if attentionCount > 0 {
             HomeAttentionRow(count: attentionCount)
@@ -331,25 +379,73 @@ struct HomeView: View {
 struct DMsView: View {
   @Environment(AppModel.self) private var model
   @Binding var path: [String]
+  @State private var quickCreateVisible = false
+  @State private var newMessageVisible = false
+  @State private var newChannelVisible = false
 
   var body: some View {
-    VStack(spacing: 0) {
-      WorkspaceHeader()
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 14) {
-          Text("Direct messages")
-            .font(.system(size: 26, weight: .regular, design: .rounded))
-            .tracking(-0.6)
-            .padding(.horizontal, ChiefTheme.pagePadding)
-          DMsGroup()
+    ZStack(alignment: .bottomTrailing) {
+      VStack(spacing: 0) {
+        WorkspaceHeader()
+        ScrollView {
+          LazyVStack(alignment: .leading, spacing: 14) {
+            Text("Direct messages")
+              .font(.system(size: 26, weight: .regular, design: .rounded))
+              .tracking(-0.6)
+              .padding(.horizontal, ChiefTheme.pagePadding)
+            DMsGroup()
+          }
+          .padding(.top, 16)
+          .padding(.bottom, 84)
         }
-        .padding(.top, 16)
-        .padding(.bottom, 12)
       }
+      if quickCreateVisible {
+        Color.black.opacity(0.001)
+          .ignoresSafeArea()
+          .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { quickCreateVisible = false } }
+        WorkspaceQuickCreateMenu(
+          onInvite: {},
+          onChannel: {
+            quickCreateVisible = false
+            newChannelVisible = true
+          },
+          onMessage: {
+            quickCreateVisible = false
+            newMessageVisible = true
+          }
+        )
+        .padding(.trailing, ChiefTheme.pagePadding)
+        .padding(.bottom, 74)
+        .transition(.scale(scale: 0.94, anchor: .bottomTrailing).combined(with: .opacity))
+      }
+      Button {
+        Haptics.heavy()
+        withAnimation(.easeOut(duration: 0.16)) { quickCreateVisible.toggle() }
+      } label: {
+        Image(systemName: quickCreateVisible ? "xmark" : "plus")
+          .font(.system(size: 19, weight: .semibold))
+          .foregroundStyle(.white)
+          .frame(width: 54, height: 54)
+          .background(.ultraThinMaterial, in: Circle())
+          .overlay { Circle().stroke(Color.white.opacity(0.12), lineWidth: 0.5) }
+          .shadow(color: .black.opacity(0.24), radius: 12, y: 5)
+      }
+      .buttonStyle(.plain)
+      .padding(.trailing, ChiefTheme.pagePadding)
+      .padding(.bottom, 8)
+      .accessibilityLabel(quickCreateVisible ? "Close create menu" : "Create")
     }
     .background(ChiefTheme.background)
     .navigationDestination(for: String.self) { id in ConversationView(conversationID: id) }
     .toolbar(.hidden, for: .navigationBar)
+    .fullScreenCover(isPresented: $newMessageVisible) {
+      NewMessageView { conversationID in path.append(conversationID) }
+    }
+    .sheet(isPresented: $newChannelVisible) {
+      NewChannelSheet { name, isPrivate in
+        Task { await model.createChannel(name: name, isPrivate: isPrivate) }
+      }
+    }
   }
 }
 
@@ -373,6 +469,11 @@ struct AgentsView: View {
     }
     .background(ChiefTheme.background)
     .toolbar(.hidden, for: .navigationBar)
+    .navigationDestination(for: String.self) { agentID in
+      if let agent = model.workspace?.agents.first(where: { $0.id == agentID }) {
+        AgentDetailView(agent: agent)
+      }
+    }
   }
 }
 
@@ -410,9 +511,7 @@ private struct HomeAttentionRow: View {
   }
 }
 
-/// Shown when onboarding finished locally but the relay could not be reached,
-/// so the user knows setup did not start instead of it failing silently.
-private struct LocalOnlyBanner: View {
+private struct RelayUnavailableBanner: View {
   var body: some View {
     HStack(alignment: .top, spacing: 12) {
       Image(systemName: "wifi.slash")
@@ -421,10 +520,10 @@ private struct LocalOnlyBanner: View {
         .frame(width: 34, height: 34)
         .background(ChiefTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
       VStack(alignment: .leading, spacing: 3) {
-        Text("Workspace is local-only right now")
+        Text("Relay connection interrupted")
           .font(.system(size: 15, weight: .semibold))
         Text(
-          "The Chief relay wasn't reachable, so workspace setup and hosted agents haven't started. Conversations you have here stay on this device for now."
+          "Chief is showing the last workspace saved on this iPhone. Messages and agent work will resume after the relay reconnects."
         )
         .font(.system(size: 13))
         .foregroundStyle(ChiefTheme.secondary)

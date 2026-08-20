@@ -2,11 +2,13 @@ name: ChiefMobile
 options:
   bundleIdPrefix: sh.heychief
   deploymentTarget:
-    iOS: "18.0"
+    iOS: "26.0"
   createIntermediateGroups: true
 packages:
   P256K:
     path: Chief/Vendored/swift-secp256k1
+  BrowserUI:
+    path: ../../../browser-ui
 settings:
   base:
     CURRENT_PROJECT_VERSION: 1
@@ -26,6 +28,9 @@ targets:
           - Vendored/swift-secp256k1
       - path: Chief/Resources
         buildPhase: resources
+      - path: ../../packages/agent-runtime/src/agents
+        type: folder
+        buildPhase: resources
       - path: Chief/Vendored/CelldC
         headerVisibility: public
         createIntermediateGroups: true
@@ -34,6 +39,10 @@ targets:
       - path: Chief/Vendored/CelldKit/ChiefOpenCodeAgentHost.swift
     dependencies:
       - package: P256K
+      - package: BrowserUI
+        product: BrowserUI
+      - package: BrowserUI
+        product: BrowserUIWebKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: sh.heychief.mobile
@@ -65,6 +74,7 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: Chief/Vendored/CelldC/Chief-Bridging-Header.h
         OTHER_SWIFT_FLAGS:
           - "-DCELL_RUNTIME"
+        TARGETED_DEVICE_FAMILY: 1
     scheme:
       testTargets:
         - ChiefTests

@@ -3,6 +3,8 @@ import Foundation
 actor FixtureRelayClient: RelayServing {
     private var fixtureMessages = DemoWorkspace.messages
 
+    func bindDeviceIdentity(accountToken: String) async throws {}
+
     func loadWorkspace() async throws -> WorkspaceSnapshot { DemoWorkspace.snapshot }
 
     func createWorkspace(from draft: OnboardingDraft) async throws -> WorkspaceSnapshot {
@@ -16,7 +18,12 @@ actor FixtureRelayClient: RelayServing {
         )
     }
 
-    func messages(workspaceID: String, conversationID: String, after sequence: Int?) async throws -> [ConversationMessage] {
+    func messages(
+        workspaceID: String,
+        conversationID: String,
+        after sequence: Int?,
+        signingIdentity: NostrIdentity?
+    ) async throws -> [ConversationMessage] {
         fixtureMessages.filter {
             $0.workspaceID == workspaceID && $0.conversationID == conversationID
         }
@@ -27,7 +34,8 @@ actor FixtureRelayClient: RelayServing {
         workspaceID: String,
         conversationID: String,
         threadRootID: String?,
-        mentions: [String] = []
+        mentions: [String] = [],
+        components: [MessageComponent] = []
     ) async throws -> ConversationMessage {
         let message = ConversationMessage(
             id: UUID().uuidString,
@@ -37,7 +45,7 @@ actor FixtureRelayClient: RelayServing {
             author: .user(id: "daniel", name: "Daniel Sims"),
             body: body,
             mentions: mentions,
-            components: [],
+            components: components,
             createdAt: .now,
             sequence: (fixtureMessages.map(\.sequence).max() ?? 0) + 1
         )
@@ -47,7 +55,13 @@ actor FixtureRelayClient: RelayServing {
 
     func claimAgentJob(workspaceID: String, agentID: String) async throws -> AgentJobLease? {
         AgentJobLease(
-            job: .init(id: UUID().uuidString, kind: "workspace.onboarding"),
+            job: .init(
+                id: UUID().uuidString,
+                agentId: agentID,
+                kind: "workspace.onboarding",
+                attempt: 1,
+                payload: .init(conversationId: "mission-control")
+            ),
             leaseToken: UUID().uuidString
         )
     }
@@ -57,6 +71,14 @@ actor FixtureRelayClient: RelayServing {
         agentID: String,
         leaseToken: String,
         completion: AgentJobCompletion
+    ) async throws {}
+
+    func failAgentJob(
+        workspaceID: String,
+        agentID: String,
+        leaseToken: String,
+        error: String,
+        retryAt: Date?
     ) async throws {}
 
     func recordLogs(workspaceID: String, _ entries: [RelayLogEntry]) async throws {}
@@ -73,14 +95,192 @@ actor FixtureRelayClient: RelayServing {
         conversationID: String,
         threadRootID: String?,
         mentions: [String],
+        components: [MessageComponent],
         signingIdentity: NostrIdentity
     ) async throws -> ConversationMessage {
-        try await send(
+        var message = try await send(
             body: body,
             workspaceID: workspaceID,
             conversationID: conversationID,
             threadRootID: threadRootID,
             mentions: mentions
+        )
+        message = ConversationMessage(
+            id: message.id,
+            workspaceID: message.workspaceID,
+            conversationID: message.conversationID,
+            threadRootID: message.threadRootID,
+            author: .agent(id: "chief", name: "Chief"),
+            body: message.body,
+            mentions: message.mentions,
+            components: components,
+            reactions: message.reactions,
+            createdAt: message.createdAt,
+            sequence: message.sequence
+        )
+        fixtureMessages = fixtureMessages.map { $0.id == message.id ? message : $0 }
+        return message
+    }
+
+    func uploadAttachment(
+        workspaceID: String,
+        conversationID: String,
+        fileName: String,
+        data: Data
+    ) async throws -> String {
+        let ext = (fileName as NSString).pathExtension
+        return "https://fixture.invalid/attachments/\(UUID().uuidString).\(ext)"
+    }
+
+    func listChannels(
+        workspaceID: String,
+        signingIdentity: NostrIdentity?
+    ) async throws -> [ChannelRecord] {
+        DemoWorkspace.snapshot.conversations
+            .filter { $0.kind == .channel }
+            .map { fromSummary($0, workspaceID: workspaceID) }
+    }
+
+    func createChannel(
+        workspaceID: String,
+        conversationID: String,
+        name: String,
+        isPrivate: Bool,
+        signingIdentity: NostrIdentity?
+    ) async throws -> ChannelRecord {
+        ChannelRecord(
+            id: conversationID,
+            workspaceId: workspaceID,
+            name: name,
+            isPrivate: isPrivate,
+            archived: false,
+            createdAt: .now
+        )
+    }
+
+    func archiveChannel(workspaceID: String, conversationID: String, archived: Bool) async throws {}
+
+    func leaveChannel(workspaceID: String, conversationID: String) async throws {}
+
+    func channelMembers(workspaceID: String, conversationID: String) async throws -> [ChannelMember] {
+        []
+    }
+
+    func addChannelMember(
+        workspaceID: String,
+        conversationID: String,
+        kind: String,
+        principalID: String,
+        signingIdentity: NostrIdentity?
+    ) async throws {}
+
+    func editMessage(
+        workspaceID: String,
+        conversationID: String,
+        messageID: String,
+        body: String
+    ) async throws -> ConversationMessage {
+        guard let index = fixtureMessages.firstIndex(where: { $0.id == messageID }) else {
+            throw RelayError.httpStatus(404)
+        }
+        var message = fixtureMessages[index]
+        message.body = body
+        message.edited = true
+        fixtureMessages[index] = message
+        return message
+    }
+
+    func deleteMessage(
+        workspaceID: String,
+        conversationID: String,
+        messageID: String
+    ) async throws -> ConversationMessage {
+        guard let index = fixtureMessages.firstIndex(where: { $0.id == messageID }) else {
+            throw RelayError.httpStatus(404)
+        }
+        var message = fixtureMessages[index]
+        message = ConversationMessage(
+            id: message.id,
+            workspaceID: message.workspaceID,
+            conversationID: message.conversationID,
+            threadRootID: message.threadRootID,
+            author: message.author,
+            body: "",
+            mentions: [],
+            components: [],
+            reactions: [],
+            edited: false,
+            deleted: true,
+            createdAt: message.createdAt,
+            sequence: message.sequence
+        )
+        fixtureMessages[index] = message
+        return message
+    }
+
+    func workspaceMembers(
+        workspaceID: String,
+        signingIdentity: NostrIdentity?
+    ) async throws -> [WorkspaceMember] {
+        [
+            .init(kind: "user", principalId: "daniel", role: "owner"),
+            .init(kind: "agent", principalId: "chief", role: "member"),
+            .init(kind: "agent", principalId: "engineer", role: "member"),
+        ]
+    }
+
+    func startDirectMessage(
+        workspaceID: String,
+        participantKind: String,
+        participantID: String
+    ) async throws -> ConversationSummary {
+        let name = DemoWorkspace.snapshot.agents
+            .first(where: { $0.id == participantID })?.name ?? participantID
+        return ConversationSummary(
+            id: "dm-\(participantKind)-\(participantID)",
+            name: name,
+            kind: .direct,
+            isPrivate: true,
+            unreadCount: 0,
+            requiresAttention: false,
+            lastMessage: nil
+        )
+    }
+
+    func loadAgentConfig(workspaceID: String, agentID: String) async throws -> AgentConfig? {
+        nil
+    }
+
+    func removeChannelMember(
+        workspaceID: String,
+        conversationID: String,
+        kind: String,
+        principalID: String
+    ) async throws {}
+
+    func allChannelMemberships(workspaceID: String) async throws -> [ChannelMembership] {
+        var memberships: [ChannelMembership] = []
+        for conversation in DemoWorkspace.snapshot.conversations where conversation.kind == .channel {
+            memberships.append(
+                .init(conversationId: conversation.id, kind: "user", principalId: "daniel", role: "owner", joinedAt: .now)
+            )
+            memberships.append(
+                .init(conversationId: conversation.id, kind: "agent", principalId: "chief", role: "owner", joinedAt: .now)
+            )
+        }
+        return memberships
+    }
+
+    func saveAgentConfig(workspaceID: String, agentID: String, config: AgentConfig) async throws {}
+
+    private func fromSummary(_ summary: ConversationSummary, workspaceID: String) -> ChannelRecord {
+        ChannelRecord(
+            id: summary.id,
+            workspaceId: workspaceID,
+            name: summary.name,
+            isPrivate: summary.isPrivate,
+            archived: summary.archived,
+            createdAt: .now
         )
     }
 
@@ -88,7 +288,8 @@ actor FixtureRelayClient: RelayServing {
         workspaceID: String,
         conversationID: String,
         rootMessageID: String,
-        after sequence: Int?
+        after sequence: Int?,
+        signingIdentity: NostrIdentity?
     ) async throws -> [ConversationMessage] {
         fixtureMessages.filter {
             $0.workspaceID == workspaceID
@@ -100,7 +301,8 @@ actor FixtureRelayClient: RelayServing {
     func searchMessages(
         workspaceID: String,
         conversationID: String,
-        query: String
+        query: String,
+        signingIdentity: NostrIdentity?
     ) async throws -> [ConversationMessage] {
         fixtureMessages.filter {
             $0.workspaceID == workspaceID
@@ -131,6 +333,19 @@ actor FixtureRelayClient: RelayServing {
                 sequence: (fixtureMessages.map(\.sequence).max() ?? 0) + 1
             )
     }
+
+    func listWorkspaces() async throws -> [WorkspaceSummary] {
+        [
+            .init(
+                id: "chief-demo",
+                name: "Chief",
+                isActive: true,
+                onboardingComplete: true
+            )
+        ]
+    }
+
+    func switchWorkspace(id: String) async throws {}
 }
 
 enum DemoWorkspace {

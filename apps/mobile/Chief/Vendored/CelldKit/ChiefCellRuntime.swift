@@ -4,10 +4,9 @@ import os
 /// Boots and owns the vendored celld-compatible cell runtime (V8 + per-cell
 /// SQLite), mirroring `CelldKit.CelldRuntime` from the durable-agent app.
 ///
-/// Each conversation is its own cell, named `workspace:conversation`. The
-/// embedded `agent.js` worker is a Durable Object: it keeps the durable
-/// transcript in the cell and calls `env.AI.respond(scope, messages)` to run
-/// one turn. Inference and tools are bridged from Swift.
+/// Each agent is exactly one cell, named `workspace:agent`. Conversations are
+/// durable records inside that agent's isolated SQLite database; they are not
+/// separate runtimes. Inference and tools are bridged from Swift.
 actor ChiefCellRuntime {
   static let shared = ChiefCellRuntime()
 
@@ -31,11 +30,10 @@ actor ChiefCellRuntime {
   func start(host: any ChiefAgentHosting) async throws {
     if !started {
       CelldC.start()
-      let documents = FileManager.default.urls(
-        for: .documentDirectory,
-        in: .userDomainMask
-      ).first?.path ?? NSTemporaryDirectory()
-      CelldC.setDataDirectory(documents)
+      let storage = try Self.prepareStorageDirectory()
+      guard CelldC.setDataDirectory(storage.path) else {
+        throw ChiefCellError.storageUnavailable
+      }
       CelldC.setAICallback(Self.makeAITrampoline())
       started = true
       logger.info("cell runtime started (version \(CelldC.version))")
@@ -52,36 +50,113 @@ actor ChiefCellRuntime {
 
   /// Run one user-authored turn in a cell. `messagesJSON` is the durable
   /// transcript already persisted in the cell; returns the updated transcript.
-  func runTurn(scope: String, userText: String) async throws -> String {
+  func runTurn(
+    scope: String,
+    conversationID: String,
+    userText: String
+  ) async throws -> String {
     guard started else { throw ChiefCellError.notStarted }
     guard let bundle = agentBundle else { throw ChiefCellError.missingWorker }
-    let bindings = #"[{"name":"CONVERSATION_AGENT","className":"ConversationAgent"}]"#
-    let body = try JSONSerialization.data(withJSONObject: ["text": userText])
+    let bindings = #"[{"name":"AGENT_CELL","className":"AgentCell"}]"#
+    let body = try JSONSerialization.data(
+      withJSONObject: ["conversationId": conversationID, "text": userText]
+    )
     let bodyString = String(decoding: body, as: UTF8.self)
     let url = "https://agent/?name=\(scope.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? scope)"
     // The C FFI blocks the calling thread (isolate + model inference), so run
     // it on a detached task to keep the Swift concurrency pool free — the AI
     // trampoline schedules back onto that pool, and blocking an actor-isolated
     // pool thread here would deadlock.
-    return try await Task.detached(priority: .userInitiated) {
-      guard
-        let reply = CelldC.evaluateWorker(
-          source: bundle,
-          url: url,
-          method: "POST",
-          body: bodyString,
-          bindingsJSON: bindings
-        )
-      else {
+    let first = try await Self.evaluate(
+      bundle: bundle,
+      url: url,
+      body: bodyString,
+      bindings: bindings
+    )
+    guard Self.responseStatus(first) == 409 else { return first }
+
+    // A prior inference or process failure leaves the exact user turn pending
+    // in the cell. Resume that durable checkpoint rather than appending the
+    // same instruction again or fabricating a replacement response.
+    let resumeBody = try JSONSerialization.data(
+      withJSONObject: ["conversationId": conversationID, "resume": true]
+    )
+    return try await Self.evaluate(
+      bundle: bundle,
+      url: url,
+      body: String(decoding: resumeBody, as: UTF8.self),
+      bindings: bindings
+    )
+  }
+
+  private static func evaluate(
+    bundle: String,
+    url: String,
+    body: String,
+    bindings: String
+  ) async throws -> String {
+    try await Task.detached(priority: .userInitiated) {
+      guard let reply = CelldC.evaluateWorker(
+        source: bundle,
+        url: url,
+        method: "POST",
+        body: body,
+        bindingsJSON: bindings
+      ) else {
         throw ChiefCellError.noResult
       }
       return reply
     }.value
   }
 
-  /// Allocate one cell scope per workspace + conversation.
-  static func scope(workspaceID: String, conversationID: String) -> String {
-    "\(workspaceID):\(conversationID)"
+  private static func responseStatus(_ response: String) -> Int? {
+    guard let data = response.data(using: .utf8),
+      let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return nil }
+    return envelope["status"] as? Int
+  }
+
+  /// Allocate exactly one cell scope per agent in a workspace.
+  static func scope(
+    workspaceID: String,
+    agentID: String = "chief"
+  ) throws -> String {
+    guard isSafeIdentifier(workspaceID), isSafeIdentifier(agentID) else {
+      throw ChiefCellError.invalidScope
+    }
+    return "\(workspaceID):\(agentID)"
+  }
+
+  private static func isSafeIdentifier(_ value: String) -> Bool {
+    value.range(
+      of: #"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"#,
+      options: .regularExpression
+    ) != nil
+  }
+
+  private static func prepareStorageDirectory() throws -> URL {
+    let manager = FileManager.default
+    guard let applicationSupport = manager.urls(
+      for: .applicationSupportDirectory,
+      in: .userDomainMask
+    ).first else {
+      throw ChiefCellError.storageUnavailable
+    }
+    var directory = applicationSupport.appending(
+      path: "ChiefAgentCells",
+      directoryHint: .isDirectory
+    )
+    try manager.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true,
+      attributes: [
+        .protectionKey: FileProtectionType.completeUntilFirstUserAuthentication
+      ]
+    )
+    var values = URLResourceValues()
+    values.isExcludedFromBackup = true
+    try directory.setResourceValues(values)
+    return directory
   }
 
   // MARK: - C trampolines
@@ -148,12 +223,16 @@ enum ChiefCellError: LocalizedError {
   case notStarted
   case missingWorker
   case noResult
+  case invalidScope
+  case storageUnavailable
 
   var errorDescription: String? {
     switch self {
     case .notStarted: return "The chief cell runtime is not started."
     case .missingWorker: return "The chief agent worker bundle is missing."
     case .noResult: return "The chief cell returned no result."
+    case .invalidScope: return "The agent cell identity is invalid."
+    case .storageUnavailable: return "Secure agent cell storage is unavailable."
     }
   }
 }

@@ -33,7 +33,27 @@ final class ConversationCache {
         )
     }
 
+    /// Replace an existing message in place (used for reaction updates). No-op
+    /// if the message isn't already cached.
+    func update(_ message: ConversationMessage) {
+        var current = messages(
+            workspaceID: message.workspaceID,
+            conversationID: message.conversationID
+        )
+        guard let index = current.firstIndex(where: { $0.id == message.id }) else { return }
+        current[index] = message
+        replace(
+            workspaceID: message.workspaceID,
+            conversationID: message.conversationID,
+            messages: current
+        )
+    }
+
     func clear(workspaceID: String) { storage[workspaceID] = nil }
+    func clear(workspaceID: String, conversationID: String) {
+        storage[workspaceID]?[conversationID] = nil
+        if storage[workspaceID]?.isEmpty == true { storage[workspaceID] = nil }
+    }
     func clearAll() { storage.removeAll() }
 
     private func deduplicated(_ messages: [ConversationMessage]) -> [ConversationMessage] {

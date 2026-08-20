@@ -19,6 +19,7 @@ struct RelayToolParameter: Sendable {
     case string
     case integer
     case boolean
+    case stringArray
   }
 
   let name: String
@@ -38,9 +39,11 @@ struct RelayToolParameter: Sendable {
 struct ToolContext: Sendable {
   let relay: any RelayServing
   let identity: NostrIdentity
+  let agentID: String
   let workspaceID: String
   let conversationID: String
-  let channels: [ConversationSummary]
+  let config: AgentConfig
+  let allowedToolNames: Set<String>
 }
 
 /// The JSON-schema `parameters` object for an OpenAI function tool.
@@ -48,10 +51,17 @@ func toolSchema(_ parameters: [RelayToolParameter]) -> [String: Any] {
   var properties: [String: Any] = [:]
   var required: [String] = []
   for parameter in parameters {
-    properties[parameter.name] = [
-      "type": parameter.kind.rawValue,
-      "description": parameter.description,
-    ]
+    properties[parameter.name] =
+      parameter.kind == .stringArray
+      ? [
+        "type": "array",
+        "items": ["type": "string"],
+        "description": parameter.description,
+      ]
+      : [
+        "type": parameter.kind.rawValue,
+        "description": parameter.description,
+      ]
     if parameter.required { required.append(parameter.name) }
   }
   var schema: [String: Any] = ["type": "object", "properties": properties]
@@ -65,17 +75,34 @@ func toolSchema(_ parameters: [RelayToolParameter]) -> [String: Any] {
 enum RelayToolRegistry {
   static let tools: [any RelayTool.Type] = [
     RelayChannelsListTool.self,
+    RelayWorkspaceMembersTool.self,
+    RelayChannelCreateTool.self,
+    RelayChannelMembersAddTool.self,
     RelayMessagesListTool.self,
     RelayMessagePostTool.self,
     RelayThreadRepliesTool.self,
     RelayMessageSearchTool.self,
     RelayReactionAddTool.self,
     RelayReactionRemoveTool.self,
+    BrowserNavigateTool.self,
+    BrowserSnapshotTool.self,
+    BrowserClickTool.self,
+    BrowserTypeTool.self,
+    BrowserScrollTool.self,
+    BrowserBackTool.self,
+    BrowserReleaseTool.self,
+    BrandProfileGetTool.self,
+    BrandProfileSaveTool.self,
+    ProspectsListTool.self,
+    ProspectSaveTool.self,
+    WorkspaceFilesListTool.self,
   ]
 
   /// OpenAI-compatible `tools` definitions for the inference request.
-  static func openAIDefinitions() -> [OpenCodeRequest.ToolDefinition] {
-    tools.map { tool in
+  static func openAIDefinitions(
+    allowing allowedToolNames: Set<String>
+  ) -> [OpenCodeRequest.ToolDefinition] {
+    tools.filter { allowedToolNames.contains($0.name) }.map { tool in
       let parameters = toolSchema(tool.parameters).mapValues {
         AnyEncodable(value: $0)
       }
@@ -96,24 +123,53 @@ enum RelayToolRegistry {
     arguments: String,
     context: ToolContext
   ) async throws -> String {
+    guard context.allowedToolNames.contains(name) else {
+      throw ToolError.permissionDenied("turn-scoped \(name)")
+    }
     guard let tool = tools.first(where: { $0.name == name }) else {
       throw ToolError.unknown(name)
+    }
+    let area = permissionArea(for: name)
+    guard context.config.permitsToolArea(area) else {
+      throw ToolError.permissionDenied(area)
     }
     let parsed =
       (try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any])
       ?? [:]
     return try await tool.init().run(arguments: parsed, context: context)
   }
+
+  private static func permissionArea(for tool: String) -> String {
+    if tool == RelayWorkspaceMembersTool.name { return "workspace" }
+    if tool.hasPrefix("relay_channels_") { return "channels" }
+    if tool.hasPrefix("browser_") { return "advanced" }
+    if tool == BrandProfileSaveTool.name { return "brand-profile-write" }
+    if tool == ProspectSaveTool.name { return "prospects-write" }
+    if tool == BrandProfileGetTool.name
+      || tool == ProspectsListTool.name
+      || tool == WorkspaceFilesListTool.name
+    {
+      return "workspace"
+    }
+    return "messages"
+  }
 }
 
 enum ToolError: LocalizedError {
   case unknown(String)
   case missingArgument(String)
+  case permissionDenied(String)
+  case invalidArgument(String)
+  case noActiveBrowser
 
   var errorDescription: String? {
     switch self {
     case .unknown(let name): "Unknown tool: \(name)."
     case .missingArgument(let name): "Missing required argument: \(name)."
+    case .permissionDenied(let area):
+      "Workspace policy does not grant this agent the \(area) permission."
+    case .invalidArgument(let name): "Invalid argument: \(name)."
+    case .noActiveBrowser: "No active browser belongs to this agent conversation."
     }
   }
 }

@@ -4,6 +4,7 @@ import SwiftUI
 struct ChannelGroup: View {
   @Environment(AppModel.self) private var model
   @State private var expanded = true
+  @State private var showNewChannel = false
 
   var body: some View {
     CollapsibleGroup(title: "Channels", count: channels.count, isExpanded: $expanded) {
@@ -11,10 +12,84 @@ struct ChannelGroup: View {
         ConversationRow(conversation: conversation)
       }
     }
+    .overlay(alignment: .topTrailing) {
+      Button {
+        Haptics.medium()
+        showNewChannel = true
+      } label: {
+        Image(systemName: "plus")
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(ChiefTheme.secondary)
+          .frame(width: 28, height: 28)
+          .background(ChiefTheme.surface, in: Circle())
+          .overlay { Circle().stroke(ChiefTheme.line) }
+      }
+      .buttonStyle(.plain)
+      .offset(y: -2)
+      .padding(.trailing, ChiefTheme.pagePadding)
+      .accessibilityLabel("New channel")
+    }
+    .sheet(isPresented: $showNewChannel) {
+      NewChannelSheet { name, isPrivate in
+        Task { await model.createChannel(name: name, isPrivate: isPrivate) }
+      }
+    }
   }
 
   private var channels: [ConversationSummary] {
-    model.workspace?.conversations.filter { $0.kind == .channel } ?? []
+    model.workspace?.conversations
+      .filter { $0.kind == .channel && !$0.archived } ?? []
+  }
+}
+
+/// A bottom-sheet form for creating a workspace channel.
+struct NewChannelSheet: View {
+  @Environment(\.dismiss) private var dismiss
+  let onCreate: (String, Bool) -> Void
+  @State private var name = ""
+  @State private var isPrivate = false
+  @FocusState private var focused: Bool
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      ChiefSheetHeader(title: "New channel", doneTitle: "Cancel")
+      VStack(alignment: .leading, spacing: 18) {
+        TextField("channel-name", text: $name)
+          .textInputAutocapitalization(.never)
+          .autocorrectionDisabled()
+          .padding(.horizontal, 14)
+          .frame(height: 48)
+          .background(ChiefSheetPalette.surface, in: RoundedRectangle(cornerRadius: 13))
+          .overlay { RoundedRectangle(cornerRadius: 13).stroke(ChiefSheetPalette.separator) }
+          .focused($focused)
+        ChiefBooleanRow(
+          title: "Private channel",
+          detail: "Only invited members can see it",
+          isOn: isPrivate,
+          action: { isPrivate.toggle() }
+        )
+        Button {
+          let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+          guard !trimmed.isEmpty else { return }
+          Haptics.heavy()
+          onCreate(trimmed, isPrivate)
+          dismiss()
+        } label: {
+          Text("Create channel")
+            .font(.system(size: 16, weight: .semibold, design: .rounded))
+            .foregroundStyle(Color(uiColor: .systemBackground))
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(Color(uiColor: .label), in: RoundedRectangle(cornerRadius: 13))
+        }
+        .buttonStyle(.plain)
+        .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      }
+      .padding(.horizontal, 24)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    .chiefSheet([.height(310)])
+    .onAppear { focused = true }
   }
 }
 
@@ -96,63 +171,164 @@ private struct AgentRow: View {
   let agent: AgentSummary
 
   var body: some View {
-    HStack(spacing: 12) {
-      AgentMark(name: agent.name, size: 34, working: agent.status == .working)
-      VStack(alignment: .leading, spacing: 2) {
-        Text(agent.name).font(.system(size: 15, weight: .medium))
-        Text(agent.status == .working ? "Working now" : agent.role)
-          .font(.system(size: 13))
-          .foregroundStyle(ChiefTheme.secondary)
+    NavigationLink(value: agent.id) {
+      HStack(spacing: 12) {
+        AgentMark(name: agent.name, size: 34, working: agent.status == .working)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(agent.name).font(.system(size: 15, weight: .medium))
+          Text(agent.status == .working ? "Working now" : agent.role)
+            .font(.system(size: 13))
+            .foregroundStyle(ChiefTheme.secondary)
+        }
+        Spacer()
+        if agent.status == .needsYou {
+          Circle().fill(ChiefTheme.accent).frame(width: 7, height: 7)
+        }
+        Image(systemName: "chevron.right")
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(ChiefTheme.tertiary)
       }
-      Spacer()
-      if agent.status == .needsYou {
-        Circle().fill(ChiefTheme.accent).frame(width: 7, height: 7)
-      }
+      .padding(.vertical, 5)
+      .contentShape(Rectangle())
     }
-    .padding(.vertical, 5)
+    .buttonStyle(.plain)
   }
 }
 
 private struct ConversationRow: View {
+    @Environment(AppModel.self) private var model
     let conversation: ConversationSummary
+    @State private var showMembers = false
 
     var body: some View {
         NavigationLink(value: conversation.id) {
-            HStack(spacing: 12) {
+            HStack(spacing: 9) {
                 if conversation.kind == .direct {
-                    AgentMark(name: conversation.name, size: 34)
+                    AgentMark(name: conversation.name, size: 24)
                 } else {
                     Image(systemName: conversation.isPrivate ? "lock" : "number")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(ChiefTheme.secondary)
-                        .frame(width: 34, height: 34)
+                        .frame(width: 24, height: 24)
                 }
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 7) {
-                        Text(conversation.name)
-                            .font(.system(size: 15, weight: conversation.unreadCount > 0 ? .semibold : .regular))
-                        if conversation.requiresAttention {
-                            Text("Requires attention")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(ChiefTheme.accent)
-                        }
-                    }
-                    if let preview = conversation.lastMessage {
-                        Text(preview).font(.system(size: 13)).foregroundStyle(ChiefTheme.secondary).lineLimit(1)
+                HStack(spacing: 7) {
+                    Text(conversation.name)
+                        .font(.system(size: 14, weight: conversation.unreadCount > 0 ? .semibold : .regular))
+                        .foregroundStyle(
+                          conversation.unreadCount > 0 ? ChiefTheme.accent : ChiefTheme.secondary
+                        )
+                        .strikethrough(conversation.archived, color: ChiefTheme.secondary)
+                        .lineLimit(1)
+                    if conversation.requiresAttention {
+                        Circle()
+                          .fill(ChiefTheme.accent)
+                          .frame(width: 6, height: 6)
                     }
                 }
                 Spacer(minLength: 8)
                 if conversation.unreadCount > 0 {
-                    Text("\(conversation.unreadCount)")
-                        .font(.system(size: 11, weight: .semibold))
+                    Text(conversation.unreadCount > 99 ? "99+" : "\(conversation.unreadCount)")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(ChiefTheme.accent)
+                        .padding(.horizontal, 7)
                         .frame(minWidth: 20, minHeight: 20)
-                        .background(.white, in: Capsule())
-                        .foregroundStyle(.black)
+                        .background(Color.white.opacity(0.10), in: Capsule())
                 }
             }
             .contentShape(Rectangle())
+            .padding(.horizontal, 8)
+            .frame(height: 38)
         }
         .buttonStyle(.plain)
-        .padding(.vertical, 5)
+        .contextMenu {
+            if conversation.kind == .channel {
+                Button {
+                    Task { await model.channelMembers(conversationID: conversation.id) }
+                    showMembers = true
+                } label: {
+                    Label("View members", systemImage: "person.2")
+                }
+                Button {
+                    Task { await model.archiveConversation(conversation.id, archived: !conversation.archived) }
+                } label: {
+                    Label(
+                        conversation.archived ? "Unarchive channel" : "Archive channel",
+                        systemImage: conversation.archived ? "tray.and.arrow.up" : "archivebox"
+                    )
+                }
+                if !conversation.archived {
+                    Button(role: .destructive) {
+                        Task { await model.leaveConversation(conversation.id) }
+                    } label: {
+                        Label("Leave channel", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showMembers) {
+            ChannelMembersSheet(
+                conversationID: conversation.id,
+                conversationName: conversation.name
+            )
+            .environment(model)
+        }
     }
+}
+
+/// A sheet listing a channel's members (users + agents).
+struct ChannelMembersSheet: View {
+  @Environment(AppModel.self) private var model
+  let conversationID: String
+  let conversationName: String
+  @State private var members: [ChannelMember] = []
+  @State private var loading = true
+
+  var body: some View {
+    NavigationStack {
+      List {
+        if loading {
+          ProgressView().frame(maxWidth: .infinity, alignment: .center)
+        } else if members.isEmpty {
+          Text("No members yet")
+            .frame(maxWidth: .infinity, alignment: .center)
+            .foregroundStyle(ChiefTheme.secondary)
+        } else {
+          ForEach(members) { member in
+            HStack(spacing: 12) {
+              if member.kind == "agent" {
+                AgentMark(name: member.name ?? member.principalId, size: 32)
+              } else {
+                Circle().fill(ChiefTheme.elevated).frame(width: 32, height: 32)
+                  .overlay {
+                    Text((member.name ?? "You").prefix(1)).font(.system(size: 13, weight: .semibold))
+                  }
+              }
+              VStack(alignment: .leading, spacing: 2) {
+                Text(member.name ?? member.principalId).font(.system(size: 15, weight: .medium))
+                Text(member.role.capitalized).font(.system(size: 12)).foregroundStyle(ChiefTheme.secondary)
+              }
+              Spacer()
+            }
+            .padding(.vertical, 3)
+          }
+        }
+      }
+      .scrollContentBackground(.hidden)
+      .background(ChiefSheetPalette.background)
+      .navigationTitle("Members")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Done") { dismiss() }
+        }
+      }
+      .task {
+        members = await model.channelMembers(conversationID: conversationID)
+        loading = false
+      }
+    }
+    .chiefSheet([.height(440), .large])
+  }
+
+  @Environment(\.dismiss) private var dismiss
 }

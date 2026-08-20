@@ -21,7 +21,10 @@ enum WorkspaceAgentCatalog {
   ]
 
   static func agent(forID id: String) -> MentionAgent? {
-    agents.first { $0.id.lowercased() == id.lowercased() }
+    agents.first {
+      $0.id.lowercased() == id.lowercased()
+        || $0.name.lowercased() == id.lowercased()
+    }
   }
 
   /// The display names + ids that a plain `@Name` resolves to, lowercased.

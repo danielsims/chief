@@ -62,14 +62,20 @@ enum NostrIdentityError: Error {
 struct NostrKeychainStore {
   private let service: String
   private let account: String
+  private let accessibility: CFString
 
-  init(service: String = "sh.heychief.mobile.identity", account: String = "active") {
+  init(
+    service: String = "sh.heychief.mobile.identity",
+    account: String = "active",
+    accessibility: CFString = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+  ) {
     self.service = service
     self.account = account
+    self.accessibility = accessibility
   }
 
   func load() throws -> NostrIdentity? {
-    var query = self.query(returningData: true)
+    let query = self.query(returningData: true)
     var result: CFTypeRef?
     let status = SecItemCopyMatching(query as CFDictionary, &result)
     if status == errSecItemNotFound { return nil }
@@ -83,8 +89,7 @@ struct NostrKeychainStore {
     SecItemDelete(query(returningData: false) as CFDictionary)
     var values = query(returningData: false)
     values[kSecValueData as String] = Data(identity.privateKeyHex.utf8)
-    values[kSecAttrAccessible as String] =
-      kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    values[kSecAttrAccessible as String] = accessibility
     let status = SecItemAdd(values as CFDictionary, nil)
     guard status == errSecSuccess else { throw KeychainError(status) }
   }

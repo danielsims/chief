@@ -27,6 +27,36 @@ final class OnboardingDraftTests: XCTestCase {
     }
 }
 
+final class OpenCodeModelCatalogTests: XCTestCase {
+    func testFreeModelsAreListedBeforeGoModelsAndDeepSeekFreeIsRecommended() {
+        let models = OpenCodeModelCatalog.options(
+          zenIDs: [
+            "paid-zen", "muse-spark-1.2-contributor-free", "mimo-v2.5-free",
+            "deepseek-v4-flash-free",
+          ],
+          goIDs: [
+            "gpt-5.6-luna", "minimax-m3", "glm-5.2", "deepseek-v4-flash",
+          ]
+        )
+        XCTAssertEqual(models.first?.id, "deepseek-v4-flash-free")
+        XCTAssertEqual(models.filter { $0.access == .free }.count, 2)
+        XCTAssertFalse(models.contains { $0.id == "gpt-5.6-luna" })
+        XCTAssertFalse(models.contains { $0.id == "minimax-m3" })
+        XCTAssertFalse(models.contains { $0.id == "muse-spark-1.2-contributor-free" })
+    }
+
+    func testFreeAndGoModelsUseTheirCorrectGateways() {
+        XCTAssertEqual(
+          OpenCodeModelCatalog.completionEndpoint(for: "deepseek-v4-flash-free").path,
+          "/zen/v1/chat/completions"
+        )
+        XCTAssertEqual(
+          OpenCodeModelCatalog.completionEndpoint(for: "deepseek-v4-flash").path,
+          "/zen/go/v1/chat/completions"
+        )
+    }
+}
+
 @MainActor
 final class DeviceModelCatalogTests: XCTestCase {
     func testSupportedModelsMatchTheDurableAgentGemmaFamily() {

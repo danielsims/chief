@@ -139,7 +139,6 @@ private final class TestInferenceCredentialStore: InferenceCredentialStore, @unc
     providers.contains(provider.rawValue)
   }
 
-
   func load(_ provider: OnboardingDraft.InferenceProvider) throws -> String? {
     providers.contains(provider.rawValue) ? "test-credential" : nil
   }
@@ -166,11 +165,17 @@ private final class TestSessionStore: SessionStore, @unchecked Sendable {
 private struct FailingRelay: RelayServing {
   let error: RelayError
 
+  func bindDeviceIdentity(accountToken: String) async throws {}
   func loadWorkspace() async throws -> WorkspaceSnapshot { throw error }
   func createWorkspace(from draft: OnboardingDraft) async throws -> WorkspaceSnapshot {
     throw error
   }
-  func messages(workspaceID: String, conversationID: String, after sequence: Int?) async throws
+  func messages(
+    workspaceID: String,
+    conversationID: String,
+    after sequence: Int?,
+    signingIdentity: NostrIdentity?
+  ) async throws
     -> [ConversationMessage]
   { throw error }
   func send(
@@ -178,18 +183,129 @@ private struct FailingRelay: RelayServing {
     workspaceID: String,
     conversationID: String,
     threadRootID: String?,
-    mentions: [String] = []
+    mentions: [String] = [],
+    components: [MessageComponent] = []
   ) async throws -> ConversationMessage { throw error }
-  func claimAgentJob(workspaceID: String, agentID: String) async throws -> AgentJobLease? {
+  func sendAsAgent(
+    body: String,
+    workspaceID: String,
+    conversationID: String,
+    threadRootID: String?,
+    mentions: [String],
+    components: [MessageComponent],
+    signingIdentity: NostrIdentity
+  ) async throws -> ConversationMessage { throw error }
+  func uploadAttachment(
+    workspaceID: String,
+    conversationID: String,
+    fileName: String,
+    data: Data
+  ) async throws -> String { throw error }
+  func listChannels(
+    workspaceID: String,
+    signingIdentity: NostrIdentity?
+  ) async throws -> [ChannelRecord] { throw error }
+  func createChannel(
+    workspaceID: String,
+    conversationID: String,
+    name: String,
+    isPrivate: Bool,
+    signingIdentity: NostrIdentity?
+  ) async throws -> ChannelRecord { throw error }
+  func archiveChannel(workspaceID: String, conversationID: String, archived: Bool) async throws {
     throw error
   }
+  func leaveChannel(workspaceID: String, conversationID: String) async throws { throw error }
+  func channelMembers(workspaceID: String, conversationID: String) async throws -> [ChannelMember] {
+    throw error
+  }
+  func addChannelMember(
+    workspaceID: String,
+    conversationID: String,
+    kind: String,
+    principalID: String,
+    signingIdentity: NostrIdentity?
+  ) async throws { throw error }
+  func removeChannelMember(
+    workspaceID: String,
+    conversationID: String,
+    kind: String,
+    principalID: String
+  ) async throws { throw error }
+  func allChannelMemberships(workspaceID: String) async throws -> [ChannelMembership] {
+    throw error
+  }
+  func editMessage(
+    workspaceID: String,
+    conversationID: String,
+    messageID: String,
+    body: String
+  ) async throws -> ConversationMessage { throw error }
+  func deleteMessage(
+    workspaceID: String,
+    conversationID: String,
+    messageID: String
+  ) async throws -> ConversationMessage { throw error }
+  func workspaceMembers(
+    workspaceID: String,
+    signingIdentity: NostrIdentity?
+  ) async throws -> [WorkspaceMember] { throw error }
+  func startDirectMessage(
+    workspaceID: String,
+    participantKind: String,
+    participantID: String
+  ) async throws -> ConversationSummary { throw error }
+  func loadAgentConfig(workspaceID: String, agentID: String) async throws -> AgentConfig? {
+    throw error
+  }
+  func saveAgentConfig(workspaceID: String, agentID: String, config: AgentConfig) async throws {
+    throw error
+  }
+  func replies(
+    workspaceID: String,
+    conversationID: String,
+    rootMessageID: String,
+    after sequence: Int?,
+    signingIdentity: NostrIdentity?
+  ) async throws -> [ConversationMessage] { throw error }
+  func searchMessages(
+    workspaceID: String,
+    conversationID: String,
+    query: String,
+    signingIdentity: NostrIdentity?
+  ) async throws -> [ConversationMessage] { throw error }
+  func react(
+    workspaceID: String,
+    conversationID: String,
+    messageID: String,
+    emoji: String,
+    add: Bool,
+    signingIdentity: NostrIdentity
+  ) async throws -> ConversationMessage { throw error }
+  func listWorkspaces() async throws -> [WorkspaceSummary] { throw error }
+  func switchWorkspace(id: String) async throws { throw error }
   func completeAgentJob(
     workspaceID: String,
     agentID: String,
     leaseToken: String,
     completion: AgentJobCompletion
   ) async throws { throw error }
+  func failAgentJob(
+    workspaceID: String,
+    agentID: String,
+    leaseToken: String,
+    error message: String,
+    retryAt: Date?
+  ) async throws { throw error }
+  func registerAgentKey(
+    workspaceID: String,
+    agentID: String,
+    pubkey: String
+  ) async throws { throw error }
   func recordLogs(workspaceID: String, _ entries: [RelayLogEntry]) async throws { throw error }
+  func claimAgentJob(workspaceID: String, agentID: String) async throws -> AgentJobLease? {
+    throw error
+  }
 }
 
 private struct UnusedAuthentication: DeviceAuthorizationServing {
@@ -199,5 +315,9 @@ private struct UnusedAuthentication: DeviceAuthorizationServing {
 
   func exchange(_ challenge: DeviceAuthorizationChallenge) async throws -> ChiefSession {
     throw DeviceAuthorizationError.network
+  }
+
+  func refreshAccountToken(sessionToken: String) async throws -> String {
+    "fixture-account-token"
   }
 }

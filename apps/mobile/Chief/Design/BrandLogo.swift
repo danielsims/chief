@@ -63,7 +63,7 @@ enum BrandLogoImage {
 
   static func load(url: URL) async -> UIImage? {
     if let cached = imageCache[url.absoluteString] { return cached }
-    guard let (data, response) = try? await URLSession.shared.data(from: url),
+    guard let (data, _) = try? await URLSession.shared.data(from: url),
       !data.isEmpty
     else { return nil }
     if let raster = UIImage(data: data) {

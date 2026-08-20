@@ -13,11 +13,14 @@ struct RelayChannelsListTool: RelayTool {
   static let parameters: [RelayToolParameter] = []
 
   func run(arguments: [String: Any], context: ToolContext) async throws -> String {
-    let channels = context.channels.map {
+    let channels = try await context.relay.listChannels(
+      workspaceID: context.workspaceID,
+      signingIdentity: context.identity
+    ).map {
       [
         "id": $0.id,
         "name": $0.name,
-        "kind": $0.kind.rawValue,
+        "kind": "channel",
         "isPrivate": $0.isPrivate,
       ]
     }
@@ -45,7 +48,8 @@ struct RelayMessagesListTool: RelayTool {
     let messages = try await context.relay.messages(
       workspaceID: context.workspaceID,
       conversationID: conversationID,
-      after: arguments.optionalInt("after")
+      after: arguments.optionalInt("after"),
+      signingIdentity: context.identity
     )
     return toolResultJSON([
       "messages": messages.map {
@@ -74,20 +78,50 @@ struct RelayMessagePostTool: RelayTool {
       description: "Reply within a thread by passing its root message id.",
       required: false
     ),
+    .init(
+      name: "idempotencyKey",
+      kind: .string,
+      description: "A stable key for durable workflow messages. Reusing it returns the existing matching message instead of posting a duplicate.",
+      required: false
+    ),
   ]
 
   func run(arguments: [String: Any], context: ToolContext) async throws -> String {
     let conversationID = try arguments.requiredString("conversationId")
     let body = try arguments.requiredString("body")
+    let threadRootID = arguments.optionalString("threadRootId")
+    if arguments.optionalString("idempotencyKey") != nil {
+      let existing = try await context.relay.messages(
+        workspaceID: context.workspaceID,
+        conversationID: conversationID,
+        after: nil,
+        signingIdentity: context.identity
+      ).first { message in
+        message.body == body
+          && message.threadRootID == threadRootID
+          && message.author.agentID == context.agentID
+      }
+      if let existing {
+        return toolResultJSON([
+          "messageId": existing.id,
+          "sequence": existing.sequence,
+          "duplicate": true,
+        ])
+      }
+    }
     let message = try await context.relay.sendAsAgent(
       body: body,
       workspaceID: context.workspaceID,
       conversationID: conversationID,
-      threadRootID: arguments.optionalString("threadRootId"),
+      threadRootID: threadRootID,
       mentions: [],
       signingIdentity: context.identity
     )
-    return toolResultJSON(["messageId": message.id, "sequence": message.sequence])
+    return toolResultJSON([
+      "messageId": message.id,
+      "sequence": message.sequence,
+      "duplicate": false,
+    ])
   }
 }
 
@@ -108,7 +142,8 @@ struct RelayThreadRepliesTool: RelayTool {
       workspaceID: context.workspaceID,
       conversationID: conversationID,
       rootMessageID: rootMessageID,
-      after: nil
+      after: nil,
+      signingIdentity: context.identity
     )
     return toolResultJSON([
       "messages": messages.map {
@@ -134,7 +169,8 @@ struct RelayMessageSearchTool: RelayTool {
     let messages = try await context.relay.searchMessages(
       workspaceID: context.workspaceID,
       conversationID: conversationID,
-      query: query
+      query: query,
+      signingIdentity: context.identity
     )
     return toolResultJSON([
       "messages": messages.map {
@@ -157,6 +193,126 @@ struct RelayReactionAddTool: RelayTool {
   func run(arguments: [String: Any], context: ToolContext) async throws -> String {
     try await performReaction(arguments: arguments, context: context, add: true)
   }
+}
+
+/// Lists the workspace's members (users + agents) so an agent can find who to
+/// invite to a channel it creates.
+struct RelayWorkspaceMembersTool: RelayTool {
+  static let name = "relay_workspace_members"
+  static let description =
+    "List the workspace members and their roles. Use to find the workspace owner's id before inviting them to a channel."
+  static let parameters: [RelayToolParameter] = []
+
+  func run(arguments: [String: Any], context: ToolContext) async throws -> String {
+    let members = try await context.relay.workspaceMembers(
+      workspaceID: context.workspaceID,
+      signingIdentity: context.identity
+    )
+    return toolResultJSON([
+      "members": members.map {
+        ["kind": $0.kind, "principalId": $0.principalId, "role": $0.role]
+      }
+    ])
+  }
+}
+
+/// Creates a workspace channel (agent-owned). Idempotent: creating an existing
+/// channel succeeds quietly so delegated kick-off work can be re-run safely.
+struct RelayChannelCreateTool: RelayTool {
+  static let name = "relay_channels_create"
+  static let description =
+    "Create a workspace channel and make the agent the owner. Use to open a new channel for your own work. Idempotent: creating an existing channel succeeds and returns it."
+  static let parameters: [RelayToolParameter] = [
+    .init(name: "conversationId", kind: .string, description: "The channel id/slug to create."),
+    .init(name: "name", kind: .string, description: "The channel name."),
+    .init(
+      name: "isPrivate",
+      kind: .boolean,
+      description: "Whether the channel is private.",
+      required: false
+    ),
+  ]
+
+  func run(arguments: [String: Any], context: ToolContext) async throws -> String {
+    let conversationID = try arguments.requiredString("conversationId")
+    let name = try arguments.requiredString("name")
+    let isPrivate = (arguments["isPrivate"] as? Bool) ?? false
+    let existing = try await context.relay.listChannels(
+      workspaceID: context.workspaceID,
+      signingIdentity: context.identity
+    )
+    if let channel = existing.first(where: { $0.id == conversationID }) {
+      return toolResultJSON([
+        "channelId": channel.id,
+        "name": channel.name,
+        "created": false,
+      ])
+    }
+    let channel = try await context.relay.createChannel(
+      workspaceID: context.workspaceID,
+      conversationID: conversationID,
+      name: name,
+      isPrivate: isPrivate,
+      signingIdentity: context.identity
+    )
+    return toolResultJSON([
+      "channelId": channel.id,
+      "name": channel.name,
+      "created": true,
+    ])
+  }
+}
+
+/// Adds a member to a channel. Used at kick-off so an agent can invite the
+/// workspace owner to the channel it just created.
+struct RelayChannelMembersAddTool: RelayTool {
+  static let name = "relay_channels_members_add"
+  static let description =
+    "Add one or several workspace users or agents to a channel in one durable operation. Prefer principalIds when inviting several participants together."
+  static let parameters: [RelayToolParameter] = [
+    .init(name: "conversationId", kind: .string, description: "The channel to add the member to."),
+    .init(name: "kind", kind: .string, description: "The member kind: 'user' or 'agent'."),
+    .init(
+      name: "principalId",
+      kind: .string,
+      description: "One member's workspace id. Omit when principalIds is supplied.",
+      required: false
+    ),
+    .init(
+      name: "principalIds",
+      kind: .stringArray,
+      description: "Several workspace ids to invite together in one operation.",
+      required: false
+    ),
+  ]
+
+  func run(arguments: [String: Any], context: ToolContext) async throws -> String {
+    let conversationID = try arguments.requiredString("conversationId")
+    let kind = try arguments.requiredString("kind")
+    let ids = orderedUniqueStrings(
+      (arguments["principalIds"] as? [String])
+        ?? arguments.optionalString("principalId").map { [$0] }
+        ?? []
+    )
+    guard !ids.isEmpty else { throw ToolError.missingArgument("principalId or principalIds") }
+    try await context.relay.addChannelMembers(
+      workspaceID: context.workspaceID,
+      conversationID: conversationID,
+      kind: kind,
+      principalIDs: ids,
+      signingIdentity: context.identity
+    )
+    return toolResultJSON([
+      "added": true,
+      "conversationId": conversationID,
+      "principalIds": ids,
+    ])
+  }
+}
+
+private func orderedUniqueStrings(_ values: [String]) -> [String] {
+  var seen = Set<String>()
+  return values.filter { !$0.isEmpty && seen.insert($0).inserted }
 }
 
 /// Removes a reaction emoji from a message.

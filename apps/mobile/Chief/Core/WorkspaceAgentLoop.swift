@@ -3,84 +3,165 @@ import os
 
 let agentLoopLog = Logger(subsystem: "sh.heychief.mobile", category: "agenty")
 
-/// Keeps the workspace "alive" after onboarding: while the app is in the
-/// workspace phase it periodically claims pending jobs for each agent in the
-/// roster and runs them through inference, publishing results to whichever
-/// conversation the job targets (mission-control by default). This mirrors the
-/// desktop bootstrap's continuous kickoff; when OpenCode Go is unavailable it
-/// completes jobs with accurate fallback messages rather than dead-ending.
+/// Keeps each on-phone agent cell attached to its own relay mailbox. Each
+/// roster identity gets one socket and exactly one isolated cell. Jobs are
+/// claimed only after a socket connection or availability event; there is no
+/// polling and there are no fabricated completion messages.
 actor WorkspaceAgentLoop {
+  typealias WorkingCallback =
+    @Sendable (
+      _ agentID: String,
+      _ conversationID: String,
+      _ isWorking: Bool
+    ) async -> Void
+  typealias CompletionCallback = @Sendable () async -> Void
+
   private let relay: any RelayServing
-  private let inference: Inference
   private let workspaceID: String
   private let roster: [String]
-  private let pollIntervalSeconds: UInt64
+  private let configuration: AppConfiguration
+  private let onWorking: WorkingCallback
+  private let onActivity: AgentActivityCallback
+  private let onCompletion: CompletionCallback
   private var logSink: RelayLogSink?
-
-  struct Inference: Sendable {
-    let loadKey: @Sendable () throws -> String?
-    let generate: @Sendable (String) async throws -> String
-  }
+  private var drainingAgents: Set<String> = []
 
   init(
     relay: any RelayServing,
-    inference: Inference,
     workspaceID: String,
     roster: [String],
-    pollIntervalSeconds: UInt64 = 6
+    configuration: AppConfiguration = .current(),
+    onWorking: @escaping WorkingCallback,
+    onActivity: @escaping AgentActivityCallback,
+    onCompletion: @escaping CompletionCallback
   ) {
     self.relay = relay
-    self.inference = inference
     self.workspaceID = workspaceID
     self.roster = roster
-    self.pollIntervalSeconds = pollIntervalSeconds
+    self.configuration = configuration
+    self.onWorking = onWorking
+    self.onActivity = onActivity
+    self.onCompletion = onCompletion
   }
 
   func run() async {
     logSink = RelayLogSink(relay: relay, workspaceID: workspaceID)
     agentLoopLog.info("agent loop started for \(self.workspaceID)")
     recordLog(type: "info", operation: "agent.loop.start", message: "Agent loop started")
-    var activeAgent = 0
-    if roster.isEmpty { return }
-    while !Task.isCancelled {
-      let agentID = roster[activeAgent % roster.count]
-      activeAgent &+= 1
-      do {
-        if let lease = try await relay.claimAgentJob(
-          workspaceID: workspaceID,
-          agentID: agentID
-        ) {
-          await runJob(agentID: agentID, lease: lease)
-        }
-      } catch {
-        agentLoopLog.warning("agent loop claim failed: \(error.localizedDescription)")
+    await withTaskGroup(of: Void.self) { group in
+      for agentID in roster {
+        group.addTask { [weak self] in await self?.listen(agentID: agentID) }
       }
-      try? await Task.sleep(for: .seconds(pollIntervalSeconds))
+      await group.waitForAll()
     }
     agentLoopLog.info("agent loop stopped for \(self.workspaceID)")
   }
 
-  private func runJob(agentID: String, lease: AgentJobLease) async {
-    let message: String
-    if let loaded = try? inference.loadKey(), !loaded.isEmpty {
-      message =
-        (try? await inference.generate(agentID)) ??
-        fallback(for: lease.job.kind, agentID: agentID)
-    } else {
-      message = fallback(for: lease.job.kind, agentID: agentID)
+  private func listen(agentID: String) async {
+    var reconnectDelay = 1.0
+    while !Task.isCancelled {
+      do {
+        let live = RelayLiveClient(configuration: configuration)
+        try await live.listenAgentMailbox(
+          workspaceID: workspaceID,
+          agentID: agentID,
+          onConnected: { [weak self] in
+            await self?.drainMailbox(agentID: agentID)
+          },
+          onJobAvailable: { [weak self] in
+            await self?.drainMailbox(agentID: agentID)
+          }
+        )
+        reconnectDelay = 1
+      } catch is CancellationError {
+        break
+      } catch {
+        agentLoopLog.warning(
+          "agent mailbox disconnected for \(agentID): \(error.localizedDescription)"
+        )
+        do { try await Task.sleep(for: .seconds(reconnectDelay)) } catch { break }
+        reconnectDelay = min(reconnectDelay * 2, 30)
+      }
     }
+  }
+
+  private func drainMailbox(agentID: String) async {
+    guard !drainingAgents.contains(agentID) else { return }
+    drainingAgents.insert(agentID)
+    defer { drainingAgents.remove(agentID) }
     do {
+      while !Task.isCancelled,
+        let lease = try await relay.claimAgentJob(
+          workspaceID: workspaceID,
+          agentID: agentID
+        )
+      {
+        await runJob(agentID: agentID, lease: lease)
+      }
+    } catch {
+      agentLoopLog.warning(
+        "agent mailbox catch-up failed for \(agentID): \(error.localizedDescription)"
+      )
+    }
+  }
+
+  private func runJob(agentID: String, lease: AgentJobLease) async {
+    let conversationID = lease.job.payload.conversationId ?? "mission-control"
+    guard lease.job.agentId == agentID else {
+      agentLoopLog.error("mailbox returned a job for another agent")
+      return
+    }
+    guard
+      let instruction = lease.job.payload.instruction?.trimmingCharacters(
+        in: .whitespacesAndNewlines
+      ), !instruction.isEmpty
+    else {
+      agentLoopLog.error("job \(lease.job.id) has no executable instruction")
+      return
+    }
+
+    await onWorking(agentID, conversationID, true)
+    defer { Task { await onWorking(agentID, conversationID, false) } }
+    print("[Chief] agent \(agentID) started \(lease.job.kind)")
+    do {
+      let scope = try ChiefCellRuntime.scope(workspaceID: workspaceID, agentID: agentID)
+      let context = [
+        lease.job.payload.name.map { "Workspace: \($0)" },
+        lease.job.payload.website.flatMap { $0.isEmpty ? nil : "Website: \($0)" },
+        lease.job.payload.selectedApps.flatMap {
+          $0.isEmpty ? nil : "Selected apps (relevance only): \($0.joined(separator: ", "))"
+        },
+        lease.job.payload.threadRootId.map {
+          "Mission Control kickoff threadRootId: \($0)"
+        },
+        lease.job.payload.skillId.map {
+          "Apply this attached skill: [chief-skill:\($0)]"
+        },
+      ].compactMap { $0 }.joined(separator: "\n")
+      let result = try await ChiefCellRuntime.shared.runTurn(
+        scope: scope,
+        conversationID: conversationID,
+        userText: context.isEmpty ? instruction : "\(context)\n\n\(instruction)"
+      )
+      let turn = try TurnExtractor.extract(from: result)
+      try KickoffToolEvidence.validate(
+        components: turn.components,
+        jobKind: lease.job.kind,
+        expectedThreadRootID: lease.job.payload.threadRootId
+      )
       try await relay.completeAgentJob(
         workspaceID: workspaceID,
         agentID: agentID,
         leaseToken: lease.leaseToken,
         completion: AgentJobCompletion(
           publishedMessage: AgentPublishedMessage(
-            conversationId: "mission-control",
-            body: message
+            conversationId: conversationID,
+            body: turn.reply,
+            components: turn.components
           )
         )
       )
+      await onCompletion()
       agentLoopLog.info("completed \(lease.job.kind) for \(agentID)")
       recordLog(
         type: "info",
@@ -89,14 +170,35 @@ actor WorkspaceAgentLoop {
         message: "Completed \(lease.job.kind)"
       )
     } catch {
+      await onActivity(
+        workspaceID,
+        conversationID,
+        agentID,
+        AgentRunFailure(error).component()
+      )
+      // Publish nothing. Explicitly return the durable lease to the pending
+      // queue so its alarm can wake the agent after a short backoff.
+      try? await relay.failAgentJob(
+        workspaceID: workspaceID,
+        agentID: agentID,
+        leaseToken: lease.leaseToken,
+        error: "The on-device cell could not complete this turn.",
+        retryAt: AgentRetryPolicy.retryDate(
+          attempt: lease.job.attempt,
+          error: error
+        )
+      )
       agentLoopLog.error(
-        "failed to complete \(lease.job.kind) for \(agentID): \(error.localizedDescription)"
+        "failed \(lease.job.kind) for \(agentID): \(error.localizedDescription)"
+      )
+      print(
+        "[Chief] agent \(agentID) failed \(lease.job.kind): \(error.localizedDescription)"
       )
       recordLog(
         type: "error",
-        operation: "agent.job.complete",
+        operation: "agent.job.execute",
         agentId: agentID,
-        message: "Failed to complete \(lease.job.kind): \(error.localizedDescription)"
+        message: "Failed \(lease.job.kind): \(error.localizedDescription)"
       )
     }
   }
@@ -108,22 +210,12 @@ actor WorkspaceAgentLoop {
     message: String
   ) {
     logSink?.record(
-      RelayLogEntry.make(type: type, operation: operation, agentId: agentId, message: message)
+      RelayLogEntry.make(
+        type: type,
+        operation: operation,
+        agentId: agentId,
+        message: message
+      )
     )
-  }
-
-  private func fallback(for kind: String, agentID: String) -> String {
-    switch kind {
-    case "workspace.activate":
-      return "\(displayName(agentID)) is oriented and ready. I'll surface concrete next steps as I dig in."
-    case "workspace.observe":
-      return "\(displayName(agentID)) is scanning for useful work. Nothing needs your attention yet."
-    default:
-      return "\(displayName(agentID)) wrapped up its first check. I'll keep you posted."
-    }
-  }
-
-  private func displayName(_ agentID: String) -> String {
-    agentID == "chief" ? "Chief" : agentID.capitalized
   }
 }
