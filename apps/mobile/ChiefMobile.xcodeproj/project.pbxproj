@@ -30,6 +30,7 @@
 		3371F608F28C508752B8B275 /* ConversationMenuSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06EB5803FCFD5F5FB079472F /* ConversationMenuSheet.swift */; };
 		37A794B56CA03C05B2808CF6 /* NostrIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2667CB3C7758571BCF9E87B /* NostrIdentity.swift */; };
 		38940D2B65EDE5194AEC7297 /* PhoneWorkspaceSetupWorker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9192AB8998021758A1C90CD0 /* PhoneWorkspaceSetupWorker.swift */; };
+		3B10E2DED15BE9755B03156F /* AgentTurnCheckpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA2D2AC4AA453ABAEFB5672A /* AgentTurnCheckpoint.swift */; };
 		3D2001D60ADD762498F0063F /* AgentRetryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD8AC00866FD447A39F74F4E /* AgentRetryPolicy.swift */; };
 		3DAFBDEC61B4BEE80B297810 /* ConversationReadStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A183871D0C0DBEE3B3992CFB /* ConversationReadStateTests.swift */; };
 		3EF5FF86AFF26F47967B5B76 /* bloom.caf in Resources */ = {isa = PBXBuildFile; fileRef = 97A06203485BA289497EAF4E /* bloom.caf */; };
@@ -63,6 +64,7 @@
 		830905728AFE86424CA78A9E /* AgentDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53D1666AF8304834B5840C7D /* AgentDetailView.swift */; };
 		855CA9DE85A346E2E26F4B3E /* MessageComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D188214FC14EA0B2A446628 /* MessageComponents.swift */; };
 		855FFAAA4EA257E2C3E84380 /* RelayLiveClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A0E5C9C2F4F1B9942C6BBC /* RelayLiveClient.swift */; };
+		8573908DC5E0D7D4C5E2AFAE /* agent-support.js in Resources */ = {isa = PBXBuildFile; fileRef = DBCEEF83AF58058F29166B7C /* agent-support.js */; };
 		86C7EEFF3B87F04891590874 /* KickoffToolEvidenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7520EE62054ECE3DF7878FDA /* KickoffToolEvidenceTests.swift */; };
 		87E4868E52FFA543CEC1A947 /* AgentBrowserTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8F769EBDE56A903441CDF85 /* AgentBrowserTools.swift */; };
 		8A4F99F18DD6A88EBDEDFDA2 /* ConversationCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E8D35A69CA1DA238E60641B /* ConversationCache.swift */; };
@@ -71,6 +73,7 @@
 		8E4BFCDA268466C8D7DD7AB3 /* ThreadParticipantStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CE707A588AF29146A09E6A1 /* ThreadParticipantStack.swift */; };
 		8E9C008C6A25E4905A6EE27C /* ConversationPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EF911FA125B3E345E9ECF2B /* ConversationPresentationTests.swift */; };
 		97E743A6C936BBAB3DDDBDAC /* AgentBrowserWorkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE74D5BFF6453BAE70259589 /* AgentBrowserWorkView.swift */; };
+		983CF64293317C8B4E064014 /* AgentTurnCheckpointTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7A18DD9526B5A445466A081 /* AgentTurnCheckpointTests.swift */; };
 		983EA3F045E0ACB8AA6A9EC1 /* MobileNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D4BDF31AE49F11419A63A2F /* MobileNotifications.swift */; };
 		9BA5D2709A039FE9B9ED9BC0 /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47AF163EBB8E467D6209B2C /* ConversationView.swift */; };
 		9BE0B3D902F7FD9C538DBACA /* agent.js in Resources */ = {isa = PBXBuildFile; fileRef = 301BD2A9B043DB80B0BBB26A /* agent.js */; };
@@ -194,6 +197,7 @@
 		9FF07B5BC261A633C9B533FF /* DeviceAuthorizationClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceAuthorizationClient.swift; sourceTree = "<group>"; };
 		A183871D0C0DBEE3B3992CFB /* ConversationReadStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationReadStateTests.swift; sourceTree = "<group>"; };
 		A6C9EC4A3EF72707C2C4F0DA /* FixtureRelayClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FixtureRelayClientTests.swift; sourceTree = "<group>"; };
+		A7A18DD9526B5A445466A081 /* AgentTurnCheckpointTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTurnCheckpointTests.swift; sourceTree = "<group>"; };
 		AA5CDF6CD47574FD4D734549 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		AA800891A8B0A96131E68EA6 /* MessageSkill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageSkill.swift; sourceTree = "<group>"; };
 		AAAEF323610F56E86E68DCF3 /* sparkle.caf */ = {isa = PBXFileReference; path = sparkle.caf; sourceTree = "<group>"; };
@@ -219,8 +223,10 @@
 		D4D9FB4B5995891AF638B3F3 /* EmojiCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiCatalog.swift; sourceTree = "<group>"; };
 		D6090413A93795854319D98E /* chime.caf */ = {isa = PBXFileReference; path = chime.caf; sourceTree = "<group>"; };
 		D6FE4EB21AE5A93E91A4EBE8 /* WorkspaceAgentLoop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAgentLoop.swift; sourceTree = "<group>"; };
+		DBCEEF83AF58058F29166B7C /* agent-support.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "agent-support.js"; sourceTree = "<group>"; };
 		DC730247A44DA157E01158C9 /* ChiefOpenCodeAgentHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefOpenCodeAgentHost.swift; sourceTree = "<group>"; };
 		E2667CB3C7758571BCF9E87B /* NostrIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NostrIdentity.swift; sourceTree = "<group>"; };
+		EA2D2AC4AA453ABAEFB5672A /* AgentTurnCheckpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTurnCheckpoint.swift; sourceTree = "<group>"; };
 		ED421C1E43B5A7AACCEA89D1 /* KickoffToolEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KickoffToolEvidence.swift; sourceTree = "<group>"; };
 		EE9A152284C2548ABF0E6FBE /* WorkspaceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStore.swift; sourceTree = "<group>"; };
 		EF563DA3A76B89B15BD42C10 /* celld.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = celld.c; sourceTree = "<group>"; };
@@ -261,6 +267,7 @@
 		399A7A31F1B9224FC88198A0 /* ChiefTests */ = {
 			isa = PBXGroup;
 			children = (
+				A7A18DD9526B5A445466A081 /* AgentTurnCheckpointTests.swift */,
 				15333FB517188ED08371E31B /* AppConfigurationTests.swift */,
 				30754C9A259B352E485B5B3E /* AppModelAuthenticationTests.swift */,
 				8FC765FC6E4635E005AB4AF1 /* ConversationCacheTests.swift */,
@@ -388,6 +395,7 @@
 		AAD6E033EB624E525DE1AA9C /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				DBCEEF83AF58058F29166B7C /* agent-support.js */,
 				301BD2A9B043DB80B0BBB26A /* agent.js */,
 				5676842BCAA14D424394C3A8 /* Assets.xcassets */,
 				97A06203485BA289497EAF4E /* bloom.caf */,
@@ -467,6 +475,7 @@
 				BD8AC00866FD447A39F74F4E /* AgentRetryPolicy.swift */,
 				F8D01DE4FF64B11221662943 /* AgentRunFailure.swift */,
 				3DA10DC57916ADE010B38AAE /* AgentSkillBundle.swift */,
+				EA2D2AC4AA453ABAEFB5672A /* AgentTurnCheckpoint.swift */,
 				2FBAB6FD2D0630F235BBE0E2 /* AgentTurnToolPolicy.swift */,
 				C04B79184CE08CFDDFEE3966 /* AgentWorkspaceContext.swift */,
 				827C563FA43B5D2B554975A4 /* AppConfiguration.swift */,
@@ -647,6 +656,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D0111F1C1AAD046FC24F835D /* Assets.xcassets in Resources */,
+				8573908DC5E0D7D4C5E2AFAE /* agent-support.js in Resources */,
 				9BE0B3D902F7FD9C538DBACA /* agent.js in Resources */,
 				8C6AE453D51DE0A7ADB172D7 /* agents in Resources */,
 				3EF5FF86AFF26F47967B5B76 /* bloom.caf in Resources */,
@@ -676,6 +686,7 @@
 				3D2001D60ADD762498F0063F /* AgentRetryPolicy.swift in Sources */,
 				5F22C0D6FB514DB3ED52E652 /* AgentRunFailure.swift in Sources */,
 				6F91D08771E347D06D49DBFE /* AgentSkillBundle.swift in Sources */,
+				3B10E2DED15BE9755B03156F /* AgentTurnCheckpoint.swift in Sources */,
 				0EA37F70BDC47895D1B54081 /* AgentTurnToolPolicy.swift in Sources */,
 				49E98DD209DC85071C14ACED /* AgentWorkspaceContext.swift in Sources */,
 				512E8A8202C973DAF8CEC1DE /* AppConfiguration.swift in Sources */,
@@ -757,6 +768,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				983CF64293317C8B4E064014 /* AgentTurnCheckpointTests.swift in Sources */,
 				B7424C935AF344F1A7B1CD7C /* AppConfigurationTests.swift in Sources */,
 				0E9D4E0EB2A5AD41EE16E4F3 /* AppModelAuthenticationTests.swift in Sources */,
 				A964556B85725CE16533AEA5 /* ConversationCacheTests.swift in Sources */,
@@ -910,7 +922,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Chief/Vendored/swift-secp256k1/.build/plugins/cache/SharedSourcesPlugin.dSYM/Contents/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Chief;
-				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLName\": \"sh.heychief.mobile\", \"CFBundleTypeRole\": \"Editor\", \"CFBundleURLSchemes\": [\"chief-mobile\"]]]";
+				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLSchemes\": [\"chief-mobile\"], \"CFBundleURLName\": \"sh.heychief.mobile\", \"CFBundleTypeRole\": \"Editor\"]]";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -952,7 +964,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Chief/Vendored/swift-secp256k1/.build/plugins/cache/SharedSourcesPlugin.dSYM/Contents/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Chief;
-				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLName\": \"sh.heychief.mobile\", \"CFBundleTypeRole\": \"Editor\", \"CFBundleURLSchemes\": [\"chief-mobile\"]]]";
+				INFOPLIST_KEY_CFBundleURLTypes = "[[\"CFBundleURLSchemes\": [\"chief-mobile\"], \"CFBundleURLName\": \"sh.heychief.mobile\", \"CFBundleTypeRole\": \"Editor\"]]";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

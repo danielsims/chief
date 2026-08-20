@@ -1,131 +1,3 @@
-const pendingTurnFrom = (messages) => {
-  let lastAssistant = -1;
-  let lastUser = -1;
-  for (let index = 0; index < messages.length; index += 1) {
-    if (messages[index]?.role === "assistant") lastAssistant = index;
-    if (messages[index]?.role === "user") lastUser = index;
-  }
-  if (lastUser <= lastAssistant) return null;
-  const message = messages[lastUser];
-  return { content: message.content, at: message.at };
-};
-
-const browserEndReasons = new Set([
-  "completed",
-  "user-ended",
-  "replaced",
-  "unavailable",
-]);
-
-const validBrowserIdentifier = (value) =>
-  typeof value === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(value);
-
-const validBrowserRelease = (request) => {
-  if (
-    request?.version !== 1 ||
-    !validBrowserIdentifier(request.releaseId) ||
-    !validBrowserIdentifier(request.sessionId) ||
-    !["completed", "waiting"].includes(request.outcome)
-  )
-    return false;
-  if (
-    request.label != null &&
-    (typeof request.label !== "string" || request.label.length > 160)
-  )
-    return false;
-  if (
-    request.title != null &&
-    (typeof request.title !== "string" || request.title.length > 256)
-  )
-    return false;
-  if (request.url != null) {
-    if (typeof request.url !== "string" || request.url.length > 2048)
-      return false;
-    if (
-      !/^https?:\/\/[^\s/]+(?:\/[^\s]*)?$/i.test(request.url) ||
-      /^https?:\/\/[^/]*@/i.test(request.url)
-    )
-      return false;
-  }
-  return true;
-};
-
-const persistBrowserRelease = async (storage, messages, request) => {
-  if (!validBrowserRelease(request)) {
-    throw new Error("invalid browser session release request");
-  }
-  const receiptKey = `browser:release:${request.releaseId}`;
-  const existingReceipt = await storage.get(receiptKey);
-  if (existingReceipt) return existingReceipt;
-  const receipt = {
-    ...request,
-    status: "released",
-    releasedAt: new Date().toISOString(),
-  };
-  messages.push({
-    role: "browser",
-    content: JSON.stringify(receipt),
-    at: Date.now(),
-  });
-  await storage.put(receiptKey, receipt);
-  await storage.put("messages", messages);
-  return receipt;
-};
-
-const persistBrowserEnd = async (storage, messages, request) => {
-  if (
-    request?.version !== 1 ||
-    !validBrowserIdentifier(request.sessionId) ||
-    !validBrowserIdentifier(request.clientInstanceId) ||
-    !browserEndReasons.has(request.reason)
-  ) {
-    throw new Error("invalid browser session end request");
-  }
-  const receiptKey = `browser:end:${request.sessionId}`;
-  const existingReceipt = await storage.get(receiptKey);
-  if (existingReceipt) return existingReceipt;
-
-  const receipt = {
-    version: 1,
-    sessionId: request.sessionId,
-    status: "ended",
-    reason: request.reason,
-    endedAt: new Date().toISOString(),
-  };
-  messages.push({
-    role: "browser",
-    content: JSON.stringify(receipt),
-    at: Date.now(),
-  });
-  await storage.put(receiptKey, receipt);
-  await storage.put("messages", messages);
-  return receipt;
-};
-
-const scopedConversationStorage = (storage, conversationId) => {
-  if (!/^[A-Za-z0-9._:-]{1,160}$/.test(conversationId)) {
-    throw new Error("invalid conversation id");
-  }
-  const root = `conversation:${conversationId}:`;
-  return {
-    get: (key) => storage.get(`${root}${key}`),
-    put: (key, value) => storage.put(`${root}${key}`, value),
-    delete: (key) => storage.delete(`${root}${key}`),
-    async list(options = {}) {
-      const requestedPrefix = String(options.prefix ?? "");
-      const entries = await storage.list({
-        ...options,
-        prefix: `${root}${requestedPrefix}`,
-      });
-      const scoped = new Map();
-      for (const [key, value] of entries ?? []) {
-        scoped.set(String(key).slice(root.length), value);
-      }
-      return scoped;
-    },
-  };
-};
-
 export class AgentCell extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
@@ -143,19 +15,23 @@ export class AgentCell extends DurableObject {
       : this.ctx.storage;
     const messages = (await storage.get("messages")) ?? [];
     let pendingTurn = await storage.get("pendingTurn");
+    let session = await ensureSession(
+      storage,
+      conversationId,
+      this.ctx.id.name,
+    );
+    const initialMessageCount = messages.length;
 
     // Preview routes: serve the project files the code-mode agent built.
     if (request.method === "GET") {
       if (path === "/files") {
-        const list =
-          (await storage.list({ prefix: "file:" })) ?? new Map();
+        const list = (await storage.list({ prefix: "file:" })) ?? new Map();
         const files = {};
         for (const [k, v] of list) files[k.slice(5)] = v;
         return Response.json({ files });
       }
       if (path === "/files/names") {
-        const list =
-          (await storage.list({ prefix: "file:" })) ?? new Map();
+        const list = (await storage.list({ prefix: "file:" })) ?? new Map();
         return Response.json({
           files: [...list.keys()].map((k) => k.slice(5)),
         });
@@ -163,6 +39,11 @@ export class AgentCell extends DurableObject {
       return Response.json({
         messages,
         pending: Boolean(pendingTurn ?? pendingTurnFrom(messages)),
+        state: {
+          sessionId: session.sessionId,
+          streamIndex: session.streamIndex,
+          status: session.status,
+        },
       });
     }
 
@@ -171,7 +52,7 @@ export class AgentCell extends DurableObject {
       for (const key of stored.keys()) {
         await storage.delete(key);
       }
-      return Response.json({ messages: [] });
+      return Response.json({ messages: [], resetSessionId: session.sessionId });
     }
 
     if (request.method === "POST" && path === "/browser/end") {
@@ -191,10 +72,22 @@ export class AgentCell extends DurableObject {
     const resume = body.resume === true;
     const steer = body.steer === true;
     if (resume) {
+      const activeTurn = await storage.get("activeTurn");
+      if (validTurnCheckpoint(activeTurn)) {
+        materializeCheckpoint(messages, activeTurn);
+        await storage.put("messages", messages);
+        await storage.delete("activeTurn");
+      }
       const unansweredTurn = pendingTurnFrom(messages);
       if (!unansweredTurn) {
         if (pendingTurn) await storage.delete("pendingTurn");
-        return Response.json({ messages });
+        session = await updateSession(
+          storage,
+          session,
+          "waiting",
+          messages.length - initialMessageCount,
+        );
+        return Response.json({ messages, state: session });
       }
       pendingTurn = pendingTurn ?? unansweredTurn;
       await storage.put("pendingTurn", pendingTurn);
@@ -229,6 +122,7 @@ export class AgentCell extends DurableObject {
       await storage.put("messages", messages);
       await storage.put("pendingTurn", pendingTurn);
     }
+    session = await updateSession(storage, session, "running");
 
     let reply = "";
     let tools = [];
@@ -251,8 +145,7 @@ export class AgentCell extends DurableObject {
           activity = Array.isArray(parsed.activity)
             ? parsed.activity.filter(
                 (item) =>
-                  item &&
-                  (item.kind === "reasoning" || item.kind === "tool"),
+                  item && (item.kind === "reasoning" || item.kind === "tool"),
               )
             : [];
           reasoning =
@@ -316,11 +209,7 @@ export class AgentCell extends DurableObject {
         }
       }
     }
-    if (
-      !activity.length &&
-      reasoning &&
-      reasoning.text.trim()
-    ) {
+    if (!activity.length && reasoning && reasoning.text.trim()) {
       messages.push({
         role: "reasoning",
         content: JSON.stringify(reasoning),
@@ -348,11 +237,7 @@ export class AgentCell extends DurableObject {
       if (tool?.name === "browser_release" && tool.status === "completed") {
         try {
           const releaseRequest = JSON.parse(tool.output);
-          await persistBrowserRelease(
-            storage,
-            messages,
-            releaseRequest,
-          );
+          await persistBrowserRelease(storage, messages, releaseRequest);
         } catch (error) {
           failure =
             failure ?? String(error && error.message ? error.message : error);
@@ -378,8 +263,14 @@ export class AgentCell extends DurableObject {
 
     if (failure) {
       await storage.put("messages", messages);
+      session = await updateSession(
+        storage,
+        session,
+        "failed",
+        messages.length - initialMessageCount,
+      );
       return Response.json(
-        { messages, error: failure, errorCode: failureCode },
+        { messages, error: failure, errorCode: failureCode, state: session },
         { status: 502 },
       );
     }
@@ -389,7 +280,14 @@ export class AgentCell extends DurableObject {
 
     await storage.put("messages", messages);
     await storage.delete("pendingTurn");
-    return Response.json({ messages });
+    await storage.delete("activeTurn");
+    session = await updateSession(
+      storage,
+      session,
+      "waiting",
+      messages.length - initialMessageCount,
+    );
+    return Response.json({ messages, state: session });
   }
 }
 

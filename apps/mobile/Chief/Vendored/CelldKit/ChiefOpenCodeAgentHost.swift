@@ -31,6 +31,7 @@ private actor ReasoningActivityEmitter {
   let conversationID: String
   let agentID: String
   let callback: AgentActivityCallback
+  let checkpoint: AgentTurnCheckpoint
 
   private let componentID = "reasoning-\(UUID().uuidString)"
   private var text = ""
@@ -40,11 +41,13 @@ private actor ReasoningActivityEmitter {
     workspaceID: String,
     conversationID: String,
     agentID: String,
+    checkpoint: AgentTurnCheckpoint,
     callback: @escaping AgentActivityCallback
   ) {
     self.workspaceID = workspaceID
     self.conversationID = conversationID
     self.agentID = agentID
+    self.checkpoint = checkpoint
     self.callback = callback
   }
 
@@ -55,12 +58,14 @@ private actor ReasoningActivityEmitter {
       print("[Chief] agent \(agentID) reasoning stream started")
     }
     text += delta
+    await checkpoint.appendReasoning(id: componentID, delta: delta)
     await publish(status: "running")
   }
 
   func finish() async -> ReasoningSegment? {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty, let startedAt else { return nil }
+    await checkpoint.finishReasoning(id: componentID)
     await publish(status: "completed")
     print("[Chief] agent \(agentID) reasoning stream completed")
     let duration = startedAt.duration(to: .now)
@@ -109,20 +114,31 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
   }
 
   func respond(scope: String, messagesJSON: String) async -> String {
+    let conversationID = Self.conversationID(from: messagesJSON)
+    let checkpoint = AgentTurnCheckpoint(
+      scope: scope,
+      conversationID: conversationID,
+      userAt: Self.latestUserTimestamp(from: messagesJSON)
+    )
     do {
+      try await checkpoint.begin()
       let (reply, tools, activity) = try await runTurn(
         scope: scope,
-        messagesJSON: messagesJSON
+        messagesJSON: messagesJSON,
+        checkpoint: checkpoint
       )
+      await checkpoint.finish(text: reply)
       return Self.envelope(reply: reply, tools: tools, activity: activity)
     } catch {
       logger.error("turn failed: \(error.localizedDescription)")
       let (workspaceID, agentID) = Self.scopeParts(scope)
+      let failure = AgentRunFailure(error)
+      await checkpoint.fail(failure)
       await onActivity(
         workspaceID,
-        Self.conversationID(from: messagesJSON),
+        conversationID,
         agentID,
-        AgentRunFailure(error).component()
+        failure.component()
       )
       // Report the failure to the worker as an error envelope (no reply), so it
       // keeps the turn pending and the UI can offer a retry — never fabricate.
@@ -147,7 +163,7 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
 
   private static func errorEnvelope(_ error: Error) -> String {
     let failure = AgentRunFailure(error)
-    var payload: [String: Any] = [
+    let payload: [String: Any] = [
       "reply": "",
       "tools": [],
       "activity": [],
@@ -162,7 +178,8 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
   /// text reply. Returns the reply and the executed tool records.
   private func runTurn(
     scope: String,
-    messagesJSON: String
+    messagesJSON: String,
+    checkpoint: AgentTurnCheckpoint
   ) async throws -> (String, [[String: Any]], [[String: Any]]) {
     let (workspaceID, agentID) = Self.scopeParts(scope)
     let conversationID = Self.conversationID(from: messagesJSON)
@@ -173,6 +190,7 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
         name: agentID.capitalized,
         role: "Agent"
       )
+    let authoredPackage = try AgentPackageBundle.load(agentID: agentID)
     let identity = try AgentIdentityStore(
       workspaceID: workspaceID,
       agentID: agentID
@@ -201,7 +219,7 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
       referencedBy: messagesJSON,
       agentID: agentID
     )
-    let packageInstructions = AgentPackageBundle.instructions(agentID: agentID)
+    let packageInstructions = authoredPackage.instructions
     convoy.append(
       OpenCodeRequest.Message(
         role: "system",
@@ -209,7 +227,7 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
           You are \(agent.name), a \(agent.role) in a workspace owned by a builder. You speak for yourself and act under your own identity; never pretend to be the owner or another agent. Sound like a relaxed, thoughtful teammate in chat. Use natural contractions such as I'm, we'll, you're, and don't whenever they fit. Use sentence case, not stiff announcement language, and never use em dashes. When an instruction requires a relay action, you MUST call the corresponding relay tools before writing the final reply. Instructions and prior assistant claims are never proof that an action happened; only a successful tool result is proof. Do not claim work has happened unless that result exists. Keep replies to 1-3 short sentences unless the work genuinely needs more.
 
           Canonical agent package instructions:
-          \(packageInstructions ?? "No package instructions were bundled. Follow the identity and task boundaries above.")
+          \(packageInstructions)
 
           iOS host binding map: browser_navigate/browser_snapshot/browser_click/browser_type/browser_scroll/browser_back/browser_release are the visible native browser. brand_profile_save fulfills both localTools.brandProfileSave and the editable brand-profile file write. prospects_list and prospects_save fulfill the corresponding local workspace data operations. The relay collaboration tools fulfill the channel and message operations. A package instruction never grants a tool: only the tools advertised for this turn are available.
 
@@ -228,7 +246,7 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
 
     var toolRecords: [[String: Any]] = []
     var activityRecords: [[String: Any]] = []
-    var completedToolNames: Set<String> = []
+    var completedToolNames = Self.durableCompletedToolNames(from: messagesJSON)
     let requiresSpecialistKickoffTools = convoy.contains { message in
       message.content?.contains("MUST call relay_channels_create") == true
     }
@@ -294,6 +312,7 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
         workspaceID: workspaceID,
         conversationID: conversationID,
         agentID: agentID,
+        checkpoint: checkpoint,
         callback: onActivity
       )
       let result = try await complete(
@@ -331,6 +350,7 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
             call,
             convoy: &convoy,
             context: context,
+            checkpoint: checkpoint,
             completedToolNames: completedToolNames,
             releasePrerequisites: requiredTools.intersection([
               BrandProfileSaveTool.name,
@@ -379,10 +399,16 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
     _ call: OpenCodeResponse.Choice.Message.ToolCall,
     convoy: inout [OpenCodeRequest.Message],
     context: ToolContext,
+    checkpoint: AgentTurnCheckpoint,
     completedToolNames: Set<String>,
     releasePrerequisites: Set<String>
   ) async throws -> [String: Any] {
     let componentID = "tool-\(call.id)"
+    await checkpoint.beginTool(
+      id: call.id,
+      name: call.function.name,
+      input: call.function.arguments
+    )
     await onActivity(
       context.workspaceID,
       context.conversationID,
@@ -451,6 +477,7 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
       "output": result,
     ]
     if let errorMessage { activityPayload["error"] = errorMessage }
+    await checkpoint.finishTool(id: call.id, output: result, error: errorMessage)
     await onActivity(
       context.workspaceID,
       context.conversationID,
@@ -534,6 +561,10 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
       switch role {
       case "user", "assistant", "system":
         result.append(OpenCodeRequest.Message(role: role, content: content))
+      case "tool":
+        if let observation = Self.durableToolObservation(content) {
+          result.append(OpenCodeRequest.Message(role: "system", content: observation))
+        }
       default:
         continue  // skip reasoning/tool noise
       }
@@ -556,5 +587,41 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
     else { return "general" }
     return messages.reversed().compactMap { $0["conversationId"] as? String }.first
       ?? "general"
+  }
+
+  private static func latestUserTimestamp(from messagesJSON: String) -> Int64 {
+    guard
+      let data = messagesJSON.data(using: .utf8),
+      let messages = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+      let raw = messages.reversed().first(where: { $0["role"] as? String == "user" })?["at"]
+    else { return Int64(Date().timeIntervalSince1970 * 1_000) }
+    if let value = raw as? NSNumber { return value.int64Value }
+    return Int64(Date().timeIntervalSince1970 * 1_000)
+  }
+
+  private static func durableCompletedToolNames(from messagesJSON: String) -> Set<String> {
+    guard
+      let data = messagesJSON.data(using: .utf8),
+      let messages = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+    else { return [] }
+    return Set(messages.compactMap { message in
+      guard message["role"] as? String == "tool",
+        let content = message["content"] as? String,
+        let data = content.data(using: .utf8),
+        let tool = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        tool["status"] as? String == "completed"
+      else { return nil }
+      return tool["name"] as? String
+    })
+  }
+
+  private static func durableToolObservation(_ content: String) -> String? {
+    guard let data = content.data(using: .utf8),
+      let tool = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let name = tool["name"] as? String,
+      let status = tool["status"] as? String
+    else { return nil }
+    let output = tool["output"] as? String ?? ""
+    return "Durable replay: tool \(name) previously \(status). Its recorded output was:\n\(output)"
   }
 }

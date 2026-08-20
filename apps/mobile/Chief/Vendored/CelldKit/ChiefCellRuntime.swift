@@ -18,6 +18,7 @@ actor ChiefCellRuntime {
   nonisolated(unsafe) private var started = false
   private var agentBundle: String?
   private var host: (any ChiefAgentHosting)?
+  private var installedPackageScopes: Set<String> = []
 
   /// Whether the cell engine has booted successfully (idempotent; `start` may be
   /// re-invoked by the app until this becomes true).
@@ -57,6 +58,7 @@ actor ChiefCellRuntime {
   ) async throws -> String {
     guard started else { throw ChiefCellError.notStarted }
     guard let bundle = agentBundle else { throw ChiefCellError.missingWorker }
+    try ensurePackageInstalled(scope: scope)
     let bindings = #"[{"name":"AGENT_CELL","className":"AgentCell"}]"#
     let body = try JSONSerialization.data(
       withJSONObject: ["conversationId": conversationID, "text": userText]
@@ -116,6 +118,44 @@ actor ChiefCellRuntime {
     return envelope["status"] as? Int
   }
 
+  /// Install an inspectable authored-package manifest into the exact cell that
+  /// executes it. This is the celld equivalent of eve's compiled manifest:
+  /// package identity is durable and never inferred from a model response.
+  private func ensurePackageInstalled(scope: String) throws {
+    guard !installedPackageScopes.contains(scope) else { return }
+    let parts = scope.split(separator: ":", maxSplits: 1)
+    let agentID = parts.count == 2 ? String(parts[1]) : "chief"
+    let package = try AgentPackageBundle.load(agentID: agentID)
+    let manifest: [String: Any] = [
+      "protocolVersion": 1,
+      "runtime": "chief-eve-cell",
+      "agentId": package.id,
+      "scope": scope,
+      "instructions": "instructions.md",
+      "config": "agent.ts",
+      "skills": package.skillIDs,
+    ]
+    let manifestData = try JSONSerialization.data(withJSONObject: manifest)
+    let cellScope = "AgentCell:\(scope)"
+    guard CelldC.storagePut(
+      scope: cellScope,
+      key: "eve:package:manifest",
+      json: String(decoding: manifestData, as: UTF8.self)
+    ), CelldC.storagePut(
+      scope: cellScope,
+      key: "eve:package:instructions",
+      json: try Self.jsonString(package.instructions)
+    ) else {
+      throw ChiefCellError.storageUnavailable
+    }
+    installedPackageScopes.insert(scope)
+  }
+
+  private static func jsonString(_ value: String) throws -> String {
+    let data = try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed])
+    return String(decoding: data, as: UTF8.self)
+  }
+
   /// Allocate exactly one cell scope per agent in a workspace.
   static func scope(
     workspaceID: String,
@@ -125,6 +165,13 @@ actor ChiefCellRuntime {
       throw ChiefCellError.invalidScope
     }
     return "\(workspaceID):\(agentID)"
+  }
+
+  nonisolated static func isSafeScope(_ value: String) -> Bool {
+    value.range(
+      of: #"^[A-Za-z0-9][A-Za-z0-9._:-]{0,257}$"#,
+      options: .regularExpression
+    ) != nil
   }
 
   private static func isSafeIdentifier(_ value: String) -> Bool {
@@ -210,12 +257,14 @@ actor ChiefCellRuntime {
   }
 
   private static func loadAgentBundle() -> String? {
-    if let url = Bundle.main.url(forResource: "agent", withExtension: "js"),
-      let source = try? String(contentsOf: url, encoding: .utf8)
-    {
-      return source
+    let resourceNames = ["agent-support", "agent"]
+    let sources = resourceNames.compactMap { name -> String? in
+      guard let url = Bundle.main.url(forResource: name, withExtension: "js")
+      else { return nil }
+      return try? String(contentsOf: url, encoding: .utf8)
     }
-    return nil
+    guard sources.count == resourceNames.count else { return nil }
+    return sources.joined(separator: "\n")
   }
 }
 
