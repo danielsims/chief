@@ -7,6 +7,8 @@ enum TurnExtractor {
   struct Turn {
     var reply: String
     var components: [MessageComponent]
+    var sessionID: String?
+    var streamIndex: Int?
   }
 
   static func extract(from workerResult: String) throws -> Turn {
@@ -34,9 +36,11 @@ enum TurnExtractor {
       throw WorkspaceSetupError.inferenceFailed
     }
 
+    let currentTurnStart = messages.lastIndex(where: { $0["role"] as? String == "user" }) ?? 0
+    let currentTurnMessages = messages[currentTurnStart...]
     var reply: String?
     var components: [MessageComponent] = []
-    for message in messages {
+    for message in currentTurnMessages {
       guard let role = message["role"] as? String else { continue }
       let content = message["content"] as? String ?? ""
       switch role {
@@ -51,9 +55,13 @@ enum TurnExtractor {
         {
           components.append(
             MessageComponent(
-              id: "reasoning-\(UUID().uuidString)",
+              id: message["activityId"] as? String
+                ?? "reasoning-\(message["checkpointId"] as? String ?? UUID().uuidString)",
               kind: "thinking",
-              payload: ["text": text]
+              payload: [
+                "text": text,
+                "status": obj["status"] as? String ?? "completed",
+              ]
             )
           )
         }
@@ -69,7 +77,8 @@ enum TurnExtractor {
           if let error = obj["error"] as? String { payload["error"] = error }
           components.append(
             MessageComponent(
-              id: "tool-\(UUID().uuidString)",
+              id: message["activityId"] as? String
+                ?? "tool-\(obj["id"] as? String ?? UUID().uuidString)",
               kind: "tool",
               payload: payload
             )
@@ -85,6 +94,12 @@ enum TurnExtractor {
       }
       throw WorkspaceSetupError.inferenceFailed
     }
-    return Turn(reply: reply, components: components)
+    let state = object["state"] as? [String: Any]
+    return Turn(
+      reply: reply,
+      components: components,
+      sessionID: state?["sessionId"] as? String,
+      streamIndex: (state?["streamIndex"] as? NSNumber)?.intValue
+    )
   }
 }
