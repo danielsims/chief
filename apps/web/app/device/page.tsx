@@ -2,19 +2,22 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useConvexAuth } from "convex/react";
 
 import { Button } from "@chief/ui/components/button";
+
+import { authClient } from "../../lib/auth-client";
 
 const MOBILE_RETURN_URL = "chief-mobile://auth";
 
 function DeviceAuthorizationContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isAuthenticated, isLoading } = useConvexAuth();
+  const { data: session, isPending: isLoading } = authClient.useSession();
+  const isAuthenticated = Boolean(session?.user);
   const [error, setError] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
   const [approved, setApproved] = useState(false);
+  const [requestReady, setRequestReady] = useState(false);
 
   const userCode = searchParams.get("user_code");
   const returnTo = searchParams.get("return_to");
@@ -32,18 +35,33 @@ function DeviceAuthorizationContent() {
     }
   }, [currentURL, isAuthenticated, isLoading, router]);
 
+  useEffect(() => {
+    if (!userCode || !isAuthenticated) return;
+    let cancelled = false;
+    void fetch(`/api/auth/device?user_code=${encodeURIComponent(userCode)}`, {
+      credentials: "include",
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("Device code verification failed");
+        if (!cancelled) setRequestReady(true);
+      })
+      .catch((cause: unknown) => {
+        console.error("[Device authorization] Verification failed", cause);
+        if (!cancelled) {
+          setError("This device request is invalid or has expired.");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, userCode]);
+
   const approve = useCallback(async () => {
-    if (!userCode || approving || !isAuthenticated) return;
+    if (!userCode || approving || !isAuthenticated || !requestReady) return;
     setApproving(true);
     setError(null);
 
     try {
-      const verification = await fetch(
-        `/api/auth/device?user_code=${encodeURIComponent(userCode)}`,
-        { credentials: "include" },
-      );
-      if (!verification.ok) throw new Error("Device code verification failed");
-
       const approval = await fetch("/api/auth/device/approve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -52,27 +70,45 @@ function DeviceAuthorizationContent() {
       });
       if (!approval.ok) throw new Error("Device approval failed");
 
+      setApproved(true);
+      setApproving(false);
       if (nativeReturnURL) {
-        window.location.assign(`${nativeReturnURL}?status=approved`);
-      } else {
-        setApproved(true);
-        setApproving(false);
+        window.setTimeout(() => {
+          window.location.assign(`${nativeReturnURL}?status=approved`);
+        }, 300);
       }
     } catch (cause) {
       console.error("[Device authorization] Approval failed", cause);
       setError("Chief could not finish connecting this device.");
       setApproving(false);
     }
-  }, [approving, isAuthenticated, nativeReturnURL, userCode]);
+  }, [approving, isAuthenticated, nativeReturnURL, requestReady, userCode]);
 
-  useEffect(() => {
-    if (isAuthenticated && userCode && !approving && !approved && !error) {
-      // The auto-approve callback sets state; keep it off the synchronous
-      // effect path so React does not cascade renders.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      void approve();
+  const deny = useCallback(async () => {
+    if (!userCode || approving || !isAuthenticated || !requestReady) return;
+    setApproving(true);
+    try {
+      await fetch("/api/auth/device/deny", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ userCode }),
+      });
+    } finally {
+      if (nativeReturnURL) {
+        window.location.assign(`${nativeReturnURL}?status=denied`);
+      } else {
+        router.replace("/");
+      }
     }
-  }, [approve, approved, approving, error, isAuthenticated, userCode]);
+  }, [
+    approving,
+    isAuthenticated,
+    nativeReturnURL,
+    requestReady,
+    router,
+    userCode,
+  ]);
 
   if (!userCode) {
     return (
@@ -95,23 +131,48 @@ function DeviceAuthorizationContent() {
             {error
               ? "Chief could not connect"
               : approved
-                ? "Chief is connected"
+                ? nativeReturnURL
+                  ? "Returning to Chief"
+                  : "Chief is connected"
                 : isLoading
                   ? "Loading Chief"
-                  : "Connecting your account"}
+                  : !isAuthenticated
+                    ? "Opening sign in"
+                    : requestReady
+                      ? "Connect this device"
+                      : "Checking this device"}
           </h1>
           <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
             {error ??
               (approved
-                ? "You can close this window."
+                ? nativeReturnURL
+                  ? "Your account is connected."
+                  : "You can close this window."
                 : isLoading
                   ? "Checking your sign-in status…"
-                  : "You’ll return to the app when this device is ready.")}
+                  : !isAuthenticated
+                    ? "Continue in the secure sign-in page."
+                    : requestReady
+                      ? "Only continue if you started this request on your device."
+                      : "Verifying the request…")}
           </p>
           {error ? (
-            <Button className="mt-10 h-11" variant="outline" onClick={approve}>
+            <Button
+              className="mt-10 h-11"
+              variant="outline"
+              onClick={() => window.location.reload()}
+            >
               Try again
             </Button>
+          ) : requestReady && !approved ? (
+            <div className="mt-10 flex flex-col gap-3">
+              <Button onClick={approve} disabled={approving}>
+                {approving ? "Connecting…" : "Connect device"}
+              </Button>
+              <Button variant="ghost" onClick={deny} disabled={approving}>
+                Cancel
+              </Button>
+            </div>
           ) : !approved ? (
             <span
               aria-label="Connecting"
