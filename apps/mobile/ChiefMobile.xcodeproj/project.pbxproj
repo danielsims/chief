@@ -113,6 +113,7 @@
 		D0111F1C1AAD046FC24F835D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5676842BCAA14D424394C3A8 /* Assets.xcassets */; };
 		D24F1910F651C6D47BEEECEE /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10350F4DC1F18F6CD5041566 /* OnboardingView.swift */; };
 		D4B142229386D871D9B25B7E /* WorkspaceInviteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6479E5C24A0A51D0689DA99 /* WorkspaceInviteView.swift */; };
+		DA9291EDDB95B29150D59165 /* DeviceAuthorizationVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = A938E9ED8E7EF1A2F7692F76 /* DeviceAuthorizationVault.swift */; };
 		DB275FA90816646915CDC0F3 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66EAB9C5A9F296BA7DB1457A /* SessionStore.swift */; };
 		DB5B7663514CA158BDFDFC4A /* ConversationActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2895AF414AE50C7D0B3F9663 /* ConversationActivity.swift */; };
 		DE990009CEF3D641ED26197A /* WorkspaceSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C8BF5647B8487F59E140D8B /* WorkspaceSidebarView.swift */; };
@@ -252,6 +253,7 @@
 		A183871D0C0DBEE3B3992CFB /* ConversationReadStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationReadStateTests.swift; sourceTree = "<group>"; };
 		A6C9EC4A3EF72707C2C4F0DA /* FixtureRelayClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FixtureRelayClientTests.swift; sourceTree = "<group>"; };
 		A7A18DD9526B5A445466A081 /* AgentTurnCheckpointTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTurnCheckpointTests.swift; sourceTree = "<group>"; };
+		A938E9ED8E7EF1A2F7692F76 /* DeviceAuthorizationVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceAuthorizationVault.swift; sourceTree = "<group>"; };
 		AA5CDF6CD47574FD4D734549 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		AA800891A8B0A96131E68EA6 /* MessageSkill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageSkill.swift; sourceTree = "<group>"; };
 		AAAEF323610F56E86E68DCF3 /* sparkle.caf */ = {isa = PBXFileReference; path = sparkle.caf; sourceTree = "<group>"; };
@@ -583,6 +585,7 @@
 				C637BCC22DBB18A68D58A5FC /* BrowserURLPolicy.swift */,
 				9E8D35A69CA1DA238E60641B /* ConversationCache.swift */,
 				2F9262D4A5003AC4CADCFF32 /* ConversationReadState.swift */,
+				A938E9ED8E7EF1A2F7692F76 /* DeviceAuthorizationVault.swift */,
 				9B37845645D8446028ACD087 /* FixtureRelayClient.swift */,
 				232F3C996B7EF2957E299392 /* InferenceCredentialStore.swift */,
 				ED421C1E43B5A7AACCEA89D1 /* KickoffToolEvidence.swift */,
@@ -861,6 +864,7 @@
 				5F45B98A6941935482D5F06D /* DevCodexBridgeClient.swift in Sources */,
 				76250A9E4FA02208AEC2B0BE /* DevCodexBridgeRPC.swift in Sources */,
 				E08C753A156D9F7AF356AB98 /* DevCodexBridgeSettings.swift in Sources */,
+				DA9291EDDB95B29150D59165 /* DeviceAuthorizationVault.swift in Sources */,
 				B2688F9F5D8C41C6C26AE702 /* EmojiCatalog.swift in Sources */,
 				231C7D90EB2CCB0BDD76D46B /* FixtureRelayClient.swift in Sources */,
 				149EEF8AED43F71DAC92BADC /* Haptics.swift in Sources */,

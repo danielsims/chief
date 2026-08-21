@@ -13,11 +13,12 @@ export function relayError(
   message: string,
   requestId?: string,
   details?: Record<string, unknown>,
+  headers?: HeadersInit,
 ) {
   const body = relayErrorSchema.parse({
     error: { code, message, requestId, details },
   });
-  return json(body, { status });
+  return json(body, { status, headers });
 }
 
 export async function parseJson(request: Request): Promise<unknown> {

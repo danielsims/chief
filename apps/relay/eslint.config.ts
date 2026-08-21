@@ -2,7 +2,7 @@ import { defineConfig } from "eslint/config";
 
 import { baseConfig } from "@chief/eslint-config/base";
 
-export default defineConfig(baseConfig, {
+export default defineConfig({ ignores: [".wrangler/**"] }, baseConfig, {
   files: ["test/**/*.ts"],
   rules: {
     "@typescript-eslint/array-type": "off",

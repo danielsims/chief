@@ -5,6 +5,7 @@ import {
   appendMessageCommandSchema,
   authenticatedIdentitySchema,
   bindDeviceIdentityCommandSchema,
+  boundDeviceIdentitySchema,
   eventEnvelopeSchema,
   executionLeaseSchema,
   relativeExecutionPathSchema,
@@ -59,6 +60,18 @@ void test("device binding accepts opaque Better Auth access tokens", () => {
   );
 });
 
+void test("device binding returns an expiring relay authorization", () => {
+  assert.equal(
+    boundDeviceIdentitySchema.safeParse({
+      userId: "better-auth-user",
+      pubkey: "a".repeat(64),
+      deviceAuthorization: "device-authorization".repeat(3),
+      expiresAt: "2026-08-22T00:00:00.000Z",
+    }).success,
+    true,
+  );
+});
+
 void test("event envelopes require a relay-assigned sequence and actor", () => {
   const schema = eventEnvelopeSchema(appendMessageCommandSchema.shape.payload);
   const result = schema.safeParse({
@@ -92,10 +105,15 @@ void test("relay discovery is portable across hosting providers", () => {
     authentication: {
       scheme: "NIP-98",
       signingAlgorithm: "secp256k1-schnorr",
+      accountIssuer: "https://relay.example.com/api/auth",
     },
   });
 
   assert.equal(discovery.deployment, "cloudflare-byoc");
+  assert.equal(
+    discovery.authentication.accountIssuer,
+    "https://relay.example.com/api/auth",
+  );
 });
 
 void test("OpenAPI documents idempotent message append", () => {

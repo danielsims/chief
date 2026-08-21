@@ -13,6 +13,7 @@ import { relayDocsHtml } from "./docs";
 import { HttpError, json, relayError } from "./http";
 import { withTrustedContext } from "./internal-context";
 import { connectLiveSocket } from "./live-socket-router";
+import { relayCapacityResponse } from "./relay-capacity";
 import {
   enforceEdgeRequestLimit,
   enforcePublicIdentityRequestLimit,
@@ -106,6 +107,17 @@ export async function routeRelayRequest(
         error.details,
       );
     }
+    console.error("relay.request.unhandled", {
+      requestId,
+      method: request.method,
+      pathname: new URL(request.url).pathname,
+      error:
+        error instanceof Error
+          ? { name: error.name, message: error.message, stack: error.stack }
+          : String(error),
+    });
+    const capacityResponse = relayCapacityResponse(error, requestId);
+    if (capacityResponse) return capacityResponse;
     return relayError(
       400,
       "invalid_request",
@@ -121,14 +133,14 @@ function routePublicRequest(request: Request, url: URL, env: Env) {
     return json({ ok: true, protocolVersion: 1 });
   }
   if (url.pathname === "/.well-known/chief-relay") {
-    return json(discovery(url, env));
+    return json(discovery(request, url, env));
   }
   if (url.pathname === "/v1/openapi.json") {
-    return json(createRelayOpenApiDocument(publicOrigin(url, env)));
+    return json(createRelayOpenApiDocument(publicOrigin(request, url, env)));
   }
   if (url.pathname === "/docs") {
     return new Response(
-      relayDocsHtml(`${publicOrigin(url, env)}/v1/openapi.json`),
+      relayDocsHtml(`${publicOrigin(request, url, env)}/v1/openapi.json`),
       { headers: { "content-type": "text/html; charset=utf-8" } },
     );
   }
@@ -431,8 +443,8 @@ function conversationStub(
   );
 }
 
-function discovery(url: URL, env: Env) {
-  const origin = publicOrigin(url, env);
+function discovery(request: Request, url: URL, env: Env) {
+  const origin = publicOrigin(request, url, env);
   return relayDiscoverySchema.parse({
     protocol: "chief-relay",
     protocolVersion: 1,
@@ -451,6 +463,7 @@ function discovery(url: URL, env: Env) {
     authentication: {
       scheme: "NIP-98",
       signingAlgorithm: "secp256k1-schnorr",
+      accountIssuer: `${env.AUTH_BASE_URL.replace(/\/$/u, "")}/api/auth`,
     },
   });
 }
@@ -459,6 +472,16 @@ function parseWorkspaceId(value: string | undefined) {
   return workspaceIdSchema.parse(decodeURIComponent(value ?? ""));
 }
 
-function publicOrigin(url: URL, env: Env) {
-  return (env.RELAY_PUBLIC_URL ?? url.origin).replace(/\/$/u, "");
+function publicOrigin(request: Request, url: URL, env: Env) {
+  if (env.RELAY_PUBLIC_URL) return env.RELAY_PUBLIC_URL.replace(/\/$/u, "");
+  const forwardedProtocol = request.headers
+    .get("x-forwarded-proto")
+    ?.split(",")[0]
+    ?.trim();
+  if (forwardedProtocol === "https" && url.protocol === "http:") {
+    const forwarded = new URL(url);
+    forwarded.protocol = "https:";
+    return forwarded.origin;
+  }
+  return url.origin;
 }

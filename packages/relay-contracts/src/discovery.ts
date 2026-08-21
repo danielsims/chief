@@ -12,7 +12,12 @@ export const relayCapabilitySchema = z.enum([
 export const relayDiscoverySchema = z.object({
   protocol: z.literal("chief-relay"),
   protocolVersion: z.literal(1),
-  deployment: z.enum(["chief-cloud", "cloudflare-byoc", "local"]),
+  deployment: z.enum([
+    "chief-cloud",
+    "cloudflare-byoc",
+    "self-hosted",
+    "local",
+  ]),
   apiBaseUrl: z.url(),
   websocketUrl: z.url(),
   openApiUrl: z.url(),
@@ -20,6 +25,7 @@ export const relayDiscoverySchema = z.object({
   authentication: z.object({
     scheme: z.literal("NIP-98"),
     signingAlgorithm: z.literal("secp256k1-schnorr"),
+    accountIssuer: z.url(),
   }),
 });
 

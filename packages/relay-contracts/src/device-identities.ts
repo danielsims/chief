@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { hexPubkeySchema, userIdSchema } from "./identifiers";
+import {
+  hexPubkeySchema,
+  isoDateTimeSchema,
+  userIdSchema,
+} from "./identifiers";
 
 export const bindDeviceIdentityCommandSchema = z
   // Better Auth opaque access tokens are currently 43 characters. Treat the
@@ -13,6 +17,8 @@ export const boundDeviceIdentitySchema = z
   .object({
     userId: userIdSchema,
     pubkey: hexPubkeySchema,
+    deviceAuthorization: z.string().trim().min(32).max(8_192),
+    expiresAt: isoDateTimeSchema,
   })
   .strict();
 

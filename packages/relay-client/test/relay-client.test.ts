@@ -5,8 +5,27 @@ import { workspaceIdSchema } from "@chief/relay-contracts";
 
 import { RelayClient } from "../src/relay-client";
 
+const relayDiscovery = {
+  protocol: "chief-relay",
+  protocolVersion: 1,
+  deployment: "chief-cloud",
+  apiBaseUrl: "https://relay.test/v1",
+  websocketUrl: "wss://relay.test/v1/connect",
+  openApiUrl: "https://relay.test/v1/openapi.json",
+  capabilities: ["workspaces", "conversations", "durable-agents"],
+  authentication: {
+    scheme: "NIP-98",
+    signingAlgorithm: "secp256k1-schnorr",
+    accountIssuer: "https://relay.test/api/auth",
+  },
+};
+
 void test("scopes NIP-98 requests to one workspace and keeps authorization out of socket URLs", async () => {
-  const requests: { url: string; authorization: string | null }[] = [];
+  const requests: {
+    url: string;
+    authorization: string | null;
+    deviceAuthorization: string | null;
+  }[] = [];
   let socketUrl = "";
   const fetcher: typeof fetch = (input, init) => {
     const url =
@@ -16,23 +35,13 @@ void test("scopes NIP-98 requests to one workspace and keeps authorization out o
           ? input.toString()
           : input.url;
     const headers = new Headers(init?.headers);
-    requests.push({ url, authorization: headers.get("authorization") });
+    requests.push({
+      url,
+      authorization: headers.get("authorization"),
+      deviceAuthorization: headers.get("x-chief-device-authorization"),
+    });
     if (url.endsWith("/.well-known/chief-relay")) {
-      return Promise.resolve(
-        jsonResponse({
-          protocol: "chief-relay",
-          protocolVersion: 1,
-          deployment: "chief-cloud",
-          apiBaseUrl: "https://relay.test/v1",
-          websocketUrl: "wss://relay.test/v1/connect",
-          openApiUrl: "https://relay.test/v1/openapi.json",
-          capabilities: ["workspaces", "conversations", "durable-agents"],
-          authentication: {
-            scheme: "NIP-98",
-            signingAlgorithm: "secp256k1-schnorr",
-          },
-        }),
-      );
+      return Promise.resolve(jsonResponse(relayDiscovery));
     }
     if (url.endsWith("/socket-tickets")) {
       return Promise.resolve(
@@ -54,6 +63,8 @@ void test("scopes NIP-98 requests to one workspace and keeps authorization out o
     relayUrl: "https://relay.test/ignored/path",
     workspaceId: workspaceIdSchema.parse("workspace-a"),
     getAuthorization: () => Promise.resolve("Nostr signed-request"),
+    getDeviceAuthorization: () =>
+      Promise.resolve("relay-signed-device-authorization"),
     fetch: fetcher,
     createWebSocket: (url) => {
       socketUrl = url;
@@ -73,8 +84,17 @@ void test("scopes NIP-98 requests to one workspace and keeps authorization out o
     /\/v1\/workspaces\/workspace-a\/conversations\/general\/messages/u,
   );
   assert.equal(requests[0]?.authorization, "Nostr signed-request");
+  assert.equal(
+    requests[0].deviceAuthorization,
+    "relay-signed-device-authorization",
+  );
   assert.equal(requests[1]?.authorization, null);
+  assert.equal(requests[1].deviceAuthorization, null);
   assert.equal(requests[2]?.authorization, "Nostr signed-request");
+  assert.equal(
+    requests[2].deviceAuthorization,
+    "relay-signed-device-authorization",
+  );
   assert.match(socketUrl, /ticket=socket-ticket/u);
   assert.doesNotMatch(socketUrl, /signed-request/u);
   assert.match(socketUrl, /workspaceId=workspace-a/u);
@@ -128,21 +148,7 @@ void test("renews socket tickets and catches up from the durable cursor after re
           : input.url,
     );
     if (url.pathname === "/.well-known/chief-relay") {
-      return Promise.resolve(
-        jsonResponse({
-          protocol: "chief-relay",
-          protocolVersion: 1,
-          deployment: "chief-cloud",
-          apiBaseUrl: "https://relay.test/v1",
-          websocketUrl: "wss://relay.test/v1/connect",
-          openApiUrl: "https://relay.test/v1/openapi.json",
-          capabilities: ["workspaces", "conversations", "durable-agents"],
-          authentication: {
-            scheme: "NIP-98",
-            signingAlgorithm: "secp256k1-schnorr",
-          },
-        }),
-      );
+      return Promise.resolve(jsonResponse(relayDiscovery));
     }
     if (url.pathname.endsWith("/socket-tickets")) {
       ticketCount += 1;
@@ -209,21 +215,7 @@ void test("does not retry a terminal authorization failure after a live disconne
           : input.url,
     );
     if (url.pathname === "/.well-known/chief-relay") {
-      return Promise.resolve(
-        jsonResponse({
-          protocol: "chief-relay",
-          protocolVersion: 1,
-          deployment: "chief-cloud",
-          apiBaseUrl: "https://relay.test/v1",
-          websocketUrl: "wss://relay.test/v1/connect",
-          openApiUrl: "https://relay.test/v1/openapi.json",
-          capabilities: ["workspaces", "conversations", "durable-agents"],
-          authentication: {
-            scheme: "NIP-98",
-            signingAlgorithm: "secp256k1-schnorr",
-          },
-        }),
-      );
+      return Promise.resolve(jsonResponse(relayDiscovery));
     }
     if (url.pathname.endsWith("/socket-tickets")) {
       ticketCount += 1;
@@ -292,21 +284,7 @@ void test("multiplexes workspace conversations over one cursor-resumable socket"
             : input.url,
       );
       if (url.pathname === "/.well-known/chief-relay") {
-        return Promise.resolve(
-          jsonResponse({
-            protocol: "chief-relay",
-            protocolVersion: 1,
-            deployment: "chief-cloud",
-            apiBaseUrl: "https://relay.test/v1",
-            websocketUrl: "wss://relay.test/v1/connect",
-            openApiUrl: "https://relay.test/v1/openapi.json",
-            capabilities: ["workspaces", "conversations", "durable-agents"],
-            authentication: {
-              scheme: "NIP-98",
-              signingAlgorithm: "secp256k1-schnorr",
-            },
-          }),
-        );
+        return Promise.resolve(jsonResponse(relayDiscovery));
       }
       if (url.pathname === "/v1/workspaces/workspace-a/socket-tickets") {
         return Promise.resolve(

@@ -1166,7 +1166,7 @@ final class AppModel {
     if error is URLError { return true }
     guard let relayError = error as? RelayError else { return false }
     switch relayError {
-    case .unavailable:
+    case .unavailable, .capacity:
       return true
     case .httpStatus(let status):
       return status >= 500
@@ -2088,6 +2088,7 @@ final class AppModel {
     stopWorkspaceLiveStreams()
     pendingNewWorkspace = false
     try? sessions.clear()
+    Task { await DeviceAuthorizationVault.shared.clear() }
     session = nil
     workspace = nil
     membershipWorkspaceID = nil

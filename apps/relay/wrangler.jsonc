@@ -11,7 +11,6 @@
       { "name": "CONVERSATIONS", "class_name": "ConversationObject" },
       { "name": "AGENTS", "class_name": "AgentObject" },
       { "name": "METRICS", "class_name": "AnalyticsObject" },
-      { "name": "IDENTITIES", "class_name": "IdentityObject" },
     ],
   },
   "migrations": [
@@ -34,6 +33,10 @@
     {
       "tag": "v4",
       "new_sqlite_classes": ["IdentityObject"],
+    },
+    {
+      "tag": "v5",
+      "deleted_classes": ["IdentityObject"],
     },
   ],
   "r2_buckets": [
