@@ -98,18 +98,97 @@ struct NewChannelSheet: View {
 /// The direct message group, used on the DMs tab.
 struct DMsGroup: View {
   @Environment(AppModel.self) private var model
+  @Binding var path: [String]
   @State private var expanded = true
+  @State private var startingAgentID: String?
+  @State private var startFailed = false
 
   var body: some View {
-    CollapsibleGroup(title: "DMs", count: dms.count, isExpanded: $expanded) {
-      ForEach(dms) { conversation in
+    CollapsibleGroup(title: "DMs", count: rosterCount, isExpanded: $expanded) {
+      ForEach(model.workspace?.agents ?? []) { agent in
+        if let conversation = directConversation(for: agent) {
+          ConversationRow(conversation: conversation)
+        } else {
+          agentDirectRow(agent)
+        }
+      }
+      ForEach(unmatchedDirectConversations) { conversation in
         ConversationRow(conversation: conversation)
       }
     }
+    .alert("Couldn’t start this message", isPresented: $startFailed) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text("Chief couldn’t create the direct conversation on the relay. Try again.")
+    }
   }
 
-  private var dms: [ConversationSummary] {
+  private var directConversations: [ConversationSummary] {
     model.workspace?.conversations.filter { $0.kind == .direct } ?? []
+  }
+
+  private var unmatchedDirectConversations: [ConversationSummary] {
+    directConversations.filter { conversation in
+      !(model.workspace?.agents.contains { directConversation(for: $0)?.id == conversation.id }
+        ?? false)
+    }
+  }
+
+  private var rosterCount: Int {
+    (model.workspace?.agents.count ?? 0) + unmatchedDirectConversations.count
+  }
+
+  private func directConversation(for agent: AgentSummary) -> ConversationSummary? {
+    directConversations.first { conversation in
+      let normalizedName = conversation.name.lowercased()
+      return normalizedName.contains(agent.id.lowercased())
+        || normalizedName.contains(agent.name.lowercased())
+    }
+  }
+
+  private func agentDirectRow(_ agent: AgentSummary) -> some View {
+    Button {
+      guard startingAgentID == nil else { return }
+      Haptics.medium()
+      startingAgentID = agent.id
+      startFailed = false
+      Task {
+        let recipient = DirectMessageRecipient(
+          kind: "agent",
+          principalID: agent.id,
+          name: agent.name,
+          role: agent.role
+        )
+        if let conversationID = await model.startDirectMessage(with: recipient) {
+          path.append(conversationID)
+        } else {
+          startFailed = true
+        }
+        startingAgentID = nil
+      }
+    } label: {
+      HStack(spacing: 9) {
+        AgentMark(name: agent.name, size: 24, working: agent.status == .working)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(agent.name)
+            .font(.system(size: 14, weight: .regular))
+            .foregroundStyle(ChiefTheme.secondary)
+          Text(agent.role)
+            .font(.system(size: 11))
+            .foregroundStyle(ChiefTheme.tertiary)
+            .lineLimit(1)
+        }
+        Spacer(minLength: 8)
+        if startingAgentID == agent.id {
+          ProgressView().controlSize(.small).tint(.white)
+        }
+      }
+      .padding(.vertical, 5)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .disabled(startingAgentID != nil)
+    .accessibilityLabel("Message \(agent.name)")
   }
 }
 

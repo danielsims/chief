@@ -361,7 +361,9 @@ final class AgentBackgroundActivityCoordinator {
     let content = UNMutableNotificationContent()
     content.title = title
     content.body = body
-    content.sound = MobileNotifications.configuredSound
+    content.sound = NotificationSoundGate.shared.claim()
+      ? MobileNotifications.configuredSound
+      : nil
     content.threadIdentifier = metadata.conversationID
     content.userInfo = [
       "workspaceID": metadata.workspaceID,

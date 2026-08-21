@@ -17,13 +17,18 @@ enum LiveEvent: Sendable {
 /// `conversation.message.reacted` events to every connected socket, and this
 /// client surfaces them to the app as they happen.
 ///
-/// One instance per open conversation.
+/// One instance per workspace. Conversation subscriptions are multiplexed over
+/// the single hibernation-friendly socket so an idle app performs no polling or
+/// repeated authorization work.
 actor RelayLiveClient {
   private let configuration: AppConfiguration
   private let session: URLSession
 
   private var socket: URLSessionWebSocketTask?
   private var messageTask: Task<Void, Never>?
+  private var workspaceID: String?
+  private var conversationIDs: Set<String> = []
+  private var workspaceCursor = 0
 
   init(
     configuration: AppConfiguration,
@@ -33,23 +38,25 @@ actor RelayLiveClient {
     self.session = session
   }
 
-  /// Connect to a conversation's live event stream. `onEvent` is called on the
-  /// calling actor for each decoded event.
+  /// Connect to one workspace stream and subscribe to the currently joined
+  /// conversations. The durable cursor makes reconnects resumable.
   func connect(
     workspaceID: String,
-    conversationID: String,
+    conversationIDs: Set<String>,
     onEvent: @escaping @Sendable (LiveEvent) -> Void
   ) async throws {
     disconnect()
-    let ticket = try await fetchTicket(workspaceID: workspaceID, conversationID: conversationID)
+    let ticket = try await fetchWorkspaceTicket(workspaceID: workspaceID)
+    self.workspaceID = workspaceID
+    self.conversationIDs = conversationIDs
+    workspaceCursor = Self.savedCursor(workspaceID: workspaceID) ?? ticket.cursor
     var components = URLComponents(
       url: configuration.relayURL.appending(path: "v1/connect"),
       resolvingAgainstBaseURL: false
     )!
     components.queryItems = [
       URLQueryItem(name: "workspaceId", value: workspaceID),
-      URLQueryItem(name: "conversationId", value: conversationID),
-      URLQueryItem(name: "ticket", value: ticket),
+      URLQueryItem(name: "ticket", value: ticket.value),
     ]
     let url = components.url!
       .absoluteString
@@ -59,9 +66,17 @@ actor RelayLiveClient {
     let socket = session.webSocketTask(with: request)
     socket.resume()
     self.socket = socket
+    try await sendWorkspaceSubscription()
     messageTask = Task { [weak self] in
-      await self?.receiveLoop(onEvent: onEvent)
+      await self?.receiveLoop(workspaceID: workspaceID, onEvent: onEvent)
     }
+  }
+
+  func updateSubscriptions(workspaceID: String, conversationIDs: Set<String>) async throws {
+    guard self.workspaceID == workspaceID else { return }
+    guard self.conversationIDs != conversationIDs else { return }
+    self.conversationIDs = conversationIDs
+    try await sendWorkspaceSubscription()
   }
 
   func disconnect() {
@@ -69,6 +84,8 @@ actor RelayLiveClient {
     messageTask = nil
     socket?.cancel(with: .goingAway, reason: nil)
     socket = nil
+    workspaceID = nil
+    conversationIDs = []
   }
 
   /// Suspends until the current conversation socket ends. Workspace-level
@@ -134,6 +151,7 @@ actor RelayLiveClient {
   // MARK: - Receive
 
   private func receiveLoop(
+    workspaceID: String,
     onEvent: @escaping @Sendable (LiveEvent) -> Void
   ) async {
     while !Task.isCancelled, let socket {
@@ -141,8 +159,11 @@ actor RelayLiveClient {
         let message = try await socket.receive()
         switch message {
         case .string(let text):
-          if let event = Self.decodeEvent(text) {
-            onEvent(event)
+          if let decoded = Self.decodeEvent(text) {
+            if decoded.sequence <= workspaceCursor { continue }
+            workspaceCursor = decoded.sequence
+            Self.saveCursor(decoded.sequence, workspaceID: workspaceID)
+            onEvent(decoded.event)
           }
         case .data:
           break
@@ -154,28 +175,29 @@ actor RelayLiveClient {
         break
       }
     }
-    liveLog.info("live stream ended for conversation")
+    liveLog.info("live stream ended for workspace")
   }
 
   /// Decode a `conversation.message.appended` / `conversation.message.reacted`
   /// event into a LiveEvent, or nil for anything else.
-  private static func decodeEvent(_ text: String) -> LiveEvent? {
+  private static func decodeEvent(_ text: String) -> (event: LiveEvent, sequence: Int)? {
     guard
       let data = text.data(using: .utf8),
       let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let sequence = object["sequence"] as? Int,
       let payload = object["payload"] as? [String: Any],
       let messageData = try? JSONSerialization.data(withJSONObject: payload["message"] as Any),
       let message = try? JSONDecoder().decode(ConversationMessage.self, from: messageData)
     else { return nil }
     switch object["type"] as? String {
     case "conversation.message.appended":
-      return .appended(message)
+      return (.appended(message), sequence)
     case "conversation.message.reacted":
-      return .reacted(message)
+      return (.reacted(message), sequence)
     case "conversation.message.edited":
-      return .edited(message)
+      return (.edited(message), sequence)
     case "conversation.message.deleted":
-      return .deleted(message)
+      return (.deleted(message), sequence)
     default:
       return nil
     }
@@ -183,9 +205,11 @@ actor RelayLiveClient {
 
   // MARK: - Ticket
 
-  private func fetchTicket(workspaceID: String, conversationID: String) async throws -> String {
-    let path =
-      "/v1/workspaces/\(workspaceID)/conversations/\(conversationID)/socket-tickets"
+  private func fetchWorkspaceTicket(workspaceID: String) async throws -> (
+    value: String,
+    cursor: Int
+  ) {
+    let path = "/v1/workspaces/\(workspaceID)/socket-tickets"
     let url = URL(string: path, relativeTo: configuration.relayURL)!.absoluteURL
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
@@ -199,8 +223,40 @@ actor RelayLiveClient {
     guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
       throw RelayError.unavailable
     }
-    struct Envelope: Decodable { let ticket: String }
-    return try JSONDecoder().decode(Envelope.self, from: data).ticket
+    struct Envelope: Decodable {
+      let ticket: String
+      let cursor: Int
+    }
+    let envelope = try JSONDecoder().decode(Envelope.self, from: data)
+    return (envelope.ticket, envelope.cursor)
+  }
+
+  private func sendWorkspaceSubscription() async throws {
+    guard let socket else { return }
+    let payload: [String: Any] = [
+      "type": "workspace.subscribe",
+      "conversationIds": conversationIDs.sorted(),
+      "after": workspaceCursor,
+    ]
+    let data = try JSONSerialization.data(withJSONObject: payload)
+    guard let text = String(data: data, encoding: .utf8) else {
+      throw RelayError.unavailable
+    }
+    try await socket.send(.string(text))
+  }
+
+  private static func savedCursor(workspaceID: String) -> Int? {
+    let key = cursorKey(workspaceID: workspaceID)
+    guard UserDefaults.standard.object(forKey: key) != nil else { return nil }
+    return UserDefaults.standard.integer(forKey: key)
+  }
+
+  private static func saveCursor(_ cursor: Int, workspaceID: String) {
+    UserDefaults.standard.set(cursor, forKey: cursorKey(workspaceID: workspaceID))
+  }
+
+  private static func cursorKey(workspaceID: String) -> String {
+    "chief.relay.workspace-cursor.\(workspaceID)"
   }
 
   private func fetchAgentTicket(workspaceID: String, agentID: String) async throws -> String {

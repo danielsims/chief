@@ -50,20 +50,36 @@ enum NotificationSoundPreferences {
   }
 }
 
+/// Coalesces foreground playback and system notification sounds through one
+/// process-wide decision point. App lifecycle transitions can otherwise race a
+/// relay arrival through both paths and play the same cue twice.
+@MainActor
+final class NotificationSoundGate {
+  static let shared = NotificationSoundGate()
+
+  private var lastClaimedAt = Date.distantPast
+
+  func claim() -> Bool {
+    let now = Date()
+    guard now.timeIntervalSince(lastClaimedAt) >= 0.8 else { return false }
+    lastClaimedAt = now
+    return true
+  }
+}
+
 @MainActor
 final class NotificationSoundPlayer {
   static let shared = NotificationSoundPlayer()
 
   private var player: AVAudioPlayer?
-  private var lastPlayedAt = Date.distantPast
 
   func playConfigured() {
     guard NotificationSoundPreferences.enabled else { return }
-    play(NotificationSoundPreferences.sound, enforcingBurst: true)
+    guard NotificationSoundGate.shared.claim() else { return }
+    play(NotificationSoundPreferences.sound)
   }
 
-  func play(_ sound: ChiefNotificationSound, enforcingBurst: Bool = false) {
-    if enforcingBurst, Date().timeIntervalSince(lastPlayedAt) < 0.1 { return }
+  func play(_ sound: ChiefNotificationSound) {
     guard let url = Bundle.main.url(
       forResource: sound.rawValue,
       withExtension: "caf"
@@ -78,7 +94,6 @@ final class NotificationSoundPlayer {
       next.prepareToPlay()
       next.play()
       player = next
-      lastPlayedAt = .now
     } catch {
       print("[Chief] notification sound playback failed: \(error)")
     }
