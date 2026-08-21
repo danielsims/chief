@@ -191,8 +191,8 @@ export function ConnectionNotice({
   onRetry: () => void;
 }) {
   return (
-    <div className="text-muted-foreground mt-5 flex items-start gap-2 text-xs leading-5">
-      <span className="bg-destructive mt-[7px] size-1.5 shrink-0 rounded-full" />
+    <div className="text-muted-foreground fixed top-9 right-4 z-50 flex max-w-[min(460px,46vw)] items-center gap-2 text-xs leading-5">
+      <span className="bg-destructive size-1.5 shrink-0 rounded-full" />
       <span className="min-w-0 flex-1">
         <span className="text-foreground">Couldn’t connect.</span> {message}
       </span>
