@@ -1,0 +1,15 @@
+**/.cache
+**/.next
+**/.turbo
+**/.wrangler
+**/dist
+**/node_modules
+**/target
+.git
+.github
+.codex
+**/.env*
+apps/mobile
+deploy/self-host/secrets
+docs
+*.log
