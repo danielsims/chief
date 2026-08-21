@@ -21,6 +21,8 @@ const channelMembersRoute =
   /^\/v1\/workspaces\/([^/]+)\/channels\/([^/]+)\/members$/u;
 const channelMembershipsRoute =
   /^\/v1\/workspaces\/([^/]+)\/channels\/memberships$/u;
+const currentChannelMembershipsRoute =
+  /^\/v1\/workspaces\/([^/]+)\/channels\/memberships\/self$/u;
 const channelMemberActionRoute =
   /^\/v1\/workspaces\/([^/]+)\/channels\/([^/]+)\/members\/(add|remove)$/u;
 const attachmentsUploadRoute =
@@ -64,6 +66,16 @@ export async function routeChannelRequest(
       requestId,
       action[1],
       `channels-${action[3]}`,
+    );
+  }
+  const currentMemberships = currentChannelMembershipsRoute.exec(url.pathname);
+  if (currentMemberships && request.method === "GET") {
+    return routeChannel(
+      env,
+      request,
+      requestId,
+      currentMemberships[1],
+      "channels-memberships-self",
     );
   }
   const memberships = channelMembershipsRoute.exec(url.pathname);
@@ -115,6 +127,7 @@ export async function routeChannelRequest(
       requestId,
       upload[1],
       upload[2],
+      "messages.send",
     );
     return uploadAttachment(
       env,
@@ -141,6 +154,7 @@ export async function routeChannelRequest(
       requestId,
       read[1],
       read[2],
+      "messages.read",
     );
     return getAttachment(
       env,
@@ -188,6 +202,7 @@ async function authorizeAttachment(
   requestId: string,
   rawWorkspaceId: string | undefined,
   rawConversationId: string | undefined,
+  permission: "messages.read" | "messages.send",
 ) {
   const workspaceId = parseWorkspaceId(rawWorkspaceId);
   const conversationId = conversationIdSchema.parse(
@@ -204,6 +219,7 @@ async function authorizeAttachment(
     requestId,
     workspaceId,
     conversationId,
+    permission,
   });
   return {
     request: authenticated.request,

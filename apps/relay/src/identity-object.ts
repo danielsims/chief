@@ -95,11 +95,7 @@ export class IdentityObject extends DurableObject<Env> {
       ),
     );
     if (existing) {
-      if (
-        existing.account_subject !== accountSubject ||
-        existing.relay_user_id !== userId ||
-        existing.pubkey !== pubkey
-      ) {
+      if (existing.relay_user_id !== userId || existing.pubkey !== pubkey) {
         return relayError(
           409,
           "device_binding_conflict",
@@ -111,6 +107,12 @@ export class IdentityObject extends DurableObject<Env> {
           403,
           "device_key_revoked",
           "This device key was revoked.",
+        );
+      }
+      if (existing.account_subject !== accountSubject) {
+        this.ctx.storage.sql.exec(
+          "UPDATE identity_binding SET account_subject = ? WHERE singleton = 1",
+          accountSubject,
         );
       }
       return json({ userId, pubkey });

@@ -56,11 +56,48 @@ export async function validateSpecialistKickoff(
   const ownerCanSeeChannel = detail.members.some(
     (member) => member.kind === "user",
   );
-  if (detail.channel.isPrivate || !ownsChannel || !ownerCanSeeChannel) {
+  const setupKickoff = job.kind === "workspace.kickoff.setup";
+  const correctVisibility = setupKickoff
+    ? detail.channel.isPrivate
+    : !detail.channel.isPrivate;
+  if (!correctVisibility || !ownsChannel || !ownerCanSeeChannel) {
     throw new HttpError(
       409,
       "kickoff_channel_incomplete",
-      "The specialist's channel must be public, agent-owned, and visible to the workspace owner.",
+      setupKickoff
+        ? "Setup must continue in a private, agent-owned channel visible to the workspace owner."
+        : "The specialist's channel must be public, agent-owned, and visible to the workspace owner.",
+    );
+  }
+
+  const workConversation = env.CONVERSATIONS.get(
+    env.CONVERSATIONS.idFromName(`${job.workspaceId}:${conversationId}`),
+  );
+  const workMessagesResponse = await workConversation.fetch(
+    withTrustedContext(
+      new Request("https://conversation.internal/messages?limit=200"),
+      {
+        principal: agent,
+        requestId: job.id,
+        workspaceId: job.workspaceId,
+        conversationId,
+      },
+    ),
+  );
+  const workMessages = workMessagesResponse.ok
+    ? messagePageSchema.parse(await workMessagesResponse.json()).messages
+    : [];
+  const arrivedInWorkChannel = workMessages.some(
+    (message) =>
+      message.author.kind === "agent" &&
+      message.author.id === agent.agentId &&
+      !message.threadRootId,
+  );
+  if (!arrivedInWorkChannel) {
+    throw new HttpError(
+      409,
+      "kickoff_work_channel_entry_missing",
+      "The specialist did not begin work in its own channel.",
     );
   }
 

@@ -86,6 +86,14 @@ export const channelMembersResultSchema = z
   .object({ members: z.array(channelMemberSchema) })
   .strict();
 
+export const channelMembershipSchema = channelMemberSchema
+  .extend({ conversationId: conversationIdSchema })
+  .strict();
+
+export const channelMembershipsResultSchema = z
+  .object({ memberships: z.array(channelMembershipSchema) })
+  .strict();
+
 export const channelMemberAddCommandSchema = commandEnvelopeSchema(
   z.union([
     z
@@ -126,6 +134,7 @@ export const channelMemberRemoveCommandSchema = commandEnvelopeSchema(
 
 export type ChannelRecord = z.infer<typeof channelRecordSchema>;
 export type ChannelMember = z.infer<typeof channelMemberSchema>;
+export type ChannelMembership = z.infer<typeof channelMembershipSchema>;
 export type ChannelDetail = z.infer<typeof channelDetailSchema>;
 export type ChannelCreateCommand = z.infer<typeof channelCreateCommandSchema>;
 export type ChannelUpdateCommand = z.infer<typeof channelUpdateCommandSchema>;

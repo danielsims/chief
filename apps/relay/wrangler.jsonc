@@ -39,11 +39,20 @@
   "r2_buckets": [
     { "binding": "ARTIFACTS", "bucket_name": "chief-relay-artifacts" },
   ],
+  "d1_databases": [
+    {
+      "binding": "AUTH_DB",
+      "database_name": "chief-relay-auth",
+      "database_id": "86b1e10c-f1b2-4772-bc3a-c7b07d7e751b",
+      "migrations_dir": "../../packages/auth/migrations",
+    },
+  ],
   "vars": {
     "RELAY_DEPLOYMENT": "chief-cloud",
     "ACCOUNT_IDENTITY_MODE": "chief-account",
-    "AUTH_ISSUER": "https://aromatic-lobster-846.convex.site",
-    "AUTH_JWKS_URL": "https://heychief.sh/api/auth/convex/jwks",
+    "AUTH_BASE_URL": "https://chief-relay.danielsims-browser-ui.workers.dev",
+    "AUTH_UI_ORIGIN": "https://heychief.sh",
+    "AUTH_GOOGLE_REDIRECT_URI": "https://heychief.sh/api/auth/callback/google",
   },
   "observability": { "enabled": true },
 }

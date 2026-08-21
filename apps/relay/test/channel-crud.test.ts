@@ -200,6 +200,14 @@ describe("workspace channels", () => {
     expect(join.status).toBe(200);
     expect(await join.json()).toEqual({ ok: true });
 
+    const agentMemberships = await rpc(ctx, agent, "channels-memberships-self");
+    expect(agentMemberships.status).toBe(200);
+    expect(await agentMemberships.json()).toMatchObject({
+      memberships: [
+        { kind: "agent", principalId: agentId, conversationId: "team" },
+      ],
+    });
+
     const members = await rpc(
       ctx,
       owner,
@@ -225,6 +233,13 @@ describe("workspace channels", () => {
     );
     expect(leave.status).toBe(200);
     expect(await leave.json()).toEqual({ ok: true });
+
+    const membershipsAfterLeave = await rpc(
+      ctx,
+      agent,
+      "channels-memberships-self",
+    );
+    expect(await membershipsAfterLeave.json()).toEqual({ memberships: [] });
   });
 
   it("adds and removes members with owner checks, and forbids non-members", async () => {

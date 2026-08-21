@@ -87,6 +87,44 @@ export class WorkspaceChannelMembership {
     });
   }
 
+  /** Memberships owned by the authenticated principal only.
+   *
+   * Unlike the workspace-wide roster endpoint, this is safe for every
+   * workspace member and gives clients one authoritative, least-privilege
+   * source for sidebar visibility and notification eligibility.
+   */
+  currentPrincipalMembershipsList(
+    context: ReturnType<typeof readTrustedContext>,
+  ) {
+    const { kind, id } = principalKindId(context.principal);
+    if (kind === "service") {
+      throw new HttpError(
+        403,
+        "principal_required",
+        "Only a user or agent has channel memberships.",
+      );
+    }
+    const rows = this.store.storage.sql
+      .exec(
+        `SELECT conversation_id, principal_kind, principal_id, role, joined_at
+         FROM channel_members
+         WHERE principal_kind = ? AND principal_id = ?
+         ORDER BY conversation_id`,
+        kind,
+        id,
+      )
+      .toArray() as ChannelMemberRow[];
+    return json({
+      memberships: rows.map((row) => ({
+        conversationId: String(row.conversation_id),
+        kind: String(row.principal_kind) as "user" | "agent",
+        principalId: String(row.principal_id),
+        role: String(row.role) as "owner" | "admin" | "member",
+        joinedAt: String(row.joined_at),
+      })),
+    });
+  }
+
   async channelsMembersAdd(
     request: Request,
     context: ReturnType<typeof readTrustedContext>,

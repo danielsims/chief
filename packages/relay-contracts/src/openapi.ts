@@ -21,6 +21,16 @@ import {
   jsonSchema,
   pathParameter,
 } from "./openapi-helpers";
+import {
+  claimWorkspaceInviteCommandSchema,
+  createWorkspaceInviteCommandSchema,
+  previewWorkspaceInviteCommandSchema,
+  updateWorkspaceMemberRoleCommandSchema,
+  updateWorkspaceMemberRoleResultSchema,
+  workspaceInviteClaimResultSchema,
+  workspaceInviteSchema,
+  workspaceMemberListSchema,
+} from "./workspaces";
 
 export function createRelayOpenApiDocument(origin: string) {
   const baseUrl = new URL(origin);
@@ -35,9 +45,122 @@ export function createRelayOpenApiDocument(origin: string) {
         "The versioned protocol used by Chief clients, durable agents, and relay deployments.",
     },
     servers: [{ url: baseUrl.toString().replace(/\/$/u, "") }],
-    security: [{ bearerAuth: [] }],
+    security: [{ nostrNip98: [] }],
     paths: {
       ...coreOpenApiPaths,
+      "/v1/workspaces/{workspaceId}/invites": {
+        post: {
+          operationId: "createWorkspaceInvite",
+          parameters: [pathParameter("workspaceId")],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: jsonSchema(createWorkspaceInviteCommandSchema),
+              },
+            },
+          },
+          responses: {
+            "201": jsonResponse(
+              "A single-use workspace invite.",
+              workspaceInviteSchema,
+            ),
+            "401": errorResponse,
+            "403": errorResponse,
+            "409": errorResponse,
+          },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/invites/preview": {
+        post: {
+          operationId: "previewWorkspaceInvite",
+          security: [],
+          parameters: [pathParameter("workspaceId")],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: jsonSchema(previewWorkspaceInviteCommandSchema),
+              },
+            },
+          },
+          responses: {
+            "200": jsonResponse(
+              "The workspace offered by this invite.",
+              workspaceInviteSchema,
+            ),
+            "404": errorResponse,
+            "410": errorResponse,
+          },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/invites/claim": {
+        post: {
+          operationId: "claimWorkspaceInvite",
+          parameters: [pathParameter("workspaceId")],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: jsonSchema(claimWorkspaceInviteCommandSchema),
+              },
+            },
+          },
+          responses: {
+            "200": jsonResponse(
+              "The joined workspace and optional channel.",
+              workspaceInviteClaimResultSchema,
+            ),
+            "401": errorResponse,
+            "403": errorResponse,
+            "404": errorResponse,
+            "410": errorResponse,
+          },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/members": {
+        get: {
+          operationId: "listWorkspaceMembers",
+          parameters: [pathParameter("workspaceId")],
+          responses: {
+            "200": jsonResponse(
+              "The human, agent, and service members of the workspace.",
+              workspaceMemberListSchema,
+            ),
+            "401": errorResponse,
+            "403": errorResponse,
+          },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/members/{kind}/{principalId}/role": {
+        patch: {
+          operationId: "updateWorkspaceMemberRole",
+          parameters: [
+            pathParameter("workspaceId"),
+            pathParameter("kind"),
+            pathParameter("principalId"),
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: jsonSchema(updateWorkspaceMemberRoleCommandSchema),
+              },
+            },
+          },
+          responses: {
+            "200": jsonResponse(
+              "The team member with its updated workspace role.",
+              updateWorkspaceMemberRoleResultSchema,
+            ),
+            "400": errorResponse,
+            "401": errorResponse,
+            "403": errorResponse,
+            "404": errorResponse,
+            "409": errorResponse,
+          },
+        },
+      },
       "/v1/workspaces/{workspaceId}/channels": {
         get: {
           operationId: "listChannels",
@@ -290,10 +413,12 @@ export function createRelayOpenApiDocument(origin: string) {
     },
     components: {
       securitySchemes: {
-        bearerAuth: {
-          type: "http",
-          scheme: "bearer",
-          bearerFormat: "JWT",
+        nostrNip98: {
+          type: "apiKey",
+          in: "header",
+          name: "Authorization",
+          description:
+            "A NIP-98 Nostr authorization event signed by this device or agent identity.",
         },
       },
       schemas: {

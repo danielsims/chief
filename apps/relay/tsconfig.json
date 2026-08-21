@@ -2,10 +2,7 @@
   "extends": "@chief/tsconfig/base.json",
   "compilerOptions": {
     "lib": ["ES2022", "WebWorker"],
-    "types": [
-      "@cloudflare/workers-types",
-      "@cloudflare/vitest-pool-workers/types"
-    ]
+    "types": ["@cloudflare/vitest-pool-workers/types"]
   },
   "include": ["src", "test", "worker-configuration.d.ts"]
 }

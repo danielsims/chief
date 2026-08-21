@@ -8,10 +8,9 @@ import {
   claimAgentJobSchema,
   completeAgentJobSchema,
   enqueueAgentJobCommandSchema,
-  principalSchema,
-  socketTicketSchema,
 } from "@chief/relay-contracts";
 
+import { listAgentJobs, retryAgentJob } from "./agent-job-administration";
 import {
   actorPubkey,
   firstAgentRow as firstRow,
@@ -20,18 +19,14 @@ import {
   requireAgentPrincipal,
 } from "./agent-job-store";
 import { validateSpecialistKickoff } from "./agent-kickoff-verification";
+import {
+  connectAgentMailboxWebSocket,
+  createAgentMailboxSocketTicket,
+} from "./agent-mailbox";
 import { publishOnboardingResult } from "./agent-onboarding";
 import { HttpError, json, parseJson, relayError } from "./http";
-import {
-  readTrustedAgentSocketTicket,
-  readTrustedContext,
-  withTrustedContext,
-} from "./internal-context";
-import {
-  consumeSocketTicket,
-  createSocketTicket,
-  initializeSocketTickets,
-} from "./socket-ticket-store";
+import { readTrustedContext, withTrustedContext } from "./internal-context";
+import { initializeSocketTickets } from "./socket-ticket-store";
 
 export class AgentObject extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
@@ -45,13 +40,21 @@ export class AgentObject extends DurableObject<Env> {
 
   async fetch(request: Request) {
     try {
+      if (request.headers.get("x-chief-internal-operation") === "delete-all") {
+        readTrustedContext(request);
+        await this.ctx.storage.deleteAll();
+        return new Response(null, { status: 204 });
+      }
       if (request.headers.get("upgrade") === "websocket") {
-        return await this.connectWebSocket(request);
+        return await connectAgentMailboxWebSocket(this.ctx, request);
       }
       const context = readTrustedContext(request);
       const path = new URL(request.url).pathname;
       if (request.method === "POST" && path.endsWith("/enqueue")) {
         return await this.enqueue(request, context.workspaceId);
+      }
+      if (request.method === "POST" && path.endsWith("/ensure")) {
+        return await this.enqueue(request, context.workspaceId, true);
       }
       if (request.method === "POST" && path.endsWith("/claim")) {
         return await this.claim(request, context);
@@ -59,8 +62,18 @@ export class AgentObject extends DurableObject<Env> {
       if (request.method === "POST" && path.endsWith("/complete")) {
         return await this.complete(request, context);
       }
+      if (request.method === "GET" && path.endsWith("/jobs")) {
+        return this.listJobs(context);
+      }
+      if (request.method === "POST" && path.endsWith("/retry")) {
+        return this.retryJob(request, context);
+      }
       if (request.method === "POST" && path.endsWith("/socket-tickets")) {
-        return await this.createMailboxSocketTicket(request, context);
+        return await createAgentMailboxSocketTicket(
+          this.ctx.storage,
+          request,
+          context,
+        );
       }
       return relayError(404, "not_found", "Agent operation not found.");
     } catch (error) {
@@ -75,7 +88,11 @@ export class AgentObject extends DurableObject<Env> {
     }
   }
 
-  private async enqueue(request: Request, workspaceId: WorkspaceId) {
+  private async enqueue(
+    request: Request,
+    workspaceId: WorkspaceId,
+    repairTerminal = false,
+  ) {
     const command = enqueueAgentJobCommandSchema.parse(
       await parseJson(request),
     );
@@ -86,9 +103,42 @@ export class AgentObject extends DurableObject<Env> {
       ),
     );
     if (prior) {
+      const priorJob = agentJobSchema.parse(JSON.parse(prior.job_json));
+      const stored = firstRow<{ status: string }>(
+        this.ctx.storage.sql.exec(
+          "SELECT status FROM jobs WHERE job_id = ?",
+          priorJob.id,
+        ),
+      );
+      if (
+        repairTerminal &&
+        priorJob.kind === "workspace.onboarding" &&
+        (stored?.status === "failed" || stored?.status === "completed")
+      ) {
+        const now = new Date().toISOString();
+        const repaired = agentJobSchema.parse({
+          ...priorJob,
+          status: "pending",
+          lastError: null,
+          availableAt: now,
+          leaseExpiresAt: null,
+          updatedAt: now,
+        });
+        this.ctx.storage.sql.exec(
+          `UPDATE jobs SET job_json = ?, status = 'pending', available_at = ?,
+           lease_token = NULL, lease_expires_at = NULL, updated_at = ?
+           WHERE job_id = ?`,
+          JSON.stringify(repaired),
+          now,
+          now,
+          repaired.id,
+        );
+        this.broadcastAvailable(repaired, now);
+        return json({ duplicate: false, repaired: true, job: repaired });
+      }
       return json({
         duplicate: true,
-        job: agentJobSchema.parse(JSON.parse(prior.job_json) as unknown),
+        job: priorJob,
       });
     }
 
@@ -98,6 +148,7 @@ export class AgentObject extends DurableObject<Env> {
       workspaceId,
       status: "pending",
       attempt: 0,
+      lastError: null,
       leaseExpiresAt: null,
       createdAt: now,
       updatedAt: now,
@@ -149,55 +200,6 @@ export class AgentObject extends DurableObject<Env> {
       return;
     }
     await this.scheduleNextAlarm();
-  }
-
-  private async createMailboxSocketTicket(
-    request: Request,
-    context: ReturnType<typeof readTrustedContext>,
-  ) {
-    requireAgentPrincipal(context.principal);
-    const agentId = new URL(request.url).searchParams.get("agentId");
-    if (agentId !== context.principal.agentId) {
-      throw new HttpError(
-        403,
-        "agent_mailbox_access_denied",
-        "An agent can only subscribe to its own mailbox.",
-      );
-    }
-    return json(
-      socketTicketSchema.parse(
-        await createSocketTicket(this.ctx.storage, context.principal),
-      ),
-      { status: 201 },
-    );
-  }
-
-  private async connectWebSocket(request: Request) {
-    const context = readTrustedAgentSocketTicket(request);
-    const principalJson = await consumeSocketTicket(
-      this.ctx.storage,
-      context.ticket,
-    );
-    if (!principalJson) {
-      return relayError(
-        401,
-        "invalid_socket_ticket",
-        "The socket ticket is invalid or expired.",
-      );
-    }
-    const principal = principalSchema.parse(JSON.parse(principalJson));
-    if (principal.kind !== "agent" || principal.agentId !== context.agentId) {
-      return relayError(
-        403,
-        "agent_mailbox_access_denied",
-        "The socket ticket does not belong to this agent.",
-      );
-    }
-    const pair = new WebSocketPair();
-    const client = pair[0];
-    const server = pair[1];
-    this.ctx.acceptWebSocket(server);
-    return new Response(null, { status: 101, webSocket: client });
   }
 
   private broadcast(event: Record<string, unknown>) {
@@ -323,6 +325,7 @@ export class AgentObject extends DurableObject<Env> {
     const job = agentJobSchema.parse({
       ...previous,
       status,
+      lastError: input.outcome.status === "failed" ? input.outcome.error : null,
       availableAt: retryAt ?? previous.availableAt,
       leaseExpiresAt: null,
       updatedAt: now,
@@ -376,6 +379,26 @@ export class AgentObject extends DurableObject<Env> {
     return json({ job, outcome: input.outcome });
   }
 
+  private listJobs(context: ReturnType<typeof readTrustedContext>) {
+    return json(listAgentJobs(this.ctx.storage, context.principal));
+  }
+
+  private retryJob(
+    request: Request,
+    context: ReturnType<typeof readTrustedContext>,
+  ) {
+    const segments = new URL(request.url).pathname.split("/").filter(Boolean);
+    const retryIndex = segments.lastIndexOf("retry");
+    const job = retryAgentJob(
+      this.ctx.storage,
+      context.principal,
+      segments[retryIndex - 1] ?? "",
+    );
+    const now = job.updatedAt;
+    this.broadcastAvailable(job, now);
+    return json({ job });
+  }
+
   private async publishMessage(
     job: ReturnType<typeof agentJobSchema.parse>,
     message: {
@@ -396,6 +419,7 @@ export class AgentObject extends DurableObject<Env> {
       agentId: job.agentId,
       pubkey: (job.agentPubkey ?? actorPubkey)?.toLowerCase() ?? "0".repeat(64),
       workspaceId: job.workspaceId,
+      role: "member",
     };
     const workspace = this.env.WORKSPACES.get(
       this.env.WORKSPACES.idFromName(job.workspaceId),
@@ -408,6 +432,10 @@ export class AgentObject extends DurableObject<Env> {
             method: "POST",
             headers: {
               "x-chief-internal-operation": "authorize-conversation",
+              // The workspace authorizer applies the same exact Executor
+              // permission gate to relay-owned completion publication as it
+              // does to a direct agent message tool call.
+              "x-chief-required-permission": "messages.send",
             },
           },
         ),

@@ -8,6 +8,7 @@ import {
 import { createRelayOpenApiDocument } from "@chief/relay-contracts/openapi";
 
 import { AuthenticationError, AuthorizationError } from "./auth";
+import { isRelayAuthRequest, routeRelayAuth } from "./auth/routes";
 import { bindDeviceIdentity } from "./device-identities";
 import { relayDocsHtml } from "./docs";
 import { HttpError, json, relayError } from "./http";
@@ -24,8 +25,12 @@ import {
   authorizeConversation,
   authorizeWorkspace,
   claimWorkspace,
+  claimWorkspaceInvite,
   createManagedWorkspace,
+  createWorkspaceInvite,
+  deleteManagedWorkspace,
   listManagedWorkspaces,
+  previewWorkspaceInvite,
   routeWorkspaceLogs,
   switchManagedWorkspace,
 } from "./workspace-authority";
@@ -43,6 +48,12 @@ const workspaceBrandProfileRoute =
 const workspaceProspectsRoute = /^\/v1\/workspaces\/([^/]+)\/data\/prospects$/u;
 const workspaceFilesRoute = /^\/v1\/workspaces\/([^/]+)\/files$/u;
 const switchWorkspaceRoute = /^\/v1\/workspaces\/([^/]+)\/switch$/u;
+const deleteWorkspaceRoute = /^\/v1\/workspaces\/([^/]+)$/u;
+const workspaceInviteRoute = /^\/v1\/workspaces\/([^/]+)\/invites$/u;
+const workspaceInvitePreviewRoute =
+  /^\/v1\/workspaces\/([^/]+)\/invites\/preview$/u;
+const workspaceInviteClaimRoute =
+  /^\/v1\/workspaces\/([^/]+)\/invites\/claim$/u;
 
 export async function routeRelayRequest(
   request: Request,
@@ -52,10 +63,13 @@ export async function routeRelayRequest(
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
   try {
     const url = new URL(request.url);
+    if (isRelayAuthRequest(url)) return await routeRelayAuth(request, env);
     const publicResponse = routePublicRequest(request, url, env);
     if (publicResponse) return publicResponse;
     if (url.pathname === "/v1/identity/device" && request.method === "POST") {
-      return bindDeviceIdentity(env, request);
+      // Await inside the router boundary so malformed credentials become the
+      // relay's stable JSON error envelope rather than an uncaught Worker 1101.
+      return await bindDeviceIdentity(env, request);
     }
 
     const workspaceResponse = await routeWorkspaceRequest(
@@ -114,7 +128,43 @@ function routePublicRequest(request: Request, url: URL, env: Env) {
       { headers: { "content-type": "text/html; charset=utf-8" } },
     );
   }
+  const invite = /^\/invite\/([^/]+)\/([^/]+)$/u.exec(url.pathname);
+  if (invite) {
+    const workspaceId = parseWorkspaceId(invite[1]);
+    const secret = decodeURIComponent(invite[2] ?? "");
+    if (!/^[A-Za-z0-9_-]{43,128}$/u.test(secret)) {
+      return relayError(
+        404,
+        "workspace_invite_not_found",
+        "This invite is not valid.",
+      );
+    }
+    return new Response(inviteLandingHtml(url.origin, workspaceId, secret), {
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "content-security-policy":
+          "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+        "referrer-policy": "no-referrer",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  }
   return undefined;
+}
+
+function inviteLandingHtml(
+  origin: string,
+  workspaceId: string,
+  secret: string,
+) {
+  const query = new URLSearchParams({
+    relay: origin,
+    workspace: workspaceId,
+    code: secret,
+  }).toString();
+  const mobile = `chief-mobile://join?${query}`;
+  const desktop = `chief-desktop://join?${query}`;
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Join Chief</title><style>html{color-scheme:dark}body{margin:0;background:#080808;color:#f5f5f5;font:15px -apple-system,BlinkMacSystemFont,sans-serif;min-height:100vh;display:grid;place-items:center}.card{width:min(360px,calc(100vw - 40px));padding:28px;border:1px solid #292929;border-radius:24px;background:#111}h1{font-size:26px;margin:0 0 8px}p{color:#aaa;line-height:1.5;margin:0 0 22px}a{display:block;text-align:center;text-decoration:none;color:#080808;background:#f5f5f5;padding:13px;border-radius:999px;font-weight:650}a+a{margin-top:10px;color:#eee;background:#242424}</style></head><body><main class="card"><h1>Join this Chief workspace</h1><p>Open the invitation in the Chief app on this device.</p><a id="primary" href="${mobile}">Open Chief</a><a href="${desktop}">Open Chief for desktop</a></main><script>const mobile=${JSON.stringify(mobile)};const desktop=${JSON.stringify(desktop)};const target=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)?mobile:desktop;document.getElementById('primary').href=target;location.href=target;</script></body></html>`;
 }
 
 async function routeWorkspaceRequest(
@@ -123,6 +173,14 @@ async function routeWorkspaceRequest(
   requestId: string,
 ) {
   const url = new URL(request.url);
+  const invitePreview = workspaceInvitePreviewRoute.exec(url.pathname);
+  if (invitePreview && request.method === "POST") {
+    return previewWorkspaceInvite(
+      env,
+      request,
+      parseWorkspaceId(invitePreview[1]),
+    );
+  }
   if (url.pathname === "/v1/workspaces") {
     if (request.method !== "GET" && request.method !== "POST") return undefined;
     const authenticated = await authenticateRelayRequest(request, env);
@@ -139,6 +197,45 @@ async function routeWorkspaceRequest(
     const authenticated = await authenticateRelayRequest(request, env);
     requireAccountBinding(env, authenticated.bound);
     return activeManagedWorkspace(env, authenticated.identity);
+  }
+  const deletion = deleteWorkspaceRoute.exec(url.pathname);
+  if (deletion && request.method === "DELETE") {
+    const workspaceId = parseWorkspaceId(deletion[1]);
+    const authenticated = await authenticateRelayRequest(request, env);
+    requireAccountBinding(env, authenticated.bound);
+    return deleteManagedWorkspace(
+      env,
+      authenticated.identity,
+      workspaceId,
+      requestId,
+    );
+  }
+  const inviteClaim = workspaceInviteClaimRoute.exec(url.pathname);
+  if (inviteClaim && request.method === "POST") {
+    const workspaceId = parseWorkspaceId(inviteClaim[1]);
+    const authenticated = await authenticateRelayRequest(request, env);
+    requireAccountBinding(env, authenticated.bound);
+    return claimWorkspaceInvite(env, authenticated.request, {
+      identity: authenticated.identity,
+      requestId,
+      workspaceId,
+    });
+  }
+  const inviteCreate = workspaceInviteRoute.exec(url.pathname);
+  if (inviteCreate && request.method === "POST") {
+    const workspaceId = parseWorkspaceId(inviteCreate[1]);
+    const authenticated = await authenticateRelayRequest(request, env);
+    requireAccountBinding(env, authenticated.bound);
+    const principal = await authorizeWorkspace(env, {
+      identity: authenticated.identity,
+      requestId,
+      workspaceId,
+    });
+    return createWorkspaceInvite(env, authenticated.request, {
+      principal,
+      requestId,
+      workspaceId,
+    });
   }
   const switched = switchWorkspaceRoute.exec(url.pathname);
   if (switched && request.method === "POST") {
@@ -278,6 +375,7 @@ async function routeConversationRequest(
     requestId,
     workspaceId,
     conversationId,
+    permission: conversationPermission(authenticated.request),
   });
   return conversationStub(env, workspaceId, conversationId).fetch(
     withTrustedContext(authenticated.request, {
@@ -287,6 +385,17 @@ async function routeConversationRequest(
       conversationId,
     }),
   );
+}
+
+function conversationPermission(
+  request: Request,
+): "messages.read" | "messages.send" | "messages.manage" {
+  if (request.method === "GET") return "messages.read";
+  const path = new URL(request.url).pathname;
+  if (path.endsWith("/edit") || request.method === "DELETE") {
+    return "messages.manage";
+  }
+  return "messages.send";
 }
 
 async function connectLiveSocket(

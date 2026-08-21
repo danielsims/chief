@@ -9,6 +9,7 @@ import {
 } from "./workspace-channel-router";
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { routeWorkspaceData } from "./workspace-data-store";
+import { WorkspaceInvitationService } from "./workspace-invitation-service";
 import { WorkspaceLifecycleService } from "./workspace-lifecycle-service";
 import { WorkspaceLogService } from "./workspace-log-service";
 import { initializeWorkspaceSchema } from "./workspace-schema";
@@ -63,6 +64,7 @@ export class WorkspaceObject extends DurableObject<Env> {
 
     const access = new WorkspaceAccessService(this.ctx.storage, this.env);
     if (operation === "members-list") return access.membersList(request);
+    if (operation === "member-role-set") return access.memberRoleSet(request);
     if (operation === "agent-config-get") return access.agentConfigGet(request);
     if (operation === "agent-config-set") {
       return access.agentConfigSet(request);
@@ -78,6 +80,18 @@ export class WorkspaceObject extends DurableObject<Env> {
     }
     if (operation === "agent-keys") return access.agentKeys();
 
+    const invitations = new WorkspaceInvitationService(
+      this.ctx.storage,
+      this.env,
+    );
+    if (operation === "invite-create") {
+      return invitations.create(request, readTrustedContext(request).principal);
+    }
+    if (operation === "invite-preview") return invitations.preview(request);
+    if (operation === "invite-claim") {
+      return invitations.claim(request, readTrustedIdentity(request).identity);
+    }
+
     const lifecycle = new WorkspaceLifecycleService(this.ctx.storage, this.env);
     if (operation === "complete-onboarding") {
       return lifecycle.completeOnboarding(request);
@@ -89,6 +103,8 @@ export class WorkspaceObject extends DurableObject<Env> {
       return lifecycle.createManaged(request, context);
     }
     if (operation === "snapshot") return lifecycle.snapshot(context);
+    if (operation === "deletion-plan") return lifecycle.deletionPlan(context);
+    if (operation === "delete-owned") return lifecycle.deleteOwned(context);
 
     const logs = new WorkspaceLogService(this.ctx.storage, this.env);
     if (operation === "record-logs") return logs.record(request);
@@ -114,7 +130,8 @@ export class WorkspaceObject extends DurableObject<Env> {
 }
 
 function workspaceDataCapability(operation: string) {
-  if (operation === "data-brand-save") return "brand-profile-write";
-  if (operation === "data-prospect-save") return "prospects-write";
-  return "workspace";
+  if (operation === "data-brand-save" || operation === "data-prospect-save") {
+    return "workspace.write";
+  }
+  return "workspace.read";
 }

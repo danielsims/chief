@@ -43,6 +43,11 @@ export class ConversationObject extends DurableObject<Env> {
 
   async fetch(request: Request) {
     try {
+      if (request.headers.get("x-chief-internal-operation") === "delete-all") {
+        readTrustedContext(request);
+        await this.ctx.storage.deleteAll();
+        return new Response(null, { status: 204 });
+      }
       if (request.headers.get("upgrade") === "websocket") {
         return await this.connectWebSocket(request);
       }
