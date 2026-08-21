@@ -12,6 +12,7 @@ import { withTrustedIdentity } from "../src/internal-context";
 import {
   authorizeWorkspace,
   createManagedWorkspace,
+  switchManagedWorkspace,
 } from "../src/workspace-authority";
 import { hexKey } from "./helpers";
 
@@ -83,7 +84,7 @@ describe("workspace authorization", () => {
     });
   });
 
-  it("still requires Better Auth organization membership for human principals", async () => {
+  it("keeps request authorization in the workspace object without repeating D1 membership reads", async () => {
     const relay = chiefAccountEnv();
     const ownerId = userIdSchema.parse(`owner-${crypto.randomUUID()}`);
     const owner = {
@@ -118,6 +119,14 @@ describe("workspace authorization", () => {
         requestId: crypto.randomUUID(),
         workspaceId: snapshot.id,
       }),
+    ).resolves.toMatchObject({
+      kind: "user",
+      userId: ownerId,
+      workspaceId: snapshot.id,
+    });
+
+    await expect(
+      switchManagedWorkspace(relay, owner, snapshot.id),
     ).rejects.toThrow(AuthorizationError);
   });
 
