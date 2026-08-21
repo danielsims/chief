@@ -132,7 +132,17 @@ export class AgentCell extends DurableObject {
     let failure = null;
     let failureCode = null;
     try {
-      const result = await this.env.AI.respond(this.ctx.id.name, messages);
+      const continuity = await agentContinuityMessage(
+        this.ctx.storage,
+        conversationId,
+      );
+      const inferenceMessages = continuity
+        ? [continuity, ...messages]
+        : messages;
+      const result = await this.env.AI.respond(
+        this.ctx.id.name,
+        inferenceMessages,
+      );
       try {
         const parsed = JSON.parse(result);
         if (
@@ -275,10 +285,23 @@ export class AgentCell extends DurableObject {
       );
     }
 
-    const assistantMsg = { role: "assistant", content: reply, at: Date.now() };
+    const completedUserTurn = pendingTurn ?? pendingTurnFrom(messages);
+    const assistantMsg = {
+      role: "assistant",
+      content: reply,
+      at: Date.now(),
+      conversationId,
+    };
     messages.push(assistantMsg);
 
     await storage.put("messages", messages);
+    await appendAgentJournal(
+      this.ctx.storage,
+      conversationId,
+      completedUserTurn,
+      assistantMsg,
+      tools,
+    );
     await storage.delete("pendingTurn");
     await storage.delete("activeTurn");
     session = await updateSession(

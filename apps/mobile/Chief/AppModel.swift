@@ -41,6 +41,16 @@ final class AppModel {
   private(set) var session: ChiefSession?
   private(set) var workspace: WorkspaceSnapshot?
   private(set) var workspaceSummaries: [WorkspaceSummary] = []
+  private(set) var pendingWorkspaceInvite: WorkspaceInviteLink?
+  private(set) var workspaceInvitePreview: WorkspaceInvite?
+  private(set) var workspaceInviteError: String?
+  private(set) var workspaceInviteInProgress = false
+  /// Relay-authoritative memberships for the signed-in principal in the
+  /// current workspace. `nil` means the tenant-scoped membership view is still
+  /// loading; an empty set means the principal has genuinely joined no
+  /// channels. Direct messages are participants-only and do not use this set.
+  private(set) var joinedConversationIDs: Set<String>?
+  private var membershipWorkspaceID: String?
   var selectedConversationID: String?
   var selectedTab: WorkspaceTab = .home
   var onboarding = OnboardingDraft()
@@ -66,6 +76,9 @@ final class AppModel {
   private(set) var workingAgents: [ConversationKey: Set<String>] = [:]
   private(set) var agentActivityRecords: [String: AgentActivityRecord] = [:]
   private var activeAgentActivityIDs: [String: String] = [:]
+  /// Relay-authoritative run history, keyed by the isolated agent mailbox.
+  /// Terminal failures remain visible and retryable across process restarts.
+  private(set) var agentJobsByAgentID: [String: [AgentJobRecord]] = [:]
   /// True while the user is adding ANOTHER workspace (Add workspace). Distinguishes
   /// creating a new org from re-entering an already-completed one, which the
   /// single-workspace idempotency guard in completeOnboarding guards against.
@@ -77,7 +90,7 @@ final class AppModel {
   let deviceModels: OnDeviceModelStore
   let relay: any RelayServing
   let conversations: ConversationCache
-  let authentication: any DeviceAuthorizationServing
+  let authentication: any MobileAuthenticationServing
   private let configStore = AgentConfigStore()
   private let readStateStore = ConversationReadStateStore()
   private let appConfiguration: AppConfiguration
@@ -105,6 +118,11 @@ final class AppModel {
     case .openCodeGo:
       return !inferenceCredential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         || inferenceCredentials.contains(.openCodeGo)
+    #if DEBUG
+      case .codexBridge:
+        return DevCodexBridgeSettings.isConfigured
+          && inferenceCredentials.contains(.codexBridge)
+    #endif
     case .onDevice:
       guard let modelID = onboarding.deviceModelID,
         deviceModels.models.contains(where: { $0.id == modelID })
@@ -120,7 +138,7 @@ final class AppModel {
     deviceModels: OnDeviceModelStore = OnDeviceModelStore(),
     relay: any RelayServing,
     conversations: ConversationCache,
-    authentication: any DeviceAuthorizationServing
+    authentication: any MobileAuthenticationServing
   ) {
     self.sessions = sessions
     self.workspaces = workspaces
@@ -142,7 +160,7 @@ final class AppModel {
       inferenceCredentials: KeychainInferenceCredentialStore(),
       relay: configuration.demoMode ? FixtureRelayClient() : transport,
       conversations: ConversationCache(),
-      authentication: URLSessionDeviceAuthorizationClient(configuration: configuration)
+      authentication: URLSessionOAuthAuthenticationClient(configuration: configuration)
     )
   }
 
@@ -193,12 +211,10 @@ final class AppModel {
     if let local = try? workspaces.load() {
       workspace = local
       phase = .workspace
-    } else {
-      phase = .onboarding
     }
     do {
       try await bindCurrentDevice(using: stored)
-    } catch DeviceAuthorizationError.invalidSession {
+    } catch MobileAuthenticationError.invalidSession {
       onboardingLog.notice("stored account session is no longer valid")
       try? sessions.clear()
       session = nil
@@ -208,6 +224,7 @@ final class AppModel {
       onboardingError = error.localizedDescription
       workspaceSyncFailed = true
       onboardingLog.error("device account binding failed: \(error.localizedDescription)")
+      await hydrateWorkspace()
       return
     }
     await hydrateWorkspace()
@@ -256,9 +273,20 @@ final class AppModel {
     conversationID: String,
     threadRootID: String? = nil,
     mentions: [String] = [],
-    agentID: String = "chief"
+    agentID requestedAgentID: String? = nil
   ) async {
     guard let workspaceID = workspace?.id else { return }
+    guard let agentID = agentTurnTarget(
+      conversationID: conversationID,
+      threadRootID: threadRootID,
+      mentions: mentions,
+      requestedAgentID: requestedAgentID
+    ) else {
+      onboardingLog.warning(
+        "ignored agent turn without an addressed cell in \(conversationID, privacy: .public)"
+      )
+      return
+    }
     setAgentWorking(
       agentID: agentID,
       workspaceID: workspaceID,
@@ -284,7 +312,11 @@ final class AppModel {
         conversations.messages(workspaceID: workspaceID, conversationID: conversationID)
       }
       let userText =
-        transcript.last(where: { if case .user = $0.author { return true } else { return false } })?
+        transcript.last(where: {
+          guard $0.threadRootID == threadRootID else { return false }
+          if case .user = $0.author { return true }
+          return false
+        })?
         .body ?? "Continue."
       let agentName = WorkspaceAgentCatalog.agent(forID: agentID)?.name ?? "Chief"
       print(
@@ -331,6 +363,40 @@ final class AppModel {
         print("[Chief] agent turn failed: \(error)")
       }
     #endif
+  }
+
+  /// Resolve the exact keyed cell that owns a user turn. Explicit mentions are
+  /// authoritative; a channel message must never silently fall back to Chief.
+  private func agentTurnTarget(
+    conversationID: String,
+    threadRootID: String?,
+    mentions: [String],
+    requestedAgentID: String?
+  ) -> String? {
+    if let requestedAgentID,
+      let requested = WorkspaceAgentCatalog.agent(forID: requestedAgentID)
+    {
+      return requested.id
+    }
+    if let mentioned = mentions.compactMap({ WorkspaceAgentCatalog.agent(forID: $0) }).first {
+      return mentioned.id
+    }
+    if let direct = workspace?.conversations.first(where: { $0.id == conversationID }),
+      direct.kind == .direct
+    {
+      return WorkspaceAgentCatalog.agent(forID: conversationID)?.id ?? "chief"
+    }
+    if let threadRootID,
+      let root = conversations.messages(
+        workspaceID: workspace?.id ?? "",
+        conversationID: conversationID
+      ).first(where: { $0.id == threadRootID })
+    {
+      if case .agent(let rootAgentID, _) = root.author {
+        return WorkspaceAgentCatalog.agent(forID: rootAgentID)?.id
+      }
+    }
+    return nil
   }
 
   /// Whether an agent turn is currently generating in a conversation. Drives the
@@ -394,9 +460,85 @@ final class AppModel {
       grouping: activityRecords(workspaceID: workspaceID, conversationID: conversationID),
       by: \.agentID
     ).compactMap { $0.value.first }
-    return latestByAgent.reduce(into: 0) { count, record in
-      count += record.components.filter { $0.kind == "error" }.count
+    var agentIDs = Set(
+      latestByAgent.compactMap { record in
+        record.components.contains { $0.kind == "error" } ? record.agentID : nil
+      }
+    )
+    agentIDs.formUnion(
+      failedAgentJobs(
+        workspaceID: workspaceID,
+        conversationID: conversationID
+      ).map(\.agentId)
+    )
+    return agentIDs.count
+  }
+
+  func failedAgentJobs(
+    workspaceID: String?,
+    conversationID: String,
+    agentID: String? = nil
+  ) -> [AgentJobRecord] {
+    guard let workspaceID, workspace?.id == workspaceID else { return [] }
+    return agentJobsByAgentID.values.flatMap { $0 }.filter { job in
+      job.workspaceId == workspaceID
+        && job.status == "failed"
+        && (conversationID == "mission-control"
+          || job.payload.conversationId == conversationID)
+        && (agentID == nil || job.agentId == agentID)
+    }.sorted { $0.updatedDate > $1.updatedDate }
+  }
+
+  func refreshAgentJobs() async {
+    guard let workspace else { return }
+    await refreshAgentJobs(for: workspace)
+  }
+
+  func retryAgentJob(_ job: AgentJobRecord) async {
+    guard workspace?.id == job.workspaceId, job.status == "failed" else { return }
+    do {
+      _ = try await relay.retryAgentJob(
+        workspaceID: job.workspaceId,
+        agentID: job.agentId,
+        jobID: job.id
+      )
+      await refreshAgentJobs()
+    } catch {
+      onboardingLog.error(
+        "agent job retry failed for \(job.agentId, privacy: .public): \(error.localizedDescription)"
+      )
     }
+  }
+
+  private func refreshAgentJobs(for snapshot: WorkspaceSnapshot) async {
+    let relay = relay
+    let fetched = await withTaskGroup(
+      of: (String, [AgentJobRecord])?.self,
+      returning: [String: [AgentJobRecord]].self
+    ) { group in
+      for agent in snapshot.agents {
+        group.addTask {
+          do {
+            return (
+              agent.id,
+              try await relay.agentJobs(
+                workspaceID: snapshot.id,
+                agentID: agent.id
+              )
+            )
+          } catch {
+            return nil
+          }
+        }
+      }
+      var jobs: [String: [AgentJobRecord]] = [:]
+      for await result in group {
+        if let result { jobs[result.0] = result.1 }
+      }
+      return jobs
+    }
+    guard workspace?.id == snapshot.id else { return }
+    agentJobsByAgentID = fetched
   }
 
   private func recordAgentActivity(
@@ -426,6 +568,18 @@ final class AppModel {
     record.updatedAt = .now
     record.completedAt = nil
     agentActivityRecords[id] = record
+    if component.kind == "tool",
+      component.payload["status"] == "completed",
+      [RelayChannelCreateTool.name, RelayChannelMembersAddTool.name]
+        .contains(component.payload["name"] ?? "")
+    {
+      // Channel topology changes arrive through a genuine completed tool call.
+      // Refresh from that event so a newly created specialist channel appears
+      // while the agent is still working, without introducing polling.
+      Task { [weak self] in
+        await self?.refreshWorkspaceAfterAgentCompletion(expectedID: workspaceID)
+      }
+    }
   }
 
   private func setAgentWorking(
@@ -513,12 +667,12 @@ final class AppModel {
     }
     provisionIdentityIfNeeded()
     session = signedIn
-    phase = .onboarding
+    phase = .launching
     Task {
       do {
         try await bindCurrentDevice(using: signedIn)
         await hydrateWorkspace()
-      } catch DeviceAuthorizationError.invalidSession {
+      } catch MobileAuthenticationError.invalidSession {
         onboardingLog.notice("new account session was rejected during device binding")
         try? sessions.clear()
         session = nil
@@ -527,6 +681,7 @@ final class AppModel {
         onboardingError = error.localizedDescription
         workspaceSyncFailed = true
         onboardingLog.error("device account binding failed: \(error.localizedDescription)")
+        await hydrateWorkspace()
       }
     }
   }
@@ -536,16 +691,8 @@ final class AppModel {
   /// phone or desktop can be enrolled first and either can later be revoked
   /// without rotating every other device.
   private func bindCurrentDevice(using current: ChiefSession) async throws {
-    let accountToken = try await authentication.refreshAccountToken(
-      sessionToken: current.sessionToken
-    )
-    try await relay.bindDeviceIdentity(accountToken: accountToken)
-    let refreshed = ChiefSession(
-      accessToken: accountToken,
-      sessionToken: current.sessionToken,
-      user: current.user,
-      workspaceID: current.workspaceID
-    )
+    let refreshed = try await authentication.refreshAccountSession(current)
+    try await relay.bindDeviceIdentity(accountToken: refreshed.accessToken)
     try sessions.save(refreshed)
     session = refreshed
     onboardingLog.info("bound this device to Chief account \(current.user.id, privacy: .private)")
@@ -595,12 +742,15 @@ final class AppModel {
       await refreshWorkspaces()
       await registerAgentKeyIfNeeded(workspaceID: loaded.id)
       await refreshAgentConfigCache(for: loaded)
+      await refreshAgentJobs(for: loaded)
+      await refreshCurrentChannelMemberships(for: loaded)
       syncWorkspaceLiveStreams(for: loaded)
       await MobileNotifications.shared.requestAuthorizationIfNeeded()
       if loaded.onboardingComplete { startAgentLoopIfNeeded() }
-      else if inferenceCredentials.contains(.openCodeGo) {
+      else if hasRecoverableInferenceCredential {
         Task { [weak self] in await self?.completeOnboarding() }
       }
+      if pendingWorkspaceInvite != nil { await preparePendingWorkspaceInvite() }
     } catch RelayError.unauthorized {
       // A relay token can be temporarily rejected while a fresh device session
       // is propagating. Keep the Better Auth session intact so the client can
@@ -679,6 +829,11 @@ final class AppModel {
   /// remains authoritative and every agent receives its own policy record;
   /// selecting a model is never merely cosmetic UI state.
   private func configureInitialAgentModels(for snapshot: WorkspaceSnapshot) async throws {
+    #if DEBUG
+      // The paired Mac is an ephemeral development transport, not an agent
+      // configuration. Leave every relay-authoritative cell record untouched.
+      if onboarding.inferenceProvider == .codexBridge { return }
+    #endif
     let selectedModel = onboarding.inferenceModel
     let relay = relay
     let workspaceID = snapshot.id
@@ -730,7 +885,7 @@ final class AppModel {
   /// Switch the active organization, mirroring the desktop workspace rail. The
   /// conversation cache is cleared so no state leaks across tenants; the new
   /// workspace then rehydrates from the relay.
-  func switchWorkspace(workspaceID: String) async {
+  func switchWorkspace(workspaceID: String) async -> Bool {
     print("[Chief] switching to workspace \(workspaceID)")
     stopWorkspaceLiveStreams()
     do {
@@ -738,12 +893,102 @@ final class AppModel {
     } catch {
       onboardingLog.error("switch workspace failed: \(error)")
       print("[Chief] switch workspace failed: \(error)")
-      return
+      return false
     }
     conversations.clearAll()
     workspace = nil
     try? workspaces.clear()
     await hydrateWorkspace()
+    return workspace?.id == workspaceID
+  }
+
+  func handleIncomingURL(_ url: URL) async {
+    guard let link = WorkspaceInviteLink(url: url) else {
+      #if DEBUG
+        await connectDevelopmentCodexBridge(url)
+      #endif
+      return
+    }
+    pendingWorkspaceInvite = link
+    workspaceInviteError = nil
+    guard session != nil else { return }
+    await preparePendingWorkspaceInvite()
+  }
+
+  func prepareWorkspaceInvite(from value: String) async {
+    guard let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
+      let link = WorkspaceInviteLink(url: url)
+    else {
+      workspaceInviteError = "Paste a valid Chief workspace invitation."
+      return
+    }
+    pendingWorkspaceInvite = link
+    await preparePendingWorkspaceInvite()
+  }
+
+  func preparePendingWorkspaceInvite() async {
+    guard let link = pendingWorkspaceInvite, !workspaceInviteInProgress else { return }
+    workspaceInviteInProgress = true
+    workspaceInviteError = nil
+    defer { workspaceInviteInProgress = false }
+    do {
+      let preview = try await relay.previewWorkspaceInvite(link)
+      await refreshWorkspaces()
+      if workspaceSummaries.contains(where: { $0.id == preview.workspaceId }) {
+        if preview.conversationId != nil {
+          _ = try await relay.claimWorkspaceInvite(link)
+        }
+        if await switchWorkspace(workspaceID: preview.workspaceId) {
+          if let conversationID = preview.conversationId {
+            selectedConversationID = conversationID
+          }
+          clearWorkspaceInvite()
+        }
+        return
+      }
+      workspaceInvitePreview = preview
+    } catch {
+      workspaceInviteError = error.localizedDescription
+    }
+  }
+
+  func claimPendingWorkspaceInvite() async -> Bool {
+    guard let link = pendingWorkspaceInvite, !workspaceInviteInProgress else { return false }
+    workspaceInviteInProgress = true
+    workspaceInviteError = nil
+    defer { workspaceInviteInProgress = false }
+    do {
+      let claim = try await relay.claimWorkspaceInvite(link)
+      await refreshWorkspaces()
+      guard await switchWorkspace(workspaceID: claim.workspaceId) else { return false }
+      if let conversationID = claim.conversationId {
+        selectedConversationID = conversationID
+      }
+      clearWorkspaceInvite()
+      return true
+    } catch {
+      workspaceInviteError = error.localizedDescription
+      return false
+    }
+  }
+
+  func clearWorkspaceInvite() {
+    pendingWorkspaceInvite = nil
+    workspaceInvitePreview = nil
+    workspaceInviteError = nil
+  }
+
+  func createWorkspaceInvite(conversationID: String? = nil) async -> WorkspaceInviteLink? {
+    guard let workspaceID = workspace?.id else { return nil }
+    do {
+      return try await relay.createWorkspaceInvite(
+        workspaceID: workspaceID,
+        conversationID: conversationID
+      )
+    } catch {
+      workspaceInviteError = error.localizedDescription
+      return nil
+    }
   }
 
   func completeOnboarding() async {
@@ -803,10 +1048,20 @@ final class AppModel {
         }
       }
     }
+    #if DEBUG
+      if onboarding.inferenceProvider == .codexBridge {
+        guard DevCodexBridgeSettings.isConfigured,
+          inferenceCredentials.contains(.codexBridge)
+        else {
+          onboardingError = "Connect this debug build to Codex on your Mac before continuing."
+          return
+        }
+      }
+    #endif
 
     do {
       let pending: WorkspaceSnapshot
-      if let existing = workspace, !existing.onboardingComplete {
+      if let existing = workspaceForOnboardingResume {
         pending = existing
       } else {
         pending = try await relay.createWorkspace(from: onboarding)
@@ -822,6 +1077,7 @@ final class AppModel {
       selectedConversationID = nil
       phase = .workspace
       configureReadState(for: pending.id)
+      await refreshCurrentChannelMemberships(for: pending)
       syncWorkspaceLiveStreams(for: pending)
       // Enter the relay-backed workspace immediately. Key registration still
       // completes before a cell claims work, but independent agent keys are
@@ -856,6 +1112,7 @@ final class AppModel {
         throw WorkspaceSetupError.missingJob
       }
       workspace = remote
+      await refreshCurrentChannelMemberships(for: remote)
       upsertWorkspaceSummary(for: remote, isActive: true)
       recomputeAllConversationPresentation()
       syncWorkspaceLiveStreams(for: remote)
@@ -910,7 +1167,7 @@ final class AppModel {
       return true
     case .httpStatus(let status):
       return status >= 500
-    case .unauthorized:
+    case .unauthorized, .unsupportedRelay:
       return false
     }
   }
@@ -919,10 +1176,64 @@ final class AppModel {
     onboarding.runtime = .phone
     onboarding.companyName = snapshot.name
     onboarding.step = 3
+    #if DEBUG
+      if DevCodexBridgeSettings.isConfigured,
+        inferenceCredentials.contains(.codexBridge)
+      {
+        onboarding.inferenceProvider = .codexBridge
+        onboarding.inferenceModel = DevCodexBridgeSettings.model
+        return
+      }
+    #endif
     if inferenceCredentials.contains(.openCodeGo) {
       onboarding.inferenceProvider = .openCodeGo
       onboarding.inferenceModel = OpenCodeModelCatalog.recommendedFreeModelID
     }
+  }
+
+  private var hasRecoverableInferenceCredential: Bool {
+    #if DEBUG
+      if DevCodexBridgeSettings.isConfigured,
+        inferenceCredentials.contains(.codexBridge)
+      { return true }
+    #endif
+    return inferenceCredentials.contains(.openCodeGo)
+  }
+
+  #if DEBUG
+    /// Accepts only the development bridge's tightly validated custom URL.
+    /// The capability token is device-only Keychain material and is never
+    /// persisted in the workspace, relay, transcript, or app logs.
+    func connectDevelopmentCodexBridge(_ url: URL) async {
+      do {
+        let connection = try DevCodexBridgeConnection(url: url)
+        try inferenceCredentials.save(connection.capabilityToken, for: .codexBridge)
+        DevCodexBridgeSettings.save(connection)
+        onboarding.runtime = .phone
+        onboarding.inferenceProvider = .codexBridge
+        onboarding.inferenceModel = connection.model
+        onboardingError = nil
+
+        onboardingLog.info("connected development Codex bridge model=\(connection.model, privacy: .public)")
+        print("[Chief] connected development Codex bridge model=\(connection.model)")
+        if workspace?.onboardingComplete == false {
+          await completeOnboarding()
+        }
+      } catch {
+        onboardingError = error.localizedDescription
+        onboardingLog.error("development Codex bridge connection failed: \(error.localizedDescription)")
+      }
+    }
+  #endif
+
+  /// Resume an incomplete workspace only when setup was entered as recovery.
+  /// An explicit Add workspace flow must always create the newly named tenant,
+  /// even when the previously active workspace is itself incomplete.
+  var workspaceForOnboardingResume: WorkspaceSnapshot? {
+    guard !pendingNewWorkspace, let workspace, !workspace.onboardingComplete else {
+      return nil
+    }
+    return workspace
   }
 
   private func upsertWorkspaceSummary(for snapshot: WorkspaceSnapshot, isActive: Bool) {
@@ -931,6 +1242,8 @@ final class AppModel {
         WorkspaceSummary(
           id: summary.id,
           name: summary.name,
+          website: summary.website,
+          imageURL: summary.imageURL,
           isActive: false,
           onboardingComplete: summary.onboardingComplete
         )
@@ -939,6 +1252,8 @@ final class AppModel {
     let summary = WorkspaceSummary(
       id: snapshot.id,
       name: snapshot.name,
+      website: snapshot.website,
+      imageURL: snapshot.imageURL,
       isActive: isActive,
       onboardingComplete: snapshot.onboardingComplete
     )
@@ -1057,6 +1372,8 @@ final class AppModel {
   private func configureReadState(for workspaceID: String) {
     guard readStateWorkspaceID != workspaceID else { return }
     stopWorkspaceLiveStreams()
+    membershipWorkspaceID = nil
+    joinedConversationIDs = nil
     readStateWorkspaceID = workspaceID
     readState = readStateStore.load(workspaceID: workspaceID, readerID: readStateReaderID)
     hydratedReadConversations.removeAll()
@@ -1103,6 +1420,8 @@ final class AppModel {
     case .appended(let message):
       conversations.merge(message)
       updateConversationPreview(with: message)
+      applyCurrentUserMembershipEvent(message)
+      guard isConversationJoined(message.conversationID) else { return }
       recordArrival(message)
       if isAppActive, visibleConversationID == message.conversationID {
         markChannelRead(conversationID: message.conversationID)
@@ -1117,6 +1436,7 @@ final class AppModel {
 
   private func recordArrival(_ message: ConversationMessage) {
     guard !message.isOwnMessage(session: session) else { return }
+    guard isConversationJoined(message.conversationID) else { return }
     guard notifiedMessageIDs.insert(message.id).inserted else { return }
     if notifiedMessageIDs.count > 500, let oldest = notifiedMessageIDs.first {
       notifiedMessageIDs.remove(oldest)
@@ -1140,6 +1460,26 @@ final class AppModel {
         conversationID: message.conversationID,
         threadRootID: message.threadRootID
       )
+    }
+  }
+
+  /// Channel membership messages are relay-authored, signed live events. Apply
+  /// only events explicitly targeting the current user so another member's
+  /// invite can never change this device's joined-channel state.
+  private func applyCurrentUserMembershipEvent(_ message: ConversationMessage) {
+    guard let userID = session?.user.id else { return }
+    for component in message.components where component.kind == "channel-action" {
+      guard component.payload["targetKind"] == "user",
+        component.payload["targetId"] == userID
+      else { continue }
+      switch component.payload["type"] {
+      case "member-added":
+        setConversationJoined(message.conversationID, joined: true)
+      case "member-removed":
+        setConversationJoined(message.conversationID, joined: false)
+      default:
+        break
+      }
     }
   }
 
@@ -1394,6 +1734,7 @@ final class AppModel {
           archived: false
         )
       )
+      setConversationJoined(channel.id, joined: true)
       startWorkspaceLiveStream(workspaceID: workspaceID, conversationID: channel.id)
       return channel
     } catch {
@@ -1417,7 +1758,28 @@ final class AppModel {
     }
   }
 
-  /// Leave a channel: removes it from the local list and clears its cache.
+  /// Join a public channel as the signed-in user. The relay remains
+  /// authoritative; local visibility changes only after it accepts the join.
+  @discardableResult
+  func joinConversation(_ conversationID: String) async -> Bool {
+    guard let workspaceID = workspace?.id else { return false }
+    do {
+      try await relay.joinChannel(
+        workspaceID: workspaceID,
+        conversationID: conversationID
+      )
+      setConversationJoined(conversationID, joined: true)
+      startWorkspaceLiveStream(workspaceID: workspaceID, conversationID: conversationID)
+      return true
+    } catch {
+      print("[Chief] join \(conversationID) failed: \(error)")
+      return false
+    }
+  }
+
+  /// Leave a channel without deleting its public catalogue entry. It disappears
+  /// from the joined sidebar, but a later `#channel` link can still open the
+  /// relay-authorized read-only preview.
   func leaveConversation(_ conversationID: String) async {
     guard let workspaceID = workspace?.id else { return }
     do {
@@ -1425,7 +1787,7 @@ final class AppModel {
         workspaceID: workspaceID,
         conversationID: conversationID
       )
-      removeConversation(conversationID)
+      setConversationJoined(conversationID, joined: false)
       stopWorkspaceLiveStream(workspaceID: workspaceID, conversationID: conversationID)
       conversations.clear(workspaceID: workspaceID, conversationID: conversationID)
       if selectedConversationID == conversationID { selectedConversationID = nil }
@@ -1451,9 +1813,37 @@ final class AppModel {
     return (try? await relay.allChannelMemberships(workspaceID: workspaceID)) ?? []
   }
 
+  func isConversationJoined(_ conversationID: String) -> Bool {
+    guard let conversation = workspace?.conversations.first(where: { $0.id == conversationID })
+    else { return false }
+    if conversation.kind == .direct { return true }
+    guard membershipWorkspaceID == workspace?.id else { return false }
+    return joinedConversationIDs?.contains(conversationID) == true
+  }
+
+  var channelMembershipsLoaded: Bool {
+    membershipWorkspaceID == workspace?.id && joinedConversationIDs != nil
+  }
+
+  func canParticipate(in conversationID: String) -> Bool {
+    guard let conversation = workspace?.conversations.first(where: { $0.id == conversationID })
+    else { return false }
+    return !conversation.archived && isConversationJoined(conversationID)
+  }
+
+  func refreshCurrentChannelMemberships() async {
+    guard let workspace else { return }
+    await refreshCurrentChannelMemberships(for: workspace)
+  }
+
   /// Add or remove an agent as a member of a channel (Agents > Channels tab).
-  func setAgentMembership(conversationID: String, agentID: String, isMember: Bool) async {
-    guard let workspaceID = workspace?.id else { return }
+  @discardableResult
+  func setAgentMembership(
+    conversationID: String,
+    agentID: String,
+    isMember: Bool
+  ) async -> Bool {
+    guard let workspaceID = workspace?.id else { return false }
     do {
       if isMember {
         try await relay.addChannelMember(
@@ -1470,8 +1860,10 @@ final class AppModel {
           principalID: agentID
         )
       }
+      return true
     } catch {
       print("[Chief] set membership \(agentID) in \(conversationID) failed: \(error)")
+      return false
     }
   }
 
@@ -1505,6 +1897,8 @@ final class AppModel {
       workspace = WorkspaceSnapshot(
         id: current.id,
         name: current.name,
+        website: current.website,
+        selectedApps: current.selectedApps,
         imageURL: current.imageURL,
         onboardingComplete: current.onboardingComplete,
         conversations: current.conversations,
@@ -1573,6 +1967,8 @@ final class AppModel {
     workspace = WorkspaceSnapshot(
       id: current.id,
       name: current.name,
+      website: current.website,
+      selectedApps: current.selectedApps,
       imageURL: current.imageURL,
       onboardingComplete: current.onboardingComplete,
       conversations: conversations,
@@ -1633,9 +2029,11 @@ final class AppModel {
       let remote = try await relay.loadWorkspace()
       guard remote.id == expectedID else { return }
       workspace = remote
+      await refreshCurrentChannelMemberships(for: remote)
       recomputeAllConversationPresentation()
       syncWorkspaceLiveStreams(for: remote)
       try? workspaces.save(remote)
+      await refreshAgentJobs(for: remote)
     } catch {
       onboardingLog.warning("post-job workspace refresh failed: \(error.localizedDescription)")
     }
@@ -1650,6 +2048,14 @@ final class AppModel {
     // (skip the single-workspace idempotency guard), not a re-run of setup.
     pendingNewWorkspace = true
     onboarding = OnboardingDraft()
+    #if DEBUG
+      if DevCodexBridgeSettings.isConfigured,
+        inferenceCredentials.contains(.codexBridge)
+      {
+        onboarding.inferenceProvider = .codexBridge
+        onboarding.inferenceModel = DevCodexBridgeSettings.model
+      }
+    #endif
     inferenceCredential = ""
     onboardingError = nil
     workspaceSyncFailed = false
@@ -1676,9 +2082,60 @@ final class AppModel {
     try? sessions.clear()
     session = nil
     workspace = nil
+    membershipWorkspaceID = nil
+    joinedConversationIDs = nil
     try? workspaces.clear()
     conversations.clearAll()
     phase = .signedOut
+  }
+
+  private func setConversationJoined(_ conversationID: String, joined: Bool) {
+    guard let workspaceID = workspace?.id else { return }
+    var ids = membershipWorkspaceID == workspaceID ? (joinedConversationIDs ?? []) : []
+    if joined { ids.insert(conversationID) } else { ids.remove(conversationID) }
+    membershipWorkspaceID = workspaceID
+    joinedConversationIDs = ids
+  }
+
+  private func refreshCurrentChannelMemberships(for snapshot: WorkspaceSnapshot) async {
+    do {
+      let memberships = try await relay.currentChannelMemberships(workspaceID: snapshot.id)
+      guard workspace?.id == snapshot.id else { return }
+      membershipWorkspaceID = snapshot.id
+      joinedConversationIDs = Set(memberships.map(\.conversationId))
+      return
+    } catch {
+      onboardingLog.warning(
+        "current channel membership load failed; trying visible-channel fallback: \(error.localizedDescription)"
+      )
+    }
+
+    guard let userID = session?.user.id else { return }
+    let channels = snapshot.conversations.filter { $0.kind == .channel }
+    let results = await withTaskGroup(of: (String, Bool?).self) { group in
+      for channel in channels {
+        group.addTask { [relay] in
+          do {
+            let members = try await relay.channelMembers(
+              workspaceID: snapshot.id,
+              conversationID: channel.id
+            )
+            return (
+              channel.id,
+              members.contains { $0.kind == "user" && $0.principalId == userID }
+            )
+          } catch {
+            return (channel.id, nil)
+          }
+        }
+      }
+      var values: [(String, Bool?)] = []
+      for await value in group { values.append(value) }
+      return values
+    }
+    guard workspace?.id == snapshot.id, results.contains(where: { $0.1 != nil }) else { return }
+    membershipWorkspaceID = snapshot.id
+    joinedConversationIDs = Set(results.compactMap { id, joined in joined == true ? id : nil })
   }
 }
 

@@ -10,6 +10,14 @@ struct AgentRunFailure: Equatable, Sendable {
   let retryable: Bool
 
   init(_ error: Error) {
+    if let cellError = error as? AgentCellTurnError {
+      code = cellError.code
+      title = Self.title(for: cellError.code)
+      message = cellError.message
+      retryable = !["inference_limit", "inference_not_connected", "inference_unsupported"]
+        .contains(cellError.code)
+      return
+    }
     switch error as? WorkspaceSetupError {
     case .providerUsageLimit:
       code = "inference_limit"
@@ -50,6 +58,18 @@ struct AgentRunFailure: Equatable, Sendable {
     }
   }
 
+  private static func title(for code: String) -> String {
+    switch code {
+    case "inference_failed": return "Inference failed"
+    case "inference_limit": return "Inference unavailable"
+    case "inference_not_connected": return "Inference isn't connected"
+    case "inference_unsupported": return "Model unavailable"
+    case "required_actions_incomplete": return "Required actions weren't completed"
+    case "job_unavailable": return "Run unavailable"
+    default: return "Run failed"
+    }
+  }
+
   func component(id: String = "run-error") -> MessageComponent {
     MessageComponent(
       id: id,
@@ -63,4 +83,3 @@ struct AgentRunFailure: Equatable, Sendable {
     )
   }
 }
-

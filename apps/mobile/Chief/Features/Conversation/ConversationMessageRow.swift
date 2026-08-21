@@ -6,6 +6,7 @@ struct ConversationMessageRow: View {
   let message: ConversationMessage
   var showsAuthor = true
   var showsThreadSummary = true
+  var allowsActions = true
   var onReply: (ConversationMessage) -> Void = { _ in }
   var onEdit: (ConversationMessage) -> Void = { _ in }
 
@@ -49,6 +50,7 @@ struct ConversationMessageRow: View {
     .contentShape(Rectangle())
     .transition(.opacity.combined(with: .offset(y: 5)))
     .onLongPressGesture(minimumDuration: 0.4) {
+      guard allowsActions else { return }
       Haptics.heavy()
       activeSheet = .actions
     }
@@ -137,6 +139,7 @@ struct ConversationMessageRow: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(!allowsActions)
         .accessibilityLabel("\(reaction.emoji), \(reaction.pubkeys.count) reactions")
       }
       Spacer(minLength: 0)

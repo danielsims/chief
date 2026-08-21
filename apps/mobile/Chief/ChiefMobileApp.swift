@@ -10,6 +10,9 @@ struct ChiefMobileApp: App {
         .environment(model)
         .preferredColorScheme(.dark)
         .task { await model.start() }
+        .onOpenURL { url in
+          Task { await model.handleIncomingURL(url) }
+        }
     }
   }
 }
@@ -35,6 +38,7 @@ struct AppRootView: View {
     .tint(ChiefTheme.accent)
     .onChange(of: scenePhase) { _, phase in
       model.setAppActive(phase == .active)
+      AgentBackgroundActivityCoordinator.shared.setApplicationActive(phase == .active)
     }
     .onReceive(
       NotificationCenter.default.publisher(for: MobileNotifications.didOpenConversation)
@@ -45,23 +49,55 @@ struct AppRootView: View {
       else { return }
       Task {
         if workspaceID != model.workspace?.id {
-          await model.switchWorkspace(workspaceID: workspaceID)
+          _ = await model.switchWorkspace(workspaceID: workspaceID)
         }
         model.openConversation(conversationID)
       }
+    }
+    .sheet(
+      isPresented: Binding(
+        get: { model.workspaceInvitePreview != nil },
+        set: { if !$0 { model.clearWorkspaceInvite() } }
+      )
+    ) {
+      WorkspaceInviteConfirmationSheet()
     }
   }
 }
 
 private struct LaunchView: View {
+  @State private var showsStatus = false
+  @State private var isPulsing = false
+
   var body: some View {
-    ZStack {
+    ZStack(alignment: .bottom) {
       ChiefTheme.background.ignoresSafeArea()
-      Image("ChiefMark")
-        .resizable()
-        .scaledToFit()
-        .frame(width: 68, height: 68)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+      if showsStatus {
+        HStack(spacing: 8) {
+          Circle()
+            .fill(Color.white.opacity(isPulsing ? 0.9 : 0.32))
+            .frame(width: 5, height: 5)
+            .scaleEffect(isPulsing ? 1 : 0.72)
+          Text("Loading")
+            .font(.system(size: 12.5, weight: .medium))
+            .foregroundStyle(ChiefTheme.secondary)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 34)
+        .background(ChiefTheme.surface, in: Capsule())
+        .overlay { Capsule().stroke(ChiefTheme.line.opacity(0.7), lineWidth: 0.5) }
+        .padding(.bottom, 18)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+    }
+    .task {
+      try? await Task.sleep(for: .milliseconds(350))
+      guard !Task.isCancelled else { return }
+      withAnimation(.easeOut(duration: 0.22)) { showsStatus = true }
+      withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+        isPulsing = true
+      }
     }
   }
 }

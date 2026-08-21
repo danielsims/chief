@@ -1,3 +1,4 @@
+import BrowserUI
 import SwiftUI
 
 struct ThreadView: View {
@@ -14,45 +15,69 @@ struct ThreadView: View {
   @State private var editTarget: ConversationMessage?
   @State private var showsActivity = false
   @State private var showsMenu = false
+  @State private var isJoining = false
+  @State private var accessError: String?
+  @State private var channelAgentIDs: [String] = []
 
   var body: some View {
     VStack(spacing: 0) {
       transcript
-      AgentBrowserWorkView(
-        workspaceID: workspaceID,
-        conversationIDs: [conversationID],
-        agents: workingAgents
-      )
-      if !workingAgents.isEmpty {
-        AgentTypingRow(
+      if isMember {
+        AgentBrowserWorkView(
+          workspaceID: workspaceID,
+          conversationIDs: [conversationID],
+          agents: workingAgents
+        )
+        ConversationActivityFooter(
           agents: workingAgents,
+          errorCount: model.activityErrorCount(
+            workspaceID: workspaceID,
+            conversationID: conversationID
+          ),
           openActivity: { showsActivity = true }
         )
-          .transition(.opacity)
       }
-      MessageComposer(
-        text: $draft,
-        mentionIDs: $composerMentionIDs,
-        skillIDs: $composerSkillIDs,
-        isSending: isSending,
-        attachments: attachments,
-        onSend: send,
-        onAddAttachments: addAttachments,
-        onRemoveAttachment: removeAttachment
-      )
+      if canParticipate {
+        MessageComposer(
+          text: $draft,
+          mentionIDs: $composerMentionIDs,
+          skillIDs: $composerSkillIDs,
+          isSending: isSending,
+          attachments: attachments,
+          availableMentionAgentIDs: model.workspace?.agents.map(\.id) ?? [],
+          preferredMentionAgentIDs: channelAgentIDs,
+          onSend: send,
+          onAddAttachments: addAttachments,
+          onRemoveAttachment: removeAttachment
+        )
+      } else if model.channelMembershipsLoaded, let conversation {
+        ChannelAccessBar(
+          channelName: conversation.name,
+          isMember: isMember,
+          isPrivate: conversation.isPrivate,
+          isArchived: conversation.archived,
+          isJoining: isJoining,
+          error: accessError,
+          onJoin: joinChannel
+        )
+      } else {
+        ChannelAccessLoadingBar()
+      }
     }
     .background(ChiefTheme.background)
     .navigationTitle("Thread")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
-        Button {
-          Haptics.medium()
-          showsMenu = true
-        } label: {
-          Image(systemName: "ellipsis")
+        if isMember {
+          Button {
+            Haptics.medium()
+            showsMenu = true
+          } label: {
+            Image(systemName: "ellipsis")
+          }
+          .accessibilityLabel("Thread options")
         }
-        .accessibilityLabel("Thread options")
       }
     }
     .sheet(isPresented: $showsMenu) {
@@ -63,7 +88,11 @@ struct ThreadView: View {
     }
     .task {
       model.setVisibleThread(conversationID: conversationID, rootMessageID: root.id)
+      async let access: Void = model.refreshCurrentChannelMemberships()
+      async let members: Void = loadChannelAgents()
       await loadReplies()
+      await access
+      await members
       model.markThreadRead(conversationID: conversationID, rootMessageID: root.id)
     }
     .onDisappear {
@@ -89,11 +118,10 @@ struct ThreadView: View {
           ConversationMessageRow(
             message: root,
             showsThreadSummary: false,
+            allowsActions: canParticipate,
             onEdit: { editTarget = $0 }
           )
           .id("root")
-
-          Divider().overlay(ChiefTheme.line)
 
           ForEach(ChatTimelineBuilder.rows(for: replies)) { row in
             switch row.payload {
@@ -103,11 +131,19 @@ struct ThreadView: View {
               ConversationMessageRow(
                 message: message,
                 showsAuthor: showsAuthor,
+                allowsActions: canParticipate,
                 onEdit: { editTarget = $0 }
               )
               .id(row.id)
             }
           }
+
+          AgentBrowserWorkView(
+            workspaceID: workspaceID,
+            conversationIDs: [conversationID],
+            agents: workingAgents,
+            placement: .inline
+          )
         }
         .animation(.easeOut(duration: 0.3), value: replies.map(\.id))
         .padding(ChiefTheme.pagePadding)
@@ -130,12 +166,22 @@ struct ThreadView: View {
   }
 
   private var workingAgents: [AgentActivityPresence] {
-    let all = model.workingAgentPresences(
+    model.workingAgentPresences(
       workspaceID: workspaceID,
       conversationID: conversationID
     )
-    guard let expected = AgentMentionParser.mentions(in: root.body).first else { return all }
-    return all.filter { $0.id == expected }
+  }
+
+  private var conversation: ConversationSummary? {
+    model.workspace?.conversations.first { $0.id == conversationID }
+  }
+
+  private var isMember: Bool {
+    model.isConversationJoined(conversationID)
+  }
+
+  private var canParticipate: Bool {
+    model.canParticipate(in: conversationID)
   }
 
   private func loadReplies() async {
@@ -153,6 +199,7 @@ struct ThreadView: View {
   }
 
   private func send() {
+    guard canParticipate else { return }
     let pendingText = draft
     let body = MessageReferenceSerializer.body(
       text: draft,
@@ -166,6 +213,11 @@ struct ThreadView: View {
     let pendingSkillIDs = composerSkillIDs
     let mentions = orderedUnique(
       composerMentionIDs + AgentMentionParser.mentions(in: draft)
+    )
+    let shouldWakeAgent = model.shouldWakeAgent(
+      conversationID: conversationID,
+      mentions: mentions,
+      threadRootID: root.id
     )
     draft = ""
     composerMentionIDs = []
@@ -191,7 +243,7 @@ struct ThreadView: View {
           components: components
         )
         model.conversations.merge(message)
-        if case .agent = root.author {
+        if shouldWakeAgent {
           await model.runAgentTurn(
             conversationID: conversationID,
             threadRootID: root.id,
@@ -205,6 +257,28 @@ struct ThreadView: View {
         attachments = pendingAttachments
         Haptics.error()
         print("[Chief] thread send failed: \(error)")
+      }
+    }
+  }
+
+  private func loadChannelAgents() async {
+    channelAgentIDs = await model.channelMembers(conversationID: conversationID)
+      .filter { $0.kind == "agent" }
+      .map(\.principalId)
+  }
+
+  private func joinChannel() {
+    guard !isJoining else { return }
+    isJoining = true
+    accessError = nil
+    Task {
+      let joined = await model.joinConversation(conversationID)
+      isJoining = false
+      if joined {
+        Haptics.heavy()
+      } else {
+        Haptics.error()
+        accessError = "Chief couldn't join this channel. Try again."
       }
     }
   }

@@ -15,7 +15,8 @@ enum KickoffToolEvidence {
   static func validate(
     components: [MessageComponent],
     jobKind: String,
-    expectedThreadRootID: String? = nil
+    expectedThreadRootID: String? = nil,
+    expectedDelegates: Set<String>? = nil
   ) throws {
     let requiredTools: Set<String>
     if jobKind == "workspace.onboarding" {
@@ -36,14 +37,22 @@ enum KickoffToolEvidence {
     guard requiredTools.isSubset(of: completedTools) else {
       throw WorkspaceSetupError.missingRequiredToolCalls
     }
-    if jobKind == "workspace.onboarding" { try validateChiefDelegation(components) }
+    if jobKind == "workspace.onboarding" {
+      try validateChiefDelegation(
+        components,
+        expected: expectedDelegates ?? Set(["brand", "prospector", "engineer"])
+      )
+    }
     // The relay independently verifies the actual specialist thread reply,
     // public channel, agent ownership and owner membership before accepting a
     // completion. Do not reject a genuine defaulted tool call by re-parsing the
     // model's optional JSON arguments on the phone.
   }
 
-  private static func validateChiefDelegation(_ components: [MessageComponent]) throws {
+  private static func validateChiefDelegation(
+    _ components: [MessageComponent],
+    expected: Set<String>
+  ) throws {
     let completed = components.filter {
       $0.kind == "tool" && $0.payload["status"] == "completed"
     }
@@ -77,9 +86,9 @@ enum KickoffToolEvidence {
       if body.localizedCaseInsensitiveContains("@Marketer") { return "brand" }
       if body.localizedCaseInsensitiveContains("@Prospector") { return "prospector" }
       if body.localizedCaseInsensitiveContains("@Engineer") { return "engineer" }
+      if body.localizedCaseInsensitiveContains("@Setup") { return "setup" }
       return nil
     })
-    let expected = Set(["brand", "prospector", "engineer"])
     let missionControlPosts = completed.filter { component in
       guard component.payload["name"] == RelayMessagePostTool.name,
         let input = component.payload["input"],
@@ -90,7 +99,7 @@ enum KickoffToolEvidence {
     guard membershipCalls.count == 1,
       expected.isSubset(of: invited),
       expected.isSubset(of: kickoffMentions),
-      missionControlPosts.count >= 4
+      missionControlPosts.count >= expected.count + 1
     else {
       throw WorkspaceSetupError.missingRequiredToolCalls
     }

@@ -78,6 +78,30 @@ final class OpenCodeStreamingClientTests: XCTestCase {
     XCTAssertFalse(tools.contains(ProspectSaveTool.name))
   }
 
+  func testMarketerOrdinaryTurnKeepsItsPermissionGatedResearchSurface() {
+    let tools = AgentTurnToolPolicy.names(
+      requiresChiefDelegation: false,
+      attachedSkillIDs: [],
+      agentID: "brand"
+    )
+
+    XCTAssertTrue(tools.contains(BrowserNavigateTool.name))
+    XCTAssertTrue(tools.contains(BrandProfileSaveTool.name))
+    XCTAssertFalse(tools.contains(ProspectSaveTool.name))
+  }
+
+  func testProspectorOrdinaryTurnCannotUseMarketerPersistence() {
+    let tools = AgentTurnToolPolicy.names(
+      requiresChiefDelegation: false,
+      attachedSkillIDs: [],
+      agentID: "prospector"
+    )
+
+    XCTAssertTrue(tools.contains(BrowserNavigateTool.name))
+    XCTAssertTrue(tools.contains(ProspectSaveTool.name))
+    XCTAssertFalse(tools.contains(BrandProfileSaveTool.name))
+  }
+
   func testBrowserPolicyAllowsPublicHTTPSAndBlocksLocalTargets() throws {
     XCTAssertTrue(BrowserURLPolicy.allows(try XCTUnwrap(URL(string: "https://heychief.sh"))))
     XCTAssertFalse(BrowserURLPolicy.allows(try XCTUnwrap(URL(string: "http://heychief.sh"))))

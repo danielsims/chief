@@ -51,7 +51,9 @@ struct WorkspaceRootView: View {
   }
 
   private var totalUnread: Int {
-    model.workspace?.conversations.reduce(0) { $0 + $1.unreadCount } ?? 0
+    model.workspace?.conversations
+      .filter { model.isConversationJoined($0.id) }
+      .reduce(0) { $0 + $1.unreadCount } ?? 0
   }
 }
 
@@ -63,6 +65,7 @@ struct WorkspaceHeader: View {
   var body: some View {
     HStack(spacing: 12) {
       Button {
+        Haptics.medium()
         workspaceSheet = true
       } label: {
         HStack(spacing: 9) {
@@ -82,6 +85,7 @@ struct WorkspaceHeader: View {
       Spacer()
 
       Button {
+        Haptics.medium()
         profilePage = true
       } label: {
         UserAvatar(user: model.session?.user, size: 32)
@@ -119,6 +123,7 @@ private struct ChiefTabBar: View {
     -> some View
   {
     Button {
+      Haptics.selection()
       withAnimation(.easeOut(duration: 0.16)) { selection = tab }
     } label: {
       VStack(spacing: 3) {
@@ -153,6 +158,7 @@ private struct ChiefTabBar: View {
 private struct WorkspaceSwitcherSheet: View {
   @Environment(AppModel.self) private var model
   @Environment(\.dismiss) private var dismiss
+  @State private var joinSheet = false
 
   var body: some View {
     NavigationStack {
@@ -160,23 +166,27 @@ private struct WorkspaceSwitcherSheet: View {
         Section("Your workspaces") {
           ForEach(orderedWorkspaces) { summary in
             Button {
+              Haptics.medium()
               if summary.id != model.workspace?.id {
                 Task {
-                  await model.switchWorkspace(workspaceID: summary.id)
-                  dismiss()
+                  if await model.switchWorkspace(workspaceID: summary.id) {
+                    Haptics.success()
+                    dismiss()
+                  } else {
+                    Haptics.error()
+                  }
                 }
               } else {
                 dismiss()
               }
             } label: {
               HStack(spacing: 12) {
-                Text(String(summary.name.prefix(1)).uppercased())
-                  .font(.system(size: 15, weight: .bold))
-                  .frame(width: 38, height: 38)
-                  .background(
-                    ChiefTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 10)
-                  )
-                  .foregroundStyle(ChiefTheme.accent)
+                WorkspaceIdentityAvatar(
+                  name: summary.name,
+                  website: summary.website,
+                  imageURL: summary.imageURL,
+                  size: 38
+                )
                 VStack(alignment: .leading, spacing: 3) {
                   Text(summary.name).font(.system(size: 15, weight: .semibold))
                   Text(statusText(for: summary))
@@ -190,15 +200,21 @@ private struct WorkspaceSwitcherSheet: View {
               }
             }
             .buttonStyle(.plain)
-            .disabled(summary.id == model.workspace?.id)
           }
         }
         Section {
           Button {
+            Haptics.heavy()
             dismiss()
             model.beginWorkspaceSetup()
           } label: {
-            Label("Add workspace", systemImage: "plus")
+            Label("Create workspace", systemImage: "plus")
+          }
+          Button {
+            Haptics.heavy()
+            joinSheet = true
+          } label: {
+            Label("Join workspace", systemImage: "link")
           }
         }
       }
@@ -209,6 +225,7 @@ private struct WorkspaceSwitcherSheet: View {
       .task { await model.refreshWorkspaces() }
     }
     .chiefSheet([.height(460), .large])
+    .sheet(isPresented: $joinSheet) { JoinWorkspaceSheet() }
   }
 
   private var orderedWorkspaces: [WorkspaceSummary] {
@@ -217,7 +234,13 @@ private struct WorkspaceSwitcherSheet: View {
       active.first { $0.id == model.workspace?.id }
       ?? (model.workspace.map {
         WorkspaceSummary(
-          id: $0.id, name: $0.name, isActive: true, onboardingComplete: $0.onboardingComplete)
+          id: $0.id,
+          name: $0.name,
+          website: $0.website,
+          imageURL: $0.imageURL,
+          isActive: true,
+          onboardingComplete: $0.onboardingComplete
+        )
       })
     var list = active
     if let current, !list.contains(where: { $0.id == current.id }) {
@@ -242,27 +265,12 @@ private struct WorkspaceAvatar: View {
   let size: CGFloat
 
   var body: some View {
-    Group {
-      if let imageURL = workspace?.imageURL {
-        AsyncImage(url: imageURL) { image in
-          image.resizable().scaledToFill()
-        } placeholder: {
-          fallback
-        }
-      } else {
-        fallback
-      }
-    }
-    .frame(width: size, height: size)
-    .clipShape(Circle())
-    .overlay { Circle().stroke(Color.white.opacity(0.12)) }
-    .accessibilityLabel(workspace?.name ?? "Workspace")
-  }
-
-  private var fallback: some View {
-    Image("ChiefMark")
-      .resizable()
-      .scaledToFill()
+    WorkspaceIdentityAvatar(
+      name: workspace?.name ?? "Chief",
+      website: workspace?.website,
+      imageURL: workspace?.imageURL,
+      size: size
+    )
   }
 }
 
@@ -280,20 +288,74 @@ struct UserProfileView: View {
         }
       }
       Section {
+        NavigationLink {
+          AppSettingsView()
+        } label: {
+          Label("Settings", systemImage: "gearshape")
+        }
+        .simultaneousGesture(TapGesture().onEnded { Haptics.medium() })
+
         Label("Connections", systemImage: "link")
         NavigationLink {
           NotificationSettingsView()
         } label: {
           Label("Notifications", systemImage: "bell")
         }
+        .simultaneousGesture(TapGesture().onEnded { Haptics.medium() })
       }
       Section {
-        Button("Sign out", role: .destructive, action: model.signOut)
+        Button("Sign out", role: .destructive) {
+          Haptics.heavy()
+          model.signOut()
+        }
       }
     }
     .scrollContentBackground(.hidden)
     .background(ChiefTheme.background)
     .navigationTitle("Profile")
+    .navigationBarTitleDisplayMode(.inline)
+  }
+}
+
+private struct AppSettingsView: View {
+  @Environment(AppModel.self) private var model
+
+  var body: some View {
+    List {
+      Section {
+        NavigationLink {
+          NotificationSettingsView()
+        } label: {
+          Label("Notifications", systemImage: "bell")
+        }
+        .simultaneousGesture(TapGesture().onEnded { Haptics.medium() })
+      }
+
+      if let workspace = model.workspace {
+        Section("Workspace") {
+          HStack(spacing: 12) {
+            WorkspaceIdentityAvatar(
+              name: workspace.name,
+              website: workspace.website,
+              imageURL: workspace.imageURL,
+              size: 36
+            )
+            VStack(alignment: .leading, spacing: 2) {
+              Text(workspace.name)
+              if let website = workspace.website, !website.isEmpty {
+                Text(website)
+                  .font(.system(size: 12))
+                  .foregroundStyle(ChiefTheme.secondary)
+                  .lineLimit(1)
+              }
+            }
+          }
+        }
+      }
+    }
+    .scrollContentBackground(.hidden)
+    .background(ChiefTheme.background)
+    .navigationTitle("Settings")
     .navigationBarTitleDisplayMode(.inline)
   }
 }
@@ -370,7 +432,9 @@ struct HomeView: View {
   }
 
   private var attentionCount: Int {
-    let conversations = model.workspace?.conversations.filter(\.requiresAttention).count ?? 0
+    let conversations = model.workspace?.conversations.filter {
+      $0.requiresAttention && model.isConversationJoined($0.id)
+    }.count ?? 0
     let agents = model.workspace?.agents.filter { $0.status == .needsYou }.count ?? 0
     return conversations + agents
   }
@@ -382,6 +446,7 @@ struct DMsView: View {
   @State private var quickCreateVisible = false
   @State private var newMessageVisible = false
   @State private var newChannelVisible = false
+  @State private var inviteVisible = false
 
   var body: some View {
     ZStack(alignment: .bottomTrailing) {
@@ -402,9 +467,15 @@ struct DMsView: View {
       if quickCreateVisible {
         Color.black.opacity(0.001)
           .ignoresSafeArea()
-          .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { quickCreateVisible = false } }
+          .onTapGesture {
+            Haptics.light()
+            withAnimation(.easeOut(duration: 0.15)) { quickCreateVisible = false }
+          }
         WorkspaceQuickCreateMenu(
-          onInvite: {},
+          onInvite: {
+            quickCreateVisible = false
+            inviteVisible = true
+          },
           onChannel: {
             quickCreateVisible = false
             newChannelVisible = true
@@ -446,6 +517,7 @@ struct DMsView: View {
         Task { await model.createChannel(name: name, isPrivate: isPrivate) }
       }
     }
+    .sheet(isPresented: $inviteVisible) { InvitePeopleSheet() }
   }
 }
 

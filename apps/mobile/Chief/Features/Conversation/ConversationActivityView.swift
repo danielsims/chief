@@ -36,6 +36,7 @@ struct ConversationActivityView: View {
     .background(ChiefTheme.background)
     .navigationTitle("Activity")
     .navigationBarTitleDisplayMode(.inline)
+    .task { await model.refreshAgentJobs() }
   }
 
   private var workingAgents: [AgentActivityPresence] {
@@ -53,10 +54,29 @@ struct ConversationActivityView: View {
       ).map(\.agentID)
     )
     let durableIDs = Set(activityMessages.compactMap(\.author.agentID))
+    let durableJobIDs = Set(
+      model.failedAgentJobs(
+        workspaceID: model.workspace?.id,
+        conversationID: conversationID
+      ).map(\.agentId)
+    )
     let workingIDs = Set(workingAgents.map(\.id))
-    let ids = liveIDs.union(durableIDs).subtracting(workingIDs)
-    return (model.workspace?.agents ?? []).filter { ids.contains($0.id) }.map {
-      AgentActivityPresence(id: $0.id, name: $0.name)
+    let ids = liveIDs.union(durableIDs).union(durableJobIDs).subtracting(workingIDs)
+    let roster = model.workspace?.agents ?? []
+    let rosterOrder = Dictionary(
+      uniqueKeysWithValues: roster.enumerated().map { ($0.element.id, $0.offset) }
+    )
+    return ids.sorted { left, right in
+      let leftOrder = rosterOrder[left] ?? .max
+      let rightOrder = rosterOrder[right] ?? .max
+      return leftOrder == rightOrder ? left < right : leftOrder < rightOrder
+    }.map { id in
+      AgentActivityPresence(
+        id: id,
+        name: roster.first(where: { $0.id == id })?.name
+          ?? WorkspaceAgentCatalog.agent(forID: id)?.name
+          ?? id.capitalized
+      )
     }
   }
 
@@ -80,12 +100,19 @@ struct ConversationActivityView: View {
 
   private func latestActivityDescription(for agentID: String) -> String {
     if workingAgents.contains(where: { $0.id == agentID }) { return "Working now" }
-    if model.activityRecords(
+    if let failedJob = model.failedAgentJobs(
       workspaceID: model.workspace?.id,
       conversationID: conversationID,
       agentID: agentID
-    ).first?.components.contains(where: { $0.kind == "error" }) == true {
-      return "Needs attention"
+    ).first {
+      return failedJob.lastError ?? "Run interrupted"
+    }
+    if let error = model.activityRecords(
+      workspaceID: model.workspace?.id,
+      conversationID: conversationID,
+      agentID: agentID
+    ).flatMap(\.components).first(where: { $0.kind == "error" }) {
+      return error.payload["message"] ?? error.payload["title"] ?? "Run failed"
     }
     let messageDate = activityMessages.last(where: { $0.author.agentID == agentID })?.createdAt
     let recordDate = model.activityRecords(
@@ -114,6 +141,7 @@ struct ConversationActivityView: View {
           )
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture().onEnded { Haptics.medium() })
       }
     }
   }
@@ -155,7 +183,7 @@ private struct AgentActivityNavigationRow: View {
         Text(detail)
           .font(.system(size: 12))
           .foregroundStyle(ChiefTheme.secondary)
-          .lineLimit(1)
+          .lineLimit(2)
       }
       Spacer(minLength: 8)
       Image(systemName: "chevron.right")
@@ -186,12 +214,24 @@ struct AgentActivityDetailView: View {
           .padding(.vertical, 4)
         }
 
+        ForEach(failedJobs) { job in
+          activityGroup(
+            title: conversationName(job.payload.conversationId ?? conversationID),
+            date: job.updatedDate,
+            components: [failureComponent(for: job)],
+            active: false,
+            onRetry: { Task { await model.retryAgentJob(job) } }
+          )
+        }
+
         ForEach(liveRecords) { record in
           activityGroup(
             title: record.conversationID == conversationID
               ? "Current work" : "#\(conversationName(record.conversationID))",
             date: record.updatedAt,
-            components: record.components,
+            components: failedJobs.isEmpty
+              ? record.components
+              : record.components.filter { $0.kind != "error" },
             active: record.isWorking
           )
         }
@@ -205,7 +245,7 @@ struct AgentActivityDetailView: View {
           )
         }
 
-        if !isWorking && liveRecords.isEmpty && durableMessages.isEmpty {
+        if !isWorking && failedJobs.isEmpty && liveRecords.isEmpty && durableMessages.isEmpty {
           ContentUnavailableView(
             "No recorded activity",
             systemImage: "waveform.path.ecg",
@@ -220,6 +260,7 @@ struct AgentActivityDetailView: View {
     .background(ChiefTheme.background)
     .navigationTitle("\(agentName) activity")
     .navigationBarTitleDisplayMode(.inline)
+    .task { await model.refreshAgentJobs() }
   }
 
   private var agentName: String {
@@ -237,6 +278,14 @@ struct AgentActivityDetailView: View {
 
   private var liveRecords: [AgentActivityRecord] {
     model.activityRecords(
+      workspaceID: model.workspace?.id,
+      conversationID: conversationID,
+      agentID: agentID
+    )
+  }
+
+  private var failedJobs: [AgentJobRecord] {
+    model.failedAgentJobs(
       workspaceID: model.workspace?.id,
       conversationID: conversationID,
       agentID: agentID
@@ -269,7 +318,8 @@ struct AgentActivityDetailView: View {
     title: String,
     date: Date,
     components: [MessageComponent],
-    active: Bool
+    active: Bool,
+    onRetry: (() -> Void)? = nil
   ) -> some View {
     VStack(alignment: .leading, spacing: 9) {
       HStack(spacing: 8) {
@@ -287,22 +337,37 @@ struct AgentActivityDetailView: View {
           .foregroundStyle(ChiefTheme.secondary)
           .padding(.vertical, 8)
       } else {
-        ForEach(components) { component in
-          if component.kind == "thinking" {
-            ThinkingMessageComponent(component: component)
-          } else if component.kind == "error" {
-            AgentRunErrorComponent(
-              component: component,
-              onRetry: canRetryOnboarding ? {
-                Task { await model.completeOnboarding() }
-              } : nil
-            )
-          } else {
-            ToolMessageComponent(component: component)
+        VStack(alignment: .leading, spacing: 12) {
+          ForEach(components) { component in
+            if component.kind == "thinking" {
+              ThinkingMessageComponent(component: component)
+            } else if component.kind == "error" {
+              AgentRunErrorComponent(
+                component: component,
+                onRetry: onRetry ?? (canRetryOnboarding ? {
+                  Task { await model.completeOnboarding() }
+                } : nil)
+              )
+            } else {
+              ToolMessageComponent(component: component)
+            }
           }
         }
       }
     }
+  }
+
+  private func failureComponent(for job: AgentJobRecord) -> MessageComponent {
+    MessageComponent(
+      id: "job-error-\(job.id)",
+      kind: "error",
+      payload: [
+        "code": "agent_job_failed",
+        "title": job.payload.title ?? "Run interrupted",
+        "message": job.lastError ?? "This agent couldn't complete its run.",
+        "retryable": "true",
+      ]
+    )
   }
 
   private var canRetryOnboarding: Bool {

@@ -1,3 +1,4 @@
+import BrowserUI
 import SwiftUI
 
 struct ConversationTranscriptView: View {
@@ -5,8 +6,11 @@ struct ConversationTranscriptView: View {
 
   let conversationID: String
   let messages: [ConversationMessage]
+  let browserWorkspaceID: String?
+  let browserAgents: [AgentActivityPresence]
   @Binding var seenMessageIDs: Set<String>
   @Binding var sentMessageIDs: Set<String>
+  let allowsActions: Bool
 
   @State private var threadRoot: ConversationMessage?
   @State private var editTarget: ConversationMessage?
@@ -17,6 +21,14 @@ struct ConversationTranscriptView: View {
         LazyVStack(alignment: .leading, spacing: 20) {
           ForEach(ChatTimelineBuilder.rows(for: messages)) { row in
             transcriptRow(row)
+          }
+          if let browserWorkspaceID {
+            AgentBrowserWorkView(
+              workspaceID: browserWorkspaceID,
+              conversationIDs: [conversationID],
+              agents: browserAgents,
+              placement: .inline
+            )
           }
         }
         .animation(.easeOut(duration: 0.3), value: messages.map(\.id))
@@ -67,6 +79,7 @@ struct ConversationTranscriptView: View {
       ConversationMessageRow(
         message: message,
         showsAuthor: showsAuthor,
+        allowsActions: allowsActions,
         onReply: { threadRoot = $0 },
         onEdit: { editTarget = $0 }
       )

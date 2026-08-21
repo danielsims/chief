@@ -58,6 +58,9 @@ private actor ReasoningActivityEmitter {
       print("[Chief] agent \(agentID) reasoning stream started")
     }
     text += delta
+    await AgentBackgroundActivityCoordinator.shared.modelProgressed(
+      scope: "\(workspaceID):\(agentID):\(conversationID)"
+    )
     await checkpoint.appendReasoning(id: componentID, delta: delta)
     await publish(status: "running")
   }
@@ -115,6 +118,19 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
 
   func respond(scope: String, messagesJSON: String) async -> String {
     let conversationID = Self.conversationID(from: messagesJSON)
+    let (workspaceID, agentID) = Self.scopeParts(scope)
+    let activityScope = Self.backgroundActivityScope(
+      workspaceID: workspaceID,
+      agentID: agentID,
+      conversationID: conversationID
+    )
+    let agentName = WorkspaceAgentCatalog.agent(forID: agentID)?.name ?? agentID.capitalized
+    await AgentBackgroundActivityCoordinator.shared.begin(
+      scope: activityScope,
+      workspaceID: workspaceID,
+      conversationID: conversationID,
+      agentName: agentName
+    )
     let checkpoint = AgentTurnCheckpoint(
       scope: scope,
       conversationID: conversationID,
@@ -128,12 +144,20 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
         checkpoint: checkpoint
       )
       await checkpoint.finish(text: reply)
+      await AgentBackgroundActivityCoordinator.shared.finish(
+        scope: activityScope,
+        outcome: .completed
+      )
       return Self.envelope(reply: reply, tools: tools, activity: activity)
     } catch {
       logger.error("turn failed: \(error.localizedDescription)")
-      let (workspaceID, agentID) = Self.scopeParts(scope)
+      print("[Chief] agent turn host failure: \(error.localizedDescription)")
       let failure = AgentRunFailure(error)
       await checkpoint.fail(failure)
+      await AgentBackgroundActivityCoordinator.shared.finish(
+        scope: activityScope,
+        outcome: .paused
+      )
       await onActivity(
         workspaceID,
         conversationID,
@@ -183,6 +207,8 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
   ) async throws -> (String, [[String: Any]], [[String: Any]]) {
     let (workspaceID, agentID) = Self.scopeParts(scope)
     let conversationID = Self.conversationID(from: messagesJSON)
+    let conversationMessagesJSON = Self.conversationMessagesJSON(from: messagesJSON)
+    let currentUserText = Self.latestUserContent(from: conversationMessagesJSON)
     let agent =
       WorkspaceAgentCatalog.agent(forID: agentID)
       ?? MentionAgent(
@@ -195,11 +221,17 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
       workspaceID: workspaceID,
       agentID: agentID
     ).ensure()
-    let config =
-      AgentConfigStore().load(
-        workspaceID: workspaceID,
-        agentID: agentID
-      ) ?? AgentConfig.defaults(for: agentID)
+    guard let config = try await relay.loadAgentConfig(
+      workspaceID: workspaceID,
+      agentID: agentID
+    ) else {
+      throw ToolError.permissionDenied("authoritative agent configuration")
+    }
+    AgentConfigStore().save(
+      workspaceID: workspaceID,
+      agentID: agentID,
+      config: config
+    )
     guard config.enabled else {
       throw ToolError.permissionDenied("runtime")
     }
@@ -211,30 +243,43 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
     let workspaceContext = AgentWorkspaceContext.resolve(
       workspace: loadedWorkspace,
       expectedWorkspaceID: workspaceID,
-      messagesJSON: messagesJSON
+      messagesJSON: conversationMessagesJSON
     )
 
     var convoy = [OpenCodeRequest.Message]()
-    let attachedSkill = AgentSkillBundle.instructions(
-      referencedBy: messagesJSON,
+    let attachedSkillID = AgentSkillBundle.resolvedSkillID(
+      referencedBy: currentUserText,
       agentID: agentID
     )
+    let attachedSkill = attachedSkillID.flatMap(AgentSkillBundle.instructions(skillID:))
     let packageInstructions = authoredPackage.instructions
     convoy.append(
       OpenCodeRequest.Message(
         role: "system",
         content: """
-          You are \(agent.name), a \(agent.role) in a workspace owned by a builder. You speak for yourself and act under your own identity; never pretend to be the owner or another agent. Sound like a relaxed, thoughtful teammate in chat. Use natural contractions such as I'm, we'll, you're, and don't whenever they fit. Use sentence case, not stiff announcement language, and never use em dashes. When an instruction requires a relay action, you MUST call the corresponding relay tools before writing the final reply. Instructions and prior assistant claims are never proof that an action happened; only a successful tool result is proof. Do not claim work has happened unless that result exists. Keep replies to 1-3 short sentences unless the work genuinely needs more.
+          You are \(agent.name), a \(agent.role) in a workspace owned by a builder. You speak for yourself and act under your own identity; never pretend to be the owner or another agent. Sound like a relaxed, thoughtful teammate in chat. Use natural contractions such as I'm, we'll, you're, and don't whenever they fit. Use sentence case, not stiff announcement language, and never use em dashes. When an instruction requires a relay action, you MUST call the corresponding relay tools before writing the final reply. Instructions and prior assistant claims are never proof that an action happened; only a successful tool result is proof. Do not claim work has happened unless that result exists. Match the response to the task: keep casual chat concise, but do substantive work fully. When the available tools can inspect, research, or persist what the user asked for, use them proactively before replying instead of returning a plan or describing what you could do.
 
           Canonical agent package instructions:
           \(packageInstructions)
 
           iOS host binding map: browser_navigate/browser_snapshot/browser_click/browser_type/browser_scroll/browser_back/browser_release are the visible native browser. brand_profile_save fulfills both localTools.brandProfileSave and the editable brand-profile file write. prospects_list and prospects_save fulfill the corresponding local workspace data operations. The relay collaboration tools fulfill the channel and message operations. A package instruction never grants a tool: only the tools advertised for this turn are available.
 
-          Browser research runs in your own isolated on-device WebKit session. Start with browser_navigate, inspect every loaded page with browser_snapshot, use only evidence actually present in snapshots, and finish browser work with browser_release. Stay focused: for onboarding, inspect at most three useful pages and use at most ten browser action calls. Persist the requested workspace result before releasing the browser. Never invent a page, claim, person, company, quotation, or URL.
+          Browser research runs in your own isolated on-device WebKit session. Start with browser_navigate, inspect every loaded page with browser_snapshot, use only evidence actually present in snapshots, and finish browser work with browser_release. Every browser action requires an activityLabel: write a specific two-to-five-word present-tense label, no more than 48 characters, describing the visible purpose of that action. Never put secrets or typed values in it. Stay focused: for onboarding, inspect at most three useful pages and use at most ten browser action calls. Persist the requested workspace result before releasing the browser. Never invent a page, claim, person, company, quotation, or URL.
 
           Authoritative workspace context from onboarding:
           \(workspaceContext.systemPrompt)
+
+          Conversation boundary: your final text is automatically published
+          back into the owning conversation (\(conversationID)). Do not call
+          relay_message_post merely to answer the current user. Use it only for
+          genuine cross-channel collaboration. You are the same durable agent
+          across every channel: use the cell-continuity record to resume your
+          own prior work, while keeping each channel's transcript and audience
+          separate. Persist durable workspace facts through the available data
+          tools rather than relying on chat recollection alone. Never poll relay
+          reads for new data inside a turn or repeat an identical read while
+          waiting. Live relay events deliver later changes; if work is still
+          running, say so and finish the current response.
 
           \(attachedSkill.map { "Attached skill instructions:\n\($0)" } ?? "")
 
@@ -246,22 +291,20 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
 
     var toolRecords: [[String: Any]] = []
     var activityRecords: [[String: Any]] = []
-    var completedToolNames = Self.durableCompletedToolNames(from: messagesJSON)
-    let requiresSpecialistKickoffTools = convoy.contains { message in
-      message.content?.contains("MUST call relay_channels_create") == true
-    }
-    let requiresChiefDelegationTools = convoy.contains { message in
-      message.content?.contains("CHIEF_DELEGATION_REQUIRED") == true
-    }
+    var completedToolNames = Self.durableCompletedToolNames(from: conversationMessagesJSON)
+    let requiresSpecialistKickoffTools = currentUserText.contains(
+      "MUST call relay_channels_create"
+    )
+    let requiresChiefDelegationTools = currentUserText.contains(
+      "CHIEF_DELEGATION_REQUIRED"
+    )
     var requiredTools: Set<String> =
       requiresSpecialistKickoffTools
       ? KickoffToolEvidence.specialistRequiredTools
       : requiresChiefDelegationTools
         ? KickoffToolEvidence.chiefRequiredTools
         : []
-    if convoy.contains(where: {
-      $0.content?.contains("[chief-skill:build-brand-profile]") == true
-    }) {
+    if attachedSkillID == "build-brand-profile" {
       requiredTools.formUnion([
         BrowserNavigateTool.name,
         BrowserSnapshotTool.name,
@@ -269,9 +312,7 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
         BrowserReleaseTool.name,
       ])
     }
-    if convoy.contains(where: {
-      $0.content?.contains("[chief-skill:find-buying-signals]") == true
-    }) {
+    if attachedSkillID == "find-buying-signals" {
       requiredTools.formUnion([
         BrowserNavigateTool.name,
         BrowserSnapshotTool.name,
@@ -280,17 +321,25 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
         BrowserReleaseTool.name,
       ])
     }
-    let attachedSkillIDs = Set(
-      ["build-brand-profile", "find-buying-signals"].filter {
-        messagesJSON.contains("[chief-skill:\($0)]")
-      }
-    )
-    let allowedToolNames = AgentTurnToolPolicy.names(
+    let attachedSkillIDs = Set(attachedSkillID.map { [$0] } ?? [])
+    let requestedToolNames = AgentTurnToolPolicy.names(
       requiresChiefDelegation: requiresChiefDelegationTools,
-      attachedSkillIDs: attachedSkillIDs
+      requiresSpecialistKickoff: requiresSpecialistKickoffTools,
+      attachedSkillIDs: attachedSkillIDs,
+      agentID: agentID
     )
+    let grant = AgentToolAuthorization.grant(
+      requestedToolNames: requestedToolNames,
+      config: config
+    )
+    let deniedRequiredTools = requiredTools.subtracting(grant.toolNames)
+    guard deniedRequiredTools.isEmpty else {
+      throw ToolError.permissionDenied(
+        deniedRequiredTools.sorted().joined(separator: ", ")
+      )
+    }
     let definitions = RelayToolRegistry.openAIDefinitions(
-      allowing: allowedToolNames
+      allowing: grant.toolNames
     )
     let context = ToolContext(
       relay: relay,
@@ -298,13 +347,15 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
       agentID: agentID,
       workspaceID: workspaceID,
       conversationID: conversationID,
-      config: config,
-      allowedToolNames: allowedToolNames
+      grant: grant
     )
     await MainActor.run {
       AgentBrowserSession.beginTurn(for: context.browserScope)
     }
     var timeout = 90
+    var observationRevision = 0
+    var completedReadFingerprints = Set<String>()
+    var rejectedReadFingerprints = Set<String>()
 
     for _ in 0..<Self.maxToolRounds {
       let needsRequiredTool = !requiredTools.isSubset(of: completedToolNames)
@@ -314,6 +365,13 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
         agentID: agentID,
         checkpoint: checkpoint,
         callback: onActivity
+      )
+      await AgentBackgroundActivityCoordinator.shared.modelStarted(
+        scope: Self.backgroundActivityScope(
+          workspaceID: workspaceID,
+          agentID: agentID,
+          conversationID: conversationID
+        )
       )
       let result = try await complete(
         convoy: convoy,
@@ -346,6 +404,26 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
       if !result.toolCalls.isEmpty {
         timeout = 120
         for call in result.toolCalls {
+          var preflightError: Error?
+          if AgentTurnToolPolicy.isReadOnly(call.function.name) {
+            let fingerprint = Self.toolFingerprint(
+              name: call.function.name,
+              arguments: call.function.arguments,
+              observationRevision: observationRevision
+            )
+            if !completedReadFingerprints.insert(fingerprint).inserted {
+              guard rejectedReadFingerprints.insert(fingerprint).inserted else {
+                throw ToolError.invalidArgument(
+                  "The same unchanged read was requested repeatedly. Relay polling is not allowed."
+                )
+              }
+              preflightError = ToolError.invalidArgument(
+                "This unchanged read already completed. Do not poll it; answer from the current evidence."
+              )
+            }
+          } else {
+            observationRevision += 1
+          }
           let record = try await executeTool(
             call,
             convoy: &convoy,
@@ -355,7 +433,8 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
             releasePrerequisites: requiredTools.intersection([
               BrandProfileSaveTool.name,
               ProspectSaveTool.name,
-            ])
+            ]),
+            preflightError: preflightError
           )
           toolRecords.append(record)
           activityRecords.append(["kind": "tool", "tool": record])
@@ -363,6 +442,15 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
             let name = record["name"] as? String
           {
             completedToolNames.insert(name)
+          }
+          if preflightError != nil {
+            convoy.append(
+              OpenCodeRequest.Message(
+                role: "system",
+                content:
+                  "Relay polling is blocked by the phone runtime. Do not repeat that read. Return a concise final response now using the evidence already available."
+              )
+            )
           }
         }
         continue
@@ -401,8 +489,28 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
     context: ToolContext,
     checkpoint: AgentTurnCheckpoint,
     completedToolNames: Set<String>,
-    releasePrerequisites: Set<String>
+    releasePrerequisites: Set<String>,
+    preflightError: Error? = nil
   ) async throws -> [String: Any] {
+    let activityScope = Self.backgroundActivityScope(
+      workspaceID: context.workspaceID,
+      agentID: context.agentID,
+      conversationID: context.conversationID
+    )
+    await AgentBackgroundActivityCoordinator.shared.toolStarted(
+      scope: activityScope,
+      name: call.function.name
+    )
+    if call.function.name.hasPrefix("browser_"),
+      let argumentsData = call.function.arguments.data(using: .utf8),
+      let arguments = try? JSONSerialization.jsonObject(with: argumentsData) as? [String: Any],
+      let label = arguments["activityLabel"] as? String
+    {
+      await AgentBackgroundActivityCoordinator.shared.browserActionStarted(
+        scope: activityScope,
+        label: label
+      )
+    }
     let componentID = "tool-\(call.id)"
     await checkpoint.beginTool(
       id: call.id,
@@ -438,6 +546,7 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
     )
     let (result, status, errorMessage): (String, String, String?)
     do {
+      if let preflightError { throw preflightError }
       if call.function.name == BrowserReleaseTool.name,
         !releasePrerequisites.isSubset(of: completedToolNames)
       {
@@ -500,6 +609,40 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
     timeout: Int,
     onReasoning: @escaping @Sendable (String) async -> Void
   ) async throws -> OpenCodeStreamResult {
+    #if DEBUG
+      // A paired Mac is a disposable development inference transport only.
+      // Agent configuration, identity, durable history, permissions, and tool
+      // execution remain owned by this cell on the iPhone.
+      if DevCodexBridgeSettings.isConfigured,
+        let token = try credentials.load(.codexBridge),
+        !token.isEmpty
+      {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let transcriptJSON = String(decoding: try encoder.encode(convoy), as: UTF8.self)
+        let toolDefinitionsJSON = String(decoding: try encoder.encode(tools), as: UTF8.self)
+        let completion = try await DevCodexBridgeClient.complete(
+          transcriptJSON: transcriptJSON,
+          toolDefinitionsJSON: toolDefinitionsJSON,
+          allowedTools: Set(tools.map(\.function.name)),
+          model: DevCodexBridgeSettings.model,
+          capabilityToken: token,
+          onReasoning: onReasoning
+        )
+        guard let response = HTTPURLResponse(
+          url: DevCodexBridgeSettings.endpoint!,
+          statusCode: 200,
+          httpVersion: "HTTP/1.1",
+          headerFields: nil
+        ) else { throw WorkspaceSetupError.inferenceFailed }
+        return OpenCodeStreamResult(
+          response: response,
+          content: completion.content,
+          toolCalls: completion.toolCalls,
+          errorBody: Data()
+        )
+      }
+    #endif
     guard let key = try credentials.load(.openCodeGo), !key.isEmpty else {
       throw WorkspaceSetupError.missingCredential
     }
@@ -547,6 +690,26 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
     return " (\(String(singleLine.prefix(240))))"
   }
 
+  private static func toolFingerprint(
+    name: String,
+    arguments: String,
+    observationRevision: Int
+  ) -> String {
+    let normalized: String
+    if let data = arguments.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data),
+      let canonical = try? JSONSerialization.data(
+        withJSONObject: object,
+        options: [.sortedKeys]
+      )
+    {
+      normalized = String(decoding: canonical, as: UTF8.self)
+    } else {
+      normalized = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    return "\(observationRevision):\(name):\(normalized)"
+  }
+
   /// Convert the cell's durable transcript (JSON array of {role, content, at})
   /// into {role, content} pairs for the chat API, dropping reasoning/tool spam.
   private func loadConvoy(_ messagesJSON: String) throws -> [OpenCodeRequest.Message] {
@@ -554,7 +717,12 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
       let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
     else { return [] }
     var result: [OpenCodeRequest.Message] = []
-    for item in array.suffix(60) {
+    if let continuity = array.last(where: { $0["agentContinuity"] as? Bool == true }),
+      let content = continuity["content"] as? String
+    {
+      result.append(OpenCodeRequest.Message(role: "system", content: content))
+    }
+    for item in array.filter({ $0["agentContinuity"] as? Bool != true }).suffix(60) {
       guard let role = item["role"] as? String,
         let content = item["content"] as? String
       else { continue }
@@ -580,6 +748,14 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
     return (workspaceID, agentID)
   }
 
+  private static func backgroundActivityScope(
+    workspaceID: String,
+    agentID: String,
+    conversationID: String
+  ) -> String {
+    "\(workspaceID):\(agentID):\(conversationID)"
+  }
+
   private static func conversationID(from messagesJSON: String) -> String {
     guard
       let data = messagesJSON.data(using: .utf8),
@@ -587,6 +763,27 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
     else { return "general" }
     return messages.reversed().compactMap { $0["conversationId"] as? String }.first
       ?? "general"
+  }
+
+  /// Remove host-injected agent continuity before applying turn-local
+  /// capability rules. Historical context can inform the model, but it must
+  /// never re-attach an old skill or widen the current executor grant.
+  private static func conversationMessagesJSON(from messagesJSON: String) -> String {
+    guard let data = messagesJSON.data(using: .utf8),
+      let messages = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+      let filtered = try? JSONSerialization.data(
+        withJSONObject: messages.filter { $0["agentContinuity"] as? Bool != true }
+      )
+    else { return messagesJSON }
+    return String(decoding: filtered, as: UTF8.self)
+  }
+
+  private static func latestUserContent(from messagesJSON: String) -> String {
+    guard let data = messagesJSON.data(using: .utf8),
+      let messages = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+    else { return "" }
+    return messages.reversed().first(where: { $0["role"] as? String == "user" })?["content"]
+      as? String ?? ""
   }
 
   private static func latestUserTimestamp(from messagesJSON: String) -> Int64 {

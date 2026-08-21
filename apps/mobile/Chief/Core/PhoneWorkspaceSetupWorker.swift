@@ -17,10 +17,24 @@ actor PhoneWorkspaceSetupWorker {
 
   func run(draft: OnboardingDraft, workspaceID: String) async throws {
     guard draft.runtime == .phone else { return }
-    guard draft.inferenceProvider == .openCodeGo else {
+    let supported: Bool
+    switch draft.inferenceProvider {
+    case .openCodeGo:
+      supported = true
+    #if DEBUG
+      case .codexBridge:
+        supported = true
+    #endif
+    default:
+      supported = false
+    }
+    guard supported else {
       throw WorkspaceSetupError.unsupportedInference
     }
-    print("[Chief] phone worker credential state: \(credentials.contains(.openCodeGo))")
+    guard let provider = draft.inferenceProvider else {
+      throw WorkspaceSetupError.unsupportedInference
+    }
+    print("[Chief] phone worker inference connected: \(credentials.contains(provider))")
     guard let lease = try await claim(workspaceID: workspaceID) else {
       throw WorkspaceSetupError.missingJob
     }
@@ -39,15 +53,16 @@ actor PhoneWorkspaceSetupWorker {
       )
       try await ChiefCellRuntime.shared.start(host: host)
       let scope = try ChiefCellRuntime.scope(workspaceID: workspaceID, agentID: "chief")
-      let kickoffResult = try await ChiefCellRuntime.shared.runTurn(
-        scope: scope,
-        conversationID: "mission-control",
-        userText: kickoffInstruction(draft: draft, job: lease.job)
+      let expectedDelegates = Set(
+        (lease.job.payload.selectedApps ?? Array(draft.selectedApps)).isEmpty
+          ? ["brand", "prospector", "engineer"]
+          : ["brand", "prospector", "engineer", "setup"]
       )
-      let kickoff = try TurnExtractor.extract(from: kickoffResult)
-      try KickoffToolEvidence.validate(
-        components: kickoff.components,
-        jobKind: lease.job.kind
+      let kickoff = try await completeKickoffTurn(
+        scope: scope,
+        instruction: kickoffInstruction(draft: draft, job: lease.job),
+        jobKind: lease.job.kind,
+        expectedDelegates: expectedDelegates
       )
       try await relay.completeAgentJob(
         workspaceID: workspaceID,
@@ -64,17 +79,18 @@ actor PhoneWorkspaceSetupWorker {
       )
       print("[Chief] phone worker completed \(lease.job.kind)")
     } catch {
+      let failure = AgentRunFailure(error)
       await onActivity(
         workspaceID,
         "mission-control",
         "chief",
-        AgentRunFailure(error).component()
+        failure.component()
       )
       try? await relay.failAgentJob(
         workspaceID: workspaceID,
         agentID: "chief",
         leaseToken: lease.leaseToken,
-        error: "Chief's on-device kickoff could not complete.",
+        error: failure.message,
         retryAt: AgentRetryPolicy.retryDate(
           attempt: lease.job.attempt,
           error: error
@@ -82,6 +98,39 @@ actor PhoneWorkspaceSetupWorker {
       )
       throw error
     }
+  }
+
+  /// Continue the same durable cell session when a model stops after only part
+  /// of the kickoff. The relay idempotency keys make this safe, and cumulative
+  /// cell evidence proves that the agent itself completed every action.
+  private func completeKickoffTurn(
+    scope: String,
+    instruction: String,
+    jobKind: String,
+    expectedDelegates: Set<String>
+  ) async throws -> TurnExtractor.Turn {
+    var nextInstruction = instruction
+    for attempt in 0..<3 {
+      let result = try await ChiefCellRuntime.shared.runTurn(
+        scope: scope,
+        conversationID: "mission-control",
+        userText: nextInstruction
+      )
+      let turn = try TurnExtractor.extract(from: result)
+      do {
+        try KickoffToolEvidence.validate(
+          components: turn.evidenceComponents,
+          jobKind: jobKind,
+          expectedDelegates: expectedDelegates
+        )
+        return turn
+      } catch WorkspaceSetupError.missingRequiredToolCalls where attempt < 2 {
+        nextInstruction = """
+          Continue the same kickoff. Your preceding turn stopped before every required relay action was complete. Inspect the tool results and current relay state, then make only the remaining calls from the original instruction now. Do not repeat completed work; every message idempotency key and membership operation is safe to verify. Return only after the complete original outcome exists.
+          """
+      }
+    }
+    throw WorkspaceSetupError.missingRequiredToolCalls
   }
 
   private func claim(workspaceID: String) async throws -> AgentJobLease? {
@@ -109,6 +158,16 @@ actor PhoneWorkspaceSetupWorker {
       selectedApps.isEmpty
       ? "none selected"
       : selectedApps.sorted().joined(separator: ", ")
+    let delegates =
+      selectedApps.isEmpty
+      ? #"["brand", "prospector", "engineer"]"#
+      : #"["brand", "prospector", "engineer", "setup"]"#
+    let setupKickoff = selectedApps.isEmpty
+      ? ""
+      : """
+         - idempotencyKey onboarding-setup-thread: "Hey @Setup, privately help me connect the selected apps: \(apps). Start with what can be verified safely and only ask me to step in for sign-in, consent, or an unavoidable account choice."
+        """
+    let callCount = selectedApps.isEmpty ? "five" : "six"
     return """
       CHIEF_DELEGATION_REQUIRED
 
@@ -117,13 +176,14 @@ actor PhoneWorkspaceSetupWorker {
 
       1. First call relay_message_post in mission-control with idempotencyKey onboarding-chief-opening and this exact opening:
       \(Self.openingMessage)
-      2. Invite agent IDs brand, prospector, and engineer to mission-control with exactly one relay_channels_members_add call using kind agent and principalIds ["brand", "prospector", "engineer"]. Never split this into separate membership calls.
-      3. Post three separate top-level kickoff messages in mission-control using relay_message_post:
+      2. Invite the delegated agent IDs to mission-control with exactly one relay_channels_members_add call using kind agent and principalIds \(delegates). Never split this into separate membership calls.
+      3. Post each top-level kickoff message below in mission-control using relay_message_post:
          - idempotencyKey onboarding-marketer-thread: "Hey @Marketer, use [chief-skill:build-brand-profile] to create a useful working profile from our first-party evidence. Ask one focused question here only if a missing preference materially changes it."
          - idempotencyKey onboarding-prospector-thread: "Hey @Prospector, use [chief-skill:find-buying-signals] to find our first real buying signals from the best available evidence. Ask one focused question here only if it materially changes qualification."
          - idempotencyKey onboarding-engineer-thread: "Hey @Engineer, get oriented and prepare the Engineering workspace. Don't change code or deploy anything yet."
+      \(setupKickoff)
 
-      Make every call now. Do not replace any tool call with prose. After all five calls succeed, return one short private completion sentence; it won't be posted to the channel.
+      Make every call now. Do not replace any tool call with prose. After all \(callCount) calls succeed, return one short private completion sentence; it won't be posted to the channel.
       """
   }
 }
@@ -230,8 +290,8 @@ struct OpenCodeRequest: Encodable {
 struct OpenCodeResponse: Decodable {
   struct Choice: Decodable {
     struct Message: Decodable {
-      struct ToolCall: Decodable {
-        struct Function: Decodable {
+      struct ToolCall: Decodable, Sendable {
+        struct Function: Decodable, Sendable {
           let name: String
           let arguments: String
         }

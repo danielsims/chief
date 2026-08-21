@@ -1,5 +1,6 @@
 import Foundation
 import os
+import Security
 
 let relayLog = Logger(subsystem: "sh.heychief.mobile", category: "relay")
 
@@ -22,6 +23,12 @@ protocol RelayServing: Sendable {
     components: [MessageComponent]
   ) async throws -> ConversationMessage
   func claimAgentJob(workspaceID: String, agentID: String) async throws -> AgentJobLease?
+  func agentJobs(workspaceID: String, agentID: String) async throws -> [AgentJobRecord]
+  func retryAgentJob(
+    workspaceID: String,
+    agentID: String,
+    jobID: String
+  ) async throws -> AgentJobRecord
   func completeAgentJob(
     workspaceID: String,
     agentID: String,
@@ -68,6 +75,7 @@ protocol RelayServing: Sendable {
     signingIdentity: NostrIdentity?
   ) async throws -> ChannelRecord
   func archiveChannel(workspaceID: String, conversationID: String, archived: Bool) async throws
+  func joinChannel(workspaceID: String, conversationID: String) async throws
   func leaveChannel(workspaceID: String, conversationID: String) async throws
   func channelMembers(workspaceID: String, conversationID: String) async throws -> [ChannelMember]
   func addChannelMember(
@@ -91,6 +99,7 @@ protocol RelayServing: Sendable {
     principalID: String
   ) async throws
   func allChannelMemberships(workspaceID: String) async throws -> [ChannelMembership]
+  func currentChannelMemberships(workspaceID: String) async throws -> [ChannelMembership]
   func editMessage(
     workspaceID: String,
     conversationID: String,
@@ -136,6 +145,12 @@ protocol RelayServing: Sendable {
   ) async throws -> ConversationMessage
   func listWorkspaces() async throws -> [WorkspaceSummary]
   func switchWorkspace(id: String) async throws
+  func createWorkspaceInvite(
+    workspaceID: String,
+    conversationID: String?
+  ) async throws -> WorkspaceInviteLink
+  func previewWorkspaceInvite(_ link: WorkspaceInviteLink) async throws -> WorkspaceInvite
+  func claimWorkspaceInvite(_ link: WorkspaceInviteLink) async throws -> WorkspaceInviteClaim
   func loadBrandProfile(
     workspaceID: String,
     signingIdentity: NostrIdentity?
@@ -163,6 +178,23 @@ protocol RelayServing: Sendable {
 }
 
 extension RelayServing {
+  func createWorkspaceInvite(
+    workspaceID _: String,
+    conversationID _: String?
+  ) async throws -> WorkspaceInviteLink {
+    throw RelayError.unavailable
+  }
+
+  func previewWorkspaceInvite(_ link: WorkspaceInviteLink) async throws -> WorkspaceInvite {
+    _ = link
+    throw RelayError.unavailable
+  }
+
+  func claimWorkspaceInvite(_ link: WorkspaceInviteLink) async throws -> WorkspaceInviteClaim {
+    _ = link
+    throw RelayError.unavailable
+  }
+
   func addChannelMembers(
     workspaceID: String,
     conversationID: String,
@@ -528,6 +560,21 @@ actor URLSessionRelayClient: RelayServing {
     )
   }
 
+  func joinChannel(workspaceID: String, conversationID: String) async throws {
+    let payload = ChannelCommandPayload(
+      conversationId: conversationID,
+      name: nil,
+      isPrivate: nil
+    )
+    let body = try JSONEncoder().encode(CommandEnvelope(payload: payload))
+    struct ActionResult: Decodable { let ok: Bool }
+    let _: ActionResult = try await request(
+      path: "/v1/workspaces/\(workspaceID)/channels/\(conversationID)/join",
+      method: "POST",
+      body: body
+    )
+  }
+
   func channelMembers(workspaceID: String, conversationID: String) async throws -> [ChannelMember] {
     struct MemberResult: Decodable { let members: [ChannelMember] }
     let result: MemberResult = try await request(
@@ -678,7 +725,7 @@ actor URLSessionRelayClient: RelayServing {
       path: "/v1/workspaces/\(workspaceID)/agents/\(agentID)/config",
       method: "GET"
     )
-    return result?.config
+    return result?.config.normalized
   }
 
   func saveAgentConfig(workspaceID: String, agentID: String, config: AgentConfig) async throws {
@@ -686,7 +733,9 @@ actor URLSessionRelayClient: RelayServing {
       let agentId: String
       let config: AgentConfig
     }
-    let body = try JSONEncoder().encode(ConfigInput(agentId: agentID, config: config))
+    let body = try JSONEncoder().encode(
+      ConfigInput(agentId: agentID, config: config.normalized)
+    )
     let _: EmptyResponse = try await request(
       path: "/v1/workspaces/\(workspaceID)/agents/\(agentID)/config",
       method: "POST",
@@ -730,6 +779,15 @@ actor URLSessionRelayClient: RelayServing {
     return result.memberships
   }
 
+  func currentChannelMemberships(workspaceID: String) async throws -> [ChannelMembership] {
+    struct MembershipsResult: Decodable { let memberships: [ChannelMembership] }
+    let result: MembershipsResult = try await request(
+      path: "/v1/workspaces/\(workspaceID)/channels/memberships/self",
+      method: "GET"
+    )
+    return result.memberships
+  }
+
   func switchWorkspace(id: String) async throws {
     struct SwitchInput: Encodable {
       let workspaceId: String
@@ -739,6 +797,62 @@ actor URLSessionRelayClient: RelayServing {
       path: "/v1/workspaces/\(id)/switch",
       method: "POST",
       body: body
+    )
+  }
+
+  func createWorkspaceInvite(
+    workspaceID: String,
+    conversationID: String?
+  ) async throws -> WorkspaceInviteLink {
+    struct Input: Encodable {
+      let commandId: String
+      let secret: String
+      let conversationId: String?
+      let expiresAt: String
+    }
+    let secret = Self.randomInviteSecret()
+    let input = Input(
+      commandId: UUID().uuidString,
+      secret: secret,
+      conversationId: conversationID,
+      expiresAt: ISO8601DateFormatter.chief().string(
+        from: Date.now.addingTimeInterval(7 * 24 * 60 * 60)
+      )
+    )
+    let _: WorkspaceInvite = try await request(
+      path: "/v1/workspaces/\(workspaceID)/invites",
+      method: "POST",
+      body: try JSONEncoder().encode(input)
+    )
+    return WorkspaceInviteLink(
+      relayURL: configuration.relayURL,
+      workspaceID: workspaceID,
+      secret: secret
+    )
+  }
+
+  func previewWorkspaceInvite(_ link: WorkspaceInviteLink) async throws -> WorkspaceInvite {
+    try requireConfiguredRelay(link.relayURL)
+    struct Input: Encodable { let secret: String }
+    return try await request(
+      path: "/v1/workspaces/\(link.workspaceID)/invites/preview",
+      method: "POST",
+      body: try JSONEncoder().encode(Input(secret: link.secret))
+    )
+  }
+
+  func claimWorkspaceInvite(_ link: WorkspaceInviteLink) async throws -> WorkspaceInviteClaim {
+    try requireConfiguredRelay(link.relayURL)
+    struct Input: Encodable {
+      let commandId: String
+      let secret: String
+    }
+    return try await request(
+      path: "/v1/workspaces/\(link.workspaceID)/invites/claim",
+      method: "POST",
+      body: try JSONEncoder().encode(
+        Input(commandId: UUID().uuidString, secret: link.secret)
+      )
     )
   }
 
@@ -977,6 +1091,26 @@ actor URLSessionRelayClient: RelayServing {
     }
   }
 
+  func agentJobs(workspaceID: String, agentID: String) async throws -> [AgentJobRecord] {
+    let result: AgentJobListResult = try await request(
+      path: "/v1/workspaces/\(workspaceID)/agents/\(agentID)/jobs",
+      method: "GET"
+    )
+    return result.jobs
+  }
+
+  func retryAgentJob(
+    workspaceID: String,
+    agentID: String,
+    jobID: String
+  ) async throws -> AgentJobRecord {
+    let result: RetryAgentJobResult = try await request(
+      path: "/v1/workspaces/\(workspaceID)/agents/\(agentID)/jobs/\(jobID)/retry",
+      method: "POST"
+    )
+    return result.job
+  }
+
   func replies(
     workspaceID: String,
     conversationID: String,
@@ -1151,12 +1285,31 @@ actor URLSessionRelayClient: RelayServing {
     if http.statusCode == 204 { throw RelayError.httpStatus(204) }
     return try decoder.decode(Response.self, from: data)
   }
+
+  private func requireConfiguredRelay(_ relayURL: URL) throws {
+    guard relayURL.scheme?.lowercased() == configuration.relayURL.scheme?.lowercased(),
+      relayURL.host?.lowercased() == configuration.relayURL.host?.lowercased(),
+      relayURL.port == configuration.relayURL.port
+    else {
+      throw RelayError.unsupportedRelay
+    }
+  }
+
+  private static func randomInviteSecret() -> String {
+    var bytes = [UInt8](repeating: 0, count: 32)
+    _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+    return Data(bytes).base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "=", with: "")
+  }
 }
 
 enum RelayError: LocalizedError, Equatable {
   case unauthorized
   case unavailable
   case httpStatus(Int)
+  case unsupportedRelay
 
   var errorDescription: String? {
     switch self {
@@ -1164,6 +1317,8 @@ enum RelayError: LocalizedError, Equatable {
       "Chief could not verify this device with the relay. Sign in again and retry."
     case .unavailable:
       "Chief could not reach the relay. Check your connection and retry."
+    case .unsupportedRelay:
+      "This invite belongs to another Chief relay. Add that relay before joining."
     case .httpStatus(404):
       "This Chief app requires a newer relay version. Update the relay and retry."
     case .httpStatus(let status) where status >= 500:
@@ -1229,6 +1384,38 @@ struct AgentJobLease: Codable, Equatable, Sendable {
   let leaseToken: String
 }
 
+struct AgentJobRecord: Codable, Equatable, Identifiable, Sendable {
+  struct Payload: Codable, Equatable, Sendable {
+    let conversationId: String?
+    let instruction: String?
+    let title: String?
+    let name: String?
+    let website: String?
+    let selectedApps: [String]?
+    let threadRootId: String?
+    let skillId: String?
+  }
+
+  let id: String
+  let workspaceId: String
+  let agentId: String
+  let kind: String
+  let payload: Payload
+  let status: String
+  let attempt: Int
+  let lastError: String?
+  let availableAt: String
+  let leaseExpiresAt: String?
+  let createdAt: String
+  let updatedAt: String
+
+  var updatedDate: Date {
+    ISO8601DateFormatter.chief().date(from: updatedAt)
+      ?? ISO8601DateFormatter.noFraction().date(from: updatedAt)
+      ?? .distantPast
+  }
+}
+
 private struct ClaimAgentJobInput: Codable {
   let workerId: String
   let leaseSeconds: Int
@@ -1268,6 +1455,8 @@ private struct FailAgentJobInput: Encodable {
 }
 
 private struct CompleteAgentJobResult: Codable {}
+private struct AgentJobListResult: Codable { let jobs: [AgentJobRecord] }
+private struct RetryAgentJobResult: Codable { let job: AgentJobRecord }
 
 private struct RelayLogEnvelope: Encodable {
   let id: String

@@ -16,48 +16,46 @@ struct ConversationView: View {
   @State private var sentMessageIDs: Set<String> = []
   @State private var showsActivity = false
   @State private var showsMenu = false
+  @State private var isJoining = false
+  @State private var accessError: String?
+  @State private var channelAgentIDs: [String] = []
 
   var body: some View {
     VStack(spacing: 0) {
       content
-      if let workspaceID = model.workspace?.id {
+      if isMember, let workspaceID = model.workspace?.id {
         AgentBrowserWorkView(
           workspaceID: workspaceID,
           conversationIDs: browserConversationIDs,
           agents: workingAgents
         )
       }
-      ConversationActivityFooter(
-        agents: workingAgents,
-        errorCount: model.activityErrorCount(
-          workspaceID: model.workspace?.id,
-          conversationID: conversationID
-        ),
-        openActivity: { showsActivity = true }
-      )
-      MessageComposer(
-        text: $draft,
-        mentionIDs: $composerMentionIDs,
-        skillIDs: $composerSkillIDs,
-        isSending: isSending,
-        attachments: attachments,
-        onSend: send,
-        onAddAttachments: addAttachments,
-        onRemoveAttachment: removeAttachment
-      )
+      if isMember {
+        ConversationActivityFooter(
+          agents: workingAgents,
+          errorCount: model.activityErrorCount(
+            workspaceID: model.workspace?.id,
+            conversationID: conversationID
+          ),
+          openActivity: { showsActivity = true }
+        )
+      }
+      participationFooter
     }
     .background(ChiefTheme.background)
     .navigationTitle(conversation?.name ?? "Conversation")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
-        Button {
-          Haptics.medium()
-          showsMenu = true
-        } label: {
-          Image(systemName: "ellipsis")
+        if isMember {
+          Button {
+            Haptics.medium()
+            showsMenu = true
+          } label: {
+            Image(systemName: "ellipsis")
+          }
+          .accessibilityLabel("Conversation options")
         }
-        .accessibilityLabel("Conversation options")
       }
     }
     .sheet(isPresented: $showsMenu) {
@@ -68,7 +66,11 @@ struct ConversationView: View {
     }
     .task(id: conversationID) {
       model.setVisibleConversation(conversationID)
+      async let access: Void = model.refreshCurrentChannelMemberships()
+      async let members: Void = loadChannelAgents()
       await load()
+      await access
+      await members
       model.markChannelRead(conversationID: conversationID)
     }
     .onDisappear {
@@ -88,8 +90,11 @@ struct ConversationView: View {
       ConversationTranscriptView(
         conversationID: conversationID,
         messages: messages,
+        browserWorkspaceID: model.workspace?.id,
+        browserAgents: workingAgents,
         seenMessageIDs: $seenMessageIDs,
-        sentMessageIDs: $sentMessageIDs
+        sentMessageIDs: $sentMessageIDs,
+        allowsActions: canParticipate
       )
     }
   }
@@ -115,6 +120,44 @@ struct ConversationView: View {
 
   private var browserConversationIDs: [String] {
     [conversationID]
+  }
+
+  private var isMember: Bool {
+    model.isConversationJoined(conversationID)
+  }
+
+  private var canParticipate: Bool {
+    model.canParticipate(in: conversationID)
+  }
+
+  @ViewBuilder
+  private var participationFooter: some View {
+    if canParticipate {
+      MessageComposer(
+        text: $draft,
+        mentionIDs: $composerMentionIDs,
+        skillIDs: $composerSkillIDs,
+        isSending: isSending,
+        attachments: attachments,
+        availableMentionAgentIDs: model.workspace?.agents.map(\.id) ?? [],
+        preferredMentionAgentIDs: channelAgentIDs,
+        onSend: send,
+        onAddAttachments: addAttachments,
+        onRemoveAttachment: removeAttachment
+      )
+    } else if model.channelMembershipsLoaded, let conversation {
+      ChannelAccessBar(
+        channelName: conversation.name,
+        isMember: isMember,
+        isPrivate: conversation.isPrivate,
+        isArchived: conversation.archived,
+        isJoining: isJoining,
+        error: accessError,
+        onJoin: joinChannel
+      )
+    } else {
+      ChannelAccessLoadingBar()
+    }
   }
 
   private func load() async {
@@ -152,7 +195,14 @@ struct ConversationView: View {
     Task { await load() }
   }
 
+  private func loadChannelAgents() async {
+    channelAgentIDs = await model.channelMembers(conversationID: conversationID)
+      .filter { $0.kind == "agent" }
+      .map(\.principalId)
+  }
+
   private func send() {
+    guard canParticipate else { return }
     let pendingText = draft
     let body = MessageReferenceSerializer.body(
       text: draft,
@@ -217,6 +267,22 @@ struct ConversationView: View {
         attachments = pendingAttachments
         Haptics.error()
         print("[Chief] send to \(conversationID) failed: \(error)")
+      }
+    }
+  }
+
+  private func joinChannel() {
+    guard !isJoining else { return }
+    isJoining = true
+    accessError = nil
+    Task {
+      let joined = await model.joinConversation(conversationID)
+      isJoining = false
+      if joined {
+        Haptics.heavy()
+      } else {
+        Haptics.error()
+        accessError = "Chief couldn't join this channel. Try again."
       }
     }
   }

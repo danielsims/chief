@@ -3,15 +3,91 @@ import UIKit
 
 enum MessageReferenceSerializer {
   static func body(text: String, mentionIDs: [String], skillIDs: [String]) -> String {
-    let mentions = mentionIDs.compactMap { WorkspaceAgentCatalog.agent(forID: $0) }
+    let existingMentions = Set(AgentMentionParser.mentions(in: text))
+    let existingSkills = Set(MessageReferenceParser.skillIDs(in: text))
+    let mentions = mentionIDs.filter { !existingMentions.contains($0) }
+      .compactMap { WorkspaceAgentCatalog.agent(forID: $0) }
       .map { "@\($0.name)" }
-    let skills = skillIDs.map { "[chief-skill:\($0)]" }
+    let skills = skillIDs.filter { !existingSkills.contains($0) }
+      .map { "[chief-skill:\($0)]" }
     let references = mentions + skills
     let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !references.isEmpty else { return clean }
     guard !clean.isEmpty else { return references.joined(separator: " ") }
     return references.joined(separator: " ") + "\n\n" + clean
   }
+}
+
+struct MessageReferenceMatch {
+  enum Kind {
+    case mention(MentionAgent)
+    case skill(MessageSkill)
+  }
+
+  let range: NSRange
+  let kind: Kind
+
+  var symbol: String {
+    switch kind {
+    case .mention: "at"
+    case .skill: "book.closed"
+    }
+  }
+
+  var label: String {
+    switch kind {
+    case .mention(let agent): agent.name
+    case .skill(let skill): skill.label
+    }
+  }
+}
+
+enum MessageReferenceParser {
+  static func matches(in source: String) -> [MessageReferenceMatch] {
+    let fullRange = NSRange(source.startIndex..., in: source)
+    var matches: [MessageReferenceMatch] = []
+
+    for match in skillPattern.matches(in: source, range: fullRange) {
+      guard let idRange = Range(match.range(at: 1), in: source) else { continue }
+      matches.append(
+        MessageReferenceMatch(
+          range: match.range,
+          kind: .skill(MessageSkillCatalog.skill(forID: String(source[idRange])))
+        )
+      )
+    }
+    for match in mentionPattern.matches(in: source, range: fullRange) {
+      guard let nameRange = Range(match.range(at: 1), in: source),
+        let agent = WorkspaceAgentCatalog.agent(forID: String(source[nameRange]))
+      else { continue }
+      matches.append(MessageReferenceMatch(range: match.range, kind: .mention(agent)))
+    }
+    return matches.sorted { $0.range.location < $1.range.location }
+  }
+
+  static func skillIDs(in source: String) -> [String] {
+    var seen = Set<String>()
+    return matches(in: source).compactMap { match in
+      guard case .skill(let skill) = match.kind else { return nil }
+      return seen.insert(skill.id).inserted ? skill.id : nil
+    }
+  }
+
+  private static let skillPattern = try! NSRegularExpression(
+    pattern: #"\[chief-skill:([a-z0-9]+(?:-[a-z0-9]+)*)\]"#,
+    options: [.caseInsensitive]
+  )
+
+  private static let mentionPattern: NSRegularExpression = {
+    let names = WorkspaceAgentCatalog.agents.flatMap { [$0.id, $0.name] }
+      .sorted { $0.count > $1.count }
+      .map { NSRegularExpression.escapedPattern(for: $0) }
+      .joined(separator: "|")
+    return try! NSRegularExpression(
+      pattern: #"(?<![\p{L}\p{N}_])@("# + names + #")(?![\p{L}\p{N}_-])"#,
+      options: [.caseInsensitive]
+    )
+  }()
 }
 
 /// UIKit's text layout provides true inline attachments, so chips wrap with
@@ -86,18 +162,20 @@ struct InlineReferenceText: UIViewRepresentable {
     for match in Self.channelPattern.matches(in: string, range: fullRange) {
       guard let nameRange = Range(match.range(at: 1), in: string) else { continue }
       let candidate = String(string[nameRange])
-      guard let channel = channelNames.first(where: {
-        $0.caseInsensitiveCompare(candidate) == .orderedSame
-      }), let url = URL(string: "chief-channel://open/\(channel)")
-      else { continue }
+      // Paint syntactically valid references on the first render. The workspace
+      // catalogue may arrive a frame later; only interactivity waits for it.
       value.addAttributes(
         [
-          .link: url,
           .foregroundColor: UIColor.systemBlue,
           .backgroundColor: UIColor.systemBlue.withAlphaComponent(0.10),
         ],
         range: match.range
       )
+      guard let channel = channelNames.first(where: {
+        $0.caseInsensitiveCompare(candidate) == .orderedSame
+      }), let url = URL(string: "chief-channel://open/\(channel)")
+      else { continue }
+      value.addAttribute(.link, value: url, range: match.range)
     }
   }
 
@@ -115,46 +193,18 @@ struct InlineReferenceText: UIViewRepresentable {
   }
 
   private func replaceReferences(in value: NSMutableAttributedString) {
-    var replacements: [(NSRange, String, String)] = []
-    let string = value.string
-    let fullRange = NSRange(string.startIndex..., in: string)
-
-    for match in Self.skillPattern.matches(in: string, range: fullRange) {
-      guard let idRange = Range(match.range(at: 1), in: string) else { continue }
-      let skill = MessageSkillCatalog.skill(forID: String(string[idRange]))
-      replacements.append((match.range, "book.closed", skill.label))
-    }
-    for match in Self.mentionPattern.matches(in: string, range: fullRange) {
-      guard let nameRange = Range(match.range(at: 1), in: string),
-        let agent = WorkspaceAgentCatalog.agent(forID: String(string[nameRange]))
-      else { continue }
-      replacements.append((match.range, "at", agent.name))
-    }
-
-    for (range, symbol, label) in replacements.sorted(by: { $0.0.location > $1.0.location }) {
+    for match in MessageReferenceParser.matches(in: value.string).reversed() {
       let attachment = NSTextAttachment()
-      let image = ReferenceChipRenderer.image(symbol: symbol, label: label, font: font)
+      let image = ReferenceChipRenderer.image(
+        symbol: match.symbol,
+        label: match.label,
+        font: font
+      )
       attachment.image = image
       attachment.bounds = CGRect(x: 0, y: -4, width: image.size.width, height: image.size.height)
-      value.replaceCharacters(in: range, with: NSAttributedString(attachment: attachment))
+      value.replaceCharacters(in: match.range, with: NSAttributedString(attachment: attachment))
     }
   }
-
-  private static let skillPattern = try! NSRegularExpression(
-    pattern: #"\[chief-skill:([a-z0-9]+(?:-[a-z0-9]+)*)\]"#,
-    options: [.caseInsensitive]
-  )
-
-  private static let mentionPattern: NSRegularExpression = {
-    let names = WorkspaceAgentCatalog.agents.flatMap { [$0.id, $0.name] }
-      .sorted { $0.count > $1.count }
-      .map { NSRegularExpression.escapedPattern(for: $0) }
-      .joined(separator: "|")
-    return try! NSRegularExpression(
-      pattern: #"(?<![\p{L}\p{N}_])@("# + names + #")(?![\p{L}\p{N}_-])"#,
-      options: [.caseInsensitive]
-    )
-  }()
 
   private static let channelPattern = try! NSRegularExpression(
     pattern: #"(?<![\p{L}\p{N}_])#([\p{L}\p{N}_-]+)(?![\p{L}\p{N}_-])"#,
@@ -184,7 +234,7 @@ struct InlineReferenceText: UIViewRepresentable {
   }
 }
 
-private enum ReferenceChipRenderer {
+enum ReferenceChipRenderer {
   static func image(symbol: String, label: String, font: UIFont) -> UIImage {
     let chipFont = UIFont.systemFont(ofSize: max(11, font.pointSize * 0.82), weight: .semibold)
     let symbolImage = UIImage(

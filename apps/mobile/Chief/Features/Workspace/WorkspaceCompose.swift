@@ -11,7 +11,6 @@ struct WorkspaceQuickCreateMenu: View {
         icon: "person.badge.plus",
         title: "Invite",
         detail: "Add people to this workspace",
-        enabled: false,
         action: onInvite
       )
       Divider().overlay(ChiefTheme.line)
@@ -65,7 +64,7 @@ struct WorkspaceQuickCreateMenu: View {
         VStack(alignment: .leading, spacing: 2) {
           Text(title)
             .font(.system(size: 17, weight: .semibold, design: .rounded))
-          Text(enabled ? detail : "Available when team identity is connected")
+          Text(detail)
             .font(.system(size: 12, design: .rounded))
             .foregroundStyle(ChiefTheme.secondary)
         }
@@ -143,7 +142,10 @@ struct NewMessageView: View {
         .focused($searchFocused)
         .submitLabel(.done)
       if !query.isEmpty {
-        Button { query = "" } label: {
+        Button {
+          Haptics.light()
+          query = ""
+        } label: {
           Image(systemName: "xmark.circle.fill")
             .foregroundStyle(ChiefTheme.tertiary)
         }

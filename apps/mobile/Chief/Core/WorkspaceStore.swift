@@ -51,6 +51,8 @@ extension WorkspaceSnapshot {
     WorkspaceSnapshot(
       id: "local-\(UUID().uuidString.lowercased())",
       name: draft.companyName.trimmingCharacters(in: .whitespacesAndNewlines),
+      website: draft.website.trimmingCharacters(in: .whitespacesAndNewlines),
+      selectedApps: draft.selectedApps.sorted(),
       onboardingComplete: true,
       conversations: [
         ConversationSummary(

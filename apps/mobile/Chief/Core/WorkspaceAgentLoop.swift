@@ -138,14 +138,10 @@ actor WorkspaceAgentLoop {
           "Apply this attached skill: [chief-skill:\($0)]"
         },
       ].compactMap { $0 }.joined(separator: "\n")
-      let result = try await ChiefCellRuntime.shared.runTurn(
+      let turn = try await completeJobTurn(
         scope: scope,
         conversationID: conversationID,
-        userText: context.isEmpty ? instruction : "\(context)\n\n\(instruction)"
-      )
-      let turn = try TurnExtractor.extract(from: result)
-      try KickoffToolEvidence.validate(
-        components: turn.components,
+        instruction: context.isEmpty ? instruction : "\(context)\n\n\(instruction)",
         jobKind: lease.job.kind,
         expectedThreadRootID: lease.job.payload.threadRootId
       )
@@ -170,11 +166,12 @@ actor WorkspaceAgentLoop {
         message: "Completed \(lease.job.kind)"
       )
     } catch {
+      let failure = AgentRunFailure(error)
       await onActivity(
         workspaceID,
         conversationID,
         agentID,
-        AgentRunFailure(error).component()
+        failure.component()
       )
       // Publish nothing. Explicitly return the durable lease to the pending
       // queue so its alarm can wake the agent after a short backoff.
@@ -182,12 +179,13 @@ actor WorkspaceAgentLoop {
         workspaceID: workspaceID,
         agentID: agentID,
         leaseToken: lease.leaseToken,
-        error: "The on-device cell could not complete this turn.",
+        error: failure.message,
         retryAt: AgentRetryPolicy.retryDate(
           attempt: lease.job.attempt,
           error: error
         )
       )
+      await onCompletion()
       agentLoopLog.error(
         "failed \(lease.job.kind) for \(agentID): \(error.localizedDescription)"
       )
@@ -201,6 +199,37 @@ actor WorkspaceAgentLoop {
         message: "Failed \(lease.job.kind): \(error.localizedDescription)"
       )
     }
+  }
+
+  private func completeJobTurn(
+    scope: String,
+    conversationID: String,
+    instruction: String,
+    jobKind: String,
+    expectedThreadRootID: String?
+  ) async throws -> TurnExtractor.Turn {
+    var nextInstruction = instruction
+    for attempt in 0..<3 {
+      let result = try await ChiefCellRuntime.shared.runTurn(
+        scope: scope,
+        conversationID: conversationID,
+        userText: nextInstruction
+      )
+      let turn = try TurnExtractor.extract(from: result)
+      do {
+        try KickoffToolEvidence.validate(
+          components: turn.evidenceComponents,
+          jobKind: jobKind,
+          expectedThreadRootID: expectedThreadRootID
+        )
+        return turn
+      } catch WorkspaceSetupError.missingRequiredToolCalls where attempt < 2 {
+        nextInstruction = """
+          Continue this same assignment. Your preceding turn stopped before every required relay action was complete. Inspect the existing tool results and relay state, then make only the remaining calls from the original instruction now. Do not repeat completed work or narrate compliance. Return the useful channel message only after the full original outcome exists.
+          """
+      }
+    }
+    throw WorkspaceSetupError.missingRequiredToolCalls
   }
 
   private func recordLog(

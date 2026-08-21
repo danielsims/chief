@@ -42,8 +42,7 @@ struct ToolContext: Sendable {
   let agentID: String
   let workspaceID: String
   let conversationID: String
-  let config: AgentConfig
-  let allowedToolNames: Set<String>
+  let grant: AgentToolGrant
 }
 
 /// The JSON-schema `parameters` object for an OpenAI function tool.
@@ -123,36 +122,53 @@ enum RelayToolRegistry {
     arguments: String,
     context: ToolContext
   ) async throws -> String {
-    guard context.allowedToolNames.contains(name) else {
+    guard context.grant.permits(toolName: name) else {
       throw ToolError.permissionDenied("turn-scoped \(name)")
     }
     guard let tool = tools.first(where: { $0.name == name }) else {
       throw ToolError.unknown(name)
     }
-    let area = permissionArea(for: name)
-    guard context.config.permitsToolArea(area) else {
-      throw ToolError.permissionDenied(area)
-    }
-    let parsed =
-      (try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any])
-      ?? [:]
+    let parsed = try validatedToolArguments(arguments, tool: tool)
     return try await tool.init().run(arguments: parsed, context: context)
   }
 
-  private static func permissionArea(for tool: String) -> String {
-    if tool == RelayWorkspaceMembersTool.name { return "workspace" }
-    if tool.hasPrefix("relay_channels_") { return "channels" }
-    if tool.hasPrefix("browser_") { return "advanced" }
-    if tool == BrandProfileSaveTool.name { return "brand-profile-write" }
-    if tool == ProspectSaveTool.name { return "prospects-write" }
-    if tool == BrandProfileGetTool.name
-      || tool == ProspectsListTool.name
-      || tool == WorkspaceFilesListTool.name
-    {
-      return "workspace"
-    }
-    return "messages"
+}
+
+private func validatedToolArguments(
+  _ json: String,
+  tool: any RelayTool.Type
+) throws -> [String: Any] {
+  let data = Data(json.utf8)
+  guard data.count <= 64 * 1_024,
+    let object = try? JSONSerialization.jsonObject(with: data),
+    let arguments = object as? [String: Any]
+  else { throw ToolError.invalidArgument("arguments") }
+  let parameters = Dictionary(uniqueKeysWithValues: tool.parameters.map { ($0.name, $0) })
+  guard arguments.keys.allSatisfy({ parameters[$0] != nil }) else {
+    throw ToolError.invalidArgument("unexpected argument")
   }
+  for parameter in tool.parameters {
+    guard let value = arguments[parameter.name] else {
+      if parameter.required { throw ToolError.missingArgument(parameter.name) }
+      continue
+    }
+    let valid: Bool
+    switch parameter.kind {
+    case .string:
+      valid = (value as? String).map { $0.utf8.count <= 16 * 1_024 } ?? false
+    case .integer:
+      valid = value is Int
+        || (value as? Double).map { $0.isFinite && $0.rounded() == $0 } == true
+    case .boolean:
+      valid = value is Bool
+    case .stringArray:
+      valid = (value as? [String]).map {
+        $0.count <= 100 && $0.allSatisfy { $0.utf8.count <= 4 * 1_024 }
+      } ?? false
+    }
+    if !valid { throw ToolError.invalidArgument(parameter.name) }
+  }
+  return arguments
 }
 
 enum ToolError: LocalizedError {

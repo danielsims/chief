@@ -11,6 +11,8 @@ actor FixtureRelayClient: RelayServing {
         WorkspaceSnapshot(
             id: "workspace-\(UUID().uuidString.lowercased())",
             name: draft.companyName,
+            website: draft.website,
+            selectedApps: draft.selectedApps.sorted(),
             onboardingComplete: true,
             conversations: DemoWorkspace.snapshot.conversations,
             agents: DemoWorkspace.snapshot.agents,
@@ -64,6 +66,16 @@ actor FixtureRelayClient: RelayServing {
             ),
             leaseToken: UUID().uuidString
         )
+    }
+
+    func agentJobs(workspaceID: String, agentID: String) async throws -> [AgentJobRecord] { [] }
+
+    func retryAgentJob(
+        workspaceID: String,
+        agentID: String,
+        jobID: String
+    ) async throws -> AgentJobRecord {
+        throw RelayError.httpStatus(404)
     }
 
     func completeAgentJob(
@@ -159,6 +171,8 @@ actor FixtureRelayClient: RelayServing {
     }
 
     func archiveChannel(workspaceID: String, conversationID: String, archived: Bool) async throws {}
+
+    func joinChannel(workspaceID: String, conversationID: String) async throws {}
 
     func leaveChannel(workspaceID: String, conversationID: String) async throws {}
 
@@ -271,6 +285,10 @@ actor FixtureRelayClient: RelayServing {
         return memberships
     }
 
+    func currentChannelMemberships(workspaceID: String) async throws -> [ChannelMembership] {
+        try await allChannelMemberships(workspaceID: workspaceID).filter { $0.kind == "user" }
+    }
+
     func saveAgentConfig(workspaceID: String, agentID: String, config: AgentConfig) async throws {}
 
     private func fromSummary(_ summary: ConversationSummary, workspaceID: String) -> ChannelRecord {
@@ -346,6 +364,40 @@ actor FixtureRelayClient: RelayServing {
     }
 
     func switchWorkspace(id: String) async throws {}
+
+    func createWorkspaceInvite(
+        workspaceID: String,
+        conversationID: String?
+    ) async throws -> WorkspaceInviteLink {
+        WorkspaceInviteLink(
+            relayURL: URL(string: "https://relay.demo.heychief.sh")!,
+            workspaceID: workspaceID,
+            secret: String(repeating: "a", count: 43)
+        )
+    }
+
+    func previewWorkspaceInvite(_ link: WorkspaceInviteLink) async throws -> WorkspaceInvite {
+        WorkspaceInvite(
+            workspaceId: link.workspaceID,
+            workspaceName: "Chief",
+            website: "https://heychief.sh",
+            conversationId: nil,
+            conversationName: nil,
+            expiresAt: ISO8601DateFormatter.chief().string(from: .now.addingTimeInterval(3600))
+        )
+    }
+
+    func claimWorkspaceInvite(_ link: WorkspaceInviteLink) async throws -> WorkspaceInviteClaim {
+        WorkspaceInviteClaim(
+            workspaceId: link.workspaceID,
+            workspaceName: "Chief",
+            website: "https://heychief.sh",
+            conversationId: nil,
+            conversationName: nil,
+            expiresAt: ISO8601DateFormatter.chief().string(from: .now.addingTimeInterval(3600)),
+            alreadyMember: false
+        )
+    }
 }
 
 enum DemoWorkspace {

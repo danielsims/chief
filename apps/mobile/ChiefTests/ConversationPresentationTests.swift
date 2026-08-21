@@ -77,6 +77,17 @@ final class ConversationPresentationTests: XCTestCase {
     )
   }
 
+  func testLegacyBrandAgentIDAlwaysPresentsAsMarketer() throws {
+    let decoded = try JSONDecoder().decode(
+      ConversationMessage.self,
+      from: Data(
+        #"{"id":"message-1","workspaceId":"workspace","conversationId":"marketing","author":{"kind":"agent","id":"brand"},"body":"Hello","components":[],"createdAt":"2026-08-20T12:00:00Z","sequence":1}"#.utf8
+      )
+    )
+
+    XCTAssertEqual(decoded.author.displayName, "Marketer")
+  }
+
   func testMarkdownParserBuildsNativeBlocksWithoutLeakingMarkup() {
     let blocks = MarkdownMessageParser.blocks(
       """
@@ -131,6 +142,25 @@ final class ConversationPresentationTests: XCTestCase {
       ),
       "@Marketer [chief-skill:build-brand-profile]"
     )
+  }
+
+  func testMessageReferencesStayInlineWithoutBeingDuplicated() {
+    XCTAssertEqual(
+      MessageReferenceSerializer.body(
+        text: "Could @Chief take [chief-skill:build-brand-profile] from here?",
+        mentionIDs: ["chief"],
+        skillIDs: ["build-brand-profile"]
+      ),
+      "Could @Chief take [chief-skill:build-brand-profile] from here?"
+    )
+  }
+
+  func testMessageReferenceParserPreservesTokenOrderAndSkillIDs() {
+    let source = "Ask @Chief, then run [chief-skill:find-buying-signals]."
+    let matches = MessageReferenceParser.matches(in: source)
+
+    XCTAssertEqual(matches.map(\.label), ["Chief", "Find buying signals"])
+    XCTAssertEqual(MessageReferenceParser.skillIDs(in: source), ["find-buying-signals"])
   }
 
   private func message(

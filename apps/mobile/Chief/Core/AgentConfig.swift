@@ -9,9 +9,7 @@ struct AgentConfig: Codable, Equatable, Sendable {
   var approvals: String = "auto" // auto | ask
   var capabilities: Set<String> = []
   var integrations: Set<String> = []
-  var toolPermissions: Set<String> = [
-    "workspace", "channels", "messages", "scheduled-work",
-  ]
+  var toolPermissions: Set<String> = AgentConfig.baseToolPermissions
 
   static let allCapabilities = [
     "analytics-chart",
@@ -29,12 +27,16 @@ struct AgentConfig: Codable, Equatable, Sendable {
     "github",
   ]
 
-  static let allToolPermissions = [
-    "workspace",  // agent_keys, members, channels
-    "channels",  // create/archive channels
-    "messages",  // post/reply/react to messages
-    "scheduled-work",  // queue future jobs
-    "advanced",  // code execution, browser
+  static let allToolPermissions = AgentToolPermissionID.allCases.map(\.rawValue)
+
+  private static let baseToolPermissions: Set<String> = [
+    AgentToolPermissionID.workspaceRead.rawValue,
+    AgentToolPermissionID.channelsRead.rawValue,
+    AgentToolPermissionID.channelsCreate.rawValue,
+    AgentToolPermissionID.membersRead.rawValue,
+    AgentToolPermissionID.membersManage.rawValue,
+    AgentToolPermissionID.messagesRead.rawValue,
+    AgentToolPermissionID.messagesSend.rawValue,
   ]
 
   /// Least-privilege defaults for a newly provisioned cell. Internal durable
@@ -43,20 +45,75 @@ struct AgentConfig: Codable, Equatable, Sendable {
   static func defaults(for agentID: String) -> AgentConfig {
     var config = AgentConfig()
     switch agentID {
+    case "chief":
+      config.toolPermissions.formUnion([
+        AgentToolPermissionID.workspaceWrite.rawValue,
+        AgentToolPermissionID.channelsUpdate.rawValue,
+        AgentToolPermissionID.channelsArchive.rawValue,
+        AgentToolPermissionID.messagesManage.rawValue,
+        AgentToolPermissionID.schedulesRead.rawValue,
+        AgentToolPermissionID.schedulesManage.rawValue,
+        AgentToolPermissionID.schedulesRun.rawValue,
+        AgentToolPermissionID.agentsDelegate.rawValue,
+      ])
     case "brand":
       config.capabilities.insert("brand-memory")
-      config.toolPermissions.formUnion(["advanced", "brand-profile-write"])
+      config.toolPermissions.formUnion([
+        AgentToolPermissionID.workspaceWrite.rawValue,
+        AgentToolPermissionID.browserUse.rawValue,
+      ])
     case "prospector":
       config.capabilities.insert("prospect-memory")
-      config.toolPermissions.formUnion(["advanced", "prospects-write"])
+      config.toolPermissions.formUnion([
+        AgentToolPermissionID.workspaceWrite.rawValue,
+        AgentToolPermissionID.browserUse.rawValue,
+      ])
+    case "engineer":
+      config.toolPermissions.formUnion([
+        AgentToolPermissionID.projectsRead.rawValue,
+        AgentToolPermissionID.projectsWrite.rawValue,
+      ])
+    case "setup":
+      config.toolPermissions.formUnion([
+        AgentToolPermissionID.browserUse.rawValue,
+        AgentToolPermissionID.integrationsManage.rawValue,
+      ])
     default:
       break
     }
     return config
   }
 
-  func permitsToolArea(_ area: String) -> Bool {
-    enabled && toolPermissions.contains(area)
+  /// Transitional expansion for E2E workspaces saved before exact Executor
+  /// permissions landed. New writes use only the exact dotted vocabulary.
+  var effectiveToolPermissions: Set<String> {
+    var result = toolPermissions
+    let legacy: [String: Set<String>] = [
+      "workspace": ["workspace.read", "workspace.write", "members.read"],
+      "channels": [
+        "channels.read", "channels.create", "channels.update",
+        "channels.archive", "members.read", "members.manage",
+      ],
+      "messages": ["messages.read", "messages.send", "messages.manage"],
+      "scheduled-work": ["schedules.read", "schedules.manage", "schedules.run"],
+      "advanced": ["browser.use"],
+      "brand-profile-write": ["workspace.write"],
+      "prospects-write": ["workspace.write"],
+    ]
+    for (old, exact) in legacy where result.contains(old) {
+      result.formUnion(exact)
+    }
+    return result
+  }
+
+  var normalized: AgentConfig {
+    var copy = self
+    let legacy = Set([
+      "workspace", "channels", "messages", "scheduled-work", "advanced",
+      "brand-profile-write", "prospects-write",
+    ])
+    copy.toolPermissions = effectiveToolPermissions.subtracting(legacy)
+    return copy
   }
 }
 
@@ -71,12 +128,12 @@ struct AgentConfigStore {
   func load(workspaceID: String, agentID: String) -> AgentConfig? {
     let key = "chief-agent-config:\(workspaceID):\(agentID)"
     guard let data = defaults.data(forKey: key) else { return nil }
-    return try? JSONDecoder().decode(AgentConfig.self, from: data)
+    return try? JSONDecoder().decode(AgentConfig.self, from: data).normalized
   }
 
   func save(workspaceID: String, agentID: String, config: AgentConfig) {
     let key = "chief-agent-config:\(workspaceID):\(agentID)"
-    if let data = try? JSONEncoder().encode(config) {
+    if let data = try? JSONEncoder().encode(config.normalized) {
       defaults.set(data, forKey: key)
     }
   }

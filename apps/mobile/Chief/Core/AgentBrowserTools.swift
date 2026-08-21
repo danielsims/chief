@@ -2,11 +2,23 @@ import BrowserUI
 import BrowserUIWebKit
 import Foundation
 
-private func engagedBrowser(context: ToolContext) async -> WebKitBrowserDriver {
-  await MainActor.run {
-    let browser = AgentBrowserSession.driver(for: context.browserScope)
-    browser.begin(scope: context.browserScope)
-    return browser
+private let browserActivityLabelParameter = RelayToolParameter(
+  name: "activityLabel",
+  kind: .string,
+  description:
+    "A specific two-to-five-word present-tense label shown to the user, at most 48 characters, such as Opening pricing page or Reviewing integrations. Never include secrets or typed values."
+)
+
+private func engagedBrowser(
+  context: ToolContext,
+  arguments: [String: Any]
+) async throws -> WebKitBrowserDriver {
+  let activityLabel = try arguments.requiredString("activityLabel")
+  return await MainActor.run {
+    AgentBrowserSession.engage(
+      for: context.browserScope,
+      operationLabel: activityLabel
+    )
   }
 }
 
@@ -16,6 +28,7 @@ struct BrowserNavigateTool: RelayTool {
     "Open a full public HTTPS URL in the isolated on-device WebKit browser. Local, private-network, credential-bearing, and insecure URLs are blocked. The user can watch the same page in Chief. Snapshot it after navigation before drawing conclusions."
   static let parameters = [
     RelayToolParameter(name: "url", kind: .string, description: "The complete public HTTPS URL to open."),
+    browserActivityLabelParameter,
   ]
 
   func run(arguments: [String: Any], context: ToolContext) async throws -> String {
@@ -23,7 +36,7 @@ struct BrowserNavigateTool: RelayTool {
     guard let parsedURL = URL(string: url), BrowserURLPolicy.allows(parsedURL) else {
       throw ToolError.invalidArgument("public HTTPS url")
     }
-    let browser = await engagedBrowser(context: context)
+    let browser = try await engagedBrowser(context: context, arguments: arguments)
     return try await browser.navigate(url)
   }
 }
@@ -32,10 +45,10 @@ struct BrowserSnapshotTool: RelayTool {
   static let name = "browser_snapshot"
   static let description =
     "Read the current page as a compact semantic snapshot containing the redacted URL, title, rendered text, and stable interactive element refs. Use this after every navigation or page action."
-  static let parameters: [RelayToolParameter] = []
+  static let parameters = [browserActivityLabelParameter]
 
   func run(arguments: [String: Any], context: ToolContext) async throws -> String {
-    let browser = await engagedBrowser(context: context)
+    let browser = try await engagedBrowser(context: context, arguments: arguments)
     let snapshot = try await browser.snapshot()
     await MainActor.run {
       AgentBrowserSession.recordSnapshot(
@@ -53,10 +66,11 @@ struct BrowserClickTool: RelayTool {
     "Activate a link or button using a stable element ref from browser_snapshot. Snapshot again afterward."
   static let parameters = [
     RelayToolParameter(name: "target", kind: .string, description: "A stable element ref such as e4."),
+    browserActivityLabelParameter,
   ]
 
   func run(arguments: [String: Any], context: ToolContext) async throws -> String {
-    let browser = await engagedBrowser(context: context)
+    let browser = try await engagedBrowser(context: context, arguments: arguments)
     return try await browser.click(target: arguments.requiredString("target"))
   }
 }
@@ -69,10 +83,11 @@ struct BrowserTypeTool: RelayTool {
     RelayToolParameter(name: "target", kind: .string, description: "A stable editable element ref."),
     RelayToolParameter(name: "text", kind: .string, description: "The text to type."),
     RelayToolParameter(name: "submit", kind: .boolean, description: "Whether to submit with Enter.", required: false),
+    browserActivityLabelParameter,
   ]
 
   func run(arguments: [String: Any], context: ToolContext) async throws -> String {
-    let browser = await engagedBrowser(context: context)
+    let browser = try await engagedBrowser(context: context, arguments: arguments)
     let target = try arguments.requiredString("target")
     let typed = try await browser.type(target: target, text: arguments.requiredString("text"))
     guard arguments["submit"] as? Bool == true else { return typed }
@@ -87,6 +102,7 @@ struct BrowserScrollTool: RelayTool {
   static let parameters = [
     RelayToolParameter(name: "direction", kind: .string, description: "up, down, left, or right"),
     RelayToolParameter(name: "amount", kind: .integer, description: "Distance from 1 through 10000 CSS pixels."),
+    browserActivityLabelParameter,
   ]
 
   func run(arguments: [String: Any], context: ToolContext) async throws -> String {
@@ -94,7 +110,7 @@ struct BrowserScrollTool: RelayTool {
       rawValue: try arguments.requiredString("direction").lowercased()
     ), let amount = arguments.optionalInt("amount"), (1...10_000).contains(amount)
     else { throw ToolError.invalidArgument("direction or amount") }
-    let browser = await engagedBrowser(context: context)
+    let browser = try await engagedBrowser(context: context, arguments: arguments)
     return try await browser.scroll(direction: direction, amount: Double(amount))
   }
 }
@@ -102,10 +118,10 @@ struct BrowserScrollTool: RelayTool {
 struct BrowserBackTool: RelayTool {
   static let name = "browser_back"
   static let description = "Go back one page in this agent conversation's isolated browser."
-  static let parameters: [RelayToolParameter] = []
+  static let parameters = [browserActivityLabelParameter]
 
   func run(arguments: [String: Any], context: ToolContext) async throws -> String {
-    let browser = await engagedBrowser(context: context)
+    let browser = try await engagedBrowser(context: context, arguments: arguments)
     return try await browser.goBack()
   }
 }

@@ -9,13 +9,23 @@ struct ProjectsView: View {
                 ForEach(projects) { project in
                     NavigationLink { ProjectDetailView(project: project) } label: {
                         ProjectCard(project: project)
-                    }.buttonStyle(.plain)
+                    }
+                    .buttonStyle(.plain)
+                    .simultaneousGesture(TapGesture().onEnded { Haptics.medium() })
                 }
             }.padding(ChiefTheme.pagePadding)
         }
         .background(ChiefTheme.background)
         .navigationTitle("Projects")
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button(action: {}) { Image(systemName: "plus") } } }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    Haptics.medium()
+                } label: {
+                    Image(systemName: "plus")
+                }
+            }
+        }
     }
     private var projects: [ProjectSummary] { model.workspace?.projects ?? [] }
 }

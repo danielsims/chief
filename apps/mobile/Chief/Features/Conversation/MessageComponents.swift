@@ -8,8 +8,23 @@ struct MessageComponentList: View {
   let message: ConversationMessage
 
   var body: some View {
-    ForEach(message.components) { component in
-      componentView(component)
+    VStack(alignment: .leading, spacing: 12) {
+      ForEach(visibleComponents) { component in
+        componentView(component)
+      }
+    }
+    .padding(.top, visibleComponents.isEmpty ? 0 : 4)
+  }
+
+  private var visibleComponents: [MessageComponent] {
+    message.components.filter { component in
+      switch component.kind {
+      case "action-request", "attachment": true
+      case "tool":
+        component.payload["name"] == BrowserReleaseTool.name
+          && component.payload["status"] == "completed"
+      default: false
+      }
     }
   }
 
@@ -102,6 +117,7 @@ private struct ReleasedBrowserMessageComponent: View {
       Haptics.medium()
       showsBrowser = true
     }
+    .padding(.vertical, 6)
     .fullScreenCover(isPresented: $showsBrowser) {
       ReleasedAgentBrowserTakeover(
         scope: scope,
@@ -134,7 +150,7 @@ private struct ReleasedAgentBrowserTakeover: View {
         driver: driver,
         revision: driver.surfaceRevision,
         presentationMode: .takeover,
-        displayMode: .inline
+        displayMode: driver.displayMode
       )
       .ignoresSafeArea()
 
@@ -337,13 +353,18 @@ struct ThinkingMessageComponent: View {
       Button {
         withAnimation { isExpanded.toggle() }
       } label: {
-        HStack(spacing: 6) {
-          Image(systemName: "brain")
-          Text("Thought")
+        HStack(spacing: 8) {
+          if component.payload["status"] == "running" {
+            ChiefShimmerText("Thinking")
+          } else {
+            Text("Thinking")
+              .font(.system(size: 12, weight: .medium))
+          }
           Spacer()
-          Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+          Image(systemName: "chevron.down")
+            .font(.system(size: 10, weight: .semibold))
+            .rotationEffect(.degrees(isExpanded ? 180 : 0))
         }
-        .font(.system(size: 11, weight: .medium))
         .foregroundStyle(ChiefTheme.secondary)
         .contentShape(Rectangle())
       }
@@ -351,15 +372,20 @@ struct ThinkingMessageComponent: View {
 
       if isExpanded, let text = component.payload["text"] ?? component.payload["content"] {
         Text(text)
-          .font(.system(size: 13))
+          .font(.system(size: 12))
           .foregroundStyle(ChiefTheme.secondary)
-          .lineSpacing(3)
+          .lineSpacing(2)
           .textSelection(.enabled)
       }
     }
-    .padding(10)
+    .padding(.horizontal, 12)
+    .padding(.vertical, 11)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(ChiefTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .background(Color.white.opacity(0.018), in: RoundedRectangle(cornerRadius: 12))
+    .overlay {
+      RoundedRectangle(cornerRadius: 12)
+        .stroke(ChiefTheme.line.opacity(0.45), lineWidth: 0.5)
+    }
   }
 }
 
@@ -371,6 +397,18 @@ struct ToolMessageComponent: View {
   private var status: String { component.payload["status"] ?? "running" }
   private var output: String? { component.payload["output"] ?? component.payload["result"] }
   private var error: String? { component.payload["error"] }
+  private var displayName: String {
+    let clean = name
+      .replacingOccurrences(of: "relay_", with: "")
+      .replacingOccurrences(of: "_", with: " ")
+    return clean.prefix(1).uppercased() + clean.dropFirst()
+  }
+  private var summary: String? {
+    for key in ["description", "path", "query", "url", "command"] {
+      if let value = component.payload[key], !value.isEmpty { return value }
+    }
+    return nil
+  }
 
   var body: some View {
     DisclosureGroup(isExpanded: $isExpanded) {
@@ -378,46 +416,67 @@ struct ToolMessageComponent: View {
         if let output { detailBlock(title: "Output", text: output) }
         if let error { detailBlock(title: "Error", text: error) }
       }
-      .padding(.top, 6)
+      .padding(.top, 10)
     } label: {
-      HStack(spacing: 8) {
-        Text("$")
-        Text(name)
+      HStack(spacing: 9) {
+        Circle()
+          .fill(statusColor)
+          .frame(width: 6, height: 6)
+        Text(displayName)
+          .font(.system(size: 12, weight: .medium))
+        if let summary {
+          Text(summary)
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundStyle(ChiefTheme.tertiary)
+            .lineLimit(1)
+        }
         Spacer(minLength: 8)
         statusLabel
       }
-      .font(.system(size: 12, weight: .medium, design: .monospaced))
       .foregroundStyle(ChiefTheme.secondary)
       .contentShape(Rectangle())
     }
-    .padding(10)
+    .padding(.horizontal, 12)
+    .padding(.vertical, 11)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(ChiefTheme.elevated, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .background(Color.white.opacity(0.018), in: RoundedRectangle(cornerRadius: 12))
+    .overlay {
+      RoundedRectangle(cornerRadius: 12)
+        .stroke(ChiefTheme.line.opacity(0.45), lineWidth: 0.5)
+    }
     .tint(ChiefTheme.secondary)
+  }
+
+  private var statusColor: Color {
+    switch status {
+    case "running", "working": .blue.opacity(0.85)
+    case "failed", "error": .red.opacity(0.9)
+    default: .green.opacity(0.75)
+    }
   }
 
   @ViewBuilder
   private var statusLabel: some View {
-    switch status {
-    case "running", "working":
-      Label("Running", systemImage: "ellipsis")
-        .foregroundStyle(ChiefTheme.secondary)
-    case "failed", "error":
-      Label("Error", systemImage: "xmark.circle")
-        .foregroundStyle(.red)
-    default:
-      Label("Done", systemImage: "checkmark.circle")
-        .foregroundStyle(ChiefTheme.secondary)
+    Group {
+      switch status {
+      case "running", "working":
+        Text("Working").foregroundStyle(ChiefTheme.tertiary)
+      case "failed", "error":
+        Text("Failed").foregroundStyle(.red)
+      default:
+        Text("Done").foregroundStyle(ChiefTheme.tertiary)
+      }
     }
+    .font(.system(size: 10))
   }
 
   private func detailBlock(title: String, text: String) -> some View {
     VStack(alignment: .leading, spacing: 4) {
       Text(title)
-        .font(.system(size: 11, weight: .medium))
+        .font(.system(size: 10, weight: .medium))
         .foregroundStyle(ChiefTheme.tertiary)
       Text(text)
-        .font(.system(size: 12, design: .monospaced))
+        .font(.system(size: 11, design: .monospaced))
         .foregroundStyle(ChiefTheme.secondary)
         .textSelection(.enabled)
         .lineLimit(6)

@@ -5,9 +5,19 @@ import Foundation
 /// a divergent second set of skill instructions.
 enum AgentSkillBundle {
   static func instructions(referencedBy messagesJSON: String, agentID: String) -> String? {
-    guard let id = skillID(in: messagesJSON) else { return nil }
-    guard MessageSkillCatalog.skill(forID: id).agentID == agentID else { return nil }
+    guard let id = resolvedSkillID(referencedBy: messagesJSON, agentID: agentID) else {
+      return nil
+    }
     return instructions(skillID: id)
+  }
+
+  /// A skill reference is an instruction for its catalog owner only. Chief's
+  /// delegation message deliberately contains specialist skill chips, but
+  /// those references must never widen Chief's own turn capabilities.
+  static func resolvedSkillID(referencedBy messagesJSON: String, agentID: String) -> String? {
+    skillIDs(in: messagesJSON).first {
+      MessageSkillCatalog.skill(forID: $0).agentID == agentID
+    }
   }
 
   static func instructions(skillID: String) -> String? {
@@ -24,15 +34,15 @@ enum AgentSkillBundle {
     return source.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
-  private static func skillID(in value: String) -> String? {
+  private static func skillIDs(in value: String) -> [String] {
     guard let expression = try? NSRegularExpression(
       pattern: #"\[chief-skill:([a-z0-9]+(?:-[a-z0-9]+)*)\]"#,
       options: [.caseInsensitive]
-    ) else { return nil }
+    ) else { return [] }
     let range = NSRange(value.startIndex..., in: value)
-    guard let match = expression.firstMatch(in: value, range: range),
-      let idRange = Range(match.range(at: 1), in: value)
-    else { return nil }
-    return String(value[idRange]).lowercased()
+    return expression.matches(in: value, range: range).compactMap { match in
+      guard let idRange = Range(match.range(at: 1), in: value) else { return nil }
+      return String(value[idRange]).lowercased()
+    }
   }
 }
