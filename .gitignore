@@ -12,6 +12,8 @@ out/
 .turbo/
 .cache/
 target/
+apps/mobile/.deriveddata/
+apps/relay/.wrangler/
 
 # tauri
 apps/desktop/src-tauri/gen/

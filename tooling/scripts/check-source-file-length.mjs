@@ -48,6 +48,7 @@ const sourceExtensions = new Set([
   ".ts",
   ".tsx",
 ]);
+const ignoredFiles = new Set(["worker-configuration.d.ts"]);
 const ignoredDirectories = new Set([
   ".cache",
   ".eve",
@@ -67,6 +68,7 @@ const ignoredDirectories = new Set([
 function sourceFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     if (ignoredDirectories.has(entry.name)) return [];
+    if (ignoredFiles.has(entry.name)) return [];
     const path = join(directory, entry.name);
     if (entry.isDirectory()) return sourceFiles(path);
     return entry.isFile() && sourceExtensions.has(extname(entry.name))

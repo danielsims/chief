@@ -17,6 +17,7 @@ describe("workspace data", () => {
       agentId: brandId,
       pubkey,
       workspaceId: ctx.workspaceId,
+      role: "member" as const,
     };
 
     const saved = await rpc(ctx, brand, "data-brand-save", {
@@ -53,6 +54,7 @@ describe("workspace data", () => {
       agentId: prospectorId,
       pubkey,
       workspaceId: ctx.workspaceId,
+      role: "member" as const,
     };
     const input = {
       id: "chief-homepage",
@@ -94,6 +96,7 @@ describe("workspace data", () => {
       agentId: engineerId,
       pubkey,
       workspaceId: ctx.workspaceId,
+      role: "member" as const,
     };
 
     const brand = await rpc(ctx, engineer, "data-brand-save", {

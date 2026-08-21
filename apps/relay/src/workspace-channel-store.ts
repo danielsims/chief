@@ -128,7 +128,10 @@ export class WorkspaceChannelStore {
   requireAgentCapability(principal: Principal, capability: string) {
     if (principal.kind !== "agent") return;
     const config = this.agentConfiguration(principal.agentId);
-    if (!config.enabled || !config.toolPermissions.includes(capability)) {
+    if (
+      !config.enabled ||
+      !hasAgentPermission(config.toolPermissions, capability)
+    ) {
       throw new HttpError(
         403,
         "agent_capability_denied",
@@ -137,7 +140,10 @@ export class WorkspaceChannelStore {
     }
   }
 
-  requireWorkspaceMember(kind: "user" | "agent", principalId: string) {
+  requireWorkspaceMember(
+    kind: "user" | "agent" | "service",
+    principalId: string,
+  ) {
     const member = firstRow<MemberRow>(
       this.storage.sql.exec(
         `SELECT principal_kind, principal_id, role FROM members
@@ -360,27 +366,77 @@ export class WorkspaceChannelStore {
 }
 
 function defaultAgentConfigFor(agentId: string) {
+  const collaboration = [
+    "workspace.read",
+    "channels.read",
+    "channels.create",
+    "members.read",
+    "members.manage",
+    "messages.read",
+    "messages.send",
+  ] as const;
+  if (agentId === "chief") {
+    return agentConfigSchema.parse({
+      ...defaultAgentConfig,
+      toolPermissions: [
+        ...collaboration,
+        "workspace.write",
+        "channels.update",
+        "channels.archive",
+        "messages.manage",
+        "schedules.read",
+        "schedules.manage",
+        "schedules.run",
+        "agents.delegate",
+      ],
+    });
+  }
   if (agentId === "brand") {
     return agentConfigSchema.parse({
       ...defaultAgentConfig,
       capabilities: ["brand-memory", "advanced"],
-      toolPermissions: [
-        ...defaultAgentConfig.toolPermissions,
-        "brand-profile-write",
-      ],
+      toolPermissions: [...collaboration, "workspace.write", "browser.use"],
     });
   }
   if (agentId === "prospector") {
     return agentConfigSchema.parse({
       ...defaultAgentConfig,
       capabilities: ["prospect-memory", "advanced"],
-      toolPermissions: [
-        ...defaultAgentConfig.toolPermissions,
-        "prospects-write",
-      ],
+      toolPermissions: [...collaboration, "workspace.write", "browser.use"],
+    });
+  }
+  if (agentId === "setup") {
+    return agentConfigSchema.parse({
+      ...defaultAgentConfig,
+      capabilities: ["advanced"],
+      toolPermissions: [...collaboration, "browser.use", "integrations.manage"],
     });
   }
   return defaultAgentConfig;
+}
+
+function hasAgentPermission(granted: readonly string[], required: string) {
+  if (granted.includes(required)) return true;
+  const legacy: Record<string, readonly string[]> = {
+    "workspace.read": ["workspace"],
+    "workspace.write": ["workspace", "brand-profile-write", "prospects-write"],
+    "channels.read": ["channels"],
+    "channels.create": ["channels"],
+    "channels.update": ["channels"],
+    "channels.archive": ["channels"],
+    "members.read": ["workspace", "channels"],
+    "members.manage": ["channels"],
+    "messages.read": ["messages"],
+    "messages.send": ["messages"],
+    "messages.manage": ["messages"],
+    "schedules.read": ["scheduled-work"],
+    "schedules.manage": ["scheduled-work"],
+    "schedules.run": ["scheduled-work"],
+    "browser.use": ["advanced"],
+  };
+  return (legacy[required] ?? []).some((permission) =>
+    granted.includes(permission),
+  );
 }
 
 export function principalKindId(principal: Principal) {

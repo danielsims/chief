@@ -128,7 +128,7 @@ export class WorkspaceChannelService {
   async directsStart(request: Request) {
     const context = readTrustedContext(request);
     this.store.requirePrincipalMember(context.principal);
-    this.store.requireAgentCapability(context.principal, "messages");
+    this.store.requireAgentCapability(context.principal, "messages.send");
     const { kind, id } = principalKindId(context.principal);
     if (kind === "service") {
       throw new HttpError(

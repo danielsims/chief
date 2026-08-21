@@ -18,7 +18,41 @@ export const agentConfigSchema = z
     approvals: z.enum(["auto", "ask"]),
     capabilities: z.array(z.string().trim().min(1).max(64)).max(64),
     integrations: z.array(z.string().trim().min(1).max(128)).max(128),
-    toolPermissions: z.array(z.string().trim().min(1).max(64)).max(32),
+    toolPermissions: z
+      .array(
+        z.enum([
+          "workspace.read",
+          "workspace.write",
+          "projects.read",
+          "projects.write",
+          "channels.read",
+          "channels.create",
+          "channels.update",
+          "channels.archive",
+          "members.read",
+          "members.manage",
+          "messages.read",
+          "messages.send",
+          "messages.manage",
+          "schedules.read",
+          "schedules.manage",
+          "schedules.run",
+          "webhooks.manage",
+          "browser.use",
+          "integrations.manage",
+          "agents.delegate",
+          // Read compatibility for relay workspaces created before the exact
+          // Executor permission vocabulary. Clients never write these now.
+          "workspace",
+          "channels",
+          "messages",
+          "scheduled-work",
+          "advanced",
+          "brand-profile-write",
+          "prospects-write",
+        ]),
+      )
+      .max(32),
   })
   .strict();
 
@@ -29,7 +63,15 @@ export const defaultAgentConfig = agentConfigSchema.parse({
   approvals: "auto",
   capabilities: [],
   integrations: [],
-  toolPermissions: ["workspace", "channels", "messages", "scheduled-work"],
+  toolPermissions: [
+    "workspace.read",
+    "channels.read",
+    "channels.create",
+    "members.read",
+    "members.manage",
+    "messages.read",
+    "messages.send",
+  ],
 });
 
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
@@ -43,6 +85,10 @@ export const agentJobSchema = z.object({
   payload: z.record(z.string(), z.unknown()),
   status: z.enum(["pending", "leased", "completed", "failed"]),
   attempt: z.int().nonnegative(),
+  // Kept on the durable job so an authorized workspace owner can understand
+  // and resume a failed agent run after every client has disconnected. The
+  // default keeps jobs written by older relay versions readable.
+  lastError: z.string().trim().min(1).max(4_000).nullable().default(null),
   availableAt: isoDateTimeSchema,
   leaseExpiresAt: isoDateTimeSchema.nullable(),
   createdAt: isoDateTimeSchema,
@@ -71,6 +117,18 @@ export const agentLeaseSchema = z.object({
   job: agentJobSchema,
   leaseToken: z.string().min(32).max(512),
 });
+
+export const agentJobListSchema = z
+  .object({
+    jobs: z.array(agentJobSchema).max(200),
+  })
+  .strict();
+
+export const retryAgentJobResultSchema = z
+  .object({
+    job: agentJobSchema,
+  })
+  .strict();
 
 export const claimAgentJobSchema = z
   .object({

@@ -2,10 +2,15 @@ import { z } from "zod";
 
 import {
   commandIdSchema,
+  conversationIdSchema,
   isoDateTimeSchema,
   workspaceIdSchema,
 } from "./identifiers";
-import { principalSchema, userPrincipalSchema } from "./identity";
+import {
+  principalSchema,
+  userPrincipalSchema,
+  workspaceRoleSchema,
+} from "./identity";
 
 export const claimWorkspaceCommandSchema = z
   .object({
@@ -37,6 +42,8 @@ export const workspaceSummarySchema = z
   .object({
     id: workspaceIdSchema,
     name: z.string().trim().min(1).max(120),
+    website: z.string().trim().max(2_048).default(""),
+    imageURL: z.url().nullable().default(null),
     isActive: z.boolean(),
     onboardingComplete: z.boolean(),
   })
@@ -48,6 +55,75 @@ export const workspaceListResultSchema = z
 
 export const workspaceSwitchResultSchema = z
   .object({ workspaceId: workspaceIdSchema, isActive: z.literal(true) })
+  .strict();
+
+export const workspaceMemberKindSchema = z.enum(["user", "agent", "service"]);
+
+export const workspaceMemberSchema = z
+  .object({
+    kind: workspaceMemberKindSchema,
+    principalId: z.string().trim().min(1).max(256),
+    role: workspaceRoleSchema,
+  })
+  .strict();
+
+export const workspaceMemberListSchema = z
+  .object({ members: z.array(workspaceMemberSchema).max(1_000) })
+  .strict();
+
+export const updateWorkspaceMemberRoleCommandSchema = z
+  .object({ role: workspaceRoleSchema })
+  .strict();
+
+export const updateWorkspaceMemberRoleResultSchema = z
+  .object({ member: workspaceMemberSchema })
+  .strict();
+
+export const workspaceDeleteResultSchema = z
+  .object({ workspaceId: workspaceIdSchema, deleted: z.literal(true) })
+  .strict();
+
+const workspaceInviteSecretSchema = z
+  .string()
+  .min(43)
+  .max(128)
+  .regex(/^[A-Za-z0-9_-]+$/u);
+
+export const createWorkspaceInviteCommandSchema = z
+  .object({
+    commandId: commandIdSchema,
+    secret: workspaceInviteSecretSchema,
+    conversationId: conversationIdSchema.nullable().default(null),
+    expiresAt: isoDateTimeSchema,
+  })
+  .strict();
+
+export const workspaceInviteSchema = z
+  .object({
+    workspaceId: workspaceIdSchema,
+    workspaceName: z.string().trim().min(1).max(120),
+    website: z.string().trim().max(2_048).default(""),
+    conversationId: conversationIdSchema.nullable(),
+    conversationName: z.string().trim().min(1).max(120).nullable(),
+    expiresAt: isoDateTimeSchema,
+  })
+  .strict();
+
+export const claimWorkspaceInviteCommandSchema = z
+  .object({
+    commandId: commandIdSchema,
+    secret: workspaceInviteSecretSchema,
+  })
+  .strict();
+
+export const previewWorkspaceInviteCommandSchema = z
+  .object({ secret: workspaceInviteSecretSchema })
+  .strict();
+
+export const workspaceInviteClaimResultSchema = workspaceInviteSchema
+  .extend({
+    alreadyMember: z.boolean(),
+  })
   .strict();
 
 export const createWorkspaceCommandSchema = z
@@ -116,3 +192,14 @@ export type SwitchWorkspaceCommand = z.infer<
   typeof switchWorkspaceCommandSchema
 >;
 export type WorkspaceSummary = z.infer<typeof workspaceSummarySchema>;
+export type WorkspaceMember = z.infer<typeof workspaceMemberSchema>;
+export type CreateWorkspaceInviteCommand = z.infer<
+  typeof createWorkspaceInviteCommandSchema
+>;
+export type WorkspaceInvite = z.infer<typeof workspaceInviteSchema>;
+export type ClaimWorkspaceInviteCommand = z.infer<
+  typeof claimWorkspaceInviteCommandSchema
+>;
+export type WorkspaceInviteClaimResult = z.infer<
+  typeof workspaceInviteClaimResultSchema
+>;

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   appendMessageCommandSchema,
   authenticatedIdentitySchema,
+  bindDeviceIdentityCommandSchema,
   eventEnvelopeSchema,
   executionLeaseSchema,
   relativeExecutionPathSchema,
@@ -42,6 +43,20 @@ void test("authenticated identity cannot inject workspace authority", () => {
   });
 
   assert.equal(result.success, false);
+});
+
+void test("device binding accepts opaque Better Auth access tokens", () => {
+  assert.equal(
+    bindDeviceIdentityCommandSchema.safeParse({
+      accountToken: `chief_at_${"a".repeat(34)}`,
+    }).success,
+    true,
+  );
+  assert.equal(
+    bindDeviceIdentityCommandSchema.safeParse({ accountToken: "too-short" })
+      .success,
+    false,
+  );
 });
 
 void test("event envelopes require a relay-assigned sequence and actor", () => {

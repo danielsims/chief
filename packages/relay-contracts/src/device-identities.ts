@@ -3,7 +3,10 @@ import { z } from "zod";
 import { hexPubkeySchema, userIdSchema } from "./identifiers";
 
 export const bindDeviceIdentityCommandSchema = z
-  .object({ accountToken: z.string().trim().min(64).max(8_192) })
+  // Better Auth opaque access tokens are currently 43 characters. Treat the
+  // token as an opaque credential: bound its transport size without assuming
+  // a JWT-shaped minimum length.
+  .object({ accountToken: z.string().trim().min(32).max(8_192) })
   .strict();
 
 export const boundDeviceIdentitySchema = z

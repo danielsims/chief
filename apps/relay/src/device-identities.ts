@@ -6,7 +6,7 @@ import {
   userIdSchema,
 } from "@chief/relay-contracts";
 
-import { verifyAccountToken } from "./account-token";
+import { verifyRelayAccountCredential } from "./auth/account-credential";
 import { json, relayError } from "./http";
 import { verifyNip98Auth } from "./nip98";
 
@@ -20,16 +20,20 @@ export async function bindDeviceIdentity(env: Env, request: Request) {
     }),
   );
   const input = bindDeviceIdentityCommandSchema.parse(JSON.parse(body));
-  const { accountSubject } = await verifyAccountToken(env, input.accountToken);
+  const { accountSubject, relayAuthUserId } =
+    await verifyRelayAccountCredential(env, input.accountToken);
+  const device = env.IDENTITIES.get(
+    env.IDENTITIES.idFromName(`device-v2:${pubkey}`),
+  );
   const account = env.IDENTITIES.get(
-    env.IDENTITIES.idFromName(`account:${accountSubject}`),
+    env.IDENTITIES.idFromName(`account-v2:${accountSubject}`),
   );
   const accountResponse = await identityRpc(
     account,
     "account-resolve-or-create",
     {
       accountSubject,
-      candidateUserId: pubkey,
+      candidateUserId: relayAuthUserId,
     },
   );
   if (!accountResponse.ok) return accountResponse;
@@ -42,9 +46,6 @@ export async function bindDeviceIdentity(env: Env, request: Request) {
     throw new Error("The account identity response is invalid.");
   }
   const accountBinding = userIdSchema.parse(accountPayload.userId);
-  const device = env.IDENTITIES.get(
-    env.IDENTITIES.idFromName(`device:${pubkey}`),
-  );
   const response = await identityRpc(device, "device-bind", {
     accountSubject,
     userId: accountBinding,
@@ -64,7 +65,7 @@ export async function resolveDeviceIdentity(
     return { identity, bound: env.ACCOUNT_IDENTITY_MODE === "key-native" };
   }
   const device = env.IDENTITIES.get(
-    env.IDENTITIES.idFromName(`device:${identity.pubkey}`),
+    env.IDENTITIES.idFromName(`device-v2:${identity.pubkey}`),
   );
   const response = await identityRpc(device, "device-resolve");
   if (response.status === 204) return { identity, bound: false };

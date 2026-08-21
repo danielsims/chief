@@ -58,6 +58,7 @@ export const agentPrincipalSchema = z.object({
   agentId: agentIdSchema,
   pubkey: hexPubkeySchema,
   workspaceId: workspaceIdSchema,
+  role: workspaceRoleSchema,
 });
 
 export const servicePrincipalSchema = z.object({

@@ -49,10 +49,6 @@ export function initializeWorkspaceSchema(
       joined_at TEXT NOT NULL,
       PRIMARY KEY (conversation_id, principal_kind, principal_id)
     );
-    CREATE INDEX IF NOT EXISTS channels_workspace_idx
-      ON channels (workspace_id);
-    CREATE INDEX IF NOT EXISTS channel_members_ctable_idx
-      ON channel_members (conversation_id);
     CREATE TABLE IF NOT EXISTS channel_membership_events (
       conversation_id TEXT NOT NULL,
       principal_kind TEXT NOT NULL,
@@ -76,15 +72,32 @@ export function initializeWorkspaceSchema(
       key TEXT PRIMARY KEY,
       value_json TEXT NOT NULL
     );
-  `);
-  const channelColumns = storage.sql
-    .exec<Record<string, SqlStorageValue>>("PRAGMA table_info(channels)")
-    .toArray();
-  if (!channelColumns.some((column) => column.name === "kind")) {
-    storage.sql.exec(
-      "ALTER TABLE channels ADD COLUMN kind TEXT NOT NULL DEFAULT 'channel'",
+    CREATE TABLE IF NOT EXISTS workspace_invites (
+      invite_id TEXT PRIMARY KEY,
+      secret_hash TEXT NOT NULL UNIQUE,
+      conversation_id TEXT,
+      created_by_user_id TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      use_count INTEGER NOT NULL DEFAULT 0,
+      revoked_at TEXT,
+      created_at TEXT NOT NULL
     );
-  }
+    CREATE TABLE IF NOT EXISTS workspace_invite_claims (
+      invite_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      claimed_at TEXT NOT NULL,
+      PRIMARY KEY (invite_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS workspace_invites_secret_idx
+      ON workspace_invites (secret_hash);
+  `);
+  migrateLegacyChannelSchema(storage);
+  storage.sql.exec(`
+    CREATE INDEX IF NOT EXISTS channels_workspace_idx
+      ON channels (workspace_id);
+    CREATE INDEX IF NOT EXISTS channel_members_ctable_idx
+      ON channel_members (conversation_id);
+  `);
   const channelStore = new WorkspaceChannelStore(storage, env);
   channelStore.ensureSnapshotChannels();
   storage.sql.exec(
@@ -92,4 +105,57 @@ export function initializeWorkspaceSchema(
   );
   initializeWorkspaceLog(storage);
   initializeWorkspaceData(storage);
+}
+
+function migrateLegacyChannelSchema(storage: DurableObjectStorage) {
+  const existing = new Set(
+    storage.sql
+      .exec<Record<string, SqlStorageValue>>("PRAGMA table_info(channels)")
+      .toArray()
+      .map((column) => (typeof column.name === "string" ? column.name : "")),
+  );
+  const add = (name: string, definition: string) => {
+    if (existing.has(name)) return;
+    storage.sql.exec(`ALTER TABLE channels ADD COLUMN ${name} ${definition}`);
+    existing.add(name);
+  };
+
+  // Early relay builds persisted a smaller channel projection. Add every
+  // current field before creating indexes or reading the rows so a Durable
+  // Object can upgrade in place without discarding workspace data.
+  add("workspace_id", "TEXT NOT NULL DEFAULT ''");
+  add("name", "TEXT NOT NULL DEFAULT ''");
+  add("kind", "TEXT NOT NULL DEFAULT 'channel'");
+  add("is_private", "INTEGER NOT NULL DEFAULT 0");
+  add("archived", "INTEGER NOT NULL DEFAULT 0");
+  add("description", "TEXT");
+  add("created_by_kind", "TEXT NOT NULL DEFAULT 'user'");
+  add("created_by_id", "TEXT NOT NULL DEFAULT ''");
+  add("version", "INTEGER NOT NULL DEFAULT 1");
+  add("created_at", "TEXT NOT NULL DEFAULT ''");
+  add("updated_at", "TEXT NOT NULL DEFAULT ''");
+
+  storage.sql.exec(`
+    UPDATE channels
+       SET workspace_id = COALESCE(
+             NULLIF(workspace_id, ''),
+             (SELECT workspace_id FROM workspace WHERE singleton = 1),
+             ''
+           ),
+           created_by_id = COALESCE(
+             NULLIF(created_by_id, ''),
+             (SELECT created_by_user_id FROM workspace WHERE singleton = 1),
+             ''
+           ),
+           created_at = COALESCE(
+             NULLIF(created_at, ''),
+             (SELECT created_at FROM workspace WHERE singleton = 1),
+             ''
+           ),
+           updated_at = COALESCE(
+             NULLIF(updated_at, ''),
+             (SELECT created_at FROM workspace WHERE singleton = 1),
+             ''
+           )
+  `);
 }

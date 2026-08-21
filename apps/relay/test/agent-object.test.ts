@@ -1,7 +1,12 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
-import { agentIdSchema, workspaceIdSchema } from "@chief/relay-contracts";
+import {
+  agentIdSchema,
+  agentJobListSchema,
+  userIdSchema,
+  workspaceIdSchema,
+} from "@chief/relay-contracts";
 
 import { withTrustedContext } from "../src/internal-context";
 import { hexKey } from "./helpers";
@@ -54,6 +59,52 @@ describe("AgentObject", () => {
       job: { status: "leased", attempt: 2 },
     });
   });
+
+  it("lets an owner inspect and resume a terminal agent failure", async () => {
+    const stub = agentStub();
+    const availableAt = new Date(Date.now() - 5_000).toISOString();
+    const jobId = "77923acf-9131-4359-910b-2f20bb84bd51";
+    await post(stub, "enqueue", {
+      commandId: "11d82880-2a20-477a-a5fd-6cba63cad77a",
+      protocolVersion: 1,
+      occurredAt: availableAt,
+      payload: {
+        id: jobId,
+        agentId,
+        kind: "workspace.kickoff.engineering",
+        payload: { conversationId: "engineering" },
+        availableAt,
+      },
+    });
+    const claimed = await post(stub, "claim", {
+      workerId: "iphone",
+      leaseSeconds: 60,
+    });
+    const lease = (await claimed.json()) as { leaseToken: string };
+    await post(stub, "complete", {
+      leaseToken: lease.leaseToken,
+      outcome: {
+        status: "failed",
+        error: "The selected inference model reached its usage limit.",
+      },
+    });
+
+    const listed = await ownerRequest(stub, "jobs", "GET");
+    const list = agentJobListSchema.parse(await listed.json());
+    const failed = list.jobs.find((job) => job.id === jobId);
+    const retried = await ownerRequest(stub, `jobs/${jobId}/retry`, "POST");
+
+    expect(listed.status).toBe(200);
+    expect(failed).toMatchObject({
+      status: "failed",
+      lastError: "The selected inference model reached its usage limit.",
+      payload: { conversationId: "engineering" },
+    });
+    expect(retried.status).toBe(200);
+    expect(await retried.json()).toMatchObject({
+      job: { id: jobId, status: "pending", lastError: null },
+    });
+  });
 });
 
 function agentStub() {
@@ -69,10 +120,39 @@ function post(stub: DurableObjectStub, operation: string, body: unknown) {
       body: JSON.stringify(body),
     }),
     {
-      principal: { kind: "agent", agentId, pubkey: agentPubkey, workspaceId },
+      principal: {
+        kind: "agent",
+        agentId,
+        pubkey: agentPubkey,
+        workspaceId,
+        role: "member",
+      },
       requestId: crypto.randomUUID(),
       workspaceId,
     },
   );
   return stub.fetch(request);
+}
+
+function ownerRequest(
+  stub: DurableObjectStub,
+  path: string,
+  method: "GET" | "POST",
+) {
+  return stub.fetch(
+    withTrustedContext(
+      new Request(`https://relay.test/internal/${path}`, { method }),
+      {
+        principal: {
+          kind: "user",
+          userId: userIdSchema.parse("workspace-owner"),
+          pubkey: hexKey("workspace-owner"),
+          workspaceId,
+          role: "owner",
+        },
+        requestId: crypto.randomUUID(),
+        workspaceId,
+      },
+    ),
+  );
 }

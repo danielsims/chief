@@ -29,7 +29,10 @@ export async function routeWorkspaceChannel(
   const context = readTrustedContext(request);
   const store = new WorkspaceChannelStore(storage, env);
   store.requirePrincipalMember(context.principal);
-  store.requireAgentCapability(context.principal, "channels");
+  store.requireAgentCapability(
+    context.principal,
+    permissionForChannelOperation(operation),
+  );
   const channels = new WorkspaceChannelService(store);
   const membership = new WorkspaceChannelMembership(store);
 
@@ -64,12 +67,41 @@ export async function routeWorkspaceChannel(
       return membership.channelsMembersList(request, context);
     case "channels-memberships-list":
       return membership.channelsMembershipsList(context);
+    case "channels-memberships-self":
+      return membership.currentPrincipalMembershipsList(context);
     case "channels-members-add":
       return await membership.channelsMembersAdd(request, context);
     case "channels-members-remove":
       return await membership.channelsMembersRemove(request, context);
     default:
       return relayError(404, "not_found", "Channel operation not found.");
+  }
+}
+
+function permissionForChannelOperation(operation: string) {
+  switch (operation) {
+    case "channels-list":
+    case "channels-get":
+      return "channels.read";
+    case "channels-create":
+      return "channels.create";
+    case "channels-update":
+      return "channels.update";
+    case "channels-archive":
+    case "channels-unarchive":
+      return "channels.archive";
+    case "channels-members-list":
+    case "channels-memberships-list":
+      return "members.read";
+    case "channels-memberships-self":
+      return "channels.read";
+    case "channels-join":
+    case "channels-leave":
+    case "channels-members-add":
+    case "channels-members-remove":
+      return "members.manage";
+    default:
+      return "channels.read";
   }
 }
 

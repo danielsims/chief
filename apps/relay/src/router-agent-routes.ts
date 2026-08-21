@@ -1,24 +1,36 @@
-import { agentIdSchema, workspaceIdSchema } from "@chief/relay-contracts";
+import {
+  agentIdSchema,
+  jobIdSchema,
+  updateWorkspaceMemberRoleResultSchema,
+  workspaceIdSchema,
+} from "@chief/relay-contracts";
 
+import { routeAgentJobAdministration } from "./agent-job-administration-router";
 import { AuthorizationError } from "./auth";
 import { relayError } from "./http";
 import { withTrustedContext } from "./internal-context";
+import { updateWorkspaceOrganizationMemberRole } from "./organization-tenancy";
 import { authenticateRelayRequest } from "./router-auth";
 import {
-  authorizeWorkspace,
   registerAgentKey,
   routeAgentJob,
   routeAgentMailboxTicket,
-} from "./workspace-authority";
+} from "./workspace-agent-authority";
+import { authorizeWorkspace } from "./workspace-authority";
 
 const agentJobsRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/jobs\/(claim|complete)$/u;
+const agentJobListRoute = /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/jobs$/u;
+const agentJobRetryRoute =
+  /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/jobs\/([^/]+)\/retry$/u;
 const agentSocketTicketRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/socket-tickets$/u;
 const agentKeysRoute = /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/keys$/u;
 const agentConfigRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/config$/u;
 const workspaceMembersRoute = /^\/v1\/workspaces\/([^/]+)\/members$/u;
+const workspaceMemberRoleRoute =
+  /^\/v1\/workspaces\/([^/]+)\/members\/(user|agent|service)\/([^/]+)\/role$/u;
 
 export async function routeAgentRequest(
   env: Env,
@@ -26,6 +38,53 @@ export async function routeAgentRequest(
   requestId: string,
 ): Promise<Response | undefined> {
   const url = new URL(request.url);
+  const memberRole = workspaceMemberRoleRoute.exec(url.pathname);
+  if (memberRole && request.method === "PATCH") {
+    const workspaceId = parseWorkspaceId(memberRole[1] ?? "");
+    const authenticated = await authenticateRelayRequest(request, env);
+    const principal = await authorizeWorkspace(env, {
+      identity: authenticated.identity,
+      requestId,
+      workspaceId,
+    });
+    const target = new URL("https://workspace.internal/member-role");
+    target.searchParams.set("kind", memberRole[2] ?? "");
+    target.searchParams.set(
+      "principalId",
+      decodeURIComponent(memberRole[3] ?? ""),
+    );
+    const workspace = env.WORKSPACES.get(
+      env.WORKSPACES.idFromName(workspaceId),
+    );
+    const response = await workspace.fetch(
+      withTrustedContext(
+        new Request(target, {
+          method: "POST",
+          headers: {
+            "content-type": request.headers.get("content-type") ?? "",
+            "x-chief-internal-operation": "member-role-set",
+          },
+          body: await authenticated.request.text(),
+        }),
+        { principal, requestId, workspaceId },
+      ),
+    );
+    if (response.ok && memberRole[2] === "user") {
+      const { member } = updateWorkspaceMemberRoleResultSchema.parse(
+        await response.clone().json(),
+      );
+      const { principalId: userId, role } = member;
+      if (member.kind === "user") {
+        await updateWorkspaceOrganizationMemberRole(env, {
+          role,
+          userId,
+          workspaceId,
+        });
+      }
+    }
+    return response;
+  }
+
   const agentKeys = agentKeysRoute.exec(url.pathname);
   if (agentKeys && request.method === "POST") {
     const workspaceId = parseWorkspaceId(agentKeys[1]);
@@ -132,6 +191,46 @@ export async function routeAgentRequest(
       workspaceId,
       agentId,
       operation: job[3] === "complete" ? "complete" : "claim",
+    });
+  }
+
+  const jobList = agentJobListRoute.exec(url.pathname);
+  if (jobList && request.method === "GET") {
+    const workspaceId = parseWorkspaceId(jobList[1]);
+    const agentId = parseAgentId(jobList[2]);
+    const authenticated = await authenticateRelayRequest(request, env);
+    const principal = await authorizeWorkspace(env, {
+      identity: authenticated.identity,
+      requestId,
+      workspaceId,
+    });
+    return routeAgentJobAdministration(env, {
+      principal,
+      requestId,
+      workspaceId,
+      agentId,
+      operation: "list",
+    });
+  }
+
+  const jobRetry = agentJobRetryRoute.exec(url.pathname);
+  if (jobRetry && request.method === "POST") {
+    const workspaceId = parseWorkspaceId(jobRetry[1]);
+    const agentId = parseAgentId(jobRetry[2]);
+    const jobId = jobIdSchema.parse(decodeURIComponent(jobRetry[3] ?? ""));
+    const authenticated = await authenticateRelayRequest(request, env);
+    const principal = await authorizeWorkspace(env, {
+      identity: authenticated.identity,
+      requestId,
+      workspaceId,
+    });
+    return routeAgentJobAdministration(env, {
+      principal,
+      requestId,
+      workspaceId,
+      agentId,
+      operation: "retry",
+      jobId,
     });
   }
 

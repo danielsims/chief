@@ -4,7 +4,10 @@ import {
   agentIdSchema,
   hexPubkeySchema,
   registerAgentKeyCommandSchema,
+  updateWorkspaceMemberRoleCommandSchema,
+  updateWorkspaceMemberRoleResultSchema,
   workspaceIdSchema,
+  workspaceMemberListSchema,
 } from "@chief/relay-contracts";
 
 import type { readTrustedIdentity } from "./internal-context";
@@ -182,35 +185,99 @@ export class WorkspaceAccessService {
   membersList(request: Request) {
     const context = readTrustedContext(request);
     this.channels.requirePrincipalMember(context.principal);
-    this.channels.requireAgentCapability(context.principal, "workspace");
+    this.channels.requireAgentCapability(context.principal, "members.read");
     const rows = this.storage.sql
       .exec(
         "SELECT principal_kind, principal_id, role FROM members ORDER BY principal_kind, principal_id",
       )
       .toArray() as MemberRow[];
-    return json({
-      members: rows.map((row) => ({
-        kind: row.principal_kind,
-        principalId: row.principal_id,
-        role: row.role,
-      })),
-    });
+    return json(
+      workspaceMemberListSchema.parse({
+        members: rows.map((row) => ({
+          kind: row.principal_kind,
+          principalId: row.principal_id,
+          role: row.role,
+        })),
+      }),
+    );
+  }
+
+  async memberRoleSet(request: Request) {
+    const context = readTrustedContext(request);
+    const actor = this.channels.requirePrincipalMember(context.principal);
+    if (context.principal.kind !== "user" || actor.role !== "owner") {
+      throw new HttpError(
+        403,
+        "workspace_role_manage_denied",
+        "Only a workspace owner can change team member roles.",
+      );
+    }
+
+    const url = new URL(request.url);
+    const kind = url.searchParams.get("kind");
+    const principalId = url.searchParams.get("principalId")?.trim();
+    if (
+      (kind !== "user" && kind !== "agent" && kind !== "service") ||
+      !principalId
+    ) {
+      throw new HttpError(
+        400,
+        "invalid_workspace_member",
+        "A valid team member kind and principal ID are required.",
+      );
+    }
+    const input = updateWorkspaceMemberRoleCommandSchema.parse(
+      await parseJson(request),
+    );
+    const target = this.channels.requireWorkspaceMember(kind, principalId);
+    if (
+      kind === "user" &&
+      target.role === "owner" &&
+      input.role !== "owner" &&
+      this.humanOwnerCount() === 1
+    ) {
+      throw new HttpError(
+        409,
+        "last_workspace_owner",
+        "A workspace must retain at least one owner.",
+      );
+    }
+
+    this.storage.sql.exec(
+      `UPDATE members SET role = ?
+       WHERE principal_kind = ? AND principal_id = ?`,
+      input.role,
+      kind,
+      principalId,
+    );
+    return json(
+      updateWorkspaceMemberRoleResultSchema.parse({
+        member: { kind, principalId, role: input.role },
+      }),
+    );
   }
 
   agentConfigGet(request: Request) {
     const context = readTrustedContext(request);
     this.requireAgentConfigAccess(context.principal, false);
-    const agentId = new URL(request.url).searchParams.get("agentId");
-    if (!agentId) {
+    const rawAgentId = new URL(request.url).searchParams.get("agentId");
+    if (!rawAgentId) {
       throw new HttpError(400, "missing_agent", "An agentId is required.");
     }
+    const agentId = agentIdSchema.parse(rawAgentId);
     const row = firstRow<AgentConfigRow>(
       this.storage.sql.exec(
         "SELECT agent_id, config_json, updated_at FROM agent_configs WHERE agent_id = ?",
         agentId,
       ),
     );
-    if (!row) return json(null);
+    if (!row) {
+      return json({
+        agentId,
+        config: this.channels.agentConfiguration(agentId),
+        updatedAt: null,
+      });
+    }
     return json({
       agentId: agentIdSchema.parse(row.agent_id),
       config: agentConfigSchema.parse(JSON.parse(row.config_json)),
@@ -244,7 +311,15 @@ export class WorkspaceAccessService {
   authorizeConversation(request: Request) {
     const context = readTrustedContext(request);
     this.channels.requirePrincipalMember(context.principal);
-    this.channels.requireAgentCapability(context.principal, "messages");
+    const permission = request.headers.get("x-chief-required-permission");
+    if (!isConversationPermission(permission)) {
+      throw new HttpError(
+        400,
+        "missing_required_permission",
+        "The internal conversation permission is required.",
+      );
+    }
+    this.channels.requireAgentCapability(context.principal, permission);
     const conversationId = parseChannelId(
       new URL(request.url).searchParams.get("conversationId"),
     );
@@ -285,6 +360,26 @@ export class WorkspaceAccessService {
       );
     }
   }
+
+  private humanOwnerCount() {
+    const row = firstRow<{ count: number }>(
+      this.storage.sql.exec(
+        `SELECT COUNT(*) AS count FROM members
+         WHERE principal_kind = 'user' AND role = 'owner'`,
+      ),
+    );
+    return Number(row?.count ?? 0);
+  }
+}
+
+function isConversationPermission(
+  value: string | null,
+): value is "messages.read" | "messages.send" | "messages.manage" {
+  return (
+    value === "messages.read" ||
+    value === "messages.send" ||
+    value === "messages.manage"
+  );
 }
 
 function identityId(identity: AuthenticatedIdentity) {
@@ -314,6 +409,7 @@ function toPrincipal(
       agentId: identity.agentId,
       pubkey: identity.pubkey,
       workspaceId,
+      role: member.role,
     };
   }
   return { kind: "service", service: identity.service, workspaceId };

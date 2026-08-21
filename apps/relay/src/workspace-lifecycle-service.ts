@@ -190,6 +190,38 @@ export class WorkspaceLifecycleService {
     return json(reconciled.snapshot);
   }
 
+  deletionPlan(context: ReturnType<typeof readTrustedIdentity>) {
+    this.requireOwner(context);
+    const workspace = this.channels.requireWorkspace(context.workspaceId);
+    const conversationIds = this.storage.sql
+      .exec<{ conversation_id: string }>(
+        "SELECT conversation_id FROM channels ORDER BY conversation_id",
+      )
+      .toArray()
+      .map((row) => String(row.conversation_id));
+    const registeredAgentIds = this.storage.sql
+      .exec<{ agent_id: string }>(
+        "SELECT agent_id FROM agent_keys ORDER BY agent_id",
+      )
+      .toArray()
+      .map((row) => String(row.agent_id));
+    const snapshotAgentIds = workspace.snapshot_json
+      ? workspaceSnapshotSchema
+          .parse(JSON.parse(workspace.snapshot_json))
+          .agents.map((agent) => agent.id)
+      : [];
+    return json({
+      conversationIds,
+      agentIds: [...new Set([...registeredAgentIds, ...snapshotAgentIds])],
+    });
+  }
+
+  async deleteOwned(context: ReturnType<typeof readTrustedIdentity>) {
+    this.requireOwner(context);
+    await this.storage.deleteAll();
+    return json({ workspaceId: context.workspaceId, deleted: true });
+  }
+
   async completeOnboarding(request: Request) {
     const context = readTrustedContext(request);
     const workspace = this.channels.requireWorkspace(context.workspaceId);
@@ -355,6 +387,24 @@ export class WorkspaceLifecycleService {
         403,
         "workspace_access_denied",
         "This identity is not a workspace member.",
+      );
+    }
+  }
+
+  private requireOwner(context: ReturnType<typeof readTrustedIdentity>) {
+    if (context.identity.kind !== "user") {
+      throw new HttpError(
+        403,
+        "owner_required",
+        "A workspace owner is required.",
+      );
+    }
+    const role = this.channels.memberRole("user", context.identity.userId);
+    if (role !== "owner") {
+      throw new HttpError(
+        403,
+        "owner_required",
+        "Only a workspace owner can delete this workspace.",
       );
     }
   }

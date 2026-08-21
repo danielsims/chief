@@ -219,4 +219,5 @@ const agent: PrincipalLike = {
   agentId,
   pubkey: hexKey(agentId),
   workspaceId,
+  role: "member",
 };

@@ -32,6 +32,7 @@ describe("workspace defaults", () => {
       "brand",
       "prospector",
       "engineer",
+      "setup",
     ]);
     expect(result.snapshot.agents[0]?.status).toBe("idle");
   });
@@ -57,6 +58,12 @@ describe("workspace defaults", () => {
           id: "engineer",
           name: "Engineer",
           role: "Product engineering",
+          status: "idle",
+        },
+        {
+          id: "setup",
+          name: "Setup",
+          role: "Connections and integrations",
           status: "idle",
         },
       ],
@@ -111,6 +118,12 @@ function defaultAgents() {
       id: "engineer",
       name: "Engineer",
       role: "Product engineering",
+      status: "idle",
+    },
+    {
+      id: "setup",
+      name: "Setup",
+      role: "Connections and integrations",
       status: "idle",
     },
   ] as const;

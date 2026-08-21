@@ -73,8 +73,13 @@ export function channelRpc(
   operation: string,
   body?: unknown,
   query?: string,
+  requiredPermission:
+    "messages.read" | "messages.send" | "messages.manage" = "messages.read",
 ) {
   const headers = new Headers({ "x-chief-internal-operation": operation });
+  if (operation === "authorize-conversation") {
+    headers.set("x-chief-required-permission", requiredPermission);
+  }
   let url = "https://workspace.internal/channels";
   if (query) url += `?${query}`;
   const init: RequestInit = { method: "POST", headers };
@@ -124,6 +129,7 @@ export function testAgentPrincipal(
     agentId: agentIdValue,
     pubkey,
     workspaceId: ctx.workspaceId,
+    role: "member" as const,
   };
 }
 

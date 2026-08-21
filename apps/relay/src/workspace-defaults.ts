@@ -25,6 +25,12 @@ export const defaultWorkspaceAgents = [
     role: "Product engineering",
     status: "idle",
   },
+  {
+    id: "setup",
+    name: "Setup",
+    role: "Connections and integrations",
+    status: "idle",
+  },
 ] as const satisfies WorkspaceSnapshot["agents"];
 
 export function reconcileWorkspaceAgents(snapshot: WorkspaceSnapshot): {
