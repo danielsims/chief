@@ -40,6 +40,7 @@ import {
 } from "../lib/runtime";
 import {
   channelIdFromChatId,
+  directMessageChatForAgent,
   resolvedChannelChatId,
   WORKSPACE_AGENT_IDENTITIES,
   WORKSPACE_CHANNELS,
@@ -59,6 +60,7 @@ function conversationChannelVisibility(visibility: string | undefined) {
 export function ConversationsPage() {
   const { cloudOrganizationId, user } = useAuth();
   const localChats = useLocalChats(cloudOrganizationId);
+  const startDirectMessage = localChats.startDirectMessage;
   const workspaceChannels = useWorkspaceChannels();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const [params, setParams] = useSearchParams();
@@ -103,6 +105,9 @@ export function ConversationsPage() {
       }
     : (staticRequestedChannel ?? staticChannelRequestedByChat);
   const requestedDirectMessage = workspaceDirectMessage(params.get("dm"));
+  const requestedDirectChat = requestedDirectMessage
+    ? directMessageChatForAgent(localChats.chats, requestedDirectMessage.id)
+    : null;
   const directIdentity = requestedDirectMessage
     ? WORKSPACE_AGENT_IDENTITIES[requestedDirectMessage.id]
     : null;
@@ -142,11 +147,7 @@ export function ConversationsPage() {
         localChats.chats,
       )
     : requestedDirectMessage
-      ? resolvedChannelChatId(
-          requestedDirectMessage.relayId,
-          cloudOrganizationId,
-          localChats.chats,
-        )
+      ? (requestedDirectChat?.id ?? null)
       : requestedChatId;
   const activeChildId = params.get("child");
   const activeSetupActionId = googleAnalyticsActionIdFromChat(activeChatId);
@@ -192,11 +193,10 @@ export function ConversationsPage() {
   const activeProfileDirectMessage =
     workspaceDirectMessage(activeProfileAgentId);
   const activeProfileChatId = activeProfileDirectMessage
-    ? resolvedChannelChatId(
-        activeProfileDirectMessage.relayId,
-        cloudOrganizationId,
+    ? (directMessageChatForAgent(
         localChats.chats,
-      )
+        activeProfileDirectMessage.id,
+      )?.id ?? null)
     : null;
   const activeProfilePresence: AgentPresence = activeProfileAgentId
     ? activeProfileChatId && running[activeProfileChatId]
@@ -254,6 +254,20 @@ export function ConversationsPage() {
     if (!legacySetupPath) return;
     void navigate(legacySetupPath, { replace: true });
   }, [legacySetupPath, navigate]);
+
+  useEffect(() => {
+    if (!requestedDirectMessage || requestedDirectChat || localChats.loading) {
+      return;
+    }
+    void startDirectMessage(requestedDirectMessage.id).catch((error: unknown) =>
+      console.error("[Chief relay] Could not start direct message", error),
+    );
+  }, [
+    localChats.loading,
+    requestedDirectChat,
+    requestedDirectMessage,
+    startDirectMessage,
+  ]);
 
   useEffect(() => {
     if (!focusComposer) return;
@@ -398,8 +412,7 @@ export function ConversationsPage() {
                     : undefined
                 }
                 destinationChannelId={
-                  requestedDirectMessage?.relayId ??
-                  activeConversationChannel?.relayId
+                  requestedDirectChat?.id ?? activeConversationChannel?.relayId
                 }
                 integrationDomain={activeSetupDomain ?? undefined}
                 activeChild={activeChild}

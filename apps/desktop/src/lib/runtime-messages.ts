@@ -23,6 +23,11 @@ const HIDDEN_RUNTIME_ERROR_PATTERNS = [
   /^agent process exited/i,
 ];
 
+const INTERNAL_VALIDATION_ERROR_PATTERNS = [
+  /"code"\s*:\s*"invalid_format"/i,
+  /Identifiers may only contain letters, numbers, dots, underscores, and hyphens/i,
+];
+
 /** Intentional cancellation and internal runtime failures are not chat content. */
 export function visibleRuntimeError(error?: string) {
   if (!error) return undefined;
@@ -30,6 +35,11 @@ export function visibleRuntimeError(error?: string) {
   if (HIDDEN_RUNTIME_ERRORS.has(trimmed.toLocaleLowerCase())) return undefined;
   if (HIDDEN_RUNTIME_ERROR_PATTERNS.some((pattern) => pattern.test(trimmed))) {
     return undefined;
+  }
+  if (
+    INTERNAL_VALIDATION_ERROR_PATTERNS.some((pattern) => pattern.test(trimmed))
+  ) {
+    return "Chief couldn't route this conversation through the relay. Reopen the channel and try again.";
   }
   return error;
 }

@@ -154,6 +154,12 @@ class PendingRelayRuntimeClient implements RuntimeTransport {
     this.connect();
   }
 
+  startDirectMessage() {
+    return Promise.reject(
+      new Error(this.error ?? "The Chief relay is still connecting."),
+    );
+  }
+
   send() {
     for (const listener of this.listeners) {
       listener({
@@ -738,7 +744,22 @@ export function useLocalChats(workspaceId: string | null) {
     });
   };
 
-  return { chats: visibleChats, loading: !visibleResolved, remove };
+  const startDirectMessage = useCallback(
+    async (agentId: string) => {
+      if (!scopedWorkspaceId || status !== "connected") {
+        throw new Error("The Chief relay is still connecting.");
+      }
+      return await client.startDirectMessage(agentId);
+    },
+    [client, scopedWorkspaceId, status],
+  );
+
+  return {
+    chats: visibleChats,
+    loading: !visibleResolved,
+    remove,
+    startDirectMessage,
+  };
 }
 
 export { useChannelEvents } from "./runtime-channels";

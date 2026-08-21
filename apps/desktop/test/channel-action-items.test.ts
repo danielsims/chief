@@ -354,6 +354,12 @@ void test("maps an open direct-message action to its sidebar conversation", () =
         sessions: [],
         recurringWork: [],
         directMessageIds: ["chief", "brand"],
+        directMessageChats: [
+          {
+            id: "channel:workspace-a:cc7d57ef-d6ea-4ebf-a987-2dc33d18c8c7",
+            agent: "chief",
+          },
+        ],
       }),
     ],
     [["chief", { messageId: actionItem.id }]],

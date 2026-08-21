@@ -36,6 +36,7 @@ import {
   useWorkspaceData,
 } from "../lib/runtime";
 import {
+  directMessageChatForAgent,
   directMessageIdsForChats,
   isSidebarPinnedItem,
   sidebarPinnedItemKey,
@@ -255,10 +256,7 @@ export function Sidebar({
       channel.userIds.includes("workspace-owner") &&
       !leftIds.includes(channel.id),
   );
-  const directMessageIds = useMemo(
-    () => directMessageIdsForChats(localChats.chats, cloudOrganizationId),
-    [cloudOrganizationId, localChats.chats],
-  );
+  const directMessageIds = useMemo(() => directMessageIdsForChats(), []);
   const directAttentionTargets = useMemo(
     () =>
       directMessageAttentionTargets({
@@ -266,18 +264,22 @@ export function Sidebar({
         sessions: workspaceData.activity,
         recurringWork: workspaceData.recurringWork,
         directMessageIds,
+        directMessageChats: localChats.chats,
       }),
     [
       directMessageIds,
       workspaceData.actionItems,
       workspaceData.activity,
       workspaceData.recurringWork,
+      localChats.chats,
     ],
   );
   const unreadDirectMessageCounts = new Map(
     WORKSPACE_DIRECT_MESSAGES.map((message) => [
       message.id,
-      unreadChannelCounts.get(message.relayId) ?? 0,
+      unreadChannelCounts.get(
+        directMessageChatForAgent(localChats.chats, message.id)?.id ?? "",
+      ) ?? 0,
     ]),
   );
   const inboxUnreadCount = [...unreadChannelCounts.values()].reduce(
@@ -415,14 +417,16 @@ export function Sidebar({
           unreadDirectMessageCounts={unreadDirectMessageCounts}
           onOpen={openChannel}
           onOpenDirectMessage={(agentId: WorkspaceAgentId, target) => {
-            const directMessage = workspaceDirectMessage(agentId);
-            if (!directMessage) return;
-            chiefNavigation.open({
-              kind: "conversation",
-              channelId: directMessage.relayId,
-              directAgentId: agentId,
-              ...target,
-            });
+            void localChats
+              .startDirectMessage(agentId)
+              .then((conversationId) => {
+                chiefNavigation.open({
+                  kind: "conversation",
+                  channelId: conversationId,
+                  directAgentId: agentId,
+                  ...target,
+                });
+              });
           }}
           onCreateChannel={workspaceChannels.createChannel}
           onDeleteChannel={deleteChannel}
