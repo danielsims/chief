@@ -83,6 +83,12 @@ importers:
       "@chief/google-oauth-connector":
         specifier: workspace:*
         version: link:../../packages/google-oauth-connector
+      "@chief/relay-client":
+        specifier: workspace:*
+        version: link:../../packages/relay-client
+      "@chief/relay-contracts":
+        specifier: workspace:*
+        version: link:../../packages/relay-contracts
       "@chief/ui":
         specifier: workspace:*
         version: link:../../packages/ui
@@ -172,7 +178,7 @@ importers:
         version: 7.0.30(zod@4.4.3)
       better-auth:
         specifier: 1.6.16
-        version: 1.6.16(@cloudflare/workers-types@5.20260817.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
+        version: 1.6.16(@cloudflare/workers-types@5.20260821.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
       convex:
         specifier: ^1.31.6
         version: 1.42.1(react@19.2.7)
@@ -304,6 +310,9 @@ importers:
 
   apps/relay:
     dependencies:
+      "@chief/auth":
+        specifier: workspace:*
+        version: link:../../packages/auth
       "@chief/relay-contracts":
         specifier: workspace:*
         version: link:../../packages/relay-contracts
@@ -331,10 +340,7 @@ importers:
         version: link:../../tooling/typescript
       "@cloudflare/vitest-pool-workers":
         specifier: ^0.21.3
-        version: 0.21.3(@cloudflare/workers-types@5.20260817.1)(@vitest/runner@4.1.10)(@vitest/snapshot@4.1.10)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
-      "@cloudflare/workers-types":
-        specifier: ^5.20260817.1
-        version: 5.20260817.1
+        version: 0.21.3(@cloudflare/workers-types@5.20260821.1)(@vitest/runner@4.1.10)(@vitest/snapshot@4.1.10)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
       "@types/node":
         specifier: "catalog:"
         version: 24.13.3
@@ -352,31 +358,22 @@ importers:
         version: 4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
       wrangler:
         specifier: ^4.34.0
-        version: 4.123.0(@cloudflare/workers-types@5.20260817.1)
+        version: 4.123.0(@cloudflare/workers-types@5.20260821.1)
 
   apps/web:
     dependencies:
-      "@chief/backend":
-        specifier: workspace:*
-        version: link:../../packages/backend
       "@chief/channel-api":
         specifier: workspace:*
         version: link:../../packages/channel-api
       "@chief/ui":
         specifier: workspace:*
         version: link:../../packages/ui
-      "@convex-dev/better-auth":
-        specifier: ^0.12.3
-        version: 0.12.5(@standard-schema/spec@1.1.0)(better-auth@1.6.16(@cloudflare/workers-types@5.20260817.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))))(convex@1.42.1(react@19.2.7))(hono@4.12.28)(react@19.2.7)(typescript@5.9.3)
       "@t3-oss/env-nextjs":
         specifier: ^0.13.8
         version: 0.13.11(typescript@5.9.3)(zod@4.4.3)
       better-auth:
         specifier: 1.6.16
-        version: 1.6.16(@cloudflare/workers-types@5.20260817.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
-      convex:
-        specifier: ^1.31.6
-        version: 1.42.1(react@19.2.7)
+        version: 1.6.16(@cloudflare/workers-types@5.20260821.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
       next:
         specifier: ^15.4.2
         version: 15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -428,13 +425,13 @@ importers:
     dependencies:
       "@vercel/connect":
         specifier: ^0.3.2
-        version: 0.3.2(ab4760aabf2d7afa5fe7e6df55063516)
+        version: 0.3.2(b20523a39879555da5d583ebabbd3b06)
       ai:
         specifier: 7.0.30
         version: 7.0.30(zod@4.4.3)
       eve:
         specifier: 0.24.6
-        version: 0.24.6(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(ai@7.0.30(zod@4.4.3))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260817.1))
+        version: 0.24.6(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(ai@7.0.30(zod@4.4.3))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1))
       microsandbox:
         specifier: 0.6.6
         version: 0.6.6
@@ -510,7 +507,7 @@ importers:
         version: 7.19.0
       "@vercel/connect":
         specifier: ^0.3.2
-        version: 0.3.2(87b2679e0644fc535a7bf4c9a9b6a275)
+        version: 0.3.2(b870248d4b5b35d2ca870eb39739620d)
       ai:
         specifier: 7.0.30
         version: 7.0.30(zod@3.25.76)
@@ -522,10 +519,10 @@ importers:
         version: 5.6.1
       drizzle-orm:
         specifier: 1.0.0-rc.4
-        version: 1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)
+        version: 1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)
       eve:
         specifier: 0.24.6
-        version: 0.24.6(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(ai@7.0.30(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260817.1))
+        version: 0.24.6(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(ai@7.0.30(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1))
       executor:
         specifier: 1.5.37
         version: 1.5.37
@@ -568,7 +565,7 @@ importers:
         version: 8.18.1
       drizzle-kit:
         specifier: 1.0.0-rc.4
-        version: 1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))
+        version: 1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))
       esbuild:
         specifier: 0.27.0
         version: 0.27.0
@@ -588,17 +585,66 @@ importers:
         specifier: "catalog:"
         version: 5.9.3
 
+  packages/auth:
+    dependencies:
+      "@better-auth/drizzle-adapter":
+        specifier: 1.6.16
+        version: 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))
+      "@better-auth/oauth-provider":
+        specifier: 1.6.16
+        version: 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(better-auth@1.6.16(@cloudflare/workers-types@5.20260821.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))))(better-call@1.3.6(zod@4.4.3))
+      "@better-fetch/fetch":
+        specifier: 1.2.2
+        version: 1.2.2
+      better-auth:
+        specifier: 1.6.16
+        version: 1.6.16(@cloudflare/workers-types@5.20260821.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)
+    devDependencies:
+      "@chief/eslint-config":
+        specifier: workspace:*
+        version: link:../../tooling/eslint
+      "@chief/prettier-config":
+        specifier: workspace:*
+        version: link:../../tooling/prettier
+      "@chief/tsconfig":
+        specifier: workspace:*
+        version: link:../../tooling/typescript
+      "@cloudflare/workers-types":
+        specifier: ^5.20260821.1
+        version: 5.20260821.1
+      "@types/node":
+        specifier: "catalog:"
+        version: 24.13.3
+      drizzle-kit:
+        specifier: 0.31.8
+        version: 0.31.8
+      eslint:
+        specifier: "catalog:"
+        version: 9.39.5(jiti@2.7.0)
+      prettier:
+        specifier: "catalog:"
+        version: 3.9.4
+      tsx:
+        specifier: ^4.20.3
+        version: 4.23.0
+      typescript:
+        specifier: "catalog:"
+        version: 5.9.3
+
   packages/backend:
     dependencies:
       "@convex-dev/better-auth":
         specifier: ^0.12.3
-        version: 0.12.5(@standard-schema/spec@1.1.0)(better-auth@1.6.16(@cloudflare/workers-types@5.20260817.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))))(convex@1.42.1(react@19.2.7))(hono@4.12.28)(react@19.2.7)(typescript@5.9.3)
+        version: 0.12.5(@standard-schema/spec@1.1.0)(better-auth@1.6.16(@cloudflare/workers-types@5.20260821.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))))(convex@1.42.1(react@19.2.7))(hono@4.12.28)(react@19.2.7)(typescript@5.9.3)
       "@t3-oss/env-core":
         specifier: ^0.13.8
         version: 0.13.11(typescript@5.9.3)(zod@4.4.3)
       better-auth:
         specifier: 1.6.16
-        version: 1.6.16(@cloudflare/workers-types@5.20260817.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
+        version: 1.6.16(@cloudflare/workers-types@5.20260821.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
       convex:
         specifier: ^1.31.6
         version: 1.42.1(react@19.2.7)
@@ -1438,6 +1484,18 @@ packages:
       mongodb:
         optional: true
 
+  "@better-auth/oauth-provider@1.6.16":
+    resolution:
+      {
+        integrity: sha512-UdGhs3ZhmfhKKYZwpzTZseiAhv1ChVP8qXCo48MkvMviFJemQY0waAKi+iYCWBV/poC6pNwRzOwpGLTp8mzOCA==,
+      }
+    peerDependencies:
+      "@better-auth/core": ^1.6.16
+      "@better-auth/utils": 0.4.1
+      "@better-fetch/fetch": 1.2.2
+      better-auth: ^1.6.16
+      better-call: 1.3.6
+
   "@better-auth/prisma-adapter@1.6.16":
     resolution:
       {
@@ -1589,10 +1647,10 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  "@cloudflare/workers-types@5.20260817.1":
+  "@cloudflare/workers-types@5.20260821.1":
     resolution:
       {
-        integrity: sha512-5Dv+cyjusBTPLMRedUCiLJu3zqeeupgyn1QcHmpHJV9k/TjQAxx79AO8RVtpjVaO2CB+Oh3ywAp1UuNpbyDjGQ==,
+        integrity: sha512-jZiTISghTPeytJ7eDt5K1AV7df998xGECMgT8oy838VfFLJLROvdLzDaJb0/Jv4WfxO00keNoWt1d6olL7URRg==,
       }
 
   "@convex-dev/better-auth@0.12.5":
@@ -10772,6 +10830,7 @@ packages:
         integrity: sha512-DgZS62aPLXKlnxILS/AYCoRvHaZeXceIzlXPkkGGzJWSow1aEk0lbTlxUSlyjC8jcaKxAdOnTDz+o1JFSBsyjw==,
       }
     engines: { node: ^18.18.0 || ^20.9.0 || >=21.1.0 }
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: "*"
@@ -17197,60 +17256,70 @@ snapshots:
     optionalDependencies:
       "@types/react": 19.2.17
 
-  "@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)":
+  "@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)":
     dependencies:
       "@better-auth/utils": 0.4.1
       "@better-fetch/fetch": 1.2.2
       "@opentelemetry/semantic-conventions": 1.42.0
       "@standard-schema/spec": 1.1.0
-      better-call: 1.3.6(zod@4.3.6)
+      better-call: 1.3.6(zod@4.4.3)
       jose: 6.2.3
       kysely: 0.29.3
       nanostores: 1.4.0
       zod: 4.4.3
     optionalDependencies:
-      "@cloudflare/workers-types": 5.20260817.1
+      "@cloudflare/workers-types": 5.20260821.1
 
-  "@better-auth/drizzle-adapter@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))":
+  "@better-auth/drizzle-adapter@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))":
     dependencies:
-      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
+      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
       "@better-auth/utils": 0.4.1
     optionalDependencies:
-      drizzle-orm: 0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)
+      drizzle-orm: 0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)
 
-  "@better-auth/drizzle-adapter@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))":
+  "@better-auth/drizzle-adapter@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))":
     dependencies:
-      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
+      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
       "@better-auth/utils": 0.4.1
     optionalDependencies:
-      drizzle-orm: 1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)
+      drizzle-orm: 1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)
     optional: true
 
-  "@better-auth/kysely-adapter@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(kysely@0.29.3)":
+  "@better-auth/kysely-adapter@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(kysely@0.29.3)":
     dependencies:
-      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
+      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
       "@better-auth/utils": 0.4.1
     optionalDependencies:
       kysely: 0.29.3
 
-  "@better-auth/memory-adapter@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)":
+  "@better-auth/memory-adapter@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)":
     dependencies:
-      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
+      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
       "@better-auth/utils": 0.4.1
 
-  "@better-auth/mongo-adapter@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)":
+  "@better-auth/mongo-adapter@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)":
     dependencies:
-      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
+      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
       "@better-auth/utils": 0.4.1
 
-  "@better-auth/prisma-adapter@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)":
+  "@better-auth/oauth-provider@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(better-auth@1.6.16(@cloudflare/workers-types@5.20260821.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))))(better-call@1.3.6(zod@4.4.3))":
     dependencies:
-      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
+      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
+      "@better-auth/utils": 0.4.1
+      "@better-fetch/fetch": 1.2.2
+      better-auth: 1.6.16(@cloudflare/workers-types@5.20260821.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
+      better-call: 1.3.6(zod@4.4.3)
+      jose: 6.2.3
+      zod: 4.4.3
+
+  "@better-auth/prisma-adapter@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)":
+    dependencies:
+      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
       "@better-auth/utils": 0.4.1
 
-  "@better-auth/telemetry@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)":
+  "@better-auth/telemetry@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)":
     dependencies:
-      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
+      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
       "@better-auth/utils": 0.4.1
       "@better-fetch/fetch": 1.2.2
 
@@ -17287,7 +17356,7 @@ snapshots:
     optionalDependencies:
       workerd: 1.20260811.1
 
-  "@cloudflare/vitest-pool-workers@0.21.3(@cloudflare/workers-types@5.20260817.1)(@vitest/runner@4.1.10)(@vitest/snapshot@4.1.10)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))":
+  "@cloudflare/vitest-pool-workers@0.21.3(@cloudflare/workers-types@5.20260821.1)(@vitest/runner@4.1.10)(@vitest/snapshot@4.1.10)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))":
     dependencies:
       "@vitest/runner": 4.1.10
       "@vitest/snapshot": 4.1.10
@@ -17295,7 +17364,7 @@ snapshots:
       esbuild: 0.28.1
       miniflare: 5.20260811.1-alpha
       vitest: 4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
-      wrangler: 4.123.0(@cloudflare/workers-types@5.20260817.1)
+      wrangler: 4.123.0(@cloudflare/workers-types@5.20260821.1)
       zod: 4.4.3
     transitivePeerDependencies:
       - "@cloudflare/workers-types"
@@ -17317,30 +17386,12 @@ snapshots:
   "@cloudflare/workerd-windows-64@1.20260811.1":
     optional: true
 
-  "@cloudflare/workers-types@5.20260817.1": {}
+  "@cloudflare/workers-types@5.20260821.1": {}
 
-  "@convex-dev/better-auth@0.12.5(@standard-schema/spec@1.1.0)(better-auth@1.6.16(@cloudflare/workers-types@5.20260817.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))))(convex@1.42.1(react@19.2.7))(hono@4.12.28)(react@19.2.7)(typescript@5.9.3)":
+  "@convex-dev/better-auth@0.12.5(@standard-schema/spec@1.1.0)(better-auth@1.6.16(@cloudflare/workers-types@5.20260821.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))))(convex@1.42.1(react@19.2.7))(hono@4.12.28)(react@19.2.7)(typescript@5.9.3)":
     dependencies:
       "@better-fetch/fetch": 1.3.1
-      better-auth: 1.6.16(@cloudflare/workers-types@5.20260817.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
-      common-tags: 1.8.2
-      convex: 1.42.1(react@19.2.7)
-      convex-helpers: 0.1.120(@standard-schema/spec@1.1.0)(convex@1.42.1(react@19.2.7))(hono@4.12.28)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)
-      jose: 6.2.3
-      react: 19.2.7
-      remeda: 2.39.0
-      semver: 7.8.5
-      type-fest: 5.8.0
-      zod: 4.4.3
-    transitivePeerDependencies:
-      - "@standard-schema/spec"
-      - hono
-      - typescript
-
-  "@convex-dev/better-auth@0.12.5(@standard-schema/spec@1.1.0)(better-auth@1.6.16(@cloudflare/workers-types@5.20260817.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))))(convex@1.42.1(react@19.2.7))(hono@4.12.28)(react@19.2.7)(typescript@5.9.3)":
-    dependencies:
-      "@better-fetch/fetch": 1.3.1
-      better-auth: 1.6.16(@cloudflare/workers-types@5.20260817.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
+      better-auth: 1.6.16(@cloudflare/workers-types@5.20260821.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
       common-tags: 1.8.2
       convex: 1.42.1(react@19.2.7)
       convex-helpers: 0.1.120(@standard-schema/spec@1.1.0)(convex@1.42.1(react@19.2.7))(hono@4.12.28)(react@19.2.7)(typescript@5.9.3)(zod@4.4.3)
@@ -17391,8 +17442,7 @@ snapshots:
       react: 19.2.7
       tslib: 2.8.1
 
-  "@drizzle-team/brocli@0.10.2":
-    optional: true
+  "@drizzle-team/brocli@0.10.2": {}
 
   "@drizzle-team/brocli@0.12.0": {}
 
@@ -17522,13 +17572,11 @@ snapshots:
     dependencies:
       esbuild: 0.18.20
       source-map-support: 0.5.21
-    optional: true
 
   "@esbuild-kit/esm-loader@2.6.5":
     dependencies:
       "@esbuild-kit/core-utils": 3.3.2
       get-tsconfig: 4.14.0
-    optional: true
 
   "@esbuild/aix-ppc64@0.25.12":
     optional: true
@@ -21192,23 +21240,23 @@ snapshots:
     dependencies:
       execa: 5.1.1
 
-  "@vercel/connect@0.3.2(87b2679e0644fc535a7bf4c9a9b6a275)":
-    dependencies:
-      "@vercel/oidc": 3.8.0
-    optionalDependencies:
-      "@ai-sdk/mcp": 2.0.14(zod@3.25.76)
-      ai: 7.0.30(zod@3.25.76)
-      better-auth: 1.6.16(@cloudflare/workers-types@5.20260817.1)(better-sqlite3@12.4.1)(drizzle-kit@1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)))(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
-      eve: 0.24.6(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(ai@7.0.30(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260817.1))
-
-  "@vercel/connect@0.3.2(ab4760aabf2d7afa5fe7e6df55063516)":
+  "@vercel/connect@0.3.2(b20523a39879555da5d583ebabbd3b06)":
     dependencies:
       "@vercel/oidc": 3.8.0
     optionalDependencies:
       "@ai-sdk/mcp": 2.0.14(zod@4.4.3)
       ai: 7.0.30(zod@4.4.3)
-      better-auth: 1.6.16(@cloudflare/workers-types@5.20260817.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
-      eve: 0.24.6(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(ai@7.0.30(zod@4.4.3))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260817.1))
+      better-auth: 1.6.16(@cloudflare/workers-types@5.20260821.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
+      eve: 0.24.6(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(ai@7.0.30(zod@4.4.3))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1))
+
+  "@vercel/connect@0.3.2(b870248d4b5b35d2ca870eb39739620d)":
+    dependencies:
+      "@vercel/oidc": 3.8.0
+    optionalDependencies:
+      "@ai-sdk/mcp": 2.0.14(zod@3.25.76)
+      ai: 7.0.30(zod@3.25.76)
+      better-auth: 1.6.16(@cloudflare/workers-types@5.20260821.1)(better-sqlite3@12.4.1)(drizzle-kit@1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)))(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0)))
+      eve: 0.24.6(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(ai@7.0.30(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1))
 
   "@vercel/container@0.0.5": {}
 
@@ -21848,15 +21896,15 @@ snapshots:
 
   baseline-browser-mapping@2.10.42: {}
 
-  better-auth@1.6.16(@cloudflare/workers-types@5.20260817.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))):
+  better-auth@1.6.16(@cloudflare/workers-types@5.20260821.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))):
     dependencies:
-      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
-      "@better-auth/drizzle-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))
-      "@better-auth/kysely-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(kysely@0.29.3)
-      "@better-auth/memory-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
-      "@better-auth/mongo-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
-      "@better-auth/prisma-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
-      "@better-auth/telemetry": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)
+      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
+      "@better-auth/drizzle-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))
+      "@better-auth/kysely-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(kysely@0.29.3)
+      "@better-auth/memory-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
+      "@better-auth/mongo-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
+      "@better-auth/prisma-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
+      "@better-auth/telemetry": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)
       "@better-auth/utils": 0.4.1
       "@better-fetch/fetch": 1.2.2
       "@noble/ciphers": 2.2.0
@@ -21870,7 +21918,7 @@ snapshots:
     optionalDependencies:
       better-sqlite3: 12.4.1
       drizzle-kit: 0.31.8
-      drizzle-orm: 0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)
+      drizzle-orm: 0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)
       next: 15.5.20(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
@@ -21879,15 +21927,46 @@ snapshots:
       - "@cloudflare/workers-types"
       - "@opentelemetry/api"
 
-  better-auth@1.6.16(@cloudflare/workers-types@5.20260817.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))):
+  better-auth@1.6.16(@cloudflare/workers-types@5.20260821.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))):
     dependencies:
-      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
-      "@better-auth/drizzle-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))
-      "@better-auth/kysely-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(kysely@0.29.3)
-      "@better-auth/memory-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
-      "@better-auth/mongo-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
-      "@better-auth/prisma-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
-      "@better-auth/telemetry": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)
+      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
+      "@better-auth/drizzle-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))
+      "@better-auth/kysely-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(kysely@0.29.3)
+      "@better-auth/memory-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
+      "@better-auth/mongo-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
+      "@better-auth/prisma-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
+      "@better-auth/telemetry": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)
+      "@better-auth/utils": 0.4.1
+      "@better-fetch/fetch": 1.2.2
+      "@noble/ciphers": 2.2.0
+      "@noble/hashes": 2.3.0
+      better-call: 1.3.6(zod@4.4.3)
+      defu: 6.1.7
+      jose: 6.2.3
+      kysely: 0.29.3
+      nanostores: 1.4.0
+      zod: 4.3.6
+    optionalDependencies:
+      better-sqlite3: 12.4.1
+      drizzle-kit: 0.31.8
+      drizzle-orm: 0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)
+      next: 16.2.6(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      react: 19.2.7
+      react-dom: 19.2.7(react@19.2.7)
+      vitest: 4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
+    transitivePeerDependencies:
+      - "@cloudflare/workers-types"
+      - "@opentelemetry/api"
+
+  better-auth@1.6.16(@cloudflare/workers-types@5.20260821.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))):
+    dependencies:
+      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
+      "@better-auth/drizzle-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))
+      "@better-auth/kysely-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(kysely@0.29.3)
+      "@better-auth/memory-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
+      "@better-auth/mongo-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
+      "@better-auth/prisma-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
+      "@better-auth/telemetry": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)
       "@better-auth/utils": 0.4.1
       "@better-fetch/fetch": 1.2.2
       "@noble/ciphers": 2.2.0
@@ -21901,7 +21980,7 @@ snapshots:
     optionalDependencies:
       better-sqlite3: 12.4.1
       drizzle-kit: 0.31.8
-      drizzle-orm: 0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)
+      drizzle-orm: 0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)
       next: 16.2.6(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
@@ -21910,15 +21989,15 @@ snapshots:
       - "@cloudflare/workers-types"
       - "@opentelemetry/api"
 
-  better-auth@1.6.16(@cloudflare/workers-types@5.20260817.1)(better-sqlite3@12.4.1)(drizzle-kit@0.31.8)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))):
+  better-auth@1.6.16(@cloudflare/workers-types@5.20260821.1)(better-sqlite3@12.4.1)(drizzle-kit@1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)))(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))):
     dependencies:
-      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
-      "@better-auth/drizzle-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))
-      "@better-auth/kysely-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(kysely@0.29.3)
-      "@better-auth/memory-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
-      "@better-auth/mongo-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
-      "@better-auth/prisma-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
-      "@better-auth/telemetry": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)
+      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
+      "@better-auth/drizzle-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))
+      "@better-auth/kysely-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(kysely@0.29.3)
+      "@better-auth/memory-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
+      "@better-auth/mongo-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
+      "@better-auth/prisma-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
+      "@better-auth/telemetry": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260821.1)(better-call@1.3.6(zod@4.4.3))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)
       "@better-auth/utils": 0.4.1
       "@better-fetch/fetch": 1.2.2
       "@noble/ciphers": 2.2.0
@@ -21931,39 +22010,8 @@ snapshots:
       zod: 4.3.6
     optionalDependencies:
       better-sqlite3: 12.4.1
-      drizzle-kit: 0.31.8
-      drizzle-orm: 0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)
-      next: 16.2.6(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      react: 19.2.7
-      react-dom: 19.2.7(react@19.2.7)
-      vitest: 4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
-    transitivePeerDependencies:
-      - "@cloudflare/workers-types"
-      - "@opentelemetry/api"
-
-  better-auth@1.6.16(@cloudflare/workers-types@5.20260817.1)(better-sqlite3@12.4.1)(drizzle-kit@1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)))(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(next@16.2.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.10(@edge-runtime/vm@3.2.0)(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))):
-    dependencies:
-      "@better-auth/core": 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0)
-      "@better-auth/drizzle-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))
-      "@better-auth/kysely-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(kysely@0.29.3)
-      "@better-auth/memory-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
-      "@better-auth/mongo-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
-      "@better-auth/prisma-adapter": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)
-      "@better-auth/telemetry": 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@cloudflare/workers-types@5.20260817.1)(better-call@1.3.6(zod@4.3.6))(jose@6.2.3)(kysely@0.29.3)(nanostores@1.4.0))(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)
-      "@better-auth/utils": 0.4.1
-      "@better-fetch/fetch": 1.2.2
-      "@noble/ciphers": 2.2.0
-      "@noble/hashes": 2.3.0
-      better-call: 1.3.6(zod@4.3.6)
-      defu: 6.1.7
-      jose: 6.2.3
-      kysely: 0.29.3
-      nanostores: 1.4.0
-      zod: 4.3.6
-    optionalDependencies:
-      better-sqlite3: 12.4.1
-      drizzle-kit: 1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))
-      drizzle-orm: 1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)
+      drizzle-kit: 1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))
+      drizzle-orm: 1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)
       next: 16.2.6(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
@@ -21981,6 +22029,15 @@ snapshots:
       set-cookie-parser: 3.1.1
     optionalDependencies:
       zod: 4.3.6
+
+  better-call@1.3.6(zod@4.4.3):
+    dependencies:
+      "@better-auth/utils": 0.4.1
+      "@better-fetch/fetch": 1.2.2
+      rou3: 0.7.12
+      set-cookie-parser: 3.1.1
+    optionalDependencies:
+      zod: 4.4.3
 
   better-sqlite3@12.4.1:
     dependencies:
@@ -22038,8 +22095,7 @@ snapshots:
 
   buffer-crc32@0.2.13: {}
 
-  buffer-from@1.1.2:
-    optional: true
+  buffer-from@1.1.2: {}
 
   buffer@5.7.1:
     dependencies:
@@ -22462,17 +22518,17 @@ snapshots:
 
   dayjs@1.11.21: {}
 
-  db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)):
+  db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)):
     optionalDependencies:
       "@libsql/client": 0.17.4
       better-sqlite3: 12.4.1
-      drizzle-orm: 0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)
+      drizzle-orm: 0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)
 
-  db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)):
+  db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)):
     optionalDependencies:
       "@libsql/client": 0.17.4
       better-sqlite3: 12.4.1
-      drizzle-orm: 1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)
+      drizzle-orm: 1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)
 
   debounce-fn@6.0.0:
     dependencies:
@@ -22594,29 +22650,27 @@ snapshots:
       esbuild-register: 3.6.0(esbuild@0.25.12)
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
-  drizzle-kit@1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)):
+  drizzle-kit@1.0.0-rc.4(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)):
     dependencies:
       "@drizzle-team/brocli": 0.12.0
       "@js-temporal/polyfill": 0.5.1
-      drizzle-orm: 1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)
+      drizzle-orm: 1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)
       esbuild: 0.25.12
       get-tsconfig: 4.14.0
       jiti: 2.7.0
 
-  drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3):
+  drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3):
     optionalDependencies:
-      "@cloudflare/workers-types": 5.20260817.1
+      "@cloudflare/workers-types": 5.20260821.1
       "@libsql/client": 0.17.4
       "@types/better-sqlite3": 7.6.13
       better-sqlite3: 12.4.1
       kysely: 0.29.3
-    optional: true
 
-  drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76):
+  drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76):
     optionalDependencies:
-      "@cloudflare/workers-types": 5.20260817.1
+      "@cloudflare/workers-types": 5.20260821.1
       "@libsql/client": 0.17.4
       "@types/better-sqlite3": 7.6.13
       better-sqlite3: 12.4.1
@@ -22688,14 +22742,14 @@ snapshots:
 
   env-paths@3.0.0: {}
 
-  env-runner@0.1.16(wrangler@4.123.0(@cloudflare/workers-types@5.20260817.1)):
+  env-runner@0.1.16(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1)):
     dependencies:
       crossws: 0.4.9(srvx@0.11.21)
       exsolve: 1.1.0
       httpxy: 0.5.5
       srvx: 0.11.21
     optionalDependencies:
-      wrangler: 4.123.0(@cloudflare/workers-types@5.20260817.1)
+      wrangler: 4.123.0(@cloudflare/workers-types@5.20260821.1)
 
   environment@1.1.0: {}
 
@@ -22844,7 +22898,6 @@ snapshots:
       esbuild: 0.25.12
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   esbuild@0.18.20:
     optionalDependencies:
@@ -22870,7 +22923,6 @@ snapshots:
       "@esbuild/win32-arm64": 0.18.20
       "@esbuild/win32-ia32": 0.18.20
       "@esbuild/win32-x64": 0.18.20
-    optional: true
 
   esbuild@0.25.12:
     optionalDependencies:
@@ -23186,10 +23238,10 @@ snapshots:
 
   etag@1.8.1: {}
 
-  eve@0.24.6(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(ai@7.0.30(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260817.1)):
+  eve@0.24.6(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(ai@7.0.30(zod@3.25.76))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1)):
     dependencies:
       ai: 7.0.30(zod@3.25.76)
-      nitro: 3.0.260610-beta(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260817.1))
+      nitro: 3.0.260610-beta(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1))
     optionalDependencies:
       microsandbox: 0.6.6
     transitivePeerDependencies:
@@ -23232,10 +23284,10 @@ snapshots:
       - xml2js
       - zephyr-agent
 
-  eve@0.24.6(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(ai@7.0.30(zod@4.4.3))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260817.1)):
+  eve@0.24.6(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(ai@7.0.30(zod@4.4.3))(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(microsandbox@0.6.6)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1)):
     dependencies:
       ai: 7.0.30(zod@4.4.3)
-      nitro: 3.0.260610-beta(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260817.1))
+      nitro: 3.0.260610-beta(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1))
     optionalDependencies:
       microsandbox: 0.6.6
     transitivePeerDependencies:
@@ -25111,12 +25163,12 @@ snapshots:
 
   nf3@0.3.21: {}
 
-  nitro@3.0.260610-beta(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260817.1)):
+  nitro@3.0.260610-beta(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1)):
     dependencies:
       consola: 3.4.2
       crossws: 0.4.9(srvx@0.11.21)
-      db0: 0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))
-      env-runner: 0.1.16(wrangler@4.123.0(@cloudflare/workers-types@5.20260817.1))
+      db0: 0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))
+      env-runner: 0.1.16(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1))
       h3: 2.0.1-rc.22(crossws@0.4.9(srvx@0.11.21))
       hookable: 6.1.1
       nf3: 0.3.21
@@ -25126,7 +25178,7 @@ snapshots:
       rolldown: 1.1.5
       srvx: 0.11.21
       unenv: 2.0.0-rc.24
-      unstorage: 2.0.0-alpha.7(@vercel/blob@2.4.0)(chokidar@4.0.3)(db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)
+      unstorage: 2.0.0-alpha.7(@vercel/blob@2.4.0)(chokidar@4.0.3)(db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)
     optionalDependencies:
       dotenv: 16.0.3
       jiti: 2.7.0
@@ -25164,12 +25216,12 @@ snapshots:
       - uploadthing
       - wrangler
 
-  nitro@3.0.260610-beta(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260817.1)):
+  nitro@3.0.260610-beta(@libsql/client@0.17.4)(@vercel/blob@2.4.0)(better-sqlite3@12.4.1)(chokidar@4.0.3)(dotenv@16.0.3)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.62.2)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1)):
     dependencies:
       consola: 3.4.2
       crossws: 0.4.9(srvx@0.11.21)
-      db0: 0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))
-      env-runner: 0.1.16(wrangler@4.123.0(@cloudflare/workers-types@5.20260817.1))
+      db0: 0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))
+      env-runner: 0.1.16(wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1))
       h3: 2.0.1-rc.22(crossws@0.4.9(srvx@0.11.21))
       hookable: 6.1.1
       nf3: 0.3.21
@@ -25179,7 +25231,7 @@ snapshots:
       rolldown: 1.1.5
       srvx: 0.11.21
       unenv: 2.0.0-rc.24
-      unstorage: 2.0.0-alpha.7(@vercel/blob@2.4.0)(chokidar@4.0.3)(db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)
+      unstorage: 2.0.0-alpha.7(@vercel/blob@2.4.0)(chokidar@4.0.3)(db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3)
     optionalDependencies:
       dotenv: 16.0.3
       jiti: 2.7.0
@@ -26682,12 +26734,10 @@ snapshots:
     dependencies:
       buffer-from: 1.1.2
       source-map: 0.6.1
-    optional: true
 
   source-map@0.5.7: {}
 
-  source-map@0.6.1:
-    optional: true
+  source-map@0.6.1: {}
 
   source-map@0.7.6: {}
 
@@ -27202,19 +27252,19 @@ snapshots:
 
   unpipe@1.0.0: {}
 
-  unstorage@2.0.0-alpha.7(@vercel/blob@2.4.0)(chokidar@4.0.3)(db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3):
+  unstorage@2.0.0-alpha.7(@vercel/blob@2.4.0)(chokidar@4.0.3)(db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3)))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3):
     optionalDependencies:
       "@vercel/blob": 2.4.0
       chokidar: 4.0.3
-      db0: 0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))
+      db0: 0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(kysely@0.29.3))
       lru-cache: 11.5.2
       ofetch: 2.0.0-alpha.3
 
-  unstorage@2.0.0-alpha.7(@vercel/blob@2.4.0)(chokidar@4.0.3)(db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3):
+  unstorage@2.0.0-alpha.7(@vercel/blob@2.4.0)(chokidar@4.0.3)(db0@0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76)))(lru-cache@11.5.2)(ofetch@2.0.0-alpha.3):
     optionalDependencies:
       "@vercel/blob": 2.4.0
       chokidar: 4.0.3
-      db0: 0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260817.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))
+      db0: 0.3.4(@libsql/client@0.17.4)(better-sqlite3@12.4.1)(drizzle-orm@1.0.0-rc.4(@cloudflare/workers-types@5.20260821.1)(@libsql/client@0.17.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(zod@3.25.76))
       lru-cache: 11.5.2
       ofetch: 2.0.0-alpha.3
 
@@ -27466,7 +27516,7 @@ snapshots:
       "@cloudflare/workerd-linux-arm64": 1.20260811.1
       "@cloudflare/workerd-windows-64": 1.20260811.1
 
-  wrangler@4.123.0(@cloudflare/workers-types@5.20260817.1):
+  wrangler@4.123.0(@cloudflare/workers-types@5.20260821.1):
     dependencies:
       "@cloudflare/kv-asset-handler": 0.5.0
       "@cloudflare/unenv-preset": 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260811.1)
@@ -27477,7 +27527,7 @@ snapshots:
       unenv: 2.0.0-rc.24
       workerd: 1.20260811.1
     optionalDependencies:
-      "@cloudflare/workers-types": 5.20260817.1
+      "@cloudflare/workers-types": 5.20260821.1
       fsevents: 2.3.3
     transitivePeerDependencies:
       - bufferutil

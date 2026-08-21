@@ -10,9 +10,11 @@
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
     "lint": "eslint --flag unstable_native_nodejs_ts_config",
     "test": "vitest run",
+    "types": "wrangler types --strict-vars false",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@chief/auth": "workspace:*",
     "@chief/relay-contracts": "workspace:*",
     "@noble/curves": "^2.3.0",
     "@noble/hashes": "^2.3.0",
@@ -24,7 +26,6 @@
     "@chief/prettier-config": "workspace:*",
     "@chief/tsconfig": "workspace:*",
     "@cloudflare/vitest-pool-workers": "^0.21.3",
-    "@cloudflare/workers-types": "^5.20260817.1",
     "@types/node": "catalog:",
     "eslint": "catalog:",
     "prettier": "catalog:",
