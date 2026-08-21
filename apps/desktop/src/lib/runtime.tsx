@@ -12,7 +12,7 @@ import {
   useState,
 } from "react";
 import { useChat } from "@ai-sdk/react";
-import { useAction, useConvexAuth, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { toast } from "sonner";
 
 import type {
@@ -22,11 +22,9 @@ import type {
   CampaignRecord,
   ChatExecutionSelection,
   ChiefUIMessage,
-  ClientMessage,
   ContentBlock,
   DiagnosticEventRecord,
   DriverType,
-  ExecutorCapability,
   InputRequest,
   IntegrationSetupProgress,
   MessageAttachment,
@@ -34,7 +32,6 @@ import type {
   OnboardingWorkJob,
   ProviderModelOption,
   RecurringWorkRecord,
-  ServerMessage,
   SessionRecord,
 } from "@chief/agent-runtime/types";
 import { api } from "@chief/backend/convex/_generated/api";
@@ -46,7 +43,11 @@ import type {
 } from "./browser-sessions";
 import type { ChannelReactionSummary } from "./channel-reactions";
 import type { ChatControlState } from "./runtime-chat-controls";
-import type { ScopedWorkspaceCapability } from "./workspace-capability";
+import type {
+  RuntimeConnectionStatus,
+  RuntimeMessageListener,
+  RuntimeTransport,
+} from "./runtime-transport";
 import type { WorkspaceChatSummary } from "./workspace-conversation-cache";
 import type { WorkspaceDataState } from "./workspace-data";
 import { useAuth } from "./auth/auth-context";
@@ -74,12 +75,15 @@ import {
   mergePendingOnboardingSchedules,
   pendingOnboardingWorkStorageKey,
   readPendingOnboardingWork,
+  relayNeedsPendingOnboardingReplay,
 } from "./pending-onboarding-work";
 import {
   readCachedProviderModels,
   retainUsefulProviderModels,
   writeCachedProviderModels,
 } from "./provider-model-cache";
+import { RelayRuntimeClient } from "./relay-runtime-client";
+import { useRelaySession } from "./relay-session";
 /** Durable NIP-29 events for channel timelines and message search. */
 import { useChannelEvents } from "./runtime-channels";
 import {
@@ -96,7 +100,6 @@ import {
 import { useManualMissionHeartbeat } from "./runtime-mission-heartbeat";
 import { useRecurringWorkSettings } from "./runtime-recurring-work";
 import { useWaysOfWorkingSaver } from "./runtime-ways-of-working";
-import { capabilityForWorkspace } from "./workspace-capability";
 import { buildWorkspaceContext } from "./workspace-context";
 import {
   activateWorkspaceConversationCache,
@@ -108,250 +111,75 @@ import {
 import { useConversationHydration } from "./workspace-conversation-hydration";
 import { emptyWorkspaceData, normalizeWorkspaceData } from "./workspace-data";
 
-// "localhost" (not 127.0.0.1) — macOS ATS only exempts the literal
-// localhost hostname for insecure websockets inside WKWebView.
-const RUNTIME_URL = "ws://localhost:4318";
-const EXECUTOR_CAPABILITY_PREFIX = "chief:executor-capability:";
-const workspaceCapabilityCache = new Map<string, ExecutorCapability>();
-const workspaceCapabilityRegistrations = new Map<
-  string,
-  Promise<ExecutorCapability>
->();
 const EMPTY_SETUP_PROGRESS: Readonly<Record<string, IntegrationSetupProgress>> =
   {};
 
-function workspaceCapabilityToken(organizationId: string): string {
-  const key = `${EXECUTOR_CAPABILITY_PREFIX}${organizationId}`;
-  const existing = window.localStorage.getItem(key);
-  if (existing && /^[A-Za-z0-9_-]{43,128}$/.test(existing)) return existing;
-
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  const token = btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-  window.localStorage.setItem(key, token);
-  return token;
-}
-
 export function useWorkspaceCapability() {
-  const { cloudOrganizationId } = useAuth();
-  const { isAuthenticated } = useConvexAuth();
-  const registerCapability = useAction(api.agentTools.registerCapability);
-  const [scopedCapability, setScopedCapability] =
-    useState<ScopedWorkspaceCapability | null>(() => {
-      const cached = cloudOrganizationId
-        ? workspaceCapabilityCache.get(cloudOrganizationId)
-        : undefined;
-      return cloudOrganizationId && cached
-        ? { workspaceId: cloudOrganizationId, capability: cached }
-        : null;
-    });
-  const [error, setError] = useState<string | null>(null);
-  const [retryAttempt, setRetryAttempt] = useState(0);
-
-  useEffect(() => {
-    if (!cloudOrganizationId || !isAuthenticated) {
-      setScopedCapability(null);
-      setError(null);
-      return;
-    }
-    const cached = workspaceCapabilityCache.get(cloudOrganizationId);
-    if (cached) {
-      setScopedCapability({
-        workspaceId: cloudOrganizationId,
-        capability: cached,
-      });
-      setError(null);
-    } else {
-      setScopedCapability(null);
-      setError(null);
-    }
-
-    let cancelled = false;
-    let retryTimer: number | undefined;
-    const token = workspaceCapabilityToken(cloudOrganizationId);
-    let registration =
-      workspaceCapabilityRegistrations.get(cloudOrganizationId);
-    if (!registration) {
-      registration = registerCapability({ token }).then(({ apiBaseUrl }) => ({
-        apiBaseUrl,
-        token,
-      }));
-      workspaceCapabilityRegistrations.set(cloudOrganizationId, registration);
-      void registration
-        .finally(() => {
-          if (
-            workspaceCapabilityRegistrations.get(cloudOrganizationId) ===
-            registration
-          ) {
-            workspaceCapabilityRegistrations.delete(cloudOrganizationId);
-          }
-        })
-        .catch(() => undefined);
-    }
-    void registration
-      .then((next) => {
-        if (cancelled) return;
-        workspaceCapabilityCache.set(cloudOrganizationId, next);
-        setScopedCapability({
-          workspaceId: cloudOrganizationId,
-          capability: next,
-        });
-        setRetryAttempt(0);
-      })
-      .catch((reason) => {
-        if (!cancelled) {
-          setError(
-            reason instanceof Error
-              ? reason.message
-              : "Could not authorize this workspace.",
-          );
-          retryTimer = window.setTimeout(
-            () => setRetryAttempt((attempt) => attempt + 1),
-            Math.min(30_000, 2_000 * 2 ** Math.min(retryAttempt, 4)),
-          );
-        }
-      });
-    return () => {
-      cancelled = true;
-      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
-    };
-  }, [cloudOrganizationId, isAuthenticated, registerCapability, retryAttempt]);
-
-  return {
-    cloudOrganizationId,
-    capability: capabilityForWorkspace(cloudOrganizationId, scopedCapability),
-    error,
-  };
+  const { snapshot } = useRelaySession();
+  const cloudOrganizationId = snapshot?.id ?? null;
+  return useMemo(
+    () => ({
+      cloudOrganizationId,
+      // This is transport context for the existing UI command shape, not an
+      // authorization token. Relay authorization is always NIP-98 and is
+      // independently enforced against workspace and agent tool policy.
+      capability: cloudOrganizationId
+        ? { apiBaseUrl: "chief-relay://nip98", token: "transport-owned" }
+        : null,
+      error: null,
+    }),
+    [cloudOrganizationId],
+  );
 }
 
-type Listener = (msg: ServerMessage) => void;
+class PendingRelayRuntimeClient implements RuntimeTransport {
+  private statusListener: (status: RuntimeStatus) => void = () => undefined;
+  private listeners = new Set<RuntimeMessageListener>();
 
-export class RuntimeClient {
-  private ws: WebSocket | null = null;
-  private listeners = new Set<Listener>();
-  private queue: ClientMessage[] = [];
-  private closed = false;
-  private reconnectTimer: number | null = null;
-  private connectTimer: number | null = null;
-  private reconnectDelayMs = 1000;
-  private statusListener: (status: RuntimeStatus) => void = () => {};
+  constructor(private readonly error: string | null) {}
 
   setStatusListener(listener: (status: RuntimeStatus) => void) {
     this.statusListener = listener;
   }
 
   connect() {
-    if (
-      this.ws?.readyState === WebSocket.OPEN ||
-      this.ws?.readyState === WebSocket.CONNECTING
-    ) {
-      return;
+    this.statusListener(this.error ? "disconnected" : "connecting");
+    if (!this.error) return;
+    for (const listener of this.listeners) {
+      listener({ type: "error", message: this.error });
     }
-    if (this.reconnectTimer !== null) {
-      window.clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    this.closed = false;
-    try {
-      const socket = new WebSocket(RUNTIME_URL);
-      this.ws = socket;
-      this.connectTimer = window.setTimeout(() => {
-        if (this.ws === socket && socket.readyState === WebSocket.CONNECTING) {
-          socket.close();
-        }
-      }, 8_000);
-    } catch {
-      this.ws = null;
-      this.scheduleReconnect();
-      return;
-    }
-    const socket = this.ws;
-    socket.onopen = () => {
-      this.clearConnectTimer();
-      this.reconnectDelayMs = 1000;
-      this.statusListener("connected");
-      for (const msg of this.queue.splice(0)) this.send(msg);
-    };
-    socket.onmessage = (e) => {
-      try {
-        if (typeof e.data !== "string") return;
-        const msg = JSON.parse(e.data) as ServerMessage;
-        for (const l of this.listeners) l(msg);
-      } catch {
-        // ignore
-      }
-    };
-    socket.onclose = () => {
-      this.clearConnectTimer();
-      if (this.ws === socket) this.ws = null;
-      if (this.closed) return;
-      this.scheduleReconnect();
-    };
-    socket.onerror = () => socket.close();
   }
 
   reconnectNow() {
-    if (this.reconnectTimer !== null) {
-      window.clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    this.clearConnectTimer();
-    const socket = this.ws;
-    this.ws = null;
-    socket?.close();
     this.connect();
   }
 
-  private clearConnectTimer() {
-    if (this.connectTimer === null) return;
-    window.clearTimeout(this.connectTimer);
-    this.connectTimer = null;
-  }
-
-  private scheduleReconnect() {
-    if (this.closed || this.reconnectTimer !== null) return;
-    this.statusListener("disconnected");
-    const delay = this.reconnectDelayMs;
-    this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 5000);
-    this.reconnectTimer = window.setTimeout(() => {
-      this.reconnectTimer = null;
-      this.connect();
-    }, delay);
-  }
-
-  send(msg: ClientMessage) {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(msg));
-    } else {
-      this.queue.push(msg);
+  send() {
+    for (const listener of this.listeners) {
+      listener({
+        type: "error",
+        message: this.error ?? "The Chief relay is still connecting.",
+      });
     }
   }
 
-  subscribe(listener: Listener) {
+  subscribe(listener: RuntimeMessageListener) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
   destroy() {
-    this.closed = true;
-    this.clearConnectTimer();
-    if (this.reconnectTimer !== null) {
-      window.clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    this.ws?.close();
-    this.ws = null;
+    this.statusListener("disconnected");
+    this.listeners.clear();
   }
 }
 
-export type RuntimeStatus = "connecting" | "connected" | "disconnected";
+export type RuntimeStatus = RuntimeConnectionStatus;
 
 const BROWSER_VIEWPORT = { width: 1280, height: 800 } as const;
 
 interface RuntimeContextValue {
-  client: RuntimeClient;
+  client: RuntimeTransport;
   status: RuntimeStatus;
   agents: AgentDefinition[];
   browserSessions: RuntimeBrowserSessions;
@@ -377,8 +205,14 @@ const RuntimeContext = createContext<RuntimeContextValue | null>(null);
 
 export function RuntimeProvider({ children }: { children: ReactNode }) {
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
+  const relaySession = useRelaySession();
   const markIntegrationConnected = useMutation(api.integrations.markConnected);
-  const [client] = useState(() => new RuntimeClient());
+  const client = useMemo<RuntimeTransport>(() => {
+    if (relaySession.client && relaySession.snapshot) {
+      return new RelayRuntimeClient(relaySession.client, relaySession.snapshot);
+    }
+    return new PendingRelayRuntimeClient(relaySession.error);
+  }, [relaySession.client, relaySession.error, relaySession.snapshot]);
 
   const [status, setStatus] = useState<RuntimeStatus>("connecting");
   const [agents, setAgents] = useState<AgentDefinition[]>([]);
@@ -536,9 +370,8 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     (runId: string) => {
       const session = browserSessions[runId];
       if (!session) return;
-      const executorCapability = workspaceCapabilityCache.get(
-        session.workspaceId,
-      );
+      const executorCapability =
+        session.workspaceId === cloudOrganizationId ? capability : null;
       if (!executorCapability) return;
       client.send({
         type: "interruptChat",
@@ -547,7 +380,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         executorCapability,
       });
     },
-    [browserSessions, client],
+    [browserSessions, capability, client, cloudOrganizationId],
   );
   const anchorBrowserSession = useCallback(
     (runId: string, messageId: string) => {
@@ -908,7 +741,8 @@ export function useLocalChats(workspaceId: string | null) {
   return { chats: visibleChats, loading: !visibleResolved, remove };
 }
 
-export { useChannelEvents, useWorkspaceChannels } from "./runtime-channels";
+export { useChannelEvents } from "./runtime-channels";
+export { useWorkspaceChannels } from "./workspace-channels-context";
 
 function reactionIntentKey(messageId: string, emoji: string) {
   return `${messageId}\0${emoji}`;
@@ -1058,6 +892,7 @@ export function updatePendingOnboardingDriver(
 
 function useWorkspaceDataSource(workspaceId: string | null) {
   const { client, status } = useRuntime();
+  const { snapshot: relaySnapshot } = useRelaySession();
   const { sessionToken, user } = useAuth();
   const {
     cloudOrganizationId,
@@ -1190,6 +1025,11 @@ function useWorkspaceDataSource(workspaceId: string | null) {
     };
     const replayPendingOnboarding = () => {
       clearPendingOnboardingRetry();
+      if (!relayNeedsPendingOnboardingReplay(workspaceId, relaySnapshot)) {
+        completePendingOnboardingWork(workspaceId);
+        pendingOnboardingRequestId = null;
+        return;
+      }
       const stored = readPendingOnboardingWork(workspaceId);
       if (!stored) {
         pendingOnboardingRequestId = null;
@@ -1337,7 +1177,14 @@ function useWorkspaceDataSource(workspaceId: string | null) {
       document.removeEventListener("visibilitychange", refreshWhenVisible);
       unsubscribe();
     };
-  }, [capability, client, cloudOrganizationId, status, workspaceId]);
+  }, [
+    capability,
+    client,
+    cloudOrganizationId,
+    relaySnapshot,
+    status,
+    workspaceId,
+  ]);
 
   const liveData = useMemo(
     () => ({
@@ -1821,11 +1668,8 @@ function useRuntimeChat(
     );
   const { user } = useAuth();
   const senderName = user?.name.trim();
-  const {
-    cloudOrganizationId,
-    capability: executorCapability,
-    error: capabilityError,
-  } = useWorkspaceCapability();
+  const { cloudOrganizationId, capability: executorCapability } =
+    useWorkspaceCapability();
   const [controls, setControls] = useState<ChatControlState>(emptyChatControls);
   const pendingStreamRef = useRef("");
   const [chatReady, setChatReady] = useState(false);
@@ -1924,18 +1768,6 @@ function useRuntimeChat(
   const initializedChatKeyRef = useRef<string | null>(null);
   const loadedHistoryKeyRef = useRef<string | null>(null);
   const [messagesChatKey, setMessagesChatKey] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!capabilityError) return;
-    setControls((current) => ({
-      ...current,
-      status: "idle",
-      error: capabilityError,
-      // Connection/capability failures have their own runtime status UI. Keep
-      // the diagnostic in Activity without recreating a chat error alert.
-      errorAcknowledged: true,
-    }));
-  }, [capabilityError]);
 
   useEffect(() => {
     if (

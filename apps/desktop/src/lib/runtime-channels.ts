@@ -117,7 +117,7 @@ export function useChannelEvents(channelId: string | null) {
   return { events, loaded: eventsLoaded };
 }
 
-export function useWorkspaceChannels() {
+export function useWorkspaceChannelsState() {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
   const { sessionToken } = useAuth();

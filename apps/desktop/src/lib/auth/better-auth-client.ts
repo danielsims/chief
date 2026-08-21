@@ -12,9 +12,7 @@ import { getStoredSession, setStoredSession } from "./session";
 
 export { AUTH_BASE_URL } from "../config";
 
-// App.tsx blocks unconfigured production builds before auth can run. The
-// loopback fallback keeps client construction safe during module evaluation.
-const authClientBaseUrl = AUTH_BASE_URL ?? "http://127.0.0.1:3000";
+const authClientBaseUrl = AUTH_BASE_URL;
 
 // Always use Tauri's native HTTP fetch when in Tauri context.
 // Tauri's native fetch bypasses CORS in both dev and production.
@@ -70,8 +68,8 @@ export type SessionValidationResult =
 /**
  * Validate a stored session token against the auth server.
  *
- * The desktop caches the session in localStorage and otherwise trusts it
- * indefinitely. That cache can outlive the server-side session — it expires,
+ * The desktop caches the session in memory after loading it from Keychain.
+ * That cache can outlive the server-side session — it expires,
  * or a backend auth deploy invalidates old tokens. When that happens every
  * authenticated cloud call silently 401s while the UI still shows the user as
  * signed in. Calling this on launch lets us detect a dead token and prompt a
@@ -84,7 +82,7 @@ export async function validateStoredSession(
     const fetcher = isTauri() ? tauriFetch : fetch;
     const response = await fetchWithTimeout(
       fetcher,
-      `${AUTH_BASE_URL!}/api/auth/get-session`,
+      `${AUTH_BASE_URL}/api/auth/oauth2/userinfo`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
 
@@ -93,18 +91,24 @@ export async function validateStoredSession(
     // Any other non-2xx (5xx, gateway errors) is transient — keep the session.
     if (!response.ok) return { status: "unknown" };
 
-    // better-auth returns `null` (HTTP 200) when the session can't be
-    // resolved, which is also a definitive "this token is dead".
     const data = (await response.json()) as {
-      user?: StoredSession["user"];
-      session?: { activeOrganizationId?: string };
+      sub?: string;
+      name?: string;
+      email?: string;
+      email_verified?: boolean;
+      picture?: string | null;
     } | null;
-    if (!data?.user) return { status: "invalid" };
+    if (!data?.sub || !data.email) return { status: "invalid" };
 
     return {
       status: "valid",
-      user: data.user,
-      organizationId: data.session?.activeOrganizationId,
+      user: {
+        id: data.sub,
+        name: data.name?.trim() ?? data.email,
+        email: data.email,
+        emailVerified: data.email_verified ?? false,
+        ...(data.picture ? { image: data.picture } : {}),
+      },
     };
   } catch {
     // Network/transport failure — don't sign out offline users.
@@ -313,7 +317,7 @@ export async function listAuthOrganizations(
   if (!promise) {
     promise = (async () => {
       try {
-        const url = `${AUTH_BASE_URL!}/api/auth/organization/list`;
+        const url = `${AUTH_BASE_URL}/api/auth/organization/list`;
         const fetcher = isTauri() ? tauriFetch : fetch;
         const response = await fetchWithTimeout(fetcher, url, {
           headers: { Authorization: `Bearer ${token}` },
@@ -355,7 +359,7 @@ export async function setActiveAuthOrganization(
   const storedSession = getStoredSession();
   if (!storedSession?.token) throw new Error("Not authenticated");
 
-  const url = `${AUTH_BASE_URL!}/api/auth/organization/set-active`;
+  const url = `${AUTH_BASE_URL}/api/auth/organization/set-active`;
   const fetcher = isTauri() ? tauriFetch : fetch;
   const response = await fetcher(url, {
     method: "POST",
