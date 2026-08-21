@@ -61,6 +61,8 @@ async function authorization(input: {
 const relayFetch: typeof fetch = (input, init) =>
   isTauri() ? tauriFetch(input, init) : fetch(input, init);
 
+let deviceAuthorization: string | undefined;
+
 async function signedFetch(url: URL, init: RequestInit = {}) {
   const method = init.method?.toUpperCase() ?? "GET";
   const body = typeof init.body === "string" ? init.body : "";
@@ -69,6 +71,9 @@ async function signedFetch(url: URL, init: RequestInit = {}) {
     "authorization",
     await authorization({ url: url.toString(), method, body }),
   );
+  if (deviceAuthorization) {
+    headers.set("x-chief-device-authorization", deviceAuthorization);
+  }
   return relayFetch(url, { ...init, headers });
 }
 
@@ -81,6 +86,16 @@ async function bindAccount(accountToken: string) {
     body,
   });
   if (!response.ok) throw await relayResponseError(response);
+  const binding = (await response.json()) as {
+    deviceAuthorization?: unknown;
+  };
+  if (
+    typeof binding.deviceAuthorization !== "string" ||
+    binding.deviceAuthorization.length < 32
+  ) {
+    throw new Error("The relay returned an invalid device authorization.");
+  }
+  deviceAuthorization = binding.deviceAuthorization;
 }
 
 async function activeWorkspace() {
@@ -153,6 +168,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
     const attempt = (async () => {
       const generation = ++connectionGeneration.current;
       if (!sessionToken) {
+        deviceAuthorization = undefined;
         setRelayWorkspaceOverride(null);
         setState({
           client: null,
@@ -173,6 +189,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
         const accountClient = new RelayClient({
           relayUrl: RELAY_URL,
           getAuthorization: authorization,
+          getDeviceAuthorization: () => deviceAuthorization,
           fetch: relayFetch,
         });
         const client = snapshot
@@ -180,6 +197,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
               relayUrl: RELAY_URL,
               workspaceId: snapshot.id,
               getAuthorization: authorization,
+              getDeviceAuthorization: () => deviceAuthorization,
               fetch: relayFetch,
             })
           : accountClient;

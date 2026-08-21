@@ -219,6 +219,12 @@ actor RelayLiveClient {
     // device identity (no Bearer token).
     let header = try NIP98Authenticator.header(method: "POST", url: url)
     request.setValue(header, forHTTPHeaderField: "authorization")
+    if let deviceAuthorization = await DeviceAuthorizationVault.shared.load() {
+      request.setValue(
+        deviceAuthorization,
+        forHTTPHeaderField: "x-chief-device-authorization"
+      )
+    }
     let (data, response) = try await session.data(for: request)
     guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
       throw RelayError.unavailable

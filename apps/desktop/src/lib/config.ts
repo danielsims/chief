@@ -20,7 +20,10 @@ export const RELAY_URL =
   env.VITE_CHIEF_RELAY_URL ??
   "https://chief-relay.danielsims-browser-ui.workers.dev";
 
-export const AUTH_BASE_URL = RELAY_URL;
+export const AUTH_BASE_URL =
+  env.VITE_AUTH_BASE_URL ??
+  injectedAuthBaseUrl ??
+  "https://chief-relay.danielsims-browser-ui.workers.dev";
 
 export const missingDesktopConfiguration = [
   !CONVEX_URL ? "VITE_CONVEX_URL" : null,

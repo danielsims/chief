@@ -446,12 +446,18 @@ actor URLSessionRelayClient: RelayServing {
     struct Result: Decodable {
       let userId: String
       let pubkey: String
+      let deviceAuthorization: String
+      let expiresAt: String
     }
-    let _: Result = try await request(
+    let result: Result = try await request(
       path: "/v1/identity/device",
       method: "POST",
       body: try JSONEncoder().encode(Payload(accountToken: accountToken))
     )
+    guard result.deviceAuthorization.count >= 32 else {
+      throw RelayError.unauthorized
+    }
+    await DeviceAuthorizationVault.shared.store(result.deviceAuthorization)
   }
 
   func loadWorkspace() async throws -> WorkspaceSnapshot {
@@ -1255,6 +1261,14 @@ actor URLSessionRelayClient: RelayServing {
         .header(method: method, url: url, body: body ?? Data())
       request.setValue(header, forHTTPHeaderField: "authorization")
     }
+    if signer == nil,
+      let deviceAuthorization = await DeviceAuthorizationVault.shared.load()
+    {
+      request.setValue(
+        deviceAuthorization,
+        forHTTPHeaderField: "x-chief-device-authorization"
+      )
+    }
     var data: Data
     var response: URLResponse
     do {
@@ -1278,6 +1292,11 @@ actor URLSessionRelayClient: RelayServing {
       relayLog.error("\(method) \(path) -> \(http.statusCode): \(detail.prefix(300))")
       print("[Chief] relay \(method) \(path) -> \(http.statusCode): \(detail.prefix(300))")
       if http.statusCode == 401 { throw RelayError.unauthorized }
+      if let envelope = try? decoder.decode(RelayFailureEnvelope.self, from: data),
+        envelope.error.code == "relay_capacity_exhausted"
+      {
+        throw RelayError.capacity
+      }
       throw RelayError.httpStatus(http.statusCode)
     }
     relayLog.info("\(method) \(path) -> \(http.statusCode)")
@@ -1308,6 +1327,7 @@ actor URLSessionRelayClient: RelayServing {
 enum RelayError: LocalizedError, Equatable {
   case unauthorized
   case unavailable
+  case capacity
   case httpStatus(Int)
   case unsupportedRelay
 
@@ -1317,6 +1337,8 @@ enum RelayError: LocalizedError, Equatable {
       "Chief could not verify this device with the relay. Sign in again and retry."
     case .unavailable:
       "Chief could not reach the relay. Check your connection and retry."
+    case .capacity:
+      "This relay is temporarily at capacity. Your workspace is safe; try again after its usage window resets."
     case .unsupportedRelay:
       "This invite belongs to another Chief relay. Add that relay before joining."
     case .httpStatus(404):
@@ -1327,6 +1349,11 @@ enum RelayError: LocalizedError, Equatable {
       "The relay rejected workspace setup. Review the setup details and retry."
     }
   }
+}
+
+private struct RelayFailureEnvelope: Decodable {
+  struct Failure: Decodable { let code: String }
+  let error: Failure
 }
 
 private struct MessagePage: Codable { let messages: [ConversationMessage] }

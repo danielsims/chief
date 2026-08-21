@@ -19,7 +19,9 @@ describe("public relay routes", () => {
   it("publishes portable discovery", async () => {
     const response = await worker.fetch(
       new Request("https://relay.test/.well-known/chief-relay"),
-      relayEnv(),
+      Object.assign(Object.create(relayEnv()), {
+        RELAY_PUBLIC_URL: undefined,
+      }) as Parameters<typeof worker.fetch>[1],
       createExecutionContext(),
     );
     const body = (await response.json()) as Record<string, unknown>;
@@ -30,6 +32,24 @@ describe("public relay routes", () => {
       protocolVersion: 1,
       deployment: relayEnv().RELAY_DEPLOYMENT,
       apiBaseUrl: "https://relay.test/v1",
+    });
+  });
+
+  it("publishes secure tunnel URLs when local TLS terminates at a proxy", async () => {
+    const response = await worker.fetch(
+      new Request("http://relay-tunnel.example/.well-known/chief-relay", {
+        headers: { "x-forwarded-proto": "https" },
+      }),
+      Object.assign(Object.create(relayEnv()), {
+        RELAY_PUBLIC_URL: undefined,
+      }) as Parameters<typeof worker.fetch>[1],
+      createExecutionContext(),
+    );
+    const body = (await response.json()) as Record<string, unknown>;
+
+    expect(body).toMatchObject({
+      apiBaseUrl: "https://relay-tunnel.example/v1",
+      websocketUrl: "wss://relay-tunnel.example/v1/connect",
     });
   });
 });

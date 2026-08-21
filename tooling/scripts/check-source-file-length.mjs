@@ -56,6 +56,7 @@ const ignoredDirectories = new Set([
   ".next",
   ".output",
   ".turbo",
+  ".wrangler",
   "_generated",
   "binaries",
   "coverage",

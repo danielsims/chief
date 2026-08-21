@@ -7,7 +7,12 @@ import {
 } from "@chief/relay-contracts";
 
 import { verifyRelayAccountCredential } from "./auth/account-credential";
-import { json, relayError } from "./http";
+import {
+  deviceAuthorizationHeader,
+  issueDeviceAuthorization,
+  verifyDeviceAuthorization,
+} from "./device-authorization";
+import { json } from "./http";
 import { verifyNip98Auth } from "./nip98";
 
 export async function bindDeviceIdentity(env: Env, request: Request) {
@@ -20,88 +25,47 @@ export async function bindDeviceIdentity(env: Env, request: Request) {
     }),
   );
   const input = bindDeviceIdentityCommandSchema.parse(JSON.parse(body));
-  const { accountSubject, relayAuthUserId } =
-    await verifyRelayAccountCredential(env, input.accountToken);
-  const device = env.IDENTITIES.get(
-    env.IDENTITIES.idFromName(`device-v2:${pubkey}`),
-  );
-  const account = env.IDENTITIES.get(
-    env.IDENTITIES.idFromName(`account-v2:${accountSubject}`),
-  );
-  const accountResponse = await identityRpc(
-    account,
-    "account-resolve-or-create",
-    {
-      accountSubject,
-      candidateUserId: relayAuthUserId,
-    },
-  );
-  if (!accountResponse.ok) return accountResponse;
-  const accountPayload: unknown = await accountResponse.json();
-  if (
-    typeof accountPayload !== "object" ||
-    accountPayload === null ||
-    !("userId" in accountPayload)
-  ) {
-    throw new Error("The account identity response is invalid.");
+  if (env.ACCOUNT_IDENTITY_MODE === "key-native") {
+    const userId = userIdSchema.parse(pubkey);
+    const authorization = await issueDeviceAuthorization(env, {
+      pubkey,
+      userId,
+    });
+    return json(
+      boundDeviceIdentitySchema.parse({ userId, pubkey, ...authorization }),
+    );
   }
-  const accountBinding = userIdSchema.parse(accountPayload.userId);
-  const response = await identityRpc(device, "device-bind", {
-    accountSubject,
-    userId: accountBinding,
+  const { relayAuthUserId } = await verifyRelayAccountCredential(
+    env,
+    input.accountToken,
+  );
+  const userId = userIdSchema.parse(relayAuthUserId);
+  const authorization = await issueDeviceAuthorization(env, {
     pubkey,
+    userId,
   });
-  if (!response.ok) return response;
-  return json(boundDeviceIdentitySchema.parse(await response.json()), {
-    status: response.status,
-  });
+  return json(
+    boundDeviceIdentitySchema.parse({ userId, pubkey, ...authorization }),
+  );
 }
 
 export async function resolveDeviceIdentity(
   env: Env,
   identity: AuthenticatedIdentity,
+  request: Request,
 ) {
   if (identity.kind !== "user" || env.ACCOUNT_IDENTITY_MODE === "key-native") {
     return { identity, bound: env.ACCOUNT_IDENTITY_MODE === "key-native" };
   }
-  const device = env.IDENTITIES.get(
-    env.IDENTITIES.idFromName(`device-v2:${identity.pubkey}`),
-  );
-  const response = await identityRpc(device, "device-resolve");
-  if (response.status === 204) return { identity, bound: false };
-  if (!response.ok) {
-    return {
-      response: relayError(
-        401,
-        "device_identity_denied",
-        "Device identity denied.",
-      ),
-    };
-  }
-  const binding = boundDeviceIdentitySchema.parse(await response.json());
+  const token = requestDeviceAuthorization(request);
+  if (!token) return { identity, bound: false };
   return {
     bound: true,
-    identity: {
-      kind: "user" as const,
-      userId: binding.userId,
-      pubkey: binding.pubkey,
-    },
+    identity: await verifyDeviceAuthorization(env, token, identity.pubkey),
   };
 }
 
-function identityRpc(
-  stub: DurableObjectStub,
-  operation: string,
-  body?: Record<string, unknown>,
-) {
-  return stub.fetch(
-    new Request("https://identity.internal", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-chief-internal-operation": operation,
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    }),
-  );
+function requestDeviceAuthorization(request: Request) {
+  const value = request.headers.get(deviceAuthorizationHeader)?.trim();
+  return value === undefined || value === "" ? undefined : value;
 }

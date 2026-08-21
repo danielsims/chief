@@ -20,10 +20,7 @@ export async function authenticateRelayRequest(
   }
   const signedIdentity = new RelayAuthenticator().authenticate(request, body);
   await enforceIdentityRequestLimits(env, request, signedIdentity.pubkey);
-  const resolved = await resolveDeviceIdentity(env, signedIdentity);
-  if ("response" in resolved) {
-    throw new AuthenticationError("Device identity denied.");
-  }
+  const resolved = await resolveDeviceIdentity(env, signedIdentity, request);
   if (body === undefined) {
     return {
       identity: resolved.identity,

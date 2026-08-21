@@ -54,6 +54,8 @@ export interface RelayClientOptions {
     method: string;
     body: string;
   }) => Promise<string>;
+  getDeviceAuthorization?: () =>
+    string | undefined | Promise<string | undefined>;
   fetch?: typeof globalThis.fetch;
   createWebSocket?: (url: string) => WebSocket;
 }
@@ -412,6 +414,10 @@ export class RelayClient {
         body,
       });
       headers.set("authorization", authorization);
+      const deviceAuthorization = await this.options.getDeviceAuthorization?.();
+      if (deviceAuthorization) {
+        headers.set("x-chief-device-authorization", deviceAuthorization);
+      }
     }
     const response = await this.fetcher(url, { ...init, headers });
     if (!response.ok) throw await RelayClientError.fromResponse(response);
