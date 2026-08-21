@@ -6,6 +6,8 @@ import type {
   ChannelRecord,
   ConversationEvent,
   CreateWorkspaceCommand,
+  DirectParticipant,
+  DirectStartResult,
   LogBatch,
   LogPage,
   RelayDiscovery,
@@ -22,6 +24,8 @@ import {
   channelMembersResultSchema,
   conversationEventPageSchema,
   conversationIdSchema,
+  directStartCommandSchema,
+  directStartResultSchema,
   logPageSchema,
   logReceiptSchema,
   messagePageSchema,
@@ -33,11 +37,14 @@ import {
   workspaceInviteSchema,
   workspaceListResultSchema,
   workspaceSnapshotSchema,
+  workspaceSocketTicketSchema,
   workspaceSwitchResultSchema,
 } from "@chief/relay-contracts";
 
 import type { RelayConversationSubscription } from "./relay-subscription";
+import type { RelayWorkspaceSubscription } from "./relay-workspace-subscription";
 import { openRelayConversationSubscription } from "./relay-subscription";
+import { openRelayWorkspaceSubscription } from "./relay-workspace-subscription";
 
 export interface RelayClientOptions {
   relayUrl: string;
@@ -52,6 +59,7 @@ export interface RelayClientOptions {
 }
 
 export type ConversationSubscription = RelayConversationSubscription;
+export type WorkspaceSubscription = RelayWorkspaceSubscription;
 
 export class RelayClient {
   readonly workspaceId: WorkspaceId | null;
@@ -220,6 +228,26 @@ export class RelayClient {
     ).memberships;
   }
 
+  async startDirectMessage(
+    participant: DirectParticipant,
+  ): Promise<DirectStartResult> {
+    return await this.fetchJson(
+      this.workspaceUrl("directs"),
+      directStartResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          directStartCommandSchema.parse({
+            commandId: crypto.randomUUID(),
+            participant,
+          }),
+        ),
+      },
+    );
+  }
+
   async listChannelMemberships(): Promise<ChannelMembership[]> {
     return (
       await this.fetchJson(
@@ -308,6 +336,33 @@ export class RelayClient {
         ),
       listEvents: (after) =>
         this.listEvents(conversationId, { after, limit: 200 }),
+      createWebSocket: this.createWebSocket,
+      onEvent: input.onEvent,
+      onError: input.onError,
+    });
+  }
+
+  async subscribeWorkspace(input: {
+    conversationIds: readonly string[];
+    after?: number;
+    onEvent: (event: ConversationEvent) => void;
+    onError?: (error: Error) => void;
+  }): Promise<WorkspaceSubscription> {
+    const workspaceId = this.requireWorkspaceId();
+    return await openRelayWorkspaceSubscription({
+      workspaceId,
+      conversationIds: input.conversationIds.map((id) =>
+        conversationIdSchema.parse(id),
+      ),
+      after: input.after,
+      discovery: () => this.discovery(),
+      createTicket: () =>
+        this.fetchJson(
+          this.workspaceUrl("socket-tickets"),
+          workspaceSocketTicketSchema,
+          true,
+          { method: "POST" },
+        ),
       createWebSocket: this.createWebSocket,
       onEvent: input.onEvent,
       onError: input.onError,

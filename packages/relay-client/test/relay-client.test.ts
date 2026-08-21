@@ -276,9 +276,92 @@ void test("does not retry a terminal authorization failure after a live disconne
   subscription.close();
 });
 
+void test("multiplexes workspace conversations over one cursor-resumable socket", async () => {
+  const sockets: FakeWebSocket[] = [];
+  const received: number[] = [];
+  const client = new RelayClient({
+    relayUrl: "https://relay.test",
+    workspaceId: "workspace-a",
+    getAuthorization: () => Promise.resolve("Nostr signed-request"),
+    fetch: (input) => {
+      const url = new URL(
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url,
+      );
+      if (url.pathname === "/.well-known/chief-relay") {
+        return Promise.resolve(
+          jsonResponse({
+            protocol: "chief-relay",
+            protocolVersion: 1,
+            deployment: "chief-cloud",
+            apiBaseUrl: "https://relay.test/v1",
+            websocketUrl: "wss://relay.test/v1/connect",
+            openApiUrl: "https://relay.test/v1/openapi.json",
+            capabilities: ["workspaces", "conversations", "durable-agents"],
+            authentication: {
+              scheme: "NIP-98",
+              signingAlgorithm: "secp256k1-schnorr",
+            },
+          }),
+        );
+      }
+      if (url.pathname === "/v1/workspaces/workspace-a/socket-tickets") {
+        return Promise.resolve(
+          jsonResponse(
+            {
+              ticket:
+                "workspace-ticket-with-enough-entropy-to-be-valid-1234567890",
+              expiresAt: "2026-08-17T00:00:30.000Z",
+              cursor: 41,
+            },
+            201,
+          ),
+        );
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    },
+    createWebSocket: () => {
+      const socket = new FakeWebSocket();
+      sockets.push(socket);
+      return socket as unknown as WebSocket;
+    },
+  });
+
+  const subscription = await client.subscribeWorkspace({
+    conversationIds: ["general", "mission-control", "general"],
+    onEvent: (event) => received.push(event.sequence),
+  });
+  subscription.updateConversationIds(["engineering", "general"]);
+  sockets[0]?.receive(conversationEvent(42));
+
+  assert.equal(sockets.length, 1);
+  assert.deepEqual(
+    sockets[0]?.sent.map((value) => JSON.parse(value) as unknown),
+    [
+      {
+        type: "workspace.subscribe",
+        conversationIds: ["general", "mission-control"],
+        after: 41,
+      },
+      {
+        type: "workspace.subscribe",
+        conversationIds: ["engineering", "general"],
+        after: 41,
+      },
+    ],
+  );
+  assert.deepEqual(received, [42]);
+  assert.equal(subscription.cursor(), 42);
+  subscription.close();
+});
+
 class FakeWebSocket extends EventTarget {
   static readonly OPEN = 1;
   readyState = 0;
+  readonly sent: string[] = [];
 
   constructor() {
     super();
@@ -295,6 +378,16 @@ class FakeWebSocket extends EventTarget {
 
   disconnect() {
     this.close();
+  }
+
+  send(value: string) {
+    this.sent.push(value);
+  }
+
+  receive(value: unknown) {
+    this.dispatchEvent(
+      new MessageEvent("message", { data: JSON.stringify(value) }),
+    );
   }
 }
 

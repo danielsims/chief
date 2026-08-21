@@ -131,6 +131,36 @@ export function readTrustedSocketTicket(request: Request) {
   };
 }
 
+export function withTrustedWorkspaceSocketTicket(
+  request: Request,
+  input: {
+    ticket: string;
+    requestId: string;
+    workspaceId: WorkspaceId;
+  },
+) {
+  const headers = new Headers();
+  headers.set("upgrade", "websocket");
+  headers.set(socketTicketHeader, input.ticket);
+  headers.set(requestIdHeader, input.requestId);
+  headers.set(workspaceHeader, input.workspaceId);
+  return new Request(request.url, { method: "GET", headers });
+}
+
+export function readTrustedWorkspaceSocketTicket(request: Request) {
+  const ticket = request.headers.get(socketTicketHeader);
+  const requestId = request.headers.get(requestIdHeader);
+  const workspaceId = request.headers.get(workspaceHeader);
+  if (!ticket || !requestId || !workspaceId) {
+    throw new Error("Missing trusted workspace socket ticket.");
+  }
+  return {
+    ticket,
+    requestId,
+    workspaceId: workspaceIdSchema.parse(workspaceId),
+  };
+}
+
 export function withTrustedAgentSocketTicket(
   request: Request,
   input: {
