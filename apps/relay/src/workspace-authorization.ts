@@ -7,7 +7,6 @@ import { workspaceAuthorizationResultSchema } from "@chief/relay-contracts";
 
 import { AuthorizationError } from "./auth";
 import { withTrustedContext, withTrustedIdentity } from "./internal-context";
-import { requireWorkspaceOrganizationMember } from "./organization-tenancy";
 import { workspaceStub } from "./workspace-stubs";
 
 export async function authorizeWorkspace(
@@ -32,17 +31,11 @@ export async function authorizeWorkspace(
   const { principal } = workspaceAuthorizationResultSchema.parse(
     await response.json(),
   );
-  if (principal.kind === "user") {
-    await requireWorkspaceOrganizationMember(
-      env,
-      {
-        kind: "user",
-        userId: principal.userId,
-        pubkey: principal.pubkey,
-      },
-      input.workspaceId,
-    );
-  }
+  // The workspace Durable Object is the request-time authority for both human
+  // and agent membership. Better Auth organization membership is synchronized
+  // during create/join and verified when switching workspaces; repeating the
+  // same D1 lookup for every channel request and live connection amplifies one
+  // signed client action into thousands of billable database reads.
   return principal;
 }
 
