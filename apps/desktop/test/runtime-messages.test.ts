@@ -336,7 +336,14 @@ void test("hides intentional cancellation and internal runtime failures", () => 
     "Browser session failed",
   );
 });
-
+void test("replaces internal identifier validation details with a useful relay error", () => {
+  const validationError =
+    '[{"origin":"string","code":"invalid_format","message":"Identifiers may only contain letters, numbers, dots, underscores, and hyphens."}]';
+  assert.equal(
+    visibleRuntimeError(validationError),
+    "Chief couldn't route this conversation through the relay. Reopen the channel and try again.",
+  );
+});
 const streamed = (text: string): ChiefUIMessage => ({
   id: "stream:chat",
   role: "assistant",

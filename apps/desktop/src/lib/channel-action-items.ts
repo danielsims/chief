@@ -48,7 +48,12 @@ function sessionChannelId(
 
 function directAgentIdFromConversationId(
   conversationId: string | null | undefined,
+  directAgentsByConversationId: ReadonlyMap<string, WorkspaceAgentId>,
 ): WorkspaceAgentId | null {
+  const mappedAgentId = conversationId
+    ? directAgentsByConversationId.get(conversationId)
+    : null;
+  if (mappedAgentId) return mappedAgentId;
   const directAgentId = directMessageAgentIdFromChatId(conversationId ?? null);
   if (directAgentId) return directAgentId;
   if (!conversationId?.startsWith("dm:")) return null;
@@ -61,17 +66,27 @@ function directAgentIdFromConversationId(
 function sessionDirectAgentId(
   sourceId: string,
   sessionsById: ReadonlyMap<string, SessionRecord>,
+  directAgentsByConversationId: ReadonlyMap<string, WorkspaceAgentId>,
 ) {
-  const directSource = directAgentIdFromConversationId(sourceId);
+  const directSource = directAgentIdFromConversationId(
+    sourceId,
+    directAgentsByConversationId,
+  );
   if (directSource) return directSource;
   const visited = new Set<string>();
   let session = sessionsById.get(sourceId);
 
   while (session && !visited.has(session.id)) {
     visited.add(session.id);
-    const ownAgentId = directAgentIdFromConversationId(session.id);
+    const ownAgentId = directAgentIdFromConversationId(
+      session.id,
+      directAgentsByConversationId,
+    );
     if (ownAgentId) return ownAgentId;
-    const parentAgentId = directAgentIdFromConversationId(session.parentId);
+    const parentAgentId = directAgentIdFromConversationId(
+      session.parentId,
+      directAgentsByConversationId,
+    );
     if (parentAgentId) return parentAgentId;
     session = session.parentId ? sessionsById.get(session.parentId) : undefined;
   }
@@ -196,17 +211,25 @@ export function directMessageAttentionTargets({
   sessions,
   recurringWork,
   directMessageIds,
+  directMessageChats = [],
 }: {
   actionItems: readonly ActionItem[];
   sessions: readonly SessionRecord[];
   recurringWork: readonly RecurringWorkRecord[];
   directMessageIds: readonly WorkspaceAgentId[];
+  directMessageChats?: readonly { id: string; agent: string }[];
 }) {
   const targets = new Map<
     WorkspaceAgentId,
     { threadRootId?: string; messageId: string }
   >();
   const availableIds = new Set(directMessageIds);
+  const directAgentsByConversationId = new Map<string, WorkspaceAgentId>();
+  for (const chat of directMessageChats) {
+    if (Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, chat.agent)) {
+      directAgentsByConversationId.set(chat.id, chat.agent as WorkspaceAgentId);
+    }
+  }
   const sessionsById = new Map(
     sessions.map((session) => [session.id, session]),
   );
@@ -220,8 +243,15 @@ export function directMessageAttentionTargets({
       action.sourceId,
     )?.conversationId;
     const agentId =
-      sessionDirectAgentId(action.sourceId, sessionsById) ??
-      directAgentIdFromConversationId(scheduledConversationId);
+      sessionDirectAgentId(
+        action.sourceId,
+        sessionsById,
+        directAgentsByConversationId,
+      ) ??
+      directAgentIdFromConversationId(
+        scheduledConversationId,
+        directAgentsByConversationId,
+      );
     if (!agentId || !availableIds.has(agentId) || targets.has(agentId)) {
       continue;
     }

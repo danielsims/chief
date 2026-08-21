@@ -9,6 +9,7 @@ export interface RuntimeTransport {
   setStatusListener(listener: (status: RuntimeConnectionStatus) => void): void;
   connect(): void;
   reconnectNow(): void;
+  startDirectMessage(agentId: string): Promise<string>;
   send(message: ClientMessage): void;
   subscribe(listener: RuntimeMessageListener): () => void;
   destroy(): void;
