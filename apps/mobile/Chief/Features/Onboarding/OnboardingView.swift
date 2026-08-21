@@ -2,29 +2,14 @@ import SwiftUI
 
 struct OnboardingView: View {
   @Environment(AppModel.self) private var model
-  private let steps = ["Runtime", "Inference", "Company", "Apps"]
+  private let stepCount = 4
 
   var body: some View {
     @Bindable var model = model
     ZStack(alignment: .bottom) {
       ChiefTheme.background.ignoresSafeArea()
       VStack(spacing: 0) {
-        HStack {
-          Text("Set up Chief").font(.system(size: 17, weight: .semibold))
-          Spacer()
-          Text("\(model.onboarding.step + 1) of \(steps.count)")
-            .font(.system(size: 14))
-            .foregroundStyle(ChiefTheme.secondary)
-        }
-        .padding(.horizontal, ChiefTheme.pagePadding)
-        .padding(.vertical, 16)
-
-        ProgressView(
-          value: Double(model.onboarding.step + 1),
-          total: Double(steps.count)
-        )
-        .tint(.white)
-        .padding(.horizontal, ChiefTheme.pagePadding)
+        OnboardingAccountIndicator()
 
         Group {
           switch model.onboarding.step {
@@ -38,12 +23,12 @@ struct OnboardingView: View {
           default: AppsStep(draft: $model.onboarding)
           }
         }
-        .padding(.top, 40)
         .frame(maxHeight: .infinity)
 
         VStack(spacing: 11) {
           Button {
-            if model.onboarding.step == steps.count - 1 {
+            Haptics.heavy()
+            if model.onboarding.step == stepCount - 1 {
               Task { await model.completeOnboarding() }
             } else {
               model.onboarding.step += 1
@@ -52,20 +37,26 @@ struct OnboardingView: View {
             if model.onboardingInProgress {
               ProgressView().tint(.black)
             } else {
-              Text(model.onboarding.step == steps.count - 1 ? "Enter workspace" : "Continue")
+              Text(model.onboarding.step == stepCount - 1 ? "Enter workspace" : "Continue")
             }
           }
           .buttonStyle(PrimaryButtonStyle())
           .disabled(!model.canAdvanceOnboarding || model.onboardingInProgress)
 
           if model.onboarding.step > 0 {
-            Button("Back") { model.onboarding.step -= 1 }
+            Button("Back") {
+              Haptics.light()
+              model.onboarding.step -= 1
+            }
               .font(.system(size: 13, weight: .medium))
               .foregroundStyle(ChiefTheme.secondary)
               .frame(height: 24)
               .buttonStyle(.plain)
           } else if model.canCancelOnboarding {
-            Button("Cancel") { model.cancelWorkspaceSetup() }
+            Button("Cancel") {
+              Haptics.medium()
+              model.cancelWorkspaceSetup()
+            }
               .font(.system(size: 13, weight: .medium))
               .foregroundStyle(ChiefTheme.secondary)
               .frame(height: 24)
@@ -92,6 +83,36 @@ struct OnboardingView: View {
       // renders the full, resolved list with every icon already cached.
       let plugins = await PluginCatalogClient.shared.preferredPlugins()
       await BrandLogoImage.prefetch(urls: plugins.compactMap(\.iconURL))
+    }
+  }
+}
+
+private struct OnboardingAccountIndicator: View {
+  @Environment(AppModel.self) private var model
+
+  var body: some View {
+    if let user = model.session?.user {
+      HStack(spacing: 8) {
+        UserAvatar(user: user, size: 28)
+        Text(user.name)
+          .font(.system(size: 13))
+          .foregroundStyle(ChiefTheme.secondary)
+          .lineLimit(1)
+        Text("·")
+          .font(.system(size: 13))
+          .foregroundStyle(ChiefTheme.tertiary)
+        Button("Sign out") {
+          Haptics.heavy()
+          model.signOut()
+        }
+        .font(.system(size: 13, weight: .medium))
+        .foregroundStyle(ChiefTheme.secondary)
+        .buttonStyle(.plain)
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, ChiefTheme.pagePadding)
+      .padding(.top, 12)
+      .padding(.bottom, 4)
     }
   }
 }
@@ -186,6 +207,25 @@ private struct InferenceStep: View {
         }
         .transition(.opacity.combined(with: .move(edge: .top)))
       }
+
+      #if DEBUG
+        Divider().overlay(ChiefTheme.line)
+
+        OptionRow(
+          icon: { Image(systemName: "laptopcomputer.and.iphone") },
+          title: "Codex on this Mac",
+          detail: DevCodexBridgeSettings.isConfigured
+            ? "Connected for development with \(DevCodexBridgeSettings.model)."
+            : "Scan the QR from Chief's local development bridge.",
+          selected: draft.inferenceProvider == .codexBridge
+        ) {
+          withAnimation(.easeInOut(duration: 0.22)) {
+            draft.inferenceProvider = .codexBridge
+            draft.inferenceModel = DevCodexBridgeSettings.model
+            draft.deviceModelID = nil
+          }
+        }
+      #endif
     }
     .animation(.easeInOut(duration: 0.22), value: draft.inferenceProvider)
     .task(id: draft.inferenceProvider) {
@@ -411,12 +451,12 @@ private struct AppsStep: View {
             title: app.name,
             domain: app.domain,
             iconURL: app.iconURL,
-            selected: draft.selectedApps.contains(app.name)
+            selected: draft.selectedApps.contains(app.domain)
           ) {
-            if draft.selectedApps.contains(app.name) {
-              draft.selectedApps.remove(app.name)
+            if draft.selectedApps.contains(app.domain) {
+              draft.selectedApps.remove(app.domain)
             } else {
-              draft.selectedApps.insert(app.name)
+              draft.selectedApps.insert(app.domain)
             }
           }
         }
@@ -432,6 +472,7 @@ private struct AppsStep: View {
 }
 
 private struct OnboardingStepLayout<Content: View>: View {
+  @Environment(AppModel.self) private var model
   let title: String
   let detail: String
   @ViewBuilder let content: Content
@@ -439,6 +480,8 @@ private struct OnboardingStepLayout<Content: View>: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 12) {
+        OnboardingProgressSegments(currentStep: model.onboarding.step)
+          .padding(.bottom, 10)
         Text(title)
           .font(.system(size: 30, weight: .regular, design: .rounded))
           .tracking(-0.8)
@@ -446,12 +489,32 @@ private struct OnboardingStepLayout<Content: View>: View {
           .font(.system(size: 15))
           .foregroundStyle(ChiefTheme.secondary)
           .lineSpacing(3)
-        VStack(spacing: 10) { content }.padding(.top, 20)
+        VStack(spacing: 10) { content }.padding(.top, 22)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(.horizontal, ChiefTheme.pagePadding)
-      .padding(.bottom, ChiefTheme.pagePadding)
+      .padding(.top, 30)
+      .padding(.bottom, 24)
     }
+    .scrollDismissesKeyboard(.interactively)
+  }
+}
+
+private struct OnboardingProgressSegments: View {
+  let currentStep: Int
+
+  var body: some View {
+    HStack(spacing: 7) {
+      ForEach(0..<4, id: \.self) { index in
+        Capsule()
+          .fill(index <= currentStep ? Color.white : ChiefTheme.elevated)
+          .frame(maxWidth: .infinity)
+          .frame(height: 3)
+      }
+    }
+    .animation(.easeOut(duration: 0.22), value: currentStep)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("Step \(currentStep + 1) of 4")
   }
 }
 
@@ -465,7 +528,10 @@ private struct OptionRow<Icon: View>: View {
   let action: () -> Void
 
   var body: some View {
-    Button(action: action) {
+    Button {
+      Haptics.selection()
+      action()
+    } label: {
       HStack(spacing: 14) {
         icon()
           .font(.system(size: 17, weight: .medium))
@@ -505,7 +571,10 @@ private struct BrandChoice: View {
   let action: () -> Void
 
   var body: some View {
-    Button(action: action) {
+    Button {
+      Haptics.selection()
+      action()
+    } label: {
       VStack(alignment: .leading, spacing: 11) {
         BrandLogoView(domain: domain, iconURL: iconURL, size: 32)
         Text(title).font(.system(size: 13, weight: .medium)).lineLimit(2)
@@ -523,30 +592,5 @@ private struct BrandChoice: View {
     }
     .buttonStyle(.plain)
     .accessibilityLabel(title)
-  }
-}
-
-private struct ChiefTextFieldStyle: TextFieldStyle {
-  func _body(configuration: TextField<_Label>) -> some View {
-    configuration
-      .padding(15)
-      .background(ChiefTheme.surface, in: RoundedRectangle(cornerRadius: 13))
-      .overlay { RoundedRectangle(cornerRadius: 13).stroke(ChiefTheme.line) }
-  }
-}
-
-private struct PrimaryButtonStyle: ButtonStyle {
-  @Environment(\.isEnabled) private var isEnabled
-
-  func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .font(.system(size: 15, weight: .semibold))
-      .frame(maxWidth: .infinity)
-      .frame(height: 50)
-      .background(
-        .white.opacity(isEnabled ? (configuration.isPressed ? 0.78 : 1) : 0.28),
-        in: RoundedRectangle(cornerRadius: 13)
-      )
-      .foregroundStyle(.black.opacity(isEnabled ? 1 : 0.54))
   }
 }

@@ -1,15 +1,23 @@
 import AuthenticationServices
-import UIKit
+import OSLog
 
+private let mobileAuthenticationLog = Logger(
+  subsystem: "sh.heychief.mobile",
+  category: "authentication"
+)
+
+/// Coordinates native PKCE authentication while SwiftUI owns presentation of
+/// the secure browser. Keeping browser presentation in the view avoids
+/// manufacturing a UIKit window anchor that can become invalid during scene
+/// transitions.
 @MainActor
-final class MobileAuthenticationSession: NSObject, ObservableObject {
+final class MobileAuthenticationSession: ObservableObject {
   @Published private(set) var isAuthenticating = false
   @Published private(set) var errorMessage: String?
 
-  private var session: ASWebAuthenticationSession?
-
   func start(
-    client: any DeviceAuthorizationServing,
+    client: any MobileAuthenticationServing,
+    authenticate: @escaping @MainActor (URL) async throws -> URL,
     completion: @escaping (ChiefSession) -> Void
   ) {
     errorMessage = nil
@@ -17,93 +25,52 @@ final class MobileAuthenticationSession: NSObject, ObservableObject {
 
     Task {
       do {
-        let challenge = try await client.requestAuthorization()
-        openBrowser(
-          url: challenge.browserURL(returningTo: URL(string: "chief-mobile://auth")!),
-          challenge: challenge,
-          client: client,
-          completion: completion)
+        let request = try await client.makeAuthorizationRequest()
+        let callbackURL = try await authenticate(
+          request.authorizationURL
+        )
+        let signedIn = try await client.exchange(
+          callbackURL: callbackURL,
+          request: request
+        )
+        isAuthenticating = false
+        completion(signedIn)
+      } catch let error as ASWebAuthenticationSessionError
+        where error.code == .canceledLogin
+      {
+        isAuthenticating = false
       } catch {
         finish(with: error)
       }
     }
   }
 
-  private func openBrowser(
-    url: URL,
-    challenge: DeviceAuthorizationChallenge,
-    client: any DeviceAuthorizationServing,
-    completion: @escaping (ChiefSession) -> Void
-  ) {
+  private func finish(with error: Error) {
+    let details = error as NSError
+    mobileAuthenticationLog.error(
+      "Native sign-in failed [\(details.domain, privacy: .public):\(details.code)]: \(details.localizedDescription, privacy: .public)"
+    )
+    isAuthenticating = false
+    errorMessage = Self.message(for: error)
+  }
 
-    let session = ASWebAuthenticationSession(
-      url: url,
-      callback: .customScheme("chief-mobile")
-    ) { [weak self] callbackURL, error in
-      Task { @MainActor in
-        self?.session = nil
-
-        if let callbackURL {
-          guard callbackURL.scheme == "chief-mobile",
-            callbackURL.host == "auth",
-            URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)?
-              .queryItems?.contains(where: {
-                $0.name == "status" && $0.value == "approved"
-              }) == true
-          else {
-            self?.isAuthenticating = false
-            self?.errorMessage = "Chief could not verify the sign-in response."
-            return
-          }
-          Task {
-            do {
-              let signedIn = try await client.exchange(challenge)
-              await MainActor.run {
-                self?.isAuthenticating = false
-                completion(signedIn)
-              }
-            } catch {
-              await MainActor.run { self?.finish(with: error) }
-            }
-          }
-        } else if let error = error as? ASWebAuthenticationSessionError {
-          if error.code == .canceledLogin {
-            self?.isAuthenticating = false
-          } else {
-            self?.finish(with: error)
-          }
-        }
+  private static func message(for error: Error) -> String {
+    if let error = error as? MobileAuthenticationError {
+      return error.errorDescription ?? "Chief could not start sign in."
+    }
+    if let error = error as? ASWebAuthenticationSessionError {
+      switch error.code {
+      case .presentationContextInvalid, .presentationContextNotProvided:
+        return "Chief could not open sign in from this window. Please try again."
+      case .canceledLogin:
+        return "Sign in was cancelled."
+      default:
+        return "Chief could not open the secure sign-in page."
       }
     }
-    session.presentationContextProvider = self
-    session.prefersEphemeralWebBrowserSession = false
-    self.session = session
-
-    if !session.start() {
-      isAuthenticating = false
-      self.session = nil
-      errorMessage = "Sign in could not be opened."
+    if error is URLError {
+      return "Chief could not reach sign in. Please try again."
     }
-  }
-
-  private func finish(with error: Error) {
-    isAuthenticating = false
-    session = nil
-    errorMessage =
-      (error as? LocalizedError)?.errorDescription
-      ?? "Sign in could not be completed."
-  }
-}
-
-extension MobileAuthenticationSession: ASWebAuthenticationPresentationContextProviding {
-  func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-    if let keyWindow = scenes.flatMap(\.windows).first(where: \.isKeyWindow) {
-      return keyWindow
-    }
-    guard let scene = scenes.first else {
-      preconditionFailure("Authentication requires an active window scene.")
-    }
-    return ASPresentationAnchor(windowScene: scene)
+    return "Sign in could not be completed. Please try again."
   }
 }

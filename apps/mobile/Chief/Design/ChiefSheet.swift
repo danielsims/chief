@@ -110,26 +110,28 @@ struct ChiefBooleanRow: View {
   let action: () -> Void
 
   var body: some View {
-    Button {
-      Haptics.medium()
-      action()
-    } label: {
-      HStack(spacing: 12) {
-        VStack(alignment: .leading, spacing: 3) {
-          Text(title)
-            .font(.system(size: 15, weight: .medium))
-            .foregroundStyle(ChiefTheme.accent)
-          if let detail {
-            Text(detail)
-              .font(.system(size: 12))
-              .foregroundStyle(ChiefTheme.secondary)
-          }
+    Toggle(
+      isOn: Binding(
+        get: { isOn },
+        set: { value in
+          guard value != isOn else { return }
+          Haptics.selection()
+          action()
         }
-        Spacer(minLength: 12)
-        ChiefCheckmark(isOn: isOn)
+      )
+    ) {
+      VStack(alignment: .leading, spacing: 3) {
+        Text(title)
+          .font(.system(size: 15, weight: .medium))
+          .foregroundStyle(ChiefTheme.accent)
+        if let detail {
+          Text(detail)
+            .font(.system(size: 12))
+            .foregroundStyle(ChiefTheme.secondary)
+        }
       }
-      .contentShape(Rectangle())
     }
-    .buttonStyle(.plain)
+    .toggleStyle(.switch)
+    .tint(ChiefTheme.toggleOn)
   }
 }

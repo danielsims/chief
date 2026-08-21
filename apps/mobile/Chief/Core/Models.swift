@@ -29,12 +29,16 @@ struct ChiefUser: Codable, Equatable, Identifiable, Sendable {
 struct ChiefSession: Codable, Equatable, Sendable {
   let accessToken: String
   let sessionToken: String
+  let refreshToken: String?
+  let accessTokenExpiresAt: Date?
   let user: ChiefUser
   let workspaceID: String?
 
   static let fixture = ChiefSession(
     accessToken: "fixture-token",
     sessionToken: "fixture-session-token",
+    refreshToken: nil,
+    accessTokenExpiresAt: nil,
     user: ChiefUser(id: "daniel", name: "Daniel Sims", imageURL: nil),
     workspaceID: "chief-demo"
   )
@@ -79,8 +83,107 @@ struct WorkspaceSnapshot: Codable, Equatable, Identifiable, Sendable {
 struct WorkspaceSummary: Codable, Equatable, Identifiable, Sendable {
   let id: String
   let name: String
+  let website: String?
+  let imageURL: URL?
   let isActive: Bool
   let onboardingComplete: Bool
+
+  init(
+    id: String,
+    name: String,
+    website: String? = nil,
+    imageURL: URL? = nil,
+    isActive: Bool,
+    onboardingComplete: Bool
+  ) {
+    self.id = id
+    self.name = name
+    self.website = website
+    self.imageURL = imageURL
+    self.isActive = isActive
+    self.onboardingComplete = onboardingComplete
+  }
+}
+
+struct WorkspaceInvite: Codable, Equatable, Sendable {
+  let workspaceId: String
+  let workspaceName: String
+  let website: String
+  let conversationId: String?
+  let conversationName: String?
+  let expiresAt: String
+}
+
+struct WorkspaceInviteClaim: Codable, Equatable, Sendable {
+  let workspaceId: String
+  let workspaceName: String
+  let website: String
+  let conversationId: String?
+  let conversationName: String?
+  let expiresAt: String
+  let alreadyMember: Bool
+}
+
+struct WorkspaceInviteLink: Equatable, Sendable {
+  let relayURL: URL
+  let workspaceID: String
+  let secret: String
+
+  var url: URL {
+    relayURL
+      .appending(path: "invite")
+      .appending(path: workspaceID)
+      .appending(path: secret)
+  }
+
+  init(relayURL: URL, workspaceID: String, secret: String) {
+    self.relayURL = relayURL
+    self.workspaceID = workspaceID
+    self.secret = secret
+  }
+
+  init?(url: URL) {
+    guard url.user == nil, url.password == nil, url.fragment == nil else { return nil }
+    if ["chief", "chief-mobile"].contains(url.scheme?.lowercased() ?? ""),
+      url.host?.lowercased() == "join"
+    {
+      guard
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+        let relay = components.queryItems?.first(where: { $0.name == "relay" })?.value,
+        let relayURL = URL(string: relay),
+        let workspaceID = components.queryItems?.first(where: { $0.name == "workspace" })?.value,
+        let secret = components.queryItems?.first(where: { $0.name == "code" })?.value,
+        Self.valid(relayURL: relayURL, workspaceID: workspaceID, secret: secret)
+      else { return nil }
+      self.init(relayURL: relayURL, workspaceID: workspaceID, secret: secret)
+      return
+    }
+    let parts = url.pathComponents.filter { $0 != "/" }
+    guard
+      ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
+      parts.count == 3,
+      parts[0] == "invite",
+      Self.valid(relayURL: url, workspaceID: parts[1], secret: parts[2])
+    else { return nil }
+    var relay = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    relay?.path = ""
+    relay?.query = nil
+    guard let relayURL = relay?.url else { return nil }
+    self.init(relayURL: relayURL, workspaceID: parts[1], secret: parts[2])
+  }
+
+  private static func valid(relayURL: URL, workspaceID: String, secret: String) -> Bool {
+    guard relayURL.user == nil, relayURL.password == nil, relayURL.fragment == nil else {
+      return false
+    }
+    let scheme = relayURL.scheme?.lowercased()
+    guard scheme == "https" || (scheme == "http" && relayURL.host == "localhost") else {
+      return false
+    }
+    return workspaceID.hasPrefix("workspace-")
+      && (43...128).contains(secret.count)
+      && secret.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
+  }
 }
 
 struct ConversationSummary: Codable, Equatable, Identifiable, Sendable {
@@ -460,7 +563,7 @@ extension ConversationMessage.Author {
     let lower = id.lowercased()
     if lower == "chief" { return "Chief" }
     if kind == "user" { return "You" }
-    return id.capitalized
+    return WorkspaceAgentCatalog.agent(forID: id)?.name ?? id.capitalized
   }
 }
 
@@ -539,6 +642,11 @@ struct OnboardingDraft: Equatable, Sendable {
   enum RuntimeLocation: String, CaseIterable, Sendable { case phone, cloud }
   enum InferenceProvider: String, CaseIterable, Sendable {
     case openCodeGo
+    #if DEBUG
+      /// Development-only inference supplied by this Mac's signed-in Codex
+      /// app-server. This case is compiled out of release builds.
+      case codexBridge
+    #endif
     case onDevice
   }
 

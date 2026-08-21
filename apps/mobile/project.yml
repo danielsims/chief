@@ -19,6 +19,29 @@ targets:
   Chief:
     type: application
     platform: iOS
+    info:
+      path: Chief/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Chief
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSApplicationCategoryType: public.app-category.business
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+        UIApplicationSupportsIndirectInputEvents: true
+        UILaunchScreen: {}
+        NSSupportsLiveActivities: true
+        BGTaskSchedulerPermittedIdentifiers:
+          - "$(PRODUCT_BUNDLE_IDENTIFIER).agent.*"
+        UIBackgroundModes:
+          - processing
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Editor
+            CFBundleURLName: sh.heychief.mobile
+            CFBundleURLSchemes:
+              - chief-mobile
     sources:
       - path: Chief
         excludes:
@@ -28,6 +51,8 @@ targets:
           - Vendored/swift-secp256k1
       - path: Chief/Resources
         buildPhase: resources
+        excludes:
+          - Info.plist
       - path: ../../packages/agent-runtime/src/agents
         type: folder
         buildPhase: resources
@@ -38,6 +63,7 @@ targets:
       - path: Chief/Vendored/CelldKit/ChiefCellRuntime.swift
       - path: Chief/Vendored/CelldKit/ChiefOpenCodeAgentHost.swift
     dependencies:
+      - target: ChiefAgentActivityWidget
       - package: P256K
       - package: BrowserUI
         product: BrowserUI
@@ -47,21 +73,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: sh.heychief.mobile
         PRODUCT_NAME: Chief
-        DEVELOPMENT_TEAM: PS66GXMC55
+        DEVELOPMENT_TEAM: XMMXB25823
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        GENERATE_INFOPLIST_FILE: true
-        INFOPLIST_KEY_CFBundleDisplayName: Chief
-        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.business
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
-        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: true
-        INFOPLIST_KEY_UILaunchScreen_Generation: true
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
-        INFOPLIST_KEY_CFBundleURLTypes:
-          - CFBundleTypeRole: Editor
-            CFBundleURLName: sh.heychief.mobile
-            CFBundleURLSchemes:
-              - chief-mobile
         LIBRARY_SEARCH_PATHS:
           - "$(SRCROOT)/Chief/Vendored/lib"
         OTHER_LDFLAGS:
@@ -79,6 +93,30 @@ targets:
       testTargets:
         - ChiefTests
         - ChiefUITests
+  ChiefAgentActivityWidget:
+    type: app-extension
+    platform: iOS
+    info:
+      path: ChiefAgentActivityWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Agent Activity
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    sources:
+      - path: ChiefAgentActivityWidget
+      - path: Chief/Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: sh.heychief.mobile.AgentActivityWidget
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 0.1.0
+        DEVELOPMENT_TEAM: XMMXB25823
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+        TARGETED_DEVICE_FAMILY: 1
   ChiefTests:
     type: bundle.unit-test
     platform: iOS
@@ -89,6 +127,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: sh.heychief.mobile.tests
+        DEVELOPMENT_TEAM: XMMXB25823
+        CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: true
   ChiefUITests:
     type: bundle.ui-testing
@@ -100,4 +140,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: sh.heychief.mobile.uitests
+        DEVELOPMENT_TEAM: XMMXB25823
+        CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: true

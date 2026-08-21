@@ -18,6 +18,15 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
     UNUserNotificationCenter.current().delegate = self
   }
 
+  static var configuredSound: UNNotificationSound? {
+    guard NotificationSoundPreferences.enabled else { return nil }
+    return UNNotificationSound(
+      named: UNNotificationSoundName(
+        rawValue: NotificationSoundPreferences.sound.fileName
+      )
+    )
+  }
+
   func requestAuthorizationIfNeeded() async {
     let center = UNUserNotificationCenter.current()
     let settings = await center.notificationSettings()
@@ -39,13 +48,7 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
     let content = UNMutableNotificationContent()
     content.title = title
     content.body = body.isEmpty ? "Sent an attachment" : String(body.prefix(180))
-    content.sound = NotificationSoundPreferences.enabled
-      ? UNNotificationSound(
-        named: UNNotificationSoundName(
-          rawValue: NotificationSoundPreferences.sound.fileName
-        )
-      )
-      : nil
+    content.sound = Self.configuredSound
     content.threadIdentifier = "\(workspaceID):\(conversationID)"
     var userInfo: [String: Any] = [
       "workspaceID": workspaceID,

@@ -9,6 +9,7 @@ enum ChiefTheme {
   static let tertiary = Color.white.opacity(0.36)
   static let accent = Color.white
   static let channelAccent = Color(red: 0.45, green: 0.71, blue: 0.96)
+  static let toggleOn = Color(uiColor: .systemGreen)
 
   static let pagePadding: CGFloat = 18
   static let cardRadius: CGFloat = 18

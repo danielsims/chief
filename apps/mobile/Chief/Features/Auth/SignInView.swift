@@ -1,7 +1,9 @@
+import AuthenticationServices
 import SwiftUI
 
 struct SignInView: View {
   @Environment(AppModel.self) private var model
+  @Environment(\.webAuthenticationSession) private var webAuthenticationSession
   @StateObject private var authentication = MobileAuthenticationSession()
 
   var body: some View {
@@ -64,6 +66,13 @@ struct SignInView: View {
   private func beginSignIn() {
     authentication.start(
       client: model.authentication,
+      authenticate: { url in
+        try await webAuthenticationSession.authenticate(
+          using: url,
+          callback: .customScheme("chief-mobile"),
+          additionalHeaderFields: [:]
+        )
+      },
       completion: model.completeSignIn(_:))
   }
 }

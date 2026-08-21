@@ -17,9 +17,9 @@ final class AppModelAuthenticationTests: XCTestCase {
     model.completeSignIn(.fixture)
     await model.hydrateWorkspace()
 
-    XCTAssertEqual(model.session, .fixture)
+    XCTAssertEqual(model.session?.accessToken, "fixture-account-token")
     XCTAssertEqual(model.phase, .onboarding)
-    XCTAssertEqual(try? sessions.load(), .fixture)
+    XCTAssertEqual(try? sessions.load()?.accessToken, "fixture-account-token")
   }
 
   func testUnauthorizedRelayPreservesStoredAccountSession() async throws {
@@ -34,9 +34,23 @@ final class AppModelAuthenticationTests: XCTestCase {
 
     await model.start()
 
-    XCTAssertEqual(model.session, .fixture)
+    XCTAssertEqual(model.session?.accessToken, "fixture-account-token")
     XCTAssertEqual(model.phase, .onboarding)
-    XCTAssertEqual(try sessions.load(), .fixture)
+    XCTAssertEqual(try sessions.load()?.accessToken, "fixture-account-token")
+  }
+
+  func testSignInKeepsLaunchSurfaceUntilWorkspaceHydrationResolves() {
+    let model = AppModel(
+      sessions: TestSessionStore(),
+      workspaces: TestWorkspaceStore(),
+      inferenceCredentials: TestInferenceCredentialStore(),
+      relay: FailingRelay(error: RelayError.unavailable),
+      conversations: ConversationCache(),
+      authentication: UnusedAuthentication())
+
+    model.completeSignIn(.fixture)
+
+    XCTAssertEqual(model.phase, .launching)
   }
 
   func testOnboardingDoesNotPretendSetupSucceededWhenRelayIsUnavailable() async throws {
@@ -82,6 +96,35 @@ final class AppModelAuthenticationTests: XCTestCase {
     model.cancelWorkspaceSetup()
     XCTAssertEqual(model.phase, .workspace)
     XCTAssertEqual(model.workspace?.id, existing.id)
+  }
+
+  func testAddingWorkspaceNeverReusesAnIncompleteActiveWorkspace() async {
+    let complete = DemoWorkspace.snapshot
+    let incomplete = WorkspaceSnapshot(
+      id: complete.id,
+      name: complete.name,
+      website: complete.website,
+      selectedApps: complete.selectedApps,
+      imageURL: complete.imageURL,
+      onboardingComplete: false,
+      conversations: complete.conversations,
+      agents: complete.agents,
+      projects: complete.projects
+    )
+    let model = AppModel(
+      sessions: TestSessionStore(initial: .fixture),
+      workspaces: TestWorkspaceStore(initial: incomplete),
+      inferenceCredentials: TestInferenceCredentialStore(),
+      relay: FailingRelay(error: RelayError.unavailable),
+      conversations: ConversationCache(),
+      authentication: UnusedAuthentication())
+
+    await model.start()
+    XCTAssertEqual(model.workspaceForOnboardingResume?.id, incomplete.id)
+
+    model.beginWorkspaceSetup()
+
+    XCTAssertNil(model.workspaceForOnboardingResume)
   }
 
   func testOnDeviceInferenceRequiresADownloadedModelToAdvance() throws {
@@ -215,6 +258,7 @@ private struct FailingRelay: RelayServing {
   func archiveChannel(workspaceID: String, conversationID: String, archived: Bool) async throws {
     throw error
   }
+  func joinChannel(workspaceID: String, conversationID: String) async throws { throw error }
   func leaveChannel(workspaceID: String, conversationID: String) async throws { throw error }
   func channelMembers(workspaceID: String, conversationID: String) async throws -> [ChannelMember] {
     throw error
@@ -233,6 +277,9 @@ private struct FailingRelay: RelayServing {
     principalID: String
   ) async throws { throw error }
   func allChannelMemberships(workspaceID: String) async throws -> [ChannelMembership] {
+    throw error
+  }
+  func currentChannelMemberships(workspaceID: String) async throws -> [ChannelMembership] {
     throw error
   }
   func editMessage(
@@ -306,18 +353,29 @@ private struct FailingRelay: RelayServing {
   func claimAgentJob(workspaceID: String, agentID: String) async throws -> AgentJobLease? {
     throw error
   }
+  func agentJobs(workspaceID: String, agentID: String) async throws -> [AgentJobRecord] {
+    throw error
+  }
+  func retryAgentJob(
+    workspaceID: String,
+    agentID: String,
+    jobID: String
+  ) async throws -> AgentJobRecord { throw error }
 }
 
-private struct UnusedAuthentication: DeviceAuthorizationServing {
-  func requestAuthorization() async throws -> DeviceAuthorizationChallenge {
-    throw DeviceAuthorizationError.network
+private struct UnusedAuthentication: MobileAuthenticationServing {
+  func makeAuthorizationRequest() async throws -> MobileAuthorizationRequest {
+    throw MobileAuthenticationError.network
   }
 
-  func exchange(_ challenge: DeviceAuthorizationChallenge) async throws -> ChiefSession {
-    throw DeviceAuthorizationError.network
+  func exchange(
+    callbackURL: URL,
+    request: MobileAuthorizationRequest
+  ) async throws -> ChiefSession {
+    throw MobileAuthenticationError.network
   }
 
-  func refreshAccountToken(sessionToken: String) async throws -> String {
-    "fixture-account-token"
+  func refreshAccountSession(_ session: ChiefSession) async throws -> ChiefSession {
+    session
   }
 }

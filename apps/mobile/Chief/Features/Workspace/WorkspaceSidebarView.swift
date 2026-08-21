@@ -38,7 +38,9 @@ struct ChannelGroup: View {
 
   private var channels: [ConversationSummary] {
     model.workspace?.conversations
-      .filter { $0.kind == .channel && !$0.archived } ?? []
+      .filter {
+        $0.kind == .channel && !$0.archived && model.isConversationJoined($0.id)
+      } ?? []
   }
 }
 
@@ -138,6 +140,7 @@ private struct CollapsibleGroup<Content: View>: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 2) {
       Button {
+        Haptics.light()
         withAnimation(.easeInOut(duration: 0.18)) { isExpanded.toggle() }
       } label: {
         HStack(spacing: 6) {
@@ -192,6 +195,7 @@ private struct AgentRow: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+    .simultaneousGesture(TapGesture().onEnded { Haptics.medium() })
   }
 }
 
@@ -240,15 +244,18 @@ private struct ConversationRow: View {
             .frame(height: 38)
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(TapGesture().onEnded { Haptics.medium() })
         .contextMenu {
             if conversation.kind == .channel {
                 Button {
+                    Haptics.medium()
                     Task { await model.channelMembers(conversationID: conversation.id) }
                     showMembers = true
                 } label: {
                     Label("View members", systemImage: "person.2")
                 }
                 Button {
+                    Haptics.medium()
                     Task { await model.archiveConversation(conversation.id, archived: !conversation.archived) }
                 } label: {
                     Label(
@@ -258,6 +265,7 @@ private struct ConversationRow: View {
                 }
                 if !conversation.archived {
                     Button(role: .destructive) {
+                        Haptics.heavy()
                         Task { await model.leaveConversation(conversation.id) }
                     } label: {
                         Label("Leave channel", systemImage: "rectangle.portrait.and.arrow.right")

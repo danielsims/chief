@@ -151,3 +151,37 @@ declarations. That removes the remaining duplicated roster/config truth from
 Swift without weakening iOS sandboxing. A future adapter can then implement the
 upstream workflow and sandbox protocols for hosted celld, while the phone keeps
 the same package, session and event contracts.
+
+## Tool authorization boundary
+
+The mobile runtime now follows the Executor's exact, deny-by-default pattern:
+
+```text
+authored turn purpose
+  ∩ relay-authoritative agent configuration
+  ∩ exact tool-to-permission mapping
+  ∩ approval mode
+  = host-issued turn grant
+        ├── filters definitions before inference
+        ├── is checked again before native execution
+        └── is independently re-authorized by the relay for relay actions
+```
+
+An unmapped tool is denied. `ask` mode exposes read-only tools but denies
+mutations until Chief has a real user approval surface. The mobile host refreshes
+configuration from the relay before every inference turn; the on-device copy is
+only a UI/startup cache. Tool JSON is rejected when it is not an object, exceeds
+the size ceiling, has undeclared keys, misses required values, or supplies the
+wrong primitive type.
+
+Open the enforcement files:
+
+- [Exact iOS permission IDs and host-issued turn grants](../apps/mobile/Chief/Core/AgentToolAuthorization.swift)
+- [Turn-purpose tool narrowing](../apps/mobile/Chief/Core/AgentTurnToolPolicy.swift)
+- [Definition filtering, execution recheck, and argument validation](../apps/mobile/Chief/Core/RelayTools.swift)
+- [Authoritative config refresh and tool loop](../apps/mobile/Chief/Vendored/CelldKit/ChiefOpenCodeAgentHost.swift)
+- [Relay config contract](../packages/relay-contracts/src/agents.ts)
+- [Relay per-agent permission evaluation](../apps/relay/src/workspace-channel-store.ts)
+- [Relay channel operation mapping](../apps/relay/src/workspace-channel-router.ts)
+- [Desktop/Executor permission reference](../packages/agent-runtime/src/agent-tool-permissions.ts)
+- [Executor lease verification](../apps/executor/src/auth.ts)
