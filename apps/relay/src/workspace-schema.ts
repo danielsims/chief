@@ -1,5 +1,6 @@
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { initializeWorkspaceData } from "./workspace-data-store";
+import { initializeWorkspaceLive } from "./workspace-live-store";
 import { initializeWorkspaceLog } from "./workspace-log-store";
 
 export function initializeWorkspaceSchema(
@@ -105,6 +106,7 @@ export function initializeWorkspaceSchema(
   );
   initializeWorkspaceLog(storage);
   initializeWorkspaceData(storage);
+  initializeWorkspaceLive(storage);
 }
 
 function migrateLegacyChannelSchema(storage: DurableObjectStorage) {

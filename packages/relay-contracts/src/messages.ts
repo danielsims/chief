@@ -167,6 +167,10 @@ export const socketTicketSchema = z
   })
   .strict();
 
+export const workspaceSocketTicketSchema = socketTicketSchema
+  .extend({ cursor: z.int().nonnegative() })
+  .strict();
+
 export const trustedCommandContextSchema = z.object({
   actor: principalSchema,
   requestId: z.string().trim().min(1).max(128),

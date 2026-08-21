@@ -179,6 +179,17 @@ export class WorkspaceChannelStore {
     );
   }
 
+  canReadConversation(conversationId: string, principal: Principal) {
+    try {
+      this.requirePrincipalMember(principal);
+      this.requireAgentCapability(principal, "messages.read");
+      this.requireChannelVisible(conversationId, principal);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   requireChannelManager(conversationId: string, principal: Principal) {
     const { kind, id } = principalKindId(principal);
     if (kind === "service") {

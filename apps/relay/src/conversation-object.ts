@@ -21,6 +21,7 @@ import { HttpError, json, parseJson, relayError } from "./http";
 import {
   readTrustedContext,
   readTrustedSocketTicket,
+  withTrustedContext,
 } from "./internal-context";
 import { recordMetrics } from "./metrics";
 
@@ -144,6 +145,13 @@ export class ConversationObject extends DurableObject<Env> {
     });
     if (!result.duplicate) {
       this.broadcast(result.event);
+      this.publishWorkspaceEvent(
+        result.event,
+        principal,
+        workspaceId,
+        conversationId,
+        command.commandId,
+      );
       recordMetrics(this.env, ["message"]);
     }
     return json({ duplicate: result.duplicate, message: result.message });
@@ -209,7 +217,16 @@ export class ConversationObject extends DurableObject<Env> {
       workspaceId: context.workspaceId,
       correlationId: context.requestId,
     });
-    if (changed && event) this.broadcast(event);
+    if (changed && event) {
+      this.broadcast(event);
+      this.publishWorkspaceEvent(
+        event,
+        context.principal,
+        context.workspaceId,
+        requiredConversationId(context),
+        context.requestId,
+      );
+    }
     return json(result);
   }
 
@@ -241,7 +258,16 @@ export class ConversationObject extends DurableObject<Env> {
       workspaceId: context.workspaceId,
       correlationId: context.requestId,
     });
-    if (event) this.broadcast(event);
+    if (event) {
+      this.broadcast(event);
+      this.publishWorkspaceEvent(
+        event,
+        context.principal,
+        context.workspaceId,
+        requiredConversationId(context),
+        context.requestId,
+      );
+    }
     return json(editMessageResultSchema.parse({ message }));
   }
 
@@ -258,7 +284,16 @@ export class ConversationObject extends DurableObject<Env> {
       workspaceId: context.workspaceId,
       correlationId: context.requestId,
     });
-    if (event) this.broadcast(event);
+    if (event) {
+      this.broadcast(event);
+      this.publishWorkspaceEvent(
+        event,
+        context.principal,
+        context.workspaceId,
+        requiredConversationId(context),
+        context.requestId,
+      );
+    }
     return json(deleteMessageResultSchema.parse({ message }));
   }
 
@@ -321,6 +356,44 @@ export class ConversationObject extends DurableObject<Env> {
     }
   }
 
+  private publishWorkspaceEvent(
+    event: Record<string, unknown>,
+    principal: Principal,
+    workspaceId: WorkspaceId,
+    conversationId: string,
+    requestId: string,
+  ) {
+    const workspace = this.env.WORKSPACES.get(
+      this.env.WORKSPACES.idFromName(workspaceId),
+    );
+    this.ctx.waitUntil(
+      workspace
+        .fetch(
+          withTrustedContext(
+            new Request("https://workspace.internal/live-events", {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "x-chief-internal-operation": "live-event-publish",
+              },
+              body: JSON.stringify(event),
+            }),
+            {
+              principal,
+              requestId,
+              workspaceId,
+              conversationId,
+            },
+          ),
+        )
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error("Workspace live event publication failed.");
+          }
+        }),
+    );
+  }
+
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
     if (message === "ping") socket.send("pong");
   }
@@ -338,6 +411,19 @@ function reactorPubkey(principal: Principal): string | undefined {
     return principal.pubkey;
   }
   return undefined;
+}
+
+function requiredConversationId(
+  context: ReturnType<typeof readTrustedContext>,
+) {
+  if (!context.conversationId) {
+    throw new HttpError(
+      400,
+      "missing_conversation",
+      "Conversation context is required.",
+    );
+  }
+  return context.conversationId;
 }
 
 function parseInteger(
