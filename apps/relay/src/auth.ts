@@ -10,7 +10,10 @@ import { sha256PayloadTag, verifyNip98Auth } from "./nip98";
  * caller's identity. Convex is not part of the runtime path.
  */
 export class RelayAuthenticator {
-  authenticate(request: Request, body?: string | null): AuthenticatedIdentity {
+  authenticate(
+    request: Request,
+    body?: string | null,
+  ): Extract<AuthenticatedIdentity, { kind: "user" }> {
     const pubkey = verifyNip98Auth(request.headers.get("authorization"), {
       url: request.url,
       method: request.method,

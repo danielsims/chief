@@ -17,6 +17,10 @@ import {
   withTrustedContext,
   withTrustedSocketTicket,
 } from "./internal-context";
+import {
+  enforceEdgeRequestLimit,
+  enforcePublicIdentityRequestLimit,
+} from "./request-rate-limits";
 import { routeAgentRequest } from "./router-agent-routes";
 import { authenticateRelayRequest, requireAccountBinding } from "./router-auth";
 import { routeChannelRequest } from "./router-channel-routes";
@@ -62,6 +66,8 @@ export async function routeRelayRequest(
 ) {
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
   try {
+    await enforceEdgeRequestLimit(env, request);
+    await enforcePublicIdentityRequestLimit(env, request);
     const url = new URL(request.url);
     if (isRelayAuthRequest(url)) return await routeRelayAuth(request, env);
     const publicResponse = routePublicRequest(request, url, env);

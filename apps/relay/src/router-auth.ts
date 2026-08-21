@@ -2,6 +2,7 @@ import type { AuthenticatedIdentity } from "@chief/relay-contracts";
 
 import { AuthenticationError, RelayAuthenticator } from "./auth";
 import { resolveDeviceIdentity } from "./device-identities";
+import { enforceIdentityRequestLimits } from "./request-rate-limits";
 
 /** Buffers mutable request bodies so the NIP-98 payload tag is verified
  * against the exact body later forwarded to an internal authority object. */
@@ -18,6 +19,7 @@ export async function authenticateRelayRequest(
     body = await request.text();
   }
   const signedIdentity = new RelayAuthenticator().authenticate(request, body);
+  await enforceIdentityRequestLimits(env, request, signedIdentity.pubkey);
   const resolved = await resolveDeviceIdentity(env, signedIdentity);
   if ("response" in resolved) {
     throw new AuthenticationError("Device identity denied.");
