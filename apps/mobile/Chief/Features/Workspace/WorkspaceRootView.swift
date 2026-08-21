@@ -458,7 +458,7 @@ struct DMsView: View {
               .font(.system(size: 26, weight: .regular, design: .rounded))
               .tracking(-0.6)
               .padding(.horizontal, ChiefTheme.pagePadding)
-            DMsGroup()
+            DMsGroup(path: $path)
           }
           .padding(.top, 16)
           .padding(.bottom, 84)

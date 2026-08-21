@@ -59,8 +59,11 @@ final class AppModel {
   private(set) var workspaceSyncFailed = false
   private var debugSkipCredentialStore = false
   private var agentLoopTask: Task<Void, Never>?
-  private var workspaceLiveTasks: [ConversationKey: Task<Void, Never>] = [:]
-  private var workspaceLiveClients: [ConversationKey: RelayLiveClient] = [:]
+  private var workspaceLiveTask: Task<Void, Never>?
+  private var workspaceLiveBackgroundStopTask: Task<Void, Never>?
+  private var workspaceLiveClient: RelayLiveClient?
+  private var workspaceLiveWorkspaceID: String?
+  private var workspaceLiveConversationIDs: Set<String> = []
   private var readState = ConversationReadState()
   private var readStateWorkspaceID: String?
   private var hydratedReadConversations: Set<ConversationKey> = []
@@ -1271,71 +1274,71 @@ final class AppModel {
 
   // MARK: - Read state and workspace-wide live delivery
 
-  /// The overview needs every channel's socket, not only the channel currently
-  /// on screen. Each conversation therefore owns an independent live client.
-  /// This mirrors the desktop provider and keeps every cache key workspace-
-  /// scoped, so switching tenants cannot leak messages or unread markers.
+  /// The overview needs live delivery for every conversation the principal can
+  /// participate in, not every public catalogue entry. Waiting for the
+  /// relay-authoritative membership snapshot prevents a freshly loaded
+  /// workspace from opening sockets that can only be rejected.
   private func syncWorkspaceLiveStreams(for snapshot: WorkspaceSnapshot) {
     guard !appConfiguration.demoMode else { return }
-    let desired = Set(
-      snapshot.conversations.map {
-        ConversationKey(workspaceID: snapshot.id, conversationID: $0.id)
+    guard isAppActive || workspaceLiveClient != nil else { return }
+    let joinedChannelIDs = membershipWorkspaceID == snapshot.id
+      ? joinedConversationIDs
+      : nil
+    let desired: Set<String> = Set(
+      snapshot.conversations.compactMap { conversation -> String? in
+        guard conversation.kind == .direct
+          || joinedChannelIDs?.contains(conversation.id) == true
+        else { return nil }
+        return conversation.id
       }
     )
-    for key in workspaceLiveTasks.keys where !desired.contains(key) {
-      stopWorkspaceLiveStream(
-        workspaceID: key.workspaceID,
-        conversationID: key.conversationID
-      )
+    if workspaceLiveWorkspaceID != snapshot.id {
+      stopWorkspaceLiveStreams()
     }
-    for key in desired {
-      startWorkspaceLiveStream(
-        workspaceID: key.workspaceID,
-        conversationID: key.conversationID
-      )
+    workspaceLiveWorkspaceID = snapshot.id
+    workspaceLiveConversationIDs = desired
+    if let client = workspaceLiveClient {
+      Task {
+        try? await client.updateSubscriptions(
+          workspaceID: snapshot.id,
+          conversationIDs: desired
+        )
+      }
+      return
     }
+    startWorkspaceLiveStream(workspaceID: snapshot.id)
   }
 
-  private func startWorkspaceLiveStream(workspaceID: String, conversationID: String) {
-    let key = ConversationKey(workspaceID: workspaceID, conversationID: conversationID)
-    guard workspaceLiveTasks[key] == nil else { return }
+  private func startWorkspaceLiveStream(workspaceID: String) {
+    guard workspaceLiveTask == nil else { return }
     let client = RelayLiveClient(configuration: appConfiguration)
-    workspaceLiveClients[key] = client
-    workspaceLiveTasks[key] = Task { [weak self, client, relay] in
+    workspaceLiveClient = client
+    workspaceLiveTask = Task { [weak self, client] in
       var failureCount = 0
-      var hydrated = false
       while !Task.isCancelled {
+        var connectedAt: Date?
         do {
+          guard let self, self.workspaceLiveWorkspaceID == workspaceID else { break }
           try await client.connect(
             workspaceID: workspaceID,
-            conversationID: conversationID
+            conversationIDs: self.workspaceLiveConversationIDs
           ) { [weak self] event in
             Task { @MainActor [weak self] in
               self?.handleLiveEvent(event, expectedWorkspaceID: workspaceID)
             }
           }
-          if !hydrated {
-            let history = try await relay.messages(
-              workspaceID: workspaceID,
-              conversationID: conversationID,
-              after: nil
-            )
-            self?.hydrateReadSnapshot(
-              history,
-              workspaceID: workspaceID,
-              conversationID: conversationID
-            )
-            hydrated = true
-          }
-          failureCount = 0
+          connectedAt = .now
           await client.waitUntilDisconnected()
           if Task.isCancelled { break }
         } catch is CancellationError {
           break
         } catch {
           liveLog.warning(
-            "workspace live stream failed for \(conversationID): \(error.localizedDescription)"
+            "workspace live stream failed: \(error.localizedDescription)"
           )
+        }
+        if let connectedAt, Date.now.timeIntervalSince(connectedAt) >= 60 {
+          failureCount = 0
         }
         failureCount += 1
         let baseSeconds = min(pow(2.0, Double(min(failureCount - 1, 5))), 30)
@@ -1350,23 +1353,15 @@ final class AppModel {
     }
   }
 
-  private func stopWorkspaceLiveStream(workspaceID: String, conversationID: String) {
-    let key = ConversationKey(workspaceID: workspaceID, conversationID: conversationID)
-    workspaceLiveTasks.removeValue(forKey: key)?.cancel()
-    if let client = workspaceLiveClients.removeValue(forKey: key) {
-      Task { await client.disconnect() }
-    }
-  }
-
   private func stopWorkspaceLiveStreams() {
-    let tasks = workspaceLiveTasks.values
-    let clients = workspaceLiveClients.values
-    workspaceLiveTasks.removeAll()
-    workspaceLiveClients.removeAll()
-    tasks.forEach { $0.cancel() }
-    for client in clients {
-      Task { await client.disconnect() }
-    }
+    workspaceLiveBackgroundStopTask?.cancel()
+    workspaceLiveBackgroundStopTask = nil
+    workspaceLiveTask?.cancel()
+    workspaceLiveTask = nil
+    workspaceLiveWorkspaceID = nil
+    workspaceLiveConversationIDs = []
+    if let client = workspaceLiveClient { Task { await client.disconnect() } }
+    workspaceLiveClient = nil
   }
 
   private func configureReadState(for workspaceID: String) {
@@ -1422,6 +1417,14 @@ final class AppModel {
       updateConversationPreview(with: message)
       applyCurrentUserMembershipEvent(message)
       guard isConversationJoined(message.conversationID) else { return }
+      if message.createdAt <= launchedAt {
+        let context = ConversationReadState.channelKey(message.conversationID)
+        if readState.contexts[context] == nil {
+          advanceReadContext(context, to: message.createdAt)
+        }
+        recomputeUnreadCount(conversationID: message.conversationID)
+        return
+      }
       recordArrival(message)
       if isAppActive, visibleConversationID == message.conversationID {
         markChannelRead(conversationID: message.conversationID)
@@ -1485,6 +1488,17 @@ final class AppModel {
 
   func setAppActive(_ active: Bool) {
     isAppActive = active
+    workspaceLiveBackgroundStopTask?.cancel()
+    workspaceLiveBackgroundStopTask = nil
+    if active {
+      if let workspace { syncWorkspaceLiveStreams(for: workspace) }
+    } else {
+      workspaceLiveBackgroundStopTask = Task { [weak self] in
+        try? await Task.sleep(for: .seconds(5))
+        guard !Task.isCancelled, let self, !self.isAppActive else { return }
+        self.stopWorkspaceLiveStreams()
+      }
+    }
     guard active, let visibleConversationID else { return }
     if let visibleThreadRootID {
       markThreadRead(
@@ -1699,10 +1713,7 @@ final class AppModel {
         participantID: recipient.principalID
       )
       upsertConversation(conversation)
-      startWorkspaceLiveStream(
-        workspaceID: workspaceID,
-        conversationID: conversation.id
-      )
+      if let workspace { syncWorkspaceLiveStreams(for: workspace) }
       return conversation.id
     } catch {
       onboardingLog.error("DM start failed: \(error.localizedDescription)")
@@ -1735,7 +1746,6 @@ final class AppModel {
         )
       )
       setConversationJoined(channel.id, joined: true)
-      startWorkspaceLiveStream(workspaceID: workspaceID, conversationID: channel.id)
       return channel
     } catch {
       print("[Chief] create channel \(name) failed: \(error)")
@@ -1769,7 +1779,6 @@ final class AppModel {
         conversationID: conversationID
       )
       setConversationJoined(conversationID, joined: true)
-      startWorkspaceLiveStream(workspaceID: workspaceID, conversationID: conversationID)
       return true
     } catch {
       print("[Chief] join \(conversationID) failed: \(error)")
@@ -1788,7 +1797,6 @@ final class AppModel {
         conversationID: conversationID
       )
       setConversationJoined(conversationID, joined: false)
-      stopWorkspaceLiveStream(workspaceID: workspaceID, conversationID: conversationID)
       conversations.clear(workspaceID: workspaceID, conversationID: conversationID)
       if selectedConversationID == conversationID { selectedConversationID = nil }
     } catch {
@@ -2095,6 +2103,7 @@ final class AppModel {
     if joined { ids.insert(conversationID) } else { ids.remove(conversationID) }
     membershipWorkspaceID = workspaceID
     joinedConversationIDs = ids
+    if let workspace { syncWorkspaceLiveStreams(for: workspace) }
   }
 
   private func refreshCurrentChannelMemberships(for snapshot: WorkspaceSnapshot) async {
@@ -2103,6 +2112,7 @@ final class AppModel {
       guard workspace?.id == snapshot.id else { return }
       membershipWorkspaceID = snapshot.id
       joinedConversationIDs = Set(memberships.map(\.conversationId))
+      syncWorkspaceLiveStreams(for: snapshot)
       return
     } catch {
       onboardingLog.warning(
@@ -2136,6 +2146,7 @@ final class AppModel {
     guard workspace?.id == snapshot.id, results.contains(where: { $0.1 != nil }) else { return }
     membershipWorkspaceID = snapshot.id
     joinedConversationIDs = Set(results.compactMap { id, joined in joined == true ? id : nil })
+    syncWorkspaceLiveStreams(for: snapshot)
   }
 }
 

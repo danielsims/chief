@@ -48,7 +48,9 @@ final class MobileNotifications: NSObject, UNUserNotificationCenterDelegate {
     let content = UNMutableNotificationContent()
     content.title = title
     content.body = body.isEmpty ? "Sent an attachment" : String(body.prefix(180))
-    content.sound = Self.configuredSound
+    content.sound = NotificationSoundGate.shared.claim()
+      ? Self.configuredSound
+      : nil
     content.threadIdentifier = "\(workspaceID):\(conversationID)"
     var userInfo: [String: Any] = [
       "workspaceID": workspaceID,
