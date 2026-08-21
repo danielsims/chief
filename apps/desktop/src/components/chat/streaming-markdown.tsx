@@ -18,11 +18,8 @@ import {
   splitSkillReferences,
 } from "./message-skill-chip";
 
-// Start loading as soon as the chat bundle is evaluated, but keep Streamdown's
-// parser and highlighting code out of the desktop entry chunk.
-const streamdownModule = import("streamdown");
 const Streamdown = lazy(() =>
-  streamdownModule.then((module) => ({ default: module.Streamdown })),
+  import("streamdown").then((module) => ({ default: module.Streamdown })),
 );
 
 function MarkdownLink({

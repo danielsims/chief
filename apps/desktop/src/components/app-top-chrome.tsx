@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   ChevronLeft,
   ChevronRight,
@@ -29,12 +28,11 @@ export function AppTopChrome({
   const { client, status } = useRuntime();
   const [recovering, setRecovering] = useState(false);
 
-  const recoverRuntime = async () => {
+  const recoverRuntime = () => {
     setRecovering(true);
     try {
-      if (isTauri()) await invoke("restart_agent_runtime");
-    } finally {
       client.reconnectNow();
+    } finally {
       window.setTimeout(() => setRecovering(false), 5_000);
     }
   };
@@ -87,12 +85,12 @@ export function AppTopChrome({
         <button
           type="button"
           className="text-foreground/80 hover:text-foreground flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors hover:bg-red-500/10"
-          onClick={() => void recoverRuntime()}
-          title="Restart the local runtime"
+          onClick={recoverRuntime}
+          title="Reconnect to the Chief relay"
         >
           <span className="size-1.5 rounded-full bg-red-500" />
           {recovering ? <RotateCw className="animate-spin" size={12} /> : null}
-          {recovering ? "Restarting runtime…" : "Runtime disconnected · Retry"}
+          {recovering ? "Reconnecting…" : "Relay disconnected · Retry"}
         </button>
       ) : null}
     </header>

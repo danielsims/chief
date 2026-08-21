@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronRight, ChevronUp, Smile } from "lucide-react";
 import { useNavigate } from "react-router";
 
@@ -10,11 +10,8 @@ import {
 
 import type { AuthOrganization } from "../lib/auth/better-auth-client";
 import { useAuth } from "../lib/auth/auth-context";
-import {
-  listAuthOrganizations,
-  parseOrganizationMetadata,
-  setActiveAuthOrganization,
-} from "../lib/auth/better-auth-client";
+import { parseOrganizationMetadata } from "../lib/auth/better-auth-client";
+import { useRelaySession } from "../lib/relay-session";
 import { useUserStatus } from "../lib/user-status";
 import { OrgLogo } from "./org-logo";
 import { SetStatusDialog } from "./set-status-dialog";
@@ -24,36 +21,37 @@ import {
 } from "./workspace-action-menu";
 
 export function SidebarProfileMenu() {
-  const { user, cloudOrganizationId, isAuthenticated } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [organizations, setOrganizations] = useState<AuthOrganization[]>([]);
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
   const [workspaceMenuId, setWorkspaceMenuId] = useState<string | null>(null);
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const relay = useRelaySession();
+  const cloudOrganizationId = relay.snapshot?.id ?? null;
   const userStatus = useUserStatus(cloudOrganizationId, user?.id ?? null);
+  const organizations = useMemo<AuthOrganization[]>(
+    () =>
+      relay.workspaces.map((workspace) => ({
+        id: workspace.id,
+        name: workspace.name,
+        slug: workspace.id,
+        logo: workspace.imageURL,
+        metadata: { websiteUrl: workspace.website },
+      })),
+    [relay.workspaces],
+  );
 
   const setProfileMenuOpen = (nextOpen: boolean) => {
     setOpen(nextOpen);
     if (!nextOpen) setWorkspaceMenuId(null);
   };
 
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    let cancelled = false;
-    void listAuthOrganizations(open).then((items) => {
-      if (!cancelled) setOrganizations(items);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [isAuthenticated, open]);
-
   const switchWorkspace = async (organization: AuthOrganization) => {
     if (organization.id === cloudOrganizationId || switchingTo) return;
     setSwitchingTo(organization.id);
     try {
-      await setActiveAuthOrganization(organization.id);
+      await relay.switchWorkspace(organization.id);
       window.location.assign("/");
     } catch (error) {
       console.error("[Workspace] Switch failed:", error);
@@ -195,7 +193,7 @@ export function SidebarProfileMenu() {
                     }}
                     onAddWorkspace={() => {
                       setProfileMenuOpen(false);
-                      void navigate("/workspaces/new");
+                      void navigate("/workspaces/new?intent=add");
                     }}
                   />
                 </Popover>

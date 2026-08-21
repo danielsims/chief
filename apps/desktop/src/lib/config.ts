@@ -10,12 +10,19 @@ const injectedAuthBaseUrl = readOptionalValue(
 
 export const CONVEX_URL = env.VITE_CONVEX_URL;
 
-export const AUTH_BASE_URL =
+export const AUTH_UI_BASE_URL =
+  env.VITE_AUTH_UI_URL ??
   env.VITE_AUTH_BASE_URL ??
   injectedAuthBaseUrl ??
-  (import.meta.env.DEV ? "http://localhost:3000" : undefined);
+  (import.meta.env.DEV ? "http://localhost:3000" : "https://heychief.sh");
+
+export const RELAY_URL =
+  env.VITE_CHIEF_RELAY_URL ??
+  "https://chief-relay.danielsims-browser-ui.workers.dev";
+
+export const AUTH_BASE_URL = RELAY_URL;
 
 export const missingDesktopConfiguration = [
   !CONVEX_URL ? "VITE_CONVEX_URL" : null,
-  !AUTH_BASE_URL ? "VITE_AUTH_BASE_URL" : null,
+  !AUTH_UI_BASE_URL ? "VITE_AUTH_UI_URL" : null,
 ].filter((value): value is string => value !== null);

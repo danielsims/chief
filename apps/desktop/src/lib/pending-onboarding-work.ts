@@ -6,6 +6,13 @@ import { nextRunAt } from "@chief/agent-runtime/recurring-work";
 
 import type { WorkspaceDataState } from "./workspace-data";
 
+export function relayNeedsPendingOnboardingReplay(
+  workspaceId: string,
+  snapshot: { id: string; onboardingComplete: boolean } | null,
+) {
+  return snapshot?.id !== workspaceId || !snapshot.onboardingComplete;
+}
+
 export function pendingOnboardingWorkStorageKey(workspaceId: string) {
   return `chief:onboarding-work:${workspaceId}`;
 }

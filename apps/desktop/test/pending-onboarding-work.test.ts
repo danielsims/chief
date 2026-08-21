@@ -5,6 +5,7 @@ import {
   completePendingOnboardingWork,
   mergePendingOnboardingSchedules,
   pendingOnboardingWorkStorageKey,
+  relayNeedsPendingOnboardingReplay,
 } from "../src/lib/pending-onboarding-work.js";
 import { emptyWorkspaceData } from "../src/lib/workspace-data.js";
 
@@ -79,4 +80,22 @@ void test("keeps onboarding work durable until the full runtime bootstrap acknow
       value: previousWindow,
     });
   }
+});
+
+void test("does not replay Mac-local onboarding after the relay completed it", () => {
+  assert.equal(
+    relayNeedsPendingOnboardingReplay("workspace-1", {
+      id: "workspace-1",
+      onboardingComplete: true,
+    }),
+    false,
+  );
+  assert.equal(
+    relayNeedsPendingOnboardingReplay("workspace-1", {
+      id: "workspace-1",
+      onboardingComplete: false,
+    }),
+    true,
+  );
+  assert.equal(relayNeedsPendingOnboardingReplay("workspace-1", null), true);
 });

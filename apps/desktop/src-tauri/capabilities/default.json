@@ -33,6 +33,7 @@
         { "url": "https://*.googleusercontent.com/**" },
         { "url": "https://oauth2.googleapis.com/**" },
         { "url": "https://integrations.sh/**" },
+        { "url": "https://chief-relay.danielsims-browser-ui.workers.dev/**" },
         { "url": "https://*.convex.cloud/**" },
         { "url": "https://*.convex.site/**" }
       ]

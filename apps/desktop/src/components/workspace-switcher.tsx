@@ -159,7 +159,7 @@ export function WorkspaceSwitcher({
             type="button"
             onClick={() => {
               setOpen(false);
-              navigate("/workspaces/new");
+              navigate("/workspaces/new?intent=add");
             }}
             className="text-muted-foreground hover:bg-accent hover:text-foreground flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors"
           >

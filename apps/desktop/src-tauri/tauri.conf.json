@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "pnpm dev:vite",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build && pnpm runtime:bundle",
+    "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -44,11 +44,6 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
-    "externalBin": ["binaries/chief-agent-runtime"],
-    "resources": {
-      "resources/agent-runtime": "agent-runtime",
-      "resources/agent-runtime.version": "agent-runtime.version"
-    },
     "macOS": {
       "entitlements": "./Entitlements.plist",
       "minimumSystemVersion": "13.0"

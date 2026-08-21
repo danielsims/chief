@@ -85,21 +85,7 @@
       "count": 1
     }
   },
-  "src/lib/auth/better-auth-client.ts": {
-    "@typescript-eslint/no-non-null-assertion": {
-      "count": 3
-    }
-  },
   "src/lib/auth/client.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    },
-    "@typescript-eslint/no-non-null-assertion": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unnecessary-condition": {
-      "count": 1
-    },
     "@typescript-eslint/prefer-nullish-coalescing": {
       "count": 1
     },
@@ -113,9 +99,6 @@
     }
   },
   "src/lib/convex.tsx": {
-    "@typescript-eslint/no-non-null-assertion": {
-      "count": 1
-    },
     "@typescript-eslint/no-unnecessary-condition": {
       "count": 2
     },
@@ -129,11 +112,8 @@
     }
   },
   "src/lib/runtime.tsx": {
-    "@typescript-eslint/no-empty-function": {
-      "count": 1
-    },
     "react-hooks/set-state-in-effect": {
-      "count": 3
+      "count": 1
     }
   },
   "src/main.tsx": {

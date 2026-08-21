@@ -2,159 +2,253 @@ import { useCallback, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router";
 
-import { Button } from "@chief/ui/components/button";
-import { Input } from "@chief/ui/components/input";
+import { createWorkspaceCommandSchema } from "@chief/relay-contracts";
 
-import { resolveFaviconUrl } from "../components/org-logo";
+import { useAuth } from "../lib/auth/auth-context";
+import { RELAY_URL } from "../lib/config";
+import { useRelaySession } from "../lib/relay-session";
 import {
-  createAuthOrganization,
-  setActiveAuthOrganization,
-  updateAuthOrganization,
-} from "../lib/auth/better-auth-client";
+  AccountIndicator,
+  ConnectionNotice,
+  CreateForm,
+  ExistingWorkspaces,
+  JoinForm,
+  WorkspaceHome,
+} from "./workspace-new-components";
 
-/**
- * Full-page workspace creation. Visually this is step one of onboarding.
- */
-
-function slugify(name: string): string {
-  const base = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  // Random suffix avoids collisions with slugs taken by other accounts.
-  const suffix = Math.random().toString(36).slice(2, 8);
-  return base ? `${base}-${suffix}` : suffix;
-}
+type PageMode = "home" | "existing" | "create" | "join";
 
 export function CreateWorkspacePage() {
   const navigate = useNavigate();
+  const auth = useAuth();
+  const relay = useRelaySession();
+  const incomingInvite =
+    new URLSearchParams(window.location.search).get("invite") ?? "";
+  const [mode, setMode] = useState<PageMode>(incomingInvite ? "join" : "home");
   const [name, setName] = useState("");
   const [website, setWebsite] = useState("");
-  const [isCreating, setIsCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [invite, setInvite] = useState(incomingInvite);
+  const [invitePreview, setInvitePreview] = useState<{
+    workspaceId: string;
+    workspaceName: string;
+    conversationName: string | null;
+    secret: string;
+  } | null>(null);
+  const [isWorking, setIsWorking] = useState(false);
+  const [switchingTo, setSwitchingTo] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const connectionError = actionError ?? relay.error;
 
-  const handleSubmit = useCallback(
-    async (event: React.FormEvent) => {
-      event.preventDefault();
-      const trimmed = name.trim();
-      if (!trimmed || isCreating) return;
-      setIsCreating(true);
-      setError(null);
+  const closePage = useCallback(() => {
+    if (relay.snapshot) {
+      void navigate("/");
+      return;
+    }
+    setMode("home");
+  }, [navigate, relay.snapshot]);
+
+  const selectWorkspace = useCallback(
+    async (workspaceId: string) => {
+      if (switchingTo) return;
+      setSwitchingTo(workspaceId);
+      setActionError(null);
       try {
-        // Only persist the favicon as the logo when it is a real one; the
-        // favicon service returns a 16px generic globe for sites without one.
-        const logo = await resolveFaviconUrl(website);
-        const org = await createAuthOrganization({
-          name: trimmed,
-          slug: slugify(trimmed),
-          ...(logo ? { logo } : {}),
-        });
-        await updateAuthOrganization(org.id, {
-          metadata: { websiteUrl: website.trim() },
-        });
-        await setActiveAuthOrganization(org.id);
-        // Full reload re-keys all org-scoped app state on the new workspace.
-        window.location.assign("/onboarding");
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-        setIsCreating(false);
+        await relay.switchWorkspace(workspaceId);
+        window.location.assign("/");
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : String(error));
+        setSwitchingTo(null);
       }
     },
-    [name, website, isCreating],
+    [relay, switchingTo],
   );
 
+  const createWorkspace = useCallback(
+    async (event: React.FormEvent) => {
+      event.preventDefault();
+      const trimmedName = name.trim();
+      if (!trimmedName || isWorking) return;
+      setIsWorking(true);
+      setActionError(null);
+      try {
+        await relay.createWorkspace(
+          createWorkspaceCommandSchema.parse({
+            commandId: crypto.randomUUID(),
+            name: trimmedName,
+            website: website.trim(),
+            runtime: "mac",
+            inferenceProvider: "unconfigured",
+            inferenceModel: "unconfigured",
+            selectedApps: [],
+          }),
+        );
+        window.location.assign("/");
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : String(error));
+        setIsWorking(false);
+      }
+    },
+    [isWorking, name, relay, website],
+  );
+
+  const prepareInvite = useCallback(async () => {
+    setIsWorking(true);
+    setActionError(null);
+    try {
+      const parsed = parseWorkspaceInvite(invite);
+      const preview = await relay.previewWorkspaceInvite(
+        parsed.workspaceId,
+        parsed.secret,
+      );
+      setInvitePreview({
+        workspaceId: preview.workspaceId,
+        workspaceName: preview.workspaceName,
+        conversationName: preview.conversationName,
+        secret: parsed.secret,
+      });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsWorking(false);
+    }
+  }, [invite, relay]);
+
+  const joinWorkspace = useCallback(async () => {
+    if (!invitePreview) return;
+    setIsWorking(true);
+    setActionError(null);
+    try {
+      const result = await relay.claimWorkspaceInvite(
+        invitePreview.workspaceId,
+        invitePreview.secret,
+      );
+      window.location.assign(
+        result.conversationId
+          ? `/conversations?channel=${encodeURIComponent(result.conversationId)}`
+          : "/",
+      );
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+      setIsWorking(false);
+    }
+  }, [invitePreview, relay]);
+
   return (
-    <div className="bg-background text-foreground flex min-h-screen flex-col">
-      <header data-tauri-drag-region className="h-12 shrink-0" />
+    <div className="bg-background text-foreground flex h-screen flex-col">
+      <AccountIndicator
+        user={auth.user}
+        onSignOut={auth.signOut}
+        disabled={isWorking}
+      />
+      <header data-tauri-drag-region className="h-[72px] shrink-0" />
+      <main className="flex min-h-0 flex-1 overflow-y-auto px-6 pb-10">
+        <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col justify-center py-12">
+          {mode === "home" ? (
+            <WorkspaceHome
+              hasWorkspaces={relay.workspaces.length > 0}
+              onExisting={() => {
+                setActionError(null);
+                setMode("existing");
+              }}
+              onCreate={() => {
+                setActionError(null);
+                setMode("create");
+              }}
+              onJoin={() => {
+                setActionError(null);
+                setMode("join");
+              }}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={closePage}
+              disabled={isWorking}
+              className="text-muted-foreground hover:text-foreground mb-8 flex w-fit items-center gap-1.5 text-[13px] transition-colors disabled:opacity-50"
+            >
+              <ArrowLeft size={14} />
+              Back
+            </button>
+          )}
 
-      <main className="flex min-h-0 flex-1 overflow-y-auto px-6 pb-12">
-        <div className="mx-auto flex min-h-full w-full max-w-[480px] flex-col justify-center py-10">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            disabled={isCreating}
-            className="text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-ring/30 mb-7 flex h-8 w-fit items-center gap-1.5 rounded-lg px-2 text-xs font-medium transition-colors outline-none focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-50"
-          >
-            <ArrowLeft size={14} />
-            Back
-          </button>
+          {mode === "create" ? (
+            <CreateForm
+              name={name}
+              website={website}
+              working={isWorking}
+              connected={relay.client !== null}
+              onNameChange={setName}
+              onWebsiteChange={setWebsite}
+              onSubmit={createWorkspace}
+            />
+          ) : null}
 
-          <div>
-            <h1 className="text-[30px] leading-[1.08] font-normal tracking-[-0.04em]">
-              Create a workspace
-            </h1>
-            <p className="text-muted-foreground mt-2 max-w-md text-[13px] leading-5">
-              Give your company, channels, agents, and shared work a home.
-            </p>
-          </div>
+          {mode === "existing" ? (
+            <ExistingWorkspaces
+              workspaces={relay.workspaces}
+              switchingTo={switchingTo}
+              onSelect={selectWorkspace}
+            />
+          ) : null}
 
-          <form
-            onSubmit={handleSubmit}
-            className="bg-background mt-8 space-y-5 rounded-2xl p-6 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_9%,transparent),0_12px_32px_color-mix(in_srgb,var(--foreground)_3%,transparent)] dark:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_12%,transparent),0_12px_32px_rgba(0,0,0,0.14)]"
-          >
-            <div className="space-y-2">
-              <label
-                className="text-[13px] font-medium"
-                htmlFor="new-workspace-name"
-              >
-                Company name
-              </label>
-              <Input
-                id="new-workspace-name"
-                autoFocus
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Acme Inc"
-                disabled={isCreating}
-                className="bg-background h-10 rounded-xl border-0 px-3.5 shadow-[inset_0_0_0_1px_var(--input),inset_0_1px_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.025)]"
-              />
-            </div>
-            <div className="space-y-2">
-              <label
-                className="text-[13px] font-medium"
-                htmlFor="new-workspace-website"
-              >
-                Company website
-              </label>
-              <Input
-                id="new-workspace-website"
-                value={website}
-                onChange={(event) => setWebsite(event.target.value)}
-                placeholder="acme.com"
-                disabled={isCreating}
-                className="bg-background h-10 rounded-xl border-0 px-3.5 shadow-[inset_0_0_0_1px_var(--input),inset_0_1px_rgba(255,255,255,0.06),0_1px_2px_rgba(0,0,0,0.025)]"
-              />
-              <p className="text-muted-foreground text-[11px] leading-4">
-                Chief will use the website favicon as the workspace image when
-                one is available.
-              </p>
-            </div>
-            {error ? (
-              <p className="text-destructive text-xs leading-5 break-words">
-                {error}
-              </p>
-            ) : null}
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => navigate(-1)}
-                disabled={isCreating}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                className="min-w-36"
-                disabled={!name.trim() || isCreating}
-                loading={isCreating}
-              >
-                Create workspace
-              </Button>
-            </div>
-          </form>
+          {mode === "join" ? (
+            <JoinForm
+              invite={invite}
+              preview={invitePreview}
+              working={isWorking}
+              connected={relay.client !== null}
+              onInviteChange={(value) => {
+                setInvite(value);
+                setInvitePreview(null);
+              }}
+              onPrepare={() => void prepareInvite()}
+              onJoin={() => void joinWorkspace()}
+            />
+          ) : null}
+
+          {connectionError ? (
+            <ConnectionNotice
+              message={connectionError}
+              retrying={relay.loading}
+              onRetry={() => void relay.refresh()}
+            />
+          ) : null}
         </div>
       </main>
     </div>
   );
+}
+
+function parseWorkspaceInvite(value: string) {
+  const url = new URL(value.trim());
+  if (url.username || url.password || url.hash)
+    throw new Error("This invitation link is not valid.");
+  if (url.protocol === "chief-desktop:" && url.hostname === "join") {
+    const relay = new URL(url.searchParams.get("relay") ?? "");
+    if (relay.origin !== new URL(RELAY_URL).origin) {
+      throw new Error("Add this invitation’s Chief relay before joining.");
+    }
+    return inviteParts(
+      url.searchParams.get("workspace") ?? "",
+      url.searchParams.get("code") ?? "",
+    );
+  }
+  if (url.origin !== new URL(RELAY_URL).origin) {
+    throw new Error("Add this invitation’s Chief relay before joining.");
+  }
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (parts.length !== 3 || parts[0] !== "invite") {
+    throw new Error("Paste a Chief workspace invitation link.");
+  }
+  return inviteParts(parts[1] ?? "", parts[2] ?? "");
+}
+
+function inviteParts(workspaceId: string, secret: string) {
+  if (
+    !workspaceId.startsWith("workspace-") ||
+    !/^[A-Za-z0-9_-]{43,128}$/u.test(secret)
+  ) {
+    throw new Error("This invitation link is not valid.");
+  }
+  return { workspaceId, secret };
 }
