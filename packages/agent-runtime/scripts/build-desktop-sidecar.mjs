@@ -6,16 +6,18 @@ import {
   cpSync,
   createReadStream,
   existsSync,
-  lstatSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
+
+import { signDesktopRuntime } from "./sign-desktop-runtime.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(packageRoot, "../..");
@@ -24,6 +26,7 @@ const runtimeRoot = join(tauriRoot, "resources/agent-runtime");
 const runtimeVersionFile = join(tauriRoot, "resources/agent-runtime.version");
 const binariesRoot = join(tauriRoot, "binaries");
 const macEntitlements = join(tauriRoot, "Entitlements.plist");
+const packageRequire = createRequire(join(packageRoot, "package.json"));
 
 function expectedNodeVersion() {
   return readFileSync(join(repoRoot, ".nvmrc"), "utf8")
@@ -76,18 +79,6 @@ function hostTriple() {
   return host.trim();
 }
 
-function packageManager() {
-  if (!process.env.npm_execpath) return ["pnpm"];
-  return /\.[cm]?js$/.test(process.env.npm_execpath)
-    ? [process.execPath, process.env.npm_execpath]
-    : [process.env.npm_execpath];
-}
-
-function executablePath(root, name) {
-  const suffix = process.platform === "win32" ? ".cmd" : "";
-  return join(root, "node_modules", ".bin", `${name}${suffix}`);
-}
-
 function hashFile(path) {
   return new Promise((resolve, reject) => {
     const hash = createHash("sha256");
@@ -98,52 +89,28 @@ function hashFile(path) {
   });
 }
 
-function regularFiles(root) {
-  const files = [];
-  const visit = (directory) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        visit(path);
-      } else if (entry.isFile() && lstatSync(path).isFile()) {
-        files.push(path);
-      }
-    }
-  };
-  visit(root);
-  return files;
+function packageDirectory(manifestPath) {
+  return dirname(manifestPath);
 }
 
-function signDarwinNativePayloads(root) {
-  const identity = process.env.APPLE_SIGNING_IDENTITY?.trim();
-  if (process.platform !== "darwin" || !identity) return;
+function copyPackage(source, target) {
+  mkdirSync(dirname(target), { recursive: true });
+  cpSync(source, target, { recursive: true });
+}
 
-  const nativeFiles = regularFiles(root)
-    .map((path) => {
-      const description = execFileSync("file", ["-b", path], {
-        encoding: "utf8",
-      }).trim();
-      return { description, path };
-    })
-    .filter(({ description }) => description.includes("Mach-O"));
+function libsqlTarget(target, runtime) {
+  if (runtime.platform === "darwin") return `darwin-${runtime.arch}`;
+  if (runtime.platform === "win32") return `win32-${runtime.arch}-msvc`;
+  const libc = target.includes("musl") ? "musl" : "gnu";
+  return `linux-${runtime.arch}-${libc}`;
+}
 
-  for (const { description, path } of nativeFiles) {
-    if (description.includes("executable")) chmodSync(path, 0o755);
-    const args = ["--force", "--sign", identity];
-    if (identity !== "-") args.push("--options", "runtime", "--timestamp");
-    if (description.includes("executable") && existsSync(macEntitlements)) {
-      args.push("--entitlements", macEntitlements);
-    }
-    args.push(path);
-    execFileSync("codesign", args, { stdio: "inherit" });
-    execFileSync("codesign", ["--verify", "--strict", path], {
-      stdio: "inherit",
-    });
-  }
-
-  console.log(
-    `Signed ${nativeFiles.length} native runtime payloads for notarization.`,
-  );
+function browserTarget(target, runtime) {
+  const platform =
+    runtime.platform === "linux" && target.includes("musl")
+      ? "linux-musl"
+      : runtime.platform;
+  return `agent-browser-${platform}-${runtime.arch}${runtime.platform === "win32" ? ".exe" : ""}`;
 }
 
 const target = process.env.TAURI_ENV_TARGET_TRIPLE ?? hostTriple();
@@ -176,291 +143,150 @@ console.log(
   `Selected Node ${selectedNode.version} (${selectedNode.platform}/${selectedNode.arch}) at ${nodeBinary} for ${target}.`,
 );
 
-const codexPlatformPackage = `codex-${expectedRuntime.platform === "win32" ? "win32" : expectedRuntime.platform}-${expectedRuntime.arch === "arm64" ? "arm64" : "x64"}`;
-const codexExecutableName =
-  expectedRuntime.platform === "win32" ? "codex.exe" : "codex";
-
 rmSync(runtimeRoot, { recursive: true, force: true });
-mkdirSync(dirname(runtimeRoot), { recursive: true });
-
-const [runner, ...runnerArgs] = packageManager();
-execFileSync(
-  runner,
-  [
-    ...runnerArgs,
-    "--config.allow-unused-patches=true",
-    "--config.node-linker=hoisted",
-    "--dir",
-    repoRoot,
-    "--filter",
-    "@chief/agent-runtime",
-    "deploy",
-    "--prod",
-    "--legacy",
-    runtimeRoot,
-  ],
-  { cwd: repoRoot, stdio: "inherit" },
-);
-
 mkdirSync(join(runtimeRoot, "dist"), { recursive: true });
+
+// The packaged desktop starts only the signed relay-cell and plugin-host workers.
+// Bundle their JS graphs instead of deploying the complete development workspace.
+// ws remains external because it is CommonJS; libsql's target-native binding is
+// copied below. The createRequire banner lets bundled CommonJS dependencies use
+// Node built-ins from an ESM entrypoint.
+const nativeLibsqlPackage = `@libsql/${libsqlTarget(target, expectedRuntime)}`;
 await build({
+  banner: {
+    js: "import { createRequire as __chiefCreateRequire } from 'node:module'; const require = __chiefCreateRequire(import.meta.url);",
+  },
   bundle: true,
-  entryPoints: [join(packageRoot, "src/server.ts")],
+  entryPoints: [
+    join(packageRoot, "src/relay-cell-worker.ts"),
+    join(packageRoot, "src/plugin-host-worker.ts"),
+  ],
+  entryNames: "[name]",
+  external: ["ws", nativeLibsqlPackage],
   format: "esm",
-  jsx: "automatic",
   logLevel: "warning",
-  outfile: join(runtimeRoot, "dist/server.mjs"),
-  packages: "external",
+  outExtension: { ".js": ".mjs" },
+  outdir: join(runtimeRoot, "dist"),
+  platform: "node",
   plugins: [
     {
-      name: "bundle-chief-email-renderer",
+      name: "bundle-chief-relay-packages",
       setup(build) {
-        build.onResolve({ filter: /^@chief\/email\/render$/ }, () => ({
-          path: join(repoRoot, "packages/email/src/render.ts"),
-        }));
-      },
-    },
-    {
-      name: "bundle-google-oauth-connector",
-      setup(build) {
-        build.onResolve({ filter: /^@chief\/google-oauth-connector$/ }, () => ({
-          path: join(repoRoot, "packages/google-oauth-connector/src/index.ts"),
-        }));
-      },
-    },
-    {
-      name: "bundle-chief-browser",
-      setup(build) {
+        build.onResolve({ filter: /^zod$/ }, ({ importer }) =>
+          importer.startsWith(resolve(packageRoot, "../relay-contracts"))
+            ? {
+                path: resolve(
+                  packageRoot,
+                  "../relay-contracts/node_modules/zod/index.js",
+                ),
+              }
+            : undefined,
+        );
         build.onResolve({ filter: /^@chief\/browser\/node$/ }, () => ({
           path: join(repoRoot, "packages/browser/src/node.ts"),
         }));
-      },
-    },
-    {
-      name: "bundle-chief-channel-api",
-      setup(build) {
-        build.onResolve({ filter: /^@chief\/channel-api$/ }, () => ({
-          path: join(repoRoot, "packages/channel-api/src/index.ts"),
+        build.onResolve({ filter: /^@chief\/relay-client$/ }, () => ({
+          path: join(repoRoot, "packages/relay-client/src/index.ts"),
         }));
-      },
-    },
-    {
-      name: "bundle-chief-plugin-api",
-      setup(build) {
-        build.onResolve({ filter: /^@chief\/plugin-api$/ }, () => ({
-          path: join(repoRoot, "packages/plugin-api/src/index.ts"),
-        }));
-        build.onResolve({ filter: /^@chief\/plugin-api\/reference$/ }, () => ({
-          path: join(repoRoot, "packages/plugin-api/src/reference.ts"),
+        build.onResolve({ filter: /^@chief\/relay-contracts$/ }, () => ({
+          path: join(repoRoot, "packages/relay-contracts/src/index.ts"),
         }));
       },
     },
   ],
-  platform: "node",
   target: "node24",
 });
 
-const bundledRuntime = readFileSync(
-  join(runtimeRoot, "dist/server.mjs"),
-  "utf8",
+copyPackage(
+  packageDirectory(packageRequire.resolve("ws/package.json")),
+  join(runtimeRoot, "node_modules/ws"),
 );
-if (
-  bundledRuntime.includes('"@chief/google-oauth-connector"') ||
-  bundledRuntime.includes("'@chief/google-oauth-connector'")
-) {
-  throw new Error("Google OAuth connector escaped the desktop runtime bundle.");
-}
-rmSync(join(runtimeRoot, "node_modules/@chief/google-oauth-connector"), {
-  recursive: true,
-  force: true,
-});
-if (
-  bundledRuntime.includes('"@chief/browser/node"') ||
-  bundledRuntime.includes("'@chief/browser/node'")
-) {
-  throw new Error("Chief browser client escaped the desktop runtime bundle.");
-}
-rmSync(join(runtimeRoot, "node_modules/@chief/browser"), {
-  recursive: true,
-  force: true,
-});
-if (
-  bundledRuntime.includes('"@chief/channel-api"') ||
-  bundledRuntime.includes("'@chief/channel-api'")
-) {
-  throw new Error("Chief channel API escaped the desktop runtime bundle.");
-}
-if (
-  bundledRuntime.includes('"@chief/plugin-api"') ||
-  bundledRuntime.includes("'@chief/plugin-api'")
-) {
-  throw new Error("Chief plugin API escaped the desktop runtime bundle.");
-}
-rmSync(join(runtimeRoot, "node_modules/@chief/plugin-api"), {
-  recursive: true,
-  force: true,
-});
 
-// Prompts are runtime assets, not bundled strings. Shipping the canonical
-// filesystem tree keeps local Codex, Claude and OpenCode sessions on the same
-// definitions that the Eve compiler deploys.
-const agentDefinitionsRoot = join(packageRoot, "src/agents");
-const bundledAgentDefinitionsRoot = join(runtimeRoot, "agents");
-mkdirSync(bundledAgentDefinitionsRoot, { recursive: true });
-for (const entry of readdirSync(agentDefinitionsRoot, {
-  withFileTypes: true,
-})) {
-  if (!entry.isDirectory()) continue;
-  const instructions = join(
-    agentDefinitionsRoot,
-    entry.name,
-    "instructions.md",
-  );
-  if (!existsSync(instructions)) continue;
-  const targetDirectory = join(bundledAgentDefinitionsRoot, entry.name);
-  mkdirSync(targetDirectory, { recursive: true });
-  cpSync(instructions, join(targetDirectory, "instructions.md"));
-  const skills = join(agentDefinitionsRoot, entry.name, "skills");
-  if (existsSync(skills)) {
-    cpSync(skills, join(targetDirectory, "skills"), { recursive: true });
-  }
+const libsqlClientEntry = packageRequire.resolve("@libsql/client");
+const libsqlRequire = createRequire(libsqlClientEntry);
+const libsqlEntry = libsqlRequire.resolve("libsql");
+const nativeLibsqlRequire = createRequire(libsqlEntry);
+copyPackage(
+  packageDirectory(
+    nativeLibsqlRequire.resolve(`${nativeLibsqlPackage}/package.json`),
+  ),
+  join(runtimeRoot, "node_modules", nativeLibsqlPackage),
+);
+
+// Browser automation needs one tiny JS launcher and one target-native client.
+// Do not ship the six binaries for platforms this build cannot run on.
+const browserRequire = createRequire(
+  join(repoRoot, "packages/browser/package.json"),
+);
+const browserRoot = packageDirectory(
+  browserRequire.resolve("agent-browser/package.json"),
+);
+const browserBinary = browserTarget(target, expectedRuntime);
+const bundledBrowserRoot = join(runtimeRoot, "node_modules/agent-browser");
+mkdirSync(join(bundledBrowserRoot, "bin"), { recursive: true });
+copyFileSync(
+  join(browserRoot, "package.json"),
+  join(bundledBrowserRoot, "package.json"),
+);
+copyFileSync(
+  join(browserRoot, "bin/agent-browser.js"),
+  join(bundledBrowserRoot, "bin/agent-browser.js"),
+);
+copyFileSync(
+  join(browserRoot, "bin", browserBinary),
+  join(bundledBrowserRoot, "bin", browserBinary),
+);
+if (expectedRuntime.platform !== "win32") {
+  chmodSync(join(bundledBrowserRoot, "bin", browserBinary), 0o755);
 }
 
+// Prompts and bundled plugin metadata remain filesystem assets shared by every
+// provider. Provider CLIs themselves are discovered from the user's machine;
+// Chief no longer embeds Codex, pnpm, Vercel, Eve, or deployment workspaces.
+copyPackage(join(packageRoot, "src/agents"), join(runtimeRoot, "agents"));
 const bundledPluginsRoot = join(packageRoot, "src/plugins-bundled");
 if (existsSync(bundledPluginsRoot)) {
-  cpSync(bundledPluginsRoot, join(runtimeRoot, "plugins-bundled"), {
-    recursive: true,
-  });
+  copyPackage(bundledPluginsRoot, join(runtimeRoot, "plugins-bundled"));
 }
-
-// App-managed deployments use a bundled, deterministic Eve workspace. The
-// desktop runtime materializes the selected canonical agent into a private
-// copy and only deploys after the user presses Deploy in Chief.
-const deploymentTemplateSource = join(repoRoot, "apps/workspace");
-const deploymentTemplateTarget = join(runtimeRoot, "deployment-workspace");
-const deploymentTemplateExcludes = new Set([
-  ".cache",
-  ".env.local",
-  ".eve",
-  ".output",
-  ".turbo",
-  ".vercel",
-  "node_modules",
-  "workspace-input",
-]);
-cpSync(deploymentTemplateSource, deploymentTemplateTarget, {
-  recursive: true,
-  filter: (path) =>
-    path === deploymentTemplateSource ||
-    !deploymentTemplateExcludes.has(basename(path)),
-});
-
-const convexTemplateSource = join(packageRoot, "templates/convex");
-const convexTemplateTarget = join(runtimeRoot, "convex-deployment-workspace");
-cpSync(convexTemplateSource, convexTemplateTarget, {
-  recursive: true,
-  filter: (path) =>
-    path === convexTemplateSource ||
-    !deploymentTemplateExcludes.has(basename(path)),
-});
-
-for (const path of [".turbo", "src", "tsconfig.json", "drizzle.config.ts"]) {
-  rmSync(join(runtimeRoot, path), { recursive: true, force: true });
-}
-
-const nativeCodexRoot = join(
-  runtimeRoot,
-  "node_modules",
-  "@openai",
-  codexPlatformPackage,
-  "vendor",
-  target,
-);
-const nativeCodex = join(nativeCodexRoot, "bin", codexExecutableName);
-if (!existsSync(nativeCodex)) {
-  throw new Error(`Target-native Codex binary is missing: ${nativeCodex}`);
-}
-const bundledCodexRoot = join(runtimeRoot, "codex");
-cpSync(nativeCodexRoot, bundledCodexRoot, { recursive: true });
-const bundledCodex = join(bundledCodexRoot, "bin", codexExecutableName);
-chmodSync(bundledCodex, 0o755);
-execFileSync(bundledCodex, ["--version"], { stdio: "inherit" });
-rmSync(join(runtimeRoot, "node_modules", ".bin", "codex"), { force: true });
-rmSync(join(runtimeRoot, "node_modules", "@openai", "codex"), {
-  recursive: true,
-  force: true,
-});
-rmSync(join(runtimeRoot, "node_modules", "@openai", codexPlatformPackage), {
-  recursive: true,
-  force: true,
-});
 
 mkdirSync(binariesRoot, { recursive: true });
 const sidecarName = `chief-agent-runtime-${target}${process.platform === "win32" ? ".exe" : ""}`;
 const sidecarPath = join(binariesRoot, sidecarName);
-copyFileSync(nodeBinary, sidecarPath);
-chmodSync(sidecarPath, 0o755);
+const stagedSidecarPath = `${sidecarPath}.next`;
+copyFileSync(nodeBinary, stagedSidecarPath);
+chmodSync(stagedSidecarPath, 0o755);
+renameSync(stagedSidecarPath, sidecarPath);
 
-for (const name of ["convex", "executor"]) {
-  const path = executablePath(runtimeRoot, name);
-  if (!existsSync(path)) {
-    throw new Error(`Required bundled agent binary is missing: ${path}`);
-  }
-}
+// Smoke-load the exact packaged worker before Tauri spends time constructing
+// an installer. A disabled config exits after all imports and native bindings
+// have loaded without opening a relay connection.
+execFileSync(sidecarPath, [join(runtimeRoot, "dist/relay-cell-worker.mjs")], {
+  cwd: runtimeRoot,
+  env: {
+    ...process.env,
+    CHIEF_AGENT_CONFIG: JSON.stringify({
+      driver: "opencode",
+      enabled: false,
+      model: "auto",
+    }),
+  },
+  stdio: "inherit",
+});
+execFileSync(sidecarPath, [join(runtimeRoot, "dist/plugin-host-worker.mjs")], {
+  cwd: runtimeRoot,
+  env: { ...process.env, CHIEF_PLUGIN_HOST_SMOKE: "1" },
+  stdio: "inherit",
+});
 
-const agentBrowserBin = join(
+signDesktopRuntime(
   runtimeRoot,
-  "node_modules",
-  "agent-browser",
-  "bin",
+  process.env.APPLE_SIGNING_IDENTITY?.trim(),
+  macEntitlements,
 );
-const agentBrowserClient = existsSync(agentBrowserBin)
-  ? readdirSync(agentBrowserBin).find(
-      (entry) =>
-        entry.startsWith("agent-browser-darwin") ||
-        entry.startsWith("agent-browser-linux"),
-    )
-  : undefined;
-if (!agentBrowserClient) {
-  throw new Error(
-    "Required bundled agent-browser native client is missing from the runtime.",
-  );
-}
-
-for (const cli of [
-  join(runtimeRoot, "node_modules", "convex", "bin", "main.js"),
-  join(runtimeRoot, "node_modules", "eve", "bin", "eve.js"),
-  join(runtimeRoot, "node_modules", "pnpm", "bin", "pnpm.cjs"),
-  join(runtimeRoot, "node_modules", "vercel", "dist", "vc.js"),
-]) {
-  if (!existsSync(cli))
-    throw new Error(`Required deployment CLI is missing: ${cli}`);
-  execFileSync(nodeBinary, [cli, "--version"], { stdio: "inherit" });
-}
-
-for (const dependency of [
-  "react",
-  "@react-email/components",
-  "@react-email/render",
-]) {
-  const manifest = join(
-    runtimeRoot,
-    "node_modules",
-    dependency,
-    "package.json",
-  );
-  if (!existsSync(manifest)) {
-    throw new Error(
-      `Required bundled runtime dependency is missing: ${dependency}`,
-    );
-  }
-}
-
-signDarwinNativePayloads(runtimeRoot);
 
 const runtimeVersion = (
-  await hashFile(join(runtimeRoot, "dist/server.mjs"))
+  await hashFile(join(runtimeRoot, "dist/relay-cell-worker.mjs"))
 ).slice(0, 16);
 writeFileSync(runtimeVersionFile, `${runtimeVersion}\n`);
 
-console.log(`Prepared Chief runtime sidecar for ${target}.`);
+console.log(`Prepared compact Chief relay cell runtime for ${target}.`);

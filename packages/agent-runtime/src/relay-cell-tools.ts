@@ -1,0 +1,475 @@
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createServer } from "node:http";
+import { join } from "node:path";
+import type { IncomingMessage } from "node:http";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+
+import type { AgentConfig } from "@chief/relay-contracts";
+import { AgentBrowserSession } from "@chief/browser/node";
+import { createNip98Authorization, RelayClient } from "@chief/relay-client";
+import { appendMessageCommandSchema } from "@chief/relay-contracts";
+
+import type { McpServerSpec } from "./types.js";
+import { cellToolDiagnostic } from "./relay-cell-diagnostics.js";
+import { callPluginTool } from "./relay-cell-plugin-tools.js";
+import {
+  relayCellToolDefinitions as toolDefinitions,
+  relayCellToolRequirements as toolRequirements,
+} from "./relay-cell-tool-definitions.js";
+
+type JsonObject = Record<string, unknown>;
+
+function requiredEnvironment(name: string) {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} is required.`);
+  return value;
+}
+
+function parseConfig(): AgentConfig {
+  return JSON.parse(requiredEnvironment("CHIEF_AGENT_CONFIG")) as AgentConfig;
+}
+
+function relayClient() {
+  const relayUrl = requiredEnvironment("CHIEF_RELAY_URL");
+  const secretKey = requiredEnvironment("CHIEF_AGENT_SECRET_KEY");
+  return new RelayClient({
+    relayUrl,
+    workspaceId: requiredEnvironment("CHIEF_WORKSPACE_ID"),
+    getAuthorization: (request) =>
+      Promise.resolve(createNip98Authorization(secretKey, request)),
+  });
+}
+
+export const relayCellToolNames = Object.keys(toolRequirements);
+
+function object(value: unknown): JsonObject {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as JsonObject)
+    : {};
+}
+
+function string(input: JsonObject, key: string) {
+  const value = input[key];
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${key} is required.`);
+  }
+  return value.trim();
+}
+
+function optionalString(input: JsonObject, key: string) {
+  const value = input[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function inferredMentions(body: string) {
+  const identities: Record<string, string> = {
+    chief: "chief",
+    setup: "setup",
+    marketer: "brand",
+    content: "content",
+    engineer: "engineer",
+    analyst: "analyst",
+    prospector: "prospector",
+    advertising: "ads",
+  };
+  return [...body.matchAll(/@([A-Za-z][A-Za-z0-9_-]*)/gu)].flatMap((match) => {
+    const id = identities[(match[1] ?? "").toLowerCase()];
+    return id ? [id] : [];
+  });
+}
+
+let browser: AgentBrowserSession | null = null;
+
+function browserSession() {
+  if (browser) return browser;
+  const conversationId = requiredEnvironment("CHIEF_CONVERSATION_ID");
+  browser = new AgentBrowserSession({
+    sessionId: `${requiredEnvironment("CHIEF_AGENT_ID")}-${conversationId}`,
+    downloadPath: join(
+      requiredEnvironment("CHIEF_CELL_ROOT"),
+      "browser",
+      conversationId,
+    ),
+    encryptionKey: requiredEnvironment("CHIEF_AGENT_SECRET_KEY"),
+    restore: true,
+    colorScheme: "dark",
+  });
+  return browser;
+}
+
+function publicHttpsUrl(raw: string) {
+  const url = new URL(raw);
+  const hostname = url.hostname.toLowerCase().replace(/\.$/u, "");
+  const privateAddress =
+    hostname === "localhost" ||
+    hostname.endsWith(".local") ||
+    /^(?:127|10|0)\./u.test(hostname) ||
+    hostname.startsWith("192.168.") ||
+    hostname.startsWith("169.254.") ||
+    /^172\.(?:1[6-9]|2\d|3[01])\./u.test(hostname) ||
+    hostname === "::1" ||
+    hostname.startsWith("fc") ||
+    hostname.startsWith("fd") ||
+    hostname.startsWith("fe80:");
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    privateAddress
+  ) {
+    throw new Error("url must be a public HTTPS address without credentials.");
+  }
+  return url.toString();
+}
+
+async function callBrowserTool(name: string, input: JsonObject) {
+  const session = browserSession();
+  if (name === "browser_navigate") {
+    await session.open(publicHttpsUrl(string(input, "url")), {
+      width: 1280,
+      height: 800,
+    });
+    return await session.snapshot();
+  }
+  if (name === "browser_snapshot") return await session.snapshot();
+  if (name === "browser_click") {
+    await session.click([string(input, "target")]);
+    return await session.snapshot();
+  }
+  if (name === "browser_type") {
+    await session.fill([string(input, "target")], string(input, "text"));
+    if (input.submit === true) await session.press("Enter");
+    return await session.snapshot();
+  }
+  if (name === "browser_scroll") {
+    const direction = string(input, "direction");
+    const rawAmount = input.amount;
+    const amount =
+      typeof rawAmount === "number" && Number.isInteger(rawAmount)
+        ? Math.min(10_000, Math.max(1, rawAmount))
+        : 800;
+    const x =
+      direction === "left" ? -amount : direction === "right" ? amount : 0;
+    const y = direction === "up" ? -amount : direction === "down" ? amount : 0;
+    await session.evaluate(`window.scrollBy(${x}, ${y})`);
+    return await session.snapshot();
+  }
+  if (name === "browser_back") {
+    await session.command(["back"]);
+    return await session.snapshot();
+  }
+  if (name === "browser_release") {
+    const outcome = string(input, "outcome");
+    if (outcome === "completed") await session.close();
+    return { outcome, label: optionalString(input, "label") ?? null };
+  }
+  throw new Error("Unknown browser tool.");
+}
+
+async function callRelayTool(name: string, rawInput: unknown) {
+  const client = relayClient();
+  const agentId = requiredEnvironment("CHIEF_AGENT_ID");
+  const input = object(rawInput);
+  if (name.startsWith("browser_")) return await callBrowserTool(name, input);
+  if (name === "relay_channels_list") {
+    return { channels: await client.listChannels() };
+  }
+  if (name === "relay_messages_list") {
+    return await client.listMessages(string(input, "conversationId"), {
+      ...(typeof input.after === "number" ? { after: input.after } : {}),
+      limit: 200,
+    });
+  }
+  if (name === "relay_thread_replies") {
+    return await client.listThreadReplies(
+      string(input, "conversationId"),
+      string(input, "rootMessageId"),
+      {
+        ...(typeof input.after === "number" ? { after: input.after } : {}),
+        limit: 200,
+      },
+    );
+  }
+  if (name === "relay_message_search") {
+    return await client.searchMessages(
+      string(input, "conversationId"),
+      string(input, "query"),
+      { limit: 50 },
+    );
+  }
+  if (name === "relay_workspace_members") {
+    return { members: await client.listWorkspaceMembers() };
+  }
+  if (name === "relay_channels_create") {
+    const conversationId = string(input, "conversationId");
+    const existing = (await client.listChannels()).find(
+      (channel) => channel.id === conversationId,
+    );
+    if (existing) return { channel: existing, created: false };
+    return {
+      channel: await client.createChannel({
+        conversationId,
+        name: string(input, "name"),
+        isPrivate: input.isPrivate === true,
+      }),
+      created: true,
+    };
+  }
+  if (name === "relay_channels_members_add") {
+    const kind = string(input, "kind");
+    if (kind !== "user" && kind !== "agent") {
+      throw new Error("kind must be user or agent.");
+    }
+    const principalId = optionalString(input, "principalId");
+    const principalIds = [
+      ...(Array.isArray(input.principalIds)
+        ? input.principalIds.filter(
+            (value): value is string => typeof value === "string" && !!value,
+          )
+        : []),
+      ...(principalId ? [principalId] : []),
+    ];
+    const uniqueIds = [...new Set(principalIds)];
+    if (uniqueIds.length === 0)
+      throw new Error("At least one principal is required.");
+    await client.addChannelMembers(
+      string(input, "conversationId"),
+      uniqueIds.map((principalId) => ({ kind, principalId })),
+    );
+    return { added: uniqueIds };
+  }
+  if (name === "relay_message_post") {
+    const conversationId = string(input, "conversationId");
+    const body = string(input, "body");
+    const threadRootId = optionalString(input, "threadRootId");
+    if (optionalString(input, "idempotencyKey")) {
+      const existing = (
+        await client.listMessages(conversationId, { limit: 200 })
+      ).messages.find(
+        (message) =>
+          message.author.kind === "agent" &&
+          message.author.id === agentId &&
+          message.body === body &&
+          message.threadRootId === threadRootId,
+      );
+      if (existing) return { message: existing, duplicate: true };
+    }
+    const command = appendMessageCommandSchema.parse({
+      commandId: randomUUID(),
+      protocolVersion: 1,
+      occurredAt: new Date().toISOString(),
+      payload: {
+        messageId: randomUUID(),
+        conversationId,
+        ...(threadRootId ? { threadRootId } : {}),
+        body,
+        mentions: inferredMentions(body),
+        components: [],
+      },
+    });
+    return await client.appendMessage(conversationId, command);
+  }
+  if (name === "relay_reaction_add" || name === "relay_reaction_remove") {
+    return await client.reactToMessage(
+      string(input, "conversationId"),
+      string(input, "messageId"),
+      string(input, "emoji"),
+      name === "relay_reaction_add",
+    );
+  }
+  if (name === "brand_profile_get") {
+    return { profile: await client.loadBrandProfile() };
+  }
+  if (name === "brand_profile_save") {
+    return await client.saveBrandProfile({
+      markdown: string(input, "markdown"),
+      sourceUrls: Array.isArray(input.sourceUrls)
+        ? input.sourceUrls.filter(
+            (value): value is string => typeof value === "string",
+          )
+        : [],
+      conversationId: string(input, "conversationId"),
+    });
+  }
+  if (name === "prospects_list")
+    return { prospects: await client.listProspects() };
+  if (name === "prospects_save")
+    return await client.saveProspect(input.prospect);
+  if (name === "workspace_files_list") {
+    return { files: await client.listWorkspaceFiles() };
+  }
+  if (name === "workspace_files_save") {
+    return await client.saveWorkspaceFile({
+      ...(optionalString(input, "id")
+        ? { id: optionalString(input, "id") }
+        : {}),
+      path: string(input, "path"),
+      title: string(input, "title"),
+      mimeType: string(input, "mimeType"),
+      content: string(input, "content"),
+      conversationId: string(input, "conversationId"),
+      ...(typeof input.expectedVersion === "number"
+        ? { expectedVersion: input.expectedVersion }
+        : {}),
+    });
+  }
+  if (name === "relay_projects_list") {
+    return { projects: await client.listProjects() };
+  }
+  const workspaceId = requiredEnvironment("CHIEF_WORKSPACE_ID");
+  if (name.startsWith("plugins_")) {
+    return await callPluginTool(name, input, { client, workspaceId, agentId });
+  }
+  throw new Error("Unknown relay tool.");
+}
+
+function buildRelayCellMcpServer() {
+  const config = parseConfig();
+  const permitted = new Set<string>(config.toolPermissions);
+  const visible = toolDefinitions.filter((tool) =>
+    permitted.has(toolRequirements[tool.name] ?? ""),
+  );
+  const server = new Server(
+    { name: "chief-relay", version: "0.1.0" },
+    { capabilities: { tools: {} } },
+  );
+  server.setRequestHandler(ListToolsRequestSchema, () =>
+    Promise.resolve().then(() => {
+      cellToolDiagnostic("catalog", {
+        permissions: [...permitted].sort(),
+        toolNames: visible.map((tool) => tool.name),
+      });
+      return { tools: visible };
+    }),
+  );
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const tool = visible.find(
+      (candidate) => candidate.name === request.params.name,
+    );
+    if (!tool) {
+      return {
+        isError: true,
+        content: [
+          { type: "text", text: "This cell is not authorized for that tool." },
+        ],
+      };
+    }
+    try {
+      cellToolDiagnostic("started", { toolName: tool.name });
+      const result = await callRelayTool(tool.name, request.params.arguments);
+      cellToolDiagnostic("completed", { toolName: tool.name });
+      return {
+        content: [{ type: "text", text: JSON.stringify(result) }],
+      };
+    } catch (error) {
+      cellToolDiagnostic("failed", {
+        toolName: tool.name,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: error instanceof Error ? error.message : String(error),
+          },
+        ],
+      };
+    }
+  });
+  return server;
+}
+
+export async function runRelayCellMcpServer() {
+  const server = buildRelayCellMcpServer();
+  await server.connect(new StdioServerTransport());
+}
+
+function authorized(header: string | undefined, token: string) {
+  const presented = Buffer.from(header ?? "");
+  const expected = Buffer.from(`Bearer ${token}`);
+  return (
+    presented.length === expected.length && timingSafeEqual(presented, expected)
+  );
+}
+
+async function requestBody(request: IncomingMessage) {
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of request as AsyncIterable<Uint8Array>) {
+    const buffer = Buffer.from(chunk);
+    size += buffer.length;
+    if (size > 1_000_000) throw new Error("MCP request is too large.");
+    chunks.push(buffer);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+}
+
+export async function startRelayCellMcpHttpServer(): Promise<{
+  spec: McpServerSpec;
+  close: () => Promise<void>;
+}> {
+  const token = randomBytes(32).toString("base64url");
+  const httpServer = createServer((request, response) => {
+    void (async () => {
+      if (
+        request.method !== "POST" ||
+        request.url !== "/mcp" ||
+        !authorized(request.headers.authorization, token)
+      ) {
+        response.writeHead(404).end();
+        return;
+      }
+      const body = await requestBody(request);
+      const server = buildRelayCellMcpServer();
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+      });
+      response.on("close", () => {
+        void transport.close();
+        void server.close();
+      });
+      await server.connect(transport);
+      await transport.handleRequest(request, response, body);
+    })().catch(() => {
+      if (!response.headersSent) {
+        response
+          .writeHead(400, { "content-type": "application/json" })
+          .end('{"error":"Invalid MCP request."}');
+      } else {
+        response.end();
+      }
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    httpServer.once("error", reject);
+    httpServer.listen(0, "127.0.0.1", () => {
+      httpServer.off("error", reject);
+      resolve();
+    });
+  });
+  const address = httpServer.address();
+  if (!address || typeof address === "string") {
+    httpServer.close();
+    throw new Error("Could not bind the cell tool endpoint.");
+  }
+  return {
+    spec: {
+      name: "chief_relay",
+      command: "",
+      args: [],
+      url: `http://127.0.0.1:${address.port}/mcp`,
+      headers: { Authorization: `Bearer ${token}` },
+    },
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        httpServer.close((error) => (error ? reject(error) : resolve()));
+      }),
+  };
+}

@@ -174,6 +174,12 @@ export interface GenerativeDocumentData {
 
 export interface GenerativePluginRecommendationsData {
   plugins: AgentPluginSummary[];
+  authorizations?: PluginAuthorizationAction[];
+  workspaceId?: string;
+  conversationId?: string;
+  threadRootId?: string;
+  agentId?: string;
+  recommendationId?: string;
 }
 
 /**
@@ -284,6 +290,9 @@ export type ContentBlock =
 export type AgentEvent =
   | { type: "init"; sessionId: string; model?: string }
   | { type: "stream"; text: string }
+  /** Provider reasoning delta. Transient by design: cells project it to the
+   * relay, while session history stores only the completed thinking block. */
+  | { type: "thinkingStream"; text: string }
   | {
       type: "toolProgress";
       toolUseId: string;

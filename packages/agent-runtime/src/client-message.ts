@@ -1,3 +1,5 @@
+import type { MessageComponent } from "@chief/relay-contracts";
+
 import type * as Artifacts from "./artifact-types.js";
 import type { ChannelClientMessage } from "./channel-types.js";
 import type { ProjectClientMessage } from "./projects/client-message.js";
@@ -219,6 +221,7 @@ export type ClientMessage =
       attachments?: MessageAttachment[];
       threadRootId?: string;
       mentions?: string[];
+      components?: MessageComponent[];
       senderName?: string;
       /** A user follow-up should replace the active turn instead of waiting
        * behind it. The runtime also detects a busy session defensively. */

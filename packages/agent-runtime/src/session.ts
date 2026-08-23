@@ -36,10 +36,8 @@ export interface SessionConfig {
   runtimeContext?: string;
   secretAccess?: boolean;
   maxPromptAttempts?: number;
-  /** Test and deployment override for the no-output watchdog. */
   stallTimeoutMs?: number;
 }
-
 export class AgentSession extends EventEmitter {
   readonly agent: AgentDefinition;
   readonly chatId: string;
@@ -94,8 +92,7 @@ export class AgentSession extends EventEmitter {
                 threadRootId: this.activeReplyContext?.threadRootId,
               }
             : rawEvent;
-      // Fold provider deltas into stable messages at explicit send markers,
-      // tool boundaries, and turn completion so the client renders each once.
+      // Fold provider deltas into stable messages at explicit boundaries.
       const events: AgentEvent[] =
         rawEvent.type === "stream"
           ? this.splitStreamMessages(rawEvent.text)
@@ -151,6 +148,10 @@ export class AgentSession extends EventEmitter {
                 : enriched.type,
           );
         }
+        if (enriched.type === "thinkingStream") {
+          this.emit("event", enriched);
+          continue;
+        }
         if (enriched.type === "init") this.sessionId = enriched.sessionId;
         if (enriched.type === "status") this.status = enriched.status;
         if (
@@ -191,8 +192,7 @@ export class AgentSession extends EventEmitter {
       this.activeReplyContext?.explicitThreadRootId ?? this.lastThreadRootId
     );
   }
-  /**
-   * The most recent channel thread this session replied in, retained across
+  /** The most recent channel thread this session replied in, retained across
    * turn boundaries and driver restarts so a continuation (for example after
    * browser sign-in) keeps streaming into the same thread instead of landing
    * in the main timeline.

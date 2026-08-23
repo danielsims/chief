@@ -272,8 +272,7 @@ export function executorPermissionPolicyAction(
 }
 
 const standardAgentPermissions = allAgentToolPermissions.filter(
-  (permission) =>
-    permission !== "integrations.manage" && permission !== "agents.delegate",
+  (permission) => permission !== "agents.delegate",
 );
 
 export function defaultAgentToolPermissions(
