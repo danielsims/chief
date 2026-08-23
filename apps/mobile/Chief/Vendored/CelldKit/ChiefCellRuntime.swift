@@ -91,9 +91,38 @@ actor ChiefCellRuntime {
     )
   }
 
+  /// Export the logical cell records rather than celld's SQLite file. The
+  /// relay can import the same records into a Cloudflare-hosted cell without
+  /// pretending the two runtimes share a native database format.
+  func exportSnapshot(scope: String) async throws -> String {
+    guard started else { throw ChiefCellError.notStarted }
+    guard let bundle = agentBundle else { throw ChiefCellError.missingWorker }
+    try ensurePackageInstalled(scope: scope)
+    return try await Self.evaluate(
+      bundle: bundle,
+      url: Self.cellURL(scope: scope, path: "/snapshot"),
+      method: "GET",
+      body: "",
+      bindings: #"[{"name":"AGENT_CELL","className":"AgentCell"}]"#
+    )
+  }
+
+  func importSnapshot(scope: String, snapshotJSON: String) async throws -> String {
+    guard started else { throw ChiefCellError.notStarted }
+    guard let bundle = agentBundle else { throw ChiefCellError.missingWorker }
+    return try await Self.evaluate(
+      bundle: bundle,
+      url: Self.cellURL(scope: scope, path: "/snapshot"),
+      method: "PUT",
+      body: snapshotJSON,
+      bindings: #"[{"name":"AGENT_CELL","className":"AgentCell"}]"#
+    )
+  }
+
   private static func evaluate(
     bundle: String,
     url: String,
+    method: String = "POST",
     body: String,
     bindings: String
   ) async throws -> String {
@@ -101,7 +130,7 @@ actor ChiefCellRuntime {
       guard let reply = CelldC.evaluateWorker(
         source: bundle,
         url: url,
-        method: "POST",
+        method: method,
         body: body,
         bindingsJSON: bindings
       ) else {
@@ -109,6 +138,11 @@ actor ChiefCellRuntime {
       }
       return reply
     }.value
+  }
+
+  private static func cellURL(scope: String, path: String = "") -> String {
+    let encoded = scope.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? scope
+    return "https://agent\(path)?name=\(encoded)"
   }
 
   private static func responseStatus(_ response: String) -> Int? {

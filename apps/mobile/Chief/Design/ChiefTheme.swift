@@ -53,17 +53,21 @@ struct AgentMark: View {
     return ChiefTheme.agentColor(agentID)
   }
 
+  private var markColor: Color {
+    return .black
+  }
+
   var body: some View {
     ZStack {
       RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
         .fill(color)
       if working {
         MatrixLoader(size: size * 0.48)
-          .foregroundStyle(.black)
+          .foregroundStyle(markColor)
       } else {
         Image(systemName: "viewfinder")
           .font(.system(size: size * 0.48, weight: .semibold))
-          .foregroundStyle(.black)
+          .foregroundStyle(markColor)
       }
     }
     .frame(width: size, height: size)

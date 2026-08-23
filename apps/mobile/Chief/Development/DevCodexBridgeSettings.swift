@@ -41,6 +41,7 @@ struct DevCodexBridgeConnection: Equatable, Sendable {
 enum DevCodexBridgeSettings {
   private static let endpointKey = "chief.dev.codex-bridge.endpoint"
   private static let modelKey = "chief.dev.codex-bridge.model"
+  private static let workspaceIDsKey = "chief.dev.codex-bridge.workspaces"
 
   static var endpoint: URL? {
     UserDefaults.standard.string(forKey: endpointKey).flatMap(URL.init(string:))
@@ -56,6 +57,27 @@ enum DevCodexBridgeSettings {
   static func save(_ connection: DevCodexBridgeConnection) {
     UserDefaults.standard.set(connection.endpoint.absoluteString, forKey: endpointKey)
     UserDefaults.standard.set(connection.model, forKey: modelKey)
+  }
+
+  /// The development bridge is an explicit, workspace-local transport choice.
+  /// Keeping this association prevents a stale global debug setting from
+  /// silently hijacking setup or agent turns in unrelated workspaces.
+  static func isEnabled(for workspaceID: String) -> Bool {
+    enabledWorkspaceIDs.contains(workspaceID)
+  }
+
+  static func setEnabled(_ enabled: Bool, for workspaceID: String) {
+    var workspaceIDs = enabledWorkspaceIDs
+    if enabled {
+      workspaceIDs.insert(workspaceID)
+    } else {
+      workspaceIDs.remove(workspaceID)
+    }
+    UserDefaults.standard.set(workspaceIDs.sorted(), forKey: workspaceIDsKey)
+  }
+
+  private static var enabledWorkspaceIDs: Set<String> {
+    Set(UserDefaults.standard.stringArray(forKey: workspaceIDsKey) ?? [])
   }
 }
 

@@ -4,7 +4,7 @@ import WebKit
 
 /// Mirrors the desktop Plugins page logo policy: preserve logos that already
 /// carry their own colored background, give transparent dark logos a light
-/// backing only when required, and never box Google's multicolor mark.
+/// backing when required, and place Google's multicolor mark on white.
 enum BrandLogoPolicy {
   static func isGoogle(domain: String) -> Bool {
     domain == "google.com"
@@ -170,7 +170,6 @@ struct BrandLogoView: View {
           .foregroundStyle(needsBacking ? .black : .white)
       }
     }
-    .padding(4)
     .frame(width: size, height: size)
     .background(
       needsBacking ? Color.white : Color.clear,
@@ -208,6 +207,6 @@ struct BrandLogoView: View {
   }
 
   private func backingPolicy(for image: UIImage) -> Bool {
-    BrandLogoPolicy.isGoogle(domain: domain) ? false : BrandLogoPolicy.needsLightBacking(image)
+    BrandLogoPolicy.isGoogle(domain: domain) || BrandLogoPolicy.needsLightBacking(image)
   }
 }

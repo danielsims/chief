@@ -6,7 +6,48 @@ export class AgentCell extends DurableObject {
   async fetch(request) {
     const url = new URL(request.url);
     const path = url.pathname;
-    const body = request.method === "POST" ? await request.json() : null;
+    const body =
+      request.method === "POST" || request.method === "PUT"
+        ? await request.json()
+        : null;
+    if (path === "/snapshot" && request.method === "GET") {
+      const entries = (await this.ctx.storage.list()) ?? new Map();
+      return Response.json({
+        version: 1,
+        cellId: this.ctx.id.name,
+        exportedAt: new Date().toISOString(),
+        records: [...entries].slice(0, 1000).map(([key, value]) => ({
+          key: String(key),
+          value,
+        })),
+      });
+    }
+    if (path === "/snapshot" && request.method === "PUT") {
+      if (
+        body?.version !== 1 ||
+        body?.cellId !== this.ctx.id.name ||
+        !Array.isArray(body?.records) ||
+        body.records.length > 1000 ||
+        body.records.some(
+          (record) =>
+            !record ||
+            typeof record.key !== "string" ||
+            !record.key.trim() ||
+            record.key.length > 320,
+        )
+      ) {
+        return Response.json(
+          { error: "invalid cell snapshot" },
+          { status: 400 },
+        );
+      }
+      const current = (await this.ctx.storage.list()) ?? new Map();
+      for (const key of current.keys()) await this.ctx.storage.delete(key);
+      for (const record of body.records) {
+        await this.ctx.storage.put(record.key, record.value);
+      }
+      return Response.json({ ok: true, imported: body.records.length });
+    }
     const conversationId = String(
       body?.conversationId ?? url.searchParams.get("conversationId") ?? "",
     ).trim();

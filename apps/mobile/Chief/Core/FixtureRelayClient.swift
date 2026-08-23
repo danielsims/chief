@@ -134,6 +134,45 @@ actor FixtureRelayClient: RelayServing {
         return message
     }
 
+    func upsertAgentActivity(
+        workspaceID: String,
+        conversationID: String,
+        messageID: String,
+        threadRootID: String?,
+        component: MessageComponent,
+        signingIdentity: NostrIdentity
+    ) async throws -> ConversationMessage {
+        if let index = fixtureMessages.firstIndex(where: { $0.id == messageID }) {
+            let prior = fixtureMessages[index]
+            let updated = ConversationMessage(
+                id: prior.id,
+                workspaceID: prior.workspaceID,
+                conversationID: prior.conversationID,
+                threadRootID: prior.threadRootID,
+                author: prior.author,
+                body: "",
+                components: [component],
+                createdAt: prior.createdAt,
+                sequence: prior.sequence
+            )
+            fixtureMessages[index] = updated
+            return updated
+        }
+        let message = ConversationMessage(
+            id: messageID,
+            workspaceID: workspaceID,
+            conversationID: conversationID,
+            threadRootID: threadRootID,
+            author: .agent(id: "chief", name: "Chief"),
+            body: "",
+            components: [component],
+            createdAt: .now,
+            sequence: (fixtureMessages.map(\.sequence).max() ?? 0) + 1
+        )
+        fixtureMessages.append(message)
+        return message
+    }
+
     func uploadAttachment(
         workspaceID: String,
         conversationID: String,
@@ -451,10 +490,16 @@ enum DemoWorkspace {
         projects: [
             .init(
                 id: "chief-project",
+                organizationID: "chief-demo",
                 name: "chief",
-                repository: "danielsims/chief",
-                branch: "feat/projects",
-                changedFiles: 12
+                description: "The Chief application repository.",
+                repositoryKind: "cloned",
+                providerID: "github",
+                canonicalRemoteURL: "https://github.com/danielsims/chief.git",
+                repositoryWebURL: "https://github.com/danielsims/chief",
+                defaultBranch: "main",
+                createdAt: "2026-08-22T00:00:00.000Z",
+                updatedAt: "2026-08-22T00:00:00.000Z"
             )
         ]
     )

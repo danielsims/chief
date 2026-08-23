@@ -13,6 +13,7 @@ enum AgentTurnToolPolicy {
     BrandProfileGetTool.name,
     ProspectsListTool.name,
     WorkspaceFilesListTool.name,
+    PluginsListTool.name,
   ])
 
   private static let conversation = Set([
@@ -35,6 +36,20 @@ enum AgentTurnToolPolicy {
     BrowserReleaseTool.name,
   ])
 
+  /// Plugin discovery and user-approved connection are workspace capabilities,
+  /// not Setup-only capabilities. Any agent may recommend a useful provider
+  /// and must be able to finish the card action the user explicitly approves.
+  private static let plugins = Set([
+    PluginsListTool.name,
+    PluginsRecommendTool.name,
+    PluginsInstallTool.name,
+    PluginsAuthorizeTool.name,
+  ])
+
+  private static let pluginAdministration = Set([
+    PluginsUninstallTool.name
+  ])
+
   static func names(
     requiresChiefDelegation: Bool,
     requiresSpecialistKickoff: Bool = false,
@@ -42,6 +57,7 @@ enum AgentTurnToolPolicy {
     agentID: String? = nil
   ) -> Set<String> {
     var names = conversation
+    names.formUnion(plugins)
     if requiresChiefDelegation {
       names.formUnion([
         RelayWorkspaceMembersTool.name,
@@ -91,8 +107,9 @@ enum AgentTurnToolPolicy {
         ProspectSaveTool.name,
         WorkspaceFilesListTool.name,
       ])
-    case "setup":
+    case "setup", "ads":
       names.formUnion(browser)
+      names.formUnion(pluginAdministration)
     default:
       break
     }

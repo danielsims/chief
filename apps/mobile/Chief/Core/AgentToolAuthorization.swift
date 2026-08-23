@@ -113,6 +113,11 @@ enum AgentToolAuthorization {
     ProspectsListTool.name: .workspaceRead,
     ProspectSaveTool.name: .workspaceWrite,
     WorkspaceFilesListTool.name: .workspaceRead,
+    PluginsListTool.name: .integrationsManage,
+    PluginsRecommendTool.name: .integrationsManage,
+    PluginsInstallTool.name: .integrationsManage,
+    PluginsAuthorizeTool.name: .integrationsManage,
+    PluginsUninstallTool.name: .integrationsManage,
   ]
 
   /// Until an explicit approval UI exists, `ask` is deliberately fail-closed
@@ -131,6 +136,10 @@ enum AgentToolAuthorization {
     BrowserReleaseTool.name,
     BrandProfileSaveTool.name,
     ProspectSaveTool.name,
+    PluginsRecommendTool.name,
+    PluginsInstallTool.name,
+    PluginsAuthorizeTool.name,
+    PluginsUninstallTool.name,
   ]
 
   static func permission(for toolName: String) -> AgentToolPermissionID? {

@@ -1,6 +1,6 @@
 import Foundation
-import os
 import Security
+import os
 
 let relayLog = Logger(subsystem: "sh.heychief.mobile", category: "relay")
 
@@ -55,6 +55,14 @@ protocol RelayServing: Sendable {
     threadRootID: String?,
     mentions: [String],
     components: [MessageComponent],
+    signingIdentity: NostrIdentity
+  ) async throws -> ConversationMessage
+  func upsertAgentActivity(
+    workspaceID: String,
+    conversationID: String,
+    messageID: String,
+    threadRootID: String?,
+    component: MessageComponent,
     signingIdentity: NostrIdentity
   ) async throws -> ConversationMessage
   func uploadAttachment(
@@ -151,6 +159,8 @@ protocol RelayServing: Sendable {
   ) async throws -> WorkspaceInviteLink
   func previewWorkspaceInvite(_ link: WorkspaceInviteLink) async throws -> WorkspaceInvite
   func claimWorkspaceInvite(_ link: WorkspaceInviteLink) async throws -> WorkspaceInviteClaim
+  func joinOrganizationWorkspace(workspaceID: String) async throws
+    -> OrganizationWorkspaceJoinResult
   func loadBrandProfile(
     workspaceID: String,
     signingIdentity: NostrIdentity?
@@ -192,6 +202,12 @@ extension RelayServing {
 
   func claimWorkspaceInvite(_ link: WorkspaceInviteLink) async throws -> WorkspaceInviteClaim {
     _ = link
+    throw RelayError.unavailable
+  }
+
+  func joinOrganizationWorkspace(workspaceID _: String) async throws
+    -> OrganizationWorkspaceJoinResult
+  {
     throw RelayError.unavailable
   }
 
@@ -457,7 +473,10 @@ actor URLSessionRelayClient: RelayServing {
     guard result.deviceAuthorization.count >= 32 else {
       throw RelayError.unauthorized
     }
-    await DeviceAuthorizationVault.shared.store(result.deviceAuthorization)
+    await DeviceAuthorizationVault.shared.store(
+      result.deviceAuthorization,
+      for: configuration.relayURL
+    )
   }
 
   func loadWorkspace() async throws -> WorkspaceSnapshot {
@@ -682,6 +701,39 @@ actor URLSessionRelayClient: RelayServing {
     return result.message
   }
 
+  func upsertAgentActivity(
+    workspaceID: String,
+    conversationID: String,
+    messageID: String,
+    threadRootID: String?,
+    component: MessageComponent,
+    signingIdentity: NostrIdentity
+  ) async throws -> ConversationMessage {
+    struct ActivityInput: Encodable {
+      let messageId: String
+      let conversationId: String
+      let threadRootId: String?
+      let component: MessageComponent
+    }
+    struct ActivityResult: Decodable { let message: ConversationMessage }
+    let body = try JSONEncoder().encode(
+      ActivityInput(
+        messageId: messageID,
+        conversationId: conversationID,
+        threadRootId: threadRootID,
+        component: component
+      )
+    )
+    let result: ActivityResult = try await request(
+      path:
+        "/v1/workspaces/\(workspaceID)/conversations/\(conversationID)/messages/\(messageID)/activity",
+      method: "POST",
+      body: body,
+      signer: signingIdentity
+    )
+    return result.message
+  }
+
   func deleteMessage(
     workspaceID: String,
     conversationID: String,
@@ -859,6 +911,16 @@ actor URLSessionRelayClient: RelayServing {
       body: try JSONEncoder().encode(
         Input(commandId: UUID().uuidString, secret: link.secret)
       )
+    )
+  }
+
+  func joinOrganizationWorkspace(workspaceID: String) async throws
+    -> OrganizationWorkspaceJoinResult
+  {
+    try await request(
+      path: "/v1/workspaces/\(workspaceID)/organization-membership",
+      method: "POST",
+      body: Data("{}".utf8)
     )
   }
 
@@ -1262,7 +1324,9 @@ actor URLSessionRelayClient: RelayServing {
       request.setValue(header, forHTTPHeaderField: "authorization")
     }
     if signer == nil,
-      let deviceAuthorization = await DeviceAuthorizationVault.shared.load()
+      let deviceAuthorization = await DeviceAuthorizationVault.shared.load(
+        for: configuration.relayURL
+      )
     {
       request.setValue(
         deviceAuthorization,

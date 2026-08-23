@@ -102,6 +102,35 @@ final class OpenCodeStreamingClientTests: XCTestCase {
     XCTAssertFalse(tools.contains(BrandProfileSaveTool.name))
   }
 
+  func testSetupAgentReceivesTheCanonicalPluginSurface() {
+    let tools = AgentTurnToolPolicy.names(
+      requiresChiefDelegation: false,
+      attachedSkillIDs: [],
+      agentID: "setup"
+    )
+
+    XCTAssertTrue(tools.contains(PluginsListTool.name))
+    XCTAssertTrue(tools.contains(PluginsRecommendTool.name))
+    XCTAssertTrue(tools.contains(PluginsInstallTool.name))
+    XCTAssertTrue(tools.contains(PluginsAuthorizeTool.name))
+    XCTAssertTrue(tools.contains(PluginsUninstallTool.name))
+  }
+
+  func testPluginRecommendationEncodesSchemaBooleansAsBooleans() throws {
+    let component = MessageComponent(
+      id: "plugin-card",
+      kind: "plugin.recommendation",
+      payload: ["enabled": "false", "trusted": "true", "name": "Notion"]
+    )
+    let object = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(component)) as? [String: Any]
+    )
+    let payload = try XCTUnwrap(object["payload"] as? [String: Any])
+    XCTAssertEqual(payload["enabled"] as? Bool, false)
+    XCTAssertEqual(payload["trusted"] as? Bool, true)
+    XCTAssertEqual(payload["name"] as? String, "Notion")
+  }
+
   func testBrowserPolicyAllowsPublicHTTPSAndBlocksLocalTargets() throws {
     XCTAssertTrue(BrowserURLPolicy.allows(try XCTUnwrap(URL(string: "https://heychief.sh"))))
     XCTAssertFalse(BrowserURLPolicy.allows(try XCTUnwrap(URL(string: "http://heychief.sh"))))

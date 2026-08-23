@@ -95,6 +95,11 @@ enum RelayToolRegistry {
     ProspectsListTool.self,
     ProspectSaveTool.self,
     WorkspaceFilesListTool.self,
+    PluginsListTool.self,
+    PluginsRecommendTool.self,
+    PluginsInstallTool.self,
+    PluginsAuthorizeTool.self,
+    PluginsUninstallTool.self,
   ]
 
   /// OpenAI-compatible `tools` definitions for the inference request.

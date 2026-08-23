@@ -60,6 +60,42 @@ final class ConversationPresentationTests: XCTestCase {
     XCTAssertTrue(showsAuthor)
   }
 
+  func testActivityProjectionIsExcludedFromTranscriptAndChatPresentation() {
+    let activity = ConversationMessage(
+      id: "activity-1",
+      workspaceID: "workspace",
+      conversationID: "mission-control",
+      threadRootID: nil,
+      author: .agent(id: "advertising", name: "Advertising"),
+      body: "",
+      components: [
+        MessageComponent(
+          id: "tool-1",
+          kind: "tool",
+          payload: ["name": "relay_channels_list", "status": "running"]
+        )
+      ],
+      createdAt: Date(timeIntervalSince1970: 60),
+      sequence: 2
+    )
+    let reply = message(
+      id: "reply",
+      author: .agent(id: "advertising", name: "Advertising"),
+      minute: 2
+    )
+
+    XCTAssertTrue(activity.isAgentActivityProjection)
+    XCTAssertFalse(reply.isAgentActivityProjection)
+    let rows = ChatTimelineBuilder.rows(for: [activity, reply], calendar: calendar)
+    XCTAssertEqual(
+      rows.compactMap { row in
+        if case .message(let message, _) = row.payload { return message.id }
+        return nil
+      },
+      ["reply"]
+    )
+  }
+
   func testMessageBodyOnlyPromotesKnownChannels() {
     let segments = MessageBodyParser.split(
       "Use #mission-control, not #missing.",

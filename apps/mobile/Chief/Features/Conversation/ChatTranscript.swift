@@ -28,6 +28,7 @@ enum ChatTimelineBuilder {
     var previousDay: Date?
 
     for message in messages {
+      if message.isAgentActivityProjection { continue }
       let day = calendar.startOfDay(for: message.createdAt)
       if previousDay == nil || day != previousDay {
         rows.append(

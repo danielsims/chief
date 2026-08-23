@@ -19,7 +19,7 @@ struct MessageComponentList: View {
   private var visibleComponents: [MessageComponent] {
     message.components.filter { component in
       switch component.kind {
-      case "action-request", "attachment": true
+      case "action-request", "attachment", "plugin.recommendation", "plugin.authorization": true
       case "tool":
         component.payload["name"] == BrowserReleaseTool.name
           && component.payload["status"] == "completed"
@@ -50,6 +50,13 @@ struct MessageComponentList: View {
       }
     case "attachment":
       AttachmentMessageComponent(component: component)
+    case "plugin.recommendation":
+      PluginRecommendationMessageComponent(
+        message: message,
+        component: component
+      )
+    case "plugin.authorization":
+      PluginAuthorizationMessageComponent(message: message, component: component)
     default:
       EmptyView()
     }
@@ -77,15 +84,185 @@ struct MessageComponentList: View {
           ]
         )
         model.conversations.merge(response)
-        await model.runAgentTurn(
-          conversationID: message.conversationID,
-          threadRootID: message.threadRootID,
-          mentions: [agentID],
-          agentID: agentID
-        )
+        // The relay dispatches this response to the addressed agent cell.
       } catch {
         Haptics.error()
         print("[Chief] action response failed: \(error)")
+      }
+    }
+  }
+}
+
+private struct PluginAuthorizationMessageComponent: View {
+  let message: ConversationMessage
+  let component: MessageComponent
+  @State private var errorMessage: String?
+
+  private var name: String { component.payload["pluginName"] ?? "Plugin" }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Label("Authorize \(name)", systemImage: "link.badge.plus")
+        .font(.system(size: 14, weight: .semibold))
+        .foregroundStyle(.primary)
+      if let description = component.payload["description"] {
+        Text(description)
+          .font(.system(size: 12))
+          .foregroundStyle(ChiefTheme.secondary)
+      }
+      Button("Continue securely") { openAuthorization() }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+      if let errorMessage {
+        Text(errorMessage)
+          .font(.system(size: 11))
+          .foregroundStyle(.red)
+      }
+    }
+    .padding(12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(ChiefTheme.elevated, in: RoundedRectangle(cornerRadius: 12))
+    .overlay {
+      RoundedRectangle(cornerRadius: 12)
+        .stroke(ChiefTheme.line, lineWidth: 0.5)
+    }
+  }
+
+  private func openAuthorization() {
+    guard component.payload["workspaceId"] == message.workspaceID,
+      component.payload["conversationId"] == message.conversationID,
+      let rawURL = component.payload["authorizationUrl"],
+      let url = URL(string: rawURL),
+      url.scheme == "https"
+        || (url.scheme == "http" && ["127.0.0.1", "localhost"].contains(url.host ?? ""))
+    else {
+      errorMessage = "Chief blocked an invalid authorization link."
+      return
+    }
+    Haptics.medium()
+    UIApplication.shared.open(url) { opened in
+      if !opened { errorMessage = "The authorization page could not be opened." }
+    }
+  }
+}
+
+@MainActor
+private struct PluginRecommendationMessageComponent: View {
+  let message: ConversationMessage
+  let component: MessageComponent
+  @State private var busy = false
+  @State private var locallyConnected = false
+  @State private var authorization = PluginAuthorizationPresenter()
+  @State private var errorMessage: String?
+
+  private var name: String {
+    component.payload["name"] ?? component.payload["pluginId"] ?? "Plugin"
+  }
+  private var status: String { component.payload["status"] ?? "available" }
+  private var connected: Bool { status == "connected" || locallyConnected }
+  private var domain: String {
+    component.payload["domain"] ?? component.payload["pluginId"] ?? ""
+  }
+  private var iconURL: URL? {
+    component.payload["iconUrl"].flatMap(URL.init(string:))
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 12) {
+        BrandLogoView(domain: domain, iconURL: iconURL, size: 40)
+
+        Text(name)
+          .font(.system(size: 14, weight: .medium))
+          .foregroundStyle(.primary)
+          .lineLimit(1)
+        Spacer(minLength: 8)
+
+        if connected {
+          Label("Added", systemImage: "checkmark.circle.fill")
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.green)
+        } else {
+          Button {
+            connectPlugin()
+          } label: {
+            ZStack {
+              Text("Add")
+                .opacity(busy ? 0 : 1)
+              if busy {
+                ProgressView()
+                  .controlSize(.small)
+                  .tint(.white)
+              }
+            }
+            .frame(minWidth: 34)
+          }
+          .buttonStyle(.bordered)
+          .controlSize(.small)
+          .disabled(busy)
+        }
+      }
+
+      if let errorMessage {
+        Text(errorMessage)
+          .font(.system(size: 11))
+          .foregroundStyle(.red)
+      }
+    }
+    .padding(12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(ChiefTheme.elevated.opacity(0.7), in: RoundedRectangle(cornerRadius: 16))
+    .overlay {
+      RoundedRectangle(cornerRadius: 16)
+        .stroke(ChiefTheme.line, lineWidth: 0.5)
+    }
+    .sheet(
+      isPresented: Binding(
+        get: { authorization.authorizationURL != nil },
+        set: { if !$0 { authorization.cancel() } }
+      )
+    ) {
+      if let url = authorization.authorizationURL {
+        PluginBrowserView(url: url)
+          .ignoresSafeArea()
+      }
+    }
+  }
+
+  private func connectPlugin() {
+    guard let workspaceID = component.payload["workspaceId"],
+      workspaceID == message.workspaceID,
+      let conversationID = component.payload["conversationId"],
+      conversationID == message.conversationID,
+      let pluginID = component.payload["pluginId"]
+    else {
+      errorMessage = "This plugin card no longer matches this conversation."
+      return
+    }
+    busy = true
+    errorMessage = nil
+    Haptics.medium()
+    Task {
+      do {
+        let catalog = await PluginCatalogClient.shared.preferredPlugins()
+        guard let plugin = catalog.first(where: { $0.id == pluginID }) else {
+          throw MobilePluginRuntimeError.unavailable("This plugin is no longer in the catalog.")
+        }
+        try await PluginCatalogClient.shared.install(
+          plugin,
+          workspaceID: workspaceID,
+          presenter: authorization
+        )
+        locallyConnected = true
+        busy = false
+        Haptics.success()
+      } catch MobilePluginRuntimeError.browserDismissed {
+        busy = false
+      } catch {
+        busy = false
+        errorMessage =
+          (error as? LocalizedError)?.errorDescription ?? "The plugin could not be connected."
+        Haptics.error()
       }
     }
   }
@@ -200,7 +377,8 @@ private struct ReleasedAgentBrowserTakeover: View {
       await driver.enterTakeoverViewport()
       isRestoring = false
     } catch {
-      restorationError = (error as? LocalizedError)?.errorDescription ?? "The page could not be restored."
+      restorationError =
+        (error as? LocalizedError)?.errorDescription ?? "The page could not be restored."
       isRestoring = false
     }
   }
@@ -398,7 +576,8 @@ struct ToolMessageComponent: View {
   private var output: String? { component.payload["output"] ?? component.payload["result"] }
   private var error: String? { component.payload["error"] }
   private var displayName: String {
-    let clean = name
+    let clean =
+      name
       .replacingOccurrences(of: "relay_", with: "")
       .replacingOccurrences(of: "_", with: " ")
     return clean.prefix(1).uppercased() + clean.dropFirst()

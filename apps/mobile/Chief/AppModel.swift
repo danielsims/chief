@@ -3,6 +3,7 @@ import Observation
 import os
 
 let onboardingLog = Logger(subsystem: "sh.heychief.mobile", category: "onboarding")
+let activityLog = Logger(subsystem: "sh.heychief.mobile", category: "activity")
 
 enum AppPhase: Equatable {
   case launching
@@ -42,7 +43,9 @@ final class AppModel {
   private(set) var workspace: WorkspaceSnapshot?
   private(set) var workspaceSummaries: [WorkspaceSummary] = []
   private(set) var pendingWorkspaceInvite: WorkspaceInviteLink?
+  private(set) var pendingOrganizationInvite: OrganizationInviteLink?
   private(set) var workspaceInvitePreview: WorkspaceInvite?
+  private(set) var workspaceInviteNeedsRelayConfirmation = false
   private(set) var workspaceInviteError: String?
   private(set) var workspaceInviteInProgress = false
   /// Relay-authoritative memberships for the signed-in principal in the
@@ -57,6 +60,7 @@ final class AppModel {
   var inferenceCredential = ""
   private(set) var onboardingError: String?
   private(set) var workspaceSyncFailed = false
+  private(set) var isSwitchingWorkspace = false
   private var debugSkipCredentialStore = false
   private var agentLoopTask: Task<Void, Never>?
   private var workspaceLiveTask: Task<Void, Never>?
@@ -78,6 +82,7 @@ final class AppModel {
   /// presents the union so the user can watch delegated specialists progress.
   private(set) var workingAgents: [ConversationKey: Set<String>] = [:]
   private(set) var agentActivityRecords: [String: AgentActivityRecord] = [:]
+  private var relayActivityMessageIDs: [String: String] = [:]
   private var activeAgentActivityIDs: [String: String] = [:]
   /// Relay-authoritative run history, keyed by the isolated agent mailbox.
   /// Terminal failures remain visible and retryable across process restarts.
@@ -86,17 +91,29 @@ final class AppModel {
   /// creating a new org from re-entering an already-completed one, which the
   /// single-workspace idempotency guard in completeOnboarding guards against.
   private var pendingNewWorkspace = false
+  #if DEBUG
+    /// A bridge deep link can arrive before the relay finishes hydrating the
+    /// active workspace. Carry that explicit choice across startup, then bind
+    /// it to the resolved workspace instead of letting recovery overwrite it.
+    private var pendingDevelopmentBridgeSelection = false
+  #endif
 
-  let sessions: SessionStore
-  let workspaces: WorkspaceStore
+  private(set) var sessions: SessionStore
+  private(set) var workspaces: WorkspaceStore
   let inferenceCredentials: InferenceCredentialStore
   let deviceModels: OnDeviceModelStore
-  let relay: any RelayServing
+  private(set) var relay: any RelayServing
   let conversations: ConversationCache
-  let authentication: any MobileAuthenticationServing
+  private(set) var authentication: any MobileAuthenticationServing
   private let configStore = AgentConfigStore()
   private let readStateStore = ConversationReadStateStore()
-  private let appConfiguration: AppConfiguration
+  private(set) var appConfiguration: AppConfiguration
+  private let relayDirectory = RelayDirectoryStore()
+  private var pendingWorkspaceAfterRelaySwitch: String?
+
+  var pendingInviteRelayURL: URL? {
+    pendingWorkspaceInvite?.relayURL ?? pendingOrganizationInvite?.relayURL
+  }
 
   var canCancelOnboarding: Bool {
     workspace?.onboardingComplete == true
@@ -141,7 +158,8 @@ final class AppModel {
     deviceModels: OnDeviceModelStore = OnDeviceModelStore(),
     relay: any RelayServing,
     conversations: ConversationCache,
-    authentication: any MobileAuthenticationServing
+    authentication: any MobileAuthenticationServing,
+    appConfiguration: AppConfiguration = .current()
   ) {
     self.sessions = sessions
     self.workspaces = workspaces
@@ -150,20 +168,21 @@ final class AppModel {
     self.relay = relay
     self.conversations = conversations
     self.authentication = authentication
-    self.appConfiguration = AppConfiguration.current()
+    self.appConfiguration = appConfiguration
   }
 
   static func live(environment: ProcessInfo = .processInfo) -> AppModel {
     let configuration = AppConfiguration.current(environment: environment)
-    let sessionStore = KeychainSessionStore()
+    let sessionStore = KeychainSessionStore(scope: configuration.relayURL)
     let transport = URLSessionRelayClient(configuration: configuration)
     return AppModel(
       sessions: sessionStore,
-      workspaces: FileWorkspaceStore(),
+      workspaces: FileWorkspaceStore(scope: configuration.relayURL),
       inferenceCredentials: KeychainInferenceCredentialStore(),
       relay: configuration.demoMode ? FixtureRelayClient() : transport,
       conversations: ConversationCache(),
-      authentication: URLSessionOAuthAuthenticationClient(configuration: configuration)
+      authentication: URLSessionOAuthAuthenticationClient(configuration: configuration),
+      appConfiguration: configuration
     )
   }
 
@@ -201,7 +220,7 @@ final class AppModel {
     if ProcessInfo.processInfo.arguments.contains("--reset-session") {
       try? sessions.clear()
     }
-    if AppConfiguration.current().demoMode {
+    if appConfiguration.demoMode {
       session = .fixture
       await hydrateWorkspace()
       return
@@ -230,6 +249,8 @@ final class AppModel {
       await hydrateWorkspace()
       return
     }
+    await applyPendingOrganizationInvite()
+    await applyPendingWorkspaceSwitch()
     await hydrateWorkspace()
   }
 
@@ -241,15 +262,11 @@ final class AppModel {
   private func bootCellRuntimeIfNeeded() async {
     #if CELL_RUNTIME
       guard phase == .workspace else { return }
-      if ChiefCellRuntime.shared.isStarted {
-        cellRuntimeBooted = true
-        return
-      }
       let host = ChiefOpenCodeAgentHost(
         relay: relay,
         credentials: inferenceCredentials,
         onActivity: { [weak self] workspaceID, conversationID, agentID, component in
-          await self?.recordAgentActivity(
+          await self?.projectAgentActivity(
             workspaceID: workspaceID,
             conversationID: conversationID,
             agentID: agentID,
@@ -279,12 +296,14 @@ final class AppModel {
     agentID requestedAgentID: String? = nil
   ) async {
     guard let workspaceID = workspace?.id else { return }
-    guard let agentID = agentTurnTarget(
-      conversationID: conversationID,
-      threadRootID: threadRootID,
-      mentions: mentions,
-      requestedAgentID: requestedAgentID
-    ) else {
+    guard
+      let agentID = agentTurnTarget(
+        conversationID: conversationID,
+        threadRootID: threadRootID,
+        mentions: mentions,
+        requestedAgentID: requestedAgentID
+      )
+    else {
       onboardingLog.warning(
         "ignored agent turn without an addressed cell in \(conversationID, privacy: .public)"
       )
@@ -350,7 +369,7 @@ final class AppModel {
           conversationID: conversationID,
           threadRootID: threadRootID,
           mentions: mentions,
-          components: turn.components,
+          components: [],
           signingIdentity: agentIdentity
         )
         await MainActor.run { conversations.merge(message) }
@@ -553,16 +572,18 @@ final class AppModel {
     let activityKey = "\(workspaceID):\(conversationID):\(agentID)"
     let id = activeAgentActivityIDs[activityKey] ?? UUID().uuidString
     activeAgentActivityIDs[activityKey] = id
-    var record = agentActivityRecords[id] ?? AgentActivityRecord(
-      id: id,
-      workspaceID: workspaceID,
-      conversationID: conversationID,
-      agentID: agentID,
-      startedAt: .now,
-      updatedAt: .now,
-      completedAt: nil,
-      components: []
-    )
+    var record =
+      agentActivityRecords[id]
+      ?? AgentActivityRecord(
+        id: id,
+        workspaceID: workspaceID,
+        conversationID: conversationID,
+        agentID: agentID,
+        startedAt: .now,
+        updatedAt: .now,
+        completedAt: nil,
+        components: []
+      )
     if let index = record.components.firstIndex(where: { $0.id == component.id }) {
       record.components[index] = component
     } else {
@@ -580,8 +601,46 @@ final class AppModel {
       // Refresh from that event so a newly created specialist channel appears
       // while the agent is still working, without introducing polling.
       Task { [weak self] in
-        await self?.refreshWorkspaceAfterAgentCompletion(expectedID: workspaceID)
+        await self?.refreshWorkspaceAfterAgentCompletion(
+          expectedID: workspaceID,
+          conversationID: conversationID
+        )
       }
+    }
+  }
+
+  private func projectAgentActivity(
+    workspaceID: String,
+    conversationID: String,
+    agentID: String,
+    component: MessageComponent
+  ) async {
+    recordAgentActivity(
+      workspaceID: workspaceID,
+      conversationID: conversationID,
+      agentID: agentID,
+      component: component
+    )
+    let key = "\(workspaceID):\(conversationID):\(agentID):\(component.id)"
+    let messageID = relayActivityMessageIDs[key] ?? UUID().uuidString
+    relayActivityMessageIDs[key] = messageID
+    do {
+      let identity = try AgentIdentityStore(
+        workspaceID: workspaceID,
+        agentID: agentID
+      ).ensure()
+      _ = try await relay.upsertAgentActivity(
+        workspaceID: workspaceID,
+        conversationID: conversationID,
+        messageID: messageID,
+        threadRootID: nil,
+        component: component,
+        signingIdentity: identity
+      )
+    } catch {
+      onboardingLog.warning(
+        "agent activity relay projection failed: \(error.localizedDescription)"
+      )
     }
   }
 
@@ -674,6 +733,8 @@ final class AppModel {
     Task {
       do {
         try await bindCurrentDevice(using: signedIn)
+        await applyPendingOrganizationInvite()
+        await applyPendingWorkspaceSwitch()
         await hydrateWorkspace()
       } catch MobileAuthenticationError.invalidSession {
         onboardingLog.notice("new account session was rejected during device binding")
@@ -699,6 +760,31 @@ final class AppModel {
     try sessions.save(refreshed)
     session = refreshed
     onboardingLog.info("bound this device to Chief account \(current.user.id, privacy: .private)")
+  }
+
+  private func applyPendingWorkspaceSwitch() async {
+    guard let workspaceID = pendingWorkspaceAfterRelaySwitch else { return }
+    do {
+      try await relay.switchWorkspace(id: workspaceID)
+      pendingWorkspaceAfterRelaySwitch = nil
+    } catch {
+      onboardingError = error.localizedDescription
+      onboardingLog.error("pending relay workspace switch failed: \(error.localizedDescription)")
+    }
+  }
+
+  private func applyPendingOrganizationInvite() async {
+    guard let invitation = pendingOrganizationInvite else { return }
+    do {
+      _ = try await relay.joinOrganizationWorkspace(
+        workspaceID: invitation.workspaceID
+      )
+      pendingWorkspaceAfterRelaySwitch = invitation.workspaceID
+      pendingOrganizationInvite = nil
+    } catch {
+      workspaceInviteError = error.localizedDescription
+      onboardingLog.error("organization invitation join failed: \(error.localizedDescription)")
+    }
   }
 
   /// Ensure identity keypairs exist on this device so relay requests can be
@@ -749,8 +835,9 @@ final class AppModel {
       await refreshCurrentChannelMemberships(for: loaded)
       syncWorkspaceLiveStreams(for: loaded)
       await MobileNotifications.shared.requestAuthorizationIfNeeded()
-      if loaded.onboardingComplete { startAgentLoopIfNeeded() }
-      else if hasRecoverableInferenceCredential {
+      if loaded.onboardingComplete {
+        startAgentLoopIfNeeded()
+      } else if hasRecoverableInferenceCredential(for: loaded.id) {
         Task { [weak self] in await self?.completeOnboarding() }
       }
       if pendingWorkspaceInvite != nil { await preparePendingWorkspaceInvite() }
@@ -877,19 +964,84 @@ final class AppModel {
   /// switcher). Best-effort; never blocks hydration.
   func refreshWorkspaces() async {
     do {
-      workspaceSummaries = try await relay.listWorkspaces()
+      let current = try await relay.listWorkspaces()
+      relayDirectory.remember(workspaces: current, at: appConfiguration.relayURL)
     } catch is CancellationError {
       return
     } catch {
       print("[Chief] list workspaces failed: \(error)")
     }
+
+    // A relay owns its own authorization boundary, but the switcher should
+    // aggregate every relay this phone has already signed into. Sessions never
+    // leave the device and we never silently reuse a credential for a different
+    // issuer; one sign-in per relay is enough for every workspace on that relay.
+    let cloud = AppConfiguration.chiefCloud()
+    var knownConnections = relayDirectory.connections()
+    knownConnections.append(
+      RelayConnectionRecord(relayURL: cloud.relayURL, accountURL: cloud.accountURL)
+    )
+    for connection in knownConnections {
+      if RelayDirectoryStore.sameOrigin(connection.relayURL, appConfiguration.relayURL) {
+        continue
+      }
+      let sessionStore = KeychainSessionStore(scope: connection.relayURL)
+      guard let storedSession = try? sessionStore.load() else { continue }
+      let configuration = AppConfiguration(
+        relayURL: connection.relayURL,
+        accountURL: connection.accountURL,
+        demoMode: false
+      )
+      let client = URLSessionRelayClient(configuration: configuration)
+      do {
+        let remote = try await client.listWorkspaces()
+        relayDirectory.remember(workspaces: remote, at: connection.relayURL)
+      } catch RelayError.unauthorized {
+        do {
+          try await client.bindDeviceIdentity(accountToken: storedSession.accessToken)
+          let remote = try await client.listWorkspaces()
+          relayDirectory.remember(workspaces: remote, at: connection.relayURL)
+        } catch {
+          print(
+            "[Chief] known relay refresh failed for \(connection.relayURL.host ?? "relay"): \(error)"
+          )
+        }
+      } catch {
+        print(
+          "[Chief] known relay refresh failed for \(connection.relayURL.host ?? "relay"): \(error)")
+      }
+    }
+    workspaceSummaries = relayDirectory.workspaceSummaries(activeWorkspaceID: workspace?.id)
   }
 
   /// Switch the active organization, mirroring the desktop workspace rail. The
   /// conversation cache is cleared so no state leaks across tenants; the new
   /// workspace then rehydrates from the relay.
   func switchWorkspace(workspaceID: String) async -> Bool {
+    guard workspaceID != workspace?.id else { return true }
+    guard !isSwitchingWorkspace else { return false }
+    isSwitchingWorkspace = true
+    defer { isSwitchingWorkspace = false }
     print("[Chief] switching to workspace \(workspaceID)")
+    if let location = relayDirectory.location(for: workspaceID),
+      !RelayDirectoryStore.sameOrigin(location.relayURL, appConfiguration.relayURL)
+    {
+      let cloud = AppConfiguration.chiefCloud()
+      let connection: RelayConnectionRecord?
+      let usesChiefCloud = RelayDirectoryStore.sameOrigin(location.relayURL, cloud.relayURL)
+      if usesChiefCloud {
+        connection = RelayConnectionRecord(relayURL: cloud.relayURL, accountURL: cloud.accountURL)
+      } else {
+        connection = relayDirectory.connection(for: location.relayURL)
+      }
+      guard let connection else { return false }
+      await activateRelay(
+        connection,
+        persistAsCustom: !usesChiefCloud,
+        pendingWorkspaceID: workspaceID
+      )
+      return workspace?.id == workspaceID
+    }
     stopWorkspaceLiveStreams()
     do {
       try await relay.switchWorkspace(id: workspaceID)
@@ -898,6 +1050,7 @@ final class AppModel {
       print("[Chief] switch workspace failed: \(error)")
       return false
     }
+    stopAgentLoop()
     conversations.clearAll()
     workspace = nil
     try? workspaces.clear()
@@ -905,7 +1058,79 @@ final class AppModel {
     return workspace?.id == workspaceID
   }
 
+  func activateRelay(
+    _ connection: RelayConnectionRecord,
+    persistAsCustom: Bool = true,
+    pendingWorkspaceID: String? = nil
+  ) async {
+    stopAgentLoop()
+    stopWorkspaceLiveStreams()
+    if persistAsCustom {
+      relayDirectory.activate(connection)
+    } else {
+      relayDirectory.activateChiefCloud()
+    }
+
+    let configuration = AppConfiguration(
+      relayURL: connection.relayURL,
+      accountURL: connection.accountURL,
+      demoMode: false
+    )
+    appConfiguration = configuration
+    sessions = KeychainSessionStore(scope: connection.relayURL)
+    workspaces = FileWorkspaceStore(scope: connection.relayURL)
+    relay = URLSessionRelayClient(configuration: configuration)
+    authentication = URLSessionOAuthAuthenticationClient(configuration: configuration)
+    pendingWorkspaceAfterRelaySwitch = pendingWorkspaceID
+    await DeviceAuthorizationVault.shared.clear(for: connection.relayURL)
+    conversations.clearAll()
+    session = nil
+    workspace = nil
+    membershipWorkspaceID = nil
+    joinedConversationIDs = nil
+    selectedConversationID = nil
+    workspaceSyncFailed = false
+    onboardingError = nil
+    phase = .launching
+
+    guard let stored = try? sessions.load() else {
+      phase = .signedOut
+      return
+    }
+    session = stored
+    do {
+      try await bindCurrentDevice(using: stored)
+      await applyPendingOrganizationInvite()
+      await applyPendingWorkspaceSwitch()
+      await hydrateWorkspace()
+    } catch MobileAuthenticationError.invalidSession {
+      try? sessions.clear()
+      session = nil
+      phase = .signedOut
+    } catch {
+      onboardingError = error.localizedDescription
+      workspaceSyncFailed = true
+      await hydrateWorkspace()
+    }
+  }
+
   func handleIncomingURL(_ url: URL) async {
+    if let organization = OrganizationInviteLink(url: url) {
+      pendingOrganizationInvite = organization
+      workspaceInviteError = nil
+      if !RelayDirectoryStore.sameOrigin(
+        organization.relayURL,
+        appConfiguration.relayURL
+      ) {
+        workspaceInviteNeedsRelayConfirmation = true
+        return
+      }
+      guard session != nil else { return }
+      await applyPendingOrganizationInvite()
+      await applyPendingWorkspaceSwitch()
+      await hydrateWorkspace()
+      return
+    }
     guard let link = WorkspaceInviteLink(url: url) else {
       #if DEBUG
         await connectDevelopmentCodexBridge(url)
@@ -914,6 +1139,10 @@ final class AppModel {
     }
     pendingWorkspaceInvite = link
     workspaceInviteError = nil
+    if !RelayDirectoryStore.sameOrigin(link.relayURL, appConfiguration.relayURL) {
+      workspaceInviteNeedsRelayConfirmation = true
+      return
+    }
     guard session != nil else { return }
     await preparePendingWorkspaceInvite()
   }
@@ -926,11 +1155,20 @@ final class AppModel {
       return
     }
     pendingWorkspaceInvite = link
+    if !RelayDirectoryStore.sameOrigin(link.relayURL, appConfiguration.relayURL) {
+      workspaceInviteNeedsRelayConfirmation = true
+      workspaceInviteError = nil
+      return
+    }
     await preparePendingWorkspaceInvite()
   }
 
   func preparePendingWorkspaceInvite() async {
     guard let link = pendingWorkspaceInvite, !workspaceInviteInProgress else { return }
+    guard RelayDirectoryStore.sameOrigin(link.relayURL, appConfiguration.relayURL) else {
+      workspaceInviteNeedsRelayConfirmation = true
+      return
+    }
     workspaceInviteInProgress = true
     workspaceInviteError = nil
     defer { workspaceInviteInProgress = false }
@@ -951,6 +1189,32 @@ final class AppModel {
       }
       workspaceInvitePreview = preview
     } catch {
+      workspaceInviteError = error.localizedDescription
+    }
+  }
+
+  func confirmPendingInviteRelay() async {
+    guard let relayURL = pendingInviteRelayURL, !workspaceInviteInProgress else { return }
+    workspaceInviteInProgress = true
+    workspaceInviteError = nil
+    do {
+      let connection = try await RelayConnectionValidator.validate(
+        relayURL.absoluteString
+      )
+      workspaceInviteNeedsRelayConfirmation = false
+      workspaceInviteInProgress = false
+      await activateRelay(connection)
+      if session != nil {
+        if pendingOrganizationInvite != nil {
+          await applyPendingOrganizationInvite()
+          await applyPendingWorkspaceSwitch()
+          await hydrateWorkspace()
+        } else {
+          await preparePendingWorkspaceInvite()
+        }
+      }
+    } catch {
+      workspaceInviteInProgress = false
       workspaceInviteError = error.localizedDescription
     }
   }
@@ -977,8 +1241,10 @@ final class AppModel {
 
   func clearWorkspaceInvite() {
     pendingWorkspaceInvite = nil
+    pendingOrganizationInvite = nil
     workspaceInvitePreview = nil
     workspaceInviteError = nil
+    workspaceInviteNeedsRelayConfirmation = false
   }
 
   func createWorkspaceInvite(conversationID: String? = nil) async -> WorkspaceInviteLink? {
@@ -992,6 +1258,21 @@ final class AppModel {
       workspaceInviteError = error.localizedDescription
       return nil
     }
+  }
+
+  func inviteWorkspaceMember(email: String) async throws {
+    guard let workspaceID = workspace?.id, let session else {
+      throw OrganizationInvitationError.rejected
+    }
+    let address = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard address.contains("@"), !address.hasPrefix("@"), !address.hasSuffix("@") else {
+      throw OrganizationInvitationError.rejected
+    }
+    try await authentication.inviteOrganizationMember(
+      email: address,
+      organizationID: workspaceID,
+      session: session
+    )
   }
 
   func completeOnboarding() async {
@@ -1076,6 +1357,15 @@ final class AppModel {
         try? workspaces.save(pending)
       }
       workspace = pending
+      #if DEBUG
+        DevCodexBridgeSettings.setEnabled(
+          onboarding.inferenceProvider == .codexBridge,
+          for: pending.id
+        )
+        if onboarding.inferenceProvider == .codexBridge {
+          pendingDevelopmentBridgeSelection = false
+        }
+      #endif
       selectedTab = .home
       selectedConversationID = nil
       phase = .workspace
@@ -1100,7 +1390,7 @@ final class AppModel {
         relay: relay,
         credentials: inferenceCredentials,
         onActivity: { [weak self] workspaceID, conversationID, agentID, component in
-          await self?.recordAgentActivity(
+          await self?.projectAgentActivity(
             workspaceID: workspaceID,
             conversationID: conversationID,
             agentID: agentID,
@@ -1180,9 +1470,13 @@ final class AppModel {
     onboarding.companyName = snapshot.name
     onboarding.step = 3
     #if DEBUG
-      if DevCodexBridgeSettings.isConfigured,
+      if pendingDevelopmentBridgeSelection
+        || DevCodexBridgeSettings.isEnabled(for: snapshot.id),
+        DevCodexBridgeSettings.isConfigured,
         inferenceCredentials.contains(.codexBridge)
       {
+        DevCodexBridgeSettings.setEnabled(true, for: snapshot.id)
+        pendingDevelopmentBridgeSelection = false
         onboarding.inferenceProvider = .codexBridge
         onboarding.inferenceModel = DevCodexBridgeSettings.model
         return
@@ -1194,11 +1488,14 @@ final class AppModel {
     }
   }
 
-  private var hasRecoverableInferenceCredential: Bool {
+  private func hasRecoverableInferenceCredential(for workspaceID: String) -> Bool {
     #if DEBUG
-      if DevCodexBridgeSettings.isConfigured,
+      if DevCodexBridgeSettings.isEnabled(for: workspaceID),
+        DevCodexBridgeSettings.isConfigured,
         inferenceCredentials.contains(.codexBridge)
-      { return true }
+      {
+        return true
+      }
     #endif
     return inferenceCredentials.contains(.openCodeGo)
   }
@@ -1216,15 +1513,23 @@ final class AppModel {
         onboarding.inferenceProvider = .codexBridge
         onboarding.inferenceModel = connection.model
         onboardingError = nil
+        pendingDevelopmentBridgeSelection = true
 
-        onboardingLog.info("connected development Codex bridge model=\(connection.model, privacy: .public)")
+        if let workspace, !workspace.onboardingComplete {
+          DevCodexBridgeSettings.setEnabled(true, for: workspace.id)
+          pendingDevelopmentBridgeSelection = false
+        }
+
+        onboardingLog.info(
+          "connected development Codex bridge model=\(connection.model, privacy: .public)")
         print("[Chief] connected development Codex bridge model=\(connection.model)")
         if workspace?.onboardingComplete == false {
           await completeOnboarding()
         }
       } catch {
         onboardingError = error.localizedDescription
-        onboardingLog.error("development Codex bridge connection failed: \(error.localizedDescription)")
+        onboardingLog.error(
+          "development Codex bridge connection failed: \(error.localizedDescription)")
       }
     }
   #endif
@@ -1281,13 +1586,15 @@ final class AppModel {
   private func syncWorkspaceLiveStreams(for snapshot: WorkspaceSnapshot) {
     guard !appConfiguration.demoMode else { return }
     guard isAppActive || workspaceLiveClient != nil else { return }
-    let joinedChannelIDs = membershipWorkspaceID == snapshot.id
+    let joinedChannelIDs =
+      membershipWorkspaceID == snapshot.id
       ? joinedConversationIDs
       : nil
     let desired: Set<String> = Set(
       snapshot.conversations.compactMap { conversation -> String? in
-        guard conversation.kind == .direct
-          || joinedChannelIDs?.contains(conversation.id) == true
+        guard
+          conversation.kind == .direct
+            || joinedChannelIDs?.contains(conversation.id) == true
         else { return nil }
         return conversation.id
       }
@@ -1388,19 +1695,35 @@ final class AppModel {
   ) {
     guard workspace?.id == workspaceID else { return }
     messages.forEach(conversations.merge)
+    for message in messages.sorted(by: { $0.createdAt < $1.createdAt }) {
+      if message.isAgentActivityProjection {
+        updateRelayActivityPresence(message)
+      } else {
+        clearRelayActivityPresence(for: message)
+      }
+    }
     let key = ConversationKey(workspaceID: workspaceID, conversationID: conversationID)
     if hydratedReadConversations.insert(key).inserted {
       let context = ConversationReadState.channelKey(conversationID)
       if readState.contexts[context] == nil,
-        let latestHistorical = messages
-          .filter({ !$0.isOwnMessage(session: session) && $0.createdAt <= launchedAt })
+        let latestHistorical =
+          messages
+          .filter({
+            !$0.isAgentActivityProjection
+              && !$0.isOwnMessage(session: session)
+              && $0.createdAt <= launchedAt
+          })
           .map(\.createdAt)
           .max()
       {
         advanceReadContext(context, to: latestHistorical)
       }
     }
-    if let latest = messages.max(by: { $0.createdAt < $1.createdAt }) {
+    if let latest =
+      messages
+      .filter({ !$0.isAgentActivityProjection })
+      .max(by: { $0.createdAt < $1.createdAt })
+    {
       updateConversationPreview(with: latest)
     }
     for message in messages where message.createdAt > launchedAt {
@@ -1414,6 +1737,12 @@ final class AppModel {
     switch event {
     case .appended(let message):
       conversations.merge(message)
+      if message.isAgentActivityProjection {
+        recordRelayActivityReceipt(message, event: event)
+        updateRelayActivityPresence(message)
+        return
+      }
+      clearRelayActivityPresence(for: message)
       updateConversationPreview(with: message)
       applyCurrentUserMembershipEvent(message)
       guard isConversationJoined(message.conversationID) else { return }
@@ -1433,11 +1762,84 @@ final class AppModel {
       }
     case .reacted(let message), .edited(let message), .deleted(let message):
       conversations.update(message)
-      if case .edited = event { updateConversationPreview(with: message) }
+      if message.isAgentActivityProjection {
+        recordRelayActivityReceipt(message, event: event)
+        updateRelayActivityPresence(message)
+        return
+      }
+      clearRelayActivityPresence(for: message)
+      if case .edited = event, !message.isAgentActivityProjection {
+        updateConversationPreview(with: message)
+      }
+    }
+  }
+
+  private func recordRelayActivityReceipt(_ message: ConversationMessage, event: LiveEvent) {
+    guard case .agent(let agentID, _) = message.author else { return }
+    let eventType: String
+    switch event {
+    case .appended: eventType = "appended"
+    case .reacted: eventType = "reacted"
+    case .edited: eventType = "edited"
+    case .deleted: eventType = "deleted"
+    }
+    activityLog.info(
+      "received event=\(eventType, privacy: .public) workspace=\(message.workspaceID, privacy: .public) conversation=\(message.conversationID, privacy: .public) agent=\(agentID, privacy: .public) message=\(message.id, privacy: .public) sequence=\(message.sequence) components=\(message.components.map(\.id).joined(separator: ","), privacy: .public)"
+    )
+  }
+
+  private func updateRelayActivityPresence(_ message: ConversationMessage) {
+    guard case .agent(let agentID, _) = message.author else { return }
+    let failed = message.components.contains { $0.kind == "error" }
+    let running = message.components.contains { component in
+      component.payload["status"] == "running"
+        || component.payload["status"] == "working"
+    }
+    if failed {
+      setRelayAgentWorking(
+        agentID: agentID,
+        workspaceID: message.workspaceID,
+        conversationID: message.conversationID,
+        isWorking: false
+      )
+    } else if running {
+      setRelayAgentWorking(
+        agentID: agentID,
+        workspaceID: message.workspaceID,
+        conversationID: message.conversationID,
+        isWorking: true
+      )
+    }
+  }
+
+  private func clearRelayActivityPresence(for message: ConversationMessage) {
+    guard case .agent(let agentID, _) = message.author else { return }
+    setRelayAgentWorking(
+      agentID: agentID,
+      workspaceID: message.workspaceID,
+      conversationID: message.conversationID,
+      isWorking: false
+    )
+  }
+
+  private func setRelayAgentWorking(
+    agentID: String,
+    workspaceID: String,
+    conversationID: String,
+    isWorking: Bool
+  ) {
+    let key = ConversationKey(workspaceID: workspaceID, conversationID: conversationID)
+    var agents = workingAgents[key] ?? []
+    if isWorking { agents.insert(agentID) } else { agents.remove(agentID) }
+    if agents.isEmpty {
+      workingAgents.removeValue(forKey: key)
+    } else {
+      workingAgents[key] = agents
     }
   }
 
   private func recordArrival(_ message: ConversationMessage) {
+    guard !message.isAgentActivityProjection else { return }
     guard !message.isOwnMessage(session: session) else { return }
     guard isConversationJoined(message.conversationID) else { return }
     guard notifiedMessageIDs.insert(message.id).inserted else { return }
@@ -1452,7 +1854,8 @@ final class AppModel {
     }
     guard let workspace else { return }
     let conversation = workspace.conversations.first { $0.id == message.conversationID }
-    let title = conversation?.kind == .direct
+    let title =
+      conversation?.kind == .direct
       ? message.author.displayName
       : "\(message.author.displayName) in #\(conversation?.name ?? "channel")"
     Task {
@@ -1537,20 +1940,22 @@ final class AppModel {
 
   func markChannelRead(conversationID: String) {
     guard let workspaceID = workspace?.id else { return }
-    let latest = conversations.messages(
-      workspaceID: workspaceID,
-      conversationID: conversationID
-    ).map(\.createdAt).max() ?? .now
+    let latest =
+      conversations.messages(
+        workspaceID: workspaceID,
+        conversationID: conversationID
+      ).map(\.createdAt).max() ?? .now
     advanceReadContext(ConversationReadState.channelKey(conversationID), to: latest)
     recomputeUnreadCount(conversationID: conversationID)
   }
 
   func markThreadRead(conversationID: String, rootMessageID: String) {
     guard let workspaceID = workspace?.id else { return }
-    let latest = conversations.messages(
-      workspaceID: workspaceID,
-      conversationID: conversationID
-    ).filter { $0.threadRootID == rootMessageID }.map(\.createdAt).max() ?? .now
+    let latest =
+      conversations.messages(
+        workspaceID: workspaceID,
+        conversationID: conversationID
+      ).filter { $0.threadRootID == rootMessageID }.map(\.createdAt).max() ?? .now
     advanceReadContext(
       ConversationReadState.threadKey(conversationID, rootMessageID: rootMessageID),
       to: max(latest, .now)
@@ -1577,7 +1982,8 @@ final class AppModel {
   }
 
   private func isUnread(_ message: ConversationMessage) -> Bool {
-    readState.isUnread(
+    guard !message.isAgentActivityProjection else { return false }
+    return readState.isUnread(
       createdAt: message.createdAt,
       conversationID: message.conversationID,
       threadRootID: message.threadRootID
@@ -1598,7 +2004,7 @@ final class AppModel {
   }
 
   private func updateConversationPreview(with message: ConversationMessage) {
-    guard !message.deleted else { return }
+    guard !message.deleted, !message.isAgentActivityProjection else { return }
     let preview = message.body.trimmingCharacters(in: .whitespacesAndNewlines)
     mutateConversation(message.conversationID) {
       $0.lastMessage = preview.isEmpty ? "Sent an attachment" : String(preview.prefix(140))
@@ -1611,7 +2017,9 @@ final class AppModel {
       if let latest = conversations.messages(
         workspaceID: workspaceID,
         conversationID: conversationID
-      ).max(by: { $0.createdAt < $1.createdAt }) {
+      ).filter({ !$0.isAgentActivityProjection })
+        .max(by: { $0.createdAt < $1.createdAt })
+      {
         updateConversationPreview(with: latest)
       }
       recomputeUnreadCount(conversationID: conversationID)
@@ -1681,7 +2089,8 @@ final class AppModel {
       let agentNames = Dictionary(
         uniqueKeysWithValues: workspace.agents.map { ($0.id, $0.name) }
       )
-      return members
+      return
+        members
         .filter { !($0.kind == "user" && $0.principalId == currentUserID) }
         .map { member in
           DirectMessageRecipient(
@@ -1725,12 +2134,13 @@ final class AppModel {
   @discardableResult
   func createChannel(name: String, isPrivate: Bool) async -> ChannelRecord? {
     guard let workspaceID = workspace?.id else { return nil }
-    let slug = Self.slugify(name)
+    let displayName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !displayName.isEmpty else { return nil }
     do {
       let channel = try await relay.createChannel(
         workspaceID: workspaceID,
-        conversationID: slug,
-        name: slug,
+        conversationID: UUID().uuidString.lowercased(),
+        name: displayName,
         isPrivate: isPrivate
       )
       upsertConversation(
@@ -2010,15 +2420,18 @@ final class AppModel {
         )
       },
       onActivity: { [weak self] workspaceID, conversationID, agentID, component in
-        await self?.recordAgentActivity(
+        await self?.projectAgentActivity(
           workspaceID: workspaceID,
           conversationID: conversationID,
           agentID: agentID,
           component: component
         )
       },
-      onCompletion: { [weak self] in
-        await self?.refreshWorkspaceAfterAgentCompletion(expectedID: workspace.id)
+      onCompletion: { [weak self] conversationID in
+        await self?.refreshWorkspaceAfterAgentCompletion(
+          expectedID: workspace.id,
+          conversationID: conversationID
+        )
       }
     )
     agentLoopTask = Task { [weak self] in
@@ -2032,7 +2445,10 @@ final class AppModel {
     agentLoopTask = nil
   }
 
-  private func refreshWorkspaceAfterAgentCompletion(expectedID: String) async {
+  private func refreshWorkspaceAfterAgentCompletion(
+    expectedID: String,
+    conversationID: String
+  ) async {
     do {
       let remote = try await relay.loadWorkspace()
       guard remote.id == expectedID else { return }
@@ -2042,6 +2458,16 @@ final class AppModel {
       syncWorkspaceLiveStreams(for: remote)
       try? workspaces.save(remote)
       await refreshAgentJobs(for: remote)
+      // Live delivery is the fast path, not the only path. A foreground socket
+      // can reconnect between job completion and publication; catch up the
+      // owning conversation so a completed DM or plugin card never stays
+      // invisible until the user reopens it.
+      let latest = try await relay.messages(
+        workspaceID: expectedID,
+        conversationID: conversationID,
+        after: nil
+      )
+      latest.forEach(conversations.merge)
     } catch {
       onboardingLog.warning("post-job workspace refresh failed: \(error.localizedDescription)")
     }
@@ -2056,14 +2482,10 @@ final class AppModel {
     // (skip the single-workspace idempotency guard), not a re-run of setup.
     pendingNewWorkspace = true
     onboarding = OnboardingDraft()
-    #if DEBUG
-      if DevCodexBridgeSettings.isConfigured,
-        inferenceCredentials.contains(.codexBridge)
-      {
-        onboarding.inferenceProvider = .codexBridge
-        onboarding.inferenceModel = DevCodexBridgeSettings.model
-      }
-    #endif
+    if inferenceCredentials.contains(.openCodeGo) {
+      onboarding.inferenceProvider = .openCodeGo
+      onboarding.inferenceModel = OpenCodeModelCatalog.recommendedFreeModelID
+    }
     inferenceCredential = ""
     onboardingError = nil
     workspaceSyncFailed = false
@@ -2088,7 +2510,8 @@ final class AppModel {
     stopWorkspaceLiveStreams()
     pendingNewWorkspace = false
     try? sessions.clear()
-    Task { await DeviceAuthorizationVault.shared.clear() }
+    let relayURL = appConfiguration.relayURL
+    Task { await DeviceAuthorizationVault.shared.clear(for: relayURL) }
     session = nil
     workspace = nil
     membershipWorkspaceID = nil
@@ -2151,8 +2574,8 @@ final class AppModel {
   }
 }
 
-private extension ConversationMessage {
-  func isOwnMessage(session: ChiefSession?) -> Bool {
+extension ConversationMessage {
+  fileprivate func isOwnMessage(session: ChiefSession?) -> Bool {
     guard case .user(let id, _) = author else { return false }
     if id == session?.user.id || id == "workspace-owner" { return true }
     return id == (try? NostrKeychainStore().load())?.publicKeyHex
@@ -2161,7 +2584,7 @@ private extension ConversationMessage {
 
 enum WorkspaceTab: Hashable {
   case home
-  case dms
+  case plugins
   case projects
   case agents
 }

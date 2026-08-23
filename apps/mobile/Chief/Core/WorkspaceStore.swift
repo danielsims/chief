@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 protocol WorkspaceStore: Sendable {
@@ -7,6 +8,17 @@ protocol WorkspaceStore: Sendable {
 }
 
 struct FileWorkspaceStore: WorkspaceStore {
+  private let scope: String?
+
+  init(scope: URL? = nil) {
+    guard let scope else {
+      self.scope = nil
+      return
+    }
+    let digest = SHA256.hash(data: Data(scope.absoluteString.utf8))
+    self.scope = digest.map { String(format: "%02x", $0) }.joined()
+  }
+
   private var fileURL: URL {
     let applicationSupport = try! FileManager.default.url(
       for: .applicationSupportDirectory,
@@ -14,9 +26,10 @@ struct FileWorkspaceStore: WorkspaceStore {
       appropriateFor: nil,
       create: true
     )
-    return applicationSupport
+    return
+      applicationSupport
       .appending(path: "Chief", directoryHint: .isDirectory)
-      .appending(path: "workspace.json")
+      .appending(path: scope.map { "workspace-\($0).json" } ?? "workspace.json")
   }
 
   func load() throws -> WorkspaceSnapshot? {

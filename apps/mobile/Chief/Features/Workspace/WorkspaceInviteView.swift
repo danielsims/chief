@@ -1,5 +1,73 @@
 import SwiftUI
 
+struct WorkspaceInviteRelayConfirmationSheet: View {
+  @Environment(AppModel.self) private var model
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 22) {
+      Image(systemName: "network")
+        .font(.system(size: 22, weight: .medium))
+        .frame(width: 48, height: 48)
+        .background(ChiefTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+
+      VStack(alignment: .leading, spacing: 7) {
+        Text("Join this workspace?")
+          .font(.system(size: 25, weight: .semibold, design: .rounded))
+        Text(
+          "This invitation is hosted on a different Chief relay. Check the host before you continue."
+        )
+        .font(.system(size: 15))
+        .foregroundStyle(ChiefTheme.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+      }
+
+      if let host = model.pendingInviteRelayURL?.host {
+        Text(host)
+          .font(.system(size: 13, weight: .medium, design: .monospaced))
+          .foregroundStyle(.white)
+          .padding(.horizontal, 13)
+          .frame(height: 40)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .background(ChiefTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+      }
+
+      Text(
+        "Chief will verify this relay and ask you to sign in there if this device has not connected before. Your other workspaces stay signed in."
+      )
+      .font(.system(size: 13))
+      .foregroundStyle(ChiefTheme.secondary)
+      .fixedSize(horizontal: false, vertical: true)
+
+      if let error = model.workspaceInviteError {
+        Text(error)
+          .font(.system(size: 13, weight: .medium))
+          .foregroundStyle(.red.opacity(0.9))
+      }
+
+      Spacer(minLength: 0)
+
+      Button {
+        Haptics.heavy()
+        Task { await model.confirmPendingInviteRelay() }
+      } label: {
+        Group {
+          if model.workspaceInviteInProgress {
+            ProgressView().tint(.black)
+          } else {
+            Text("Continue")
+          }
+        }
+      }
+      .buttonStyle(PrimaryButtonStyle())
+      .disabled(model.workspaceInviteInProgress)
+    }
+    .padding(ChiefTheme.pagePadding)
+    .background(ChiefSheetPalette.background.ignoresSafeArea())
+    .presentationDragIndicator(.visible)
+  }
+}
+
 struct WorkspaceInviteConfirmationSheet: View {
   @Environment(AppModel.self) private var model
   @Environment(\.dismiss) private var dismiss
@@ -49,8 +117,11 @@ struct WorkspaceInviteConfirmationSheet: View {
           }
         } label: {
           Group {
-            if model.workspaceInviteInProgress { ProgressView().tint(.black) }
-            else { Text("Join workspace") }
+            if model.workspaceInviteInProgress {
+              ProgressView().tint(.black)
+            } else {
+              Text("Join workspace")
+            }
           }
         }
         .buttonStyle(PrimaryButtonStyle())
@@ -104,12 +175,19 @@ struct JoinWorkspaceSheet: View {
           Haptics.heavy()
           Task {
             await model.prepareWorkspaceInvite(from: value)
-            if model.workspaceInvitePreview != nil { dismiss() }
+            if model.workspaceInvitePreview != nil
+              || model.workspaceInviteNeedsRelayConfirmation
+            {
+              dismiss()
+            }
           }
         } label: {
           Group {
-            if model.workspaceInviteInProgress { ProgressView().tint(.black) }
-            else { Text("Continue") }
+            if model.workspaceInviteInProgress {
+              ProgressView().tint(.black)
+            } else {
+              Text("Continue")
+            }
           }
         }
         .buttonStyle(PrimaryButtonStyle())
@@ -131,15 +209,66 @@ struct InvitePeopleSheet: View {
   @Environment(AppModel.self) private var model
   @State private var link: WorkspaceInviteLink?
   @State private var loading = true
+  @State private var email = ""
+  @State private var sendingEmail = false
+  @State private var emailSent = false
+  @State private var emailError: String?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 20) {
       VStack(alignment: .leading, spacing: 6) {
         Text("Invite people")
           .font(.system(size: 24, weight: .semibold, design: .rounded))
-        Text("This single-use link expires in seven days.")
+        Text("Add a teammate by email, or share a single-use link.")
           .font(.system(size: 14))
           .foregroundStyle(ChiefTheme.secondary)
+      }
+
+      VStack(alignment: .leading, spacing: 10) {
+        TextField("Email address", text: $email)
+          .textInputAutocapitalization(.never)
+          .keyboardType(.emailAddress)
+          .textContentType(.emailAddress)
+          .autocorrectionDisabled()
+          .padding(.horizontal, 14)
+          .frame(height: 48)
+          .background(ChiefTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+          .onChange(of: email) {
+            emailSent = false
+            emailError = nil
+          }
+
+        Button {
+          Haptics.heavy()
+          Task { await sendEmailInvitation() }
+        } label: {
+          Group {
+            if sendingEmail {
+              ProgressView().tint(.black)
+            } else if emailSent {
+              Label("Invitation sent", systemImage: "checkmark")
+            } else {
+              Text("Send invitation")
+            }
+          }
+          .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(PrimaryButtonStyle())
+        .disabled(sendingEmail || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+        if let emailError {
+          Text(emailError)
+            .font(.system(size: 13))
+            .foregroundStyle(ChiefTheme.secondary)
+        }
+      }
+
+      HStack(spacing: 12) {
+        Rectangle().fill(Color.white.opacity(0.1)).frame(height: 0.5)
+        Text("or share a link")
+          .font(.system(size: 12))
+          .foregroundStyle(ChiefTheme.secondary)
+        Rectangle().fill(Color.white.opacity(0.1)).frame(height: 0.5)
       }
 
       if loading {
@@ -174,6 +303,19 @@ struct InvitePeopleSheet: View {
       link = await model.createWorkspaceInvite()
       loading = false
     }
-    .chiefSheet([.height(390), .large])
+    .chiefSheet([.height(620), .large])
+  }
+
+  private func sendEmailInvitation() async {
+    guard !sendingEmail else { return }
+    sendingEmail = true
+    emailError = nil
+    do {
+      try await model.inviteWorkspaceMember(email: email)
+      emailSent = true
+    } catch {
+      emailError = error.localizedDescription
+    }
+    sendingEmail = false
   }
 }

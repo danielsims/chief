@@ -23,17 +23,22 @@ struct AppRootView: View {
 
   var body: some View {
     Group {
-      switch model.phase {
-      case .launching:
+      if model.isSwitchingWorkspace {
         LaunchView()
-      case .signedOut:
-        SignInView()
-      case .onboarding:
-        OnboardingView()
-      case .workspace:
-        WorkspaceRootView()
+      } else {
+        switch model.phase {
+        case .launching:
+          LaunchView()
+        case .signedOut:
+          SignInView()
+        case .onboarding:
+          OnboardingView()
+        case .workspace:
+          WorkspaceRootView()
+        }
       }
     }
+    .animation(.easeInOut(duration: 0.2), value: model.isSwitchingWorkspace)
     .animation(.easeInOut(duration: 0.2), value: model.phase)
     .tint(ChiefTheme.accent)
     .onChange(of: scenePhase) { _, phase in
@@ -56,11 +61,18 @@ struct AppRootView: View {
     }
     .sheet(
       isPresented: Binding(
-        get: { model.workspaceInvitePreview != nil },
+        get: {
+          model.workspaceInvitePreview != nil
+            || model.workspaceInviteNeedsRelayConfirmation
+        },
         set: { if !$0 { model.clearWorkspaceInvite() } }
       )
     ) {
-      WorkspaceInviteConfirmationSheet()
+      if model.workspaceInviteNeedsRelayConfirmation {
+        WorkspaceInviteRelayConfirmationSheet()
+      } else {
+        WorkspaceInviteConfirmationSheet()
+      }
     }
   }
 }

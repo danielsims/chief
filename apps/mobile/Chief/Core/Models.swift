@@ -49,6 +49,7 @@ struct WorkspaceSnapshot: Codable, Equatable, Identifiable, Sendable {
   let name: String
   let website: String?
   let selectedApps: [String]?
+  let runtime: String?
   let imageURL: URL?
   let onboardingComplete: Bool
   let conversations: [ConversationSummary]
@@ -60,6 +61,7 @@ struct WorkspaceSnapshot: Codable, Equatable, Identifiable, Sendable {
     name: String,
     website: String? = nil,
     selectedApps: [String]? = nil,
+    runtime: String? = nil,
     imageURL: URL? = nil,
     onboardingComplete: Bool,
     conversations: [ConversationSummary],
@@ -70,6 +72,7 @@ struct WorkspaceSnapshot: Codable, Equatable, Identifiable, Sendable {
     self.name = name
     self.website = website
     self.selectedApps = selectedApps
+    self.runtime = runtime
     self.imageURL = imageURL
     self.onboardingComplete = onboardingComplete
     self.conversations = conversations
@@ -124,6 +127,12 @@ struct WorkspaceInviteClaim: Codable, Equatable, Sendable {
   let alreadyMember: Bool
 }
 
+struct OrganizationWorkspaceJoinResult: Codable, Equatable, Sendable {
+  let workspaceId: String
+  let workspaceName: String
+  let website: String
+}
+
 struct WorkspaceInviteLink: Equatable, Sendable {
   let relayURL: URL
   let workspaceID: String
@@ -173,16 +182,37 @@ struct WorkspaceInviteLink: Equatable, Sendable {
   }
 
   private static func valid(relayURL: URL, workspaceID: String, secret: String) -> Bool {
+    validRelayURL(relayURL) && workspaceID.hasPrefix("workspace-")
+      && (43...128).contains(secret.count)
+      && secret.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
+  }
+
+  static func validRelayURL(_ relayURL: URL) -> Bool {
     guard relayURL.user == nil, relayURL.password == nil, relayURL.fragment == nil else {
       return false
     }
     let scheme = relayURL.scheme?.lowercased()
-    guard scheme == "https" || (scheme == "http" && relayURL.host == "localhost") else {
-      return false
-    }
-    return workspaceID.hasPrefix("workspace-")
-      && (43...128).contains(secret.count)
-      && secret.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }
+    let local = relayURL.host == "localhost" || relayURL.host == "127.0.0.1"
+    return scheme == "https" || (scheme == "http" && local)
+  }
+}
+
+struct OrganizationInviteLink: Equatable, Sendable {
+  let relayURL: URL
+  let workspaceID: String
+
+  init?(url: URL) {
+    guard ["chief-mobile", "chief"].contains(url.scheme?.lowercased() ?? ""),
+      url.host?.lowercased() == "organization-invite",
+      let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+      let relay = components.queryItems?.first(where: { $0.name == "relay" })?.value,
+      let relayURL = URL(string: relay),
+      let workspaceID = components.queryItems?.first(where: { $0.name == "workspace" })?.value,
+      workspaceID.hasPrefix("workspace-"),
+      WorkspaceInviteLink.validRelayURL(relayURL)
+    else { return nil }
+    self.relayURL = relayURL
+    self.workspaceID = workspaceID
   }
 }
 
@@ -247,7 +277,9 @@ struct ChannelRecord: Codable, Equatable, Identifiable, Sendable {
     case id, workspaceId, name, isPrivate, archived, createdAt
   }
 
-  init(id: String, workspaceId: String, name: String, isPrivate: Bool, archived: Bool, createdAt: Date) {
+  init(
+    id: String, workspaceId: String, name: String, isPrivate: Bool, archived: Bool, createdAt: Date
+  ) {
     self.id = id
     self.workspaceId = workspaceId
     self.name = name
@@ -387,10 +419,28 @@ struct AgentSummary: Codable, Equatable, Identifiable, Sendable {
 
 struct ProjectSummary: Codable, Equatable, Identifiable, Sendable {
   let id: String
+  let organizationID: String
   let name: String
-  let repository: String
-  let branch: String
-  let changedFiles: Int
+  let description: String?
+  let repositoryKind: String
+  let providerID: String
+  let canonicalRemoteURL: String?
+  let repositoryWebURL: String?
+  let defaultBranch: String
+  let createdAt: String
+  let updatedAt: String
+
+  var repository: String { repositoryWebURL ?? canonicalRemoteURL ?? name }
+  var branch: String { defaultBranch }
+  var changedFiles: Int { 0 }
+
+  enum CodingKeys: String, CodingKey {
+    case id, name, description, repositoryKind, defaultBranch, createdAt, updatedAt
+    case organizationID = "organizationId"
+    case providerID = "providerId"
+    case canonicalRemoteURL = "canonicalRemoteUrl"
+    case repositoryWebURL = "repositoryWebUrl"
+  }
 }
 
 struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
@@ -419,6 +469,16 @@ struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
   var deleted: Bool
   let createdAt: Date
   let sequence: Int
+
+  /// Durable cell telemetry shares the conversation stream for ordering and
+  /// replay, but it is not an authored chat message and must never affect
+  /// previews, unread counts, haptics, or notifications.
+  var isAgentActivityProjection: Bool {
+    guard case .agent = author else { return false }
+    return body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && !components.isEmpty
+      && components.allSatisfy { ["agent.activity", "thinking", "tool", "error"].contains($0.kind) }
+  }
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -602,20 +662,49 @@ struct MessageComponent: Codable, Equatable, Identifiable, Sendable {
     self.payload = rawPayload.mapValues(Self.flatten)
   }
 
+  func encode(to encoder: Encoder) throws {
+    var values = encoder.container(keyedBy: CodingKeys.self)
+    try values.encode(id, forKey: .id)
+    try values.encode(kind, forKey: .kind)
+    try values.encode(version, forKey: .version)
+    var rawPayload = payload.mapValues(JSONValue.string)
+    if kind == "plugin.recommendation" {
+      for key in ["enabled", "trusted"] {
+        if let value = payload[key].flatMap(Bool.init) {
+          rawPayload[key] = .bool(value)
+        }
+      }
+    }
+    try values.encode(rawPayload, forKey: .payload)
+  }
+
   private static func flatten(_ value: JSONValue) -> String {
     switch value {
     case .string(let s): s
     case .number(let n): String(n)
     case .bool(let b): String(b)
+    case .array(let values):
+      "[\(values.map(flatten).joined(separator: ","))]"
+    case .object(let values):
+      flattenObject(values)
     case .null: ""
     }
   }
+
+  private static func flattenObject(_ values: [String: JSONValue]) -> String {
+    let members = values.keys.sorted().map { key in
+      "\(key):\(flatten(values[key] ?? .null))"
+    }
+    return "{\(members.joined(separator: ","))}"
+  }
 }
 
-enum JSONValue: Decodable, Sendable {
+enum JSONValue: Codable, Sendable {
   case string(String)
   case number(Double)
   case bool(Bool)
+  case array([JSONValue])
+  case object([String: JSONValue])
   case null
 
   init(from decoder: Decoder) throws {
@@ -626,6 +715,10 @@ enum JSONValue: Decodable, Sendable {
       self = .bool(value)
     } else if let value = try? container.decode(Double.self) {
       self = .number(value)
+    } else if let value = try? container.decode([JSONValue].self) {
+      self = .array(value)
+    } else if let value = try? container.decode([String: JSONValue].self) {
+      self = .object(value)
     } else {
       guard container.decodeNil() else {
         throw DecodingError.typeMismatch(
@@ -634,6 +727,18 @@ enum JSONValue: Decodable, Sendable {
         )
       }
       self = .null
+    }
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    switch self {
+    case .string(let value): try container.encode(value)
+    case .number(let value): try container.encode(value)
+    case .bool(let value): try container.encode(value)
+    case .array(let value): try container.encode(value)
+    case .object(let value): try container.encode(value)
+    case .null: try container.encodeNil()
     }
   }
 }
