@@ -1,3 +1,4 @@
+import Observation
 import SwiftUI
 import UIKit
 
@@ -10,7 +11,7 @@ struct WorkspaceIdentityAvatar: View {
   let imageURL: URL?
   let size: CGFloat
 
-  @State private var image: UIImage?
+  @State private var imageStore = WorkspaceIdentityImageStore.shared
 
   var body: some View {
     ZStack {
@@ -19,11 +20,10 @@ struct WorkspaceIdentityAvatar: View {
       Text(initial)
         .font(.system(size: size * 0.38, weight: .semibold))
         .foregroundStyle(ChiefTheme.accent)
-      if let image {
+      if let image = imageStore.image(for: identityKey) {
         Image(uiImage: image)
           .resizable()
           .scaledToFill()
-          .transition(.opacity)
       }
     }
     .frame(width: size, height: size)
@@ -32,11 +32,21 @@ struct WorkspaceIdentityAvatar: View {
       RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
         .stroke(ChiefTheme.line)
     }
-    .task(id: identityKey) { await loadBestImage() }
+    .task(id: identityKey) {
+      await imageStore.load(
+        identityKey: identityKey,
+        website: website,
+        imageURL: imageURL
+      )
+    }
     .accessibilityLabel(name)
   }
 
   private var identityKey: String {
+    Self.identityKey(name: name, website: website, imageURL: imageURL)
+  }
+
+  private static func identityKey(name: String, website: String?, imageURL: URL?) -> String {
     "\(name)|\(website ?? "")|\(imageURL?.absoluteString ?? "")"
   }
 
@@ -44,9 +54,22 @@ struct WorkspaceIdentityAvatar: View {
     String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased()
   }
 
-  @MainActor
-  private func loadBestImage() async {
-    image = nil
+}
+
+@MainActor
+@Observable
+private final class WorkspaceIdentityImageStore {
+  static let shared = WorkspaceIdentityImageStore()
+  private var images: [String: UIImage] = [:]
+  private var loading = Set<String>()
+
+  func image(for key: String) -> UIImage? {
+    images[key]
+  }
+
+  func load(identityKey: String, website: String?, imageURL: URL?) async {
+    guard images[identityKey] == nil, loading.insert(identityKey).inserted else { return }
+    defer { loading.remove(identityKey) }
     for candidate in WorkspaceFaviconSource.candidates(
       website: website,
       imageURL: imageURL
@@ -55,9 +78,7 @@ struct WorkspaceIdentityAvatar: View {
         let loaded = await BrandLogoImage.load(url: candidate.url),
         candidate.accepts(loaded)
       else { continue }
-      withAnimation(.easeOut(duration: 0.14)) {
-        image = loaded
-      }
+      images[identityKey] = loaded
       return
     }
   }

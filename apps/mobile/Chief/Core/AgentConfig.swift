@@ -6,7 +6,7 @@ struct AgentConfig: Codable, Equatable, Sendable {
   var enabled: Bool = true
   var driver: String = "openCodeGo"
   var model: String = OpenCodeModelCatalog.recommendedFreeModelID
-  var approvals: String = "auto" // auto | ask
+  var approvals: String = "auto"  // auto | ask
   var capabilities: Set<String> = []
   var integrations: Set<String> = []
   var toolPermissions: Set<String> = AgentConfig.baseToolPermissions
@@ -37,6 +37,7 @@ struct AgentConfig: Codable, Equatable, Sendable {
     AgentToolPermissionID.membersManage.rawValue,
     AgentToolPermissionID.messagesRead.rawValue,
     AgentToolPermissionID.messagesSend.rawValue,
+    AgentToolPermissionID.integrationsManage.rawValue,
   ]
 
   /// Least-privilege defaults for a newly provisioned cell. Internal durable
@@ -88,6 +89,10 @@ struct AgentConfig: Codable, Equatable, Sendable {
   /// permissions landed. New writes use only the exact dotted vocabulary.
   var effectiveToolPermissions: Set<String> {
     var result = toolPermissions
+    // Plugin recommendation is a baseline workspace capability. Existing
+    // workspaces created before that policy shipped are upgraded locally so
+    // every authored agent can render and complete a user-approved card.
+    result.insert(AgentToolPermissionID.integrationsManage.rawValue)
     let legacy: [String: Set<String>] = [
       "workspace": ["workspace.read", "workspace.write", "members.read"],
       "channels": [

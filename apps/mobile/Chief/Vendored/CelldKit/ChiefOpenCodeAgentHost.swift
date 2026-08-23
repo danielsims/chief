@@ -1,12 +1,13 @@
 import Foundation
 import os
 
-typealias AgentActivityCallback = @Sendable (
-  _ workspaceID: String,
-  _ conversationID: String,
-  _ agentID: String,
-  _ component: MessageComponent
-) async -> Void
+typealias AgentActivityCallback =
+  @Sendable (
+    _ workspaceID: String,
+    _ conversationID: String,
+    _ agentID: String,
+    _ component: MessageComponent
+  ) async -> Void
 
 /// Adapter that powers one agent turn in a cell: inference via OpenCode Go and
 /// a small phone-local toolset that posts to the workspace relay (the mobile
@@ -36,6 +37,7 @@ private actor ReasoningActivityEmitter {
   private let componentID = "reasoning-\(UUID().uuidString)"
   private var text = ""
   private var startedAt: ContinuousClock.Instant?
+  private var lastPublishedAt: ContinuousClock.Instant?
 
   init(
     workspaceID: String,
@@ -62,7 +64,11 @@ private actor ReasoningActivityEmitter {
       scope: "\(workspaceID):\(agentID):\(conversationID)"
     )
     await checkpoint.appendReasoning(id: componentID, delta: delta)
-    await publish(status: "running")
+    let now = ContinuousClock.now
+    if lastPublishedAt.map({ $0.duration(to: now) >= .milliseconds(160) }) ?? true {
+      lastPublishedAt = now
+      await publish(status: "working")
+    }
   }
 
   func finish() async -> ReasoningSegment? {
@@ -221,10 +227,12 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
       workspaceID: workspaceID,
       agentID: agentID
     ).ensure()
-    guard let config = try await relay.loadAgentConfig(
-      workspaceID: workspaceID,
-      agentID: agentID
-    ) else {
+    guard
+      let config = try await relay.loadAgentConfig(
+        workspaceID: workspaceID,
+        agentID: agentID
+      )
+    else {
       throw ToolError.permissionDenied("authoritative agent configuration")
     }
     AgentConfigStore().save(
@@ -259,10 +267,12 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
         content: """
           You are \(agent.name), a \(agent.role) in a workspace owned by a builder. You speak for yourself and act under your own identity; never pretend to be the owner or another agent. Sound like a relaxed, thoughtful teammate in chat. Use natural contractions such as I'm, we'll, you're, and don't whenever they fit. Use sentence case, not stiff announcement language, and never use em dashes. When an instruction requires a relay action, you MUST call the corresponding relay tools before writing the final reply. Instructions and prior assistant claims are never proof that an action happened; only a successful tool result is proof. Do not claim work has happened unless that result exists. Match the response to the task: keep casual chat concise, but do substantive work fully. When the available tools can inspect, research, or persist what the user asked for, use them proactively before replying instead of returning a plan or describing what you could do.
 
+          Use relay_reaction_add sparingly when a reaction is more natural than another acknowledgement. Never react to your own message and add at most one reaction to a user message.
+
           Canonical agent package instructions:
           \(packageInstructions)
 
-          iOS host binding map: browser_navigate/browser_snapshot/browser_click/browser_type/browser_scroll/browser_back/browser_release are the visible native browser. brand_profile_save fulfills both localTools.brandProfileSave and the editable brand-profile file write. prospects_list and prospects_save fulfill the corresponding local workspace data operations. The relay collaboration tools fulfill the channel and message operations. A package instruction never grants a tool: only the tools advertised for this turn are available.
+          iOS host binding map: browser_navigate/browser_snapshot/browser_click/browser_type/browser_scroll/browser_back/browser_release are the visible native browser. brand_profile_save fulfills both localTools.brandProfileSave and the editable brand-profile file write. prospects_list and prospects_save fulfill the corresponding local workspace data operations. The relay collaboration tools fulfill the channel and message operations. The canonical plugin tools are plugins_list, plugins_recommend, plugins_install, plugins_authorize, and plugins_uninstall. Every agent can discover, recommend, install, authorize, and use plugins after the user approves the connection card. When a user asks to see plugins, call plugins_list and then plugins_recommend so the chat receives real clickable cards instead of a prose-only list. Prefer an already connected plugin, then a catalog plugin and its native authorization flow, then another structured Executor-style connection. Use the browser only when no structured connection can perform the task or when a provider requires a visible human sign-in or credential step. Never start with browser research for a service represented by an available plugin. A package instruction never grants a tool: only the tools advertised for this turn are available.
 
           Browser research runs in your own isolated on-device WebKit session. Start with browser_navigate, inspect every loaded page with browser_snapshot, use only evidence actually present in snapshots, and finish browser work with browser_release. Every browser action requires an activityLabel: write a specific two-to-five-word present-tense label, no more than 48 characters, describing the visible purpose of that action. Never put secrets or typed values in it. Stay focused: for onboarding, inspect at most three useful pages and use at most ten browser action calls. Persist the requested workspace result before releasing the browser. Never invent a page, claim, person, company, quotation, or URL.
 
@@ -338,9 +348,15 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
         deniedRequiredTools.sorted().joined(separator: ", ")
       )
     }
-    let definitions = RelayToolRegistry.openAIDefinitions(
+    var definitions = RelayToolRegistry.openAIDefinitions(
       allowing: grant.toolNames
     )
+    if grant.permits(toolName: PluginsListTool.name) {
+      let pluginTools = await MobilePluginRuntime.shared.toolDefinitions(workspaceID: workspaceID)
+      definitions.append(
+        contentsOf: pluginTools.map { $0.openCodeDefinition() }
+      )
+    }
     let context = ToolContext(
       relay: relay,
       identity: identity,
@@ -376,6 +392,7 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
       let result = try await complete(
         convoy: convoy,
         tools: definitions,
+        workspaceID: workspaceID,
         model: config.model,
         timeout: timeout,
         onReasoning: { delta in await reasoning.append(delta) }
@@ -463,7 +480,8 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
       }
       if needsRequiredTool {
         convoy.append(OpenCodeRequest.Message(role: "assistant", content: content))
-        let missing = requiredTools
+        let missing =
+          requiredTools
           .subtracting(completedToolNames)
           .sorted()
           .joined(separator: ", ")
@@ -554,11 +572,22 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
           "browser_release must follow the required durable save"
         )
       }
-      let output = try await RelayToolRegistry.execute(
-        name: call.function.name,
-        arguments: call.function.arguments,
-        context: context
-      )
+      let output: String
+      if context.grant.permits(toolName: PluginsListTool.name),
+        let pluginOutput = try await MobilePluginRuntime.shared.execute(
+          name: call.function.name,
+          argumentsJSON: call.function.arguments,
+          workspaceID: context.workspaceID
+        )
+      {
+        output = pluginOutput
+      } else {
+        output = try await RelayToolRegistry.execute(
+          name: call.function.name,
+          arguments: call.function.arguments,
+          context: context
+        )
+      }
       result = output
       status = "completed"
       errorMessage = nil
@@ -605,6 +634,7 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
   private func complete(
     convoy: [OpenCodeRequest.Message],
     tools: [OpenCodeRequest.ToolDefinition],
+    workspaceID: String,
     model: String,
     timeout: Int,
     onReasoning: @escaping @Sendable (String) async -> Void
@@ -613,7 +643,8 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
       // A paired Mac is a disposable development inference transport only.
       // Agent configuration, identity, durable history, permissions, and tool
       // execution remain owned by this cell on the iPhone.
-      if DevCodexBridgeSettings.isConfigured,
+      if DevCodexBridgeSettings.isEnabled(for: workspaceID),
+        DevCodexBridgeSettings.isConfigured,
         let token = try credentials.load(.codexBridge),
         !token.isEmpty
       {
@@ -629,12 +660,14 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
           capabilityToken: token,
           onReasoning: onReasoning
         )
-        guard let response = HTTPURLResponse(
-          url: DevCodexBridgeSettings.endpoint!,
-          statusCode: 200,
-          httpVersion: "HTTP/1.1",
-          headerFields: nil
-        ) else { throw WorkspaceSetupError.inferenceFailed }
+        guard
+          let response = HTTPURLResponse(
+            url: DevCodexBridgeSettings.endpoint!,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: nil
+          )
+        else { throw WorkspaceSetupError.inferenceFailed }
         return OpenCodeStreamResult(
           response: response,
           content: completion.content,
@@ -683,7 +716,8 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
     } else {
       raw = String(describing: error)
     }
-    let singleLine = raw
+    let singleLine =
+      raw
       .replacingOccurrences(of: "\n", with: " ")
       .replacingOccurrences(of: "\r", with: " ")
     guard !singleLine.isEmpty else { return "" }
@@ -801,15 +835,16 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
       let data = messagesJSON.data(using: .utf8),
       let messages = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
     else { return [] }
-    return Set(messages.compactMap { message in
-      guard message["role"] as? String == "tool",
-        let content = message["content"] as? String,
-        let data = content.data(using: .utf8),
-        let tool = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-        tool["status"] as? String == "completed"
-      else { return nil }
-      return tool["name"] as? String
-    })
+    return Set(
+      messages.compactMap { message in
+        guard message["role"] as? String == "tool",
+          let content = message["content"] as? String,
+          let data = content.data(using: .utf8),
+          let tool = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          tool["status"] as? String == "completed"
+        else { return nil }
+        return tool["name"] as? String
+      })
   }
 
   private static func durableToolObservation(_ content: String) -> String? {

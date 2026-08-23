@@ -236,7 +236,7 @@ struct AgentActivityDetailView: View {
           )
         }
 
-        ForEach(durableMessages.reversed()) { message in
+        ForEach(durableMessages) { message in
           activityGroup(
             title: conversationName(message.conversationID),
             date: message.createdAt,

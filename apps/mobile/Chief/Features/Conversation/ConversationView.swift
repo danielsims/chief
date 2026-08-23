@@ -253,13 +253,8 @@ struct ConversationView: View {
           "[Chief] sent message to \(conversationID) mentions=\(mentions) "
             + "wake=\(shouldWakeAgent) attachments=\(pendingAttachments.count)"
         )
-        if shouldWakeAgent {
-          await model.runAgentTurn(
-            conversationID: conversationID,
-            threadRootID: nil,
-            mentions: mentions
-          )
-        }
+        // The relay queues exactly one idempotent job for the addressed cell.
+        // The on-device mailbox loop claims it over the live socket.
       } catch {
         draft = pendingText
         composerMentionIDs = pendingMentionIDs

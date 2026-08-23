@@ -95,7 +95,7 @@ struct NewChannelSheet: View {
   }
 }
 
-/// The direct message group, used on the DMs tab.
+/// The direct message group, displayed directly beneath Channels on Home.
 struct DMsGroup: View {
   @Environment(AppModel.self) private var model
   @Binding var path: [String]
@@ -169,21 +169,16 @@ struct DMsGroup: View {
     } label: {
       HStack(spacing: 9) {
         AgentMark(name: agent.name, size: 24, working: agent.status == .working)
-        VStack(alignment: .leading, spacing: 2) {
-          Text(agent.name)
-            .font(.system(size: 14, weight: .regular))
-            .foregroundStyle(ChiefTheme.secondary)
-          Text(agent.role)
-            .font(.system(size: 11))
-            .foregroundStyle(ChiefTheme.tertiary)
-            .lineLimit(1)
-        }
+        Text(agent.name)
+          .font(.system(size: 14, weight: .regular))
+          .foregroundStyle(ChiefTheme.secondary)
+          .lineLimit(1)
         Spacer(minLength: 8)
         if startingAgentID == agent.id {
           ProgressView().controlSize(.small).tint(.white)
         }
       }
-      .padding(.vertical, 5)
+      .frame(height: 38)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
@@ -279,87 +274,88 @@ private struct AgentRow: View {
 }
 
 private struct ConversationRow: View {
-    @Environment(AppModel.self) private var model
-    let conversation: ConversationSummary
-    @State private var showMembers = false
+  @Environment(AppModel.self) private var model
+  let conversation: ConversationSummary
+  @State private var showMembers = false
 
-    var body: some View {
-        NavigationLink(value: conversation.id) {
-            HStack(spacing: 9) {
-                if conversation.kind == .direct {
-                    AgentMark(name: conversation.name, size: 24)
-                } else {
-                    Image(systemName: conversation.isPrivate ? "lock" : "number")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(ChiefTheme.secondary)
-                        .frame(width: 24, height: 24)
-                }
-                HStack(spacing: 7) {
-                    Text(conversation.name)
-                        .font(.system(size: 14, weight: conversation.unreadCount > 0 ? .semibold : .regular))
-                        .foregroundStyle(
-                          conversation.unreadCount > 0 ? ChiefTheme.accent : ChiefTheme.secondary
-                        )
-                        .strikethrough(conversation.archived, color: ChiefTheme.secondary)
-                        .lineLimit(1)
-                    if conversation.requiresAttention {
-                        Circle()
-                          .fill(ChiefTheme.accent)
-                          .frame(width: 6, height: 6)
-                    }
-                }
-                Spacer(minLength: 8)
-                if conversation.unreadCount > 0 {
-                    Text(conversation.unreadCount > 99 ? "99+" : "\(conversation.unreadCount)")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(ChiefTheme.accent)
-                        .padding(.horizontal, 7)
-                        .frame(minWidth: 20, minHeight: 20)
-                        .background(Color.white.opacity(0.10), in: Capsule())
-                }
-            }
-            .contentShape(Rectangle())
-            .padding(.horizontal, 8)
-            .frame(height: 38)
+  var body: some View {
+    NavigationLink(value: conversation.id) {
+      HStack(spacing: 9) {
+        if conversation.kind == .direct {
+          AgentMark(name: conversation.name, size: 24)
+        } else {
+          Image(systemName: conversation.isPrivate ? "lock" : "number")
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(ChiefTheme.secondary)
+            .frame(width: 24, height: 24)
         }
-        .buttonStyle(.plain)
-        .simultaneousGesture(TapGesture().onEnded { Haptics.medium() })
-        .contextMenu {
-            if conversation.kind == .channel {
-                Button {
-                    Haptics.medium()
-                    Task { await model.channelMembers(conversationID: conversation.id) }
-                    showMembers = true
-                } label: {
-                    Label("View members", systemImage: "person.2")
-                }
-                Button {
-                    Haptics.medium()
-                    Task { await model.archiveConversation(conversation.id, archived: !conversation.archived) }
-                } label: {
-                    Label(
-                        conversation.archived ? "Unarchive channel" : "Archive channel",
-                        systemImage: conversation.archived ? "tray.and.arrow.up" : "archivebox"
-                    )
-                }
-                if !conversation.archived {
-                    Button(role: .destructive) {
-                        Haptics.heavy()
-                        Task { await model.leaveConversation(conversation.id) }
-                    } label: {
-                        Label("Leave channel", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                }
-            }
-        }
-        .sheet(isPresented: $showMembers) {
-            ChannelMembersSheet(
-                conversationID: conversation.id,
-                conversationName: conversation.name
+        HStack(spacing: 7) {
+          Text(conversation.name)
+            .font(.system(size: 14, weight: conversation.unreadCount > 0 ? .semibold : .regular))
+            .foregroundStyle(
+              conversation.unreadCount > 0 ? ChiefTheme.accent : ChiefTheme.secondary
             )
-            .environment(model)
+            .strikethrough(conversation.archived, color: ChiefTheme.secondary)
+            .lineLimit(1)
+          if conversation.requiresAttention {
+            Circle()
+              .fill(ChiefTheme.accent)
+              .frame(width: 6, height: 6)
+          }
         }
+        Spacer(minLength: 8)
+        if conversation.unreadCount > 0 {
+          Text(conversation.unreadCount > 99 ? "99+" : "\(conversation.unreadCount)")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(ChiefTheme.accent)
+            .padding(.horizontal, 7)
+            .frame(minWidth: 20, minHeight: 20)
+            .background(Color.white.opacity(0.10), in: Capsule())
+        }
+      }
+      .contentShape(Rectangle())
+      .frame(height: 38)
     }
+    .buttonStyle(.plain)
+    .simultaneousGesture(TapGesture().onEnded { Haptics.medium() })
+    .contextMenu {
+      if conversation.kind == .channel {
+        Button {
+          Haptics.medium()
+          Task { await model.channelMembers(conversationID: conversation.id) }
+          showMembers = true
+        } label: {
+          Label("View members", systemImage: "person.2")
+        }
+        Button {
+          Haptics.medium()
+          Task {
+            await model.archiveConversation(conversation.id, archived: !conversation.archived)
+          }
+        } label: {
+          Label(
+            conversation.archived ? "Unarchive channel" : "Archive channel",
+            systemImage: conversation.archived ? "tray.and.arrow.up" : "archivebox"
+          )
+        }
+        if !conversation.archived {
+          Button(role: .destructive) {
+            Haptics.heavy()
+            Task { await model.leaveConversation(conversation.id) }
+          } label: {
+            Label("Leave channel", systemImage: "rectangle.portrait.and.arrow.right")
+          }
+        }
+      }
+    }
+    .sheet(isPresented: $showMembers) {
+      ChannelMembersSheet(
+        conversationID: conversation.id,
+        conversationName: conversation.name
+      )
+      .environment(model)
+    }
+  }
 }
 
 /// A sheet listing a channel's members (users + agents).
@@ -387,12 +383,14 @@ struct ChannelMembersSheet: View {
               } else {
                 Circle().fill(ChiefTheme.elevated).frame(width: 32, height: 32)
                   .overlay {
-                    Text((member.name ?? "You").prefix(1)).font(.system(size: 13, weight: .semibold))
+                    Text((member.name ?? "You").prefix(1)).font(
+                      .system(size: 13, weight: .semibold))
                   }
               }
               VStack(alignment: .leading, spacing: 2) {
                 Text(member.name ?? member.principalId).font(.system(size: 15, weight: .medium))
-                Text(member.role.capitalized).font(.system(size: 12)).foregroundStyle(ChiefTheme.secondary)
+                Text(member.role.capitalized).font(.system(size: 12)).foregroundStyle(
+                  ChiefTheme.secondary)
               }
               Spacer()
             }

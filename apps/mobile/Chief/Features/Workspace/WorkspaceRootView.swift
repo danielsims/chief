@@ -1,9 +1,9 @@
+import SafariServices
 import SwiftUI
 
 struct WorkspaceRootView: View {
   @Environment(AppModel.self) private var model
   @State private var homePath: [String] = []
-  @State private var dmsPath: [String] = []
   @State private var agentsPath: [String] = []
 
   var body: some View {
@@ -14,8 +14,8 @@ struct WorkspaceRootView: View {
         switch model.selectedTab {
         case .home:
           NavigationStack(path: $homePath) { HomeView(path: $homePath) }
-        case .dms:
-          NavigationStack(path: $dmsPath) { DMsView(path: $dmsPath) }
+        case .plugins:
+          NavigationStack { PluginsView() }
         case .projects:
           NavigationStack { ProjectsRootView() }
         case .agents:
@@ -44,7 +44,7 @@ struct WorkspaceRootView: View {
   private var inConversationActive: Bool {
     switch model.selectedTab {
     case .home: return !homePath.isEmpty
-    case .dms: return !dmsPath.isEmpty
+    case .plugins: return false
     case .agents: return !agentsPath.isEmpty
     default: return false
     }
@@ -108,7 +108,7 @@ private struct ChiefTabBar: View {
   var body: some View {
     HStack(spacing: 4) {
       tab(.home, "Home", "house.fill", badge: unreadCount)
-      tab(.dms, "DMs", "bubble.left.and.bubble.right")
+      tab(.plugins, "Plugins", "puzzlepiece.extension.fill")
       tab(.projects, "Projects", "shippingbox")
       tab(.agents, "Agents", "person.2.fill")
     }
@@ -124,7 +124,7 @@ private struct ChiefTabBar: View {
   {
     Button {
       Haptics.selection()
-      withAnimation(.easeOut(duration: 0.16)) { selection = tab }
+      selection = tab
     } label: {
       VStack(spacing: 3) {
         ZStack(alignment: .topTrailing) {
@@ -289,19 +289,22 @@ struct UserProfileView: View {
       }
       Section {
         NavigationLink {
+          RelayConnectionSettingsView()
+        } label: {
+          profileRow("Connection", systemImage: "network")
+        }
+
+        NavigationLink {
           AppSettingsView()
         } label: {
-          Label("Settings", systemImage: "gearshape")
+          profileRow("Settings", systemImage: "gearshape")
         }
-        .simultaneousGesture(TapGesture().onEnded { Haptics.medium() })
 
-        Label("Connections", systemImage: "link")
         NavigationLink {
           NotificationSettingsView()
         } label: {
-          Label("Notifications", systemImage: "bell")
+          profileRow("Notifications", systemImage: "bell")
         }
-        .simultaneousGesture(TapGesture().onEnded { Haptics.medium() })
       }
       Section {
         Button("Sign out", role: .destructive) {
@@ -315,6 +318,15 @@ struct UserProfileView: View {
     .navigationTitle("Profile")
     .navigationBarTitleDisplayMode(.inline)
   }
+
+  private func profileRow(_ title: String, systemImage: String) -> some View {
+    HStack {
+      Label(title, systemImage: systemImage)
+      Spacer(minLength: 12)
+    }
+    .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+    .contentShape(Rectangle())
+  }
 }
 
 private struct AppSettingsView: View {
@@ -326,9 +338,13 @@ private struct AppSettingsView: View {
         NavigationLink {
           NotificationSettingsView()
         } label: {
-          Label("Notifications", systemImage: "bell")
+          HStack {
+            Label("Notifications", systemImage: "bell")
+            Spacer(minLength: 12)
+          }
+          .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+          .contentShape(Rectangle())
         }
-        .simultaneousGesture(TapGesture().onEnded { Haptics.medium() })
       }
 
       if let workspace = model.workspace {
@@ -402,6 +418,7 @@ struct HomeView: View {
             HomeAttentionRow(count: attentionCount)
           }
           ChannelGroup()
+          DMsGroup(path: $path)
         }
         .padding(.top, 16)
         .padding(.bottom, 12)
@@ -432,12 +449,210 @@ struct HomeView: View {
   }
 
   private var attentionCount: Int {
-    let conversations = model.workspace?.conversations.filter {
-      $0.requiresAttention && model.isConversationJoined($0.id)
-    }.count ?? 0
+    let conversations =
+      model.workspace?.conversations.filter {
+        $0.requiresAttention && model.isConversationJoined($0.id)
+      }.count ?? 0
     let agents = model.workspace?.agents.filter { $0.status == .needsYou }.count ?? 0
     return conversations + agents
   }
+}
+
+struct PluginsView: View {
+  @Environment(AppModel.self) private var model
+  @State private var plugins = PluginCatalogClient.shared.cached ?? PluginOption.preferred
+  @State private var search = ""
+  @State private var loading = false
+  @State private var installedPluginIDs: Set<String> = []
+  @State private var busyPluginID: String?
+  @State private var authorization = PluginAuthorizationPresenter()
+  @State private var connectionError: String?
+
+  var body: some View {
+    VStack(spacing: 0) {
+      WorkspaceHeader()
+      ScrollView {
+        LazyVStack(alignment: .leading, spacing: 14) {
+          VStack(alignment: .leading, spacing: 4) {
+            Text("Plugins")
+              .font(.system(size: 26, weight: .regular, design: .rounded))
+              .tracking(-0.6)
+            Text("Give your agents access to the tools you already use.")
+              .font(.system(size: 14))
+              .foregroundStyle(ChiefTheme.secondary)
+          }
+          .padding(.horizontal, ChiefTheme.pagePadding)
+
+          HStack(spacing: 9) {
+            Image(systemName: "magnifyingglass")
+              .foregroundStyle(ChiefTheme.tertiary)
+            TextField("Search plugins", text: $search)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
+          }
+          .padding(.horizontal, 13)
+          .frame(height: 44)
+          .background(ChiefTheme.surface, in: RoundedRectangle(cornerRadius: 13))
+          .overlay { RoundedRectangle(cornerRadius: 13).stroke(ChiefTheme.line) }
+          .padding(.horizontal, ChiefTheme.pagePadding)
+
+          if loading && plugins.isEmpty {
+            ProgressView()
+              .tint(.white)
+              .frame(maxWidth: .infinity)
+              .padding(.top, 36)
+          } else if filteredPlugins.isEmpty {
+            ContentUnavailableView.search(text: search)
+              .foregroundStyle(ChiefTheme.secondary)
+          } else {
+            LazyVStack(spacing: 0) {
+              ForEach(filteredPlugins) { plugin in
+                PluginCatalogRow(
+                  plugin: plugin,
+                  installed: installedPluginIDs.contains(plugin.id),
+                  busy: busyPluginID == plugin.id,
+                  onSelect: { install(plugin) }
+                )
+                if plugin.id != filteredPlugins.last?.id {
+                  Divider().overlay(ChiefTheme.line).padding(.leading, 58)
+                }
+              }
+            }
+            .padding(.horizontal, 13)
+            .background(ChiefTheme.surface, in: RoundedRectangle(cornerRadius: 15))
+            .overlay { RoundedRectangle(cornerRadius: 15).stroke(ChiefTheme.line) }
+            .padding(.horizontal, ChiefTheme.pagePadding)
+          }
+        }
+        .padding(.top, 16)
+        .padding(.bottom, 18)
+      }
+    }
+    .background(ChiefTheme.background)
+    .toolbar(.hidden, for: .navigationBar)
+    .task {
+      loading = true
+      async let catalog = PluginCatalogClient.shared.preferredPlugins()
+      async let installed = PluginCatalogClient.shared.installedPluginIDs(
+        workspaceID: model.workspace?.id ?? ""
+      )
+      plugins = await catalog
+      installedPluginIDs = await installed
+      loading = false
+    }
+    .sheet(
+      isPresented: Binding(
+        get: { authorization.authorizationURL != nil },
+        set: { if !$0 { authorization.cancel() } }
+      )
+    ) {
+      if let url = authorization.authorizationURL {
+        PluginBrowserView(url: url)
+          .ignoresSafeArea()
+      }
+    }
+    .alert(
+      "Couldn’t connect plugin",
+      isPresented: Binding(
+        get: { connectionError != nil },
+        set: { if !$0 { connectionError = nil } }
+      )
+    ) {
+      Button("OK", role: .cancel) { connectionError = nil }
+    } message: {
+      Text(connectionError ?? "Try again.")
+    }
+  }
+
+  private var filteredPlugins: [PluginOption] {
+    let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !query.isEmpty else { return plugins }
+    return plugins.filter {
+      $0.name.localizedCaseInsensitiveContains(query)
+        || $0.domain.localizedCaseInsensitiveContains(query)
+    }
+  }
+
+  private func install(_ plugin: PluginOption) {
+    guard let workspaceID = model.workspace?.id, busyPluginID == nil else { return }
+    Haptics.medium()
+    busyPluginID = plugin.id
+    Task {
+      do {
+        try await PluginCatalogClient.shared.install(
+          plugin,
+          workspaceID: workspaceID,
+          presenter: authorization
+        )
+        installedPluginIDs.insert(plugin.id)
+        busyPluginID = nil
+        Haptics.success()
+      } catch MobilePluginRuntimeError.browserDismissed {
+        busyPluginID = nil
+      } catch {
+        busyPluginID = nil
+        connectionError = error.localizedDescription
+        Haptics.error()
+      }
+    }
+  }
+}
+
+private struct PluginCatalogRow: View {
+  let plugin: PluginOption
+  let installed: Bool
+  let busy: Bool
+  let onSelect: () -> Void
+
+  var body: some View {
+    Button(action: onSelect) {
+      HStack(spacing: 12) {
+        BrandLogoView(domain: plugin.domain, iconURL: plugin.iconURL, size: 40)
+
+        VStack(alignment: .leading, spacing: 3) {
+          Text(plugin.name)
+            .font(.system(size: 15, weight: .medium))
+            .lineLimit(1)
+          Text(plugin.description)
+            .font(.system(size: 12))
+            .foregroundStyle(ChiefTheme.secondary)
+            .lineLimit(1)
+        }
+        Spacer(minLength: 8)
+        ZStack {
+          Text(installed ? "Added" : "Add")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(installed ? ChiefTheme.secondary : .primary)
+            .opacity(busy ? 0 : 1)
+          if busy {
+            ProgressView()
+              .controlSize(.small)
+              .tint(.white)
+          }
+        }
+        .padding(.horizontal, 12)
+        .frame(minWidth: 58, minHeight: 29, maxHeight: 29)
+        .background(ChiefTheme.elevated, in: Capsule())
+      }
+      .frame(minHeight: 62)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .disabled(busy)
+    .accessibilityLabel("\(installed ? "Open" : "Add") \(plugin.name)")
+  }
+}
+
+struct PluginBrowserView: UIViewControllerRepresentable {
+  let url: URL
+
+  func makeUIViewController(context: Context) -> SFSafariViewController {
+    let controller = SFSafariViewController(url: url)
+    controller.dismissButtonStyle = .done
+    return controller
+  }
+
+  func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
 }
 
 struct DMsView: View {
@@ -454,7 +669,7 @@ struct DMsView: View {
         WorkspaceHeader()
         ScrollView {
           LazyVStack(alignment: .leading, spacing: 14) {
-            Text("Direct messages")
+            Text("DMs")
               .font(.system(size: 26, weight: .regular, design: .rounded))
               .tracking(-0.6)
               .padding(.horizontal, ChiefTheme.pagePadding)

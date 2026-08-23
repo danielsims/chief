@@ -24,6 +24,18 @@ final class ConversationCacheTests: XCTestCase {
         )
     }
 
+    func testUpdateInsertsCursorCatchUpWhenAppendPrecedesFrontier() {
+        let cache = ConversationCache()
+        let completed = message(id: "activity", workspace: "workspace-a", sequence: 3)
+
+        cache.update(completed)
+
+        XCTAssertEqual(
+            cache.messages(workspaceID: "workspace-a", conversationID: "general"),
+            [completed]
+        )
+    }
+
     private func message(id: String, workspace: String, sequence: Int) -> ConversationMessage {
         ConversationMessage(
             id: id,

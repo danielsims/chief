@@ -238,6 +238,14 @@ private struct FailingRelay: RelayServing {
     components: [MessageComponent],
     signingIdentity: NostrIdentity
   ) async throws -> ConversationMessage { throw error }
+  func upsertAgentActivity(
+    workspaceID: String,
+    conversationID: String,
+    messageID: String,
+    threadRootID: String?,
+    component: MessageComponent,
+    signingIdentity: NostrIdentity
+  ) async throws -> ConversationMessage { throw error }
   func uploadAttachment(
     workspaceID: String,
     conversationID: String,
@@ -377,5 +385,13 @@ private struct UnusedAuthentication: MobileAuthenticationServing {
 
   func refreshAccountSession(_ session: ChiefSession) async throws -> ChiefSession {
     session
+  }
+
+  func inviteOrganizationMember(
+    email: String,
+    organizationID: String,
+    session: ChiefSession
+  ) async throws {
+    throw MobileAuthenticationError.network
   }
 }

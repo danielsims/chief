@@ -14,7 +14,7 @@ actor WorkspaceAgentLoop {
       _ conversationID: String,
       _ isWorking: Bool
     ) async -> Void
-  typealias CompletionCallback = @Sendable () async -> Void
+  typealias CompletionCallback = @Sendable (_ conversationID: String) async -> Void
 
   private let relay: any RelayServing
   private let workspaceID: String
@@ -138,10 +138,16 @@ actor WorkspaceAgentLoop {
           "Apply this attached skill: [chief-skill:\($0)]"
         },
       ].compactMap { $0 }.joined(separator: "\n")
+      let deliveryInstruction =
+        lease.job.kind == "conversation.message"
+        ? "Return exactly one final reply. Do not call relay_message_post for \(conversationID); Chief publishes your returned reply there."
+        : ""
       let turn = try await completeJobTurn(
         scope: scope,
         conversationID: conversationID,
-        instruction: context.isEmpty ? instruction : "\(context)\n\n\(instruction)",
+        instruction: [context, instruction, deliveryInstruction]
+          .filter { !$0.isEmpty }
+          .joined(separator: "\n\n"),
         jobKind: lease.job.kind,
         expectedThreadRootID: lease.job.payload.threadRootId
       )
@@ -153,11 +159,11 @@ actor WorkspaceAgentLoop {
           publishedMessage: AgentPublishedMessage(
             conversationId: conversationID,
             body: turn.reply,
-            components: turn.components
+            components: []
           )
         )
       )
-      await onCompletion()
+      await onCompletion(conversationID)
       agentLoopLog.info("completed \(lease.job.kind) for \(agentID)")
       recordLog(
         type: "info",
@@ -185,7 +191,7 @@ actor WorkspaceAgentLoop {
           error: error
         )
       )
-      await onCompletion()
+      await onCompletion(conversationID)
       agentLoopLog.error(
         "failed \(lease.job.kind) for \(agentID): \(error.localizedDescription)"
       )

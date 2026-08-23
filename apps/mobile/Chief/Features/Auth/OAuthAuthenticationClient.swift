@@ -22,6 +22,11 @@ protocol MobileAuthenticationServing: Sendable {
     request: MobileAuthorizationRequest
   ) async throws -> ChiefSession
   func refreshAccountSession(_ session: ChiefSession) async throws -> ChiefSession
+  func inviteOrganizationMember(
+    email: String,
+    organizationID: String,
+    session: ChiefSession
+  ) async throws
 }
 
 /// OAuth 2.1 Authorization Code + PKCE client for the native Chief app.
@@ -154,6 +159,38 @@ actor URLSessionOAuthAuthenticationClient: MobileAuthenticationServing {
     )
   }
 
+  func inviteOrganizationMember(
+    email: String,
+    organizationID: String,
+    session current: ChiefSession
+  ) async throws {
+    var request = URLRequest(url: endpoint(path: "organization/invite-member"))
+    request.httpMethod = "POST"
+    request.setValue("Bearer \(current.accessToken)", forHTTPHeaderField: "authorization")
+    request.setValue("application/json", forHTTPHeaderField: "accept")
+    request.setValue("application/json", forHTTPHeaderField: "content-type")
+    request.httpBody = try JSONEncoder().encode(
+      OrganizationMemberInvitationRequest(
+        email: email,
+        role: "member",
+        organizationId: organizationID,
+        resend: true
+      )
+    )
+
+    let (data, response) = try await session.data(for: request)
+    guard let http = response as? HTTPURLResponse else {
+      throw OrganizationInvitationError.network
+    }
+    guard (200..<300).contains(http.statusCode) else {
+      let envelope = try? decoder.decode(BetterAuthErrorEnvelope.self, from: data)
+      oauthAuthenticationLog.error(
+        "Organization invitation returned HTTP \(http.statusCode): \(envelope?.message ?? "unknown", privacy: .public)"
+      )
+      throw OrganizationInvitationError.rejected
+    }
+  }
+
   private func session(from token: OAuthToken, workspaceID: String?) async throws -> ChiefSession {
     guard token.tokenType.caseInsensitiveCompare("Bearer") == .orderedSame else {
       throw MobileAuthenticationError.invalidResponse
@@ -229,6 +266,29 @@ actor URLSessionOAuthAuthenticationClient: MobileAuthenticationServing {
     }
     return Data(bytes).base64URLEncodedString()
   }
+}
+
+enum OrganizationInvitationError: Error, LocalizedError {
+  case network
+  case rejected
+
+  var errorDescription: String? {
+    switch self {
+    case .network: "Chief couldn’t reach this workspace’s account service."
+    case .rejected: "Chief couldn’t send this invitation. Check the address and try again."
+    }
+  }
+}
+
+private struct OrganizationMemberInvitationRequest: Encodable {
+  let email: String
+  let role: String
+  let organizationId: String
+  let resend: Bool
+}
+
+private struct BetterAuthErrorEnvelope: Decodable {
+  let message: String?
 }
 
 enum MobileAuthenticationError: Error, Equatable, LocalizedError {

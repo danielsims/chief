@@ -8,11 +8,9 @@ struct AppConfiguration: Equatable {
   var authenticationAPIURL: URL { accountURL.appending(path: "api/auth") }
   var authenticationCallbackURL: URL { URL(string: "chief-mobile://auth")! }
 
-  static func current(environment: ProcessInfo = .processInfo) -> AppConfiguration {
+  static func chiefCloud(environment: ProcessInfo = .processInfo) -> AppConfiguration {
     let values = environment.environment
-    let demo =
-      values["CHIEF_DEMO_MODE"] == "1"
-      || environment.arguments.contains("--demo")
+    let demo = values["CHIEF_DEMO_MODE"] == "1" || environment.arguments.contains("--demo")
     return AppConfiguration(
       relayURL: URL(
         string: values["CHIEF_RELAY_URL"]
@@ -21,5 +19,21 @@ struct AppConfiguration: Equatable {
       accountURL: URL(string: values["CHIEF_ACCOUNT_URL"] ?? "https://heychief.sh")!,
       demoMode: demo
     )
+  }
+
+  static func current(
+    environment: ProcessInfo = .processInfo,
+    relayDirectory: RelayDirectoryStore = RelayDirectoryStore()
+  ) -> AppConfiguration {
+    let values = environment.environment
+    let cloud = chiefCloud(environment: environment)
+    if values["CHIEF_RELAY_URL"] == nil, let stored = relayDirectory.activeConnection() {
+      return AppConfiguration(
+        relayURL: stored.relayURL,
+        accountURL: stored.accountURL,
+        demoMode: cloud.demoMode
+      )
+    }
+    return cloud
   }
 }

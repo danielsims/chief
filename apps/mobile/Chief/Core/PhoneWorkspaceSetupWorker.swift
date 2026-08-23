@@ -73,7 +73,7 @@ actor PhoneWorkspaceSetupWorker {
           publishedMessage: AgentPublishedMessage(
             conversationId: "mission-control",
             body: Self.openingMessage,
-            components: kickoff.components
+            components: []
           )
         )
       )
@@ -150,6 +150,11 @@ actor PhoneWorkspaceSetupWorker {
     "Hey, welcome to Chief 👋 I'm getting the team together now. We'll have a look around, get to know your brand and market, and start figuring out where the good opportunities are hiding. You can hang out here and watch us work. I'll give you a shout if I need anything."
 
   private func kickoffInstruction(draft: OnboardingDraft, job: AgentJobLease.Job) -> String {
+    if let instruction = job.payload.instruction?.trimmingCharacters(
+      in: .whitespacesAndNewlines
+    ), !instruction.isEmpty {
+      return instruction
+    }
     let name = job.payload.name ?? draft.companyName
     let websiteValue = job.payload.website ?? draft.website
     let website = websiteValue.isEmpty ? "not supplied" : websiteValue

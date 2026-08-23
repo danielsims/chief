@@ -33,15 +33,19 @@ final class ConversationCache {
         )
     }
 
-    /// Replace an existing message in place (used for reaction updates). No-op
-    /// if the message isn't already cached.
+    /// Fold an edit/reaction event into the cache. Cursor catch-up can deliver
+    /// an update after its original append fell before the saved frontier, so
+    /// a missing row must be inserted rather than discarded.
     func update(_ message: ConversationMessage) {
         var current = messages(
             workspaceID: message.workspaceID,
             conversationID: message.conversationID
         )
-        guard let index = current.firstIndex(where: { $0.id == message.id }) else { return }
-        current[index] = message
+        if let index = current.firstIndex(where: { $0.id == message.id }) {
+            current[index] = message
+        } else {
+            current.append(message)
+        }
         replace(
             workspaceID: message.workspaceID,
             conversationID: message.conversationID,

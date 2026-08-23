@@ -214,11 +214,6 @@ struct ThreadView: View {
     let mentions = orderedUnique(
       composerMentionIDs + AgentMentionParser.mentions(in: draft)
     )
-    let shouldWakeAgent = model.shouldWakeAgent(
-      conversationID: conversationID,
-      mentions: mentions,
-      threadRootID: root.id
-    )
     draft = ""
     composerMentionIDs = []
     composerSkillIDs = []
@@ -243,13 +238,7 @@ struct ThreadView: View {
           components: components
         )
         model.conversations.merge(message)
-        if shouldWakeAgent {
-          await model.runAgentTurn(
-            conversationID: conversationID,
-            threadRootID: root.id,
-            mentions: mentions
-          )
-        }
+        // The relay queues the addressed cell once; the live mailbox owns it.
       } catch {
         draft = pendingText
         composerMentionIDs = pendingMentionIDs
