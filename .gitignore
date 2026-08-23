@@ -13,6 +13,7 @@ out/
 .cache/
 target/
 apps/mobile/.deriveddata/
+apps/mobile/.build/
 apps/relay/.wrangler/
 
 # tauri
