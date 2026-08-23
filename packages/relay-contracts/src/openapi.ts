@@ -21,6 +21,7 @@ import {
   jsonSchema,
   pathParameter,
 } from "./openapi-helpers";
+import { workspaceDataOpenApiPaths } from "./openapi-workspace-data-paths";
 import {
   claimWorkspaceInviteCommandSchema,
   createWorkspaceInviteCommandSchema,
@@ -48,6 +49,7 @@ export function createRelayOpenApiDocument(origin: string) {
     security: [{ nostrNip98: [] }],
     paths: {
       ...coreOpenApiPaths,
+      ...workspaceDataOpenApiPaths,
       "/v1/workspaces/{workspaceId}/invites": {
         post: {
           operationId: "createWorkspaceInvite",

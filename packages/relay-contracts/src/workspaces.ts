@@ -11,6 +11,7 @@ import {
   userPrincipalSchema,
   workspaceRoleSchema,
 } from "./identity";
+import { relayProjectSchema } from "./projects";
 
 export const claimWorkspaceCommandSchema = z
   .object({
@@ -55,6 +56,14 @@ export const workspaceListResultSchema = z
 
 export const workspaceSwitchResultSchema = z
   .object({ workspaceId: workspaceIdSchema, isActive: z.literal(true) })
+  .strict();
+
+export const organizationWorkspaceJoinResultSchema = z
+  .object({
+    workspaceId: workspaceIdSchema,
+    workspaceName: z.string().trim().min(1).max(120),
+    website: z.string().trim().max(2_048).default(""),
+  })
   .strict();
 
 export const workspaceMemberKindSchema = z.enum(["user", "agent", "service"]);
@@ -165,19 +174,12 @@ export const workspaceSnapshotSchema = z
       .array(z.string().trim().min(1).max(128))
       .max(100)
       .default([]),
+    runtime: z.enum(["phone", "mac", "cloud"]).nullable().default(null),
     imageURL: z.url().nullable(),
     onboardingComplete: z.boolean(),
     conversations: z.array(conversationSummarySchema),
     agents: z.array(agentSummarySchema),
-    projects: z.array(
-      z.object({
-        id: z.string().min(1).max(128),
-        name: z.string().min(1).max(120),
-        repository: z.string().max(2_048),
-        branch: z.string().max(512),
-        changedFiles: z.int().nonnegative(),
-      }),
-    ),
+    projects: z.array(relayProjectSchema),
     createdAt: isoDateTimeSchema,
   })
   .strict();
@@ -192,6 +194,9 @@ export type SwitchWorkspaceCommand = z.infer<
   typeof switchWorkspaceCommandSchema
 >;
 export type WorkspaceSummary = z.infer<typeof workspaceSummarySchema>;
+export type OrganizationWorkspaceJoinResult = z.infer<
+  typeof organizationWorkspaceJoinResultSchema
+>;
 export type WorkspaceMember = z.infer<typeof workspaceMemberSchema>;
 export type CreateWorkspaceInviteCommand = z.infer<
   typeof createWorkspaceInviteCommandSchema
