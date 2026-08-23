@@ -1,6 +1,10 @@
 import SafariServices
 import SwiftUI
 
+private enum WorkspaceChrome {
+  static let tabBarClearance: CGFloat = 72
+}
+
 struct WorkspaceRootView: View {
   @Environment(AppModel.self) private var model
   @State private var homePath: [String] = []
@@ -22,7 +26,7 @@ struct WorkspaceRootView: View {
           NavigationStack(path: $agentsPath) { AgentsView() }
         }
       }
-      .safeAreaPadding(.bottom, inConversation ? 0 : 72)
+      .safeAreaPadding(.bottom, inConversation ? 0 : WorkspaceChrome.tabBarClearance)
 
       if !inConversation {
         ChiefTabBar(selection: $model.selectedTab, unreadCount: totalUnread)
@@ -421,7 +425,7 @@ struct HomeView: View {
           DMsGroup(path: $path)
         }
         .padding(.top, 16)
-        .padding(.bottom, 12)
+        .padding(.bottom, WorkspaceChrome.tabBarClearance + 12)
       }
     }
     .background(ChiefTheme.background)
@@ -525,7 +529,7 @@ struct PluginsView: View {
           }
         }
         .padding(.top, 16)
-        .padding(.bottom, 18)
+        .padding(.bottom, WorkspaceChrome.tabBarClearance + 18)
       }
     }
     .background(ChiefTheme.background)
