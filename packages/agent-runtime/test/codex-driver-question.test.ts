@@ -2,172 +2,152 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { AgentEvent } from "../src/types.js";
-import { CodexDriver } from "../src/drivers/codex.js";
+import { CodexDriver, prepareCodexEnvironment } from "../src/drivers/codex.js";
 
-void test("Codex request_user_input uses Chief's structured question UI", () => {
+interface CodexAcpInternals {
+  access: "full" | "guarded";
+  handle(message: Record<string, unknown>): void;
+  respond(id: number | string, result: unknown): void;
+  restartIfNeeded(): Promise<void>;
+  rpc(method: string, params: Record<string, unknown>): Promise<unknown>;
+  sessionId?: string;
+}
+
+function internals(driver: CodexDriver) {
+  return driver as unknown as CodexAcpInternals;
+}
+
+void test("Codex ACP uses Chief's packaged compatible binary", () => {
+  const environment: NodeJS.ProcessEnv = {
+    CHIEF_CODEX_BINARY: process.execPath,
+  };
+  prepareCodexEnvironment(
+    { cwd: process.cwd(), instructions: "Test", access: "guarded" },
+    environment,
+  );
+  assert.equal(environment.CODEX_PATH, process.execPath);
+});
+
+void test("Codex ACP keeps thinking and tool calls in sequential activity", () => {
+  const driver = new CodexDriver();
+  const events: AgentEvent[] = [];
+  driver.on("event", (event: AgentEvent) => events.push(event));
+  const acp = internals(driver);
+
+  acp.handle({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "agent_thought_chunk",
+        content: { text: "Checking the workspace." },
+      },
+    },
+  });
+  acp.handle({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-1",
+        title: "relay_channels_list",
+        input: {},
+      },
+    },
+  });
+  acp.handle({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "tool_call_end",
+        toolCallId: "tool-1",
+        title: "relay_channels_list",
+        status: "completed",
+        result: '{"channels":[]}',
+      },
+    },
+  });
+
+  assert.deepEqual(events[0], {
+    type: "thinkingStream",
+    text: "Checking the workspace.",
+  });
+  assert.deepEqual(events[1], {
+    type: "message",
+    role: "assistant",
+    content: [
+      { type: "thinking", thinking: "Checking the workspace." },
+      {
+        type: "tool_use",
+        id: "tool-1",
+        name: "relay_channels_list",
+        input: {},
+      },
+    ],
+  });
+  assert.deepEqual(events[2], {
+    type: "message",
+    role: "user",
+    content: [
+      {
+        type: "tool_result",
+        tool_use_id: "tool-1",
+        content: '{"channels":[]}',
+        is_error: false,
+      },
+    ],
+  });
+});
+
+void test("Codex ACP routes guarded tool approval through Chief", () => {
   const driver = new CodexDriver();
   const events: AgentEvent[] = [];
   const responses: unknown[] = [];
   driver.on("event", (event: AgentEvent) => events.push(event));
+  const acp = internals(driver);
+  acp.access = "guarded";
+  acp.respond = (id, result) => responses.push({ id, result });
 
-  const internals = driver as unknown as {
-    handleMessage(message: unknown): void;
-    write(message: unknown): void;
-  };
-  internals.write = (message) => responses.push(message);
-  internals.handleMessage({
-    id: 41,
-    method: "item/tool/requestUserInput",
+  acp.handle({
+    id: 7,
+    method: "session/request_permission",
     params: {
-      questions: [
-        {
-          id: "project",
-          header: "Cloud project",
-          question: "Which project should own this connection?",
-          isOther: true,
-          isSecret: false,
-          options: [
-            { label: "program-video", description: "Program Video" },
-            { label: "Create new", description: "Create a project" },
-          ],
-        },
+      toolCall: { name: "relay_channels_list", input: {} },
+      options: [
+        { optionId: "allow-once", kind: "allow_once" },
+        { optionId: "reject-once", kind: "reject_once" },
       ],
     },
   });
-
-  assert.deepEqual(
-    events.find((event) => event.type === "question"),
-    {
-      type: "question",
-      requestId: "codex-input-41",
-      questions: [
-        {
-          question: "Which project should own this connection?",
-          header: "Cloud project",
-          multiSelect: false,
-          allowFreeform: true,
-          dismissible: false,
-          options: [
-            { label: "program-video", description: "Program Video" },
-            { label: "Create new", description: "Create a project" },
-          ],
-        },
-      ],
-    },
-  );
-
-  driver.respondQuestion("codex-input-41", {
-    "Which project should own this connection?": "program-video",
-  });
+  const permission = events.find((event) => event.type === "permission");
+  assert.equal(permission?.type, "permission");
+  assert.equal(permission.toolName, "relay_channels_list");
+  driver.respondPermission(permission.requestId, "allow");
   assert.deepEqual(responses, [
     {
-      jsonrpc: "2.0",
-      id: 41,
+      id: 7,
       result: {
-        answers: { project: { answers: ["program-video"] } },
+        outcome: { outcome: "selected", optionId: "allow-once" },
       },
     },
   ]);
 });
 
-void test("Codex identifies plugin suggestions in approval events", () => {
+void test("Codex ACP prompts and completes through one stable session", async () => {
   const driver = new CodexDriver();
   const events: AgentEvent[] = [];
   driver.on("event", (event: AgentEvent) => events.push(event));
-
-  const internals = driver as unknown as {
-    handleMessage(message: unknown): void;
-    write(message: unknown): void;
+  const acp = internals(driver);
+  acp.sessionId = "session-1";
+  acp.restartIfNeeded = () => Promise.resolve();
+  acp.rpc = (method, params) => {
+    assert.equal(method, "session/prompt");
+    assert.deepEqual(params, {
+      sessionId: "session-1",
+      prompt: [{ type: "text", text: "Start onboarding" }],
+    });
+    return Promise.resolve({ stopReason: "end_turn" });
   };
-  internals.write = () => undefined;
-  internals.handleMessage({
-    id: 7,
-    method: "mcpServer/elicitation/request",
-    params: {
-      _meta: {
-        codex_approval_kind: "tool_suggestion",
-        tool_name: "GitHub",
-        suggest_reason: "Use GitHub to inspect commits.",
-      },
-      message: "Use GitHub to inspect commits.",
-    },
-  });
 
-  const permission = events.find((event) => event.type === "permission");
-  assert.equal(permission?.type, "permission");
-  assert.equal(permission.toolName, "GitHub");
-});
-
-void test("Codex prompt stays active until the turn completes", async () => {
-  const driver = new CodexDriver();
-  const events: AgentEvent[] = [];
-  driver.on("event", (event: AgentEvent) => events.push(event));
-
-  const internals = driver as unknown as {
-    handleMessage(message: unknown): void;
-    rpc(method: string, params: unknown): Promise<unknown>;
-  };
-  internals.rpc = () => Promise.resolve({ turn: { id: "turn-1" } });
-
-  let settled = false;
-  const pending = driver.sendPromptOnce("Start onboarding").finally(() => {
-    settled = true;
-  });
-  await Promise.resolve();
-  assert.equal(settled, false);
-
-  internals.handleMessage({
-    method: "turn/completed",
-    params: { turn: { id: "turn-1", status: "completed" } },
-  });
-  await pending;
-
-  assert.equal(settled, true);
+  await driver.sendPromptOnce("Start onboarding");
   assert.ok(events.some((event) => event.type === "result" && event.ok));
-});
-
-void test("Codex turn failure rejects without publishing a terminal result", async () => {
-  const driver = new CodexDriver();
-  const events: AgentEvent[] = [];
-  driver.on("event", (event: AgentEvent) => events.push(event));
-
-  const internals = driver as unknown as {
-    handleMessage(message: unknown): void;
-    rpc(method: string, params: unknown): Promise<unknown>;
-  };
-  internals.rpc = () => Promise.resolve({ turn: { id: "turn-2" } });
-
-  const pending = driver.sendPromptOnce("Start onboarding");
-  await Promise.resolve();
-  internals.handleMessage({
-    method: "turn/failed",
-    params: { error: { message: "Codex is temporarily overloaded" } },
-  });
-
-  await assert.rejects(pending, /temporarily overloaded/);
-  assert.equal(
-    events.some((event) => event.type === "result"),
-    false,
-  );
-});
-
-void test("stopping Codex cancels an active prompt without restarting", async () => {
-  const driver = new CodexDriver();
-  let restarts = 0;
-  const internals = driver as unknown as {
-    rpc(method: string, params: unknown): Promise<unknown>;
-    restart(): Promise<void>;
-  };
-  internals.rpc = () => Promise.resolve({ turn: { id: "turn-3" } });
-  internals.restart = () => {
-    restarts += 1;
-    return Promise.resolve();
-  };
-
-  const pending = driver.sendPrompt("Start onboarding");
-  await Promise.resolve();
-  await driver.stop();
-  await pending;
-
-  assert.equal(restarts, 0);
 });

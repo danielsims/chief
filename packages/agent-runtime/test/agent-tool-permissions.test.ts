@@ -29,11 +29,11 @@ void test("Chief and Setup start with the complete local tool surface", () => {
   );
 });
 
-void test("specialists do not inherit connection or delegation authority", () => {
+void test("specialists inherit plugin connection but not delegation authority", () => {
   const permissions = defaultAgentToolPermissions("engineer");
   assert.equal(permissions.includes("channels.create"), true);
   assert.equal(permissions.includes("members.manage"), true);
-  assert.equal(permissions.includes("integrations.manage"), false);
+  assert.equal(permissions.includes("integrations.manage"), true);
   assert.equal(permissions.includes("agents.delegate"), false);
 });
 
