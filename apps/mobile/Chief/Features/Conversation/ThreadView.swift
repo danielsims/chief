@@ -119,7 +119,7 @@ struct ThreadView: View {
   private var transcript: some View {
     ScrollViewReader { proxy in
       ScrollView {
-        LazyVStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 20) {
           ConversationMessageRow(
             message: root,
             showsThreadSummary: false,
@@ -154,7 +154,6 @@ struct ThreadView: View {
             .frame(height: 1)
             .id(latestAnchorID)
         }
-        .animation(.easeOut(duration: 0.3), value: replies.map(\.id))
         .padding(ChiefTheme.pagePadding)
       }
       .defaultScrollAnchor(.bottom)
@@ -242,7 +241,15 @@ struct ThreadView: View {
         rootMessageID: root.id,
         after: nil
       )
-      remote.forEach(model.conversations.merge)
+      let cached = model.conversations.messages(
+        workspaceID: workspaceID,
+        conversationID: conversationID
+      )
+      model.conversations.replace(
+        workspaceID: workspaceID,
+        conversationID: conversationID,
+        messages: cached + remote
+      )
     } catch {
       print("[Chief] thread replies \(root.id) failed: \(error)")
     }
