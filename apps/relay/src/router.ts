@@ -1,19 +1,26 @@
 import {
   conversationIdSchema,
   createWorkspaceCommandSchema,
-  relayDiscoverySchema,
+  userIdSchema,
   workspaceIdSchema,
 } from "@chief/relay-contracts";
 import { createRelayOpenApiDocument } from "@chief/relay-contracts/openapi";
 
+import {
+  deleteImageAsset,
+  getPublicImageAsset,
+  uploadImageAsset,
+} from "./attachments";
 import { AuthenticationError, AuthorizationError } from "./auth";
 import { isRelayAuthRequest, routeRelayAuth } from "./auth/routes";
+import { dispatchAppendedMessage } from "./conversation-agent-dispatch";
 import { bindDeviceIdentity } from "./device-identities";
 import { relayDocsHtml } from "./docs";
 import { HttpError, json, relayError } from "./http";
 import { withTrustedContext } from "./internal-context";
 import { connectLiveSocket } from "./live-socket-router";
 import { relayCapacityResponse } from "./relay-capacity";
+import { publicOrigin, relayDiscovery } from "./relay-discovery";
 import {
   enforceEdgeRequestLimit,
   enforcePublicIdentityRequestLimit,
@@ -21,6 +28,7 @@ import {
 import { routeAgentRequest } from "./router-agent-routes";
 import { authenticateRelayRequest, requireAccountBinding } from "./router-auth";
 import { routeChannelRequest } from "./router-channel-routes";
+import { routeWorkspaceDataRequest } from "./router-workspace-data";
 import {
   activeManagedWorkspace,
   authorizeConversation,
@@ -30,6 +38,7 @@ import {
   createManagedWorkspace,
   createWorkspaceInvite,
   deleteManagedWorkspace,
+  joinOrganizationWorkspace,
   listManagedWorkspaces,
   previewWorkspaceInvite,
   routeWorkspaceLogs,
@@ -44,10 +53,6 @@ const socketTicketRoute =
   /^\/v1\/workspaces\/([^/]+)\/conversations\/([^/]+)\/socket-tickets$/u;
 const claimWorkspaceRoute = /^\/v1\/workspaces\/([^/]+)\/bootstrap\/claim$/u;
 const workspaceLogsRoute = /^\/v1\/workspaces\/([^/]+)\/logs$/u;
-const workspaceBrandProfileRoute =
-  /^\/v1\/workspaces\/([^/]+)\/data\/brand-profile$/u;
-const workspaceProspectsRoute = /^\/v1\/workspaces\/([^/]+)\/data\/prospects$/u;
-const workspaceFilesRoute = /^\/v1\/workspaces\/([^/]+)\/files$/u;
 const switchWorkspaceRoute = /^\/v1\/workspaces\/([^/]+)\/switch$/u;
 const workspaceSocketTicketRoute =
   /^\/v1\/workspaces\/([^/]+)\/socket-tickets$/u;
@@ -57,6 +62,10 @@ const workspaceInvitePreviewRoute =
   /^\/v1\/workspaces\/([^/]+)\/invites\/preview$/u;
 const workspaceInviteClaimRoute =
   /^\/v1\/workspaces\/([^/]+)\/invites\/claim$/u;
+const orgJoinRoute = /^\/v1\/workspaces\/([^/]+)\/organization-membership$/u;
+const workspaceLogoRoute = /^\/v1\/workspaces\/([^/]+)\/logo$/u;
+const publicProfileImageRoute = /^\/v1\/assets\/profiles\/([^/]+)$/u;
+const publicWorkspaceImageRoute = /^\/v1\/assets\/workspaces\/([^/]+)$/u;
 
 export async function routeRelayRequest(
   request: Request,
@@ -68,12 +77,12 @@ export async function routeRelayRequest(
     await enforceEdgeRequestLimit(env, request);
     await enforcePublicIdentityRequestLimit(env, request);
     const url = new URL(request.url);
-    if (isRelayAuthRequest(url)) return await routeRelayAuth(request, env);
+    if (isRelayAuthRequest(url))
+      return await routeRelayAuth(request, env, context);
     const publicResponse = routePublicRequest(request, url, env);
     if (publicResponse) return publicResponse;
     if (url.pathname === "/v1/identity/device" && request.method === "POST") {
-      // Await inside the router boundary so malformed credentials become the
-      // relay's stable JSON error envelope rather than an uncaught Worker 1101.
+      // Await so malformed credentials use the stable relay error envelope.
       return await bindDeviceIdentity(env, request);
     }
 
@@ -81,6 +90,7 @@ export async function routeRelayRequest(
       env,
       request,
       requestId,
+      context,
     );
     if (workspaceResponse) return workspaceResponse;
     const agentResponse = await routeAgentRequest(env, request, requestId);
@@ -129,11 +139,25 @@ export async function routeRelayRequest(
 
 function routePublicRequest(request: Request, url: URL, env: Env) {
   if (request.method !== "GET") return undefined;
+  const profileImage = publicProfileImageRoute.exec(url.pathname);
+  if (profileImage) {
+    return getPublicImageAsset(
+      env,
+      `profiles/${userIdSchema.parse(decodeURIComponent(profileImage[1] ?? ""))}`,
+    );
+  }
+  const workspaceImage = publicWorkspaceImageRoute.exec(url.pathname);
+  if (workspaceImage) {
+    return getPublicImageAsset(
+      env,
+      `workspaces/${parseWorkspaceId(workspaceImage[1])}`,
+    );
+  }
   if (url.pathname === "/health") {
     return json({ ok: true, protocolVersion: 1 });
   }
   if (url.pathname === "/.well-known/chief-relay") {
-    return json(discovery(request, url, env));
+    return json(relayDiscovery(request, url, env));
   }
   if (url.pathname === "/v1/openapi.json") {
     return json(createRelayOpenApiDocument(publicOrigin(request, url, env)));
@@ -187,8 +211,29 @@ async function routeWorkspaceRequest(
   env: Env,
   request: Request,
   requestId: string,
+  context: ExecutionContext,
 ) {
   const url = new URL(request.url);
+  if (
+    url.pathname === "/v1/me/avatar" &&
+    (request.method === "POST" || request.method === "DELETE")
+  ) {
+    const authenticated = await authenticateRelayRequest(request, env);
+    requireAccountBinding(env, authenticated.bound);
+    if (authenticated.identity.kind !== "user") {
+      throw new AuthorizationError("A user identity is required.");
+    }
+    const key = `profiles/${authenticated.identity.userId}`;
+    return request.method === "DELETE"
+      ? deleteImageAsset(env, key)
+      : uploadImageAsset(
+          env,
+          authenticated.request,
+          publicOrigin(request, url, env),
+          key,
+          `/v1/assets/profiles/${encodeURIComponent(authenticated.identity.userId)}`,
+        );
+  }
   const invitePreview = workspaceInvitePreviewRoute.exec(url.pathname);
   if (invitePreview && request.method === "POST") {
     return previewWorkspaceInvite(
@@ -212,7 +257,7 @@ async function routeWorkspaceRequest(
   if (url.pathname === "/v1/me/workspace" && request.method === "GET") {
     const authenticated = await authenticateRelayRequest(request, env);
     requireAccountBinding(env, authenticated.bound);
-    return activeManagedWorkspace(env, authenticated.identity);
+    return activeManagedWorkspace(env, authenticated.identity, context);
   }
   const deletion = deleteWorkspaceRoute.exec(url.pathname);
   if (deletion && request.method === "DELETE") {
@@ -236,6 +281,49 @@ async function routeWorkspaceRequest(
       requestId,
       workspaceId,
     });
+  }
+  const organizationJoin = orgJoinRoute.exec(url.pathname);
+  if (organizationJoin && request.method === "POST") {
+    const workspaceId = parseWorkspaceId(organizationJoin[1]);
+    const authenticated = await authenticateRelayRequest(request, env);
+    requireAccountBinding(env, authenticated.bound);
+    return joinOrganizationWorkspace(env, {
+      identity: authenticated.identity,
+      requestId,
+      workspaceId,
+    });
+  }
+  const workspaceLogo = workspaceLogoRoute.exec(url.pathname);
+  if (
+    workspaceLogo &&
+    (request.method === "POST" || request.method === "DELETE")
+  ) {
+    const workspaceId = parseWorkspaceId(workspaceLogo[1]);
+    const authenticated = await authenticateRelayRequest(request, env);
+    requireAccountBinding(env, authenticated.bound);
+    const principal = await authorizeWorkspace(env, {
+      identity: authenticated.identity,
+      requestId,
+      workspaceId,
+    });
+    if (
+      principal.kind !== "user" ||
+      (principal.role !== "owner" && principal.role !== "admin")
+    ) {
+      throw new AuthorizationError(
+        "Only workspace owners and admins can change its image.",
+      );
+    }
+    const key = `workspaces/${workspaceId}`;
+    return request.method === "DELETE"
+      ? deleteImageAsset(env, key)
+      : uploadImageAsset(
+          env,
+          authenticated.request,
+          publicOrigin(request, url, env),
+          key,
+          `/v1/assets/workspaces/${encodeURIComponent(workspaceId)}`,
+        );
   }
   const inviteCreate = workspaceInviteRoute.exec(url.pathname);
   if (inviteCreate && request.method === "POST") {
@@ -315,54 +403,6 @@ async function routeWorkspaceRequest(
   return routeWorkspaceDataRequest(env, request, requestId, url);
 }
 
-async function routeWorkspaceDataRequest(
-  env: Env,
-  request: Request,
-  requestId: string,
-  url: URL,
-): Promise<Response | undefined> {
-  const brand = workspaceBrandProfileRoute.exec(url.pathname);
-  const prospects = workspaceProspectsRoute.exec(url.pathname);
-  const files = workspaceFilesRoute.exec(url.pathname);
-  let rawWorkspaceId: string | undefined;
-  let operation: string | undefined;
-  if (brand && ["GET", "PUT"].includes(request.method)) {
-    rawWorkspaceId = brand[1];
-    operation = request.method === "GET" ? "data-brand-get" : "data-brand-save";
-  } else if (prospects && ["GET", "POST"].includes(request.method)) {
-    rawWorkspaceId = prospects[1];
-    operation =
-      request.method === "GET" ? "data-prospects-list" : "data-prospect-save";
-  } else if (files && request.method === "GET") {
-    rawWorkspaceId = files[1];
-    operation = "data-files-list";
-  }
-  if (!operation) return undefined;
-  const workspaceId = parseWorkspaceId(rawWorkspaceId);
-  const authenticated = await authenticateRelayRequest(request, env);
-  const principal = await authorizeWorkspace(env, {
-    identity: authenticated.identity,
-    requestId,
-    workspaceId,
-  });
-  const body =
-    request.method === "GET" ? undefined : await authenticated.request.text();
-  const workspace = env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId));
-  return workspace.fetch(
-    withTrustedContext(
-      new Request("https://workspace.internal", {
-        method: "POST",
-        headers: {
-          "x-chief-internal-operation": operation,
-          ...(body ? { "content-type": "application/json" } : {}),
-        },
-        body,
-      }),
-      { principal, requestId, workspaceId },
-    ),
-  );
-}
-
 async function routeConversationRequest(
   env: Env,
   request: Request,
@@ -412,7 +452,11 @@ async function routeConversationRequest(
     conversationId,
     permission: conversationPermission(authenticated.request),
   });
-  return conversationStub(env, workspaceId, conversationId).fetch(
+  const response = await conversationStub(
+    env,
+    workspaceId,
+    conversationId,
+  ).fetch(
     withTrustedContext(authenticated.request, {
       principal,
       requestId,
@@ -420,6 +464,14 @@ async function routeConversationRequest(
       conversationId,
     }),
   );
+  return dispatchAppendedMessage(env, {
+    request: authenticated.request,
+    response,
+    principal,
+    requestId,
+    workspaceId,
+    conversationId,
+  });
 }
 
 function conversationPermission(
@@ -427,6 +479,7 @@ function conversationPermission(
 ): "messages.read" | "messages.send" | "messages.manage" {
   if (request.method === "GET") return "messages.read";
   const path = new URL(request.url).pathname;
+  if (path.endsWith("/activity")) return "messages.send";
   if (path.endsWith("/edit") || request.method === "DELETE") {
     return "messages.manage";
   }
@@ -443,45 +496,6 @@ function conversationStub(
   );
 }
 
-function discovery(request: Request, url: URL, env: Env) {
-  const origin = publicOrigin(request, url, env);
-  return relayDiscoverySchema.parse({
-    protocol: "chief-relay",
-    protocolVersion: 1,
-    deployment: env.RELAY_DEPLOYMENT,
-    apiBaseUrl: `${origin}/v1`,
-    websocketUrl: `${origin.replace(/^http/u, "ws")}/v1/connect`,
-    openApiUrl: `${origin}/v1/openapi.json`,
-    capabilities: [
-      "workspaces",
-      "conversations",
-      "durable-agents",
-      "projects",
-      "artifacts",
-      "logs",
-    ],
-    authentication: {
-      scheme: "NIP-98",
-      signingAlgorithm: "secp256k1-schnorr",
-      accountIssuer: `${env.AUTH_BASE_URL.replace(/\/$/u, "")}/api/auth`,
-    },
-  });
-}
-
 function parseWorkspaceId(value: string | undefined) {
   return workspaceIdSchema.parse(decodeURIComponent(value ?? ""));
-}
-
-function publicOrigin(request: Request, url: URL, env: Env) {
-  if (env.RELAY_PUBLIC_URL) return env.RELAY_PUBLIC_URL.replace(/\/$/u, "");
-  const forwardedProtocol = request.headers
-    .get("x-forwarded-proto")
-    ?.split(",")[0]
-    ?.trim();
-  if (forwardedProtocol === "https" && url.protocol === "http:") {
-    const forwarded = new URL(url);
-    forwarded.protocol = "https:";
-    return forwarded.origin;
-  }
-  return url.origin;
 }

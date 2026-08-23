@@ -19,7 +19,7 @@ import {
 import { authorizeWorkspace } from "./workspace-authority";
 
 const agentJobsRoute =
-  /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/jobs\/(claim|complete)$/u;
+  /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/jobs\/(claim|complete|renew)$/u;
 const agentJobListRoute = /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/jobs$/u;
 const agentJobRetryRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/jobs\/([^/]+)\/retry$/u;
@@ -28,6 +28,8 @@ const agentSocketTicketRoute =
 const agentKeysRoute = /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/keys$/u;
 const agentConfigRoute =
   /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/config$/u;
+const agentCellSnapshotRoute =
+  /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/cell-snapshot$/u;
 const workspaceMembersRoute = /^\/v1\/workspaces\/([^/]+)\/members$/u;
 const workspaceMemberRoleRoute =
   /^\/v1\/workspaces\/([^/]+)\/members\/(user|agent|service)\/([^/]+)\/role$/u;
@@ -152,6 +154,34 @@ export async function routeAgentRequest(
     );
   }
 
+  const cellSnapshot = agentCellSnapshotRoute.exec(url.pathname);
+  if (cellSnapshot && (request.method === "GET" || request.method === "PUT")) {
+    const workspaceId = parseWorkspaceId(cellSnapshot[1]);
+    const agentId = parseAgentId(cellSnapshot[2]);
+    const authenticated = await authenticateRelayRequest(request, env);
+    const principal = await authorizeWorkspace(env, {
+      identity: authenticated.identity,
+      requestId,
+      workspaceId,
+    });
+    const target = new URL("https://agent.internal/snapshot");
+    target.searchParams.set("agentId", agentId);
+    const body =
+      request.method === "PUT" ? await authenticated.request.text() : undefined;
+    return env.AGENTS.get(
+      env.AGENTS.idFromName(`${workspaceId}:${agentId}`),
+    ).fetch(
+      withTrustedContext(
+        new Request(target, {
+          method: request.method,
+          headers: body ? { "content-type": "application/json" } : undefined,
+          body,
+        }),
+        { principal, requestId, workspaceId },
+      ),
+    );
+  }
+
   const members = workspaceMembersRoute.exec(url.pathname);
   if (members && request.method === "GET") {
     const workspaceId = parseWorkspaceId(members[1]);
@@ -190,7 +220,12 @@ export async function routeAgentRequest(
       requestId,
       workspaceId,
       agentId,
-      operation: job[3] === "complete" ? "complete" : "claim",
+      operation:
+        job[3] === "complete"
+          ? "complete"
+          : job[3] === "renew"
+            ? "renew"
+            : "claim",
     });
   }
 

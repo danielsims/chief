@@ -1,10 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 
-import type {
-  MessageAuthor,
-  Principal,
-  WorkspaceId,
-} from "@chief/relay-contracts";
+import type { Principal, WorkspaceId } from "@chief/relay-contracts";
 import {
   appendMessageCommandSchema,
   deleteMessageResultSchema,
@@ -14,22 +10,28 @@ import {
   principalSchema,
   reactToMessagePayloadSchema,
   socketTicketSchema,
+  upsertAgentActivityPayloadSchema,
+  upsertAgentActivityResultSchema,
 } from "@chief/relay-contracts";
 
+import { recordRelayActivity } from "./activity-diagnostics";
+import { authorFor, reactorPubkey } from "./conversation-principals";
 import { SqlConversationStore } from "./conversation-store";
 import { HttpError, json, parseJson, relayError } from "./http";
 import {
   readTrustedContext,
   readTrustedSocketTicket,
+  requiredTrustedConversationId,
   withTrustedContext,
 } from "./internal-context";
 import { recordMetrics } from "./metrics";
+import { validatePluginComponentPlacement } from "./plugin-component-policy";
 
 const repliesRoute = /\/messages\/([^/]+)\/replies$/u;
 const reactionsRoute = /\/messages\/([^/]+)\/reactions$/u;
 const editRoute = /\/messages\/([^/]+)\/edit$/u;
 const deleteRoute = /\/messages\/([^/]+)$/u;
-
+const activityRoute = /\/messages\/([^/]+)\/activity$/u;
 export class ConversationObject extends DurableObject<Env> {
   private readonly store: SqlConversationStore;
 
@@ -86,6 +88,14 @@ export class ConversationObject extends DurableObject<Env> {
           );
         }
         if (request.method === "POST") {
+          const activity = activityRoute.exec(pathname);
+          if (activity) {
+            return await this.upsertActivity(
+              request,
+              context,
+              activity[1] ?? "",
+            );
+          }
           const edit = editRoute.exec(pathname);
           if (edit) {
             return await this.edit(request, context, edit[1] ?? "");
@@ -137,6 +147,13 @@ export class ConversationObject extends DurableObject<Env> {
         "The message does not belong to the routed conversation.",
       );
     }
+    validatePluginComponentPlacement(
+      command.payload.components,
+      principal,
+      workspaceId,
+      conversationId,
+      command.payload.threadRootId,
+    );
     const result = this.store.append({
       command,
       workspaceId,
@@ -223,7 +240,7 @@ export class ConversationObject extends DurableObject<Env> {
         event,
         context.principal,
         context.workspaceId,
-        requiredConversationId(context),
+        requiredTrustedConversationId(context),
         context.requestId,
       );
     }
@@ -264,11 +281,69 @@ export class ConversationObject extends DurableObject<Env> {
         event,
         context.principal,
         context.workspaceId,
-        requiredConversationId(context),
+        requiredTrustedConversationId(context),
         context.requestId,
       );
     }
     return json(editMessageResultSchema.parse({ message }));
+  }
+
+  private async upsertActivity(
+    request: Request,
+    context: ReturnType<typeof readTrustedContext>,
+    messageId: string,
+  ) {
+    if (context.principal.kind !== "agent") {
+      throw new HttpError(
+        403,
+        "agent_principal_required",
+        "Only an agent cell may publish agent activity.",
+      );
+    }
+    const payload = upsertAgentActivityPayloadSchema.parse(
+      await parseJson(request),
+    );
+    if (
+      payload.messageId !== messageId ||
+      payload.conversationId !== requiredTrustedConversationId(context)
+    ) {
+      throw new HttpError(
+        409,
+        "activity_scope_mismatch",
+        "The activity does not match the routed conversation.",
+      );
+    }
+    const result = this.store.upsertActivity({
+      ...payload,
+      actor: context.principal,
+      workspaceId: context.workspaceId,
+      correlationId: context.requestId,
+    });
+    const diagnostic = {
+      workspaceId: context.workspaceId,
+      conversationId: requiredTrustedConversationId(context),
+      threadRootId: payload.threadRootId,
+      agentId: context.principal.agentId,
+      requestId: context.requestId,
+      messageId: payload.messageId,
+      component: payload.component,
+    };
+    recordRelayActivity("persisted", diagnostic, result);
+    this.broadcast(result.event);
+    this.publishWorkspaceEvent(
+      result.event,
+      context.principal,
+      context.workspaceId,
+      requiredTrustedConversationId(context),
+      context.requestId,
+    );
+    recordRelayActivity("broadcast", diagnostic, result);
+    return json(
+      upsertAgentActivityResultSchema.parse({
+        created: result.created,
+        message: result.message,
+      }),
+    );
   }
 
   private deleteMessage(
@@ -290,7 +365,7 @@ export class ConversationObject extends DurableObject<Env> {
         event,
         context.principal,
         context.workspaceId,
-        requiredConversationId(context),
+        requiredTrustedConversationId(context),
         context.requestId,
       );
     }
@@ -397,33 +472,6 @@ export class ConversationObject extends DurableObject<Env> {
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
     if (message === "ping") socket.send("pong");
   }
-}
-
-function authorFor(principal: Principal): MessageAuthor {
-  if (principal.kind === "user") return { kind: "user", id: principal.userId };
-  if (principal.kind === "agent")
-    return { kind: "agent", id: principal.agentId };
-  return { kind: "system", id: "chief-relay" };
-}
-
-function reactorPubkey(principal: Principal): string | undefined {
-  if (principal.kind === "user" || principal.kind === "agent") {
-    return principal.pubkey;
-  }
-  return undefined;
-}
-
-function requiredConversationId(
-  context: ReturnType<typeof readTrustedContext>,
-) {
-  if (!context.conversationId) {
-    throw new HttpError(
-      400,
-      "missing_conversation",
-      "Conversation context is required.",
-    );
-  }
-  return context.conversationId;
 }
 
 function parseInteger(

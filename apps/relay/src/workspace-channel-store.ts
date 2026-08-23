@@ -1,15 +1,18 @@
 import type { Principal, WorkspaceSnapshot } from "@chief/relay-contracts";
 import {
-  agentConfigSchema,
   channelDetailSchema,
   channelRecordSchema,
   conversationIdSchema,
-  defaultAgentConfig,
   workspaceIdSchema,
   workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
 
 import { HttpError } from "./http";
+import {
+  defaultAgentConfigFor,
+  effectiveAgentConfigFor,
+  hasAgentPermission,
+} from "./workspace-agent-config";
 
 export interface MemberRow extends Record<string, SqlStorageValue> {
   principal_kind: "user" | "agent" | "service";
@@ -121,7 +124,7 @@ export class WorkspaceChannelStore {
       ),
     );
     return row
-      ? agentConfigSchema.parse(JSON.parse(row.config_json))
+      ? effectiveAgentConfigFor(agentId, JSON.parse(row.config_json))
       : defaultAgentConfigFor(agentId);
   }
 
@@ -338,6 +341,45 @@ export class WorkspaceChannelStore {
       workspace.created_by_user_id,
       workspace.created_at,
     );
+    this.seedSnapshotAgents(snapshot, workspace.created_at);
+  }
+
+  /** Managed agents exist independently of a device key. A phone/desktop may
+   * later register a signing key for the same principal, while a cloud cell can
+   * execute immediately under the relay's trusted Durable Object boundary. */
+  seedSnapshotAgents(snapshot: WorkspaceSnapshot, createdAt: string) {
+    for (const agent of snapshot.agents) {
+      this.storage.sql.exec(
+        `INSERT INTO members (principal_kind, principal_id, role, created_at)
+         VALUES ('agent', ?, 'member', ?)
+         ON CONFLICT(principal_kind, principal_id) DO NOTHING`,
+        agent.id,
+        createdAt,
+      );
+      this.storage.sql.exec(
+        `INSERT INTO channel_members (
+          conversation_id, principal_kind, principal_id, role, joined_at
+        ) SELECT conversation_id, 'agent', ?, 'member', ? FROM channels
+          WHERE conversation_id = ?
+        ON CONFLICT(conversation_id, principal_kind, principal_id) DO NOTHING`,
+        agent.id,
+        createdAt,
+        agent.id,
+      );
+    }
+    if (snapshot.agents.some((agent) => agent.id === "chief")) {
+      this.storage.sql.exec(
+        `INSERT INTO channel_members (
+          conversation_id, principal_kind, principal_id, role, joined_at
+        ) SELECT 'mission-control', 'agent', 'chief', 'owner', ?
+          WHERE EXISTS (
+            SELECT 1 FROM channels WHERE conversation_id = 'mission-control'
+          )
+        ON CONFLICT(conversation_id, principal_kind, principal_id) DO UPDATE
+          SET role = 'owner'`,
+        createdAt,
+      );
+    }
   }
 
   seedSnapshotChannels(
@@ -374,80 +416,6 @@ export class WorkspaceChannelStore {
       );
     }
   }
-}
-
-function defaultAgentConfigFor(agentId: string) {
-  const collaboration = [
-    "workspace.read",
-    "channels.read",
-    "channels.create",
-    "members.read",
-    "members.manage",
-    "messages.read",
-    "messages.send",
-  ] as const;
-  if (agentId === "chief") {
-    return agentConfigSchema.parse({
-      ...defaultAgentConfig,
-      toolPermissions: [
-        ...collaboration,
-        "workspace.write",
-        "channels.update",
-        "channels.archive",
-        "messages.manage",
-        "schedules.read",
-        "schedules.manage",
-        "schedules.run",
-        "agents.delegate",
-      ],
-    });
-  }
-  if (agentId === "brand") {
-    return agentConfigSchema.parse({
-      ...defaultAgentConfig,
-      capabilities: ["brand-memory", "advanced"],
-      toolPermissions: [...collaboration, "workspace.write", "browser.use"],
-    });
-  }
-  if (agentId === "prospector") {
-    return agentConfigSchema.parse({
-      ...defaultAgentConfig,
-      capabilities: ["prospect-memory", "advanced"],
-      toolPermissions: [...collaboration, "workspace.write", "browser.use"],
-    });
-  }
-  if (agentId === "setup") {
-    return agentConfigSchema.parse({
-      ...defaultAgentConfig,
-      capabilities: ["advanced"],
-      toolPermissions: [...collaboration, "browser.use", "integrations.manage"],
-    });
-  }
-  return defaultAgentConfig;
-}
-
-function hasAgentPermission(granted: readonly string[], required: string) {
-  if (granted.includes(required)) return true;
-  const legacy: Record<string, readonly string[]> = {
-    "workspace.read": ["workspace"],
-    "workspace.write": ["workspace", "brand-profile-write", "prospects-write"],
-    "channels.read": ["channels"],
-    "channels.create": ["channels"],
-    "channels.update": ["channels"],
-    "channels.archive": ["channels"],
-    "members.read": ["workspace", "channels"],
-    "members.manage": ["channels"],
-    "messages.read": ["messages"],
-    "messages.send": ["messages"],
-    "messages.manage": ["messages"],
-    "schedules.read": ["scheduled-work"],
-    "schedules.manage": ["scheduled-work"],
-    "schedules.run": ["scheduled-work"],
-    "browser.use": ["advanced"],
-  };
-  return (legacy[required] ?? []).some((permission) =>
-    granted.includes(permission),
-  );
 }
 
 export function principalKindId(principal: Principal) {

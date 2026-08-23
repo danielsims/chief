@@ -201,6 +201,47 @@ export class WorkspaceInvitationService {
     );
   }
 
+  joinOrganizationMember(identity: AuthenticatedIdentity) {
+    if (identity.kind !== "user") {
+      throw new HttpError(
+        403,
+        "workspace_invite_denied",
+        "A signed-in user is required to join a workspace.",
+      );
+    }
+    const now = new Date().toISOString();
+    this.storage.transactionSync(() => {
+      this.storage.sql.exec(
+        `INSERT INTO members (principal_kind, principal_id, role, created_at)
+         VALUES ('user', ?, 'member', ?)
+         ON CONFLICT(principal_kind, principal_id) DO NOTHING`,
+        identity.userId,
+        now,
+      );
+      const general = firstRow<{ conversation_id: string }>(
+        this.storage.sql.exec(
+          "SELECT conversation_id FROM channels WHERE conversation_id = 'general'",
+        ),
+      );
+      if (general) {
+        this.storage.sql.exec(
+          `INSERT INTO channel_members (
+            conversation_id, principal_kind, principal_id, role, joined_at
+          ) VALUES ('general', 'user', ?, 'member', ?)
+          ON CONFLICT(conversation_id, principal_kind, principal_id) DO NOTHING`,
+          identity.userId,
+          now,
+        );
+      }
+    });
+    const snapshot = this.workspaceSnapshot();
+    return json({
+      workspaceId: snapshot.id,
+      workspaceName: snapshot.name,
+      website: snapshot.website,
+    });
+  }
+
   private async lookupAvailableInvite(secret: string) {
     const invite = await this.lookupInvite(secret);
     this.requireInviteAvailable(invite);
@@ -261,19 +302,7 @@ export class WorkspaceInvitationService {
   }
 
   private describeInvite(invite: InviteRow) {
-    const workspace = firstRow<WorkspaceRow>(
-      this.storage.sql.exec("SELECT * FROM workspace WHERE singleton = 1"),
-    );
-    if (!workspace?.snapshot_json) {
-      throw new HttpError(
-        409,
-        "workspace_snapshot_unavailable",
-        "This workspace is not ready to accept invitations.",
-      );
-    }
-    const snapshot = workspaceSnapshotSchema.parse(
-      JSON.parse(workspace.snapshot_json),
-    );
+    const snapshot = this.workspaceSnapshot();
     const conversation = invite.conversation_id
       ? this.channels.requireChannel(invite.conversation_id)
       : null;
@@ -285,6 +314,20 @@ export class WorkspaceInvitationService {
       conversationName: conversation ? String(conversation.name) : null,
       expiresAt: invite.expires_at,
     });
+  }
+
+  private workspaceSnapshot() {
+    const workspace = firstRow<WorkspaceRow>(
+      this.storage.sql.exec("SELECT * FROM workspace WHERE singleton = 1"),
+    );
+    if (!workspace?.snapshot_json) {
+      throw new HttpError(
+        409,
+        "workspace_snapshot_unavailable",
+        "This workspace is not ready to accept invitations.",
+      );
+    }
+    return workspaceSnapshotSchema.parse(JSON.parse(workspace.snapshot_json));
   }
 }
 

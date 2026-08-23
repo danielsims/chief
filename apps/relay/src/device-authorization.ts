@@ -36,6 +36,9 @@ export async function verifyDeviceAuthorization(
   expectedPubkey: HexPubkey,
 ) {
   try {
+    if (!isCanonicalCompactJws(token)) {
+      throw new Error("Device authorization is not canonically encoded.");
+    }
     const { payload, protectedHeader } = await jwtVerify(
       token,
       await signingKey(env),
@@ -62,6 +65,28 @@ export async function verifyDeviceAuthorization(
       "This device authorization is invalid or expired. Sign in again.",
     );
   }
+}
+
+function isCanonicalCompactJws(token: string) {
+  const segments = token.split(".");
+  return (
+    segments.length === 3 &&
+    segments.every((segment) => {
+      if (!segment || !/^[A-Za-z0-9_-]+$/u.test(segment)) return false;
+      try {
+        const base64 = segment.replaceAll("-", "+").replaceAll("_", "/");
+        const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+        const decoded = atob(base64 + padding);
+        const canonical = btoa(decoded)
+          .replaceAll("+", "-")
+          .replaceAll("/", "_")
+          .replace(/=+$/u, "");
+        return canonical === segment;
+      } catch {
+        return false;
+      }
+    })
+  );
 }
 
 async function signingKey(env: Env) {

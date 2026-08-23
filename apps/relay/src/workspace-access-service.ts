@@ -8,6 +8,7 @@ import {
   updateWorkspaceMemberRoleResultSchema,
   workspaceIdSchema,
   workspaceMemberListSchema,
+  workspaceSnapshotSchema,
 } from "@chief/relay-contracts";
 
 import type { readTrustedIdentity } from "./internal-context";
@@ -19,6 +20,7 @@ import type {
 import { HttpError, json, parseJson, relayError } from "./http";
 import { readTrustedContext } from "./internal-context";
 import { recordMetrics } from "./metrics";
+import { effectiveAgentConfigFor } from "./workspace-agent-config";
 import {
   firstRow,
   parseChannelId,
@@ -280,7 +282,7 @@ export class WorkspaceAccessService {
     }
     return json({
       agentId: agentIdSchema.parse(row.agent_id),
-      config: agentConfigSchema.parse(JSON.parse(row.config_json)),
+      config: effectiveAgentConfigFor(agentId, JSON.parse(row.config_json)),
       updatedAt: row.updated_at,
     });
   }
@@ -345,6 +347,48 @@ export class WorkspaceAccessService {
       );
     }
     return json({ ok: true });
+  }
+
+  /** Returns only the durable workspace facts a hosted agent cell needs.
+   * The request must already carry the agent's trusted workspace principal. */
+  agentHostingContext(request: Request) {
+    const context = readTrustedContext(request);
+    this.channels.requirePrincipalMember(context.principal);
+    if (context.principal.kind !== "agent") {
+      throw new HttpError(
+        403,
+        "agent_required",
+        "An agent identity is required for hosted cell access.",
+      );
+    }
+    const agentId = context.principal.agentId;
+    const workspace = this.channels.requireWorkspace(context.workspaceId);
+    if (!workspace.snapshot_json) {
+      return json({ runtime: null, managed: false });
+    }
+    const snapshot = workspaceSnapshotSchema.parse(
+      JSON.parse(workspace.snapshot_json),
+    );
+    const agent = snapshot.agents.find((candidate) => candidate.id === agentId);
+    if (!agent) {
+      throw new HttpError(
+        404,
+        "agent_not_found",
+        "The hosted agent is not part of this workspace.",
+      );
+    }
+    return json({
+      managed: true,
+      runtime: snapshot.runtime,
+      workspace: {
+        id: snapshot.id,
+        name: snapshot.name,
+        website: snapshot.website,
+        selectedApps: snapshot.selectedApps,
+      },
+      agent,
+      config: this.channels.agentConfiguration(agentId),
+    });
   }
 
   private requireAgentConfigAccess(principal: Principal, write: boolean) {

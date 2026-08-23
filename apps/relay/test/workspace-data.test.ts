@@ -120,6 +120,105 @@ describe("workspace data", () => {
     });
     expect(prospect.status).toBe(403);
   });
+
+  it("persists versioned agent files without allowing path traversal", async () => {
+    const ctx = await setupChannelTest();
+    const engineerId = agentIdSchema.parse("engineer");
+    const pubkey = hexKey("workspace-file-engineer");
+    await registerTestAgent(ctx, engineerId, pubkey);
+    const engineer = {
+      kind: "agent" as const,
+      agentId: engineerId,
+      pubkey,
+      workspaceId: ctx.workspaceId,
+      role: "member" as const,
+    };
+
+    const created = await rpc(ctx, engineer, "data-file-save", {
+      path: "engineering/relay-notes.md",
+      title: "Relay notes",
+      mimeType: "text/markdown",
+      content: "# Relay notes",
+      conversationId: "engineering",
+    });
+    expect(created.status).toBe(201);
+    const file = (await created.json()) as { id: string; version: number };
+    expect(file).toMatchObject({ version: 1 });
+
+    const updated = await rpc(ctx, engineer, "data-file-save", {
+      id: file.id,
+      path: "engineering/relay-notes.md",
+      title: "Relay notes",
+      mimeType: "text/markdown",
+      content: "# Relay notes\n\nUpdated",
+      conversationId: "engineering",
+      expectedVersion: 1,
+    });
+    expect(updated.status).toBe(200);
+    expect(await updated.json()).toMatchObject({ version: 2 });
+
+    const conflict = await rpc(ctx, engineer, "data-file-save", {
+      id: file.id,
+      path: "engineering/relay-notes.md",
+      title: "Relay notes",
+      mimeType: "text/markdown",
+      content: "stale",
+      conversationId: "engineering",
+      expectedVersion: 1,
+    });
+    expect(conflict.status).toBe(409);
+
+    const traversal = await rpc(ctx, engineer, "data-file-save", {
+      path: "../outside.md",
+      title: "Outside",
+      mimeType: "text/markdown",
+      content: "no",
+      conversationId: "engineering",
+    });
+    expect(traversal.status).toBe(400);
+  });
+
+  it("keeps the shared project registry on the relay without local paths", async () => {
+    const ctx = await setupChannelTest();
+    const engineerId = agentIdSchema.parse("engineer");
+    const pubkey = hexKey("workspace-project-engineer");
+    await registerTestAgent(ctx, engineerId, pubkey);
+    const engineer = {
+      kind: "agent" as const,
+      agentId: engineerId,
+      pubkey,
+      workspaceId: ctx.workspaceId,
+      role: "member" as const,
+    };
+    const created = await rpc(ctx, engineer, "data-project-create", {
+      name: "Chief",
+      repositoryKind: "cloned",
+      providerId: "github",
+      canonicalRemoteUrl: "https://github.com/latent/chief.git",
+      repositoryWebUrl: "https://github.com/latent/chief",
+      defaultBranch: "main",
+    });
+    expect(created.status).toBe(201);
+    const project = (await created.json()) as { id: string };
+    expect(project).not.toHaveProperty("repositoryPath");
+
+    const listed = await rpc(ctx, engineer, "data-projects-list");
+    expect(await listed.json()).toMatchObject({
+      projects: [
+        expect.objectContaining({
+          id: project.id,
+          organizationId: ctx.workspaceId,
+          canonicalRemoteUrl: "https://github.com/latent/chief.git",
+        }),
+      ],
+    });
+
+    const deleted = await rpc(ctx, engineer, "data-project-delete", undefined, {
+      "x-chief-project-id": project.id,
+    });
+    expect(deleted.status).toBe(200);
+    expect(await deleted.json()).toEqual({ id: project.id, deleted: true });
+  });
 });
 
 function rpc(
@@ -127,8 +226,12 @@ function rpc(
   principal: Parameters<typeof withTrustedContext>[1]["principal"],
   operation: string,
   body?: unknown,
+  extraHeaders?: Record<string, string>,
 ) {
-  const headers = new Headers({ "x-chief-internal-operation": operation });
+  const headers = new Headers({
+    "x-chief-internal-operation": operation,
+    ...extraHeaders,
+  });
   const init: RequestInit = { method: "POST", headers };
   if (body !== undefined) {
     headers.set("content-type", "application/json");

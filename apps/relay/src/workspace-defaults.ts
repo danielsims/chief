@@ -14,6 +14,24 @@ export const defaultWorkspaceAgents = [
     status: "idle",
   },
   {
+    id: "content",
+    name: "Content",
+    role: "Content and creative",
+    status: "idle",
+  },
+  {
+    id: "analyst",
+    name: "Analyst",
+    role: "Measurement and reporting",
+    status: "idle",
+  },
+  {
+    id: "ads",
+    name: "Advertising",
+    role: "Paid acquisition",
+    status: "idle",
+  },
+  {
     id: "prospector",
     name: "Prospector",
     role: "Research and outreach",

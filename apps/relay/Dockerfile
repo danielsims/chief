@@ -18,6 +18,7 @@ COPY tooling/eslint/package.json ./tooling/eslint/package.json
 COPY tooling/prettier/package.json ./tooling/prettier/package.json
 COPY tooling/typescript/package.json ./tooling/typescript/package.json
 COPY packages/auth/package.json ./packages/auth/package.json
+COPY packages/email/package.json ./packages/email/package.json
 COPY packages/relay-contracts/package.json ./packages/relay-contracts/package.json
 COPY apps/relay/package.json ./apps/relay/package.json
 
@@ -29,6 +30,7 @@ COPY tooling/eslint ./tooling/eslint
 COPY tooling/prettier ./tooling/prettier
 COPY tooling/typescript ./tooling/typescript
 COPY packages/auth ./packages/auth
+COPY packages/email ./packages/email
 COPY packages/relay-contracts ./packages/relay-contracts
 COPY apps/relay ./apps/relay
 

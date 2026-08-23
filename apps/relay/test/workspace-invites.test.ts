@@ -1,15 +1,22 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ensureChiefOrganization,
+  ensureChiefOrganizationMember,
+} from "@chief/auth/d1-organizations";
+import {
+  organizationWorkspaceJoinResultSchema,
   userIdSchema,
   workspaceInviteClaimResultSchema,
   workspaceInviteSchema,
   workspaceListResultSchema,
 } from "@chief/relay-contracts";
 
+import { AuthorizationError } from "../src/auth";
 import {
   claimWorkspaceInvite,
   createWorkspaceInvite,
+  joinOrganizationWorkspace,
   listManagedWorkspaces,
   previewWorkspaceInvite,
 } from "../src/workspace-authority";
@@ -145,6 +152,63 @@ describe("workspace invites", () => {
       error: { code: "workspace_invite_consumed" },
     });
   });
+
+  it("provisions only an authenticated Better Auth organization member", async () => {
+    const ctx = await setupChannelTest();
+    const env = Object.assign(Object.create(ctx.env), {
+      ACCOUNT_IDENTITY_MODE: "chief-account" as const,
+    }) as Env;
+    const invitedId = userIdSchema.parse(
+      `organization-invitee-${crypto.randomUUID()}`,
+    );
+    const outsiderId = userIdSchema.parse(
+      `organization-outsider-${crypto.randomUUID()}`,
+    );
+    await Promise.all([
+      insertUser(env.AUTH_DB, ctx.identity.userId),
+      insertUser(env.AUTH_DB, invitedId),
+      insertUser(env.AUTH_DB, outsiderId),
+    ]);
+    await ensureChiefOrganization(env.AUTH_DB, {
+      name: "Channel test",
+      ownerUserId: ctx.identity.userId,
+      website: "https://heychief.sh",
+      workspaceId: ctx.workspaceId,
+    });
+    await ensureChiefOrganizationMember(env.AUTH_DB, {
+      organizationId: ctx.workspaceId,
+      userId: invitedId,
+    });
+
+    const result = await joinOrganizationWorkspace(env, {
+      identity: {
+        kind: "user",
+        userId: invitedId,
+        pubkey: hexKey(invitedId),
+      },
+      requestId: crypto.randomUUID(),
+      workspaceId: ctx.workspaceId,
+    });
+    expect(result.status).toBe(200);
+    expect(
+      organizationWorkspaceJoinResultSchema.parse(await result.json()),
+    ).toMatchObject({
+      workspaceId: ctx.workspaceId,
+      workspaceName: "Channel test",
+    });
+
+    await expect(
+      joinOrganizationWorkspace(env, {
+        identity: {
+          kind: "user",
+          userId: outsiderId,
+          pubkey: hexKey(outsiderId),
+        },
+        requestId: crypto.randomUUID(),
+        workspaceId: ctx.workspaceId,
+      }),
+    ).rejects.toThrow(AuthorizationError);
+  });
 });
 
 function jsonRequest(body: unknown) {
@@ -153,4 +217,16 @@ function jsonRequest(body: unknown) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+function insertUser(database: D1Database, id: string) {
+  const now = Date.now();
+  return database
+    .prepare(
+      `INSERT INTO user (
+        id, name, email, email_verified, created_at, updated_at
+      ) VALUES (?, ?, ?, 1, ?, ?)`,
+    )
+    .bind(id, id, `${id}@example.test`, now, now)
+    .run();
 }

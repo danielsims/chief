@@ -2,12 +2,14 @@ import { DurableObject } from "cloudflare:workers";
 
 import type { AgentPrincipal, WorkspaceId } from "@chief/relay-contracts";
 import {
+  agentCellSnapshotSchema,
+  agentIdSchema,
   agentJobCompletionResultSchema,
   agentJobSchema,
-  appendMessageCommandSchema,
   claimAgentJobSchema,
   completeAgentJobSchema,
   enqueueAgentJobCommandSchema,
+  renewAgentJobSchema,
 } from "@chief/relay-contracts";
 
 import { listAgentJobs, retryAgentJob } from "./agent-job-administration";
@@ -23,18 +25,25 @@ import {
   connectAgentMailboxWebSocket,
   createAgentMailboxSocketTicket,
 } from "./agent-mailbox";
+import { publishAgentMessage } from "./agent-message-publisher";
 import { publishOnboardingResult } from "./agent-onboarding";
+import {
+  loadAgentHostingContext,
+  runHostedAgentJob,
+} from "./hosted-agent-runner";
 import { HttpError, json, parseJson, relayError } from "./http";
-import { readTrustedContext, withTrustedContext } from "./internal-context";
+import { readTrustedContext } from "./internal-context";
 import { initializeSocketTickets } from "./socket-ticket-store";
 
 export class AgentObject extends DurableObject<Env> {
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
-    void state.blockConcurrencyWhile(() => {
+    void state.blockConcurrencyWhile(async () => {
       initializeAgentJobs(state.storage);
       initializeSocketTickets(state.storage);
-      return Promise.resolve();
+      if (env.HOSTED_CELL_ENABLED === "true") {
+        await this.scheduleNextAlarm();
+      }
     });
   }
 
@@ -62,6 +71,9 @@ export class AgentObject extends DurableObject<Env> {
       if (request.method === "POST" && path.endsWith("/complete")) {
         return await this.complete(request, context);
       }
+      if (request.method === "POST" && path.endsWith("/renew")) {
+        return await this.renew(request, context);
+      }
       if (request.method === "GET" && path.endsWith("/jobs")) {
         return this.listJobs(context);
       }
@@ -74,6 +86,12 @@ export class AgentObject extends DurableObject<Env> {
           request,
           context,
         );
+      }
+      if (
+        (request.method === "GET" || request.method === "PUT") &&
+        path.endsWith("/snapshot")
+      ) {
+        return await this.cellSnapshot(request, context);
       }
       return relayError(404, "not_found", "Agent operation not found.");
     } catch (error) {
@@ -104,6 +122,15 @@ export class AgentObject extends DurableObject<Env> {
     );
     if (prior) {
       const priorJob = agentJobSchema.parse(JSON.parse(prior.job_json));
+      const now = new Date().toISOString();
+      const refreshedJob = agentJobSchema.parse({
+        ...priorJob,
+        payload: {
+          ...priorJob.payload,
+          ...command.payload.payload,
+        },
+        updatedAt: now,
+      });
       const stored = firstRow<{ status: string }>(
         this.ctx.storage.sql.exec(
           "SELECT status FROM jobs WHERE job_id = ?",
@@ -115,26 +142,53 @@ export class AgentObject extends DurableObject<Env> {
         priorJob.kind === "workspace.onboarding" &&
         (stored?.status === "failed" || stored?.status === "completed")
       ) {
-        const now = new Date().toISOString();
         const repaired = agentJobSchema.parse({
-          ...priorJob,
+          ...refreshedJob,
           status: "pending",
           lastError: null,
           availableAt: now,
           leaseExpiresAt: null,
           updatedAt: now,
         });
-        this.ctx.storage.sql.exec(
-          `UPDATE jobs SET job_json = ?, status = 'pending', available_at = ?,
-           lease_token = NULL, lease_expires_at = NULL, updated_at = ?
-           WHERE job_id = ?`,
-          JSON.stringify(repaired),
-          now,
-          now,
-          repaired.id,
-        );
+        this.ctx.storage.transactionSync(() => {
+          this.ctx.storage.sql.exec(
+            `UPDATE jobs SET job_json = ?, status = 'pending', available_at = ?,
+             lease_token = NULL, lease_expires_at = NULL, updated_at = ?
+             WHERE job_id = ?`,
+            JSON.stringify(repaired),
+            now,
+            now,
+            repaired.id,
+          );
+          this.ctx.storage.sql.exec(
+            "UPDATE receipts SET job_json = ? WHERE command_id = ?",
+            JSON.stringify(repaired),
+            command.commandId,
+          );
+        });
         this.broadcastAvailable(repaired, now);
+        await this.scheduleHostedAlarm(repaired);
         return json({ duplicate: false, repaired: true, job: repaired });
+      }
+      if (repairTerminal && stored?.status === "pending") {
+        this.ctx.storage.transactionSync(() => {
+          this.ctx.storage.sql.exec(
+            "UPDATE jobs SET job_json = ?, updated_at = ? WHERE job_id = ?",
+            JSON.stringify(refreshedJob),
+            now,
+            refreshedJob.id,
+          );
+          this.ctx.storage.sql.exec(
+            "UPDATE receipts SET job_json = ? WHERE command_id = ?",
+            JSON.stringify(refreshedJob),
+            command.commandId,
+          );
+        });
+        if (Date.parse(refreshedJob.availableAt) <= Date.now()) {
+          this.broadcastAvailable(refreshedJob, now);
+        }
+        await this.scheduleHostedAlarm(refreshedJob);
+        return json({ duplicate: true, refreshed: true, job: refreshedJob });
       }
       return json({
         duplicate: true,
@@ -172,14 +226,16 @@ export class AgentObject extends DurableObject<Env> {
     });
     if (Date.parse(job.availableAt) <= Date.now()) {
       this.broadcastAvailable(job, now);
+      await this.scheduleHostedAlarm(job);
     } else {
       await this.scheduleNextAlarm();
     }
     return json({ duplicate: false, job });
   }
 
-  /// Wakes sockets for scheduled work and expired leases. A socket event is a
-  /// hint only; the authenticated agent still has to claim its durable row.
+  /// Wakes signed celld sockets first. Cloud workspaces then use the same
+  /// atomic lease for a native Durable Object + Workers AI execution, so an
+  /// open phone/desktop cell and the hosted cell can safely coexist.
   async alarm() {
     const now = new Date().toISOString();
     const due = firstRow<{ job_json: string }>(
@@ -193,10 +249,69 @@ export class AgentObject extends DurableObject<Env> {
       ),
     );
     if (due) {
-      this.broadcastAvailable(
-        agentJobSchema.parse(JSON.parse(due.job_json)),
-        now,
+      const job = agentJobSchema.parse(JSON.parse(due.job_json));
+      this.broadcastAvailable(job, now);
+      if (this.env.HOSTED_CELL_ENABLED !== "true") return;
+      const principal = hostedPrincipal(job);
+      const hosting = await loadAgentHostingContext(this.env, job, principal);
+      if (hosting?.runtime !== "cloud" || hosting.config?.enabled === false) {
+        return;
+      }
+      const claimResponse = await this.claim(
+        new Request("https://agent.internal/claim", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            workerId: "cloudflare-hosted-cell",
+            leaseSeconds: 300,
+          }),
+        }),
+        {
+          principal,
+          requestId: crypto.randomUUID(),
+          workspaceId: job.workspaceId,
+          conversationId: null,
+        },
       );
+      if (claimResponse.status === 204) return;
+      const lease = (await claimResponse.json()) as {
+        job: ReturnType<typeof agentJobSchema.parse>;
+        leaseToken: string;
+      };
+      try {
+        const result = await runHostedAgentJob(
+          this.env,
+          lease.job,
+          principal,
+          hosting,
+        );
+        this.recordHostedCellState(lease.job, result, hosting.agent);
+        await this.completeHosted(lease.leaseToken, principal, {
+          status: "completed",
+          result,
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Hosted cell execution failed.";
+        const retryAt = new Date(
+          Date.now() +
+            Math.min(15 * 60_000, 30_000 * 2 ** Math.min(lease.job.attempt, 5)),
+        ).toISOString();
+        console.error("Hosted cell execution failed", {
+          workspaceId: lease.job.workspaceId,
+          agentId: lease.job.agentId,
+          jobId: lease.job.id,
+          error: message,
+          retryAt,
+        });
+        await this.completeHosted(lease.leaseToken, principal, {
+          status: "failed",
+          error: message.slice(0, 4_000),
+          retryAt,
+        });
+      }
       return;
     }
     await this.scheduleNextAlarm();
@@ -240,8 +355,47 @@ export class AgentObject extends DurableObject<Env> {
       return;
     }
     const next = Date.parse(row.next_at);
-    if (Number.isFinite(next) && next > Date.now()) {
-      await this.ctx.storage.setAlarm(next);
+    if (Number.isFinite(next)) {
+      await this.ctx.storage.setAlarm(Math.max(next, Date.now() + 50));
+    }
+  }
+
+  private async scheduleHostedAlarm(
+    job: ReturnType<typeof agentJobSchema.parse>,
+  ) {
+    if (this.env.HOSTED_CELL_ENABLED !== "true") return;
+    const availableAt = Date.parse(job.availableAt);
+    const deviceGraceAt = Date.now() + 2_000;
+    await this.ctx.storage.setAlarm(
+      Math.max(
+        Number.isFinite(availableAt) ? availableAt : Date.now(),
+        deviceGraceAt,
+      ),
+    );
+  }
+
+  private async completeHosted(
+    leaseToken: string,
+    principal: AgentPrincipal,
+    outcome:
+      | { status: "completed"; result: unknown }
+      | { status: "failed"; error: string; retryAt: string },
+  ) {
+    const response = await this.complete(
+      new Request("https://agent.internal/complete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ leaseToken, outcome }),
+      }),
+      {
+        principal,
+        requestId: crypto.randomUUID(),
+        workspaceId: principal.workspaceId,
+        conversationId: null,
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Hosted cell completion failed (${response.status}).`);
     }
   }
 
@@ -344,7 +498,8 @@ export class AgentObject extends DurableObject<Env> {
       if (job.kind.startsWith("workspace.kickoff.")) {
         await validateSpecialistKickoff(this.env, job, context.principal);
       }
-      await this.publishMessage(
+      await publishAgentMessage(
+        this.env,
         job,
         result.publishedMessage,
         crypto.randomUUID(),
@@ -358,7 +513,7 @@ export class AgentObject extends DurableObject<Env> {
         context.principal,
         result as unknown as Record<string, unknown>,
         (targetJob, message, commandId, pubkey) =>
-          this.publishMessage(targetJob, message, commandId, pubkey),
+          publishAgentMessage(this.env, targetJob, message, commandId, pubkey),
       );
     }
     this.ctx.storage.sql.exec(
@@ -377,6 +532,181 @@ export class AgentObject extends DurableObject<Env> {
       await this.scheduleNextAlarm();
     }
     return json({ job, outcome: input.outcome });
+  }
+
+  private async renew(
+    request: Request,
+    context: ReturnType<typeof readTrustedContext>,
+  ) {
+    requireAgentPrincipal(context.principal);
+    const input = renewAgentJobSchema.parse(await parseJson(request));
+    const row = firstRow<{ job_json: string }>(
+      this.ctx.storage.sql.exec(
+        "SELECT job_json FROM jobs WHERE lease_token = ? AND status = 'leased'",
+        input.leaseToken,
+      ),
+    );
+    if (!row) {
+      throw new HttpError(
+        409,
+        "stale_lease",
+        "The agent lease is no longer active.",
+      );
+    }
+    const job = agentJobSchema.parse(JSON.parse(row.job_json));
+    requireAgentOwnsJob(context.principal, job.agentId);
+    const leaseExpiresAt = new Date(
+      Date.now() + input.leaseSeconds * 1_000,
+    ).toISOString();
+    this.ctx.storage.sql.exec(
+      "UPDATE jobs SET lease_expires_at = ? WHERE job_id = ? AND lease_token = ?",
+      leaseExpiresAt,
+      job.id,
+      input.leaseToken,
+    );
+    await this.scheduleNextAlarm();
+    return json({ leaseExpiresAt });
+  }
+
+  private async cellSnapshot(
+    request: Request,
+    context: ReturnType<typeof readTrustedContext>,
+  ) {
+    const agentId = agentIdSchema.parse(
+      new URL(request.url).searchParams.get("agentId"),
+    );
+    const canTransfer =
+      (context.principal.kind === "agent" &&
+        context.principal.agentId === agentId) ||
+      (context.principal.kind === "user" &&
+        (context.principal.role === "owner" ||
+          context.principal.role === "admin"));
+    if (!canTransfer) {
+      throw new HttpError(
+        403,
+        "cell_snapshot_denied",
+        "Only this agent or a workspace owner can transfer its cell state.",
+      );
+    }
+    const cellId = `${context.workspaceId}:${agentId}`;
+    if (request.method === "GET") {
+      const rows = this.ctx.storage.sql
+        .exec<{ key: string; value_json: string }>(
+          "SELECT key, value_json FROM cell_records ORDER BY key LIMIT 1000",
+        )
+        .toArray();
+      return json(
+        agentCellSnapshotSchema.parse({
+          version: 1,
+          cellId,
+          workspaceId: context.workspaceId,
+          agentId,
+          exportedAt: new Date().toISOString(),
+          records: rows.map((row) => ({
+            key: String(row.key),
+            value: JSON.parse(String(row.value_json)) as unknown,
+          })),
+        }),
+      );
+    }
+    const snapshot = agentCellSnapshotSchema.parse(await parseJson(request));
+    if (
+      snapshot.cellId !== cellId ||
+      snapshot.workspaceId !== context.workspaceId ||
+      snapshot.agentId !== agentId
+    ) {
+      throw new HttpError(
+        409,
+        "cell_snapshot_scope_mismatch",
+        "The cell snapshot belongs to another workspace or agent.",
+      );
+    }
+    const updatedAt = new Date().toISOString();
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec("DELETE FROM cell_records");
+      for (const record of snapshot.records) {
+        this.putCellRecord(record.key, record.value, updatedAt);
+      }
+    });
+    return json({ ok: true, imported: snapshot.records.length });
+  }
+
+  private recordHostedCellState(
+    job: ReturnType<typeof agentJobSchema.parse>,
+    result: ReturnType<typeof agentJobCompletionResultSchema.parse>,
+    agent?: { id: string; name: string; role: string },
+  ) {
+    const conversationId =
+      typeof job.payload.conversationId === "string"
+        ? job.payload.conversationId
+        : "mission-control";
+    const key = `conversation:${conversationId}:messages`;
+    const row = firstRow<{ value_json: string }>(
+      this.ctx.storage.sql.exec(
+        "SELECT value_json FROM cell_records WHERE key = ?",
+        key,
+      ),
+    );
+    const messages = row ? safeArray(row.value_json) : [];
+    const at = Date.now();
+    const instruction =
+      typeof job.payload.instruction === "string"
+        ? job.payload.instruction
+        : job.kind;
+    const answer =
+      result.publishedMessage?.body ?? result.openingMessage ?? "Completed.";
+    messages.push({ role: "user", content: instruction, at, conversationId });
+    messages.push({
+      role: "assistant",
+      content: answer,
+      at: at + 1,
+      conversationId,
+    });
+    const now = new Date().toISOString();
+    const journalRow = firstRow<{ value_json: string }>(
+      this.ctx.storage.sql.exec(
+        "SELECT value_json FROM cell_records WHERE key = 'agent:work-journal'",
+      ),
+    );
+    const journal = journalRow ? safeArray(journalRow.value_json) : [];
+    journal.push({
+      conversationId,
+      user: instruction.slice(0, 1_000),
+      assistant: answer.slice(0, 2_000),
+      completedAt: now,
+    });
+    this.ctx.storage.transactionSync(() => {
+      this.putCellRecord(key, messages.slice(-200), now);
+      this.putCellRecord("agent:work-journal", journal.slice(-120), now);
+      this.putCellRecord(
+        "eve:package:manifest",
+        {
+          protocolVersion: 1,
+          runtime: "chief-cloudflare-cell",
+          agentId: job.agentId,
+          scope: `${job.workspaceId}:${job.agentId}`,
+        },
+        now,
+      );
+      if (agent) {
+        this.putCellRecord(
+          "eve:package:instructions",
+          `You are ${agent.name}, the workspace's ${agent.role} agent.`,
+          now,
+        );
+      }
+    });
+  }
+
+  private putCellRecord(key: string, value: unknown, updatedAt: string) {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO cell_records (key, value_json, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json,
+         updated_at = excluded.updated_at`,
+      key,
+      JSON.stringify(value),
+      updatedAt,
+    );
   }
 
   private listJobs(context: ReturnType<typeof readTrustedContext>) {
@@ -398,99 +728,25 @@ export class AgentObject extends DurableObject<Env> {
     this.broadcastAvailable(job, now);
     return json({ job });
   }
+}
 
-  private async publishMessage(
-    job: ReturnType<typeof agentJobSchema.parse>,
-    message: {
-      conversationId: string;
-      body: string;
-      components?: {
-        id: string;
-        kind: string;
-        version: number;
-        payload: Record<string, unknown>;
-      }[];
-    },
-    commandId: string,
-    actorPubkey?: string,
-  ) {
-    const agent: AgentPrincipal = {
-      kind: "agent",
-      agentId: job.agentId,
-      pubkey: (job.agentPubkey ?? actorPubkey)?.toLowerCase() ?? "0".repeat(64),
-      workspaceId: job.workspaceId,
-      role: "member",
-    };
-    const workspace = this.env.WORKSPACES.get(
-      this.env.WORKSPACES.idFromName(job.workspaceId),
-    );
-    const authorization = await workspace.fetch(
-      withTrustedContext(
-        new Request(
-          `https://workspace.internal?conversationId=${encodeURIComponent(message.conversationId)}`,
-          {
-            method: "POST",
-            headers: {
-              "x-chief-internal-operation": "authorize-conversation",
-              // The workspace authorizer applies the same exact Executor
-              // permission gate to relay-owned completion publication as it
-              // does to a direct agent message tool call.
-              "x-chief-required-permission": "messages.send",
-            },
-          },
-        ),
-        {
-          principal: agent,
-          requestId: commandId,
-          workspaceId: job.workspaceId,
-          conversationId: message.conversationId,
-        },
-      ),
-    );
-    if (!authorization.ok) {
-      throw new HttpError(
-        authorization.status,
-        "job_conversation_denied",
-        "The agent cannot publish to that conversation.",
-      );
-    }
-    const command = appendMessageCommandSchema.parse({
-      commandId,
-      protocolVersion: 1,
-      occurredAt: new Date().toISOString(),
-      payload: {
-        messageId: crypto.randomUUID(),
-        conversationId: message.conversationId,
-        body: message.body,
-        components: message.components ?? [],
-      },
-    });
-    const conversation = this.env.CONVERSATIONS.get(
-      this.env.CONVERSATIONS.idFromName(
-        `${job.workspaceId}:${message.conversationId}`,
-      ),
-    );
-    const response = await conversation.fetch(
-      withTrustedContext(
-        new Request("https://conversation.internal/messages", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(command),
-        }),
-        {
-          principal: agent,
-          requestId: commandId,
-          workspaceId: job.workspaceId,
-          conversationId: message.conversationId,
-        },
-      ),
-    );
-    if (!response.ok) {
-      throw new HttpError(
-        502,
-        "job_message_failed",
-        "The agent's message could not be delivered.",
-      );
-    }
+function hostedPrincipal(
+  job: ReturnType<typeof agentJobSchema.parse>,
+): AgentPrincipal {
+  return {
+    kind: "agent",
+    agentId: job.agentId,
+    pubkey: job.agentPubkey?.toLowerCase() ?? "0".repeat(64),
+    workspaceId: job.workspaceId,
+    role: "member",
+  };
+}
+
+function safeArray(value: string): unknown[] {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
   }
 }

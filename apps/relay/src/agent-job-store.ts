@@ -19,6 +19,11 @@ export function initializeAgentJobs(storage: DurableObjectStorage) {
       command_id TEXT PRIMARY KEY,
       job_json TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS cell_records (
+      key TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 }
 

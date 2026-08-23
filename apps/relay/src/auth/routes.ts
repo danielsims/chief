@@ -14,7 +14,11 @@ export function isRelayAuthRequest(url: URL) {
   );
 }
 
-export async function routeRelayAuth(request: Request, env: Env) {
+export async function routeRelayAuth(
+  request: Request,
+  env: Env,
+  context?: Pick<ExecutionContext, "waitUntil">,
+) {
   const origin = request.headers.get("origin");
   const allowedOrigin =
     origin && trustedOrigins(relayAuthOptions(env)).includes(origin)
@@ -30,7 +34,7 @@ export async function routeRelayAuth(request: Request, env: Env) {
   }
 
   const { createRelayAuth } = await import("./server");
-  const auth = await createRelayAuth(env);
+  const auth = await createRelayAuth(env, context);
   const response = await auth.handler(request);
   if (!allowedOrigin) return response;
   const headers = new Headers(response.headers);

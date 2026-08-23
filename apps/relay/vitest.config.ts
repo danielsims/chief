@@ -18,6 +18,8 @@ export default defineConfig({
               "f28e240d9b814940eed7721345997664c751b56eaeae8d7cefa304a1fda1ccda",
             RELAY_PUBLIC_URL: "https://relay.test",
             ACCOUNT_IDENTITY_MODE: "key-native",
+            HOSTED_CELL_ENABLED: "false",
+            HOSTED_CELL_MODEL: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
             AUTH_BASE_URL: "https://relay.test",
             AUTH_UI_ORIGIN: "https://app.test",
             AUTH_GOOGLE_REDIRECT_URI:

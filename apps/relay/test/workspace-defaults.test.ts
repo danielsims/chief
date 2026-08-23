@@ -30,6 +30,9 @@ describe("workspace defaults", () => {
     expect(result.snapshot.agents.map((agent) => agent.id)).toEqual([
       "chief",
       "brand",
+      "content",
+      "analyst",
+      "ads",
       "prospector",
       "engineer",
       "setup",
@@ -48,6 +51,24 @@ describe("workspace defaults", () => {
       agents: [
         { id: "chief", name: "Chief", role: "Chief of staff", status: "idle" },
         { id: "brand", name: "Marketer", role: "Marketing", status: "idle" },
+        {
+          id: "content",
+          name: "Content",
+          role: "Content and creative",
+          status: "idle",
+        },
+        {
+          id: "analyst",
+          name: "Analyst",
+          role: "Measurement and reporting",
+          status: "idle",
+        },
+        {
+          id: "ads",
+          name: "Advertising",
+          role: "Paid acquisition",
+          status: "idle",
+        },
         {
           id: "prospector",
           name: "Prospector",
@@ -108,6 +129,24 @@ function defaultAgents() {
   return [
     { id: "chief", name: "Chief", role: "Chief of staff", status: "idle" },
     { id: "brand", name: "Marketer", role: "Marketing", status: "idle" },
+    {
+      id: "content",
+      name: "Content",
+      role: "Content and creative",
+      status: "idle",
+    },
+    {
+      id: "analyst",
+      name: "Analyst",
+      role: "Measurement and reporting",
+      status: "idle",
+    },
+    {
+      id: "ads",
+      name: "Advertising",
+      role: "Paid acquisition",
+      status: "idle",
+    },
     {
       id: "prospector",
       name: "Prospector",
