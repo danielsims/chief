@@ -134,6 +134,72 @@ void test("loads the current and workspace channel rosters from relay membership
   ]);
 });
 
+void test("scopes per-agent configuration to the selected workspace", async () => {
+  const requests: { method: string; path: string; body: unknown }[] = [];
+  const config = {
+    enabled: true,
+    driver: "codex",
+    model: "auto",
+    approvals: "auto" as const,
+    capabilities: [],
+    integrations: [],
+    toolPermissions: ["workspace.read" as const],
+  };
+  const account = new RelayClient({
+    relayUrl: "https://relay.test",
+    getAuthorization: () => Promise.resolve("Nostr signed-request"),
+    fetch: (input, init) => {
+      const url = new URL(
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url,
+      );
+      requests.push({
+        method: init?.method ?? "GET",
+        path: url.pathname,
+        body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+      });
+      return Promise.resolve(
+        url.pathname.endsWith("/keys")
+          ? jsonResponse({ agentId: "chief", pubkey: "a".repeat(64) })
+          : jsonResponse({
+              agentId: "chief",
+              config,
+              updatedAt: "2026-08-21T00:00:00.000Z",
+            }),
+      );
+    },
+  });
+  const workspace = account.forWorkspace("workspace-a");
+
+  assert.equal(
+    (await workspace.loadAgentConfig("chief")).config.driver,
+    "codex",
+  );
+  await workspace.saveAgentConfig("chief", config);
+  await workspace.registerAgentKey("chief", "a".repeat(64));
+
+  assert.deepEqual(requests, [
+    {
+      method: "GET",
+      path: "/v1/workspaces/workspace-a/agents/chief/config",
+      body: null,
+    },
+    {
+      method: "POST",
+      path: "/v1/workspaces/workspace-a/agents/chief/config",
+      body: { agentId: "chief", config },
+    },
+    {
+      method: "POST",
+      path: "/v1/workspaces/workspace-a/agents/chief/keys",
+      body: { agentId: "chief", pubkey: "a".repeat(64) },
+    },
+  ]);
+});
+
 void test("renews socket tickets and catches up from the durable cursor after reconnect", async () => {
   const sockets: FakeWebSocket[] = [];
   const eventAfters: number[] = [];

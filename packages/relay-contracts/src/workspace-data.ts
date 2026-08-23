@@ -85,6 +85,41 @@ export const workspaceFilesResultSchema = z
   .object({ files: z.array(workspaceFileSchema) })
   .strict();
 
+export const workspaceFileUpdateSchema = z
+  .object({
+    title: z.string().trim().min(1).max(240),
+    content: z.string().max(200_000),
+    expectedVersion: z.int().positive(),
+  })
+  .strict();
+
+const workspaceFilePathSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(512)
+  .refine(
+    (path) =>
+      !path.startsWith("/") &&
+      !path.includes("\\") &&
+      path
+        .split("/")
+        .every((segment) => segment && segment !== "." && segment !== ".."),
+    "Workspace file paths must be relative and cannot traverse directories.",
+  );
+
+export const workspaceFileSaveSchema = z
+  .object({
+    id: z.string().trim().min(1).max(160).optional(),
+    path: workspaceFilePathSchema,
+    title: z.string().trim().min(1).max(240),
+    mimeType: z.string().trim().min(1).max(128),
+    content: z.string().max(200_000),
+    conversationId: conversationIdSchema,
+    expectedVersion: z.int().positive().optional(),
+  })
+  .strict();
+
 export type BrandProfile = z.infer<typeof brandProfileSchema>;
 export type Prospect = z.infer<typeof prospectSchema>;
 export type WorkspaceFile = z.infer<typeof workspaceFileSchema>;

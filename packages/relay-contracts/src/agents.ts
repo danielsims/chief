@@ -7,6 +7,7 @@ import {
   hexPubkeySchema,
   isoDateTimeSchema,
   jobIdSchema,
+  messageIdSchema,
   workspaceIdSchema,
 } from "./identifiers";
 
@@ -76,6 +77,16 @@ export const defaultAgentConfig = agentConfigSchema.parse({
 
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
 
+export const agentConfigResultSchema = z
+  .object({
+    agentId: agentIdSchema,
+    config: agentConfigSchema,
+    updatedAt: isoDateTimeSchema.nullable(),
+  })
+  .strict();
+
+export type AgentConfigResult = z.infer<typeof agentConfigResultSchema>;
+
 export const agentJobSchema = z.object({
   id: jobIdSchema,
   workspaceId: workspaceIdSchema,
@@ -124,6 +135,28 @@ export const agentJobListSchema = z
   })
   .strict();
 
+/** Logical celld state, deliberately independent of either celld's SQLite
+ * file format or Durable Object SQLite so a cell can move between runtimes. */
+export const agentCellSnapshotSchema = z
+  .object({
+    version: z.literal(1),
+    cellId: z.string().trim().min(3).max(260),
+    workspaceId: workspaceIdSchema,
+    agentId: agentIdSchema,
+    exportedAt: isoDateTimeSchema,
+    records: z
+      .array(
+        z
+          .object({
+            key: z.string().trim().min(1).max(320),
+            value: z.unknown(),
+          })
+          .strict(),
+      )
+      .max(1_000),
+  })
+  .strict();
+
 export const retryAgentJobResultSchema = z
   .object({
     job: agentJobSchema,
@@ -137,9 +170,21 @@ export const claimAgentJobSchema = z
   })
   .strict();
 
+export const renewAgentJobSchema = z
+  .object({
+    leaseToken: z.string().min(32).max(512),
+    leaseSeconds: z.int().min(5).max(300).default(60),
+  })
+  .strict();
+
+export const renewAgentJobResultSchema = z
+  .object({ leaseExpiresAt: isoDateTimeSchema })
+  .strict();
+
 export const agentPublishedMessageSchema = z
   .object({
     conversationId: conversationIdSchema,
+    threadRootId: messageIdSchema.optional(),
     body: z.string().trim().min(1).max(4_000),
     components: z
       .array(
@@ -182,6 +227,13 @@ export const completeAgentJobSchema = z
   })
   .strict();
 
+export const completeAgentJobResultSchema = z
+  .object({
+    job: agentJobSchema,
+    outcome: completeAgentJobSchema.shape.outcome,
+  })
+  .strict();
+
 // Backwards-compatible alias used by the workspace onboarding flow.
 export const workspaceOnboardingResultSchema = z
   .object({
@@ -191,6 +243,10 @@ export const workspaceOnboardingResultSchema = z
   .strict();
 
 export type AgentPublishedMessage = z.infer<typeof agentPublishedMessageSchema>;
+export type AgentJobCompletionResult = z.infer<
+  typeof agentJobCompletionResultSchema
+>;
+export type AgentCellSnapshot = z.infer<typeof agentCellSnapshotSchema>;
 
 export type AgentJob = z.infer<typeof agentJobSchema>;
 export type AgentLease = z.infer<typeof agentLeaseSchema>;

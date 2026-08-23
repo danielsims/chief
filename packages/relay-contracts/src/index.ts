@@ -10,5 +10,6 @@ export * from "./execution";
 export * from "./identifiers";
 export * from "./identity";
 export * from "./messages";
+export * from "./projects";
 export * from "./workspaces";
 export * from "./workspace-data";

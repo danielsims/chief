@@ -15,6 +15,10 @@ export const attachmentUploadResultSchema = z
   })
   .strict();
 
+export const imageAssetDeleteResultSchema = z
+  .object({ deleted: z.boolean() })
+  .strict();
+
 export type AttachmentUploadPayload = z.infer<
   typeof attachmentUploadPayloadSchema
 >;

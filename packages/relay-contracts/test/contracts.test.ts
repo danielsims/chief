@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  agentActivityComponentSchema,
   appendMessageCommandSchema,
   authenticatedIdentitySchema,
   bindDeviceIdentityCommandSchema,
   boundDeviceIdentitySchema,
   eventEnvelopeSchema,
   executionLeaseSchema,
+  messageComponentSchema,
   relativeExecutionPathSchema,
   relayDiscoverySchema,
 } from "../src/index";
@@ -93,6 +95,103 @@ void test("event envelopes require a relay-assigned sequence and actor", () => {
   assert.equal(result.success, false);
 });
 
+void test("activity components round-trip at version one and reject drift", () => {
+  const component = {
+    id: "tool-1",
+    kind: "tool",
+    version: 1,
+    payload: {
+      name: "relay_channels_list",
+      status: "completed",
+      input: "{}",
+      output: '{"channels":[]}',
+      runId: "run-1",
+      jobId: "job-1",
+      providerSessionId: "provider-1",
+    },
+  } as const;
+
+  assert.deepEqual(agentActivityComponentSchema.parse(component), component);
+  assert.equal(
+    agentActivityComponentSchema.safeParse({ ...component, version: 2 })
+      .success,
+    false,
+  );
+  assert.equal(
+    agentActivityComponentSchema.safeParse({
+      ...component,
+      payload: { ...component.payload, status: "invented" },
+    }).success,
+    false,
+  );
+});
+
+void test("plugin recommendation components validate portable placement and version", () => {
+  const component = {
+    id: "plugin-card-1",
+    kind: "plugin.recommendation",
+    version: 1,
+    payload: {
+      workspaceId: "workspace-1",
+      conversationId: "advertising",
+      agentId: "ads",
+      pluginId: "google-ads",
+      name: "Google Ads",
+      description: "Manage paid acquisition campaigns.",
+      category: "Advertising",
+      sourceType: "discovery",
+      status: "available",
+      enabled: false,
+      trusted: false,
+      domain: "ads.google.com",
+    },
+  } as const;
+
+  assert.deepEqual(messageComponentSchema.parse(component), component);
+  assert.equal(
+    messageComponentSchema.safeParse({ ...component, version: 2 }).success,
+    false,
+  );
+  assert.equal(
+    messageComponentSchema.safeParse({
+      ...component,
+      payload: { ...component.payload, workspaceId: "wrong/workspace" },
+    }).success,
+    false,
+  );
+});
+
+void test("plugin authorization components reject unsafe callback URLs", () => {
+  const component = {
+    id: "plugin-auth-1",
+    kind: "plugin.authorization",
+    version: 1,
+    payload: {
+      workspaceId: "workspace-1",
+      conversationId: "advertising",
+      agentId: "ads",
+      pluginId: "google-ads",
+      pluginName: "Google Ads",
+      description: "Authorize Google Ads.",
+      provider: "ads.google.com",
+      authorizationUrl: "javascript:alert(1)",
+      status: "authorization_required",
+    },
+  } as const;
+
+  assert.equal(messageComponentSchema.safeParse(component).success, false);
+  assert.equal(
+    messageComponentSchema.safeParse({
+      ...component,
+      payload: {
+        ...component.payload,
+        authorizationUrl: "https://accounts.google.com/o/oauth2/auth",
+      },
+    }).success,
+    true,
+  );
+});
+
 void test("relay discovery is portable across hosting providers", () => {
   const discovery = relayDiscoverySchema.parse({
     protocol: "chief-relay",
@@ -132,6 +231,22 @@ void test("OpenAPI documents idempotent message append", () => {
     path.post.responses["200"].description,
     /Duplicate command ids/u,
   );
+});
+
+void test("OpenAPI documents durable reactions, files, and projects", () => {
+  const paths = createRelayOpenApiDocument("https://relay.example.com").paths;
+  const reactions =
+    paths[
+      "/v1/workspaces/{workspaceId}/conversations/{conversationId}/messages/{messageId}/reactions"
+    ];
+  const files = paths["/v1/workspaces/{workspaceId}/files"];
+  const projects = paths["/v1/workspaces/{workspaceId}/projects"];
+
+  assert.equal(reactions.get.operationId, "listMessageReactions");
+  assert.equal(reactions.post.operationId, "addMessageReaction");
+  assert.equal(reactions.delete.operationId, "removeMessageReaction");
+  assert.equal(files.post.operationId, "saveWorkspaceFile");
+  assert.equal(projects.post.operationId, "createProject");
 });
 
 void test("executor paths cannot escape their lease root", () => {

@@ -1,27 +1,27 @@
 import type {
+  AgentConfig,
+  AgentConfigResult,
+  AgentLease,
   AppendMessageCommand,
   AppendMessageResult,
   ChannelMember,
   ChannelMembership,
-  ChannelRecord,
   ConversationEvent,
-  CreateWorkspaceCommand,
   DirectParticipant,
   DirectStartResult,
   LogBatch,
   LogPage,
-  RelayDiscovery,
+  MessageComponent,
+  RegisterAgentKeyResult,
   WorkspaceId,
-  WorkspaceInvite,
-  WorkspaceInviteClaimResult,
-  WorkspaceSnapshot,
-  WorkspaceSummary,
 } from "@chief/relay-contracts";
 import {
+  agentConfigResultSchema,
+  agentLeaseSchema,
   appendMessageResultSchema,
-  channelListResultSchema,
   channelMembershipsResultSchema,
   channelMembersResultSchema,
+  completeAgentJobResultSchema,
   conversationEventPageSchema,
   conversationIdSchema,
   directStartCommandSchema,
@@ -29,184 +29,35 @@ import {
   logPageSchema,
   logReceiptSchema,
   messagePageSchema,
-  relayDiscoverySchema,
+  reactToMessageResultSchema,
+  registerAgentKeyResultSchema,
+  renewAgentJobResultSchema,
   socketTicketSchema,
-  workspaceDeleteResultSchema,
-  workspaceIdSchema,
-  workspaceInviteClaimResultSchema,
-  workspaceInviteSchema,
-  workspaceListResultSchema,
-  workspaceSnapshotSchema,
+  upsertAgentActivityResultSchema,
   workspaceSocketTicketSchema,
-  workspaceSwitchResultSchema,
 } from "@chief/relay-contracts";
 
+import type { RelayClientOptions } from "./relay-client-options";
 import type { RelayConversationSubscription } from "./relay-subscription";
 import type { RelayWorkspaceSubscription } from "./relay-workspace-subscription";
+import { RelayClientBase } from "./relay-client-base";
+import { RelayClientError } from "./relay-client-error";
 import { openRelayConversationSubscription } from "./relay-subscription";
 import { openRelayWorkspaceSubscription } from "./relay-workspace-subscription";
 
-export interface RelayClientOptions {
-  relayUrl: string;
-  workspaceId?: WorkspaceId | string;
-  getAuthorization?: (request: {
-    url: string;
-    method: string;
-    body: string;
-  }) => Promise<string>;
-  getDeviceAuthorization?: () =>
-    string | undefined | Promise<string | undefined>;
-  fetch?: typeof globalThis.fetch;
-  createWebSocket?: (url: string) => WebSocket;
-}
+export type { RelayClientOptions } from "./relay-client-options";
+export { RelayClientError } from "./relay-client-error";
 
 export type ConversationSubscription = RelayConversationSubscription;
 export type WorkspaceSubscription = RelayWorkspaceSubscription;
 
-export class RelayClient {
-  readonly workspaceId: WorkspaceId | null;
-  private readonly relayUrl: string;
-  private readonly fetcher: typeof globalThis.fetch;
-  private readonly createWebSocket: (url: string) => WebSocket;
-  private discoveryRequest: Promise<RelayDiscovery> | null = null;
-
-  constructor(private readonly options: RelayClientOptions) {
-    this.workspaceId = options.workspaceId
-      ? workspaceIdSchema.parse(options.workspaceId)
-      : null;
-    this.relayUrl = normalizedOrigin(options.relayUrl);
-    this.fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
-    this.createWebSocket =
-      options.createWebSocket ?? ((url) => new WebSocket(url));
+export class RelayClient extends RelayClientBase {
+  constructor(options: RelayClientOptions) {
+    super(options);
   }
 
-  discovery() {
-    this.discoveryRequest ??= this.fetchJson(
-      `${this.relayUrl}/.well-known/chief-relay`,
-      relayDiscoverySchema,
-      false,
-    );
-    return this.discoveryRequest;
-  }
-
-  activeWorkspace(): Promise<WorkspaceSnapshot> {
-    return this.fetchJson(
-      new URL("/v1/me/workspace", this.relayUrl),
-      workspaceSnapshotSchema,
-    );
-  }
-
-  async listWorkspaces(): Promise<WorkspaceSummary[]> {
-    return (
-      await this.fetchJson(
-        new URL("/v1/workspaces", this.relayUrl),
-        workspaceListResultSchema,
-      )
-    ).workspaces;
-  }
-
-  async createWorkspace(command: CreateWorkspaceCommand) {
-    return await this.fetchJson(
-      new URL("/v1/workspaces", this.relayUrl),
-      workspaceSnapshotSchema,
-      true,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(command),
-      },
-    );
-  }
-
-  async switchWorkspace(workspaceId: WorkspaceId | string) {
-    const id = workspaceIdSchema.parse(workspaceId);
-    return await this.fetchJson(
-      new URL(`/v1/workspaces/${encodeURIComponent(id)}/switch`, this.relayUrl),
-      workspaceSwitchResultSchema,
-      true,
-      { method: "POST" },
-    );
-  }
-
-  async deleteWorkspace(workspaceId: WorkspaceId | string) {
-    const id = workspaceIdSchema.parse(workspaceId);
-    return await this.fetchJson(
-      new URL(`/v1/workspaces/${encodeURIComponent(id)}`, this.relayUrl),
-      workspaceDeleteResultSchema,
-      true,
-      { method: "DELETE" },
-    );
-  }
-
-  async createWorkspaceInvite(input: {
-    secret: string;
-    conversationId?: string | null;
-    expiresAt: string;
-  }): Promise<WorkspaceInvite> {
-    return await this.fetchJson(
-      this.workspaceUrl("invites"),
-      workspaceInviteSchema,
-      true,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          commandId: crypto.randomUUID(),
-          secret: input.secret,
-          conversationId: input.conversationId ?? null,
-          expiresAt: input.expiresAt,
-        }),
-      },
-    );
-  }
-
-  async previewWorkspaceInvite(
-    workspaceId: WorkspaceId | string,
-    secret: string,
-  ): Promise<WorkspaceInvite> {
-    const id = workspaceIdSchema.parse(workspaceId);
-    return await this.fetchJson(
-      new URL(
-        `/v1/workspaces/${encodeURIComponent(id)}/invites/preview`,
-        this.relayUrl,
-      ),
-      workspaceInviteSchema,
-      false,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ secret }),
-      },
-    );
-  }
-
-  async claimWorkspaceInvite(
-    workspaceId: WorkspaceId | string,
-    secret: string,
-  ): Promise<WorkspaceInviteClaimResult> {
-    const id = workspaceIdSchema.parse(workspaceId);
-    return await this.fetchJson(
-      new URL(
-        `/v1/workspaces/${encodeURIComponent(id)}/invites/claim`,
-        this.relayUrl,
-      ),
-      workspaceInviteClaimResultSchema,
-      true,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ commandId: crypto.randomUUID(), secret }),
-      },
-    );
-  }
-
-  async listChannels(): Promise<ChannelRecord[]> {
-    return (
-      await this.fetchJson(
-        this.workspaceUrl("channels"),
-        channelListResultSchema,
-      )
-    ).channels;
+  forWorkspace(workspaceId: WorkspaceId | string) {
+    return new RelayClient({ ...this.options, workspaceId });
   }
 
   async listChannelMembers(conversationId: string): Promise<ChannelMember[]> {
@@ -243,10 +94,113 @@ export class RelayClient {
         body: JSON.stringify(
           directStartCommandSchema.parse({
             commandId: crypto.randomUUID(),
-            participant,
+            protocolVersion: 1,
+            occurredAt: new Date().toISOString(),
+            payload: { participant },
           }),
         ),
       },
+    );
+  }
+
+  async loadAgentConfig(agentId: string): Promise<AgentConfigResult> {
+    return await this.fetchJson(
+      this.workspaceUrl(`agents/${encodeURIComponent(agentId)}/config`),
+      agentConfigResultSchema,
+    );
+  }
+
+  async saveAgentConfig(
+    agentId: string,
+    config: AgentConfig,
+  ): Promise<AgentConfigResult> {
+    return await this.fetchJson(
+      this.workspaceUrl(`agents/${encodeURIComponent(agentId)}/config`),
+      agentConfigResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentId, config }),
+      },
+    );
+  }
+
+  async registerAgentKey(
+    agentId: string,
+    pubkey: string,
+  ): Promise<RegisterAgentKeyResult> {
+    return await this.fetchJson(
+      this.workspaceUrl(`agents/${encodeURIComponent(agentId)}/keys`),
+      registerAgentKeyResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentId, pubkey }),
+      },
+    );
+  }
+
+  async claimAgentJob(
+    agentId: string,
+    workerId: string,
+    leaseSeconds = 300,
+  ): Promise<AgentLease | null> {
+    const url = this.workspaceUrl(
+      `agents/${encodeURIComponent(agentId)}/jobs/claim`,
+    );
+    const body = JSON.stringify({ workerId, leaseSeconds });
+    const response = await this.fetchResponse(url, true, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    if (response.status === 204) return null;
+    if (!response.ok) throw await RelayClientError.fromResponse(response);
+    return agentLeaseSchema.parse(await response.json());
+  }
+
+  async completeAgentJob(
+    agentId: string,
+    command: {
+      leaseToken: string;
+      outcome:
+        | { status: "completed"; result?: Record<string, unknown> }
+        | { status: "failed"; error: string; retryAt?: string };
+    },
+  ) {
+    return await this.fetchJson(
+      this.workspaceUrl(`agents/${encodeURIComponent(agentId)}/jobs/complete`),
+      completeAgentJobResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(command),
+      },
+    );
+  }
+
+  async renewAgentJob(agentId: string, leaseToken: string, leaseSeconds = 300) {
+    return await this.fetchJson(
+      this.workspaceUrl(`agents/${encodeURIComponent(agentId)}/jobs/renew`),
+      renewAgentJobResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ leaseToken, leaseSeconds }),
+      },
+    );
+  }
+
+  async createAgentMailboxTicket(agentId: string) {
+    return await this.fetchJson(
+      this.workspaceUrl(`agents/${encodeURIComponent(agentId)}/socket-tickets`),
+      socketTicketSchema,
+      true,
+      { method: "POST" },
     );
   }
 
@@ -266,6 +220,52 @@ export class RelayClient {
     const url = this.conversationUrl(conversationId, "messages");
     appendPageQuery(url, input);
     return this.fetchJson(url, messagePageSchema);
+  }
+
+  async listThreadReplies(
+    conversationId: string,
+    rootMessageId: string,
+    input: { after?: number; limit?: number } = {},
+  ) {
+    const root = encodeURIComponent(rootMessageId);
+    const url = this.conversationUrl(
+      conversationId,
+      `messages/${root}/replies`,
+    );
+    appendPageQuery(url, input);
+    return this.fetchJson(url, messagePageSchema);
+  }
+
+  async searchMessages(
+    conversationId: string,
+    query: string,
+    input: { limit?: number } = {},
+  ) {
+    const url = this.conversationUrl(conversationId, "messages");
+    url.searchParams.set("q", query.trim());
+    appendPageQuery(url, input);
+    return this.fetchJson(url, messagePageSchema);
+  }
+
+  async reactToMessage(
+    conversationId: string,
+    messageId: string,
+    emoji: string,
+    add: boolean,
+  ) {
+    return await this.fetchJson(
+      this.conversationUrl(
+        conversationId,
+        `messages/${encodeURIComponent(messageId)}/reactions`,
+      ),
+      reactToMessageResultSchema,
+      true,
+      {
+        method: add ? "POST" : "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messageId, emoji }),
+      },
+    );
   }
 
   async listEvents(
@@ -289,6 +289,29 @@ export class RelayClient {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(command),
+      },
+    );
+  }
+
+  async upsertAgentActivity(
+    conversationId: string,
+    input: {
+      messageId: string;
+      threadRootId?: string;
+      component: MessageComponent;
+    },
+  ) {
+    return await this.fetchJson(
+      this.conversationUrl(
+        conversationId,
+        `messages/${encodeURIComponent(input.messageId)}/activity`,
+      ),
+      upsertAgentActivityResultSchema,
+      true,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...input, conversationId }),
       },
     );
   }
@@ -370,88 +393,6 @@ export class RelayClient {
       onError: input.onError,
     });
   }
-
-  private conversationUrl(conversationId: string, resource: string) {
-    const workspaceId = this.requireWorkspaceId();
-    const conversation = conversationIdSchema.parse(conversationId);
-    return new URL(
-      `/v1/workspaces/${encodeURIComponent(workspaceId)}/conversations/${encodeURIComponent(conversation)}/${resource}`,
-      this.relayUrl,
-    );
-  }
-
-  private workspaceUrl(resource: string) {
-    const workspaceId = this.requireWorkspaceId();
-    return new URL(
-      `/v1/workspaces/${encodeURIComponent(workspaceId)}/${resource}`,
-      this.relayUrl,
-    );
-  }
-
-  private requireWorkspaceId() {
-    if (!this.workspaceId) {
-      throw new Error("Choose a workspace before using workspace resources.");
-    }
-    return this.workspaceId;
-  }
-
-  private async fetchJson<T>(
-    url: URL | string,
-    schema: { parse: (value: unknown) => T },
-    authenticated = true,
-    init: RequestInit = {},
-  ) {
-    const headers = new Headers(init.headers);
-    if (authenticated) {
-      const method = init.method?.toUpperCase() ?? "GET";
-      const body = typeof init.body === "string" ? init.body : "";
-      if (!this.options.getAuthorization) {
-        throw new Error("Relay authorization is not configured.");
-      }
-      const authorization = await this.options.getAuthorization({
-        url: url.toString(),
-        method,
-        body,
-      });
-      headers.set("authorization", authorization);
-      const deviceAuthorization = await this.options.getDeviceAuthorization?.();
-      if (deviceAuthorization) {
-        headers.set("x-chief-device-authorization", deviceAuthorization);
-      }
-    }
-    const response = await this.fetcher(url, { ...init, headers });
-    if (!response.ok) throw await RelayClientError.fromResponse(response);
-    return schema.parse(await response.json());
-  }
-}
-
-export class RelayClientError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly code?: string,
-  ) {
-    super(message);
-  }
-
-  static async fromResponse(response: Response) {
-    const body = (await response.json().catch(() => null)) as {
-      error?: { code?: string; message?: string };
-    } | null;
-    return new RelayClientError(
-      body?.error?.message ?? `Relay request failed with ${response.status}.`,
-      response.status,
-      body?.error?.code,
-    );
-  }
-}
-
-function normalizedOrigin(value: string) {
-  const url = new URL(value);
-  url.pathname = "/";
-  url.search = "";
-  url.hash = "";
-  return url.toString().replace(/\/$/u, "");
 }
 
 function appendPageQuery(url: URL, input: { after?: number; limit?: number }) {

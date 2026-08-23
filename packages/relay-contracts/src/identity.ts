@@ -45,6 +45,12 @@ export const registerAgentKeyCommandSchema = z
   })
   .strict();
 
+export const registerAgentKeyResultSchema = registerAgentKeyCommandSchema;
+
+export type RegisterAgentKeyResult = z.infer<
+  typeof registerAgentKeyResultSchema
+>;
+
 export const userPrincipalSchema = z.object({
   kind: z.literal("user"),
   userId: userIdSchema,

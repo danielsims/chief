@@ -11,6 +11,9 @@ import {
   editMessageCommandSchema,
   editMessageResultSchema,
   messagePageSchema,
+  messageReactionsResultSchema,
+  reactToMessagePayloadSchema,
+  reactToMessageResultSchema,
   socketTicketSchema,
 } from "./messages";
 import {
@@ -297,6 +300,80 @@ export const coreOpenApiPaths = {
           "401": errorResponse,
           "403": errorResponse,
           "404": errorResponse,
+        },
+      },
+    },
+  "/v1/workspaces/{workspaceId}/conversations/{conversationId}/messages/{messageId}/reactions":
+    {
+      get: {
+        operationId: "listMessageReactions",
+        parameters: [
+          pathParameter("workspaceId"),
+          pathParameter("conversationId"),
+          pathParameter("messageId"),
+        ],
+        responses: {
+          "200": jsonResponse(
+            "The durable reactions folded onto this message.",
+            messageReactionsResultSchema,
+          ),
+          "401": errorResponse,
+          "403": errorResponse,
+          "404": errorResponse,
+        },
+      },
+      post: {
+        operationId: "addMessageReaction",
+        parameters: [
+          pathParameter("workspaceId"),
+          pathParameter("conversationId"),
+          pathParameter("messageId"),
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: jsonSchema(reactToMessagePayloadSchema),
+            },
+          },
+        },
+        responses: {
+          "200": jsonResponse(
+            "The message with its durable reaction aggregate.",
+            reactToMessageResultSchema,
+          ),
+          "400": errorResponse,
+          "401": errorResponse,
+          "403": errorResponse,
+          "404": errorResponse,
+          "409": errorResponse,
+        },
+      },
+      delete: {
+        operationId: "removeMessageReaction",
+        parameters: [
+          pathParameter("workspaceId"),
+          pathParameter("conversationId"),
+          pathParameter("messageId"),
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: jsonSchema(reactToMessagePayloadSchema),
+            },
+          },
+        },
+        responses: {
+          "200": jsonResponse(
+            "The message after removing the durable reaction.",
+            reactToMessageResultSchema,
+          ),
+          "400": errorResponse,
+          "401": errorResponse,
+          "403": errorResponse,
+          "404": errorResponse,
+          "409": errorResponse,
         },
       },
     },
