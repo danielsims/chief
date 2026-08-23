@@ -54,7 +54,28 @@ export function createChiefAuth(
       bearer(),
       organization({
         allowUserToCreateOrganization: false,
-        invitationLimit: 0,
+        invitationExpiresIn: 60 * 60 * 24 * 7,
+        invitationLimit: 100,
+        requireEmailVerificationOnInvitation: true,
+        ...(options.sendOrganizationInvitation
+          ? {
+              sendInvitationEmail: async (invitation) => {
+                await options.sendOrganizationInvitation?.({
+                  email: invitation.email,
+                  id: invitation.id,
+                  inviter: {
+                    email: invitation.inviter.user.email,
+                    name: invitation.inviter.user.name,
+                  },
+                  organization: {
+                    id: invitation.organization.id,
+                    name: invitation.organization.name,
+                  },
+                  role: invitation.role,
+                });
+              },
+            }
+          : {}),
       }),
       jwt({
         jwt: {
