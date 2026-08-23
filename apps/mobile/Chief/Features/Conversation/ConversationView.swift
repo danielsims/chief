@@ -247,8 +247,8 @@ struct ConversationView: View {
           mentions: mentions,
           components: components
         )
-        model.conversations.merge(message)
         sentMessageIDs.insert(message.id)
+        model.conversations.merge(message)
         print(
           "[Chief] sent message to \(conversationID) mentions=\(mentions) "
             + "wake=\(shouldWakeAgent) attachments=\(pendingAttachments.count)"
