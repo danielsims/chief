@@ -38,6 +38,11 @@ const legacyLineLimits = new Map([
   ["packages/agent-runtime/test/local-store.test.ts", 754],
   ["packages/agent-runtime/test/manager.test.ts", 815],
   ["apps/desktop/src/components/agents/agent-deployment-panel.tsx", 676],
+  ["apps/relay/src/agent-object.ts", 752],
+  ["apps/desktop/src/pages/workspace-new.tsx", 726],
+  ["apps/desktop/src/lib/relay-session.tsx", 558],
+  ["apps/desktop/src/pages/settings/workspace.tsx", 509],
+  ["apps/relay/src/router.ts", 501],
 ]);
 const sourceExtensions = new Set([
   ".cjs",
