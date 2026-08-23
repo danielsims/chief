@@ -14,6 +14,10 @@ struct ConversationTranscriptView: View {
 
   @State private var threadRoot: ConversationMessage?
   @State private var editTarget: ConversationMessage?
+  @State private var isNearLatest = true
+  @State private var hasPositionedInitially = false
+
+  private var latestAnchorID: String { "conversation-latest-\(conversationID)" }
 
   var body: some View {
     ScrollViewReader { proxy in
@@ -30,16 +34,40 @@ struct ConversationTranscriptView: View {
               placement: .inline
             )
           }
+          Color.clear
+            .frame(height: 1)
+            .id(latestAnchorID)
         }
         .animation(.easeOut(duration: 0.3), value: messages.map(\.id))
         .padding(ChiefTheme.pagePadding)
       }
+      .defaultScrollAnchor(.bottom)
       .scrollDismissesKeyboard(.interactively)
       .simultaneousGesture(TapGesture().onEnded { KeyboardDismissal.dismiss() })
       .refreshable { await reload() }
+      .onScrollGeometryChange(for: Bool.self) { geometry in
+        Self.isNearLatest(geometry)
+      } action: { _, nearLatest in
+        isNearLatest = nearLatest
+      }
       .onChange(of: messages.map(\.id)) { _, messageIDs in
         handleMessageChanges(messageIDs, scrollProxy: proxy)
       }
+      .task(id: conversationID) {
+        await Task.yield()
+        scrollToLatest(using: proxy, animated: false)
+        hasPositionedInitially = true
+      }
+      .overlay(alignment: .bottom) {
+        if hasPositionedInitially && !isNearLatest {
+          ScrollToLatestButton {
+            scrollToLatest(using: proxy, animated: true)
+          }
+          .padding(.bottom, 12)
+          .transition(.opacity.combined(with: .scale(scale: 0.9)))
+        }
+      }
+      .animation(.easeOut(duration: 0.18), value: isNearLatest)
     }
     .navigationDestination(
       isPresented: Binding(
@@ -112,13 +140,51 @@ struct ConversationTranscriptView: View {
     scrollProxy: ScrollViewProxy
   ) {
     let currentIDs = Set(messageIDs)
+    let shouldFollowLatest =
+      isNearLatest || messageIDs.last.map(sentMessageIDs.contains) == true
     seenMessageIDs = currentIDs
     sentMessageIDs.formIntersection(currentIDs)
 
-    if let last = messages.last {
-      withAnimation(.easeOut(duration: 0.25)) {
-        scrollProxy.scrollTo(last.id, anchor: .bottom)
-      }
+    if shouldFollowLatest {
+      scrollToLatest(using: scrollProxy, animated: true)
     }
+  }
+
+  private func scrollToLatest(using proxy: ScrollViewProxy, animated: Bool) {
+    isNearLatest = true
+    let scroll = {
+      proxy.scrollTo(latestAnchorID, anchor: .bottom)
+    }
+    if animated {
+      withAnimation(.easeOut(duration: 0.25), scroll)
+    } else {
+      scroll()
+    }
+  }
+
+  private static func isNearLatest(_ geometry: ScrollGeometry) -> Bool {
+    geometry.contentSize.height <= geometry.containerSize.height
+      || geometry.visibleRect.maxY >= geometry.contentSize.height - 80
+  }
+}
+
+struct ScrollToLatestButton: View {
+  let action: () -> Void
+
+  var body: some View {
+    Button {
+      Haptics.selection()
+      action()
+    } label: {
+      Image(systemName: "arrow.down")
+        .font(.system(size: 15, weight: .semibold))
+        .foregroundStyle(ChiefTheme.secondary)
+        .frame(width: 40, height: 40)
+        .background(ChiefTheme.surface, in: Circle())
+        .overlay { Circle().stroke(ChiefTheme.line) }
+        .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Scroll to latest")
   }
 }

@@ -18,6 +18,11 @@ struct ThreadView: View {
   @State private var isJoining = false
   @State private var accessError: String?
   @State private var channelAgentIDs: [String] = []
+  @State private var isNearLatest = true
+  @State private var sentReplyIDs: Set<String> = []
+  @State private var hasPositionedInitially = false
+
+  private var latestAnchorID: String { "thread-latest-\(root.id)" }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -144,19 +149,64 @@ struct ThreadView: View {
             agents: workingAgents,
             placement: .inline
           )
+
+          Color.clear
+            .frame(height: 1)
+            .id(latestAnchorID)
         }
         .animation(.easeOut(duration: 0.3), value: replies.map(\.id))
         .padding(ChiefTheme.pagePadding)
       }
+      .defaultScrollAnchor(.bottom)
       .scrollDismissesKeyboard(.interactively)
       .simultaneousGesture(TapGesture().onEnded { KeyboardDismissal.dismiss() })
-      .onChange(of: replies.map(\.id)) { _, _ in
-        guard let last = replies.last else { return }
-        withAnimation(.easeOut(duration: 0.25)) {
-          proxy.scrollTo(last.id, anchor: .bottom)
+      .onScrollGeometryChange(for: Bool.self) { geometry in
+        Self.isNearLatest(geometry)
+      } action: { _, nearLatest in
+        isNearLatest = nearLatest
+      }
+      .onChange(of: replies.map(\.id)) { _, replyIDs in
+        let currentIDs = Set(replyIDs)
+        let shouldFollowLatest =
+          isNearLatest || replyIDs.last.map(sentReplyIDs.contains) == true
+        sentReplyIDs.formIntersection(currentIDs)
+        if shouldFollowLatest {
+          scrollToLatest(using: proxy, animated: true)
         }
       }
+      .task(id: root.id) {
+        await Task.yield()
+        scrollToLatest(using: proxy, animated: false)
+        hasPositionedInitially = true
+      }
+      .overlay(alignment: .bottom) {
+        if hasPositionedInitially && !isNearLatest {
+          ScrollToLatestButton {
+            scrollToLatest(using: proxy, animated: true)
+          }
+          .padding(.bottom, 12)
+          .transition(.opacity.combined(with: .scale(scale: 0.9)))
+        }
+      }
+      .animation(.easeOut(duration: 0.18), value: isNearLatest)
     }
+  }
+
+  private func scrollToLatest(using proxy: ScrollViewProxy, animated: Bool) {
+    isNearLatest = true
+    let scroll = {
+      proxy.scrollTo(latestAnchorID, anchor: .bottom)
+    }
+    if animated {
+      withAnimation(.easeOut(duration: 0.25), scroll)
+    } else {
+      scroll()
+    }
+  }
+
+  private static func isNearLatest(_ geometry: ScrollGeometry) -> Bool {
+    geometry.contentSize.height <= geometry.containerSize.height
+      || geometry.visibleRect.maxY >= geometry.contentSize.height - 80
   }
 
   private var replies: [ConversationMessage] {
@@ -237,6 +287,7 @@ struct ThreadView: View {
           mentions: mentions,
           components: components
         )
+        sentReplyIDs.insert(message.id)
         model.conversations.merge(message)
         // The relay queues the addressed cell once; the live mailbox owns it.
       } catch {
