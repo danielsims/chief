@@ -5,9 +5,15 @@ use k256::{
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+};
 
 const KEYCHAIN_SERVICE: &str = "com.danielsims.chief.relay";
 const KEYCHAIN_ACCOUNT: &str = "device-nip98-private-key-v1";
+const AGENT_KEYCHAIN_SERVICE: &str = "com.danielsims.chief.agent-identity";
+const KEYCHAIN_ITEM_NOT_FOUND: i32 = -25_300;
 const NIP98_KIND: u32 = 27_235;
 
 #[derive(Serialize)]
@@ -22,13 +28,24 @@ struct Nip98Event {
 }
 
 fn signing_key() -> Result<SigningKey, String> {
+    static SIGNING_KEY: OnceLock<Result<SigningKey, String>> = OnceLock::new();
+    SIGNING_KEY.get_or_init(load_signing_key).clone()
+}
+
+fn load_signing_key() -> Result<SigningKey, String> {
     #[cfg(target_os = "macos")]
     {
         use security_framework::passwords::{get_generic_password, set_generic_password};
 
-        if let Ok(value) = get_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) {
-            return SigningKey::from_bytes(&value)
-                .map_err(|_| "Chief's saved relay device key is invalid.".to_string());
+        match get_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) {
+            Ok(value) => {
+                return SigningKey::from_bytes(&value)
+                    .map_err(|_| "Chief's saved relay device key is invalid.".to_string())
+            }
+            Err(error) if error.code() == KEYCHAIN_ITEM_NOT_FOUND => {}
+            Err(_) => {
+                return Err("Chief could not read its relay device key from Keychain.".to_string())
+            }
         }
         let generated = SigningKey::random(&mut OsRng);
         set_generic_password(
@@ -46,6 +63,95 @@ fn signing_key() -> Result<SigningKey, String> {
     }
 }
 
+pub(crate) fn agent_signing_key(
+    relay_url: &str,
+    workspace_id: &str,
+    agent_id: &str,
+) -> Result<SigningKey, String> {
+    validate_relay_url(relay_url)?;
+    validate_identifier(workspace_id, "workspace")?;
+    validate_identifier(agent_id, "agent")?;
+
+    #[cfg(target_os = "macos")]
+    {
+        static AGENT_KEYS: OnceLock<Mutex<HashMap<String, Result<SigningKey, String>>>> =
+            OnceLock::new();
+        let account = agent_keychain_account(relay_url, workspace_id, agent_id);
+        let mut keys = AGENT_KEYS
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .map_err(|_| "Chief could not access its cached agent identities.".to_string())?;
+        if let Some(key) = keys.get(&account) {
+            return key.clone();
+        }
+        let key = load_agent_signing_key(&account);
+        keys.insert(account, key.clone());
+        return key;
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Secure agent identities are not available on this platform yet.".to_string())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn load_agent_signing_key(account: &str) -> Result<SigningKey, String> {
+    use security_framework::passwords::{get_generic_password, set_generic_password};
+
+    match get_generic_password(AGENT_KEYCHAIN_SERVICE, account) {
+        Ok(value) => {
+            return SigningKey::from_bytes(&value)
+                .map_err(|_| "Chief's saved agent identity is invalid.".to_string())
+        }
+        Err(error) if error.code() == KEYCHAIN_ITEM_NOT_FOUND => {}
+        Err(_) => return Err("Chief could not read the agent identity from Keychain.".to_string()),
+    }
+    let generated = SigningKey::random(&mut OsRng);
+    set_generic_password(
+        AGENT_KEYCHAIN_SERVICE,
+        account,
+        generated.to_bytes().as_slice(),
+    )
+    .map_err(|_| "Chief could not save the agent identity in Keychain.".to_string())?;
+    Ok(generated)
+}
+
+fn agent_keychain_account(relay_url: &str, workspace_id: &str, agent_id: &str) -> String {
+    let scope = format!(
+        "{}\0{}\0{}",
+        normalized_relay_origin(relay_url),
+        workspace_id,
+        agent_id
+    );
+    format!(
+        "agent-nip98-private-key-v1-{}",
+        hex::encode(Sha256::digest(scope.as_bytes()))
+    )
+}
+
+fn normalized_relay_origin(value: &str) -> String {
+    let Ok(mut parsed) = url::Url::parse(value) else {
+        return value.to_string();
+    };
+    parsed.set_path("/");
+    parsed.set_query(None);
+    parsed.set_fragment(None);
+    parsed.to_string().trim_end_matches('/').to_string()
+}
+
+pub(crate) fn validate_identifier(value: &str, label: &str) -> Result<(), String> {
+    if value.is_empty()
+        || value.len() > 128
+        || !value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
+        })
+    {
+        return Err(format!("The {label} identifier is invalid."));
+    }
+    Ok(())
+}
+
 fn public_key_hex(key: &SigningKey) -> String {
     hex::encode(key.verifying_key().to_bytes())
 }
@@ -53,6 +159,15 @@ fn public_key_hex(key: &SigningKey) -> String {
 #[tauri::command]
 pub fn relay_public_key() -> Result<String, String> {
     signing_key().map(|key| public_key_hex(&key))
+}
+
+#[tauri::command]
+pub fn relay_agent_public_key(
+    relay_url: String,
+    workspace_id: String,
+    agent_id: String,
+) -> Result<String, String> {
+    agent_signing_key(&relay_url, &workspace_id, &agent_id).map(|key| public_key_hex(&key))
 }
 
 #[tauri::command]
@@ -107,7 +222,7 @@ pub fn relay_nip98_authorization(
     Ok(format!("Nostr {}", BASE64.encode(json)))
 }
 
-fn validate_relay_url(value: &str) -> Result<url::Url, String> {
+pub(crate) fn validate_relay_url(value: &str) -> Result<url::Url, String> {
     let parsed = url::Url::parse(value).map_err(|_| "The relay URL is invalid.".to_string())?;
     let loopback = match parsed.host() {
         Some(url::Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),
@@ -123,9 +238,17 @@ fn validate_relay_url(value: &str) -> Result<url::Url, String> {
     Ok(parsed)
 }
 
+pub(crate) fn agent_private_key_hex(
+    relay_url: &str,
+    workspace_id: &str,
+    agent_id: &str,
+) -> Result<String, String> {
+    agent_signing_key(relay_url, workspace_id, agent_id).map(|key| hex::encode(key.to_bytes()))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::validate_relay_url;
+    use super::{agent_keychain_account, validate_identifier, validate_relay_url};
 
     #[test]
     fn accepts_https_and_loopback_http() {
@@ -139,5 +262,25 @@ mod tests {
     fn rejects_insecure_or_non_http_urls() {
         assert!(validate_relay_url("http://relay.example/v1/workspaces").is_err());
         assert!(validate_relay_url("file:///tmp/relay").is_err());
+    }
+
+    #[test]
+    fn scopes_agent_keys_to_relay_workspace_and_agent() {
+        let chief = agent_keychain_account("https://relay.example/path", "workspace-a", "chief");
+        let repeated = agent_keychain_account("https://relay.example", "workspace-a", "chief");
+        let engineer = agent_keychain_account("https://relay.example", "workspace-a", "engineer");
+        let other_workspace =
+            agent_keychain_account("https://relay.example", "workspace-b", "chief");
+        assert_eq!(chief, repeated);
+        assert_eq!(chief.len(), "agent-nip98-private-key-v1-".len() + 64);
+        assert_ne!(chief, engineer);
+        assert_ne!(chief, other_workspace);
+    }
+
+    #[test]
+    fn validates_agent_key_scope_identifiers() {
+        assert!(validate_identifier("workspace-a", "workspace").is_ok());
+        assert!(validate_identifier("engineer", "agent").is_ok());
+        assert!(validate_identifier("../other", "agent").is_err());
     }
 }

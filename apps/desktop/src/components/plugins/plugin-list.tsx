@@ -270,7 +270,12 @@ export function PluginList({ plugins }: { plugins: PluginRuntimeState }) {
         setTrustCandidate(plugin);
         return;
       }
-      void run(() => plugins.install(plugin.id, true));
+      void run(async () => {
+        const installed = await plugins.install(plugin.id, true);
+        if (installed?.status === "authorization_required") {
+          await plugins.authorize(plugin.id);
+        }
+      });
     },
     [plugins, run],
   );
@@ -441,7 +446,12 @@ export function PluginList({ plugins }: { plugins: PluginRuntimeState }) {
           if (!trustCandidate) return;
           const plugin = trustCandidate;
           setTrustCandidate(null);
-          void run(() => plugins.install(plugin.id, true));
+          void run(async () => {
+            const installed = await plugins.install(plugin.id, true);
+            if (installed?.status === "authorization_required") {
+              await plugins.authorize(plugin.id);
+            }
+          });
         }}
       />
     </>

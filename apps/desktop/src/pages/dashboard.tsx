@@ -41,10 +41,6 @@ import {
 import { PageTitle } from "../components/page-title";
 import { setAgentOverride, setWorkspaceProvider } from "../lib/agent-overrides";
 import { useAuth } from "../lib/auth/auth-context";
-import {
-  cachedAuthOrganization,
-  listAuthOrganizations,
-} from "../lib/auth/better-auth-client";
 import { actionAttentionTarget } from "../lib/channel-action-items";
 import { useChiefNavigation } from "../lib/chief-navigation-context";
 import {
@@ -67,6 +63,7 @@ import {
   isOnboardingEngineeringAction,
   onboardingEngineeringSetup,
 } from "../lib/onboarding-engineering";
+import { useRelaySession } from "../lib/relay-session";
 import {
   useAgentPreferences,
   useLocalChats,
@@ -258,9 +255,20 @@ export function DashboardPage() {
     ComposerImageAttachment[]
   >([]);
   const { cloudOrganizationId, user } = useAuth();
+  const { snapshot } = useRelaySession();
   const localChats = useLocalChats(cloudOrganizationId);
-  const [organization, setOrganization] = useState<AuthOrganization | null>(
-    () => cachedAuthOrganization(cloudOrganizationId),
+  const organization = useMemo<AuthOrganization | null>(
+    () =>
+      snapshot
+        ? {
+            id: snapshot.id,
+            name: snapshot.name,
+            slug: snapshot.id,
+            logo: snapshot.imageURL,
+            metadata: { websiteUrl: snapshot.website },
+          }
+        : null,
+    [snapshot],
   );
   const [selectedActionId, setSelectedActionId] = useState<string | null>(null);
   const [continuingChatId, setContinuingChatId] = useState<string | null>(null);
@@ -629,40 +637,6 @@ export function DashboardPage() {
     analyticsSlides.length,
     prefersReducedMotion,
   ]);
-  useEffect(() => {
-    let cancelled = false;
-    let retryTimer: number | undefined;
-    const resolveOrganization = async () => {
-      try {
-        const organizations = await listAuthOrganizations(false, {
-          throwOnError: true,
-        });
-        if (cancelled) return;
-        const nextOrganization =
-          organizations.find(
-            (candidate) => candidate.id === cloudOrganizationId,
-          ) ??
-          organizations[0] ??
-          null;
-        setOrganization(nextOrganization);
-      } catch (error) {
-        if (cancelled) return;
-        console.warn(
-          "[Overview] Workspace metadata unavailable; retrying",
-          error,
-        );
-        retryTimer = window.setTimeout(() => {
-          void resolveOrganization();
-        }, 3_000);
-      }
-    };
-    void resolveOrganization();
-    return () => {
-      cancelled = true;
-      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
-    };
-  }, [cloudOrganizationId]);
-
   useEffect(() => {
     if (!currentAction || currentActionInProgress) return;
     const dismissWithKeyboard = (event: KeyboardEvent) => {

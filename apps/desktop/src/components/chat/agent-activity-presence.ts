@@ -7,7 +7,7 @@ export interface AgentActivityPresence {
 }
 
 export function taskIsActivelyWorking(task: Pick<SessionRecord, "status">) {
-  return task.status === "idle" || task.status === "running";
+  return task.status === "running";
 }
 
 export function mergeAgentActivityPresence(

@@ -12,8 +12,10 @@ import { Input } from "@chief/ui/components/input";
 
 import { useAuth } from "../../lib/auth/auth-context";
 import { removeImageAsset, uploadImageAsset } from "../../lib/image-upload";
+import { useRelaySession } from "../../lib/relay-session";
 
 export function ProfileSettings() {
+  const { client } = useRelaySession();
   const {
     isAuthenticated,
     isSigningIn,
@@ -30,7 +32,8 @@ export function ProfileSettings() {
     setUploading(true);
     setImageError(null);
     try {
-      await updateProfileImage(await uploadImageAsset(file, "profile"));
+      if (!client) throw new Error("Chief is not connected to the relay.");
+      await updateProfileImage(await uploadImageAsset(file, "profile", client));
     } catch (error) {
       setImageError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -42,8 +45,9 @@ export function ProfileSettings() {
     setUploading(true);
     setImageError(null);
     try {
+      if (!client) throw new Error("Chief is not connected to the relay.");
       await updateProfileImage(null);
-      await removeImageAsset("profile");
+      await removeImageAsset("profile", client);
     } catch (error) {
       setImageError(error instanceof Error ? error.message : String(error));
     } finally {

@@ -1,14 +1,21 @@
 use std::sync::Mutex;
 
 mod auth_session;
+mod cell_supervisor;
 mod native_notifications;
+mod plugin_host;
 mod relay_identity;
 
-use auth_session::{clear_oauth_session, load_oauth_session, store_oauth_session};
+use auth_session::{
+    clear_oauth_attempt, clear_oauth_session, load_oauth_attempt, load_oauth_session,
+    store_oauth_attempt, store_oauth_session,
+};
+use cell_supervisor::{start_workspace_cells, CellSupervisor};
 use native_notifications::{
     notification_environment, request_native_notification_permission, show_native_notification,
 };
-use relay_identity::{relay_nip98_authorization, relay_public_key};
+use plugin_host::{start_plugin_host, PluginHostSupervisor};
+use relay_identity::{relay_agent_public_key, relay_nip98_authorization, relay_public_key};
 
 #[derive(Default)]
 struct PendingNotificationActivation(Mutex<Option<serde_json::Value>>);
@@ -55,6 +62,8 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             app.manage(PendingNotificationActivation::default());
+            app.manage(CellSupervisor::default());
+            app.manage(PluginHostSupervisor::default());
             focus_main_window(&handle);
             Ok(())
         })
@@ -83,10 +92,25 @@ pub fn run() {
             load_oauth_session,
             store_oauth_session,
             clear_oauth_session,
+            store_oauth_attempt,
+            load_oauth_attempt,
+            clear_oauth_attempt,
             relay_public_key,
+            relay_agent_public_key,
             relay_nip98_authorization,
+            start_workspace_cells,
+            start_plugin_host,
             take_pending_notification_activation
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Chief");
+        .build(tauri::generate_context!())
+        .expect("error while building Chief")
+        .run(|app, event| {
+            if matches!(
+                event,
+                tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
+            ) {
+                app.state::<CellSupervisor>().stop_all();
+                app.state::<PluginHostSupervisor>().stop();
+            }
+        });
 }

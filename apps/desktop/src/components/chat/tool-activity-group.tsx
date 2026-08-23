@@ -1,8 +1,9 @@
-import { Brain, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
 import type { ContentBlock } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
 
+import { Shimmer } from "../ui/shimmer";
 import { toolPresentation, toolSummary } from "./message-blocks";
 
 export function ToolActivityGroup({
@@ -57,23 +58,19 @@ export function ToolActivityGroup({
           className="text-muted-foreground transition-transform group-open:rotate-180"
         />
       </summary>
-      <div className="border-border/45 space-y-2 border-t px-3.5 py-3">
+      <div className="border-border/45 space-y-3 border-t px-3.5 py-3">
         {blocks.map((block, index) => {
           if (block.type === "thinking") {
             const thought = block.thinking.trim();
             if (!thought) return null;
             return (
-              <div
-                key={`thought:${index}`}
-                className="flex min-w-0 items-start gap-2.5"
-              >
-                <Brain
-                  aria-hidden
-                  className="text-muted-foreground mt-0.5 shrink-0"
-                  size={13}
-                />
-                <div className="min-w-0 flex-1">
-                  <span className="text-xs font-medium">Thinking</span>
+              <div key={`thought:${index}`} className="min-w-0">
+                <div className="min-w-0">
+                  {active ? (
+                    <Shimmer className="text-xs font-medium">Thinking</Shimmer>
+                  ) : (
+                    <span className="text-xs font-medium">Thinking</span>
+                  )}
                   <p className="text-muted-foreground mt-1 max-h-28 overflow-y-auto text-[12px] leading-4 font-normal [overflow-wrap:anywhere] whitespace-pre-wrap">
                     {thought}
                   </p>

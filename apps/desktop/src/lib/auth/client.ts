@@ -1,15 +1,22 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
+import type { PkceAttempt } from "./pkce";
 import type { StoredSession } from "./session";
 import { dispatchChiefNavigation, parseChiefDeepLink } from "../app-navigation";
-import { AUTH_BASE_URL } from "../config";
-import { clearPkceVerifier, getPkceVerifier } from "./pkce";
+import { AUTH_BASE_URL, RELAY_URL } from "../config";
+import { fetchWithTimeout } from "../fetch-with-timeout";
+import {
+  parseOrganizationInvitationUrl,
+  storePendingOrganizationInvitation,
+} from "../organization-invitation";
+import { oauthIssuerMatches } from "./oauth-issuer";
+import { OAuthTokenError } from "./oauth-token-error";
+import { clearPkceVerifier, getPkceAttempt } from "./pkce";
 
 export const DEEP_LINK_SCHEME = "chief-desktop";
 const CLIENT_ID = "chief-desktop";
 const REDIRECT_URI = "chief-desktop:///auth";
-const EXPECTED_ISSUER = `${AUTH_BASE_URL}/api/auth`;
 
 let isTauriEnv: boolean | null = null;
 
@@ -27,6 +34,13 @@ async function nativeFetch() {
   return (await checkIsTauri()) ? tauriFetch : fetch;
 }
 
+async function boundedNativeFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+) {
+  return fetchWithTimeout(await nativeFetch(), input, init);
+}
+
 async function activateAppWindow() {
   if (!(await checkIsTauri())) return;
   await invoke("activate_app_window").catch((error) => {
@@ -35,7 +49,10 @@ async function activateAppWindow() {
 }
 
 interface SetupOptions {
-  onSession: (session: StoredSession) => void;
+  onSession: (
+    session: StoredSession,
+    relayOrigin: string,
+  ) => void | Promise<void>;
   onError?: (error: unknown) => void;
 }
 
@@ -59,22 +76,29 @@ export async function setupAuthDeepLink(
     }
   }
 
-  const handleUrls = (urls: string[]) => {
+  const handleUrls = (urls: string[], reportMissingAttempt: boolean) => {
     const url = urls[0];
-    if (url) void handleDeepLink(url, options);
+    if (url) void handleDeepLink(url, options, reportMissingAttempt);
   };
-  const unlisten = await onOpenUrl(handleUrls);
+  const unlisten = await onOpenUrl((urls) => handleUrls(urls, true));
   const currentUrls = await getCurrent().catch((error) => {
     console.warn("[Auth] Failed to read current deep link:", error);
     return null;
   });
   if (currentUrls?.length) {
-    handleUrls(currentUrls.map((url) => url.toString()));
+    handleUrls(
+      currentUrls.map((url) => url.toString()),
+      false,
+    );
   }
   return unlisten;
 }
 
-async function handleDeepLink(url: string, options: SetupOptions) {
+async function handleDeepLink(
+  url: string,
+  options: SetupOptions,
+  reportMissingAttempt: boolean,
+) {
   try {
     void activateAppWindow();
     const parsedUrl = new URL(url);
@@ -86,6 +110,22 @@ async function handleDeepLink(url: string, options: SetupOptions) {
       window.location.assign(
         `/workspaces/new?invite=${encodeURIComponent(parsedUrl.toString())}`,
       );
+      return;
+    }
+
+    if (
+      parsedUrl.protocol === "chief-desktop:" &&
+      parsedUrl.hostname === "organization-invite"
+    ) {
+      const invitation = parseOrganizationInvitationUrl(parsedUrl.toString());
+      if (invitation.relayUrl === new URL(RELAY_URL).origin) {
+        storePendingOrganizationInvitation(invitation);
+        window.location.assign("/");
+      } else {
+        window.location.assign(
+          `/workspaces/new?organizationInvite=${encodeURIComponent(parsedUrl.toString())}`,
+        );
+      }
       return;
     }
 
@@ -113,41 +153,54 @@ async function handleDeepLink(url: string, options: SetupOptions) {
     if (!code || !state) {
       throw new Error("The authorization response is incomplete.");
     }
-    if (issuer && issuer !== EXPECTED_ISSUER) {
+    const attempt = await getPkceAttempt(state);
+    if (!attempt) {
+      if (reportMissingAttempt) {
+        throw new Error(
+          "This sign-in attempt expired or was already completed. Start sign-in again.",
+        );
+      }
+      return;
+    }
+    if (
+      issuer &&
+      !(await oauthIssuerMatches(
+        issuer,
+        attempt.authBaseUrl,
+        boundedNativeFetch,
+      ))
+    ) {
       throw new Error("The authorization response came from another issuer.");
     }
 
-    const session = await exchangeAuthorizationCode(code, state);
-    clearPkceVerifier(state);
+    const session = await exchangeAuthorizationCode(code, attempt);
+    await clearPkceVerifier(state);
     void activateAppWindow();
-    options.onSession(session);
+    await options.onSession(session, attempt.relayOrigin);
   } catch (error) {
     options.onError?.(error);
   }
 }
 
-async function exchangeAuthorizationCode(code: string, state: string) {
-  const verifier = getPkceVerifier(state);
-  if (!verifier) {
-    throw new Error(
-      "This sign-in attempt expired or was opened by another app instance. Try again.",
-    );
-  }
-  const fetcher = await nativeFetch();
-  const response = await fetcher(`${AUTH_BASE_URL}/api/auth/oauth2/token`, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "authorization_code",
-      client_id: CLIENT_ID,
-      code,
-      code_verifier: verifier,
-      redirect_uri: REDIRECT_URI,
-    }).toString(),
-  });
+async function exchangeAuthorizationCode(code: string, attempt: PkceAttempt) {
+  const response = await boundedNativeFetch(
+    `${attempt.authBaseUrl}/api/auth/oauth2/token`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        client_id: CLIENT_ID,
+        code,
+        code_verifier: attempt.verifier,
+        redirect_uri: REDIRECT_URI,
+      }).toString(),
+    },
+  );
   if (!response.ok) {
-    throw new Error(
+    throw new OAuthTokenError(
       `The relay rejected the authorization code (${response.status}).`,
+      response.status,
     );
   }
   const token = (await response.json()) as {
@@ -159,7 +212,7 @@ async function exchangeAuthorizationCode(code: string, state: string) {
   if (!token.access_token || token.token_type?.toLowerCase() !== "bearer") {
     throw new Error("The relay returned an invalid access token response.");
   }
-  const user = await fetchUserInfo(fetcher, token.access_token);
+  const user = await fetchUserInfo(token.access_token, attempt.authBaseUrl);
   return {
     token: token.access_token,
     ...(token.refresh_token ? { refreshToken: token.refresh_token } : {}),
@@ -177,19 +230,22 @@ export async function refreshOAuthSession(
   if (!session.refreshToken) {
     throw new Error("This session cannot be refreshed.");
   }
-  const fetcher = await nativeFetch();
-  const response = await fetcher(`${AUTH_BASE_URL}/api/auth/oauth2/token`, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      client_id: CLIENT_ID,
-      refresh_token: session.refreshToken,
-    }).toString(),
-  });
+  const response = await boundedNativeFetch(
+    `${AUTH_BASE_URL}/api/auth/oauth2/token`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: CLIENT_ID,
+        refresh_token: session.refreshToken,
+      }).toString(),
+    },
+  );
   if (!response.ok) {
-    throw new Error(
+    throw new OAuthTokenError(
       `The relay rejected the refresh token (${response.status}).`,
+      response.status,
     );
   }
   const token = (await response.json()) as {
@@ -201,7 +257,7 @@ export async function refreshOAuthSession(
   if (!token.access_token || token.token_type?.toLowerCase() !== "bearer") {
     throw new Error("The relay returned an invalid refresh response.");
   }
-  const user = await fetchUserInfo(fetcher, token.access_token);
+  const user = await fetchUserInfo(token.access_token);
   return {
     ...session,
     token: token.access_token,
@@ -214,13 +270,15 @@ export async function refreshOAuthSession(
   };
 }
 
-async function fetchUserInfo(fetcher: typeof fetch, accessToken: string) {
-  const response = await fetcher(`${AUTH_BASE_URL}/api/auth/oauth2/userinfo`, {
-    headers: { authorization: `Bearer ${accessToken}` },
-  });
+async function fetchUserInfo(accessToken: string, authBaseUrl = AUTH_BASE_URL) {
+  const response = await boundedNativeFetch(
+    `${authBaseUrl}/api/auth/oauth2/userinfo`,
+    { headers: { authorization: `Bearer ${accessToken}` } },
+  );
   if (!response.ok) {
-    throw new Error(
+    throw new OAuthTokenError(
       `The relay could not resolve the signed-in user (${response.status}).`,
+      response.status,
     );
   }
   const data = (await response.json()) as {

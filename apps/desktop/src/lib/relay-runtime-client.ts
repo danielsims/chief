@@ -1,9 +1,9 @@
+import { invoke, isTauri } from "@tauri-apps/api/core";
+
 import type {
   AgentDefinition,
-  ChiefUIMessage,
   ClientMessage,
   ServerMessage,
-  WorkspaceChannel,
 } from "@chief/agent-runtime/types";
 import type { RelayClient, WorkspaceSubscription } from "@chief/relay-client";
 import type {
@@ -11,7 +11,6 @@ import type {
   ConversationMessage,
   WorkspaceSnapshot,
 } from "@chief/relay-contracts";
-import { RelayClientError } from "@chief/relay-client";
 import {
   agentIdSchema,
   appendMessageCommandSchema,
@@ -22,17 +21,27 @@ import type {
   RuntimeMessageListener,
   RuntimeTransport,
 } from "./runtime-transport";
+import { recordDesktopActivityReceipt } from "./relay-activity-diagnostics";
+import { relayConversationId } from "./relay-channel-adapter";
 import {
-  relayConversationId,
-  workspaceChannelFromRelay,
-} from "./relay-channel-adapter";
+  createRelayWorkspaceChannel,
+  loadRelayWorkspaceChannels,
+} from "./relay-runtime-channels";
+import { publicRelayErrorMessage } from "./relay-runtime-errors";
+import {
+  agentForDirect,
+  agentRunEvent,
+  directAgentId,
+  isAgentActivityProjection,
+  toChannelEvents,
+  toChannelMessageEvent,
+  toChiefMessage,
+} from "./relay-runtime-mappers";
+import { routeRelayWorkspaceDataCommand } from "./relay-runtime-workspace-data";
 import {
   loadWorkspaceCursor,
   saveWorkspaceCursor,
 } from "./relay-workspace-cursor";
-
-const RELAY_CAPABILITY_DESCRIPTION =
-  "Runs in its own isolated cell and collaborates through the Chief relay.";
 
 export class RelayRuntimeClient implements RuntimeTransport {
   private listeners = new Set<RuntimeMessageListener>();
@@ -42,6 +51,10 @@ export class RelayRuntimeClient implements RuntimeTransport {
   private subscribedConversationIds = new Set<string>();
   private workspaceCursor: number | undefined;
   private conversationIdsByChat = new Map<string, string>();
+  private messagesById = new Map<string, ConversationMessage>();
+  private readonly devicePubkey = isTauri()
+    ? invoke<string>("relay_public_key").catch(() => null)
+    : Promise.resolve(null);
   private subscriptionGeneration = 0;
   private statusListener: (status: RuntimeConnectionStatus) => void = () =>
     undefined;
@@ -64,7 +77,10 @@ export class RelayRuntimeClient implements RuntimeTransport {
     this.closed = false;
     this.statusListener("connecting");
     void this.refreshSnapshot()
-      .then(() => this.statusListener("connected"))
+      .then(() => {
+        this.emit({ type: "agents", agents: this.agentDefinitions() });
+        this.statusListener("connected");
+      })
       .catch((error: unknown) => {
         this.statusListener("disconnected");
         this.emitError(error);
@@ -91,7 +107,8 @@ export class RelayRuntimeClient implements RuntimeTransport {
   send(message: ClientMessage) {
     void this.route(message).catch((error: unknown) => {
       const chatId = "chatId" in message ? message.chatId : undefined;
-      this.emitError(error, chatId);
+      const requestId = "requestId" in message ? message.requestId : undefined;
+      this.emitError(error, chatId, requestId);
     });
   }
 
@@ -110,6 +127,15 @@ export class RelayRuntimeClient implements RuntimeTransport {
 
   private async route(message: ClientMessage) {
     if (this.closed) return;
+    if (
+      await routeRelayWorkspaceDataCommand(message, {
+        relay: this.relay,
+        snapshot: this.snapshot,
+        emit: (event) => this.emit(event),
+      })
+    ) {
+      return;
+    }
     switch (message.type) {
       case "listAgents":
         this.emit({ type: "agents", agents: this.agentDefinitions() });
@@ -117,11 +143,17 @@ export class RelayRuntimeClient implements RuntimeTransport {
       case "listChannels":
         await this.listChannels();
         return;
+      case "createChannel":
+        await this.createChannel(message);
+        return;
       case "listChats":
         await this.listChats();
         return;
       case "listChannelEvents":
         await this.openChannelEvents(message.channelId);
+        return;
+      case "reactToChannelMessage":
+        await this.toggleReaction(message);
         return;
       case "openChat":
         await this.openChat(
@@ -156,51 +188,16 @@ export class RelayRuntimeClient implements RuntimeTransport {
       id: agent.id,
       name: agent.name,
       role: agent.role,
-      description: RELAY_CAPABILITY_DESCRIPTION,
+      description:
+        "Runs in its own isolated cell and collaborates through the Chief relay.",
       instructions: "",
     }));
   }
 
   private async listChannels() {
-    const [records, currentMemberships, allMemberships] = await Promise.all([
-      this.relay.listChannels(),
-      this.relay.listCurrentChannelMemberships(),
-      this.relay.listChannelMemberships().catch((error: unknown) => {
-        if (error instanceof RelayClientError && error.status === 403)
-          return null;
-        throw error;
-      }),
-    ]);
-    const memberLists = allMemberships
-      ? records.map((channel) =>
-          allMemberships
-            .filter((membership) => membership.conversationId === channel.id)
-            .map((membership) => ({
-              ...membership,
-              ...(membership.kind === "agent"
-                ? {
-                    name: this.snapshot.agents.find(
-                      (agent) => agent.id === membership.principalId,
-                    )?.name,
-                  }
-                : {}),
-            })),
-        )
-      : await Promise.all(
-          records.map((channel) => this.relay.listChannelMembers(channel.id)),
-        );
-    const currentByChannel = new Map(
-      currentMemberships.map((membership) => [
-        membership.conversationId,
-        membership,
-      ]),
-    );
-    const channels: WorkspaceChannel[] = records.map((channel, index) =>
-      workspaceChannelFromRelay(
-        channel,
-        memberLists[index] ?? [],
-        currentByChannel.get(channel.id),
-      ),
+    const { channels, currentMemberships } = await loadRelayWorkspaceChannels(
+      this.relay,
+      this.snapshot,
     );
     this.emit({
       type: "channels",
@@ -215,6 +212,21 @@ export class RelayRuntimeClient implements RuntimeTransport {
         this.subscribedConversationIds.add(conversation.id);
       }
     }
+    await this.ensureWorkspaceSubscription();
+  }
+
+  private async createChannel(
+    message: Extract<ClientMessage, { type: "createChannel" }>,
+  ) {
+    const channel = await createRelayWorkspaceChannel(this.relay, message.name);
+    this.subscribedConversationIds.add(channel.id);
+    await this.refreshSnapshot();
+    this.emit({
+      type: "channelCreated",
+      requestId: message.requestId,
+      workspaceId: this.snapshot.id,
+      channel,
+    });
     await this.ensureWorkspaceSubscription();
   }
 
@@ -246,6 +258,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
     this.conversationIdsByChat.set(chatId, conversationId);
     const page = await this.relay.listMessages(conversationId, { limit: 200 });
     const agentId = directAgentId(conversationId, this.snapshot);
+    for (const message of page.messages) this.rememberMessage(message);
     this.emit({
       type: "chatOpened",
       workspaceId: this.snapshot.id,
@@ -266,12 +279,14 @@ export class RelayRuntimeClient implements RuntimeTransport {
 
   private async openChannelEvents(conversationId: string) {
     const page = await this.relay.listMessages(conversationId, { limit: 200 });
+    for (const message of page.messages) this.rememberMessage(message);
+    const currentPubkey = await this.devicePubkey;
     this.emit({
       type: "channelEvents",
       workspaceId: this.snapshot.id,
       channelId: conversationId,
-      events: page.messages.map((message) =>
-        toChannelEvent(message, this.snapshot),
+      events: page.messages.flatMap((message) =>
+        toChannelEvents(message, this.snapshot, currentPubkey),
       ),
     });
     await this.subscribeConversation(conversationId);
@@ -327,18 +342,34 @@ export class RelayRuntimeClient implements RuntimeTransport {
     this.workspaceCursor = event.sequence;
     saveWorkspaceCursor(this.snapshot.id, event.sequence);
     const message = event.payload.message;
+    const runEvent = agentRunEvent(message);
+    const isActivity = isAgentActivityProjection(message);
+    if (isActivity) recordDesktopActivityReceipt(this.snapshot.id, event);
+    this.rememberMessage(message);
     if (
+      !isActivity &&
       this.snapshot.conversations.some(
         (conversation) =>
           conversation.id === message.conversationId &&
           conversation.kind === "channel",
       )
     ) {
-      this.emit({
-        type: "channelEvent",
-        workspaceId: this.snapshot.id,
-        event: toChannelEvent(message, this.snapshot),
-      });
+      // Re-read folded reactions so removals replace synthetic NIP-25 events.
+      if (
+        event.type === "conversation.message.reacted" ||
+        event.type === "conversation.message.edited" ||
+        event.type === "conversation.message.deleted"
+      ) {
+        void this.openChannelEvents(message.conversationId).catch((error) =>
+          this.emitError(error),
+        );
+      } else {
+        this.emit({
+          type: "channelEvent",
+          workspaceId: this.snapshot.id,
+          event: toChannelMessageEvent(message, this.snapshot),
+        });
+      }
     }
     for (const [chatId, conversationId] of this.conversationIdsByChat) {
       if (conversationId !== message.conversationId) continue;
@@ -348,6 +379,14 @@ export class RelayRuntimeClient implements RuntimeTransport {
         chatId,
         message: toChiefMessage(message),
       });
+      if (runEvent) {
+        this.emit({
+          type: "event",
+          workspaceId: this.snapshot.id,
+          chatId,
+          event: runEvent,
+        });
+      }
     }
   }
 
@@ -358,7 +397,6 @@ export class RelayRuntimeClient implements RuntimeTransport {
     this.workspaceSubscription.close();
     this.workspaceSubscription = null;
   }
-
   private async appendMessage(
     message: Extract<ClientMessage, { type: "sendMessage" }>,
   ) {
@@ -373,10 +411,11 @@ export class RelayRuntimeClient implements RuntimeTransport {
         ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
         body: message.text,
         mentions: message.mentions ?? [],
-        components: [],
+        components: message.components ?? [],
       },
     });
     const result = await this.relay.appendMessage(conversationId, command);
+    this.rememberMessage(result.message);
     this.emit({
       type: "message",
       workspaceId: this.snapshot.id,
@@ -384,17 +423,49 @@ export class RelayRuntimeClient implements RuntimeTransport {
       message: toChiefMessage(result.message),
     });
   }
-
+  private rememberMessage(message: ConversationMessage) {
+    this.messagesById.set(message.id, message);
+  }
+  private async toggleReaction(
+    message: Extract<ClientMessage, { type: "reactToChannelMessage" }>,
+  ) {
+    const pubkey = await this.devicePubkey;
+    let target = this.messagesById.get(message.messageId);
+    if (!target) {
+      const page = await this.relay.listMessages(message.channelId, {
+        limit: 200,
+      });
+      for (const item of page.messages) this.rememberMessage(item);
+      target = this.messagesById.get(message.messageId);
+    }
+    const reacted = Boolean(
+      pubkey &&
+      target?.reactions.some(
+        (reaction) =>
+          reaction.emoji === message.reaction &&
+          reaction.pubkeys.includes(pubkey),
+      ),
+    );
+    const result = await this.relay.reactToMessage(
+      message.channelId,
+      message.messageId,
+      message.reaction,
+      !reacted,
+    );
+    this.rememberMessage(result.message);
+    await this.openChannelEvents(message.channelId);
+  }
   private emit(message: ServerMessage) {
     for (const listener of this.listeners) listener(message);
   }
 
-  private emitError(error: unknown, chatId?: string) {
+  private emitError(error: unknown, chatId?: string, requestId?: string) {
     console.error("[Chief relay] Runtime request failed", error);
     this.emit({
       type: "error",
       message: publicRelayErrorMessage(error),
       ...(chatId ? { chatId } : {}),
+      ...(requestId ? { requestId } : {}),
     });
   }
 
@@ -409,87 +480,4 @@ export class RelayRuntimeClient implements RuntimeTransport {
     this.conversationIdsByChat.set(chatId, resolved);
     return resolved;
   }
-}
-
-function publicRelayErrorMessage(error: unknown) {
-  if (isIdentifierValidationError(error)) {
-    return "Chief couldn't route this conversation through the relay. Reopen the channel and try again.";
-  }
-  return error instanceof Error ? error.message : String(error);
-}
-
-function isIdentifierValidationError(error: unknown) {
-  return (
-    error instanceof Error &&
-    error.message.includes("Identifiers may only contain")
-  );
-}
-
-function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
-  return {
-    id: message.id,
-    role: message.author.kind === "user" ? "user" : "assistant",
-    metadata: {
-      createdAt: Date.parse(message.createdAt),
-      ...(message.author.kind === "agent"
-        ? { agentId: message.author.id }
-        : {}),
-      ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
-      ...(message.mentions.length > 0 ? { mentions: message.mentions } : {}),
-    },
-    parts: [{ type: "text", text: message.deleted ? "" : message.body }],
-  };
-}
-
-function toChannelEvent(
-  message: ConversationMessage,
-  snapshot: WorkspaceSnapshot,
-) {
-  const actor =
-    message.author.kind === "agent"
-      ? {
-          type: "agent" as const,
-          id: message.author.id,
-          name:
-            snapshot.agents.find((agent) => agent.id === message.author.id)
-              ?.name ?? message.author.id,
-        }
-      : {
-          type: "user" as const,
-          id: message.author.id,
-          name: message.author.kind === "system" ? "Chief" : "You",
-        };
-  return {
-    protocol: "nip29" as const,
-    id: message.id,
-    channelId: message.conversationId,
-    pubkey: actor.id,
-    tags: [
-      ["h", message.conversationId],
-      ...(message.threadRootId ? [["e", message.threadRootId]] : []),
-      ...message.mentions.map((mention) => ["p", mention]),
-    ],
-    content: message.deleted ? "" : message.body,
-    actor,
-    createdAt: Date.parse(message.createdAt),
-    kind: 9 as const,
-  };
-}
-
-function directAgentId(conversationId: string, snapshot: WorkspaceSnapshot) {
-  const conversation = snapshot.conversations.find(
-    (candidate) => candidate.id === conversationId,
-  );
-  return conversation ? agentForDirect(conversation.name, snapshot) : undefined;
-}
-
-function agentForDirect(name: string, snapshot: WorkspaceSnapshot) {
-  const normalized = name.toLowerCase();
-  return (
-    snapshot.agents.find(
-      (agent) =>
-        normalized.includes(agent.id.toLowerCase()) ||
-        normalized.includes(agent.name.toLowerCase()),
-    )?.id ?? "chief"
-  );
 }

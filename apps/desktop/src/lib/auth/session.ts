@@ -8,9 +8,12 @@
 
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
+import { RELAY_URL } from "../config";
+
 const SESSION_KEY = "chief-auth-session";
 const LEGACY_SESSION_KEY = "marketer-auth-session";
 const BROWSER_SESSION_KEY = "chief-auth-session-memory";
+const KEYCHAIN_READ_TIMEOUT_MS = 12_000;
 export const AUTH_SESSION_CHANGED_EVENT = "chief:auth-session-changed";
 
 let cachedSession: StoredSession | null = null;
@@ -62,11 +65,45 @@ export function setStoredSession(session: StoredSession): void {
   notifySessionChanged();
   enqueuePersistence(async () => {
     if (isTauri()) {
-      await invoke("store_oauth_session", { session });
+      await invoke("store_oauth_session", { account: RELAY_URL, session });
     } else {
       sessionStorage.setItem(BROWSER_SESSION_KEY, JSON.stringify(session));
     }
   });
+}
+
+export async function storeSessionForRelay(
+  relayUrl: string,
+  session: StoredSession,
+): Promise<void> {
+  if (new URL(relayUrl).origin === new URL(RELAY_URL).origin) {
+    setStoredSession(session);
+    await persistenceQueue.catch(() => undefined);
+    return;
+  }
+  if (isTauri()) {
+    await invoke("store_oauth_session", { account: relayUrl, session });
+    return;
+  }
+  sessionStorage.setItem(
+    `${BROWSER_SESSION_KEY}:${new URL(relayUrl).origin}`,
+    JSON.stringify(session),
+  );
+}
+
+export async function loadSessionForRelay(
+  relayUrl: string,
+): Promise<StoredSession | null> {
+  if (isTauri()) {
+    return invoke<StoredSession | null>("load_oauth_session", {
+      account: new URL(relayUrl).origin,
+    });
+  }
+  return parseSession(
+    sessionStorage.getItem(
+      `${BROWSER_SESSION_KEY}:${new URL(relayUrl).origin}`,
+    ),
+  );
 }
 
 export function clearStoredSession(): void {
@@ -76,7 +113,7 @@ export function clearStoredSession(): void {
   sessionStorage.removeItem(BROWSER_SESSION_KEY);
   notifySessionChanged();
   enqueuePersistence(async () => {
-    if (isTauri()) await invoke("clear_oauth_session");
+    if (isTauri()) await invoke("clear_oauth_session", { account: RELAY_URL });
   });
 }
 
@@ -86,7 +123,13 @@ export async function hydrateStoredSession(): Promise<StoredSession | null> {
 
   let session: StoredSession | null = null;
   if (isTauri()) {
-    session = await invoke<StoredSession | null>("load_oauth_session");
+    session = await withTimeout(
+      invoke<StoredSession | null>("load_oauth_session", {
+        account: RELAY_URL,
+      }),
+      KEYCHAIN_READ_TIMEOUT_MS,
+      "Chief could not read your secure sign-in. Open Chief again and allow Keychain access.",
+    );
   } else {
     session = parseSession(sessionStorage.getItem(BROWSER_SESSION_KEY));
   }
@@ -105,6 +148,24 @@ export async function hydrateStoredSession(): Promise<StoredSession | null> {
   if (legacy && session === legacy) setStoredSession(legacy);
   else notifySessionChanged();
   return session;
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function parseSession(raw: string | null): StoredSession | null {

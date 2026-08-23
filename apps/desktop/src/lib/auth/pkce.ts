@@ -5,11 +5,17 @@
  * Used to securely authenticate the desktop app via the system browser.
  */
 
-// In-memory storage for PKCE verifiers keyed by state
-const verifierStore = new Map<
-  string,
-  { verifier: string; createdAt: number }
->();
+import { invoke, isTauri } from "@tauri-apps/api/core";
+
+export interface PkceAttempt {
+  state: string;
+  verifier: string;
+  relayOrigin: string;
+  authBaseUrl: string;
+  createdAt: number;
+}
+
+const verifierStore = new Map<string, PkceAttempt>();
 
 // Clean up verifiers older than 10 minutes
 const VERIFIER_TTL_MS = 10 * 60 * 1000;
@@ -53,9 +59,15 @@ export async function generateCodeChallenge(verifier: string): Promise<string> {
 /**
  * Store a PKCE verifier keyed by state.
  */
-export function storePkceVerifier(state: string, verifier: string): void {
+export async function storePkceVerifier(
+  state: string,
+  verifier: string,
+  context: Pick<PkceAttempt, "relayOrigin" | "authBaseUrl">,
+): Promise<void> {
   cleanupExpiredVerifiers();
-  verifierStore.set(state, { verifier, createdAt: Date.now() });
+  const attempt = { state, verifier, ...context, createdAt: Date.now() };
+  verifierStore.set(state, attempt);
+  if (isTauri()) await invoke("store_oauth_attempt", { attempt });
 }
 
 /**
@@ -65,14 +77,24 @@ export function storePkceVerifier(state: string, verifier: string): void {
  * so a transient failure on the polling path would permanently kill the
  * deep-link retry for the same state.
  */
-export function getPkceVerifier(state: string): string | null {
+export async function getPkceAttempt(
+  state: string,
+): Promise<PkceAttempt | null> {
   cleanupExpiredVerifiers();
-  return verifierStore.get(state)?.verifier ?? null;
+  const inMemory = verifierStore.get(state);
+  if (inMemory) return inMemory;
+  if (!isTauri()) return null;
+  const persisted = await invoke<PkceAttempt | null>("load_oauth_attempt", {
+    state,
+  });
+  if (persisted) verifierStore.set(state, persisted);
+  return persisted;
 }
 
 /** Remove a verifier once its exchange has completed successfully. */
-export function clearPkceVerifier(state: string): void {
+export async function clearPkceVerifier(state: string): Promise<void> {
   verifierStore.delete(state);
+  if (isTauri()) await invoke("clear_oauth_attempt", { state });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────

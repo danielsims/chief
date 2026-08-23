@@ -48,6 +48,7 @@ import type {
   RuntimeMessageListener,
   RuntimeTransport,
 } from "./runtime-transport";
+import type { WorkspaceAgentId } from "./workspace-channels";
 import type { WorkspaceChatSummary } from "./workspace-conversation-cache";
 import type { WorkspaceDataState } from "./workspace-data";
 import { useAuth } from "./auth/auth-context";
@@ -100,6 +101,7 @@ import {
 import { useManualMissionHeartbeat } from "./runtime-mission-heartbeat";
 import { useRecurringWorkSettings } from "./runtime-recurring-work";
 import { useWaysOfWorkingSaver } from "./runtime-ways-of-working";
+import { WORKSPACE_AGENT_IDENTITIES } from "./workspace-channels";
 import { buildWorkspaceContext } from "./workspace-context";
 import {
   activateWorkspaceConversationCache,
@@ -749,7 +751,29 @@ export function useLocalChats(workspaceId: string | null) {
       if (!scopedWorkspaceId || status !== "connected") {
         throw new Error("The Chief relay is still connecting.");
       }
-      return await client.startDirectMessage(agentId);
+      const chatId = await client.startDirectMessage(agentId);
+      setChatsWorkspaceId(scopedWorkspaceId);
+      setResolved(true);
+      setChats((current) => {
+        if (current.some((chat) => chat.id === chatId)) return current;
+        const identity = Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)
+          ? WORKSPACE_AGENT_IDENTITIES[agentId as WorkspaceAgentId]
+          : null;
+        const next = [
+          ...current,
+          {
+            id: chatId,
+            agent: agentId,
+            title: identity?.name ?? agentId,
+            lastText: "",
+            lastAt: 0,
+            running: false,
+          },
+        ];
+        cacheWorkspaceChats(scopedWorkspaceId, next);
+        return next;
+      });
+      return chatId;
     },
     [client, scopedWorkspaceId, status],
   );
@@ -1183,19 +1207,9 @@ function useWorkspaceDataSource(workspaceId: string | null) {
       });
     };
     refresh();
-    const refreshInterval = window.setInterval(refresh, 15_000);
-    const refreshOnFocus = () => refresh();
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") refresh();
-    };
-    window.addEventListener("focus", refreshOnFocus);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
     replayPendingOnboarding();
     return () => {
       clearPendingOnboardingRetry();
-      window.clearInterval(refreshInterval);
-      window.removeEventListener("focus", refreshOnFocus);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
       unsubscribe();
     };
   }, [
@@ -1724,11 +1738,27 @@ function useRuntimeChat(
               ]
             : [],
         );
-        if (
+        const isUserSubmission =
           mode === "open" &&
-          chatId &&
+          Boolean(chatId) &&
           message?.role === "user" &&
-          (text || attachments?.length) &&
+          Boolean(text || attachments?.length);
+        if (
+          isUserSubmission &&
+          (!cloudOrganizationId ||
+            !executorCapability ||
+            runtimeStatus !== "connected")
+        ) {
+          setControls((current) => ({
+            ...current,
+            status: "idle",
+            error:
+              "Chief is reconnecting to the relay. Your message was not sent.",
+            errorAcknowledged: false,
+          }));
+        } else if (
+          isUserSubmission &&
+          chatId &&
           cloudOrganizationId &&
           executorCapability
         ) {
@@ -1777,6 +1807,7 @@ function useRuntimeChat(
       cloudOrganizationId,
       executorCapability,
       mode,
+      runtimeStatus,
       senderName,
       wakeOnMentionOnly,
     ],

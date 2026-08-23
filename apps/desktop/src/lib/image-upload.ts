@@ -1,10 +1,4 @@
-import { isTauri } from "@tauri-apps/api/core";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-
-import type { Id } from "@chief/backend/convex/_generated/dataModel";
-import { api } from "@chief/backend/convex/_generated/api";
-
-import { convex } from "./convex";
+import type { RelayClient } from "@chief/relay-client";
 
 const MAX_SOURCE_BYTES = 10 * 1024 * 1024;
 
@@ -70,27 +64,28 @@ export type ImageAssetKind = "profile" | "workspace";
 export async function uploadImageAsset(
   file: File,
   kind: ImageAssetKind,
+  client: RelayClient,
 ): Promise<string> {
   const blob = await imageFileToBlob(file);
-  const uploadUrl = await convex.mutation(
-    api.imageAssets.generateUploadUrl,
-    {},
-  );
-  const fetcher = isTauri() ? tauriFetch : fetch;
-  const response = await fetcher(uploadUrl, {
-    method: "POST",
-    headers: { "Content-Type": blob.type },
-    body: blob,
-  });
-  if (!response.ok) throw new Error("Image upload failed.");
-  const { storageId } = (await response.json()) as { storageId: string };
-  const result = await convex.mutation(api.imageAssets.save, {
-    kind,
-    storageId: storageId as Id<"_storage">,
-  });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  const payload = {
+    fileName: file.name || `${kind}.webp`,
+    contentType: blob.type,
+    base64: btoa(binary),
+  };
+  const result =
+    kind === "profile"
+      ? await client.uploadProfileImage(payload)
+      : await client.uploadWorkspaceImage(payload);
   return result.url;
 }
 
-export async function removeImageAsset(kind: ImageAssetKind) {
-  await convex.mutation(api.imageAssets.remove, { kind });
+export async function removeImageAsset(
+  kind: ImageAssetKind,
+  client: RelayClient,
+) {
+  if (kind === "profile") await client.deleteProfileImage();
+  else await client.deleteWorkspaceImage();
 }

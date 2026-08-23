@@ -24,7 +24,10 @@ export function AgentAvatar({
     <span
       style={
         identity
-          ? { backgroundColor: identity.color, color: "#090909" }
+          ? {
+              backgroundColor: identity.color,
+              color: "#090909",
+            }
           : undefined
       }
       className={cn(

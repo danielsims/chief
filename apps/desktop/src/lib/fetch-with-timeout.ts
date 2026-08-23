@@ -22,16 +22,23 @@ export async function fetchWithTimeout(
     });
   }
 
-  const timeout = window.setTimeout(
-    () =>
-      controller.abort(new DOMException("Request timed out", "TimeoutError")),
-    timeoutMs,
-  );
+  let rejectTimeout: (reason: DOMException) => void = () => undefined;
+  const timedOut = new Promise<Response>((_resolve, reject) => {
+    rejectTimeout = reject;
+  });
+  const timeout = globalThis.setTimeout(() => {
+    const error = new DOMException("Request timed out", "TimeoutError");
+    controller.abort(error);
+    rejectTimeout(error);
+  }, timeoutMs);
 
   try {
-    return await fetcher(input, { ...init, signal: controller.signal });
+    return await Promise.race([
+      fetcher(input, { ...init, signal: controller.signal }),
+      timedOut,
+    ]);
   } finally {
-    window.clearTimeout(timeout);
+    globalThis.clearTimeout(timeout);
     upstreamSignal?.removeEventListener("abort", abortFromUpstream);
   }
 }
