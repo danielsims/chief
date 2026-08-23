@@ -208,10 +208,11 @@ export class AccountObject extends DurableObject<Env> {
       );
     }
     const current = this.activeDirectoryRow(identity.pubkey);
-    const changed = current?.workspace_id !== target;
-    if (changed) this.setActiveWorkspace(identity.pubkey, target);
+    if (current?.workspace_id !== target) {
+      this.setActiveWorkspace(identity.pubkey, target);
+    }
     void this.maybeRecordMetrics();
-    return json({ workspaceId: target, isActive: true, changed });
+    return json({ workspaceId: target, isActive: true });
   }
 
   private async join(

@@ -22,7 +22,7 @@ export async function routeAgentJob(
     requestId: string;
     workspaceId: WorkspaceId;
     agentId: string;
-    operation: "claim" | "complete";
+    operation: "claim" | "complete" | "renew";
   },
 ) {
   assertOwnAgentMailbox(input.principal, input.agentId, "claim or complete");

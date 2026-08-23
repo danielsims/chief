@@ -18,7 +18,9 @@ import {
   reactToMessageResultSchema,
 } from "@chief/relay-contracts";
 
+import type { UpsertActivityInput } from "./conversation-activity-store";
 import type { EventRow, MessageRow } from "./conversation-rows";
+import { upsertAgentActivity } from "./conversation-activity-store";
 import {
   escapeLike,
   firstConversationRow as firstRow,
@@ -90,6 +92,11 @@ export interface ConversationStore {
   edit(input: EditInput): {
     message: ConversationMessage;
     event: Record<string, unknown> | null;
+  };
+  upsertActivity(input: UpsertActivityInput): {
+    created: boolean;
+    message: ConversationMessage;
+    event: Record<string, unknown>;
   };
   delete(input: DeleteInput): {
     message: ConversationMessage;
@@ -391,6 +398,12 @@ export class SqlConversationStore implements ConversationStore {
       );
       return { message: updated, event };
     });
+  }
+
+  upsertActivity(input: UpsertActivityInput) {
+    return upsertAgentActivity(this.storage, input, () =>
+      this.nextEventSequence(),
+    );
   }
 
   delete(input: DeleteInput) {

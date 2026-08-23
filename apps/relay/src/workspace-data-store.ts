@@ -6,11 +6,18 @@ import {
   prospectSaveSchema,
   prospectSchema,
   prospectsResultSchema,
+  workspaceFileSaveSchema,
+  workspaceFileSchema,
   workspaceFilesResultSchema,
+  workspaceFileUpdateSchema,
 } from "@chief/relay-contracts";
 
 import { requireAgentPrincipal } from "./agent-job-store";
 import { HttpError, json, parseJson } from "./http";
+import {
+  initializeWorkspaceProjects,
+  routeWorkspaceProjects,
+} from "./workspace-project-store";
 
 interface BrandRow extends Record<string, SqlStorageValue> {
   markdown: string;
@@ -69,6 +76,7 @@ export function initializeWorkspaceData(storage: DurableObjectStorage) {
     CREATE INDEX IF NOT EXISTS prospects_recent_idx
       ON prospects (updated_at DESC);
   `);
+  initializeWorkspaceProjects(storage);
 }
 
 export async function routeWorkspaceData(
@@ -76,6 +84,7 @@ export async function routeWorkspaceData(
   request: Request,
   operation: string,
   principal: Principal,
+  workspaceId: string,
 ) {
   if (operation === "data-brand-get") return getBrandProfile(storage);
   if (operation === "data-brand-save") {
@@ -88,7 +97,14 @@ export async function routeWorkspaceData(
     return await saveProspect(storage, request, principal.agentId);
   }
   if (operation === "data-files-list") return listFiles(storage);
-  return null;
+  if (operation === "data-file-save") {
+    requireAgentPrincipal(principal);
+    return await saveFile(storage, request, principal.agentId);
+  }
+  if (operation === "data-file-update") {
+    return await updateFile(storage, request);
+  }
+  return await routeWorkspaceProjects(storage, request, operation, workspaceId);
 }
 
 function getBrandProfile(storage: DurableObjectStorage) {
@@ -226,6 +242,117 @@ function listFiles(storage: DurableObjectStorage) {
     ),
   ].map(fileFromRow);
   return json(workspaceFilesResultSchema.parse({ files }));
+}
+
+async function saveFile(
+  storage: DurableObjectStorage,
+  request: Request,
+  agentId: string,
+) {
+  const input = workspaceFileSaveSchema.parse(await parseJson(request));
+  const prior = firstRow<FileRow>(
+    input.id
+      ? storage.sql.exec(
+          "SELECT * FROM workspace_files WHERE file_id = ? OR path = ? LIMIT 1",
+          input.id,
+          input.path,
+        )
+      : storage.sql.exec(
+          "SELECT * FROM workspace_files WHERE path = ? LIMIT 1",
+          input.path,
+        ),
+  );
+  if (prior && input.expectedVersion !== prior.version) {
+    throw new HttpError(
+      409,
+      "workspace_file_version_conflict",
+      "This file changed since it was opened.",
+    );
+  }
+  if (!prior && input.expectedVersion !== undefined) {
+    throw new HttpError(
+      409,
+      "workspace_file_missing",
+      "The file revision no longer exists.",
+    );
+  }
+  const now = new Date().toISOString();
+  const id = prior?.file_id ?? input.id ?? crypto.randomUUID();
+  const version = (prior?.version ?? 0) + 1;
+  storage.sql.exec(
+    `INSERT INTO workspace_files (
+      file_id, path, title, mime_type, content, conversation_id,
+      author_agent_id, version, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(file_id) DO UPDATE SET
+      path = excluded.path,
+      title = excluded.title,
+      mime_type = excluded.mime_type,
+      content = excluded.content,
+      conversation_id = excluded.conversation_id,
+      author_agent_id = excluded.author_agent_id,
+      version = excluded.version,
+      updated_at = excluded.updated_at`,
+    id,
+    input.path,
+    input.title,
+    input.mimeType,
+    input.content,
+    input.conversationId,
+    agentId,
+    version,
+    prior?.created_at ?? now,
+    now,
+  );
+  const row = firstRow<FileRow>(
+    storage.sql.exec("SELECT * FROM workspace_files WHERE file_id = ?", id),
+  );
+  if (!row) throw new Error("Saved file could not be read back.");
+  return json(workspaceFileSchema.parse(fileFromRow(row)), {
+    status: prior ? 200 : 201,
+  });
+}
+
+async function updateFile(storage: DurableObjectStorage, request: Request) {
+  const fileId = request.headers.get("x-chief-workspace-file-id")?.trim();
+  if (!fileId) {
+    throw new HttpError(
+      400,
+      "workspace_file_id_missing",
+      "File id is required.",
+    );
+  }
+  const input = workspaceFileUpdateSchema.parse(await parseJson(request));
+  const prior = firstRow<FileRow>(
+    storage.sql.exec("SELECT * FROM workspace_files WHERE file_id = ?", fileId),
+  );
+  if (!prior) {
+    throw new HttpError(404, "workspace_file_not_found", "File not found.");
+  }
+  if (prior.version !== input.expectedVersion) {
+    throw new HttpError(
+      409,
+      "workspace_file_version_conflict",
+      "This file changed since it was opened.",
+    );
+  }
+  const updatedAt = new Date().toISOString();
+  const version = prior.version + 1;
+  storage.sql.exec(
+    `UPDATE workspace_files
+     SET title = ?, content = ?, version = ?, updated_at = ?
+     WHERE file_id = ?`,
+    input.title,
+    input.content,
+    version,
+    updatedAt,
+    fileId,
+  );
+  const row = firstRow<FileRow>(
+    storage.sql.exec("SELECT * FROM workspace_files WHERE file_id = ?", fileId),
+  );
+  if (!row) throw new Error("Updated file could not be read back.");
+  return json(workspaceFileSchema.parse(fileFromRow(row)));
 }
 
 function brandFromRow(row: BrandRow) {

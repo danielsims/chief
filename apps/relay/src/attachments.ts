@@ -92,6 +92,80 @@ export async function getAttachment(env: Env, key: string) {
   });
 }
 
+export async function uploadImageAsset(
+  env: Env,
+  request: Request,
+  publicOrigin: string,
+  key: string,
+  publicPath: string,
+) {
+  const payload = attachmentUploadPayloadSchema.parse(await parseJson(request));
+  const contentType = normalizedImageType(payload.contentType);
+  if (!contentType) {
+    throw new HttpError(
+      415,
+      "unsupported_content_type",
+      "Choose a PNG, JPEG, WebP, or GIF image.",
+    );
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = decodeBase64Bytes(payload.base64);
+  } catch {
+    throw new HttpError(400, "invalid_base64", "The image data is invalid.");
+  }
+  if (bytes.byteLength > MAX_ATTACHMENT_BYTES) {
+    throw new HttpError(
+      413,
+      "image_too_large",
+      "Images must be 8MB or smaller.",
+    );
+  }
+  if (!matchesImageSignature(bytes, contentType)) {
+    throw new HttpError(
+      415,
+      "image_content_mismatch",
+      "The image content does not match its file type.",
+    );
+  }
+  await env.ARTIFACTS.put(key, bytes, {
+    customMetadata: { contentType },
+    httpMetadata: { contentType },
+  });
+  const version = Date.now().toString(36);
+  return json(
+    attachmentUploadResultSchema.parse({
+      key,
+      url: `${publicOrigin}${publicPath}?v=${version}`,
+    }),
+    { status: 201 },
+  );
+}
+
+export async function deleteImageAsset(env: Env, key: string) {
+  await env.ARTIFACTS.delete(key);
+  return json({ deleted: true });
+}
+
+export async function getPublicImageAsset(env: Env, key: string) {
+  const object = await env.ARTIFACTS.get(key);
+  if (!object) {
+    return relayError(404, "image_not_found", "The image was not found.");
+  }
+  const contentType =
+    object.httpMetadata?.contentType ??
+    object.customMetadata?.contentType ??
+    "application/octet-stream";
+  return new Response(object.body, {
+    headers: {
+      "content-type": contentType,
+      "cache-control": "public, max-age=31536000, immutable",
+      "content-security-policy": "sandbox; default-src 'none'",
+      "x-content-type-options": "nosniff",
+    },
+  });
+}
+
 function decodeBase64Bytes(encoded: string): Uint8Array {
   const binary = atob(encoded.replace(/\s+/gu, ""));
   const bytes = new Uint8Array(binary.length);

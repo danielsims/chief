@@ -15,6 +15,7 @@ import {
   readTrustedWorkspaceSocketTicket,
 } from "./internal-context";
 import { WorkspaceAccessService } from "./workspace-access-service";
+import { dispatchWorkspaceMessage } from "./workspace-agent-dispatch";
 import {
   routeWorkspaceChannel,
   routeWorkspaceDirect,
@@ -87,6 +88,9 @@ export class WorkspaceObject extends DurableObject<Env> {
     if (operation === "live-socket-ticket") {
       return this.createLiveSocketTicket(request);
     }
+    if (operation === "agent-message-dispatch") {
+      return dispatchWorkspaceMessage(this.ctx.storage, this.env, request);
+    }
 
     const access = new WorkspaceAccessService(this.ctx.storage, this.env);
     if (operation === "members-list") return access.membersList(request);
@@ -100,6 +104,9 @@ export class WorkspaceObject extends DurableObject<Env> {
     }
     if (operation === "authorize-agent-runtime") {
       return access.authorizeAgentRuntime(request);
+    }
+    if (operation === "agent-hosting-context") {
+      return access.agentHostingContext(request);
     }
     if (operation === "register-agent-key") {
       return access.registerAgentKey(request, readTrustedIdentity(request));
@@ -116,6 +123,11 @@ export class WorkspaceObject extends DurableObject<Env> {
     if (operation === "invite-preview") return invitations.preview(request);
     if (operation === "invite-claim") {
       return invitations.claim(request, readTrustedIdentity(request).identity);
+    }
+    if (operation === "organization-member-join") {
+      return invitations.joinOrganizationMember(
+        readTrustedIdentity(request).identity,
+      );
     }
 
     const lifecycle = new WorkspaceLifecycleService(this.ctx.storage, this.env);
@@ -151,6 +163,7 @@ export class WorkspaceObject extends DurableObject<Env> {
       request,
       operation,
       context.principal,
+      context.workspaceId,
     );
   }
 
@@ -423,8 +436,15 @@ function validCount(value: unknown) {
 }
 
 function workspaceDataCapability(operation: string) {
-  if (operation === "data-brand-save" || operation === "data-prospect-save") {
+  if (operation === "data-brand-save") return "brand-profile-write";
+  if (operation === "data-prospect-save") return "prospects-write";
+  if (operation === "data-projects-list") return "projects.read";
+  if (
+    operation === "data-project-create" ||
+    operation === "data-project-delete"
+  )
+    return "projects.write";
+  if (operation === "data-file-save" || operation === "data-file-update")
     return "workspace.write";
-  }
   return "workspace.read";
 }

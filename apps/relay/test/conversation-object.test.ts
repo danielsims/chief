@@ -1,7 +1,11 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
-import { userIdSchema, workspaceIdSchema } from "@chief/relay-contracts";
+import {
+  agentIdSchema,
+  userIdSchema,
+  workspaceIdSchema,
+} from "@chief/relay-contracts";
 
 import {
   withTrustedContext,
@@ -12,6 +16,7 @@ import { hexKey } from "./helpers";
 const workspaceId = workspaceIdSchema.parse("workspace-a");
 const userId = userIdSchema.parse("user-a");
 const conversationId = "general";
+const agentId = agentIdSchema.parse("advertising");
 
 describe("ConversationObject", () => {
   it("persists an append once when the command is retried", async () => {
@@ -187,7 +192,166 @@ describe("ConversationObject", () => {
     expect(page.messages).toHaveLength(1);
     expect(page.messages[0]).toMatchObject({ id: "search-two" });
   });
+
+  it("upserts durable agent activity with stable identity and cursor replay", async () => {
+    const stub = conversationStub();
+    const running = await postActivity(stub, {
+      messageId: "activity-tool-1",
+      threadRootId: "thread-root",
+      component: {
+        id: "tool-1",
+        kind: "tool",
+        version: 1,
+        payload: {
+          name: "relay_channels_list",
+          status: "running",
+          input: "{}",
+          jobId: "job-1",
+          runId: "run-1",
+        },
+      },
+    });
+    const completed = await postActivity(stub, {
+      messageId: "activity-tool-1",
+      threadRootId: "thread-root",
+      component: {
+        id: "tool-1",
+        kind: "tool",
+        version: 1,
+        payload: {
+          name: "relay_channels_list",
+          status: "completed",
+          input: "{}",
+          output: '{"channels":[]}',
+          jobId: "job-1",
+          runId: "run-1",
+        },
+      },
+    });
+
+    expect(running.status).toBe(200);
+    const runningResult = (await running.json()) as {
+      created: boolean;
+      message: { id: string; sequence: number };
+    };
+    expect(runningResult).toMatchObject({
+      created: true,
+      message: { id: "activity-tool-1" },
+    });
+    expect(completed.status).toBe(200);
+    const completedResult = (await completed.json()) as {
+      created: boolean;
+      message: {
+        id: string;
+        sequence: number;
+        components: Array<{ id: string; payload: { status: string } }>;
+      };
+    };
+    expect(completedResult).toMatchObject({
+      created: false,
+      message: {
+        id: "activity-tool-1",
+        components: [{ id: "tool-1", payload: { status: "completed" } }],
+      },
+    });
+    expect(completedResult.message.sequence).toBe(
+      runningResult.message.sequence,
+    );
+
+    const page = await list(stub);
+    expect(
+      page.messages.filter((message) => message.id === "activity-tool-1"),
+    ).toHaveLength(1);
+    const replay = await listEvents(stub, runningResult.message.sequence);
+    expect(replay.events).toHaveLength(1);
+    expect(replay.events[0]).toMatchObject({
+      type: "conversation.message.edited",
+      actor: { kind: "agent", agentId },
+    });
+    expect(replay.events[0]?.sequence).toBeGreaterThan(
+      runningResult.message.sequence,
+    );
+  });
+
+  it("rejects activity from users and identity-changing agent updates", async () => {
+    const stub = conversationStub();
+    const userWrite = await postActivity(
+      stub,
+      activityPayload("activity-protected", "tool-1"),
+      false,
+    );
+    expect(userWrite.status).toBe(403);
+
+    expect(
+      (
+        await postActivity(
+          stub,
+          activityPayload("activity-protected", "tool-1"),
+        )
+      ).status,
+    ).toBe(200);
+    const changedIdentity = await postActivity(
+      stub,
+      activityPayload("activity-protected", "tool-2"),
+    );
+    expect(changedIdentity.status).toBe(409);
+    expect(await changedIdentity.json()).toMatchObject({
+      error: { code: "activity_identity_mismatch" },
+    });
+    const otherAgent = await postActivity(
+      stub,
+      activityPayload("activity-protected", "tool-1"),
+      true,
+      "engineer",
+    );
+    expect(otherAgent.status).toBe(403);
+    expect(await otherAgent.json()).toMatchObject({
+      error: { code: "activity_owner_mismatch" },
+    });
+  });
 });
+
+function activityPayload(messageId: string, componentId: string) {
+  return {
+    messageId,
+    component: {
+      id: componentId,
+      kind: "tool" as const,
+      version: 1 as const,
+      payload: { name: "relay_channels_list", status: "running" as const },
+    },
+  };
+}
+
+async function postActivity(
+  stub: DurableObjectStub,
+  input:
+    | (ReturnType<typeof activityPayload> & { threadRootId?: string })
+    | {
+        messageId: string;
+        threadRootId?: string;
+        component: {
+          id: string;
+          kind: "tool";
+          version: 1;
+          payload: Record<string, string>;
+        };
+      },
+  asAgent = true,
+  actingAgentID = String(agentId),
+) {
+  const request = trustedRequest(
+    `https://relay.test/internal/messages/${input.messageId}/activity`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...input, conversationId }),
+    },
+    asAgent,
+    actingAgentID,
+  );
+  return stub.fetch(request);
+}
 
 function conversationStub() {
   const conversations = (
@@ -203,6 +367,7 @@ function appendCommand(input: {
   routedConversationId?: string;
   threadRootId?: string;
   body?: string;
+  components?: Record<string, unknown>[];
 }) {
   return {
     commandId: input.commandId,
@@ -213,7 +378,7 @@ function appendCommand(input: {
       conversationId: input.routedConversationId ?? conversationId,
       threadRootId: input.threadRootId,
       body: input.body ?? "Hello from the durable relay.",
-      components: [],
+      components: input.components ?? [],
     },
   };
 }
@@ -235,12 +400,16 @@ async function react(
   return stub.fetch(request);
 }
 
-async function post(stub: DurableObjectStub, body: unknown) {
-  const request = trustedRequest("https://relay.test/internal/messages", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+async function post(stub: DurableObjectStub, body: unknown, asAgent = false) {
+  const request = trustedRequest(
+    "https://relay.test/internal/messages",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    asAgent,
+  );
   return stub.fetch(request);
 }
 
@@ -254,9 +423,11 @@ async function list(stub: DurableObjectStub) {
   };
 }
 
-async function listEvents(stub: DurableObjectStub) {
+async function listEvents(stub: DurableObjectStub, after = 0) {
   const response = await stub.fetch(
-    trustedRequest("https://relay.test/internal/events?after=0&limit=50"),
+    trustedRequest(
+      `https://relay.test/internal/events?after=${after}&limit=50`,
+    ),
   );
   expect(response.status).toBe(200);
   return (await response.json()) as {
@@ -268,15 +439,28 @@ async function listEvents(stub: DurableObjectStub) {
   };
 }
 
-function trustedRequest(url: string, init?: RequestInit) {
+function trustedRequest(
+  url: string,
+  init?: RequestInit,
+  asAgent = false,
+  actingAgentID = String(agentId),
+) {
   return withTrustedContext(new Request(url, init), {
-    principal: {
-      kind: "user",
-      userId,
-      pubkey: hexKey(userId),
-      workspaceId,
-      role: "owner",
-    },
+    principal: asAgent
+      ? {
+          kind: "agent",
+          agentId: agentIdSchema.parse(actingAgentID),
+          pubkey: hexKey(actingAgentID),
+          workspaceId,
+          role: "member",
+        }
+      : {
+          kind: "user",
+          userId,
+          pubkey: hexKey(userId),
+          workspaceId,
+          role: "owner",
+        },
     requestId: crypto.randomUUID(),
     workspaceId,
     conversationId,

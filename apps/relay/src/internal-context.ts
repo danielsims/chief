@@ -68,6 +68,13 @@ export function readTrustedContext(request: Request) {
   };
 }
 
+export function requiredTrustedConversationId(
+  context: ReturnType<typeof readTrustedContext>,
+) {
+  if (!context.conversationId) throw new Error("Missing conversation context.");
+  return context.conversationId;
+}
+
 export function withTrustedIdentity(
   input: {
     identity: AuthenticatedIdentity;

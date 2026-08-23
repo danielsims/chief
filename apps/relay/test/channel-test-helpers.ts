@@ -95,6 +95,34 @@ export function channelRpc(
   return workspaceStub(ctx).fetch(request);
 }
 
+export function dispatchTestMessage(
+  ctx: ChannelTestContext,
+  principal: Parameters<typeof withTrustedContext>[1]["principal"],
+  message: Record<string, unknown> & { conversationId: string },
+) {
+  const workspaces = (
+    ctx.env as unknown as { WORKSPACES: DurableObjectNamespace }
+  ).WORKSPACES;
+  return workspaces.get(workspaces.idFromName(ctx.workspaceId)).fetch(
+    withTrustedContext(
+      new Request("https://workspace.internal/agent-message-dispatch", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-chief-internal-operation": "agent-message-dispatch",
+        },
+        body: JSON.stringify({ message }),
+      }),
+      {
+        principal,
+        requestId: crypto.randomUUID(),
+        workspaceId: ctx.workspaceId,
+        conversationId: message.conversationId,
+      },
+    ),
+  );
+}
+
 export function registerTestAgent(
   ctx: ChannelTestContext,
   agentIdValue: string,

@@ -7,11 +7,12 @@ import type {
 } from "@chief/relay-contracts";
 import {
   hexPubkeySchema,
+  organizationWorkspaceJoinResultSchema,
   workspaceInviteClaimResultSchema,
 } from "@chief/relay-contracts";
 
 import { AuthorizationError } from "./auth";
-import { HttpError } from "./http";
+import { HttpError, json } from "./http";
 import {
   withTrustedAccountIdentity,
   withTrustedContext,
@@ -23,6 +24,7 @@ import {
   registerWorkspaceOrganizationMember,
   requireWorkspaceOrganizationMember,
 } from "./organization-tenancy";
+import { workspaceOnboardingInstruction } from "./workspace-onboarding-job";
 import { accountStub, workspaceStub } from "./workspace-stubs";
 
 export {
@@ -98,6 +100,7 @@ export async function createManagedWorkspace(
 export async function activeManagedWorkspace(
   env: Env,
   identity: AuthenticatedIdentity,
+  context?: Pick<ExecutionContext, "waitUntil">,
 ) {
   if (identity.kind !== "user") {
     throw new AuthorizationError("A user identity is required.");
@@ -125,22 +128,29 @@ export async function activeManagedWorkspace(
     ),
   );
   if (!response.ok) return response;
-  const body = await response.text();
-  const snapshot = JSON.parse(body) as { onboardingComplete?: unknown };
+  const snapshot = JSON.parse(await response.text()) as {
+    onboardingComplete?: unknown;
+    [key: string]: unknown;
+  };
+  snapshot.runtime = entry.command?.runtime ?? null;
   if (snapshot.onboardingComplete === false && entry.command) {
-    // Reassert the deterministic job when an incomplete cross-DO workspace
-    // opens, closing the crash window between its authorities.
-    await enqueueOnboarding(
-      env,
-      identity,
-      { ...entry, command: entry.command },
-      true,
-    );
+    // Unit-level authority calls retain deterministic repair coverage. Public
+    // GET requests intentionally do not enqueue work: reads must return the
+    // existing snapshot immediately, even when the agent authority is slow or
+    // its Cloudflare allowance has been exhausted.
+    if (!context) {
+      await enqueueOnboarding(
+        env,
+        identity,
+        { ...entry, command: entry.command },
+        true,
+      );
+    }
   }
-  return new Response(body, {
-    status: response.status,
-    headers: response.headers,
-  });
+  // The body changed, so do not reuse the Durable Object response headers.
+  // In particular, a stale Content-Length leaves native HTTP clients waiting
+  // for bytes that will never arrive.
+  return json(snapshot, { status: response.status });
 }
 
 export async function createWorkspaceInvite(
@@ -227,6 +237,52 @@ export async function claimWorkspaceInvite(
       body: JSON.stringify({
         workspaceId: result.workspaceId,
         operationId: command.commandId,
+        name: result.workspaceName,
+        website: result.website,
+        createdAt: new Date().toISOString(),
+      }),
+    }),
+  );
+  if (!directoryResponse.ok) return directoryResponse;
+  return response;
+}
+
+export async function joinOrganizationWorkspace(
+  env: Env,
+  input: {
+    identity: AuthenticatedIdentity;
+    requestId: string;
+    workspaceId: WorkspaceId;
+  },
+) {
+  if (input.identity.kind !== "user") {
+    throw new AuthorizationError("A user identity is required.");
+  }
+  await requireWorkspaceOrganizationMember(
+    env,
+    input.identity,
+    input.workspaceId,
+  );
+  const response = await workspaceStub(env, input.workspaceId).fetch(
+    withTrustedIdentity(input, {
+      method: "POST",
+      headers: { "x-chief-internal-operation": "organization-member-join" },
+    }),
+  );
+  if (!response.ok) return response;
+  const result = organizationWorkspaceJoinResultSchema.parse(
+    await response.clone().json(),
+  );
+  const directoryResponse = await accountStub(env, input.identity.userId).fetch(
+    withTrustedAccountIdentity(input.identity, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-chief-internal-operation": "join-workspace",
+      },
+      body: JSON.stringify({
+        workspaceId: result.workspaceId,
+        operationId: crypto.randomUUID(),
         name: result.workspaceName,
         website: result.website,
         createdAt: new Date().toISOString(),
@@ -389,6 +445,11 @@ async function enqueueOnboarding(
           inferenceProvider: entry.command.inferenceProvider,
           inferenceModel: entry.command.inferenceModel,
           selectedApps: entry.command.selectedApps,
+          instruction: workspaceOnboardingInstruction({
+            name: entry.command.name,
+            website: entry.command.website,
+            selectedApps: entry.command.selectedApps,
+          }),
         },
         availableAt: occurredAt,
       },

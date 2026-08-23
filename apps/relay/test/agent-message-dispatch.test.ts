@@ -1,0 +1,107 @@
+import { describe, expect, it } from "vitest";
+
+import { withTrustedContext } from "../src/internal-context";
+import {
+  agentId,
+  testAgentPrincipal as agentPrincipal,
+  dispatchTestMessage as dispatchMessage,
+  channelEnvelope as envelope,
+  ownerId,
+  registerTestAgent as registerAgent,
+  channelRpc as rpc,
+  setupChannelTest as setup,
+} from "./channel-test-helpers";
+import { hexKey } from "./helpers";
+
+describe("workspace agent message dispatch", () => {
+  it("queues one idempotent job for the agent member of a direct message", async () => {
+    const ctx = await setup();
+    await registerAgent(ctx, agentId, hexKey(String(agentId)));
+    const direct = await rpc(
+      ctx,
+      ctx.principal,
+      "directs-start",
+      envelope({ participant: { kind: "agent", principalId: agentId } }),
+    );
+    const conversationId = (
+      (await direct.json()) as { conversation: { id: string } }
+    ).conversation.id;
+    const message = testMessage(ctx, conversationId, "Can you review this?");
+
+    const dispatched = await dispatchMessage(ctx, ctx.principal, message);
+    const duplicate = await dispatchMessage(ctx, ctx.principal, message);
+    expect(await dispatched.json()).toEqual({ agentIds: [agentId] });
+    expect(duplicate.status).toBe(200);
+
+    const agent = ctx.env.AGENTS.get(
+      ctx.env.AGENTS.idFromName(`${ctx.workspaceId}:${agentId}`),
+    );
+    const claim = await agent.fetch(
+      withTrustedContext(
+        new Request("https://agent.internal/claim", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ workerId: "dm-test", leaseSeconds: 60 }),
+        }),
+        {
+          principal: agentPrincipal(ctx, agentId, hexKey(String(agentId))),
+          requestId: crypto.randomUUID(),
+          workspaceId: ctx.workspaceId,
+        },
+      ),
+    );
+    expect(await claim.json()).toMatchObject({
+      job: {
+        agentId,
+        kind: "conversation.message",
+        payload: {
+          conversationId,
+          messageId: message.id,
+          instruction: message.body,
+        },
+      },
+    });
+  });
+
+  it("does not dispatch a private-channel mention to an agent outside it", async () => {
+    const ctx = await setup();
+    await registerAgent(ctx, agentId, hexKey(String(agentId)));
+    await rpc(
+      ctx,
+      ctx.principal,
+      "channels-create",
+      envelope({
+        conversationId: "private-team",
+        name: "private-team",
+        isPrivate: true,
+      }),
+    );
+    const response = await dispatchMessage(ctx, ctx.principal, {
+      ...testMessage(ctx, "private-team", "@Coordinator please review this."),
+      mentions: [agentId],
+    });
+
+    expect(await response.json()).toEqual({ agentIds: [] });
+  });
+});
+
+function testMessage(
+  ctx: Awaited<ReturnType<typeof setup>>,
+  conversationId: string,
+  body: string,
+) {
+  return {
+    id: crypto.randomUUID(),
+    workspaceId: ctx.workspaceId,
+    conversationId,
+    author: { kind: "user" as const, id: ownerId },
+    body,
+    mentions: [],
+    components: [],
+    reactions: [],
+    edited: false,
+    deleted: false,
+    createdAt: new Date().toISOString(),
+    sequence: 1,
+  };
+}

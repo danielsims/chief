@@ -125,6 +125,7 @@ export class WorkspaceLifecycleService {
       name: input.name,
       website: input.website,
       selectedApps: input.selectedApps,
+      runtime: input.runtime,
       imageURL: null,
       onboardingComplete: false,
       conversations: [
@@ -164,6 +165,7 @@ export class WorkspaceLifecycleService {
         ownerIdentity.userId,
         createdAt,
       );
+      this.channels.seedSnapshotAgents(snapshot, createdAt);
     });
     return this.snapshot(context);
   }
