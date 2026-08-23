@@ -206,6 +206,15 @@ export function useWorkspaceChannelsState() {
           pending.resolve(message.channel.id);
         }
       }
+      if (message.type === "error" && message.requestId) {
+        const pending = pendingCreates.current.get(message.requestId);
+        if (pending) {
+          window.clearTimeout(pending.timeout);
+          pendingCreates.current.delete(message.requestId);
+          pending.resolve(null);
+          toast.error(message.message);
+        }
+      }
       if (
         message.type === "channelUpdated" &&
         message.workspaceId === cloudOrganizationId

@@ -19,13 +19,17 @@ import { PageTitle } from "./components/page-title";
 import { AgentConfigProvider } from "./lib/agent-config";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
 import { ChannelReadStateProvider } from "./lib/channel-read-state-context";
-import { missingDesktopConfiguration } from "./lib/config";
+import { missingDesktopConfiguration, RELAY_URL } from "./lib/config";
 import { ConvexClientProvider } from "./lib/convex";
 import { RelaySessionProvider, useRelaySession } from "./lib/relay-session";
 import { RuntimeProvider } from "./lib/runtime";
 import { ThemeProvider, useTheme } from "./lib/theme";
 import { WorkspaceChannelsProvider } from "./lib/workspace-channels-context";
-import { isExplicitWorkspaceEntry } from "./lib/workspace-entry";
+import {
+  isExplicitWorkspaceEntry,
+  pendingCreateRelayKey,
+  shouldResumeWorkspaceCreate,
+} from "./lib/workspace-entry";
 import { AgentsPage } from "./pages/agents";
 import { AnalyticsPage } from "./pages/analytics";
 import { ArtifactsPage } from "./pages/artifacts";
@@ -37,6 +41,7 @@ import { OnboardingPage } from "./pages/onboarding";
 import { ProspectsPage } from "./pages/prospects";
 import { SchedulePage } from "./pages/schedule";
 import { AppearanceSettings } from "./pages/settings/appearance";
+import { ConnectionSettings } from "./pages/settings/connection";
 import { DiagnosticsSettings } from "./pages/settings/diagnostics";
 import { EnvironmentSettings } from "./pages/settings/environment";
 import { SettingsLayout } from "./pages/settings/layout";
@@ -88,9 +93,21 @@ function ConfigurationRequired() {
 function OnboardingGate({ children }: { children: ReactNode }) {
   const location = useLocation();
   const relay = useRelaySession();
+  const resumesWorkspaceCreate = shouldResumeWorkspaceCreate(
+    window.sessionStorage.getItem(pendingCreateRelayKey),
+    RELAY_URL,
+  );
 
   if (relay.loading) {
     return <EntryState />;
+  }
+
+  if (!relay.snapshot && relay.error) {
+    return <RelayUnavailableState />;
+  }
+
+  if (resumesWorkspaceCreate && location.pathname !== "/workspaces/new") {
+    return <Navigate to="/workspaces/new?intent=add" replace />;
   }
 
   if (location.pathname === "/workspaces/new") {
@@ -108,6 +125,26 @@ function OnboardingGate({ children }: { children: ReactNode }) {
     <Navigate to="/" replace />
   ) : (
     children
+  );
+}
+
+function RelayUnavailableState() {
+  const relay = useRelaySession();
+  return (
+    <main className="bg-background text-foreground flex min-h-screen items-center justify-center px-6">
+      <section className="bg-card w-full max-w-md rounded-xl border p-8">
+        <PageTitle>Workspace unavailable</PageTitle>
+        <p className="text-muted-foreground mt-3 text-sm leading-6">
+          Chief can’t connect to the server that runs this workspace. Go back
+          and use another workspace until it’s online again.
+        </p>
+        <div className="mt-6">
+          <Button onClick={() => void relay.returnToPreviousWorkspace()}>
+            Back
+          </Button>
+        </div>
+      </section>
+    </main>
   );
 }
 
@@ -287,6 +324,10 @@ function AuthenticatedApp() {
                         <Route
                           path="workspace"
                           element={<WorkspaceSettings />}
+                        />
+                        <Route
+                          path="connection"
+                          element={<ConnectionSettings />}
                         />
                         <Route path="missions" element={<MissionsSettings />} />
                         <Route

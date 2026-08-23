@@ -1,5 +1,12 @@
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
-import { Children, lazy, Suspense, useMemo } from "react";
+import type { ComponentPropsWithoutRef, ReactElement, ReactNode } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  lazy,
+  Suspense,
+  useMemo,
+} from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 
@@ -88,7 +95,7 @@ function highlightReferences(
   channels: readonly ChannelReferenceTarget[],
   onOpenChannel?: (channelId: string) => void,
   onOpenMention?: (agentId: WorkspaceAgentId) => void,
-) {
+): ReactNode {
   return Children.map(children, (child) =>
     typeof child === "string"
       ? splitSkillReferences(child).map((segment, index) =>
@@ -108,7 +115,18 @@ function highlightReferences(
             />
           ),
         )
-      : child,
+      : isValidElement<{ children?: ReactNode }>(child) &&
+          child.type !== "code" &&
+          child.type !== "a"
+        ? cloneElement(child as ReactElement<{ children?: ReactNode }>, {
+            children: highlightReferences(
+              child.props.children,
+              channels,
+              onOpenChannel,
+              onOpenMention,
+            ),
+          })
+        : child,
   );
 }
 

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBuildCommand": "pnpm build && pnpm runtime:bundle"
+  },
+  "bundle": {
+    "createUpdaterArtifacts": false,
+    "externalBin": ["binaries/chief-agent-runtime"],
+    "resources": {
+      "resources/agent-runtime": "agent-runtime",
+      "resources/agent-runtime.version": "agent-runtime.version"
+    }
+  }
+}

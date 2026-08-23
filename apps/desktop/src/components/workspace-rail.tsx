@@ -13,6 +13,8 @@ import type { AuthOrganization } from "../lib/auth/better-auth-client";
 import { useAuth } from "../lib/auth/auth-context";
 import { parseOrganizationMetadata } from "../lib/auth/better-auth-client";
 import { useChannelReadState } from "../lib/channel-read-state-context";
+import { CHIEF_CLOUD_RELAY_URL } from "../lib/config";
+import { relayForWorkspace } from "../lib/relay-connection";
 import { useRelaySession } from "../lib/relay-session";
 import { activeFirstOrganizations } from "../lib/workspace-organizations";
 import { OrgLogo } from "./org-logo";
@@ -42,15 +44,15 @@ export function WorkspaceRail() {
     async (organization: AuthOrganization) => {
       if (organization.id === cloudOrganizationId || switchingTo) return;
       setSwitchingTo(organization.id);
+      void navigate("/", { replace: true });
       try {
         await relay.switchWorkspace(organization.id);
-        window.location.assign("/");
       } catch (error) {
         console.error("[Workspace] Switch failed:", error);
         setSwitchingTo(null);
       }
     },
-    [cloudOrganizationId, relay, switchingTo],
+    [cloudOrganizationId, navigate, relay, switchingTo],
   );
   const openWorkspaceSettings = useCallback(
     async (organization: AuthOrganization) => {
@@ -63,7 +65,7 @@ export function WorkspaceRail() {
       setSwitchingTo(organization.id);
       try {
         await relay.switchWorkspace(organization.id);
-        window.location.assign("/settings/workspace");
+        void navigate("/settings/workspace", { replace: true });
       } catch (error) {
         console.error("[Workspace] Switch failed:", error);
         setSwitchingTo(null);
@@ -83,16 +85,13 @@ export function WorkspaceRail() {
     >
       <div className="h-10 shrink-0" data-tauri-drag-region />
       <div className="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto px-1.5 pt-1">
-        {relay.loading ? (
-          <span
-            aria-hidden
-            className="bg-sidebar-accent size-8 shrink-0 animate-pulse rounded-[11px]"
-          />
-        ) : null}
         {orderedOrganizations.map((organization) => {
           const active = organization.id === cloudOrganizationId;
           const metadata = parseOrganizationMetadata(organization);
           const unreadCount = workspaceUnreadCounts.get(organization.id) ?? 0;
+          const relayUrl =
+            relayForWorkspace(organization.id) ??
+            new URL(CHIEF_CLOUD_RELAY_URL).origin;
           return (
             <Popover
               key={organization.id}
@@ -160,13 +159,14 @@ export function WorkspaceRail() {
                 </TooltipContent>
               </Tooltip>
               <WorkspaceActionsPopover
-                primaryLabel="Workspace settings"
+                primaryLabel={active ? "Workspace settings" : "Open workspace"}
                 primaryDisabled={switchingTo !== null}
-                onPrimaryAction={() => void openWorkspaceSettings(organization)}
-                onAddWorkspace={() => {
-                  setWorkspaceMenuId(null);
-                  void navigate("/workspaces/new?intent=add");
+                onPrimaryAction={() => {
+                  if (active) void openWorkspaceSettings(organization);
+                  else void switchWorkspace(organization);
                 }}
+                workspaceName={organization.name}
+                relayUrl={relayUrl}
               />
             </Popover>
           );

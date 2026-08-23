@@ -1,6 +1,8 @@
 # Chief desktop
 
-The macOS and Windows desktop workspace. It combines the React interface, Tauri shell, and bundled local agent runtime.
+The macOS and Windows desktop workspace. The normal release is a lightweight
+relay client and does not bundle Node, Codex, Executor, or the local agent
+runtime.
 
 ## Run locally
 
@@ -39,6 +41,10 @@ Install the platform prerequisites from the [Tauri documentation](https://v2.tau
 pnpm --filter @chief/desktop build:app
 ```
 
+This local packaging command creates the lightweight app and DMG without
+requiring the private updater signing key. Release automation uses
+`build:app:release` with its signing credentials.
+
 On the Chief release Mac, the local development packaging loop is available
 from the repository root. It selects the Developer ID identity, builds the
 app and DMG, verifies the app signature, and reveals the DMG in Finder:
@@ -48,6 +54,17 @@ pnpm desktop:dmg
 ```
 
 Tauri writes installers to `src-tauri/target/release/bundle`. Official signing and notarization values are supplied by the private release environment, not stored in this repository.
+
+For a signed-capable offline/developer package with the compact local cell and
+plugin hosts, use:
+
+```bash
+pnpm --filter @chief/desktop build:app:offline
+```
+
+The offline profile ships one target-native Node sidecar and the bundled worker
+graphs. It does not include Codex, pnpm, deployment workspaces, or the source
+repository.
 
 Release builds also create signed updater artifacts. Forge must provide the
 same Tauri updater signing key used by the public verification key in

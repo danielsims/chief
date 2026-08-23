@@ -11,6 +11,20 @@ export type TimelineEntry =
   | { type: "specialist"; task: SessionRecord }
   | { type: "action"; action: ActionItem };
 
+function isActivityProjection(message: ChiefUIMessage) {
+  if (message.role !== "assistant") return false;
+  const text = message.parts
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join("")
+    .trim();
+  return (
+    !text &&
+    message.parts.some(
+      (part) => part.type === "reasoning" || part.type === "dynamic-tool",
+    )
+  );
+}
+
 /** Base conversation entries contain authored messages and rich browser
  * handoffs. Public specialist summaries are projected separately. */
 export function conversationTimelineEntries(
@@ -22,6 +36,7 @@ export function conversationTimelineEntries(
   const entries: TimelineEntry[] = [];
   const placed = new Set<string>();
   for (const message of messages) {
+    if (isActivityProjection(message)) continue;
     if ((message.metadata?.threadRootId ?? null) !== threadRootId) continue;
     entries.push({ type: "message", message });
     for (const run of runs) {

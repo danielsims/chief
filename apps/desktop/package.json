@@ -7,14 +7,17 @@
     "dev": "tauri dev",
     "dev:vite": "vite",
     "build": "tsc && vite build",
-    "build:app": "tauri build",
+    "build:app": "tauri build --config src-tauri/tauri.local.conf.json",
+    "build:app:offline": "tauri build --config src-tauri/tauri.offline.conf.json",
+    "build:app:release": "tauri build",
     "clean": "git clean -xdf .cache .turbo dist node_modules",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
     "lint": "eslint --flag unstable_native_nodejs_ts_config",
     "preview": "vite preview",
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "runtime:bundle": "pnpm --dir ../.. --filter @chief/agent-runtime build:desktop-sidecar"
   },
   "dependencies": {
     "@ai-sdk/react": "4.0.33",

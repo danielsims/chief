@@ -7,6 +7,7 @@ import { PageTitle } from "../../components/page-title";
 const sections = [
   { to: "/settings/profile", label: "Profile" },
   { to: "/settings/workspace", label: "Workspace" },
+  { to: "/settings/connection", label: "Connection" },
   { to: "/settings/missions", label: "Missions" },
   { to: "/settings/appearance", label: "Appearance" },
   { to: "/settings/notifications", label: "Notifications" },

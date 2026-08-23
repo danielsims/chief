@@ -68,3 +68,16 @@ void test("inactive activity reserves the composer presence row", () => {
   assert.match(html, /aria-hidden="true"/u);
   assert.doesNotMatch(html, /img|avatar|working|typing/iu);
 });
+
+void test("the activity matrix inherits the active agent color", () => {
+  const html = renderToStaticMarkup(
+    createElement(AgentActivityComposerRow, {
+      agents: [{ id: "ads", label: "Advertising" }],
+      running: true,
+      statusLabel: "Advertising is working…",
+      onOpen: () => undefined,
+    }),
+  );
+
+  assert.match(html, /color:#fa8ca8/iu);
+});

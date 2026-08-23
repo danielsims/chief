@@ -9,10 +9,11 @@ import type {
 } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
 
+import type { RelayPluginActionContext } from "../../lib/runtime-plugins";
 import type { ChannelReferenceTarget } from "./channel-reference-parser";
 import { renderGenerativePart } from "../generative-ui/registry";
 import { executorToolLabel } from "./executor-tool-label";
-import { PluginToolCard } from "./plugin-tool-card";
+import { PluginRecommendationCards, PluginToolCard } from "./plugin-tool-card";
 import { isPluginTool } from "./plugin-tool-data";
 import { SpecialistTaskCard } from "./specialist-task-card";
 import { specialistTasksForInput } from "./specialist-task-display";
@@ -262,6 +263,7 @@ export function Blocks({
   onOpenChannel,
   onOpenTask,
   toolAttachment,
+  pluginActionContext,
 }: {
   blocks: ContentBlock[];
   progress?: Record<string, string>;
@@ -273,6 +275,7 @@ export function Blocks({
   channelReferences?: readonly ChannelReferenceTarget[];
   onOpenChannel?: (channelId: string) => void;
   onOpenTask?: (taskId: string) => void;
+  pluginActionContext?: RelayPluginActionContext;
   /**
    * A generic hook for tools that carry a rich inline UI (Chief's embedded
    * browser, etc.). A tool block can render a live attachment at its exact
@@ -299,6 +302,32 @@ export function Blocks({
   return (
     <div className="max-w-full min-w-0 space-y-3 overflow-hidden">
       {blocks.map((block, index) => {
+        if (block.type === "data-plugin-recommendations") {
+          const data = block.data;
+          const embeddedContext =
+            data.workspaceId &&
+            data.conversationId &&
+            data.agentId &&
+            data.recommendationId
+              ? {
+                  workspaceId: data.workspaceId,
+                  conversationId: data.conversationId,
+                  ...(data.threadRootId
+                    ? { threadRootId: data.threadRootId }
+                    : {}),
+                  agentId: data.agentId,
+                  recommendationId: data.recommendationId,
+                }
+              : undefined;
+          return (
+            <PluginRecommendationCards
+              key={index}
+              plugins={data.plugins}
+              actionContext={embeddedContext ?? pluginActionContext}
+              authorizations={data.authorizations}
+            />
+          );
+        }
         const generativePart = renderGenerativePart(block, capabilities);
         if (generativePart !== undefined) {
           return <Fragment key={index}>{generativePart}</Fragment>;
@@ -357,6 +386,7 @@ export function Blocks({
                   key={block.id}
                   block={block}
                   result={results.get(block.id)}
+                  actionContext={pluginActionContext}
                 />
               );
             }

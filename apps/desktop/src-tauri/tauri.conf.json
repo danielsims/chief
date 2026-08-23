@@ -14,6 +14,7 @@
     "windows": [
       {
         "title": "Chief",
+        "url": "index.html",
         "width": 1440,
         "height": 900,
         "minWidth": 1080,

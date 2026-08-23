@@ -1,9 +1,16 @@
 import { useMemo, useState } from "react";
-import { ChevronRight, ChevronUp, Smile } from "lucide-react";
+import {
+  ChevronRight,
+  ChevronUp,
+  Plus,
+  Settings as SettingsIcon,
+  Smile,
+} from "lucide-react";
 import { useNavigate } from "react-router";
 
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "@chief/ui/components/popover";
@@ -11,6 +18,8 @@ import {
 import type { AuthOrganization } from "../lib/auth/better-auth-client";
 import { useAuth } from "../lib/auth/auth-context";
 import { parseOrganizationMetadata } from "../lib/auth/better-auth-client";
+import { CHIEF_CLOUD_RELAY_URL } from "../lib/config";
+import { relayForWorkspace } from "../lib/relay-connection";
 import { useRelaySession } from "../lib/relay-session";
 import { useUserStatus } from "../lib/user-status";
 import { OrgLogo } from "./org-logo";
@@ -50,9 +59,10 @@ export function SidebarProfileMenu() {
   const switchWorkspace = async (organization: AuthOrganization) => {
     if (organization.id === cloudOrganizationId || switchingTo) return;
     setSwitchingTo(organization.id);
+    void navigate("/", { replace: true });
     try {
       await relay.switchWorkspace(organization.id);
-      window.location.assign("/");
+      setProfileMenuOpen(false);
     } catch (error) {
       console.error("[Workspace] Switch failed:", error);
       setSwitchingTo(null);
@@ -138,10 +148,13 @@ export function SidebarProfileMenu() {
             </button>
           </div>
           <div className="bg-border/60 my-1 h-px" />
-          <div className="px-1 py-1">
+          <div className="max-h-[188px] overflow-y-auto overscroll-contain px-1 py-1">
             {organizations.map((organization) => {
               const active = organization.id === cloudOrganizationId;
               const metadata = parseOrganizationMetadata(organization);
+              const relayUrl =
+                relayForWorkspace(organization.id) ??
+                new URL(CHIEF_CLOUD_RELAY_URL).origin;
               return (
                 <Popover
                   key={organization.id}
@@ -152,10 +165,12 @@ export function SidebarProfileMenu() {
                     )
                   }
                 >
-                  <PopoverTrigger asChild>
+                  <PopoverAnchor asChild>
                     <button
                       type="button"
                       onPointerEnter={() => setWorkspaceMenuId(organization.id)}
+                      onFocus={() => setWorkspaceMenuId(organization.id)}
+                      onClick={() => setWorkspaceMenuId(organization.id)}
                       className="hover:bg-accent data-[state=open]:bg-accent flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left transition-colors outline-none"
                     >
                       <OrgLogo
@@ -177,7 +192,7 @@ export function SidebarProfileMenu() {
                         size={13}
                       />
                     </button>
-                  </PopoverTrigger>
+                  </PopoverAnchor>
                   <WorkspaceActionsPopover
                     primaryLabel={
                       active ? "Workspace settings" : "Open workspace"
@@ -191,10 +206,8 @@ export function SidebarProfileMenu() {
                         void switchWorkspace(organization);
                       }
                     }}
-                    onAddWorkspace={() => {
-                      setProfileMenuOpen(false);
-                      void navigate("/workspaces/new?intent=add");
-                    }}
+                    workspaceName={organization.name}
+                    relayUrl={relayUrl}
                   />
                 </Popover>
               );
@@ -205,10 +218,22 @@ export function SidebarProfileMenu() {
             type="button"
             onClick={() => {
               setProfileMenuOpen(false);
+              void navigate("/workspaces/new?intent=add");
+            }}
+            className="hover:bg-accent focus:bg-accent flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] transition-colors outline-none"
+          >
+            <Plus className="text-muted-foreground size-4 shrink-0" />
+            Add a workspace
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setProfileMenuOpen(false);
               void navigate("/settings");
             }}
-            className="hover:bg-accent focus:bg-accent flex h-9 w-full items-center rounded-lg px-2 text-left text-[13px] transition-colors outline-none"
+            className="hover:bg-accent focus:bg-accent flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] transition-colors outline-none"
           >
+            <SettingsIcon className="text-muted-foreground size-4 shrink-0" />
             Settings
           </button>
         </PopoverContent>

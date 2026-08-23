@@ -32,6 +32,7 @@ import { useChannelReadState } from "../lib/channel-read-state-context";
 import { useChiefNavigation } from "../lib/chief-navigation-context";
 import {
   useLocalChats,
+  useRuntime,
   useWorkspaceChannels,
   useWorkspaceData,
 } from "../lib/runtime";
@@ -140,6 +141,7 @@ export function Sidebar({
 }) {
   const { cloudOrganizationId, organizationRole } = useAuth();
   const localChats = useLocalChats(cloudOrganizationId);
+  const { agents: runtimeAgents } = useRuntime();
   const workspaceChannels = useWorkspaceChannels();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const { unreadChannelCounts } = useChannelReadState();
@@ -256,7 +258,12 @@ export function Sidebar({
       channel.userIds.includes("workspace-owner") &&
       !leftIds.includes(channel.id),
   );
-  const directMessageIds = useMemo(() => directMessageIdsForChats(), []);
+  const directMessageIds = useMemo(() => {
+    const available = new Set(runtimeAgents.map((agent) => agent.id));
+    return runtimeAgents.length > 0
+      ? directMessageIdsForChats().filter((agentId) => available.has(agentId))
+      : directMessageIdsForChats();
+  }, [runtimeAgents]);
   const directAttentionTargets = useMemo(
     () =>
       directMessageAttentionTargets({
@@ -417,16 +424,12 @@ export function Sidebar({
           unreadDirectMessageCounts={unreadDirectMessageCounts}
           onOpen={openChannel}
           onOpenDirectMessage={(agentId: WorkspaceAgentId, target) => {
-            void localChats
-              .startDirectMessage(agentId)
-              .then((conversationId) => {
-                chiefNavigation.open({
-                  kind: "conversation",
-                  channelId: conversationId,
-                  directAgentId: agentId,
-                  ...target,
-                });
-              });
+            chiefNavigation.open({
+              kind: "conversation",
+              channelId: `direct:${agentId}`,
+              directAgentId: agentId,
+              ...target,
+            });
           }}
           onCreateChannel={workspaceChannels.createChannel}
           onDeleteChannel={deleteChannel}

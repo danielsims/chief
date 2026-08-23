@@ -7,9 +7,11 @@ import { toast } from "sonner";
 import type {
   AgentPluginSummary,
   ContentBlock,
+  PluginAuthorizationAction,
 } from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
 
+import type { RelayPluginActionContext } from "../../lib/runtime-plugins";
 import { integrationSetupChannelPath } from "../../lib/integration-setup";
 import { pluginDomain } from "../../lib/plugin-presentation";
 import { usePlugins } from "../../lib/runtime-plugins";
@@ -28,16 +30,36 @@ const PREVIEW_REFRESHED_AT = 1_786_555_200_000;
 function PluginRow({
   plugin,
   runtime,
+  actionContext,
+  authorization,
 }: {
   plugin: AgentPluginSummary;
   runtime: PluginRuntime;
+  actionContext?: RelayPluginActionContext;
+  authorization?: PluginAuthorizationAction;
 }) {
   const navigate = useNavigate();
+  const [requested, setRequested] = useState(false);
   const current =
     runtime.plugins?.find((item) => item.id === plugin.id) ?? plugin;
   const busy = runtime.busyPluginId === plugin.id;
   const connect = async () => {
     try {
+      if (authorization) {
+        await openUrl(authorization.authorizationUrl);
+        return;
+      }
+      if (actionContext) {
+        runtime.requestAgentAction(
+          current,
+          current.status === "available" || current.status === "error"
+            ? "install"
+            : "authorize",
+          actionContext,
+        );
+        setRequested(true);
+        return;
+      }
       if (current.source.type === "setup") {
         await navigate(
           integrationSetupChannelPath({
@@ -75,19 +97,21 @@ function PluginRow({
         <Button
           variant="outline"
           size="sm"
-          disabled={busy}
+          disabled={busy || requested}
           onClick={() => void connect()}
         >
           {busy ? <LoaderCircle className="animate-spin" size={13} /> : null}
-          {current.status === "available"
-            ? "Authorize"
-            : current.status === "waiting"
-              ? "Reopen"
-              : current.status === "failed" || current.status === "error"
-                ? "Retry"
-                : current.status === "reconnect"
-                  ? "Reconnect"
-                  : "Authorize"}
+          {requested
+            ? "Requested"
+            : current.status === "available"
+              ? "Authorize"
+              : current.status === "waiting"
+                ? "Reopen"
+                : current.status === "failed" || current.status === "error"
+                  ? "Retry"
+                  : current.status === "reconnect"
+                    ? "Reconnect"
+                    : "Authorize"}
         </Button>
       )}
     </div>
@@ -97,14 +121,26 @@ function PluginRow({
 function PluginRecommendationRows({
   plugins,
   runtime,
+  actionContext,
+  authorizations,
 }: {
   plugins: AgentPluginSummary[];
   runtime: PluginRuntime;
+  actionContext?: RelayPluginActionContext;
+  authorizations?: PluginAuthorizationAction[];
 }) {
   return (
     <div className="w-[620px] max-w-full space-y-2">
       {plugins.slice(0, 8).map((plugin) => (
-        <PluginRow key={plugin.id} plugin={plugin} runtime={runtime} />
+        <PluginRow
+          key={plugin.id}
+          plugin={plugin}
+          runtime={runtime}
+          actionContext={actionContext}
+          authorization={authorizations?.find(
+            (authorization) => authorization.pluginId === plugin.id,
+          )}
+        />
       ))}
     </div>
   );
@@ -112,11 +148,22 @@ function PluginRecommendationRows({
 
 export function PluginRecommendationCards({
   plugins,
+  actionContext,
+  authorizations,
 }: {
   plugins: AgentPluginSummary[];
+  actionContext?: RelayPluginActionContext;
+  authorizations?: PluginAuthorizationAction[];
 }) {
   const runtime = usePlugins();
-  return <PluginRecommendationRows plugins={plugins} runtime={runtime} />;
+  return (
+    <PluginRecommendationRows
+      plugins={plugins}
+      runtime={runtime}
+      actionContext={actionContext}
+      authorizations={authorizations}
+    />
+  );
 }
 
 function AuthorizationCard({
@@ -151,12 +198,7 @@ function AuthorizationCard({
     }
   };
   const restart = async () => {
-    try {
-      await plugins.authorize(action.pluginId);
-      setOpened(true);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
-    }
+    await open();
   };
   return (
     <div className="bg-card/70 w-[620px] max-w-full rounded-2xl border p-4 shadow-sm">
@@ -232,9 +274,11 @@ function AuthorizationCard({
 export function PluginToolCard({
   block: _block,
   result,
+  actionContext,
 }: {
   block: ToolUse;
   result?: ToolResult;
+  actionContext?: RelayPluginActionContext;
 }) {
   const plugins = usePlugins();
   const authorization = result
@@ -250,7 +294,13 @@ export function PluginToolCard({
   }
   if (authorization)
     return <AuthorizationCard result={result} plugins={plugins} />;
-  if (listed) return <PluginRecommendationCards plugins={listed} />;
+  if (listed)
+    return (
+      <PluginRecommendationCards
+        plugins={listed}
+        actionContext={actionContext}
+      />
+    );
   return null;
 }
 
@@ -280,7 +330,7 @@ export function PluginToolCardsPreview() {
     loading: false,
     busyPluginId: null,
     refresh: () => undefined,
-    install: () => Promise.resolve(),
+    install: () => Promise.resolve(plugin),
     authorize: () =>
       Promise.resolve({
         kind: "plugin_authorization" as const,
@@ -292,6 +342,10 @@ export function PluginToolCardsPreview() {
         status: "authorization_required" as const,
       }),
     uninstall: () => Promise.resolve(),
+    requestAgentAction: () => ({
+      messageId: "00000000-0000-4000-8000-000000000000",
+      verb: "connect",
+    }),
   } satisfies PluginRuntime;
   const result: ToolResult = {
     type: "tool_result",

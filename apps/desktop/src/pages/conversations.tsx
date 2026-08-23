@@ -19,6 +19,10 @@ import {
 import { useConversationAuxiliaryPanelSizing } from "../components/chat/conversation-auxiliary-panel";
 import { ConversationErrorBoundary } from "../components/chat/conversation-error-boundary";
 import { ConversationHeader } from "../components/chat/conversation-header";
+import {
+  DirectMessageOpening,
+  useRequestedDirectMessage,
+} from "../components/chat/direct-message-opening";
 import { useRunningChats } from "../components/chat/use-running-chats";
 import { useAuth } from "../lib/auth/auth-context";
 import {
@@ -104,10 +108,15 @@ export function ConversationsPage() {
         ),
       }
     : (staticRequestedChannel ?? staticChannelRequestedByChat);
-  const requestedDirectMessage = workspaceDirectMessage(params.get("dm"));
-  const requestedDirectChat = requestedDirectMessage
-    ? directMessageChatForAgent(localChats.chats, requestedDirectMessage.id)
-    : null;
+  const requestedDirect = useRequestedDirectMessage({
+    agentId: params.get("dm"),
+    chats: localChats.chats,
+    loading: localChats.loading,
+    runtimeStatus,
+    start: startDirectMessage,
+  });
+  const requestedDirectMessage = requestedDirect.message;
+  const requestedDirectChat = requestedDirect.chat;
   const directIdentity = requestedDirectMessage
     ? WORKSPACE_AGENT_IDENTITIES[requestedDirectMessage.id]
     : null;
@@ -147,7 +156,7 @@ export function ConversationsPage() {
         localChats.chats,
       )
     : requestedDirectMessage
-      ? (requestedDirectChat?.id ?? null)
+      ? requestedDirect.chatId
       : requestedChatId;
   const activeChildId = params.get("child");
   const activeSetupActionId = googleAnalyticsActionIdFromChat(activeChatId);
@@ -254,20 +263,6 @@ export function ConversationsPage() {
     if (!legacySetupPath) return;
     void navigate(legacySetupPath, { replace: true });
   }, [legacySetupPath, navigate]);
-
-  useEffect(() => {
-    if (!requestedDirectMessage || requestedDirectChat || localChats.loading) {
-      return;
-    }
-    void startDirectMessage(requestedDirectMessage.id).catch((error: unknown) =>
-      console.error("[Chief relay] Could not start direct message", error),
-    );
-  }, [
-    localChats.loading,
-    requestedDirectChat,
-    requestedDirectMessage,
-    startDirectMessage,
-  ]);
 
   useEffect(() => {
     if (!focusComposer) return;
@@ -473,6 +468,12 @@ export function ConversationsPage() {
                 header={conversationHeader}
               />
             </ConversationErrorBoundary>
+          ) : requestedDirectMessage ? (
+            <DirectMessageOpening
+              agentId={requestedDirectMessage.id}
+              error={requestedDirect.error}
+              onRetry={requestedDirect.retry}
+            />
           ) : null}
         </div>
       </section>
