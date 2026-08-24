@@ -53,7 +53,8 @@ export async function loadAgentHostingContext(
     ),
   );
   if (!response.ok) return null;
-  return (await response.json()) as HostingContext;
+  const context: HostingContext = await response.json();
+  return context;
 }
 
 export async function runHostedAgentJob(
@@ -159,9 +160,11 @@ export async function runHostedAgentJob(
 function systemPrompt(job: AgentJob, context: HostingContext) {
   const agentName = context.agent?.name ?? job.agentId;
   const workspace = context.workspace;
+  const website = workspace?.website.trim();
+  const selectedApps = workspace?.selectedApps.join(", ");
   return `You are ${agentName}, a durable Chief workspace agent running in a Cloudflare cell.
 You are the same logical agent as the celld-backed phone and desktop cell: preserve continuity, be concise, and never claim a tool succeeded unless its result says so.
-Workspace: ${workspace?.name ?? job.workspaceId}. Website: ${workspace?.website || "not supplied"}. Selected apps: ${workspace?.selectedApps.join(", ") || "none"}.
+Workspace: ${workspace?.name ?? job.workspaceId}. Website: ${nonEmptyOr(website, "not supplied")}. Selected apps: ${nonEmptyOr(selectedApps, "none")}.
 Use relay tools whenever the instruction asks for an action. Execute required calls now; do not replace them with prose. Tool calls are durable and permission checked.
 The canonical plugin tools are plugins_list, plugins_recommend, plugins_install, plugins_authorize, and plugins_uninstall. Use plugins_list and plugins_recommend to place real cards in chat. Cloudflare can execute the durable agent and publish cards; provider OAuth and secrets deliberately require a compatible signed celld phone or desktop, so report a signed_cell_required tool result plainly instead of claiming the provider connected.
 If a capability is not exposed as a tool, say so plainly. Do not invent browser access, plugin authorization, files, research, messages, or sources.
@@ -180,6 +183,11 @@ function stringPayload(job: AgentJob, key: string) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function nonEmptyOr(value: string | undefined, fallback: string) {
+  if (value === undefined || value.length === 0) return fallback;
+  return value;
+}
+
 interface ToolCall {
   id: string;
   type: "function";
@@ -191,9 +199,9 @@ function firstAssistantMessage(raw: unknown): {
   toolCalls: ToolCall[];
 } {
   const value = raw as {
-    choices?: Array<{
+    choices?: {
       message?: { content?: unknown; tool_calls?: unknown };
-    }>;
+    }[];
   };
   const message = value.choices?.[0]?.message;
   const content = typeof message?.content === "string" ? message.content : null;
