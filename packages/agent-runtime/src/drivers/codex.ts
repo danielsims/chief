@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import type { JsonObject } from "@chief/relay-contracts";
 import { isJsonObject } from "@chief/relay-contracts";
 
 import type { StartOptions } from "../types.js";
@@ -27,10 +28,8 @@ function findCodexAcp() {
   return candidates.find(existsSync) ?? executable;
 }
 
-function record(value: unknown): Record<string, unknown> {
-  return value && isJsonObject(value) && !Array.isArray(value)
-    ? (value)
-    : {};
+function record(value: unknown): JsonObject {
+  return value && isJsonObject(value) && !Array.isArray(value) ? value : {};
 }
 
 export function prepareCodexEnvironment(
@@ -49,7 +48,7 @@ export function prepareCodexEnvironment(
     copyFileSync(userAuth, join(codexHome, "auth.json"));
   }
 
-  let config: Record<string, unknown> = {};
+  let config: JsonObject = {};
   if (environment.CODEX_CONFIG) {
     try {
       config = record(JSON.parse(environment.CODEX_CONFIG));

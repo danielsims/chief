@@ -93,10 +93,7 @@ export function onboardingOpeningIsVisible(
     }
     for (const block of event.content) {
       if (block.type !== "tool_use") continue;
-      const input =
-        block.input && isJsonObject(block.input)
-          ? (block.input as Record<string, unknown>)
-          : {};
+      const input = block.input && isJsonObject(block.input) ? block.input : {};
       if (
         !block.name.toLowerCase().includes("channelsmessagespost") ||
         !isJsonString(input.content) ||

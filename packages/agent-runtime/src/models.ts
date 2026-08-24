@@ -52,10 +52,6 @@ const gatewayModelsSchema = z.object({
     .optional(),
 });
 
-function errorValue(value: unknown) {
-  return value instanceof Error ? value : new Error(String(value));
-}
-
 function binary(name: DriverType) {
   const upper = name.toUpperCase();
   const bundledBinary =
@@ -164,7 +160,7 @@ function withTimeout<T>(promise: Promise<T>, milliseconds: number) {
       },
       (error) => {
         clearTimeout(timer);
-        reject(errorValue(error));
+        reject(error instanceof Error ? error : new Error(String(error)));
       },
     );
   });
@@ -185,7 +181,7 @@ function commandModels(
       let stderr = "";
       child.stdout.on("data", (chunk) => (stdout += String(chunk)));
       child.stderr.on("data", (chunk) => (stderr += String(chunk)));
-      child.on("error", (error) => reject(errorValue(error)));
+      child.on("error", (error) => reject(error));
       child.on("exit", (code) => {
         if (code !== 0) {
           reject(new Error(stderr || `Model discovery exited ${code}.`));
@@ -195,7 +191,7 @@ function commandModels(
         try {
           const parsed: unknown = JSON.parse(stdout);
           const object = parseJsonObject(parsed);
-          const records = Array.isArray(parsed)
+          const records: unknown[] = Array.isArray(parsed)
             ? parsed
             : Array.isArray(object?.models)
               ? object.models

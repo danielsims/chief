@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { AgentBrowserSession } from "@chief/browser/node";
-
 import {
   BrowserSessionRegistry,
   browserThreadRoot,

@@ -1,4 +1,5 @@
-import { parseJsonValue } from "@chief/relay-contracts";
+import type { JsonValue } from "@chief/relay-contracts";
+import { isJsonString, parseJsonValue } from "@chief/relay-contracts";
 
 import type * as schema from "./db/schema.js";
 import type {
@@ -103,7 +104,7 @@ function uiParts(blocks: ContentBlock[]): ChiefUIMessage["parts"] {
               toolCallId: block.tool_use_id,
               state: "output-error",
               input: undefined,
-              errorText: String(block.content),
+              errorText: textContent(block.content),
             }
           : {
               type: "dynamic-tool",
@@ -117,6 +118,39 @@ function uiParts(blocks: ContentBlock[]): ChiefUIMessage["parts"] {
         return block;
     }
   });
+}
+
+function textContent(value: JsonValue | undefined): string {
+  if (value === undefined) return "";
+  return isJsonString(value) ? value : JSON.stringify(value);
+}
+
+type DynamicToolPart = Extract<
+  ChiefUIMessage["parts"][number],
+  { type: "dynamic-tool" }
+>;
+
+function completedToolPart(
+  part: DynamicToolPart,
+  block: Extract<ContentBlock, { type: "tool_result" }>,
+): DynamicToolPart {
+  return block.is_error
+    ? {
+        type: "dynamic-tool",
+        toolName: part.toolName,
+        toolCallId: part.toolCallId,
+        state: "output-error",
+        input: part.input,
+        errorText: textContent(block.content),
+      }
+    : {
+        type: "dynamic-tool",
+        toolName: part.toolName,
+        toolCallId: part.toolCallId,
+        state: "output-available",
+        input: part.input,
+        output: block.content,
+      };
 }
 
 function contentBlocks(parts: ChiefUIMessage["parts"]): ContentBlock[] {
@@ -233,21 +267,9 @@ function uiEventMessages(events: AgentEvent[]) {
         if (part?.type !== "dynamic-tool") return false;
         prior.parts = prior.parts.map((candidate, candidateIndex) =>
           candidateIndex === partIndex
-            ? block.is_error
-              ? {
-                  ...part,
-                  state: "output-error" as const,
-                  input: part.input,
-                  errorText: String(block.content),
-                }
-              : {
-                  ...part,
-                  state: "output-available" as const,
-                  input: part.input,
-                  output: block.content,
-                }
+            ? completedToolPart(part, block)
             : candidate,
-        ) as ChiefUIMessage["parts"];
+        );
         mergedToolTarget = prior;
         return false;
       }
@@ -337,7 +359,7 @@ function agentEvent(message: LocalMessage): AgentEvent | undefined {
       type: "message",
       id: message.id,
       role: message.role === "system" ? "user" : message.role,
-      content: contentBlocks(message.parts as ChiefUIMessage["parts"]),
+      content: contentBlocks(message.parts),
       ...(message.metadata.threadRootId
         ? { threadRootId: message.metadata.threadRootId }
         : undefined),
@@ -355,7 +377,7 @@ function agentEvent(message: LocalMessage): AgentEvent | undefined {
     type: "message",
     id: message.id,
     role: message.role,
-    content: contentBlocks(message.parts as ChiefUIMessage["parts"]),
+    content: contentBlocks(message.parts),
   };
 }
 

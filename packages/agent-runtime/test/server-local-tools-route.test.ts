@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import test from "node:test";
 
-import { isJsonObject } from "@chief/relay-contracts";
+import { isJsonNumber, parseJsonObject } from "@chief/relay-contracts";
 
 import type { LocalToolRouteRequest } from "../src/server-local-tools-route.js";
 import type { AgentToolPermission } from "../src/types.js";
@@ -15,6 +15,14 @@ import {
 
 const workspaceId = "workspace-route-test";
 const capability = { apiBaseUrl: "https://executor.test", token: "executor" };
+
+function listeningPort(
+  address: ReturnType<ReturnType<typeof createServer>["address"]>,
+) {
+  const port = parseJsonObject(address)?.port;
+  assert.ok(isJsonNumber(port));
+  return port;
+}
 
 interface RouteState {
   caller?: { agentId: string; chatId: string; threadRootId?: string };
@@ -70,9 +78,9 @@ async function serveRoute(
   );
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
-  assert.ok(address && isJsonObject(address));
+  const port = listeningPort(address);
   try {
-    await run(`http://127.0.0.1:${address.port}`);
+    await run(`http://127.0.0.1:${port}`);
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),

@@ -32,13 +32,13 @@ export interface SpecialistFileManager {
       recordAssistantMessage(
         parts: SpecialistFilePart[],
         metadata: { id: string; threadRootId?: string },
-      ): unknown;
+      ): void;
     };
   }>;
   waitForChatPersistence(
     workspaceId: string,
     conversationId: string,
-  ): Promise<unknown>;
+  ): Promise<void>;
 }
 
 interface SpecialistFileContext {
@@ -52,7 +52,7 @@ interface SpecialistFileContext {
 export async function publishSpecialistFileToThread(
   input: SpecialistFileContext,
   file: WorkspaceFileRecord,
-) {
+): Promise<void> {
   if (!input.threadRootId) return;
   const threadIdentity = createHash("sha256")
     .update(input.threadRootId)

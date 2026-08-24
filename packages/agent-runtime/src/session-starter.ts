@@ -271,7 +271,7 @@ export async function startManagedSession(
     }
   });
 
-  session.on("state", (state: unknown) => {
+  session.on("state", (state) => {
     const persistence = (context.persistence.get(key) ?? Promise.resolve())
       .then(async () => {
         await context.store.updateChatState(config.workspaceId, chatId, {

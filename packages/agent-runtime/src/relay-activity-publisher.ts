@@ -6,11 +6,15 @@ import { isJsonString } from "@chief/relay-contracts";
 
 import type { AgentEvent } from "./types.js";
 
+type ActivityPublishResult = void | Awaited<
+  ReturnType<RelayClient["upsertAgentActivity"]>
+>;
+
 interface ActivityRelayClient {
   upsertAgentActivity(
     conversationId: string,
     input: Parameters<RelayClient["upsertAgentActivity"]>[1],
-  ): Promise<unknown>;
+  ): Promise<ActivityPublishResult>;
 }
 
 function textPayload(value: unknown) {
@@ -180,7 +184,7 @@ export class RelayActivityPublisher {
     phase: "queued" | "persisted" | "failed",
     messageId: string,
     component: AgentActivityComponent,
-    error?: unknown,
+    error?: Parameters<typeof textPayload>[0],
   ) {
     const record = {
       scope: "cell.activity",

@@ -88,17 +88,19 @@ export function executorCodeUsesOnlyCatalogHelpers(code: string) {
   );
 }
 
-export function executorAddressFromElicitation(input: unknown) {
-  const message = findElicitationMessage(input);
+export function executorAddressFromElicitation(
+  input: Parameters<typeof parseElicitationMessage>[0],
+) {
+  const message = parseElicitationMessage(input);
   return /Approve\s+(tools\.[^\s?]+)\??/.exec(message)?.[1] ?? null;
 }
 
-function findElicitationMessage(input: unknown, depth = 0): string {
+function parseElicitationMessage(input: unknown, depth = 0): string {
   if (!input || !isJsonObject(input) || depth > 4) return "";
-  const value = input as Record<string, unknown>;
+  const value = input;
   if (isJsonString(value.message)) return value.message;
   for (const nested of Object.values(value)) {
-    const message = findElicitationMessage(nested, depth + 1);
+    const message = parseElicitationMessage(nested, depth + 1);
     if (message) return message;
   }
   return "";

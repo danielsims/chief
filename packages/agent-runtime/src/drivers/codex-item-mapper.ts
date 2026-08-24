@@ -1,3 +1,4 @@
+import type { JsonObject } from "@chief/relay-contracts";
 import {
   isJsonNumber,
   isJsonString,
@@ -14,7 +15,7 @@ export interface CodexItemMappingState {
 }
 
 export function codexItemToBlocks(
-  item: Record<string, unknown>,
+  item: JsonObject,
   state: CodexItemMappingState,
 ): ContentBlock[] {
   switch (item.type) {
@@ -42,7 +43,7 @@ export function codexItemToBlocks(
     }
     case "commandExecution":
     case "command_execution": {
-      const id = idValue(item.id, state.nextId);
+      const id = parseIdValue(item.id, state.nextId);
       const output = textValue(
         item.output ?? item.aggregatedOutput ?? item.aggregated_output,
       );
@@ -66,7 +67,7 @@ export function codexItemToBlocks(
     }
     case "fileChange":
     case "file_change": {
-      const id = idValue(item.id, state.nextId);
+      const id = parseIdValue(item.id, state.nextId);
       const changes = parseJsonValue(item.changes);
       return [
         {
@@ -89,7 +90,7 @@ export function codexItemToBlocks(
     }
     case "mcpToolCall":
     case "mcp_tool_call": {
-      const id = idValue(item.id, state.nextId);
+      const id = parseIdValue(item.id, state.nextId);
       const result = codexMcpResultText(item);
       const status = textValue(item.status).toLowerCase();
       const failed =
@@ -116,7 +117,7 @@ export function codexItemToBlocks(
     }
     case "webSearch":
     case "web_search": {
-      const id = idValue(item.id, state.nextId);
+      const id = parseIdValue(item.id, state.nextId);
       state.activeToolUseIds.delete(id);
       return [
         {
@@ -137,14 +138,14 @@ export function codexItemToBlocks(
 }
 
 export function codexItemStartedToBlocks(
-  item: Record<string, unknown>,
+  item: JsonObject,
   state: CodexItemMappingState,
 ): ContentBlock[] {
   if (item.type === "commandExecution" || item.type === "command_execution") {
     return [
       {
         type: "tool_use",
-        id: idValue(item.id, state.nextId),
+        id: parseIdValue(item.id, state.nextId),
         name: "bash",
         input: { command: textValue(item.command) },
       },
@@ -154,7 +155,7 @@ export function codexItemStartedToBlocks(
     return [
       {
         type: "tool_use",
-        id: idValue(item.id, state.nextId),
+        id: parseIdValue(item.id, state.nextId),
         name: "editFile",
         input: { file: textValue(item.filePath ?? item.file) },
       },
@@ -165,7 +166,7 @@ export function codexItemStartedToBlocks(
       textValue(item.type),
     )
   ) {
-    const id = idValue(item.id, state.nextId);
+    const id = parseIdValue(item.id, state.nextId);
     state.activeToolUseIds.add(id);
     const isSearch = item.type === "webSearch" || item.type === "web_search";
     return [
@@ -192,13 +193,13 @@ function textValue(value: unknown): string {
   return isJsonString(value) ? value : "";
 }
 
-function idValue(value: unknown, fallback: () => string): string {
+function parseIdValue(value: unknown, fallback: () => string): string {
   return isJsonString(value) || isJsonNumber(value)
     ? String(value)
     : fallback();
 }
 
-export function codexMcpResultText(item: Record<string, unknown>): string {
+export function codexMcpResultText(item: JsonObject): string {
   const result = record(item.result);
   const structured = result?.structuredContent ?? item.structuredContent;
   if (structured !== undefined) return JSON.stringify(structured);

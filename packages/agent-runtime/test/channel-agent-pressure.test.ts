@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
+
 import { handleChannelLocalTool } from "../src/channel-local-tools.js";
 import { LocalStore } from "../src/local-store.js";
 
@@ -12,7 +14,7 @@ process.env.CHIEF_DATABASE_ENCRYPTION_KEY =
 
 const ITERATIONS = Number(process.env.CHIEF_PRESSURE_ITERATIONS ?? 40);
 
-function request(path: string, method: string, body?: unknown) {
+function request(path: string, method: string, body?: JsonValue) {
   return new Request(`http://127.0.0.1:4318${path}`, {
     method,
     headers: body ? { "content-type": "application/json" } : undefined,
@@ -32,7 +34,7 @@ void test("agent message and reaction tools survive repeated threaded turns and 
     actor: { type: "user" | "agent"; id: string; name: string },
     path: string,
     method: string,
-    body: Record<string, unknown> = {},
+    body: JsonObject = {},
   ) =>
     handleChannelLocalTool(
       request(path, method, method === "GET" ? undefined : body),

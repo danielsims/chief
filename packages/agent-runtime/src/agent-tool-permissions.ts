@@ -211,62 +211,77 @@ function permissionToolNames(
   return [name, permission];
 }
 
-for (const [permission, names] of Object.entries({
-  "workspace.read": [
-    "prospectsList",
-    "trendsList",
-    "analyticsListDatasets",
-    "contentList",
-    "filesList",
-    "filesRead",
-    "campaignsList",
-    "recurringWorkList",
+const executorToolPermissionGroups: readonly (readonly [
+  AgentToolPermission,
+  readonly string[],
+])[] = [
+  [
+    "workspace.read",
+    [
+      "prospectsList",
+      "trendsList",
+      "analyticsListDatasets",
+      "contentList",
+      "filesList",
+      "filesRead",
+      "campaignsList",
+      "recurringWorkList",
+    ],
   ],
-  "workspace.write": [
-    "prospectsSave",
-    "trendsSave",
-    "analyticsSaveDataset",
-    "contentSave",
-    "filesWrite",
-    "campaignsSave",
-    "actionRaise",
-    "brandProfileSave",
-    "recurringWorkPropose",
+  [
+    "workspace.write",
+    [
+      "prospectsSave",
+      "trendsSave",
+      "analyticsSaveDataset",
+      "contentSave",
+      "filesWrite",
+      "campaignsSave",
+      "actionRaise",
+      "brandProfileSave",
+      "recurringWorkPropose",
+    ],
   ],
-  "projects.read": [
-    "projectsList",
-    "projectsInspect",
-    "projectsCheckoutStatus",
+  [
+    "projects.read",
+    ["projectsList", "projectsInspect", "projectsCheckoutStatus"],
   ],
-  "projects.write": [
-    "projectsCreateCheckout",
-    "projectsCommit",
-    "projectsReleaseCheckout",
+  [
+    "projects.write",
+    ["projectsCreateCheckout", "projectsCommit", "projectsReleaseCheckout"],
   ],
-  "browser.use": [
-    "browserOpen",
-    "browserSnapshot",
-    "browserClose",
-    "browserPresent",
-    "browserClick",
-    "browserFill",
-    "browserSelect",
-    "browserPress",
+  [
+    "browser.use",
+    [
+      "browserOpen",
+      "browserSnapshot",
+      "browserClose",
+      "browserPresent",
+      "browserClick",
+      "browserFill",
+      "browserSelect",
+      "browserPress",
+    ],
   ],
-  "integrations.manage": [
-    "googleOAuthProvisionClient",
-    "googleOAuthCaptureClient",
-    "googleAnalyticsAuthorize",
-    "googleAnalyticsComplete",
-    "googleAnalyticsSelect",
-    "integrationOpenHandoff",
-    "integrationCaptureGeneratedCredential",
-    "integrationOpenProviderPage",
-    "setupList",
-    "setupStart",
+  [
+    "integrations.manage",
+    [
+      "googleOAuthProvisionClient",
+      "googleOAuthCaptureClient",
+      "googleAnalyticsAuthorize",
+      "googleAnalyticsComplete",
+      "googleAnalyticsSelect",
+      "integrationOpenHandoff",
+      "integrationCaptureGeneratedCredential",
+      "integrationOpenProviderPage",
+      "setupList",
+      "setupStart",
+    ],
   ],
-  "agents.delegate": ["specialistsDelegate"],
-}) as [AgentToolPermission, string[]][]) {
+  ["agents.delegate", ["specialistsDelegate"]],
+];
+
+for (const [permission, names] of executorToolPermissionGroups) {
   for (const name of names)
     permissionByExecutorTool.set(`localTools.${name}`, permission);
 }

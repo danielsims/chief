@@ -9,14 +9,18 @@ import type {
   AgentBrowserSnapshot,
   AgentBrowserSnapshotRef,
   AgentBrowserStream,
+  BrowserBoundaryValue,
 } from "./node-support.js";
 import {
   agentBrowserExecutable,
   browserSnapshotLabel,
   browserSnapshotRef,
   browserSnapshotRefLine,
-  commandError,
+  isBrowserRecord,
   normalizedBrowserLabel,
+  parseBrowserBoolean,
+  parseBrowserText,
+  parseCommandError,
   parseJson,
   safeSessionId,
 } from "./node-support.js";
@@ -24,6 +28,30 @@ import {
 export * from "./node-support.js";
 
 const execFileAsync = promisify(execFile);
+
+function parseFiniteNumber(
+  value: BrowserBoundaryValue | undefined,
+): number | undefined {
+  const number = Number(value);
+  return number === value && Number.isFinite(number) ? number : undefined;
+}
+
+function parseSnapshotRefs(
+  value: BrowserBoundaryValue | undefined,
+): Record<string, AgentBrowserSnapshotRef> {
+  if (!isBrowserRecord(value)) return {};
+  const refs: Record<string, AgentBrowserSnapshotRef> = {};
+  for (const [id, entry] of Object.entries(value)) {
+    if (!isBrowserRecord(entry)) continue;
+    const name = parseBrowserText(entry.name);
+    const role = parseBrowserText(entry.role);
+    refs[id] = {
+      ...(name === undefined ? undefined : { name }),
+      ...(role === undefined ? undefined : { role }),
+    };
+  }
+  return refs;
+}
 
 /**
  * A small, host-neutral client for an official agent-browser session.
@@ -79,10 +107,10 @@ export class AgentBrowserSession {
     return args;
   }
 
-  command<T>(args: string[], timeout = 30_000): Promise<T> {
+  command(args: string[], timeout = 30_000): Promise<BrowserBoundaryValue> {
     const task = this.commandQueue
       .catch(() => undefined)
-      .then(() => this.runCommand<T>(args, timeout));
+      .then(() => this.runCommand(args, timeout));
     this.commandQueue = task.then(
       () => undefined,
       () => undefined,
@@ -90,7 +118,20 @@ export class AgentBrowserSession {
     return task;
   }
 
-  private async runCommand<T>(args: string[], timeout: number): Promise<T> {
+  private async commandRecord(args: string[], timeout?: number) {
+    const result = await this.command(args, timeout);
+    if (!isBrowserRecord(result)) {
+      throw new Error(
+        "agent-browser returned an object where one was required.",
+      );
+    }
+    return result;
+  }
+
+  private async runCommand(
+    args: string[],
+    timeout: number,
+  ): Promise<BrowserBoundaryValue> {
     await mkdir(this.downloadPath, { recursive: true });
     await writeFile(this.configPath, '{"headed":false}\n', {
       flag: "wx",
@@ -123,9 +164,9 @@ export class AgentBrowserSession {
           timeout,
         },
       );
-      return parseJson<T>(stdout.trim());
+      return parseJson(stdout.trim());
     } catch (error) {
-      throw commandError(error);
+      throw parseCommandError(error);
     }
   }
 
@@ -140,42 +181,55 @@ export class AgentBrowserSession {
   }
 
   async stream(timeout = 30_000): Promise<AgentBrowserStream> {
-    const status = await this.command<{
-      connected: boolean;
-      enabled: boolean;
-      port: number;
-      screencasting: boolean;
-    }>(["stream", "status"], timeout);
-    if (!status.enabled || !status.port) {
+    const status = await this.commandRecord(["stream", "status"], timeout);
+    const enabled = parseBrowserBoolean(status.enabled);
+    const port = parseFiniteNumber(status.port);
+    if (!enabled || !port) {
       throw new Error("agent-browser streaming is unavailable.");
     }
-    return { ...status, url: `ws://localhost:${status.port}` };
+    const connected = parseBrowserBoolean(status.connected);
+    const screencasting = parseBrowserBoolean(status.screencasting);
+    if (connected === undefined || screencasting === undefined) {
+      throw new Error("agent-browser returned an invalid stream status.");
+    }
+    return {
+      connected,
+      enabled,
+      port,
+      screencasting,
+      url: `ws://localhost:${port}`,
+    };
   }
 
   async getUrl() {
-    const result = await this.command<{ url?: string; value?: string }>([
-      "get",
-      "url",
-    ]);
-    return result.url ?? result.value ?? JSON.stringify(result);
+    const result = await this.commandRecord(["get", "url"]);
+    return (
+      parseBrowserText(result.url) ??
+      parseBrowserText(result.value) ??
+      JSON.stringify(result)
+    );
   }
 
   async getTitle() {
-    const result = await this.command<{ title?: string; value?: string }>([
-      "get",
-      "title",
-    ]);
-    return result.title ?? result.value ?? "";
+    const result = await this.commandRecord(["get", "title"]);
+    return (
+      parseBrowserText(result.title) ?? parseBrowserText(result.value) ?? ""
+    );
   }
 
   async snapshot(): Promise<AgentBrowserSnapshot> {
-    const result = await this.command<{
-      snapshot?: string;
-      refs?: Record<string, AgentBrowserSnapshotRef>;
-    }>(["snapshot", "--interactive", "--compact"]);
-    this.snapshotRefs = result.refs ?? {};
+    const result = await this.commandRecord([
+      "snapshot",
+      "--interactive",
+      "--compact",
+    ]);
+    this.snapshotRefs = parseSnapshotRefs(result.refs);
     const [url, title] = await Promise.all([this.getUrl(), this.getTitle()]);
-    return { snapshot: result.snapshot ?? JSON.stringify(result), title, url };
+    return {
+      snapshot: parseBrowserText(result.snapshot) ?? JSON.stringify(result),
+      title,
+      url,
+    };
   }
 
   async cursorFor(
@@ -184,22 +238,18 @@ export class AgentBrowserSession {
     const ref = browserSnapshotRef(labels, this.snapshotRefs);
     const viewport = this.viewport;
     if (!ref || !viewport) return undefined;
-    const box = await this.command<{
-      x?: number;
-      y?: number;
-      width?: number;
-      height?: number;
-    }>(["get", "box", ref]).catch(() => undefined);
-    const { x, y, width, height } = box ?? {};
+    const box = await this.commandRecord(["get", "box", ref]).catch(
+      () => undefined,
+    );
+    const x = parseFiniteNumber(box?.x);
+    const y = parseFiniteNumber(box?.y);
+    const width = parseFiniteNumber(box?.width);
+    const height = parseFiniteNumber(box?.height);
     if (
-      typeof x !== "number" ||
-      typeof y !== "number" ||
-      typeof width !== "number" ||
-      typeof height !== "number" ||
-      !Number.isFinite(x) ||
-      !Number.isFinite(y) ||
-      !Number.isFinite(width) ||
-      !Number.isFinite(height)
+      x === undefined ||
+      y === undefined ||
+      width === undefined ||
+      height === undefined
     ) {
       return undefined;
     }
@@ -290,7 +340,7 @@ export class AgentBrowserSession {
         lastError = error;
       }
     }
-    throw commandError(lastError);
+    throw parseCommandError(lastError);
   }
 
   private async waitForRadioSelection(name: string) {
@@ -338,7 +388,7 @@ export class AgentBrowserSession {
         lastError = error;
       }
     }
-    throw commandError(lastError);
+    throw parseCommandError(lastError);
   }
 
   async reload() {
@@ -373,8 +423,11 @@ export class AgentBrowserSession {
     await this.command(["wait", "--fn", expression], timeout);
   }
 
-  async evaluate<T>(expression: string): Promise<T> {
-    const result = await this.command<{ result: T }>(["eval", expression]);
+  async evaluate(expression: string): Promise<BrowserBoundaryValue> {
+    const result = await this.commandRecord(["eval", expression]);
+    if (!("result" in result)) {
+      throw new Error("agent-browser returned no evaluation result.");
+    }
     return result.result;
   }
 

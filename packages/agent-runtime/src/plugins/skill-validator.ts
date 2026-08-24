@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 
+import type { JsonObject } from "@chief/relay-contracts";
 import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 const SKILL_NAME = /^(?!.*--)[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
@@ -13,8 +14,8 @@ const ALLOWED_FIELDS = new Set([
   "allowed-tools",
 ]);
 
-function object(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && isJsonObject(value) && !Array.isArray(value);
+function object(value: unknown): value is JsonObject {
+  return isJsonObject(value);
 }
 
 function frontmatter(source: string) {
@@ -23,16 +24,12 @@ function frontmatter(source: string) {
   }
   const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(source);
   if (!match) throw new Error("SKILL.md frontmatter is not closed");
-  const value = parse(match[1] ?? "") as unknown;
+  const value: unknown = parse(match[1] ?? "");
   if (!object(value)) throw new Error("SKILL.md frontmatter must be a map");
   return value;
 }
 
-function optionalString(
-  metadata: Record<string, unknown>,
-  field: string,
-  maximum?: number,
-) {
+function optionalString(metadata: JsonObject, field: string, maximum?: number) {
   const value = metadata[field];
   if (value === undefined) return;
   if (!isJsonString(value) || value.length === 0) {

@@ -1,4 +1,5 @@
 import type { AgentPluginSummary } from "@chief/plugin-api";
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
 
 import type { ChannelLocalToolContext } from "./channel-local-tools.js";
 import type { ChannelEvent, WorkspaceChannel } from "./channel-types.js";
@@ -10,7 +11,7 @@ import { createChannelEvent } from "./channels/nip29.js";
 const MAX_RECOMMENDATIONS = 8;
 const DOMAIN_IN_SERVICE = /\(([a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)\)\s*$/i;
 
-function stringList(input: unknown, name: string) {
+function stringList(input: JsonValue | undefined, name: string) {
   if (input === undefined) return [];
   if (!Array.isArray(input)) {
     fail(`${name} must be an array.`, 400, "invalid_plugin_recommendation");
@@ -127,7 +128,7 @@ export async function postPluginRecommendation(input: {
   workspaceId: string;
   channel: WorkspaceChannel;
   events: ChannelEvent[];
-  body: Record<string, unknown>;
+  body: JsonObject;
   context: ChannelLocalToolContext;
 }) {
   const { workspaceId, channel, events, body, context } = input;

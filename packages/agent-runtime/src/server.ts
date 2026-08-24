@@ -1,5 +1,3 @@
-/* eslint-disable max-lines */
-
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
@@ -20,14 +18,16 @@ import {
   redactGoogleOAuthCredentials,
   withGoogleAuthUser,
 } from "@chief/google-oauth-connector";
-import { isJsonString, parseJsonValue } from "@chief/relay-contracts";
+import {
+  isJsonString,
+  parseJsonObject,
+  parseJsonValue,
+} from "@chief/relay-contracts";
 
 import type { ChannelEvent } from "./channel-types.js";
 import type { LocalToolContext } from "./local-tools.js";
 import type { AgentSession } from "./session.js";
 import type {
-  ActionItem,
-  AgentDeploymentRecord,
   AgentEvent,
   BrowserAutomationCommand,
   BrowserAutomationResult,
@@ -39,7 +39,6 @@ import type {
   RuntimeNotice,
   ServerMessage,
 } from "./types.js";
-import { AgentDeploymentManager } from "./agent-deployments.js";
 import { createAgentLocalMcpHandler } from "./agent-local-mcp.js";
 import { AgentSessionCapabilityRegistry } from "./agent-session-capabilities.js";
 import { combinedAgentToolPermissionCeiling } from "./agent-tool-permissions.js";
@@ -72,6 +71,8 @@ import {
   writeSlackGatewaySettings,
 } from "./channels/slack-config.js";
 import { SlackGateway } from "./channels/slack-gateway.js";
+import { parseClientMessage } from "./client-message-parser.js";
+import { cloudRecordsSchema } from "./cloud-records.js";
 import {
   isDeploymentNotFound,
   safeRuntimeError,
@@ -162,6 +163,10 @@ import {
   readWorkspaceWaysOfWorking,
   saveWorkspaceWaysOfWorking,
 } from "./workspace-ways-of-working.js";
+
+function reportSessionEventError(error: Error): void {
+  console.error("[runtime] session event failed:", error);
+}
 
 const PORT = Number(process.env.CHIEF_RUNTIME_PORT ?? 4318);
 
@@ -327,9 +332,7 @@ export function startServer(port = PORT) {
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${capability.token}` },
     });
-    const body = (await response.json().catch(() => null)) as {
-      organizationId?: string;
-    } | null;
+    const body = parseJsonObject(await response.json().catch(() => null));
     if (!response.ok || body?.organizationId !== workspaceId) {
       throw new Error("Could not verify access to this workspace.");
     }
@@ -642,7 +645,7 @@ export function startServer(port = PORT) {
     const session = browserSession(workspaceId, browserRunId);
     const stream = await session
       .open(lockedUrl, initialViewport)
-      .catch((error: unknown) => {
+      .catch((error: Error) => {
         // A navigation failure is a page-level error, not a browser-session
         // failure. Keep the session alive so the agent can retry with a
         // corrected URL or the user can still see the browser; tearing the
@@ -992,7 +995,6 @@ export function startServer(port = PORT) {
       externalId?: string;
     },
   ) => undefined;
-  let broadcastAgentDeployment = (_record: AgentDeploymentRecord) => undefined;
   let continueChiefSession = (
     _workspaceId: string,
     _chatId: string,
@@ -1008,9 +1010,6 @@ export function startServer(port = PORT) {
     Promise.reject(new Error("Chief is still starting this workspace."));
   const workspaceRevisions = new Map<string, number>();
   const workspaceSnapshotQueues = new Map<string, Promise<void>>();
-  const deployments = new AgentDeploymentManager(manager, (record) =>
-    broadcastAgentDeployment(record),
-  );
   const persistGoogleAnalyticsConnection = async (
     workspaceId: string,
     property: {
@@ -1049,7 +1048,7 @@ export function startServer(port = PORT) {
               "Launch the deferred initial Analyst report now. Require it to save the local overview dataset and chart, then incorporate the verified result into the initial business review without delaying completed independent work.",
             ].join("\n"),
             capability,
-          ).catch((error: unknown) =>
+          ).catch((error: Error) =>
             console.error(
               "[onboarding] deferred Analyst continuation failed:",
               error,
@@ -1119,31 +1118,7 @@ export function startServer(port = PORT) {
       if (!response.ok) {
         throw new Error(`Cloud record sync returned ${response.status}.`);
       }
-      const records = (await response.json()) as {
-        prospects?: {
-          id: string;
-          name: string;
-          company?: string;
-          source: string;
-          sourceUrl: string;
-          summary: string;
-          relevance: "high" | "medium" | "low";
-          status: "new" | "researching" | "contacted" | "dismissed";
-          foundAt: number;
-        }[];
-        files?: {
-          id: string;
-          name: string;
-          path: string;
-          mimeType: string;
-          kind: "document" | "email";
-          content: string;
-          createdBy: "agent" | "user";
-          sourceAgentId?: string;
-          sourceSessionId?: string;
-        }[];
-        actions?: ActionItem[];
-      };
+      const records = cloudRecordsSchema.parse(await response.json());
       await Promise.all(
         (records.prospects ?? []).map((prospect) =>
           manager.saveProspect(workspaceId, prospect),
@@ -1269,7 +1244,7 @@ export function startServer(port = PORT) {
     const executorWorkspace = await ensureExecutorWorkspace(
       workspaceId,
       capability,
-    ).catch((error: unknown) => {
+    ).catch((error: Error) => {
       console.error(
         `[runtime] Executor workspace unavailable for ${chatId}:`,
         error,
@@ -1314,7 +1289,7 @@ export function startServer(port = PORT) {
           }
           session.off("event", resume);
           setTimeout(() => {
-            void dispatch().catch((error: unknown) =>
+            void dispatch().catch((error: Error) =>
               console.error("[action] continuation failed:", error),
             );
           }, 0);
@@ -1467,10 +1442,10 @@ export function startServer(port = PORT) {
     }
     if (await plugins.handleCallback(req, res)) return;
     if (req.method === "POST" && path.startsWith("/hooks/scheduled-runs/")) {
-      const chunks: Buffer[] = [];
+      const chunks: Uint8Array[] = [];
       let size = 0;
       for await (const chunk of req) {
-        const buffer = Buffer.from(chunk as Uint8Array);
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         size += buffer.length;
         if (size > 256_000) {
           res.writeHead(413, { "content-type": "application/json" });
@@ -2238,14 +2213,6 @@ export function startServer(port = PORT) {
     } satisfies ServerMessage);
     sendWorkspace(workspaceId, message);
   };
-  broadcastAgentDeployment = (record) => {
-    const message = JSON.stringify({
-      type: "agentDeploymentUpdated",
-      workspaceId: record.workspaceId,
-      deployment: record,
-    });
-    sendWorkspace(record.workspaceId, message);
-  };
   broadcastIntegrationVerified = (workspaceId, integration) => {
     const message = JSON.stringify({
       type: "integrationVerified",
@@ -2268,7 +2235,7 @@ export function startServer(port = PORT) {
       string,
       {
         session: AgentSession;
-        listener: (event: unknown) => void;
+        listener: (event: AgentEvent) => void;
       }
     >();
     const bindRootSession = (
@@ -2284,8 +2251,7 @@ export function startServer(port = PORT) {
         subscriptions.add(subscriptionKey);
         manager.retain(workspaceId, chatId);
       }
-      const handleEvent = async (event: unknown) => {
-        const agentEvent = event as AgentEvent;
+      const handleEvent = async (agentEvent: AgentEvent) => {
         // Stream deltas are folded into discrete assistant message events by
         // the session (flushed at `[message:send]` markers and at turn end), so
         // do not forward raw stream deltas to the client. Forwarding them
@@ -2360,537 +2326,683 @@ export function startServer(port = PORT) {
           await broadcastWorkspaceData(workspaceId);
         }
       };
-      const listener = (event: unknown) => {
-        void handleEvent(event).catch((error: unknown) =>
-          console.error("[runtime] root chat event:", error),
-        );
+      const listener = (event: AgentEvent) => {
+        void handleEvent(event).catch(reportSessionEventError);
       };
       session.on("event", listener);
       sessionListeners.set(subscriptionKey, { session, listener });
     };
 
-    // EventEmitter cannot await socket handlers; errors are handled inside.
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises
-    ws.on("message", async (data) => {
-      let msg: ClientMessage;
-      try {
-        msg = JSON.parse(String(data));
-      } catch {
-        return send({ type: "error", message: "invalid JSON" });
-      }
+    ws.on("message", (data) => {
+      void (async () => {
+        let msg: ClientMessage;
+        try {
+          const raw = Buffer.isBuffer(data)
+            ? data.toString("utf8")
+            : Array.isArray(data)
+              ? Buffer.concat(data).toString("utf8")
+              : Buffer.from(data).toString("utf8");
+          msg =
+            parseClientMessage(raw) ??
+            (() => {
+              throw new Error("invalid message");
+            })();
+        } catch {
+          return send({ type: "error", message: "invalid JSON" });
+        }
 
-      try {
-        if (
-          msg.type === "browserNavigateRequest" ||
-          msg.type === "browserReload" ||
-          msg.type === "browserClose" ||
-          msg.type === "browserViewportResize" ||
-          msg.type === "browserUrlChanged"
-        ) {
-          if (!socketAuthorization.canReceive(ws, msg.workspaceId)) {
-            throw new Error("This browser action is not authorized.");
-          }
-          if (msg.type !== "browserNavigateRequest") {
-            if (
-              browserRunConversations.get(msg.browserRunId) !==
-              msg.conversationId
-            )
-              return;
-          }
-          if (msg.type === "browserClose") {
-            await closeBrowserSession(
-              msg.workspaceId,
-              msg.conversationId,
-              msg.browserRunId,
-            );
-            return;
-          }
-          if (msg.type === "browserUrlChanged") {
-            const url = new URL(msg.url);
-            if (url.protocol !== "http:" && url.protocol !== "https:") {
-              throw new Error("Browser URLs must use HTTP or HTTPS.");
+        try {
+          if (
+            msg.type === "browserNavigateRequest" ||
+            msg.type === "browserReload" ||
+            msg.type === "browserClose" ||
+            msg.type === "browserViewportResize" ||
+            msg.type === "browserUrlChanged"
+          ) {
+            if (!socketAuthorization.canReceive(ws, msg.workspaceId)) {
+              throw new Error("This browser action is not authorized.");
             }
-            const key = browserKey(msg.workspaceId, msg.conversationId);
-            await manager.store.updateBrowserRun(
-              msg.workspaceId,
-              msg.browserRunId,
-              { url: url.toString() },
-            );
-            const account = googleAccountSessions.get(key);
-            if (
-              url.hostname === "console.cloud.google.com" &&
-              account?.authuser &&
-              !account.awaitingSelection
-            ) {
-              const lockedUrl = withGoogleAuthUser(
-                url.toString(),
-                account.authuser,
-              );
+            if (msg.type !== "browserNavigateRequest") {
               if (
-                lockedUrl !== url.toString() &&
-                googleAuthUserFromUrl(url.toString()) !== account.authuser
-              ) {
-                await openBrowserSession(
-                  msg.workspaceId,
-                  msg.conversationId,
-                  lockedUrl,
-                  undefined,
-                  undefined,
-                  msg.browserRunId,
-                );
+                browserRunConversations.get(msg.browserRunId) !==
+                msg.conversationId
+              )
                 return;
-              }
             }
-            reportGoogleBrowserStep(
-              msg.workspaceId,
-              msg.conversationId,
-              url.toString(),
-            );
-            await resumeGoogleAuthentication(
-              msg.workspaceId,
-              msg.conversationId,
-              url.toString(),
-            );
-            await providerAuthentication.resume(
-              msg.workspaceId,
-              msg.conversationId,
-              url.toString(),
-            );
-            return;
-          }
-          await manager.rootChat(msg.workspaceId, msg.conversationId);
-          if (msg.type === "browserNavigateRequest") {
-            const url = new URL(msg.url);
-            if (url.protocol !== "http:" && url.protocol !== "https:") {
-              throw new Error("Browser URLs must use HTTP or HTTPS.");
-            }
-            await openBrowserSession(
-              msg.workspaceId,
-              msg.conversationId,
-              url.toString(),
-              { width: msg.width, height: msg.height },
-              msg.threadRootId,
-              msg.browserRunId,
-            );
-          } else {
-            const browser = browserSession(msg.workspaceId, msg.browserRunId);
-            if (msg.type === "browserReload") {
-              await browser.reload();
-              const [url, stream] = await Promise.all([
-                browser.getUrl(),
-                browser.stream(),
-              ]);
-              broadcastBrowserNavigate(
+            if (msg.type === "browserClose") {
+              await closeBrowserSession(
                 msg.workspaceId,
                 msg.conversationId,
-                url,
-                stream.url,
+                msg.browserRunId,
+              );
+              return;
+            }
+            if (msg.type === "browserUrlChanged") {
+              const url = new URL(msg.url);
+              if (url.protocol !== "http:" && url.protocol !== "https:") {
+                throw new Error("Browser URLs must use HTTP or HTTPS.");
+              }
+              const key = browserKey(msg.workspaceId, msg.conversationId);
+              await manager.store.updateBrowserRun(
+                msg.workspaceId,
+                msg.browserRunId,
+                { url: url.toString() },
+              );
+              const account = googleAccountSessions.get(key);
+              if (
+                url.hostname === "console.cloud.google.com" &&
+                account?.authuser &&
+                !account.awaitingSelection
+              ) {
+                const lockedUrl = withGoogleAuthUser(
+                  url.toString(),
+                  account.authuser,
+                );
+                if (
+                  lockedUrl !== url.toString() &&
+                  googleAuthUserFromUrl(url.toString()) !== account.authuser
+                ) {
+                  await openBrowserSession(
+                    msg.workspaceId,
+                    msg.conversationId,
+                    lockedUrl,
+                    undefined,
+                    undefined,
+                    msg.browserRunId,
+                  );
+                  return;
+                }
+              }
+              reportGoogleBrowserStep(
+                msg.workspaceId,
+                msg.conversationId,
+                url.toString(),
+              );
+              await resumeGoogleAuthentication(
+                msg.workspaceId,
+                msg.conversationId,
+                url.toString(),
+              );
+              await providerAuthentication.resume(
+                msg.workspaceId,
+                msg.conversationId,
+                url.toString(),
+              );
+              return;
+            }
+            await manager.rootChat(msg.workspaceId, msg.conversationId);
+            if (msg.type === "browserNavigateRequest") {
+              const url = new URL(msg.url);
+              if (url.protocol !== "http:" && url.protocol !== "https:") {
+                throw new Error("Browser URLs must use HTTP or HTTPS.");
+              }
+              await openBrowserSession(
+                msg.workspaceId,
+                msg.conversationId,
+                url.toString(),
+                { width: msg.width, height: msg.height },
+                msg.threadRootId,
                 msg.browserRunId,
               );
             } else {
-              if (
-                !browsers.resolveViewport(msg.workspaceId, msg.browserRunId, {
-                  width: msg.width,
-                  height: msg.height,
-                })
-              ) {
-                await browsers.resize(msg.workspaceId, msg.browserRunId, {
-                  width: msg.width,
-                  height: msg.height,
+              const browser = browserSession(msg.workspaceId, msg.browserRunId);
+              if (msg.type === "browserReload") {
+                await browser.reload();
+                const [url, stream] = await Promise.all([
+                  browser.getUrl(),
+                  browser.stream(),
+                ]);
+                broadcastBrowserNavigate(
+                  msg.workspaceId,
+                  msg.conversationId,
+                  url,
+                  stream.url,
+                  msg.browserRunId,
+                );
+              } else {
+                if (
+                  !browsers.resolveViewport(msg.workspaceId, msg.browserRunId, {
+                    width: msg.width,
+                    height: msg.height,
+                  })
+                ) {
+                  await browsers.resize(msg.workspaceId, msg.browserRunId, {
+                    width: msg.width,
+                    height: msg.height,
+                  });
+                }
+              }
+            }
+            return;
+          }
+          if ("workspaceId" in msg && "executorCapability" in msg) {
+            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+            const previousWorkspace = socketAuthorization.authorize(
+              ws,
+              msg.workspaceId,
+            );
+            if (previousWorkspace && previousWorkspace !== msg.workspaceId) {
+              for (const subscriptionKey of [...subscriptions]) {
+                if (!subscriptionKey.startsWith(`${previousWorkspace}\0`)) {
+                  continue;
+                }
+                subscriptions.delete(subscriptionKey);
+                const registered = sessionListeners.get(subscriptionKey);
+                if (registered) {
+                  registered.session.off("event", registered.listener);
+                  sessionListeners.delete(subscriptionKey);
+                }
+                const chatId = subscriptionKey.slice(
+                  previousWorkspace.length + 1,
+                );
+                await manager.release(previousWorkspace, chatId);
+              }
+            }
+          }
+          if (msg.type === "updateChannel") {
+            try {
+              const verified = localCapabilities.get(
+                msg.executorCapability.token,
+              );
+              if (!verified) {
+                throw new Error("Could not verify access to this workspace.");
+              }
+              await authorizeOrganizationRole({
+                apiBaseUrl: verified.apiBaseUrl,
+                allowedRoles: ["owner", "admin"],
+                errorMessage:
+                  "Only workspace owners and admins can edit channels.",
+                sessionToken: msg.sessionToken,
+                workspaceId: msg.workspaceId,
+              });
+              const channel = await manager.store
+                .channelStore()
+                .update(msg.workspaceId, msg.channelId, {
+                  name: msg.name,
+                  topic: msg.topic,
+                  description: msg.description,
+                });
+              send({
+                type: "channelUpdated",
+                requestId: msg.requestId,
+                workspaceId: msg.workspaceId,
+                channel,
+              });
+              await channelBridge.sendChannels(manager, msg.workspaceId, send);
+            } catch (error) {
+              send({
+                type: "channelUpdateFailed",
+                requestId: msg.requestId,
+                workspaceId: msg.workspaceId,
+                channelId: msg.channelId,
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "Chief could not update this channel.",
+              });
+            }
+            return;
+          }
+          if (
+            await handleGovernanceRequest(msg, {
+              manager,
+              send,
+              capability: (token) => localCapabilities.get(token),
+              broadcastChannels,
+            })
+          )
+            return;
+          if (msg.type === "deleteChannel") {
+            const channelStore = manager.store.channelStore();
+            try {
+              const verified = localCapabilities.get(
+                msg.executorCapability.token,
+              );
+              if (!verified) {
+                throw new Error("Could not verify access to this workspace.");
+              }
+              await authorizeOrganizationRole({
+                apiBaseUrl: verified.apiBaseUrl,
+                allowedRoles: ["owner"],
+                errorMessage: "Only workspace owners can delete channels.",
+                sessionToken: msg.sessionToken,
+                workspaceId: msg.workspaceId,
+              });
+              const channel = await channelStore.assertRemovable(
+                msg.workspaceId,
+                msg.channelId,
+              );
+              const chatId = channelChatId(msg.workspaceId, channel.id);
+              const chat = await manager.store.chatRecord(
+                msg.workspaceId,
+                chatId,
+              );
+              if (chat) {
+                await closeBrowserSession(msg.workspaceId, chatId);
+                await manager.remove(msg.workspaceId, chatId);
+                const subscriptionKey = `${msg.workspaceId}\0${chatId}`;
+                subscriptions.delete(subscriptionKey);
+                const registered = sessionListeners.get(subscriptionKey);
+                if (registered) {
+                  registered.session.off("event", registered.listener);
+                  sessionListeners.delete(subscriptionKey);
+                }
+              }
+              await channelStore.remove(msg.workspaceId, channel.id);
+              send({
+                type: "channelDeleted",
+                requestId: msg.requestId,
+                workspaceId: msg.workspaceId,
+                channelId: channel.id,
+              });
+              await channelBridge.sendChannels(manager, msg.workspaceId, send);
+            } catch (error) {
+              send({
+                type: "channelDeleteFailed",
+                requestId: msg.requestId,
+                workspaceId: msg.workspaceId,
+                channelId: msg.channelId,
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "Chief could not delete this channel.",
+              });
+            }
+            return;
+          }
+          if (await channelBridge.handleRequest(manager, msg, send)) return;
+          if (
+            await plugins.handleClientMessage(msg, authorizeWorkspace, send)
+          ) {
+            return;
+          }
+          if (
+            await handleProjectClientMessage(msg, {
+              service: projects,
+              authorize: authorizeWorkspace,
+              send,
+              broadcast: broadcastProjects,
+            })
+          )
+            return;
+          switch (msg.type) {
+            case "listAgents":
+              send({ type: "agents", agents: defaultAgents });
+              break;
+            case "listModels":
+              send({
+                type: "models",
+                driver: msg.driver,
+                models: await listModels(msg.driver),
+              });
+              break;
+
+            case "listBrowserRuns":
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              {
+                await recoverBrowserRuns(msg.workspaceId);
+                const runs = await manager.store.listBrowserRuns(
+                  msg.workspaceId,
+                );
+                send({
+                  type: "browserRuns",
+                  workspaceId: msg.workspaceId,
+                  runs,
                 });
               }
-            }
-          }
-          return;
-        }
-        if ("workspaceId" in msg && "executorCapability" in msg) {
-          await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-          const previousWorkspace = socketAuthorization.authorize(
-            ws,
-            msg.workspaceId,
-          );
-          if (previousWorkspace && previousWorkspace !== msg.workspaceId) {
-            for (const subscriptionKey of [...subscriptions]) {
-              if (!subscriptionKey.startsWith(`${previousWorkspace}\0`)) {
-                continue;
-              }
-              subscriptions.delete(subscriptionKey);
-              const registered = sessionListeners.get(subscriptionKey);
-              if (registered) {
-                registered.session.off("event", registered.listener);
-                sessionListeners.delete(subscriptionKey);
-              }
-              const chatId = subscriptionKey.slice(
-                previousWorkspace.length + 1,
-              );
-              await manager.release(previousWorkspace, chatId);
-            }
-          }
-        }
-        if (msg.type === "updateChannel") {
-          try {
-            const verified = localCapabilities.get(
-              msg.executorCapability.token,
-            );
-            if (!verified) {
-              throw new Error("Could not verify access to this workspace.");
-            }
-            await authorizeOrganizationRole({
-              apiBaseUrl: verified.apiBaseUrl,
-              allowedRoles: ["owner", "admin"],
-              errorMessage:
-                "Only workspace owners and admins can edit channels.",
-              sessionToken: msg.sessionToken,
-              workspaceId: msg.workspaceId,
-            });
-            const channel = await manager.store
-              .channelStore()
-              .update(msg.workspaceId, msg.channelId, {
-                name: msg.name,
-                topic: msg.topic,
-                description: msg.description,
-              });
-            send({
-              type: "channelUpdated",
-              requestId: msg.requestId,
-              workspaceId: msg.workspaceId,
-              channel,
-            });
-            await channelBridge.sendChannels(manager, msg.workspaceId, send);
-          } catch (error) {
-            send({
-              type: "channelUpdateFailed",
-              requestId: msg.requestId,
-              workspaceId: msg.workspaceId,
-              channelId: msg.channelId,
-              message:
-                error instanceof Error
-                  ? error.message
-                  : "Chief could not update this channel.",
-            });
-          }
-          return;
-        }
-        if (
-          await handleGovernanceRequest(msg, {
-            manager,
-            send,
-            capability: (token) => localCapabilities.get(token),
-            broadcastChannels,
-          })
-        )
-          return;
-        if (msg.type === "deleteChannel") {
-          const channelStore = manager.store.channelStore();
-          try {
-            const verified = localCapabilities.get(
-              msg.executorCapability.token,
-            );
-            if (!verified) {
-              throw new Error("Could not verify access to this workspace.");
-            }
-            await authorizeOrganizationRole({
-              apiBaseUrl: verified.apiBaseUrl,
-              allowedRoles: ["owner"],
-              errorMessage: "Only workspace owners can delete channels.",
-              sessionToken: msg.sessionToken,
-              workspaceId: msg.workspaceId,
-            });
-            const channel = await channelStore.assertRemovable(
-              msg.workspaceId,
-              msg.channelId,
-            );
-            const chatId = channelChatId(msg.workspaceId, channel.id);
-            const chat = await manager.store.chatRecord(
-              msg.workspaceId,
-              chatId,
-            );
-            if (chat) {
-              await closeBrowserSession(msg.workspaceId, chatId);
-              await manager.remove(msg.workspaceId, chatId);
-              const subscriptionKey = `${msg.workspaceId}\0${chatId}`;
-              subscriptions.delete(subscriptionKey);
-              const registered = sessionListeners.get(subscriptionKey);
-              if (registered) {
-                registered.session.off("event", registered.listener);
-                sessionListeners.delete(subscriptionKey);
-              }
-            }
-            await channelStore.remove(msg.workspaceId, channel.id);
-            send({
-              type: "channelDeleted",
-              requestId: msg.requestId,
-              workspaceId: msg.workspaceId,
-              channelId: channel.id,
-            });
-            await channelBridge.sendChannels(manager, msg.workspaceId, send);
-          } catch (error) {
-            send({
-              type: "channelDeleteFailed",
-              requestId: msg.requestId,
-              workspaceId: msg.workspaceId,
-              channelId: msg.channelId,
-              message:
-                error instanceof Error
-                  ? error.message
-                  : "Chief could not delete this channel.",
-            });
-          }
-          return;
-        }
-        if (await channelBridge.handleRequest(manager, msg, send)) return;
-        if (await plugins.handleClientMessage(msg, authorizeWorkspace, send)) {
-          return;
-        }
-        if (
-          await handleProjectClientMessage(msg, {
-            service: projects,
-            authorize: authorizeWorkspace,
-            send,
-            broadcast: broadcastProjects,
-          })
-        )
-          return;
-        switch (msg.type) {
-          case "listAgents":
-            send({ type: "agents", agents: defaultAgents });
-            break;
-          case "listModels":
-            send({
-              type: "models",
-              driver: msg.driver,
-              models: await listModels(msg.driver),
-            });
-            break;
+              break;
 
-          case "listBrowserRuns":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            {
-              await recoverBrowserRuns(msg.workspaceId);
-              const runs = await manager.store.listBrowserRuns(msg.workspaceId);
-              send({
-                type: "browserRuns",
-                workspaceId: msg.workspaceId,
-                runs,
-              });
-            }
-            break;
-
-          case "anchorBrowserRun":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await manager.store.updateBrowserRun(
-              msg.workspaceId,
-              msg.browserRunId,
-              { anchorMessageId: msg.messageId },
-            );
-            browserAnchorMessages.set(msg.browserRunId, msg.messageId);
-            break;
-
-          case "listWorkspaceData": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const waysOfWorking = readWorkspaceWaysOfWorking(msg.workspaceId);
-            if (
-              waysOfWorking.mode === "mission-control" &&
-              !(await manager.recurringWorkByOperationKey(
+            case "anchorBrowserRun":
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              await manager.store.updateBrowserRun(
                 msg.workspaceId,
-                MISSION_CONTROL_HEARTBEAT_OPERATION_KEY,
-              ))
-            ) {
+                msg.browserRunId,
+                { anchorMessageId: msg.messageId },
+              );
+              browserAnchorMessages.set(msg.browserRunId, msg.messageId);
+              break;
+
+            case "listWorkspaceData": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              const waysOfWorking = readWorkspaceWaysOfWorking(msg.workspaceId);
+              if (
+                waysOfWorking.mode === "mission-control" &&
+                !(await manager.recurringWorkByOperationKey(
+                  msg.workspaceId,
+                  MISSION_CONTROL_HEARTBEAT_OPERATION_KEY,
+                ))
+              ) {
+                await syncMissionControlHeartbeat(
+                  manager,
+                  msg.workspaceId,
+                  waysOfWorking,
+                );
+              }
+              const { data, revision } = await loadWorkspaceDataSnapshot(
+                msg.workspaceId,
+              );
+              send({
+                type: "workspaceData",
+                workspaceId: msg.workspaceId,
+                revision,
+                ...data,
+              });
+              break;
+            }
+
+            case "saveWorkspaceWaysOfWorking": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              const verified = localCapabilities.get(
+                msg.executorCapability.token,
+              );
+              if (!verified) {
+                throw new Error("Could not verify access to this workspace.");
+              }
+              await authorizeOrganizationRole({
+                apiBaseUrl: verified.apiBaseUrl,
+                allowedRoles: ["owner", "admin"],
+                errorMessage:
+                  "Only workspace owners and admins can change ways of working.",
+                sessionToken: msg.sessionToken,
+                workspaceId: msg.workspaceId,
+              });
+              const channel =
+                msg.mode === "mission-control"
+                  ? await manager.store
+                      .channelStore()
+                      .get(msg.workspaceId, msg.missionControlChannelId)
+                  : undefined;
+              if (msg.mode === "mission-control") {
+                if (
+                  !channel ||
+                  channel.visibility === "direct" ||
+                  channel.lifecycle !== "active"
+                ) {
+                  throw new Error("Choose an active workspace channel.");
+                }
+                if (!channel.agentIds.includes("chief")) {
+                  await manager.store
+                    .channelStore()
+                    .setAgents(msg.workspaceId, channel.id, [
+                      ...channel.agentIds,
+                      "chief",
+                    ]);
+                  await broadcastChannels(msg.workspaceId);
+                }
+              }
+              const waysOfWorking = saveWorkspaceWaysOfWorking(
+                msg.workspaceId,
+                msg.mode,
+                channel?.id ?? msg.missionControlChannelId,
+              );
               await syncMissionControlHeartbeat(
                 manager,
                 msg.workspaceId,
                 waysOfWorking,
               );
+              send({
+                type: "workspaceWaysOfWorkingSaved",
+                workspaceId: msg.workspaceId,
+                requestId: msg.requestId,
+                waysOfWorking,
+              });
+              await broadcastWorkspaceData(msg.workspaceId);
+              break;
             }
-            const { data, revision } = await loadWorkspaceDataSnapshot(
-              msg.workspaceId,
-            );
-            send({
-              type: "workspaceData",
-              workspaceId: msg.workspaceId,
-              revision,
-              ...data,
-            });
-            break;
-          }
 
-          case "saveWorkspaceWaysOfWorking": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const verified = localCapabilities.get(
-              msg.executorCapability.token,
-            );
-            if (!verified) {
-              throw new Error("Could not verify access to this workspace.");
+            case "listDiagnostics":
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              send({
+                type: "diagnostics",
+                workspaceId: msg.workspaceId,
+                ...(await manager.diagnostics(msg.workspaceId)),
+              });
+              break;
+
+            case "listWorkspaceFiles":
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              send({
+                type: "workspaceFiles",
+                workspaceId: msg.workspaceId,
+                files: await manager.listWorkspaceFiles(msg.workspaceId),
+              });
+              break;
+
+            case "getWorkspaceFile": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              const file = await manager.workspaceFile(
+                msg.workspaceId,
+                msg.fileId,
+              );
+              if (!file) throw new Error("File not found.");
+              send({
+                type: "workspaceFile",
+                workspaceId: msg.workspaceId,
+                requestId: msg.requestId,
+                file,
+              });
+              break;
             }
-            await authorizeOrganizationRole({
-              apiBaseUrl: verified.apiBaseUrl,
-              allowedRoles: ["owner", "admin"],
-              errorMessage:
-                "Only workspace owners and admins can change ways of working.",
-              sessionToken: msg.sessionToken,
-              workspaceId: msg.workspaceId,
-            });
-            const channel =
-              msg.mode === "mission-control"
-                ? await manager.store
-                    .channelStore()
-                    .get(msg.workspaceId, msg.missionControlChannelId)
-                : undefined;
-            if (msg.mode === "mission-control") {
-              if (
-                !channel ||
-                channel.visibility === "direct" ||
-                channel.lifecycle !== "active"
-              ) {
-                throw new Error("Choose an active workspace channel.");
+
+            case "saveWorkspaceFile": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              const file = await manager.saveWorkspaceFile(
+                msg.workspaceId,
+                msg.file,
+              );
+              send({
+                type: "workspaceFileSaved",
+                workspaceId: msg.workspaceId,
+                requestId: msg.requestId,
+                file,
+              });
+              await broadcastWorkspaceFiles(msg.workspaceId);
+              break;
+            }
+
+            case "deleteWorkspaceFile":
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              await manager.deleteWorkspaceFile(msg.workspaceId, msg.fileId);
+              send({
+                type: "workspaceFileDeleted",
+                workspaceId: msg.workspaceId,
+                fileId: msg.fileId,
+                requestId: msg.requestId,
+              });
+              await broadcastWorkspaceFiles(msg.workspaceId);
+              break;
+
+            case "renderWorkspaceEmail": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              const file = await manager.workspaceFile(
+                msg.workspaceId,
+                msg.fileId,
+              );
+              if (!file) throw new Error("File not found.");
+              if (file.kind !== "email") {
+                throw new Error("Only email files can be previewed as email.");
               }
-              if (!channel.agentIds.includes("chief")) {
-                await manager.store
-                  .channelStore()
-                  .setAgents(msg.workspaceId, channel.id, [
-                    ...channel.agentIds,
-                    "chief",
-                  ]);
-                await broadcastChannels(msg.workspaceId);
+              const rendered = await renderEmailDocument({
+                title: file.name.replace(/\.md$/i, ""),
+                markdown: file.content,
+              });
+              send({
+                type: "workspaceEmailPreview",
+                workspaceId: msg.workspaceId,
+                fileId: file.id,
+                requestId: msg.requestId,
+                versionId: file.currentVersionId,
+                html: rendered.html,
+                text: rendered.text,
+              });
+              break;
+            }
+
+            case "bootstrapOnboardingWork": {
+              await handleBootstrapOnboardingWork({
+                authorizeWorkspace,
+                bindRootSession,
+                broadcastChannels,
+                broadcastWorkspaceData,
+                chatDestinations,
+                manager,
+                msg,
+                onboardingBootstraps,
+                send,
+              });
+              break;
+            }
+            case "saveCampaign":
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              await manager.saveCampaign(msg.workspaceId, msg.campaign);
+              await broadcastWorkspaceData(msg.workspaceId);
+              break;
+            case "saveRecurringWork": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              const { saved, missedOneOff } = await saveRecurringWorkSettings(
+                manager,
+                msg.workspaceId,
+                msg.work,
+              );
+              if (saved.status === "active") {
+                // The app knows approval resolved the action item, so do not
+                // make the user dismiss it too.
+                for (const suffix of [
+                  "approval",
+                  "blocked",
+                  "failed",
+                  "required-source",
+                ]) {
+                  await manager.dismissActionItem(
+                    msg.workspaceId,
+                    `action-${msg.work.id}-${suffix}`,
+                  );
+                }
               }
+              await broadcastWorkspaceData(msg.workspaceId);
+              if (msg.requestId) {
+                send({
+                  type: "recurringWorkSaved",
+                  workspaceId: msg.workspaceId,
+                  requestId: msg.requestId,
+                  work: saved,
+                });
+              }
+              if (missedOneOff) {
+                void scheduler
+                  .runNow(msg.workspaceId, msg.work.id)
+                  .catch((error) => console.error("[recurring-work]", error));
+              }
+              break;
             }
-            const waysOfWorking = saveWorkspaceWaysOfWorking(
-              msg.workspaceId,
-              msg.mode,
-              channel?.id ?? msg.missionControlChannelId,
-            );
-            await syncMissionControlHeartbeat(
-              manager,
-              msg.workspaceId,
-              waysOfWorking,
-            );
-            send({
-              type: "workspaceWaysOfWorkingSaved",
-              workspaceId: msg.workspaceId,
-              requestId: msg.requestId,
-              waysOfWorking,
-            });
-            await broadcastWorkspaceData(msg.workspaceId);
-            break;
-          }
 
-          case "listDiagnostics":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            send({
-              type: "diagnostics",
-              workspaceId: msg.workspaceId,
-              ...(await manager.diagnostics(msg.workspaceId)),
-            });
-            break;
-
-          case "listWorkspaceFiles":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            send({
-              type: "workspaceFiles",
-              workspaceId: msg.workspaceId,
-              files: await manager.listWorkspaceFiles(msg.workspaceId),
-            });
-            break;
-
-          case "getWorkspaceFile": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const file = await manager.workspaceFile(
-              msg.workspaceId,
-              msg.fileId,
-            );
-            if (!file) throw new Error("File not found.");
-            send({
-              type: "workspaceFile",
-              workspaceId: msg.workspaceId,
-              requestId: msg.requestId,
-              file,
-            });
-            break;
-          }
-
-          case "saveWorkspaceFile": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const file = await manager.saveWorkspaceFile(
-              msg.workspaceId,
-              msg.file,
-            );
-            send({
-              type: "workspaceFileSaved",
-              workspaceId: msg.workspaceId,
-              requestId: msg.requestId,
-              file,
-            });
-            await broadcastWorkspaceFiles(msg.workspaceId);
-            break;
-          }
-
-          case "deleteWorkspaceFile":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await manager.deleteWorkspaceFile(msg.workspaceId, msg.fileId);
-            send({
-              type: "workspaceFileDeleted",
-              workspaceId: msg.workspaceId,
-              fileId: msg.fileId,
-              requestId: msg.requestId,
-            });
-            await broadcastWorkspaceFiles(msg.workspaceId);
-            break;
-
-          case "renderWorkspaceEmail": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const file = await manager.workspaceFile(
-              msg.workspaceId,
-              msg.fileId,
-            );
-            if (!file) throw new Error("File not found.");
-            if (file.kind !== "email") {
-              throw new Error("Only email files can be previewed as email.");
+            case "rotateRecurringWorkWebhook": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              const url = await rotateRecurringWorkWebhook(
+                manager,
+                msg.workspaceId,
+                msg.recurringWorkId,
+                `http://127.0.0.1:${PORT}`,
+              );
+              send({
+                type: "recurringWorkWebhookRotated",
+                workspaceId: msg.workspaceId,
+                requestId: msg.requestId,
+                recurringWorkId: msg.recurringWorkId,
+                url,
+                reachability: "local_only",
+              });
+              break;
             }
-            const rendered = await renderEmailDocument({
-              title: file.name.replace(/\.md$/i, ""),
-              markdown: file.content,
-            });
-            send({
-              type: "workspaceEmailPreview",
-              workspaceId: msg.workspaceId,
-              fileId: file.id,
-              requestId: msg.requestId,
-              versionId: file.currentVersionId,
-              html: rendered.html,
-              text: rendered.text,
-            });
-            break;
-          }
 
-          case "bootstrapOnboardingWork": {
-            await handleBootstrapOnboardingWork({
-              authorizeWorkspace,
-              bindRootSession,
-              broadcastChannels,
-              broadcastWorkspaceData,
-              chatDestinations,
-              manager,
-              msg,
-              onboardingBootstraps,
-              send,
-            });
-            break;
-          }
-          case "saveCampaign":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await manager.saveCampaign(msg.workspaceId, msg.campaign);
-            await broadcastWorkspaceData(msg.workspaceId);
-            break;
-          case "saveRecurringWork": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const { saved, missedOneOff } = await saveRecurringWorkSettings(
-              manager,
-              msg.workspaceId,
-              msg.work,
-            );
-            if (saved.status === "active") {
-              // The app knows approval resolved the action item, so do not
-              // make the user dismiss it too.
+            case "runRecurringWorkNow":
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              void scheduler
+                .runNow(msg.workspaceId, msg.recurringWorkId)
+                .catch((error) => console.error("[recurring-work]", error));
+              break;
+
+            case "runMissionControlHeartbeatNow": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              const work = await manager.recurringWorkByOperationKey(
+                msg.workspaceId,
+                MISSION_CONTROL_HEARTBEAT_OPERATION_KEY,
+              );
+              if (!work) throw new Error("The heartbeat is not ready yet.");
+              const started = await startScheduledChannelWork({
+                bindSession: bindRootSession,
+                broadcast: broadcastChannelEvent,
+                manager,
+                onThread: (thread) => {
+                  chatDestinations.set(
+                    `${msg.workspaceId}\0${thread.chatId}`,
+                    thread.channelId,
+                  );
+                  send({
+                    type: "missionControlHeartbeatStarted",
+                    workspaceId: msg.workspaceId,
+                    requestId: msg.requestId,
+                    channelId: thread.channelId,
+                    messageId: thread.messageId,
+                    threadRootId: thread.messageId,
+                  });
+                },
+                prepareWorkspaceTools: () =>
+                  ensureExecutorWorkspace(
+                    msg.workspaceId,
+                    msg.executorCapability,
+                  ).catch(() => null),
+                work,
+                workspaceId: msg.workspaceId,
+              });
+              if (!started) {
+                throw new Error("Chief is not ready to run this heartbeat.");
+              }
+              break;
+            }
+
+            case "dismissActionItem":
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              await manager.dismissActionItem(
+                msg.workspaceId,
+                msg.actionItemId,
+              );
+              await dismissCloudAction(msg.workspaceId, msg.actionItemId);
+              await broadcastWorkspaceData(msg.workspaceId);
+              break;
+
+            case "resolveActionRequest": {
+              await handleResolveActionRequest({
+                authorizeWorkspace,
+                broadcastWorkspaceData,
+                continueChiefSession,
+                dismissCloudAction,
+                integrationSetups,
+                manager,
+                msg,
+                send,
+              });
+              break;
+            }
+
+            case "expandRecurringWorkGrant": {
+              await handleExpandRecurringWorkGrant({
+                authorizeWorkspace,
+                broadcastWorkspaceData,
+                manager,
+                msg,
+                scheduler,
+              });
+              break;
+            }
+
+            case "deleteRecurringWork":
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              await manager.deleteRecurringWork(
+                msg.workspaceId,
+                msg.recurringWorkId,
+              );
+              // Rejecting is also an action: clear anything it was flagged for.
               for (const suffix of [
                 "approval",
                 "blocked",
@@ -2899,662 +3011,337 @@ export function startServer(port = PORT) {
               ]) {
                 await manager.dismissActionItem(
                   msg.workspaceId,
-                  `action-${msg.work.id}-${suffix}`,
+                  `action-${msg.recurringWorkId}-${suffix}`,
                 );
               }
-            }
-            await broadcastWorkspaceData(msg.workspaceId);
-            if (msg.requestId) {
-              send({
-                type: "recurringWorkSaved",
-                workspaceId: msg.workspaceId,
-                requestId: msg.requestId,
-                work: saved,
-              });
-            }
-            if (missedOneOff) {
-              void scheduler
-                .runNow(msg.workspaceId, msg.work.id)
-                .catch((error) => console.error("[recurring-work]", error));
-            }
-            break;
-          }
-
-          case "rotateRecurringWorkWebhook": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const url = await rotateRecurringWorkWebhook(
-              manager,
-              msg.workspaceId,
-              msg.recurringWorkId,
-              `http://127.0.0.1:${PORT}`,
-            );
-            send({
-              type: "recurringWorkWebhookRotated",
-              workspaceId: msg.workspaceId,
-              requestId: msg.requestId,
-              recurringWorkId: msg.recurringWorkId,
-              url,
-              reachability: "local_only",
-            });
-            break;
-          }
-
-          case "runRecurringWorkNow":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            void scheduler
-              .runNow(msg.workspaceId, msg.recurringWorkId)
-              .catch((error) => console.error("[recurring-work]", error));
-            break;
-
-          case "runMissionControlHeartbeatNow": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const work = await manager.recurringWorkByOperationKey(
-              msg.workspaceId,
-              MISSION_CONTROL_HEARTBEAT_OPERATION_KEY,
-            );
-            if (!work) throw new Error("The heartbeat is not ready yet.");
-            const started = await startScheduledChannelWork({
-              bindSession: bindRootSession,
-              broadcast: broadcastChannelEvent,
-              manager,
-              onThread: (thread) => {
-                chatDestinations.set(
-                  `${msg.workspaceId}\0${thread.chatId}`,
-                  thread.channelId,
-                );
-                send({
-                  type: "missionControlHeartbeatStarted",
-                  workspaceId: msg.workspaceId,
-                  requestId: msg.requestId,
-                  channelId: thread.channelId,
-                  messageId: thread.messageId,
-                  threadRootId: thread.messageId,
-                });
-              },
-              prepareWorkspaceTools: () =>
-                ensureExecutorWorkspace(
-                  msg.workspaceId,
-                  msg.executorCapability,
-                ).catch(() => null),
-              work,
-              workspaceId: msg.workspaceId,
-            });
-            if (!started) {
-              throw new Error("Chief is not ready to run this heartbeat.");
-            }
-            break;
-          }
-
-          case "dismissActionItem":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await manager.dismissActionItem(msg.workspaceId, msg.actionItemId);
-            await dismissCloudAction(msg.workspaceId, msg.actionItemId);
-            await broadcastWorkspaceData(msg.workspaceId);
-            break;
-
-          case "resolveActionRequest": {
-            await handleResolveActionRequest({
-              authorizeWorkspace,
-              broadcastWorkspaceData,
-              continueChiefSession,
-              dismissCloudAction,
-              integrationSetups,
-              manager,
-              msg,
-              send,
-            });
-            break;
-          }
-
-          case "expandRecurringWorkGrant": {
-            await handleExpandRecurringWorkGrant({
-              authorizeWorkspace,
-              broadcastWorkspaceData,
-              manager,
-              msg,
-              scheduler,
-            });
-            break;
-          }
-
-          case "deleteRecurringWork":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await manager.deleteRecurringWork(
-              msg.workspaceId,
-              msg.recurringWorkId,
-            );
-            // Rejecting is also an action: clear anything it was flagged for.
-            for (const suffix of [
-              "approval",
-              "blocked",
-              "failed",
-              "required-source",
-            ]) {
-              await manager.dismissActionItem(
-                msg.workspaceId,
-                `action-${msg.recurringWorkId}-${suffix}`,
-              );
-            }
-            await broadcastWorkspaceData(msg.workspaceId);
-            break;
-
-          case "listAgentPreferences":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            send({
-              type: "agentPreferences",
-              workspaceId: msg.workspaceId,
-              preferences: await manager.listAgentPreferences(msg.workspaceId),
-            });
-            break;
-
-          case "saveAgentPreference":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await manager.saveAgentPreference(msg.workspaceId, msg.preference);
-            await syncExecutorAgentPermissionCeiling(
-              msg.workspaceId,
-              await executorPermissionCeiling(msg.workspaceId),
-            ).catch((error: unknown) =>
-              console.error("[executor] permission sync failed:", error),
-            );
-            if (msg.preference.driver) {
-              await resumeDriverBlockedWork(
-                manager,
-                msg.workspaceId,
-                msg.preference.agentId,
-              );
               await broadcastWorkspaceData(msg.workspaceId);
-            }
-            send({
-              type: "agentPreferences",
-              workspaceId: msg.workspaceId,
-              preferences: await manager.listAgentPreferences(msg.workspaceId),
-            });
-            break;
+              break;
 
-          case "listAgentDeployments":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            send({
-              type: "agentDeployments",
-              workspaceId: msg.workspaceId,
-              deployments: deployments.list(msg.workspaceId),
-            });
-            break;
-
-          case "startAgentDeployment":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            deployments.start({
-              workspaceId: msg.workspaceId,
-              agentId: msg.agentId,
-              target: msg.target,
-              projectName: msg.projectName,
-              teamId: msg.teamId,
-              model: msg.model,
-              playbooks: msg.playbooks,
-              channels: msg.channels,
-              activate: msg.activate,
-              controlPlane: {
-                apiBaseUrl: msg.executorCapability.apiBaseUrl,
-                token: msg.executorCapability.token,
-              },
-            });
-            break;
-
-          case "cancelAgentDeployment":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            deployments.cancel(msg.workspaceId, msg.deploymentId);
-            break;
-
-          case "getSlackChannel":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            send({
-              type: "slackChannel",
-              workspaceId: msg.workspaceId,
-              state: await slackState(msg.workspaceId),
-            });
-            break;
-
-          case "saveSlackChannel": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const ids = [
-              ...msg.settings.allowedUserIds,
-              ...msg.settings.allowedChannelIds,
-            ];
-            if (ids.some((id) => !/^[A-Z0-9]{2,32}$/.test(id))) {
-              throw new Error("Slack user and channel IDs are invalid.");
-            }
-            if (msg.settings.model && msg.settings.model.length > 200) {
-              throw new Error("Slack model is too long.");
-            }
-            const botToken = msg.credentials?.botToken?.trim();
-            const appToken = msg.credentials?.appToken?.trim();
-            if (botToken) {
-              await workspaceSecrets.storeEnv(
-                msg.workspaceId,
-                "SLACK_BOT_TOKEN",
-                botToken,
-              );
-            }
-            if (appToken) {
-              await workspaceSecrets.storeEnv(
-                msg.workspaceId,
-                "SLACK_APP_TOKEN",
-                appToken,
-              );
-            }
-            const model = msg.settings.model?.trim();
-            writeSlackGatewaySettings(msg.workspaceId, {
-              ...msg.settings,
-              model: model?.length ? model : undefined,
-              allowedUserIds: [...new Set(msg.settings.allowedUserIds)],
-              allowedChannelIds: [...new Set(msg.settings.allowedChannelIds)],
-            });
-            await reloadSlackGateway(msg.workspaceId).catch(() => undefined);
-            send({
-              type: "slackChannel",
-              workspaceId: msg.workspaceId,
-              state: await slackState(msg.workspaceId),
-            });
-            break;
-          }
-          case "listChats":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            send({
-              type: "chats",
-              workspaceId: msg.workspaceId,
-              chats: await manager.listChats(msg.workspaceId),
-            });
-            break;
-          case "listArtifacts":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            send(await executorArtifactsMessage(msg));
-            break;
-          case "observeChat": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const inspected = await manager.inspectChat(
-              msg.workspaceId,
-              msg.chatId,
-            );
-            const subscriptionKey = `${msg.workspaceId}\0${msg.chatId}`;
-            if (inspected.session && !subscriptions.has(subscriptionKey)) {
-              subscriptions.add(subscriptionKey);
-              manager.retain(msg.workspaceId, msg.chatId);
-              const chatId = msg.chatId;
-              const handleEvent = async (event: unknown) => {
-                const agentEvent = event as AgentEvent;
-                if (agentEvent.type !== "message") {
-                  send({
-                    type: "event",
-                    workspaceId: msg.workspaceId,
-                    chatId,
-                    event: agentEvent,
-                  });
-                }
-                if (
-                  agentEvent.type === "message" ||
-                  agentEvent.type === "result" ||
-                  agentEvent.type === "error" ||
-                  agentEvent.type === "permissionResolved"
-                ) {
-                  await manager.waitForChatPersistence(msg.workspaceId, chatId);
-                  const messages = await manager.messages(
-                    msg.workspaceId,
-                    chatId,
-                  );
-                  const persisted =
-                    agentEvent.type === "message" && agentEvent.id
-                      ? messages.find((message) => message.id === agentEvent.id)
-                      : messages.at(-1);
-                  if (persisted) {
-                    send({
-                      type: "message",
-                      workspaceId: msg.workspaceId,
-                      chatId,
-                      message: persisted,
-                    });
-                  }
-                }
-              };
-              const listener = (event: unknown) => {
-                void handleEvent(event).catch((error: unknown) =>
-                  console.error("[runtime] observed chat event:", error),
-                );
-              };
-              inspected.session.on("event", listener);
-              sessionListeners.set(subscriptionKey, {
-                session: inspected.session,
-                listener,
+            case "listAgentPreferences":
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              send({
+                type: "agentPreferences",
+                workspaceId: msg.workspaceId,
+                preferences: await manager.listAgentPreferences(
+                  msg.workspaceId,
+                ),
               });
-            }
-            send({
-              type: "chatOpened",
-              workspaceId: msg.workspaceId,
-              chatId: msg.chatId,
-              visibility: inspected.chat.visibility,
-              agentId: inspected.session?.agent.id ?? inspected.chat.agent,
-              parentId: inspected.chat.parentId,
-            });
-            await manager.waitForChatPersistence(msg.workspaceId, msg.chatId);
-            send({
-              type: "history",
-              workspaceId: msg.workspaceId,
-              chatId: msg.chatId,
-              messages: await manager.messages(msg.workspaceId, msg.chatId),
-              events: chatControlEvents(inspected.events),
-              running: inspected.session?.isBusy ?? false,
-            });
-            break;
-          }
+              break;
 
-          case "openChat": {
-            await handleOpenChat({
-              authorizeWorkspace,
-              bindRootSession,
-              browserKey,
-              browserSession,
-              chatDestinations,
-              googleAccountSessions,
-              googleAnalyticsOAuthBrowserPromptOptions,
-              integrationSetups,
-              manager,
-              msg,
-              onboardingBootstraps,
-              pluginMcpServers: (workspaceId) =>
-                plugins.mcpServers(workspaceId),
-              send,
-            });
-            break;
-          }
-
-          case "closeChat": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const subscriptionKey = `${msg.workspaceId}\0${msg.chatId}`;
-            if (subscriptions.delete(subscriptionKey)) {
-              const registered = sessionListeners.get(subscriptionKey);
-              if (registered) {
-                registered.session.off("event", registered.listener);
-                sessionListeners.delete(subscriptionKey);
+            case "saveAgentPreference":
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              await manager.saveAgentPreference(
+                msg.workspaceId,
+                msg.preference,
+              );
+              await syncExecutorAgentPermissionCeiling(
+                msg.workspaceId,
+                await executorPermissionCeiling(msg.workspaceId),
+              ).catch((error: Error) =>
+                console.error("[executor] permission sync failed:", error),
+              );
+              if (msg.preference.driver) {
+                await resumeDriverBlockedWork(
+                  manager,
+                  msg.workspaceId,
+                  msg.preference.agentId,
+                );
+                await broadcastWorkspaceData(msg.workspaceId);
               }
-              await manager.release(msg.workspaceId, msg.chatId);
-            }
-            break;
-          }
+              send({
+                type: "agentPreferences",
+                workspaceId: msg.workspaceId,
+                preferences: await manager.listAgentPreferences(
+                  msg.workspaceId,
+                ),
+              });
+              break;
 
-          case "deleteChat":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
-            await manager.rootChat(msg.workspaceId, msg.chatId);
-            {
-              const subscriptionKey = `${msg.workspaceId}\0${msg.chatId}`;
-              subscriptions.delete(subscriptionKey);
-              const registered = sessionListeners.get(subscriptionKey);
-              if (registered) {
-                registered.session.off("event", registered.listener);
-                sessionListeners.delete(subscriptionKey);
+            case "getSlackChannel":
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              send({
+                type: "slackChannel",
+                workspaceId: msg.workspaceId,
+                state: await slackState(msg.workspaceId),
+              });
+              break;
+
+            case "saveSlackChannel": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              const ids = [
+                ...msg.settings.allowedUserIds,
+                ...msg.settings.allowedChannelIds,
+              ];
+              if (ids.some((id) => !/^[A-Z0-9]{2,32}$/.test(id))) {
+                throw new Error("Slack user and channel IDs are invalid.");
               }
+              if (msg.settings.model && msg.settings.model.length > 200) {
+                throw new Error("Slack model is too long.");
+              }
+              const botToken = msg.credentials?.botToken?.trim();
+              const appToken = msg.credentials?.appToken?.trim();
+              if (botToken) {
+                await workspaceSecrets.storeEnv(
+                  msg.workspaceId,
+                  "SLACK_BOT_TOKEN",
+                  botToken,
+                );
+              }
+              if (appToken) {
+                await workspaceSecrets.storeEnv(
+                  msg.workspaceId,
+                  "SLACK_APP_TOKEN",
+                  appToken,
+                );
+              }
+              const model = msg.settings.model?.trim();
+              writeSlackGatewaySettings(msg.workspaceId, {
+                ...msg.settings,
+                model: model?.length ? model : undefined,
+                allowedUserIds: [...new Set(msg.settings.allowedUserIds)],
+                allowedChannelIds: [...new Set(msg.settings.allowedChannelIds)],
+              });
+              await reloadSlackGateway(msg.workspaceId).catch(() => undefined);
+              send({
+                type: "slackChannel",
+                workspaceId: msg.workspaceId,
+                state: await slackState(msg.workspaceId),
+              });
+              break;
             }
-            await manager.remove(msg.workspaceId, msg.chatId);
-            send({
-              type: "chats",
-              workspaceId: msg.workspaceId,
-              chats: await manager.listChats(msg.workspaceId),
-            });
-            break;
-
-          case "sendMessage": {
-            await handleSendMessage({
-              authorizeWorkspace,
-              bindRootSession,
-              broadcastChannelEvent,
-              chatDestinations,
-              ensureChiefSession,
-              integrationSetups,
-              manager,
-              msg,
-              pluginMcpServers: (workspaceId) =>
-                plugins.mcpServers(workspaceId),
-              send,
-            });
-            break;
-          }
-
-          case "interruptChat":
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
-            try {
-              await (
-                await manager.inspectChat(msg.workspaceId, msg.chatId)
-              ).session?.interrupt();
-            } finally {
-              manager.releaseExecution(
+            case "listChats":
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              send({
+                type: "chats",
+                workspaceId: msg.workspaceId,
+                chats: await manager.listChats(msg.workspaceId),
+              });
+              break;
+            case "listArtifacts":
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              send(await executorArtifactsMessage(msg));
+              break;
+            case "observeChat": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              const inspected = await manager.inspectChat(
                 msg.workspaceId,
                 msg.chatId,
-                "interactive",
               );
-            }
-            break;
-
-          case "respondPermission": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
-            const { session } = await manager.rootChat(
-              msg.workspaceId,
-              msg.chatId,
-            );
-            session?.respondPermission(msg.requestId, msg.behavior);
-            break;
-          }
-
-          case "respondQuestion": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
-            const { session } = await manager.rootChat(
-              msg.workspaceId,
-              msg.chatId,
-            );
-            session?.respondQuestion(msg.requestId, msg.answers);
-            break;
-          }
-
-          case "queryInputs": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const stored = new Set(
-              await workspaceSecrets.keys(msg.workspaceId),
-            );
-            const present = msg.keys.filter(
-              (key) =>
-                stored.has(key) ||
-                equivalentInputKeys[key]?.some((alias) => stored.has(alias)),
-            );
-            send({
-              type: "inputsStatus",
-              workspaceId: msg.workspaceId,
-              present,
-            });
-            break;
-          }
-
-          case "storeInput": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await storeInputValues(
-              msg.workspaceId,
-              msg.request,
-              msg.values,
-              false,
-              msg.executorCapability,
-            );
-            send({
-              type: "inputsStatus",
-              workspaceId: msg.workspaceId,
-              present: await workspaceSecrets.keys(msg.workspaceId),
-            });
-            send({
-              type: "workspaceEnvironmentVariables",
-              workspaceId: msg.workspaceId,
-              variables: (await workspaceSecrets.keys(msg.workspaceId)).map(
-                (key) => ({ key, sensitive: true as const }),
-              ),
-            });
-            break;
-          }
-
-          case "disconnectGoogleAnalytics": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await disconnectGoogleAnalyticsConnection(
-              msg.workspaceId,
-              msg.executorCapability,
-            );
-            send({
-              type: "integrationDisconnected",
-              workspaceId: msg.workspaceId,
-              provider: "google-analytics",
-              requestId: msg.requestId,
-            });
-            break;
-          }
-
-          case "listWorkspaceEnvironmentVariables": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            send({
-              type: "workspaceEnvironmentVariables",
-              workspaceId: msg.workspaceId,
-              variables: (await workspaceSecrets.keys(msg.workspaceId)).map(
-                (key) => ({ key, sensitive: true as const }),
-              ),
-            });
-            break;
-          }
-
-          case "saveWorkspaceEnvironmentVariable": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            if (!msg.value) throw new Error("Environment value is required.");
-            await workspaceSecrets.storeEnv(
-              msg.workspaceId,
-              msg.key,
-              msg.value,
-            );
-            await workspaceSecrets.refresh(msg.workspaceId);
-            send({
-              type: "workspaceEnvironmentVariables",
-              workspaceId: msg.workspaceId,
-              variables: (await workspaceSecrets.keys(msg.workspaceId)).map(
-                (key) => ({ key, sensitive: true as const }),
-              ),
-            });
-            break;
-          }
-
-          case "deleteWorkspaceEnvironmentVariable": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            await workspaceSecrets.deleteEnv(msg.workspaceId, msg.key);
-            send({
-              type: "workspaceEnvironmentVariables",
-              workspaceId: msg.workspaceId,
-              variables: (await workspaceSecrets.keys(msg.workspaceId)).map(
-                (key) => ({ key, sensitive: true as const }),
-              ),
-            });
-            break;
-          }
-
-          case "inspectWorkspaceIntegrations": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            const googleAnalytics = await inspectGoogleAnalyticsConfiguration(
-              msg.workspaceId,
-              msg.executorCapability,
-            );
-            const unhealthy = ["error", "failed", "unhealthy"].includes(
-              googleAnalytics.connection?.lastHealth?.status ?? "",
-            );
-            send({
-              type: "localIntegrationStatus",
-              workspaceId: msg.workspaceId,
-              integrations: [
-                {
-                  provider: "google-analytics",
-                  category: "analytics",
-                  status:
-                    googleAnalytics.connection && !unhealthy
-                      ? ("connected" as const)
-                      : ("needs-authorization" as const),
-                  needsCredentials: !googleAnalytics.oauthClientConfigured,
-                  ...(googleAnalytics.connection?.identityLabel
-                    ? { displayName: googleAnalytics.connection.identityLabel }
-                    : undefined),
-                },
-              ],
-            });
-            break;
-          }
-
-          case "provideInput": {
-            await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
-            if (!msg.recurringWorkId) {
-              await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
-            }
-            const inspected = msg.recurringWorkId
-              ? await manager.inspectChat(msg.workspaceId, msg.chatId)
-              : await manager.rootChat(msg.workspaceId, msg.chatId);
-            const session = inspected.session;
-            if (msg.recurringWorkId) {
-              if (
-                inspected.chat.kind !== "task" ||
-                inspected.chat.visibility !== "private" ||
-                inspected.chat.scheduleId !== msg.recurringWorkId
-              ) {
-                throw new Error("Schedule does not own this private session.");
+              const subscriptionKey = `${msg.workspaceId}\0${msg.chatId}`;
+              if (inspected.session && !subscriptions.has(subscriptionKey)) {
+                subscriptions.add(subscriptionKey);
+                manager.retain(msg.workspaceId, msg.chatId);
+                const chatId = msg.chatId;
+                const handleEvent = async (agentEvent: AgentEvent) => {
+                  if (agentEvent.type !== "message") {
+                    send({
+                      type: "event",
+                      workspaceId: msg.workspaceId,
+                      chatId,
+                      event: agentEvent,
+                    });
+                  }
+                  if (
+                    agentEvent.type === "message" ||
+                    agentEvent.type === "result" ||
+                    agentEvent.type === "error" ||
+                    agentEvent.type === "permissionResolved"
+                  ) {
+                    await manager.waitForChatPersistence(
+                      msg.workspaceId,
+                      chatId,
+                    );
+                    const messages = await manager.messages(
+                      msg.workspaceId,
+                      chatId,
+                    );
+                    const persisted =
+                      agentEvent.type === "message" && agentEvent.id
+                        ? messages.find(
+                            (message) => message.id === agentEvent.id,
+                          )
+                        : messages.at(-1);
+                    if (persisted) {
+                      send({
+                        type: "message",
+                        workspaceId: msg.workspaceId,
+                        chatId,
+                        message: persisted,
+                      });
+                    }
+                  }
+                };
+                const listener = (event: AgentEvent) => {
+                  void handleEvent(event).catch(reportSessionEventError);
+                };
+                inspected.session.on("event", listener);
+                sessionListeners.set(subscriptionKey, {
+                  session: inspected.session,
+                  listener,
+                });
               }
-            }
-            if (!session || msg.recurringWorkId) {
+              send({
+                type: "chatOpened",
+                workspaceId: msg.workspaceId,
+                chatId: msg.chatId,
+                visibility: inspected.chat.visibility,
+                agentId: inspected.session?.agent.id ?? inspected.chat.agent,
+                parentId: inspected.chat.parentId,
+              });
               await manager.waitForChatPersistence(msg.workspaceId, msg.chatId);
-              const events = session ? session.events : inspected.events;
-              if (hasInputReceipt(events, msg.request.id)) break;
-              const saved = await storeInputValues(
+              send({
+                type: "history",
+                workspaceId: msg.workspaceId,
+                chatId: msg.chatId,
+                messages: await manager.messages(msg.workspaceId, msg.chatId),
+                events: chatControlEvents(inspected.events),
+                running: inspected.session?.isBusy ?? false,
+              });
+              break;
+            }
+
+            case "openChat": {
+              await handleOpenChat({
+                authorizeWorkspace,
+                bindRootSession,
+                browserKey,
+                browserSession,
+                chatDestinations,
+                googleAccountSessions,
+                googleAnalyticsOAuthBrowserPromptOptions,
+                integrationSetups,
+                manager,
+                msg,
+                onboardingBootstraps,
+                pluginMcpServers: (workspaceId) =>
+                  plugins.mcpServers(workspaceId),
+                send,
+              });
+              break;
+            }
+
+            case "closeChat": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              const subscriptionKey = `${msg.workspaceId}\0${msg.chatId}`;
+              if (subscriptions.delete(subscriptionKey)) {
+                const registered = sessionListeners.get(subscriptionKey);
+                if (registered) {
+                  registered.session.off("event", registered.listener);
+                  sessionListeners.delete(subscriptionKey);
+                }
+                await manager.release(msg.workspaceId, msg.chatId);
+              }
+              break;
+            }
+
+            case "deleteChat":
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
+              await manager.rootChat(msg.workspaceId, msg.chatId);
+              {
+                const subscriptionKey = `${msg.workspaceId}\0${msg.chatId}`;
+                subscriptions.delete(subscriptionKey);
+                const registered = sessionListeners.get(subscriptionKey);
+                if (registered) {
+                  registered.session.off("event", registered.listener);
+                  sessionListeners.delete(subscriptionKey);
+                }
+              }
+              await manager.remove(msg.workspaceId, msg.chatId);
+              send({
+                type: "chats",
+                workspaceId: msg.workspaceId,
+                chats: await manager.listChats(msg.workspaceId),
+              });
+              break;
+
+            case "sendMessage": {
+              await handleSendMessage({
+                authorizeWorkspace,
+                bindRootSession,
+                broadcastChannelEvent,
+                chatDestinations,
+                ensureChiefSession,
+                integrationSetups,
+                manager,
+                msg,
+                pluginMcpServers: (workspaceId) =>
+                  plugins.mcpServers(workspaceId),
+                send,
+              });
+              break;
+            }
+
+            case "interruptChat":
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
+              try {
+                await (
+                  await manager.inspectChat(msg.workspaceId, msg.chatId)
+                ).session?.interrupt();
+              } finally {
+                manager.releaseExecution(
+                  msg.workspaceId,
+                  msg.chatId,
+                  "interactive",
+                );
+              }
+              break;
+
+            case "respondPermission": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
+              const { session } = await manager.rootChat(
+                msg.workspaceId,
+                msg.chatId,
+              );
+              session?.respondPermission(msg.requestId, msg.behavior);
+              break;
+            }
+
+            case "respondQuestion": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              await manager.assertInteractiveChat(msg.workspaceId, msg.chatId);
+              const { session } = await manager.rootChat(
+                msg.workspaceId,
+                msg.chatId,
+              );
+              session?.respondQuestion(msg.requestId, msg.answers);
+              break;
+            }
+
+            case "queryInputs": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              const stored = new Set(
+                await workspaceSecrets.keys(msg.workspaceId),
+              );
+              const present = msg.keys.filter(
+                (key) =>
+                  stored.has(key) ||
+                  equivalentInputKeys[key]?.some((alias) => stored.has(alias)),
+              );
+              send({
+                type: "inputsStatus",
+                workspaceId: msg.workspaceId,
+                present,
+              });
+              break;
+            }
+
+            case "storeInput": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              await storeInputValues(
                 msg.workspaceId,
                 msg.request,
                 msg.values,
-                Boolean(
-                  msg.recurringWorkId &&
-                  verifyContextRequest(
-                    msg.workspaceId,
-                    msg.recurringWorkId,
-                    msg.request,
-                  ),
-                ),
+                false,
                 msg.executorCapability,
               );
-              const receipt = inputReceipt(msg.request, saved);
-              if (session) {
-                session.recordUserMessage(receipt);
-                await manager.waitForChatPersistence(
-                  msg.workspaceId,
-                  msg.chatId,
-                );
-              } else {
-                const chat = await manager.chat(msg.workspaceId, msg.chatId);
-                if (!chat?.driver) {
-                  throw new Error(
-                    "The original session transcript is unavailable.",
-                  );
-                }
-                await manager.saveTranscript(
-                  {
-                    id: msg.chatId,
-                    organizationId: msg.workspaceId,
-                    agentId: "chief",
-                    driver: chat.driver,
-                    model: chat.model,
-                  },
-                  [
-                    ...events,
-                    {
-                      type: "message",
-                      role: "user",
-                      content: [{ type: "text", text: receipt }],
-                    },
-                  ],
-                  chat.title,
-                );
-              }
+              send({
+                type: "inputsStatus",
+                workspaceId: msg.workspaceId,
+                present: await workspaceSecrets.keys(msg.workspaceId),
+              });
               send({
                 type: "workspaceEnvironmentVariables",
                 workspaceId: msg.workspaceId,
@@ -3562,52 +3349,234 @@ export function startServer(port = PORT) {
                   (key) => ({ key, sensitive: true as const }),
                 ),
               });
-              if (msg.recurringWorkId) {
-                void scheduler
-                  .resumeAfterCurrent(msg.workspaceId, msg.recurringWorkId)
-                  .catch((error) =>
-                    console.error(
-                      "[scheduler] could not resume session after input:",
-                      error,
-                    ),
-                  );
-              }
               break;
             }
-            if (hasInputReceipt(session.events, msg.request.id)) break;
-            const saved = await storeInputValues(
-              session.config.workspaceId,
-              msg.request,
-              msg.values,
-              false,
-              msg.executorCapability,
-            );
-            await session.sendPrompt(inputReceipt(msg.request, saved));
-            send({
-              type: "workspaceEnvironmentVariables",
-              workspaceId: session.config.workspaceId,
-              variables: (
-                await workspaceSecrets.keys(session.config.workspaceId)
-              ).map((key) => ({ key, sensitive: true as const })),
-            });
-            break;
+
+            case "disconnectGoogleAnalytics": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              await disconnectGoogleAnalyticsConnection(
+                msg.workspaceId,
+                msg.executorCapability,
+              );
+              send({
+                type: "integrationDisconnected",
+                workspaceId: msg.workspaceId,
+                provider: "google-analytics",
+                requestId: msg.requestId,
+              });
+              break;
+            }
+
+            case "listWorkspaceEnvironmentVariables": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              send({
+                type: "workspaceEnvironmentVariables",
+                workspaceId: msg.workspaceId,
+                variables: (await workspaceSecrets.keys(msg.workspaceId)).map(
+                  (key) => ({ key, sensitive: true as const }),
+                ),
+              });
+              break;
+            }
+
+            case "saveWorkspaceEnvironmentVariable": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              if (!msg.value) throw new Error("Environment value is required.");
+              await workspaceSecrets.storeEnv(
+                msg.workspaceId,
+                msg.key,
+                msg.value,
+              );
+              await workspaceSecrets.refresh(msg.workspaceId);
+              send({
+                type: "workspaceEnvironmentVariables",
+                workspaceId: msg.workspaceId,
+                variables: (await workspaceSecrets.keys(msg.workspaceId)).map(
+                  (key) => ({ key, sensitive: true as const }),
+                ),
+              });
+              break;
+            }
+
+            case "deleteWorkspaceEnvironmentVariable": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              await workspaceSecrets.deleteEnv(msg.workspaceId, msg.key);
+              send({
+                type: "workspaceEnvironmentVariables",
+                workspaceId: msg.workspaceId,
+                variables: (await workspaceSecrets.keys(msg.workspaceId)).map(
+                  (key) => ({ key, sensitive: true as const }),
+                ),
+              });
+              break;
+            }
+
+            case "inspectWorkspaceIntegrations": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              const googleAnalytics = await inspectGoogleAnalyticsConfiguration(
+                msg.workspaceId,
+                msg.executorCapability,
+              );
+              const unhealthy = ["error", "failed", "unhealthy"].includes(
+                googleAnalytics.connection?.lastHealth?.status ?? "",
+              );
+              send({
+                type: "localIntegrationStatus",
+                workspaceId: msg.workspaceId,
+                integrations: [
+                  {
+                    provider: "google-analytics",
+                    category: "analytics",
+                    status:
+                      googleAnalytics.connection && !unhealthy
+                        ? ("connected" as const)
+                        : ("needs-authorization" as const),
+                    needsCredentials: !googleAnalytics.oauthClientConfigured,
+                    ...(googleAnalytics.connection?.identityLabel
+                      ? {
+                          displayName: googleAnalytics.connection.identityLabel,
+                        }
+                      : undefined),
+                  },
+                ],
+              });
+              break;
+            }
+
+            case "provideInput": {
+              await authorizeWorkspace(msg.workspaceId, msg.executorCapability);
+              if (!msg.recurringWorkId) {
+                await manager.assertInteractiveChat(
+                  msg.workspaceId,
+                  msg.chatId,
+                );
+              }
+              const inspected = msg.recurringWorkId
+                ? await manager.inspectChat(msg.workspaceId, msg.chatId)
+                : await manager.rootChat(msg.workspaceId, msg.chatId);
+              const session = inspected.session;
+              if (msg.recurringWorkId) {
+                if (
+                  inspected.chat.kind !== "task" ||
+                  inspected.chat.visibility !== "private" ||
+                  inspected.chat.scheduleId !== msg.recurringWorkId
+                ) {
+                  throw new Error(
+                    "Schedule does not own this private session.",
+                  );
+                }
+              }
+              if (!session || msg.recurringWorkId) {
+                await manager.waitForChatPersistence(
+                  msg.workspaceId,
+                  msg.chatId,
+                );
+                const events = session ? session.events : inspected.events;
+                if (hasInputReceipt(events, msg.request.id)) break;
+                const saved = await storeInputValues(
+                  msg.workspaceId,
+                  msg.request,
+                  msg.values,
+                  Boolean(
+                    msg.recurringWorkId &&
+                    verifyContextRequest(
+                      msg.workspaceId,
+                      msg.recurringWorkId,
+                      msg.request,
+                    ),
+                  ),
+                  msg.executorCapability,
+                );
+                const receipt = inputReceipt(msg.request, saved);
+                if (session) {
+                  session.recordUserMessage(receipt);
+                  await manager.waitForChatPersistence(
+                    msg.workspaceId,
+                    msg.chatId,
+                  );
+                } else {
+                  const chat = await manager.chat(msg.workspaceId, msg.chatId);
+                  if (!chat?.driver) {
+                    throw new Error(
+                      "The original session transcript is unavailable.",
+                    );
+                  }
+                  await manager.saveTranscript(
+                    {
+                      id: msg.chatId,
+                      organizationId: msg.workspaceId,
+                      agentId: "chief",
+                      driver: chat.driver,
+                      model: chat.model,
+                    },
+                    [
+                      ...events,
+                      {
+                        type: "message",
+                        role: "user",
+                        content: [{ type: "text", text: receipt }],
+                      },
+                    ],
+                    chat.title,
+                  );
+                }
+                send({
+                  type: "workspaceEnvironmentVariables",
+                  workspaceId: msg.workspaceId,
+                  variables: (await workspaceSecrets.keys(msg.workspaceId)).map(
+                    (key) => ({ key, sensitive: true as const }),
+                  ),
+                });
+                if (msg.recurringWorkId) {
+                  void scheduler
+                    .resumeAfterCurrent(msg.workspaceId, msg.recurringWorkId)
+                    .catch((error) =>
+                      console.error(
+                        "[scheduler] could not resume session after input:",
+                        error,
+                      ),
+                    );
+                }
+                break;
+              }
+              if (hasInputReceipt(session.events, msg.request.id)) break;
+              const saved = await storeInputValues(
+                session.config.workspaceId,
+                msg.request,
+                msg.values,
+                false,
+                msg.executorCapability,
+              );
+              await session.sendPrompt(inputReceipt(msg.request, saved));
+              send({
+                type: "workspaceEnvironmentVariables",
+                workspaceId: session.config.workspaceId,
+                variables: (
+                  await workspaceSecrets.keys(session.config.workspaceId)
+                ).map((key) => ({ key, sensitive: true as const })),
+              });
+              break;
+            }
           }
+        } catch (err) {
+          console.error(
+            `[chief] ${msg.type} failed:`,
+            err instanceof Error ? err.message : err,
+          );
+          send({
+            type: "error",
+            message: safeRuntimeError(err),
+            ...(isDeploymentNotFound(err)
+              ? { code: "deployment_not_found" as const }
+              : undefined),
+            chatId: "chatId" in msg ? msg.chatId : undefined,
+            requestId: "requestId" in msg ? msg.requestId : undefined,
+          });
         }
-      } catch (err) {
-        console.error(
-          `[chief] ${msg.type} failed:`,
-          err instanceof Error ? err.message : err,
-        );
-        send({
-          type: "error",
-          message: safeRuntimeError(err),
-          ...(isDeploymentNotFound(err)
-            ? { code: "deployment_not_found" as const }
-            : undefined),
-          chatId: "chatId" in msg ? msg.chatId : undefined,
-          requestId: "requestId" in msg ? msg.requestId : undefined,
-        });
-      }
+      })().catch((error: Error) => {
+        console.error("[chief] websocket message failed:", error);
+        send({ type: "error", message: safeRuntimeError(error) });
+      });
     });
 
     ws.on("close", () => {

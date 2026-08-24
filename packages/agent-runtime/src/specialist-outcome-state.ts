@@ -10,11 +10,8 @@ export interface SpecialistOutcomeManager {
     workspaceId: string,
     sessionId: string,
     outcome: SpecialistOutcome,
-  ): unknown;
-  waitForChatPersistence(
-    workspaceId: string,
-    sessionId: string,
-  ): Promise<unknown>;
+  ): void | Promise<void>;
+  waitForChatPersistence(workspaceId: string, sessionId: string): Promise<void>;
   raiseActionItem(
     workspaceId: string,
     action: {
@@ -26,8 +23,11 @@ export interface SpecialistOutcomeManager {
       status: "open";
       createdAt: number;
     },
-  ): unknown;
-  dismissActionItem(workspaceId: string, actionId: string): unknown;
+  ): void | Promise<void>;
+  dismissActionItem(
+    workspaceId: string,
+    actionId: string,
+  ): void | Promise<void>;
   store: {
     listBrowserRuns(
       workspaceId: string,
@@ -43,7 +43,7 @@ export interface SpecialistOutcomeManager {
       workspaceId: string,
       sessionId: string,
       state: { status: "waiting"; summary: string },
-    ): unknown;
+    ): boolean | void | Promise<boolean | void>;
   };
 }
 
@@ -146,9 +146,9 @@ async function syncSetupAttention(input: {
   );
   if (!input.waitingForUser) {
     await Promise.all(
-      sessionActions.map((action) =>
-        input.manager.dismissActionItem(input.workspaceId, action.id),
-      ),
+      sessionActions.map(async (action) => {
+        await input.manager.dismissActionItem(input.workspaceId, action.id);
+      }),
     );
     return;
   }

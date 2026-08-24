@@ -1,4 +1,4 @@
-const pendingTurnFrom = (messages) => {
+const _pendingTurnFrom = (messages) => {
   let lastAssistant = -1;
   let lastUser = -1;
   for (let index = 0; index < messages.length; index += 1) {
@@ -51,7 +51,7 @@ const validBrowserRelease = (request) => {
   return true;
 };
 
-const persistBrowserRelease = async (storage, messages, request) => {
+const _persistBrowserRelease = async (storage, messages, request) => {
   if (!validBrowserRelease(request)) {
     throw new Error("invalid browser session release request");
   }
@@ -73,7 +73,7 @@ const persistBrowserRelease = async (storage, messages, request) => {
   return receipt;
 };
 
-const persistBrowserEnd = async (storage, messages, request) => {
+const _persistBrowserEnd = async (storage, messages, request) => {
   if (
     request?.version !== 1 ||
     !validBrowserIdentifier(request.sessionId) ||
@@ -102,7 +102,7 @@ const persistBrowserEnd = async (storage, messages, request) => {
   return receipt;
 };
 
-const scopedConversationStorage = (storage, conversationId) => {
+const _scopedConversationStorage = (storage, conversationId) => {
   if (!/^[A-Za-z0-9._:-]{1,160}$/.test(conversationId)) {
     throw new Error("invalid conversation id");
   }
@@ -142,7 +142,7 @@ const checkpointMessage = (checkpoint, kind, message) => ({
   sessionId: checkpoint.sessionId,
 });
 
-const materializeCheckpoint = (messages, checkpoint) => {
+const _materializeCheckpoint = (messages, checkpoint) => {
   if (!validTurnCheckpoint(checkpoint)) return messages;
   const has = (kind, id) =>
     messages.some(
@@ -194,7 +194,7 @@ const materializeCheckpoint = (messages, checkpoint) => {
   return messages;
 };
 
-const ensureSession = async (storage, conversationId, cellName) => {
+const _ensureSession = async (storage, conversationId, cellName) => {
   const sessionId = `${cellName}:${conversationId}`;
   const existing = await storage.get("session");
   if (existing?.version === 1 && existing.sessionId === sessionId)
@@ -214,7 +214,7 @@ const ensureSession = async (storage, conversationId, cellName) => {
   return session;
 };
 
-const updateSession = async (storage, session, status, addedEvents = 0) => {
+const _updateSession = async (storage, session, status, addedEvents = 0) => {
   const next = {
     ...session,
     streamIndex: session.streamIndex + addedEvents,
@@ -319,7 +319,7 @@ const readAgentJournal = async (storage) => {
   };
 };
 
-const appendAgentJournal = async (
+const _appendAgentJournal = async (
   storage,
   conversationId,
   userTurn,
@@ -347,7 +347,7 @@ const appendAgentJournal = async (
   await storage.put(agentJournalKey, journal);
 };
 
-const agentContinuityMessage = async (storage, currentConversationId) => {
+const _agentContinuityMessage = async (storage, currentConversationId) => {
   const journal = await readAgentJournal(storage);
   if (!journal.entries.length) return null;
 

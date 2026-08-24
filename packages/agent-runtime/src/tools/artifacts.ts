@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import {
   isJsonNumber,
   isJsonObject,
@@ -16,6 +18,8 @@ import {
   request,
 } from "./control-plane.js";
 
+const artifactRowsSchema = z.array(z.unknown());
+
 /** Lists the model-created UI artifacts owned by one isolated Chief workspace. */
 export async function listExecutorArtifacts(
   workspaceId: string,
@@ -26,13 +30,13 @@ export async function listExecutorArtifacts(
   if (!manifest) {
     throw new Error("The local artifact service is not running.");
   }
-  const rows = await request<unknown>(manifest, "/artifacts");
+  const rows = await request(manifest, "/artifacts", artifactRowsSchema);
   if (!Array.isArray(rows)) {
     throw new Error("The local artifact service returned an invalid list.");
   }
   return rows.flatMap((row): ExecutorArtifactSummary[] => {
     if (!row || !isJsonObject(row)) return [];
-    const value = row as Record<string, unknown>;
+    const value = row;
     if (
       !isJsonString(value.id) ||
       !isJsonString(value.title) ||
@@ -45,11 +49,11 @@ export async function listExecutorArtifacts(
     const preview =
       previewValue &&
       isJsonObject(previewValue) &&
-      (previewValue as Record<string, unknown>).kind === "layout" &&
-      isJsonString((previewValue as Record<string, unknown>).markup)
+      previewValue.kind === "layout" &&
+      isJsonString(previewValue.markup)
         ? {
             kind: "layout" as const,
-            markup: (previewValue as Record<string, unknown>).markup as string,
+            markup: previewValue.markup,
           }
         : null;
     return [

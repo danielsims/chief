@@ -1,35 +1,53 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-import { isJsonString } from "@chief/relay-contracts";
+import type { JsonObject } from "@chief/relay-contracts";
+import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
+import type { PluginCatalogSnapshot } from "./plugins/types.js";
 import { PluginRuntime } from "./plugins/runtime.js";
 
 const port = Number(process.env.CHIEF_PLUGIN_HOST_PORT ?? 4318);
 const token = process.env.CHIEF_PLUGIN_HOST_TOKEN?.trim();
 const plugins = new PluginRuntime(() => undefined);
 
-function requiredString(value: unknown, name: string) {
+type PluginHostResponse =
+  | { error: string }
+  | { status: "ready" }
+  | { snapshot: PluginCatalogSnapshot }
+  | {
+      action: Awaited<ReturnType<PluginRuntime["authorize"]>>;
+      snapshot: PluginCatalogSnapshot;
+    };
+
+function parseRequiredString(value: unknown, name: string) {
   if (!isJsonString(value) || !value.trim()) {
     throw new Error(`${name} is required.`);
   }
   return value.trim();
 }
 
-async function readJson(request: IncomingMessage) {
+async function readJson(request: IncomingMessage): Promise<JsonObject> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
-    const buffer = Buffer.from(chunk as Uint8Array);
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
     size += buffer.length;
     if (size > 64_000) throw new Error("Plugin request is too large.");
     chunks.push(buffer);
   }
   const raw = Buffer.concat(chunks).toString("utf8");
-  return raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+  if (!raw) return {};
+  const value = parseJsonObject(JSON.parse(raw));
+  if (!value) throw new Error("Plugin request body must be a JSON object.");
+  return value;
 }
 
-function sendJson(response: ServerResponse, status: number, body: unknown) {
+function sendJson(
+  response: ServerResponse,
+  status: number,
+  body: PluginHostResponse,
+) {
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
@@ -63,14 +81,14 @@ if (process.env.CHIEF_PLUGIN_HOST_SMOKE !== "1") {
       }
 
       const input = await readJson(request);
-      const workspaceId = requiredString(input.workspaceId, "workspaceId");
+      const workspaceId = parseRequiredString(input.workspaceId, "workspaceId");
       if (url.pathname === "/plugins/list") {
         sendJson(response, 200, {
           snapshot: await plugins.snapshot(workspaceId, input.refresh === true),
         });
         return;
       }
-      const pluginId = requiredString(input.pluginId, "pluginId");
+      const pluginId = parseRequiredString(input.pluginId, "pluginId");
       if (url.pathname === "/plugins/install") {
         await plugins.install(workspaceId, pluginId, input.trusted === true);
         sendJson(response, 200, {

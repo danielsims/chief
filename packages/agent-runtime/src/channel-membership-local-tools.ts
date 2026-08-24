@@ -1,3 +1,4 @@
+import type { JsonObject } from "@chief/relay-contracts";
 import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 import type { ChannelLocalToolContext } from "./channel-local-tools.js";
@@ -12,7 +13,7 @@ export interface RequestedMembers {
 }
 
 export function requestedMembers(
-  body: Record<string, unknown>,
+  body: JsonObject,
   availableAgentIds: readonly string[],
   required: boolean,
 ): RequestedMembers {
@@ -35,19 +36,18 @@ export function requestedMembers(
     if (!member || !isJsonObject(member) || Array.isArray(member)) {
       fail("Each member must include type and id.", 400, "invalid_members");
     }
-    const value = member as Record<string, unknown>;
-    if (value.type === "user" && value.id === "workspace-owner") {
-      userIds.push(value.id);
+    if (member.type === "user" && member.id === "workspace-owner") {
+      userIds.push(member.id);
       continue;
     }
-    if (value.type !== "agent" || !isJsonString(value.id)) {
+    if (member.type !== "agent" || !isJsonString(member.id)) {
       fail(
         "Only existing workspace users and agents can be added to channels.",
         400,
         "member_not_in_workspace",
       );
     }
-    agentIds.push(value.id);
+    agentIds.push(member.id);
   }
   return {
     agentIds: validatedAgentIds(agentIds, availableAgentIds, false),

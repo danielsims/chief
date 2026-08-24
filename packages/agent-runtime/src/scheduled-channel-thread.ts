@@ -43,8 +43,8 @@ export interface ScheduledChannelWorkManager extends Pick<
 }
 
 export interface ScheduledChannelSession {
-  on(event: "event", listener: (event: AgentEvent) => void): unknown;
-  off(event: "event", listener: (event: AgentEvent) => void): unknown;
+  on(event: "event", listener: (event: AgentEvent) => void): void;
+  off(event: "event", listener: (event: AgentEvent) => void): void;
   sendPrompt(
     text: string,
     messageId: string | undefined,
@@ -54,7 +54,7 @@ export interface ScheduledChannelSession {
       mentions: string[];
       privateInstructions: string;
     },
-  ): Promise<unknown>;
+  ): Promise<boolean | void>;
 }
 
 export interface ScheduledChannelThread {

@@ -2,7 +2,7 @@ import type {
   ProjectBranchComparison,
   ProjectCommitSummary,
 } from "../types.js";
-import { git } from "./repository-git.js";
+import { git, gitExitCode } from "./repository-git.js";
 
 const MAX_COMPARE_COMMITS = 50;
 const MAX_COMPARE_PATCH_BYTES = 3 * 1024 * 1024;
@@ -51,20 +51,19 @@ function hasControlCharacter(value: string) {
   return false;
 }
 
-/** True when a three-way merge would conflict; undefined when unknown. */
-/** True when a three-way merge would conflict; undefined when unknown. */
 async function detectMergeConflict(
   repositoryPath: string,
   base: string,
   compare: string,
-): Promise<boolean | undefined> {
-  const output = await git(
+): Promise<boolean> {
+  const exitCode = await gitExitCode(
     ["merge-tree", "--write-tree", "--messages", base, compare],
     repositoryPath,
     60_000,
-  ).catch((error: unknown) => (error instanceof Error ? error.message : ""));
-  if (!output) return undefined;
-  return /<<<<<<<|CONFLICT \(content\)/i.test(output);
+  );
+  if (exitCode === 0) return false;
+  if (exitCode === 1) return true;
+  throw new Error(`Git merge-tree exited with status ${String(exitCode)}.`);
 }
 
 /** Compares two refs with bounded commit, diff, and patch data. */
@@ -151,6 +150,6 @@ export async function compareRepositoryBranches(
     deletions,
     patch: patchBytes > MAX_COMPARE_PATCH_BYTES ? "" : patchOutput,
     truncated: patchBytes > MAX_COMPARE_PATCH_BYTES,
-    ...(conflict === undefined ? undefined : { mergeConflict: conflict }),
+    mergeConflict: conflict,
   };
 }

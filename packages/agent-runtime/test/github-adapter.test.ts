@@ -141,7 +141,6 @@ function fixtures() {
   });
   return { server, requests };
 }
-
 function baseUrl(server: ReturnType<typeof createServer>) {
   const { port } = server.address() as AddressInfo;
   return `http://127.0.0.1:${port}`;

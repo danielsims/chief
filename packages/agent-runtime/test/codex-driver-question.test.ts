@@ -1,20 +1,45 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
+
 import type { AgentEvent } from "../src/types.js";
 import { CodexDriver, prepareCodexEnvironment } from "../src/drivers/codex.js";
 
-interface CodexAcpInternals {
-  access: "full" | "guarded";
-  handle(message: Record<string, unknown>): void;
-  respond(id: number | string, result: unknown): void;
-  restartIfNeeded(): Promise<void>;
-  rpc(method: string, params: Record<string, unknown>): Promise<unknown>;
-  sessionId?: string;
-}
+class TestCodexDriver extends CodexDriver {
+  readonly responses: { id: number | string; result: JsonValue | undefined }[] =
+    [];
+  rpcHandler?: (method: string, params: JsonObject) => JsonValue | undefined;
 
-function internals(driver: CodexDriver) {
-  return driver as unknown as CodexAcpInternals;
+  receive(message: JsonObject): void {
+    this.handle(message);
+  }
+
+  setAccess(access: "full" | "guarded"): void {
+    this.access = access;
+  }
+
+  setSessionId(sessionId: string): void {
+    this.sessionId = sessionId;
+  }
+
+  protected override restartIfNeeded(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  protected override rpc(
+    method: string,
+    params: JsonObject,
+  ): Promise<JsonValue | undefined> {
+    return Promise.resolve(this.rpcHandler?.(method, params));
+  }
+
+  protected override respond(
+    id: number | string,
+    result: JsonValue | undefined,
+  ): void {
+    this.responses.push({ id, result });
+  }
 }
 
 void test("Codex ACP uses Chief's packaged compatible binary", () => {
@@ -29,12 +54,11 @@ void test("Codex ACP uses Chief's packaged compatible binary", () => {
 });
 
 void test("Codex ACP keeps thinking and tool calls in sequential activity", () => {
-  const driver = new CodexDriver();
+  const driver = new TestCodexDriver();
   const events: AgentEvent[] = [];
   driver.on("event", (event: AgentEvent) => events.push(event));
-  const acp = internals(driver);
 
-  acp.handle({
+  driver.receive({
     method: "session/update",
     params: {
       update: {
@@ -43,7 +67,7 @@ void test("Codex ACP keeps thinking and tool calls in sequential activity", () =
       },
     },
   });
-  acp.handle({
+  driver.receive({
     method: "session/update",
     params: {
       update: {
@@ -54,7 +78,7 @@ void test("Codex ACP keeps thinking and tool calls in sequential activity", () =
       },
     },
   });
-  acp.handle({
+  driver.receive({
     method: "session/update",
     params: {
       update: {
@@ -99,15 +123,12 @@ void test("Codex ACP keeps thinking and tool calls in sequential activity", () =
 });
 
 void test("Codex ACP routes guarded tool approval through Chief", () => {
-  const driver = new CodexDriver();
+  const driver = new TestCodexDriver();
   const events: AgentEvent[] = [];
-  const responses: unknown[] = [];
   driver.on("event", (event: AgentEvent) => events.push(event));
-  const acp = internals(driver);
-  acp.access = "guarded";
-  acp.respond = (id, result) => responses.push({ id, result });
+  driver.setAccess("guarded");
 
-  acp.handle({
+  driver.receive({
     id: 7,
     method: "session/request_permission",
     params: {
@@ -122,7 +143,7 @@ void test("Codex ACP routes guarded tool approval through Chief", () => {
   assert.equal(permission?.type, "permission");
   assert.equal(permission.toolName, "relay_channels_list");
   driver.respondPermission(permission.requestId, "allow");
-  assert.deepEqual(responses, [
+  assert.deepEqual(driver.responses, [
     {
       id: 7,
       result: {
@@ -133,19 +154,17 @@ void test("Codex ACP routes guarded tool approval through Chief", () => {
 });
 
 void test("Codex ACP prompts and completes through one stable session", async () => {
-  const driver = new CodexDriver();
+  const driver = new TestCodexDriver();
   const events: AgentEvent[] = [];
   driver.on("event", (event: AgentEvent) => events.push(event));
-  const acp = internals(driver);
-  acp.sessionId = "session-1";
-  acp.restartIfNeeded = () => Promise.resolve();
-  acp.rpc = (method, params) => {
+  driver.setSessionId("session-1");
+  driver.rpcHandler = (method, params) => {
     assert.equal(method, "session/prompt");
     assert.deepEqual(params, {
       sessionId: "session-1",
       prompt: [{ type: "text", text: "Start onboarding" }],
     });
-    return Promise.resolve({ stopReason: "end_turn" });
+    return { stopReason: "end_turn" };
   };
 
   await driver.sendPromptOnce("Start onboarding");

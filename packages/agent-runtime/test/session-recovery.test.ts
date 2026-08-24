@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { AgentDefinition, AgentEvent } from "../src/types.js";
+import { BaseDriver } from "../src/drivers/base.js";
 import { AgentSession } from "../src/session.js";
 
 const chief: AgentDefinition = {
@@ -11,6 +12,35 @@ const chief: AgentDefinition = {
   description: "Runs workspace operations.",
   instructions: "Complete the requested work.",
 };
+
+class SessionTestDriver extends BaseDriver {
+  onPrompt: (prompt: string) => Promise<void> = () => Promise.resolve();
+  onInterrupt: () => Promise<void> = () => Promise.resolve();
+
+  start() {
+    return Promise.resolve();
+  }
+
+  sendPromptOnce(prompt: string) {
+    return this.onPrompt(prompt);
+  }
+
+  restart() {
+    return Promise.resolve();
+  }
+
+  interrupt() {
+    return this.onInterrupt();
+  }
+
+  stop() {
+    return Promise.resolve();
+  }
+
+  publish(event: AgentEvent) {
+    this.emitEvent(event);
+  }
+}
 
 void test("a fresh continuation imports history when the user message was pre-recorded", async () => {
   const history: AgentEvent[] = [
@@ -25,21 +55,19 @@ void test("a fresh continuation imports history when the user message was pre-re
       content: [{ type: "text", text: "Please continue" }],
     },
   ];
+  const prompts: string[] = [];
+  const driver = new SessionTestDriver();
+  driver.onPrompt = (prompt) => {
+    prompts.push(prompt);
+    return Promise.resolve();
+  };
   const session = new AgentSession(
     chief,
     "chat",
     { driver: "opencode", access: "guarded", workspaceId: "workspace" },
     history,
+    driver,
   );
-  const prompts: string[] = [];
-  const driver = {
-    start: async () => Promise.resolve(),
-    sendPrompt: (prompt: string) => {
-      prompts.push(prompt);
-      return Promise.resolve();
-    },
-  };
-  (session as unknown as { driver: typeof driver }).driver = driver;
 
   await session.start("/tmp");
   await session.sendPrompt("Please continue", "user-message", false);
@@ -49,29 +77,24 @@ void test("a fresh continuation imports history when the user message was pre-re
 });
 
 void test("a turn reports whether the provider produced agent output", async () => {
-  const session = new AgentSession(chief, "chat", {
-    driver: "opencode",
-    access: "guarded",
-    workspaceId: "workspace",
-  });
-  const driver = (
-    session as unknown as {
-      driver: {
-        emit: (type: "event", event: AgentEvent) => void;
-        sendPrompt: (prompt: string) => Promise<void>;
-      };
-    }
-  ).driver;
+  const driver = new SessionTestDriver();
+  const session = new AgentSession(
+    chief,
+    "chat",
+    { driver: "opencode", access: "guarded", workspaceId: "workspace" },
+    [],
+    driver,
+  );
   let reply = false;
-  driver.sendPrompt = () => {
+  driver.onPrompt = () => {
     if (reply) {
-      driver.emit("event", {
+      driver.publish({
         type: "message",
         role: "assistant",
         content: [{ type: "text", text: "Here is the reply." }],
       });
     }
-    driver.emit("event", { type: "result", ok: true });
+    driver.publish({ type: "result", ok: true });
     return Promise.resolve();
   };
 
@@ -81,27 +104,30 @@ void test("a turn reports whether the provider produced agent output", async () 
 });
 
 void test("an interactive turn interrupts quickly after output stops", async () => {
-  const session = new AgentSession(chief, "chat", {
-    driver: "opencode",
-    access: "guarded",
-    workspaceId: "workspace",
-    stallTimeoutMs: 20,
-  });
   let rejectPrompt: ((error: Error) => void) | undefined;
   let interrupts = 0;
-  const driver = {
-    start: async () => Promise.resolve(),
-    sendPrompt: () =>
-      new Promise<void>((_resolve, reject) => {
-        rejectPrompt = reject;
-      }),
-    interrupt: () => {
-      interrupts += 1;
-      rejectPrompt?.(new Error("provider interrupted"));
-      return Promise.resolve();
-    },
+  const driver = new SessionTestDriver();
+  driver.onPrompt = () =>
+    new Promise<void>((_resolve, reject) => {
+      rejectPrompt = reject;
+    });
+  driver.onInterrupt = () => {
+    interrupts += 1;
+    rejectPrompt?.(new Error("provider interrupted"));
+    return Promise.resolve();
   };
-  (session as unknown as { driver: typeof driver }).driver = driver;
+  const session = new AgentSession(
+    chief,
+    "chat",
+    {
+      driver: "opencode",
+      access: "guarded",
+      workspaceId: "workspace",
+      stallTimeoutMs: 20,
+    },
+    [],
+    driver,
+  );
   const events: AgentEvent[] = [];
   session.on("event", (event: AgentEvent) => events.push(event));
 

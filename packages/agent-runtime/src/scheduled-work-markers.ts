@@ -1,44 +1,10 @@
 import { z } from "zod";
 
-import type { InputRequest, RecurringWorkRecord } from "./types.js";
+import type { JsonValue } from "@chief/relay-contracts";
+import { parseJsonValue } from "@chief/relay-contracts";
 
-const inputFieldSchema = z.object({
-  key: z.string(),
-  label: z.string(),
-  type: z.enum(["text", "secret", "multiline"]).optional(),
-  save: z.union([
-    z.object({ file: z.string() }),
-    z.object({ envKey: z.string() }),
-    z.object({ contextKey: z.string() }),
-  ]),
-});
-
-const agentQuestionSchema = z.object({
-  question: z.string(),
-  header: z.string().optional(),
-  multiSelect: z.boolean().optional(),
-  allowFreeform: z.boolean().optional(),
-  dismissible: z.boolean().optional(),
-  options: z.array(
-    z.object({
-      label: z.string(),
-      description: z.string().optional(),
-      allowsFreeText: z.boolean().optional(),
-    }),
-  ),
-});
-
-const inputRequestSchema: z.ZodType<InputRequest> = z.object({
-  id: z.string(),
-  title: z.string(),
-  reason: z.string().optional(),
-  steps: z
-    .array(z.object({ text: z.string(), url: z.string().optional() }))
-    .optional(),
-  questions: z.array(agentQuestionSchema).optional(),
-  fields: z.array(inputFieldSchema),
-  contextAuthorization: z.string().optional(),
-});
+import type { RecurringWorkRecord } from "./types.js";
+import { inputRequestSchema } from "./input-request-schema.js";
 
 const sourceCategorySchema = z.enum(["analytics", "ads", "social", "research"]);
 
@@ -56,15 +22,19 @@ function markerPayload(summary: string | undefined, marker: string) {
     .slice(marker.length);
 }
 
+function parseMarkerPayload(payload: string): JsonValue | undefined {
+  try {
+    return parseJsonValue(JSON.parse(payload));
+  } catch {
+    return undefined;
+  }
+}
+
 export function requestedInput(summary: string | undefined) {
   const payload = markerPayload(summary, "CHIEF_INPUT_REQUEST ");
   if (!payload) return null;
-  try {
-    const result = inputRequestSchema.safeParse(JSON.parse(payload));
-    return result.success ? result.data : null;
-  } catch {
-    return null;
-  }
+  const result = inputRequestSchema.safeParse(parseMarkerPayload(payload));
+  return result.success ? result.data : null;
 }
 
 export function requestedSourceRequirement(
@@ -74,15 +44,16 @@ export function requestedSourceRequirement(
 ): SourceRequirement | null {
   const payload = markerPayload(summary, "CHIEF_SETUP_REQUIRED ");
   if (payload) {
-    try {
-      const parsed = z
-        .object({
-          category: sourceCategorySchema.catch("research"),
-          providers: z.array(z.string()).catch([]),
-          reason: z.string().optional(),
-        })
-        .parse(JSON.parse(payload));
-      const reason = parsed.reason?.trim() || fallbackReason;
+    const result = z
+      .object({
+        category: sourceCategorySchema.catch("research"),
+        providers: z.array(z.string()).catch([]),
+        reason: z.string().optional(),
+      })
+      .safeParse(parseMarkerPayload(payload));
+    if (result.success) {
+      const parsed = result.data;
+      const reason = parsed.reason?.trim() ?? fallbackReason;
       if (reason) {
         return {
           category: parsed.category,
@@ -93,7 +64,7 @@ export function requestedSourceRequirement(
           reason,
         };
       }
-    } catch {}
+    }
   }
   if (!fallbackReason) return null;
   if (agentId === "analyst") {

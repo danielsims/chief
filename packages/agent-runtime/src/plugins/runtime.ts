@@ -120,7 +120,7 @@ export class PluginRuntime {
     authorize: (
       workspaceId: string,
       capability: ExecutorCapability,
-    ) => Promise<unknown>,
+    ) => Promise<void>,
     send: (message: ServerMessage) => void,
   ): Promise<boolean> {
     if (!isPluginClientMessage(message)) return false;
