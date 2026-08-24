@@ -19,7 +19,7 @@ export function pluginActionContextForMessage({
     conversationId,
     ...(message.metadata?.threadRootId
       ? { threadRootId: message.metadata.threadRootId }
-      : {}),
+      : undefined),
     agentId: message.metadata?.agentId ?? fallbackAgentId,
     recommendationId: message.id,
   };

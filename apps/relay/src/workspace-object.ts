@@ -4,6 +4,7 @@ import type { ConversationEvent, Principal } from "@chief/relay-contracts";
 import {
   conversationEventSchema,
   conversationIdSchema,
+  isJsonString,
   principalSchema,
   workspaceSocketTicketSchema,
 } from "@chief/relay-contracts";
@@ -241,7 +242,7 @@ export class WorkspaceObject extends DurableObject<Env> {
       socket.send("pong");
       return;
     }
-    if (typeof message !== "string") {
+    if (!isJsonString(message)) {
       socket.close(1008, "Invalid workspace message");
       return;
     }

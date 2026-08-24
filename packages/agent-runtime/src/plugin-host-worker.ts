@@ -1,6 +1,8 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+import { isJsonString } from "@chief/relay-contracts";
+
 import { PluginRuntime } from "./plugins/runtime.js";
 
 const port = Number(process.env.CHIEF_PLUGIN_HOST_PORT ?? 4318);
@@ -8,7 +10,7 @@ const token = process.env.CHIEF_PLUGIN_HOST_TOKEN?.trim();
 const plugins = new PluginRuntime(() => undefined);
 
 function requiredString(value: unknown, name: string) {
-  if (typeof value !== "string" || !value.trim()) {
+  if (!isJsonString(value) || !value.trim()) {
     throw new Error(`${name} is required.`);
   }
   return value.trim();

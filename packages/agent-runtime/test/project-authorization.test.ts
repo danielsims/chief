@@ -95,7 +95,7 @@ async function grant(
     principalType: principal.type,
     principalId: principal.id,
     capability,
-    ...(constraintJson ? { constraintJson } : {}),
+    ...(constraintJson ? { constraintJson } : undefined),
     createdAt: now,
     updatedAt: now,
   });

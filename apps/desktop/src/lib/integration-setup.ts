@@ -13,6 +13,7 @@ import {
   googleAnalyticsActionIdFromChat,
   isOnboardingGoogleAnalyticsAction,
 } from "@chief/agent-runtime/integration-requests";
+import { isJsonString } from "@chief/relay-contracts";
 
 export { GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST } from "@chief/agent-runtime/integration-requests";
 export {
@@ -129,8 +130,7 @@ export function parseSetupResult(text: string): SetupResult | null {
     const parsed = JSON.parse(
       line.slice(SETUP_RESULT_MARKER.length).trim(),
     ) as SetupResult;
-    return typeof parsed.provider === "string" &&
-      typeof parsed.status === "string"
+    return isJsonString(parsed.provider) && isJsonString(parsed.status)
       ? parsed
       : null;
   } catch {
@@ -241,12 +241,10 @@ export function parseInputRequest(text: string): InputRequest | null {
       line.slice(INPUT_REQUEST_MARKER.length).trim(),
     ) as InputRequest;
     if (
-      typeof parsed.id !== "string" ||
-      typeof parsed.title !== "string" ||
+      !isJsonString(parsed.id) ||
+      !isJsonString(parsed.title) ||
       !Array.isArray(parsed.fields) ||
-      parsed.fields.some(
-        (f) => typeof f.key !== "string" || typeof f.label !== "string",
-      )
+      parsed.fields.some((f) => !isJsonString(f.key) || !isJsonString(f.label))
     ) {
       return null;
     }

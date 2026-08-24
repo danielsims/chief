@@ -291,7 +291,7 @@ function ownerRequest(
       new Request(`https://relay.test/internal/${path}`, {
         method,
         ...(body === undefined
-          ? {}
+          ? undefined
           : {
               headers: { "content-type": "application/json" },
               body: JSON.stringify(body),

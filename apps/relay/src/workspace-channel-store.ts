@@ -281,7 +281,7 @@ export class WorkspaceChannelStore {
       joinedAt: String(row.joined_at),
       ...(names.get(`${row.principal_kind}:${row.principal_id}`)
         ? { name: names.get(`${row.principal_kind}:${row.principal_id}`) }
-        : {}),
+        : undefined),
     }));
   }
 

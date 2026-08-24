@@ -142,7 +142,7 @@ export async function compareRepositoryBranches(
     projectId,
     baseRef,
     compareRef,
-    ...(mergeBase ? { mergeBase } : {}),
+    ...(mergeBase ? { mergeBase } : undefined),
     ahead: Number(aheadOutput),
     behind: Number(behindOutput),
     commits,
@@ -151,6 +151,6 @@ export async function compareRepositoryBranches(
     deletions,
     patch: patchBytes > MAX_COMPARE_PATCH_BYTES ? "" : patchOutput,
     truncated: patchBytes > MAX_COMPARE_PATCH_BYTES,
-    ...(conflict === undefined ? {} : { mergeConflict: conflict }),
+    ...(conflict === undefined ? undefined : { mergeConflict: conflict }),
   };
 }

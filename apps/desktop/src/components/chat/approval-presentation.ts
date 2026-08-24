@@ -1,3 +1,5 @@
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+
 import type { PendingApproval } from "../../lib/runtime";
 
 export interface ApprovalPresentation {
@@ -12,8 +14,8 @@ export interface ApprovalPresentation {
 }
 
 function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
+  return value && isJsonObject(value) && !Array.isArray(value)
+    ? (value)
     : {};
 }
 
@@ -26,12 +28,12 @@ function firstString(
   const object = record(value);
   for (const key of keys) {
     const candidate = object[key];
-    if (typeof candidate === "string" && candidate.trim()) {
+    if (isJsonString(candidate) && candidate.trim()) {
       return candidate.trim();
     }
     if (
       Array.isArray(candidate) &&
-      candidate.every((item) => typeof item === "string")
+      candidate.every((item) => isJsonString(item))
     ) {
       return candidate.join(" ").trim() || undefined;
     }
@@ -47,10 +49,10 @@ const SECRET_KEY = /authorization|cookie|credential|password|secret|token/i;
 
 function safeApprovalValue(value: unknown, depth = 0): unknown {
   if (depth > 3) return "…";
-  if (typeof value === "string") {
+  if (isJsonString(value)) {
     return value.length > 500 ? `${value.slice(0, 500)}…` : value;
   }
-  if (!value || typeof value !== "object") return value;
+  if (!value || !isJsonObject(value)) return value;
   if (Array.isArray(value)) {
     return value.slice(0, 6).map((item) => safeApprovalValue(item, depth + 1));
   }
@@ -89,10 +91,9 @@ export function approvalPresentation(
 ): ApprovalPresentation {
   const input = record(approval.input);
   const meta = record(input._meta);
-  const approvalKind =
-    typeof meta.codex_approval_kind === "string"
-      ? meta.codex_approval_kind
-      : "";
+  const approvalKind = isJsonString(meta.codex_approval_kind)
+    ? meta.codex_approval_kind
+    : "";
   const message = firstString(input, [
     "suggest_reason",
     "message",

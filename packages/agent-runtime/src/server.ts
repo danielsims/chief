@@ -19,6 +19,7 @@ import {
   redactGoogleOAuthCredentials,
   withGoogleAuthUser,
 } from "@chief/google-oauth-connector";
+import { isJsonString } from "@chief/relay-contracts";
 
 import type { ChannelEvent } from "./channel-types.js";
 import type { LocalToolContext } from "./local-tools.js";
@@ -480,8 +481,8 @@ export function startServer(port = PORT) {
         session.getTitle().catch(() => undefined),
       ]);
       await manager.store.updateBrowserRun(workspaceId, browserRunId, {
-        ...(url ? { url } : {}),
-        ...(title ? { title } : {}),
+        ...(url ? { url } : undefined),
+        ...(title ? { title } : undefined),
         status: "complete",
       });
       broadcastBrowserClosed(workspaceId, conversationId, browserRunId);
@@ -578,8 +579,10 @@ export function startServer(port = PORT) {
         conversationId,
         ...(conversation?.parentId
           ? { parentConversationId: conversation.parentId }
-          : {}),
-        ...(resolvedThreadRootId ? { threadRootId: resolvedThreadRootId } : {}),
+          : undefined),
+        ...(resolvedThreadRootId
+          ? { threadRootId: resolvedThreadRootId }
+          : undefined),
         url,
         status: "active",
         createdAt: now,
@@ -589,8 +592,10 @@ export function startServer(port = PORT) {
       await manager.store.updateBrowserRun(workspaceId, browserRunId, {
         ...(conversation?.parentId
           ? { parentConversationId: conversation.parentId }
-          : {}),
-        ...(resolvedThreadRootId ? { threadRootId: resolvedThreadRootId } : {}),
+          : undefined),
+        ...(resolvedThreadRootId
+          ? { threadRootId: resolvedThreadRootId }
+          : undefined),
         url,
       });
     }
@@ -647,7 +652,7 @@ export function startServer(port = PORT) {
     const title = await session.getTitle().catch(() => "");
     await manager.store.updateBrowserRun(workspaceId, browserRunId, {
       url: currentUrl,
-      ...(title ? { title } : {}),
+      ...(title ? { title } : undefined),
     });
     reportGoogleBrowserStep(workspaceId, conversationId, currentUrl);
     broadcastBrowserNavigate(
@@ -744,7 +749,7 @@ export function startServer(port = PORT) {
             ]);
             await manager.store.updateBrowserRun(workspaceId, run.id, {
               url,
-              ...(title ? { title } : {}),
+              ...(title ? { title } : undefined),
               status: "active",
             });
             broadcastBrowserNavigate(
@@ -883,7 +888,7 @@ export function startServer(port = PORT) {
       {
         phase: "started",
         label: activityLabel,
-        ...(cursorState ? { cursor: cursorState } : {}),
+        ...(cursorState ? { cursor: cursorState } : undefined),
       },
       browserRunId,
     );
@@ -894,7 +899,7 @@ export function startServer(port = PORT) {
         {
           phase: "completed",
           label: activityLabel,
-          ...(cursorState ? { cursor: cursorState } : {}),
+          ...(cursorState ? { cursor: cursorState } : undefined),
         },
         browserRunId,
       );
@@ -1339,7 +1344,7 @@ export function startServer(port = PORT) {
         // which looks like duplicates after the turn completes.
         const threadRootId = owningThreadRootId ?? session.activeThreadRootId;
         await session.sendPrompt(receipt, undefined, true, {
-          ...(threadRootId ? { threadRootId } : {}),
+          ...(threadRootId ? { threadRootId } : undefined),
         });
       } catch (error) {
         session.off("event", releaseOnTerminal);
@@ -1485,10 +1490,9 @@ export function startServer(port = PORT) {
       const result = await handleScheduledWorkWebhook({
         path,
         body,
-        idempotencyKey:
-          typeof req.headers["idempotency-key"] === "string"
-            ? req.headers["idempotency-key"]
-            : undefined,
+        idempotencyKey: isJsonString(req.headers["idempotency-key"])
+          ? req.headers["idempotency-key"]
+          : undefined,
         manager,
         runner: scheduler,
       });
@@ -1559,7 +1563,7 @@ export function startServer(port = PORT) {
             beforeMessagePost: ({ content, idempotencyKey }) =>
               onboardingMessagePacer.beforePost(workspaceId, {
                 content,
-                ...(idempotencyKey ? { idempotencyKey } : {}),
+                ...(idempotencyKey ? { idempotencyKey } : undefined),
               }),
             onAgentMentions: (channel, event, agentIds) => {
               startMentionedAgentThreads({
@@ -3471,7 +3475,7 @@ export function startServer(port = PORT) {
                   needsCredentials: !googleAnalytics.oauthClientConfigured,
                   ...(googleAnalytics.connection?.identityLabel
                     ? { displayName: googleAnalytics.connection.identityLabel }
-                    : {}),
+                    : undefined),
                 },
               ],
             });
@@ -3595,7 +3599,7 @@ export function startServer(port = PORT) {
           message: safeRuntimeError(err),
           ...(isDeploymentNotFound(err)
             ? { code: "deployment_not_found" as const }
-            : {}),
+            : undefined),
           chatId: "chatId" in msg ? msg.chatId : undefined,
           requestId: "requestId" in msg ? msg.requestId : undefined,
         });

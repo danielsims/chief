@@ -20,7 +20,7 @@ export interface ScheduledAgentConfig {
 }
 
 export async function scheduledAgentConfig(
-  manager: SessionManager,
+  manager: Pick<SessionManager, "agentPreference">,
   workspaceId: string,
   work: RecurringWorkRecord,
 ): Promise<ScheduledAgentConfig | null> {

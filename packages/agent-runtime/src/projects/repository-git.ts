@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
+import { isJsonObject } from "@chief/relay-contracts";
+
 import type {
   ProjectCheckoutRecord,
   ProjectCommitSummary,
@@ -85,7 +87,7 @@ export function assertRemoteUrl(value: string) {
 }
 
 function gitError(error: unknown) {
-  if (!error || typeof error !== "object") return String(error);
+  if (!error || !isJsonObject(error)) return String(error);
   const record = error as {
     stderr?: string;
     stdout?: string;
@@ -105,7 +107,7 @@ export async function git(
 ) {
   try {
     const result = await executeFile("git", await gitCommand(args), {
-      ...(cwd ? { cwd } : {}),
+      ...(cwd ? { cwd } : undefined),
       encoding: "utf8",
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" },
       maxBuffer: GIT_OUTPUT_LIMIT,
@@ -274,8 +276,8 @@ export async function repositorySnapshot(
       binding,
       portable,
       available: true,
-      ...(branch && branch !== "(detached)" ? { branch } : {}),
-      ...(head && head !== "(initial)" ? { head } : {}),
+      ...(branch && branch !== "(detached)" ? { branch } : undefined),
+      ...(head && head !== "(initial)" ? { head } : undefined),
       clean: changedFiles === 0,
       ahead: Number(divergence?.[1] ?? 0),
       behind: Number(divergence?.[2] ?? 0),
@@ -284,7 +286,7 @@ export async function repositorySnapshot(
       branchSummaries,
       commits: await recentCommits(binding.repositoryPath),
       checkouts,
-      ...(iconDataUrl ? { iconDataUrl } : {}),
+      ...(iconDataUrl ? { iconDataUrl } : undefined),
     };
   } catch (error) {
     return {

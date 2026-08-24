@@ -249,7 +249,7 @@ export function ProjectBranchCompareView({
                     title: title.trim(),
                     ...(description.trim()
                       ? { description: description.trim() }
-                      : {}),
+                      : undefined),
                     headBranch: compareRef,
                     baseBranch: baseRef,
                   })

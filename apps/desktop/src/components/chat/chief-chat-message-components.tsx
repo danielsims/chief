@@ -8,6 +8,7 @@ import type {
   ContentBlock,
   SessionRecord,
 } from "@chief/agent-runtime/types";
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 import type { RelayPluginActionContext } from "../../lib/runtime-plugins";
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
@@ -195,20 +196,20 @@ function browserOpenBlockIn(
 }
 
 function browserToolCode(input: unknown): string | null {
-  if (!input || typeof input !== "object") return null;
+  if (!input || !isJsonObject(input)) return null;
   const candidate = (input as Record<string, unknown>).code;
-  if (typeof candidate === "string") {
+  if (isJsonString(candidate)) {
     if (candidate.includes("tools.") || candidate.includes('tools["')) {
       return candidate;
     }
     return null;
   }
-  if (candidate && typeof candidate === "object") {
+  if (candidate && isJsonObject(candidate)) {
     const nested = browserToolCode(candidate);
     if (nested !== null) return nested;
   }
   for (const value of Object.values(input as Record<string, unknown>)) {
-    if (typeof value !== "string") continue;
+    if (!isJsonString(value)) continue;
     if (value.includes("tools.") || value.includes('tools["')) return value;
     const nested = browserToolCode(value);
     if (nested !== null) return nested;

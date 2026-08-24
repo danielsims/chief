@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { isJsonObject } from "@chief/relay-contracts";
+
 import type { PluginInstallRecord, PluginWorkspaceState } from "./types.js";
 import { workspaceKey, workspaceRoot } from "../workspace-secrets.js";
 import { loadAgentPlugin } from "./loader.js";
@@ -96,7 +98,7 @@ export async function readPluginState(
       version: 2,
       catalogSources: savedSources ?? [...DEFAULT_CATALOGS],
       installations:
-        raw?.installations && typeof raw.installations === "object"
+        raw?.installations && isJsonObject(raw.installations)
           ? raw.installations
           : {},
     };

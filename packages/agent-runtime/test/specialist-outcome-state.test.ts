@@ -1,17 +1,45 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { SessionManager } from "../src/manager.js";
+import type { SpecialistOutcomeManager } from "../src/specialist-outcome-state.js";
 import {
   persistSpecialistOutcomeState,
   setupNeedsHumanSignIn,
 } from "../src/specialist-outcome-state.js";
 
+type SpecialistOutcomeManagerOverrides = Partial<
+  Omit<SpecialistOutcomeManager, "store">
+> & {
+  store?: Partial<SpecialistOutcomeManager["store"]>;
+};
+
+function specialistManager(
+  overrides: SpecialistOutcomeManagerOverrides,
+): SpecialistOutcomeManager {
+  const base: SpecialistOutcomeManager = {
+    finishChildChat: () => undefined,
+    waitForChatPersistence: () => Promise.resolve(),
+    raiseActionItem: () => undefined,
+    dismissActionItem: () => undefined,
+    store: {
+      listBrowserRuns: () => Promise.resolve([]),
+      listActionItems: () => Promise.resolve([]),
+      chatRecord: () => Promise.resolve(null),
+      updateChatState: () => undefined,
+    },
+  };
+  return {
+    ...base,
+    ...overrides,
+    store: { ...base.store, ...overrides.store },
+  };
+}
+
 void test("Setup stays waiting while a browser handoff needs the user", async () => {
   const finished: unknown[] = [];
   const updates: unknown[] = [];
   const actions: unknown[] = [];
-  const manager = {
+  const manager = specialistManager({
     finishChildChat: (...args: unknown[]) => {
       finished.push(args);
     },
@@ -27,7 +55,7 @@ void test("Setup stays waiting while a browser handoff needs the user", async ()
         updates.push(args);
       },
     },
-  } as unknown as SessionManager;
+  });
 
   await persistSpecialistOutcomeState({
     manager,
@@ -88,7 +116,7 @@ void test("an active Setup browser is a waiting handoff even after a tool error"
   const finished: unknown[] = [];
   const updates: unknown[] = [];
   const actions: unknown[] = [];
-  const manager = {
+  const manager = specialistManager({
     finishChildChat: (...args: unknown[]) => {
       finished.push(args);
     },
@@ -122,7 +150,7 @@ void test("an active Setup browser is a waiting handoff even after a tool error"
         updates.push(args);
       },
     },
-  } as unknown as SessionManager;
+  });
 
   await persistSpecialistOutcomeState({
     manager,
@@ -151,11 +179,11 @@ void test("an active Setup browser is a waiting handoff even after a tool error"
 
 void test("completed specialist work still reaches the terminal state", async () => {
   const finished: unknown[] = [];
-  const manager = {
+  const manager = specialistManager({
     finishChildChat: (...args: unknown[]) => {
       finished.push(args);
     },
-  } as unknown as SessionManager;
+  });
 
   await persistSpecialistOutcomeState({
     manager,
@@ -177,7 +205,7 @@ void test("completed specialist work still reaches the terminal state", async ()
 void test("completed Setup work clears its session-scoped attention", async () => {
   const finished: unknown[] = [];
   const dismissed: unknown[] = [];
-  const manager = {
+  const manager = specialistManager({
     finishChildChat: (...args: unknown[]) => {
       finished.push(args);
     },
@@ -202,7 +230,7 @@ void test("completed Setup work clears its session-scoped attention", async () =
           },
         ]),
     },
-  } as unknown as SessionManager;
+  });
 
   await persistSpecialistOutcomeState({
     manager,

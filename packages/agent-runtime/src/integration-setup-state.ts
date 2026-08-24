@@ -1,3 +1,5 @@
+import { isJsonString } from "@chief/relay-contracts";
+
 export interface ActiveIntegrationSetup {
   attemptId: string;
   domain: string;
@@ -82,10 +84,7 @@ export function completedSetupResult(text: string) {
         provider?: unknown;
         status?: unknown;
       };
-      if (
-        result.status === "connected" &&
-        typeof result.provider === "string"
-      ) {
+      if (result.status === "connected" && isJsonString(result.provider)) {
         return result.provider;
       }
     } catch {

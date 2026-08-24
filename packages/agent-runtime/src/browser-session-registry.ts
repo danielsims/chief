@@ -1,4 +1,5 @@
 import type { AgentBrowserSession } from "@chief/browser/node";
+import { isJsonString } from "@chief/relay-contracts";
 
 import type { BrowserRunRecord, SessionRecord } from "./types.js";
 import { channelIdFromChatId } from "./channels/nip29.js";
@@ -56,7 +57,7 @@ export function legacyGoogleAuthBrowserOwner(
     return (
       candidate.parentId === run.conversationId &&
       candidate.agent === "setup" &&
-      typeof threadRootId === "string" &&
+      isJsonString(threadRootId) &&
       threadRootId.length > 0 &&
       candidate.createdAt <= run.createdAt
     );
@@ -64,7 +65,7 @@ export function legacyGoogleAuthBrowserOwner(
   if (matches.length !== 1) return undefined;
   const owner = matches[0];
   const threadRootId = owner?.triggerContext?.threadRootId;
-  if (!owner || typeof threadRootId !== "string") return undefined;
+  if (!owner || !isJsonString(threadRootId)) return undefined;
   return { conversationId: owner.id, threadRootId };
 }
 
@@ -181,7 +182,7 @@ export function browserThreadRoot(
 ) {
   if (requested) return requested;
   if (existing) return existing;
-  return typeof triggerContext?.threadRootId === "string"
+  return isJsonString(triggerContext?.threadRootId)
     ? triggerContext.threadRootId
     : undefined;
 }
@@ -206,8 +207,16 @@ export function integrationBrowserProfile(setting?: string) {
   return configured;
 }
 
-export class BrowserSessionRegistry {
-  private readonly sessions = new Map<string, AgentBrowserSession>();
+interface ManagedBrowserSession {
+  close(): Promise<unknown>;
+  clearSavedState(): Promise<unknown>;
+  setViewport(width: number, height: number): Promise<unknown>;
+}
+
+export class BrowserSessionRegistry<
+  Session extends ManagedBrowserSession = AgentBrowserSession,
+> {
+  private readonly sessions = new Map<string, Session>();
   private readonly viewportWaiters = new Map<
     string,
     (viewport?: Viewport) => void
@@ -220,7 +229,7 @@ export class BrowserSessionRegistry {
     private readonly create: (
       workspaceId: string,
       conversationId: string,
-    ) => AgentBrowserSession,
+    ) => Session,
   ) {}
 
   key(workspaceId: string, conversationId: string) {

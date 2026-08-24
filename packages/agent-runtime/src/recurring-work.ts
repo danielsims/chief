@@ -1,5 +1,7 @@
 import { CronExpressionParser } from "cron-parser";
 
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+
 function normalizedCron(cron: string) {
   const fields = cron.trim().split(/\s+/);
   if (fields.length === 5) return `0 ${fields.join(" ")}`;
@@ -92,9 +94,9 @@ export function executorAddressFromElicitation(input: unknown) {
 }
 
 function findElicitationMessage(input: unknown, depth = 0): string {
-  if (!input || typeof input !== "object" || depth > 4) return "";
+  if (!input || !isJsonObject(input) || depth > 4) return "";
   const value = input as Record<string, unknown>;
-  if (typeof value.message === "string") return value.message;
+  if (isJsonString(value.message)) return value.message;
   for (const nested of Object.values(value)) {
     const message = findElicitationMessage(nested, depth + 1);
     if (message) return message;

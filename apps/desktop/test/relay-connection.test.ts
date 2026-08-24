@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { isJsonString } from "@chief/relay-contracts";
+
 import { parseOrganizationInvitationUrl } from "../src/lib/organization-invitation";
 import {
   resolveRelayConnection,
@@ -52,7 +54,7 @@ void test("accepts any secure relay host and custom port", async () => {
       requestedUrl =
         input instanceof URL
           ? input.href
-          : typeof input === "string"
+          : isJsonString(input)
             ? input
             : input.url;
       return Promise.resolve(
@@ -89,7 +91,7 @@ void test("accepts any localhost port without requiring a scheme", async () => {
       requestedUrl =
         input instanceof URL
           ? input.href
-          : typeof input === "string"
+          : isJsonString(input)
             ? input
             : input.url;
       return Promise.resolve(

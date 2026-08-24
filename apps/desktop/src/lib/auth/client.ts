@@ -1,6 +1,8 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
+import { isJsonNumber } from "@chief/relay-contracts";
+
 import type { PkceAttempt } from "./pkce";
 import type { StoredSession } from "./session";
 import { dispatchChiefNavigation, parseChiefDeepLink } from "../app-navigation";
@@ -215,10 +217,12 @@ async function exchangeAuthorizationCode(code: string, attempt: PkceAttempt) {
   const user = await fetchUserInfo(token.access_token, attempt.authBaseUrl);
   return {
     token: token.access_token,
-    ...(token.refresh_token ? { refreshToken: token.refresh_token } : {}),
-    ...(typeof token.expires_in === "number"
+    ...(token.refresh_token
+      ? { refreshToken: token.refresh_token }
+      : undefined),
+    ...(isJsonNumber(token.expires_in)
       ? { expiresAt: Date.now() + token.expires_in * 1_000 }
-      : {}),
+      : undefined),
     user,
     lastValidated: Date.now(),
   } satisfies StoredSession;
@@ -262,9 +266,9 @@ export async function refreshOAuthSession(
     ...session,
     token: token.access_token,
     refreshToken: token.refresh_token ?? session.refreshToken,
-    ...(typeof token.expires_in === "number"
+    ...(isJsonNumber(token.expires_in)
       ? { expiresAt: Date.now() + token.expires_in * 1_000 }
-      : {}),
+      : undefined),
     user,
     lastValidated: Date.now(),
   };
@@ -296,6 +300,6 @@ async function fetchUserInfo(accessToken: string, authBaseUrl = AUTH_BASE_URL) {
     name: data.name?.trim() || data.email,
     email: data.email,
     emailVerified: data.email_verified ?? false,
-    ...(data.picture ? { image: data.picture } : {}),
+    ...(data.picture ? { image: data.picture } : undefined),
   };
 }

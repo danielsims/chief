@@ -1,5 +1,9 @@
 import type { AgentJob, AgentPrincipal } from "@chief/relay-contracts";
-import { channelDetailSchema, messagePageSchema } from "@chief/relay-contracts";
+import {
+  channelDetailSchema,
+  isJsonString,
+  messagePageSchema,
+} from "@chief/relay-contracts";
 
 import { HttpError } from "./http";
 import { withTrustedContext } from "./internal-context";
@@ -13,7 +17,7 @@ export async function validateSpecialistKickoff(
 ) {
   const conversationId = job.payload.conversationId;
   const threadRootId = job.payload.threadRootId;
-  if (typeof conversationId !== "string" || typeof threadRootId !== "string") {
+  if (!isJsonString(conversationId) || !isJsonString(threadRootId)) {
     throw new HttpError(
       409,
       "kickoff_evidence_missing",

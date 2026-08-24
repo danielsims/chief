@@ -2,6 +2,11 @@ import { isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 import type { AgentPluginSummary } from "@chief/agent-runtime/types";
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
 
 interface PluginCatalogSnapshot {
   plugins: AgentPluginSummary[];
@@ -65,7 +70,7 @@ export async function loadRelayPluginCatalog(
 }
 
 function toCatalogPlugin(candidate: unknown): AgentPluginSummary[] {
-  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+  if (!candidate || !isJsonObject(candidate) || Array.isArray(candidate)) {
     return [];
   }
   const item = candidate as Record<string, unknown>;
@@ -76,11 +81,9 @@ function toCatalogPlugin(candidate: unknown): AgentPluginSummary[] {
   const domain = catalogText(item.domain);
   if (!id || !name || !description || !domain) return [];
   const categories = Array.isArray(item.categories)
-    ? item.categories.filter(
-        (value): value is string => typeof value === "string",
-      )
+    ? item.categories.filter((value): value is string => isJsonString(value))
     : [];
-  const popularity = typeof item.popularity === "number" ? item.popularity : 0;
+  const popularity = isJsonNumber(item.popularity) ? item.popularity : 0;
   return [
     {
       id,
@@ -107,5 +110,5 @@ function toCatalogPlugin(candidate: unknown): AgentPluginSummary[] {
 }
 
 function catalogText(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  return isJsonString(value) && value.trim() ? value.trim() : undefined;
 }

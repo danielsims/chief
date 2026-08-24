@@ -221,10 +221,10 @@ function BrowserSessionAttachmentContent({
     if (!session || session.status === "complete") {
       openBrowser(url, run.conversationId, {
         browserRunId: run.id,
-        ...(run.threadRootId ? { threadRootId: run.threadRootId } : {}),
+        ...(run.threadRootId ? { threadRootId: run.threadRootId } : undefined),
         ...(run.anchorMessageId
           ? { anchorMessageId: run.anchorMessageId }
-          : {}),
+          : undefined),
       });
     }
     onOpenPanel?.();

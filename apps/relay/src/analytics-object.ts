@@ -1,5 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+
 import { json, relayError } from "./http";
 import { readTrustedIdentity } from "./internal-context";
 
@@ -49,15 +51,15 @@ export class AnalyticsObject extends DurableObject<Env> {
   private async record(request: Request) {
     const parsed: unknown = await request.json();
     const body =
-      parsed !== null && typeof parsed === "object"
+      parsed !== null && isJsonObject(parsed)
         ? (parsed as Record<string, unknown>)
         : {};
-    const at = typeof body.at === "string" ? body.at : undefined;
+    const at = isJsonString(body.at) ? body.at : undefined;
     const day = (at ?? new Date().toISOString()).slice(0, 10);
     const dimensions = Array.isArray(body.dimensions) ? body.dimensions : [];
     this.ctx.storage.transactionSync(() => {
       for (const dimension of dimensions) {
-        if (typeof dimension !== "string" || dimension.length === 0) continue;
+        if (!isJsonString(dimension) || dimension.length === 0) continue;
         this.ctx.storage.sql.exec(
           `INSERT INTO metrics (day, dimension, count) VALUES (?, ?, 1)
            ON CONFLICT(day, dimension) DO UPDATE SET count = count + 1`,

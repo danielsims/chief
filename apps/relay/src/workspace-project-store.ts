@@ -160,15 +160,15 @@ function projectFromRow(
     id: row.project_id,
     organizationId,
     name: row.name,
-    ...(row.description ? { description: row.description } : {}),
+    ...(row.description ? { description: row.description } : undefined),
     repositoryKind: row.repository_kind,
     providerId: row.provider_id,
     ...(row.canonical_remote_url
       ? { canonicalRemoteUrl: row.canonical_remote_url }
-      : {}),
+      : undefined),
     ...(row.repository_web_url
       ? { repositoryWebUrl: row.repository_web_url }
-      : {}),
+      : undefined),
     defaultBranch: row.default_branch,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

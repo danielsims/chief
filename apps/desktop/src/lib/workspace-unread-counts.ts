@@ -1,5 +1,7 @@
 import { useEffect, useMemo } from "react";
 
+import { isJsonNumber } from "@chief/relay-contracts";
+
 import { syncDesktopUnreadBadge } from "./notifications";
 
 const KEY_PREFIX = "chief:workspace-unread-counts:v1:";
@@ -11,7 +13,7 @@ export function readWorkspaceUnreadCounts(readerId: string) {
     ) as Record<string, unknown>;
     return new Map(
       Object.entries(parsed).flatMap(([workspaceId, value]) =>
-        typeof value === "number" && value > 0
+        isJsonNumber(value) && value > 0
           ? ([[workspaceId, value]] as const)
           : [],
       ),

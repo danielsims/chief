@@ -1,4 +1,10 @@
 import type { OnboardingSchedule } from "@chief/agent-runtime/types";
+import {
+  isJsonBoolean,
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
 
 import { onboardingScopedId } from "./onboarding-ids";
 import { getPlaybook, playbookInstructions } from "./playbooks";
@@ -106,7 +112,7 @@ export function buildOnboardingSchedules(
 export function onboardingSchedulePlanFromMetadata(
   value: unknown,
 ): StarterSchedulePlan | null {
-  if (!value || typeof value !== "object") return null;
+  if (!value || !isJsonObject(value)) return null;
   const automation = value as Partial<StarterSchedulePlan>;
   if (
     automation.mode !== "automatic" &&
@@ -115,24 +121,24 @@ export function onboardingSchedulePlanFromMetadata(
   ) {
     return null;
   }
-  if (typeof automation.timezone !== "string" || !automation.timezone) {
+  if (!isJsonString(automation.timezone) || !automation.timezone) {
     return null;
   }
   if (!Array.isArray(automation.plan)) return null;
   const plan = automation.plan.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
+    if (!item || !isJsonObject(item)) return [];
     const candidate = item as unknown as Record<string, unknown>;
     const frequency =
       candidate.frequency === "weekdays" ? "daily" : candidate.frequency;
     if (
-      typeof candidate.playbookId !== "string" ||
-      typeof candidate.title !== "string" ||
-      typeof candidate.agentId !== "string" ||
-      typeof candidate.purpose !== "string" ||
-      typeof candidate.enabled !== "boolean" ||
+      !isJsonString(candidate.playbookId) ||
+      !isJsonString(candidate.title) ||
+      !isJsonString(candidate.agentId) ||
+      !isJsonString(candidate.purpose) ||
+      !isJsonBoolean(candidate.enabled) ||
       (frequency !== "daily" && frequency !== "weekly") ||
-      typeof candidate.day !== "number" ||
-      typeof candidate.time !== "string"
+      !isJsonNumber(candidate.day) ||
+      !isJsonString(candidate.time)
     ) {
       return [];
     }

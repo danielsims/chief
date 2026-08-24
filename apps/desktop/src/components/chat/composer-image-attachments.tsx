@@ -2,6 +2,7 @@ import { X } from "lucide-react";
 import { toast } from "sonner";
 
 import type { MessageAttachment } from "@chief/agent-runtime/types";
+import { isJsonString } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -32,7 +33,7 @@ function readDataUrl(file: File) {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("The image could not be read."));
     reader.onload = () =>
-      typeof reader.result === "string"
+      isJsonString(reader.result)
         ? resolve(reader.result)
         : reject(new Error("The image could not be read."));
     reader.readAsDataURL(file);

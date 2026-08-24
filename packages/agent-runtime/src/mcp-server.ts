@@ -4,6 +4,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 
+import { isJsonString } from "@chief/relay-contracts";
+
 import type { SessionManager } from "./manager.js";
 import type { AgentEvent, ExecutorCapability } from "./types.js";
 import {
@@ -236,7 +238,7 @@ export function createChiefMcpHandler(deps: {
     const token = authorization?.startsWith("Bearer ")
       ? authorization.slice("Bearer ".length).trim()
       : undefined;
-    if (!token || typeof workspaceId !== "string" || !workspaceId) {
+    if (!token || !isJsonString(workspaceId) || !workspaceId) {
       jsonRpcError(
         res,
         401,
@@ -247,7 +249,7 @@ export function createChiefMcpHandler(deps: {
     try {
       await deps.authorize(workspaceId, {
         token,
-        apiBaseUrl: typeof capabilityUrl === "string" ? capabilityUrl : "",
+        apiBaseUrl: isJsonString(capabilityUrl) ? capabilityUrl : "",
       });
     } catch (error) {
       const reason =
@@ -255,7 +257,7 @@ export function createChiefMcpHandler(deps: {
           ? error.message
           : "Could not verify access to this workspace.";
       const hint =
-        typeof capabilityUrl === "string" && capabilityUrl
+        isJsonString(capabilityUrl) && capabilityUrl
           ? ""
           : " If this is the first request since the runtime started, also send x-chief-capability-url: <workspace agent-tools base URL>.";
       jsonRpcError(res, 401, `${reason}${hint}`);

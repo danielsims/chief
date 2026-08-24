@@ -1,3 +1,5 @@
+import { isJsonString } from "@chief/relay-contracts";
+
 import { WorkspaceChannelStore } from "./workspace-channel-store";
 import { initializeWorkspaceData } from "./workspace-data-store";
 import { initializeWorkspaceLive } from "./workspace-live-store";
@@ -114,7 +116,7 @@ function migrateLegacyChannelSchema(storage: DurableObjectStorage) {
     storage.sql
       .exec<Record<string, SqlStorageValue>>("PRAGMA table_info(channels)")
       .toArray()
-      .map((column) => (typeof column.name === "string" ? column.name : "")),
+      .map((column) => (isJsonString(column.name) ? column.name : "")),
   );
   const add = (name: string, definition: string) => {
     if (existing.has(name)) return;

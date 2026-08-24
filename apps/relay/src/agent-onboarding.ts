@@ -5,6 +5,7 @@ import type {
 } from "@chief/relay-contracts";
 import {
   agentPublishedMessageSchema,
+  isJsonString,
   messagePageSchema,
   workspaceOnboardingResultSchema,
 } from "@chief/relay-contracts";
@@ -84,11 +85,10 @@ async function enqueueKickoff(
   threadRoots: Record<string, string>,
 ) {
   const name =
-    typeof job.payload.name === "string" && job.payload.name.trim()
+    isJsonString(job.payload.name) && job.payload.name.trim()
       ? job.payload.name
       : "this workspace";
-  const website =
-    typeof job.payload.website === "string" ? job.payload.website : "";
+  const website = isJsonString(job.payload.website) ? job.payload.website : "";
   const selectedApps = Array.isArray(job.payload.selectedApps)
     ? job.payload.selectedApps.map(String)
     : [];

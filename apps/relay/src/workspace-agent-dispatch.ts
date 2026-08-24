@@ -80,7 +80,7 @@ export async function dispatchWorkspaceMessage(
             messageId: message.id,
             ...(message.threadRootId
               ? { threadRootId: message.threadRootId }
-              : {}),
+              : undefined),
             mentions: message.mentions,
             instruction: dispatchedInstruction(message, agentId),
           },

@@ -4,7 +4,12 @@ import type {
   AgentPrincipal,
   ConversationMessage,
 } from "@chief/relay-contracts";
-import { conversationIdSchema, messageIdSchema } from "@chief/relay-contracts";
+import {
+  conversationIdSchema,
+  isJsonObject,
+  isJsonString,
+  messageIdSchema,
+} from "@chief/relay-contracts";
 
 import {
   executeHostedAgentTool,
@@ -75,7 +80,7 @@ export async function runHostedAgentJob(
     job,
     principal,
     conversationId,
-  ).catch(() => [] as ConversationMessage[]);
+  ).catch(() => [] satisfies ConversationMessage[]);
   const messages: ChatMessage[] = [
     { role: "system", content: systemPrompt(job, context) },
     ...history.slice(-30).map(historyMessage),
@@ -90,7 +95,7 @@ export async function runHostedAgentJob(
   let finalText = "";
   for (let round = 0; round < 12; round += 1) {
     const response = await env.AI.run(
-      env.HOSTED_CELL_MODEL || "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      env.HOSTED_CELL_MODEL ?? "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
       {
         messages,
         tools: hostedAgentToolDefinitions,
@@ -98,7 +103,7 @@ export async function runHostedAgentJob(
         parallel_tool_calls: false,
         max_tokens: 1_500,
         temperature: 0.3,
-      } as never,
+      },
     );
     const assistant = firstAssistantMessage(response);
     messages.push({
@@ -106,7 +111,7 @@ export async function runHostedAgentJob(
       content: assistant.content,
       ...(assistant.toolCalls.length > 0
         ? { tool_calls: assistant.toolCalls }
-        : {}),
+        : undefined),
     });
     if (assistant.toolCalls.length === 0) {
       finalText = assistant.content?.trim() ?? "";
@@ -150,7 +155,7 @@ export async function runHostedAgentJob(
   return {
     publishedMessage: {
       conversationId,
-      ...(threadRootId ? { threadRootId } : {}),
+      ...(threadRootId ? { threadRootId } : undefined),
       body: finalText.slice(0, 4_000),
       components: [],
     },
@@ -180,7 +185,7 @@ function historyMessage(message: ConversationMessage): ChatMessage {
 
 function stringPayload(job: AgentJob, key: string) {
   const value = job.payload[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  return isJsonString(value) && value.trim() ? value.trim() : undefined;
 }
 
 function nonEmptyOr(value: string | undefined, fallback: string) {
@@ -204,7 +209,7 @@ function firstAssistantMessage(raw: unknown): {
     }[];
   };
   const message = value.choices?.[0]?.message;
-  const content = typeof message?.content === "string" ? message.content : null;
+  const content = isJsonString(message?.content) ? message.content : null;
   const calls = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
   const toolCalls = calls.flatMap((entry) => {
     const call = entry as {
@@ -213,11 +218,10 @@ function firstAssistantMessage(raw: unknown): {
       function?: { name?: unknown; arguments?: unknown };
     };
     if (
-      typeof call.id !== "string" ||
-      typeof call.function?.name !== "string" ||
-      (typeof call.function.arguments !== "string" &&
-        (!call.function.arguments ||
-          typeof call.function.arguments !== "object"))
+      !isJsonString(call.id) ||
+      !isJsonString(call.function?.name) ||
+      (!isJsonString(call.function.arguments) &&
+        (!call.function.arguments || !isJsonObject(call.function.arguments)))
     ) {
       return [];
     }
@@ -227,8 +231,7 @@ function firstAssistantMessage(raw: unknown): {
         type: "function" as const,
         function: {
           name: call.function.name,
-          arguments: call.function.arguments as
-            string | Record<string, unknown>,
+          arguments: call.function.arguments,
         },
       },
     ];

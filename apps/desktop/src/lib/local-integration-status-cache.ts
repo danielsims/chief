@@ -1,4 +1,5 @@
 import type { LocalIntegrationStatus } from "@chief/agent-runtime/types";
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 const cache = new Map<string, LocalIntegrationStatus[]>();
 
@@ -7,11 +8,9 @@ function storageKey(workspaceId: string) {
 }
 
 function isIntegrationStatus(value: unknown): value is LocalIntegrationStatus {
-  if (!value || typeof value !== "object") return false;
+  if (!value || !isJsonObject(value)) return false;
   const status = value as Partial<LocalIntegrationStatus>;
-  return (
-    typeof status.provider === "string" && typeof status.status === "string"
-  );
+  return isJsonString(status.provider) && isJsonString(status.status);
 }
 
 export function cachedLocalIntegrationStatus(workspaceId: string) {

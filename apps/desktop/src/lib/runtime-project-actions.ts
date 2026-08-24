@@ -91,7 +91,9 @@ export function useProjectCheckoutActions() {
         {
           type: "publishProjectCheckout",
           checkoutId,
-          ...(input?.targetBranch ? { targetBranch: input.targetBranch } : {}),
+          ...(input?.targetBranch
+            ? { targetBranch: input.targetBranch }
+            : undefined),
         },
         ["projectPublished"],
       ),
@@ -169,7 +171,9 @@ export function useProjectPullRequest() {
           requestId,
           projectId,
           title: input.title,
-          ...(input.description ? { description: input.description } : {}),
+          ...(input.description
+            ? { description: input.description }
+            : undefined),
           headBranch: input.headBranch,
           baseBranch: input.baseBranch,
           executorCapability: capability,

@@ -151,9 +151,15 @@ export const allAgentToolPermissions = agentToolPermissionDefinitions.map(
   (permission) => permission.id,
 );
 
-const executorOperationsByPermissionMutable = Object.fromEntries(
-  allAgentToolPermissions.map((permission) => [permission, [] as string[]]),
-) as Record<AgentToolPermission, string[]>;
+function emptyPermissionOperations(
+  permission: AgentToolPermission,
+): [AgentToolPermission, string[]] {
+  return [permission, []];
+}
+
+const executorOperationsByPermissionMutable = new Map(
+  allAgentToolPermissions.map(emptyPermissionOperations),
+);
 
 for (const operation of [
   ...channelApiOperations,
@@ -161,9 +167,15 @@ for (const operation of [
   ...pluginApiOperations,
 ]) {
   if (!operation.toolPermission) continue;
-  executorOperationsByPermissionMutable[operation.toolPermission].push(
-    operation.operationId,
+  const operations = executorOperationsByPermissionMutable.get(
+    operation.toolPermission,
   );
+  if (!operations) {
+    throw new Error(
+      `Unknown agent tool permission: ${operation.toolPermission}`,
+    );
+  }
+  operations.push(operation.operationId);
 }
 
 /**
@@ -171,8 +183,9 @@ for (const operation of [
  * reference, so docs, OpenAPI, Executor, and request authorization cannot
  * silently acquire separate hand-maintained vocabularies.
  */
-export const executorOperationsByPermission: Readonly<
-  Record<AgentToolPermission, readonly string[]>
+export const executorOperationsByPermission: ReadonlyMap<
+  AgentToolPermission,
+  readonly string[]
 > = executorOperationsByPermissionMutable;
 
 function executorOperationName(operationId: string) {
@@ -181,17 +194,22 @@ function executorOperationName(operationId: string) {
 }
 
 const permissionByExecutorTool = new Map<string, AgentToolPermission>(
-  Object.entries(executorOperationsByPermission).flatMap(
-    ([permission, operations]) =>
-      operations.map(
-        (operation) =>
-          [
-            `localTools.${executorOperationName(operation)}`,
-            permission as AgentToolPermission,
-          ] as const,
+  [...executorOperationsByPermission].flatMap(([permission, operations]) =>
+    operations.map((operation) =>
+      permissionToolNames(
+        permission,
+        `localTools.${executorOperationName(operation)}`,
       ),
+    ),
   ),
 );
+
+function permissionToolNames(
+  permission: AgentToolPermission,
+  name: string,
+): [string, AgentToolPermission] {
+  return [name, permission];
+}
 
 for (const [permission, names] of Object.entries({
   "workspace.read": [

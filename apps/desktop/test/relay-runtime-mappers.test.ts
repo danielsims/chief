@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { WorkspaceSnapshot } from "@chief/relay-contracts";
-import { conversationMessageSchema } from "@chief/relay-contracts";
+import {
+  conversationMessageSchema,
+  workspaceSnapshotSchema,
+} from "@chief/relay-contracts";
 
 import {
   agentRunEvent,
@@ -11,9 +13,26 @@ import {
   toChiefMessage,
 } from "../src/lib/relay-runtime-mappers.ts";
 
-const snapshot = {
-  agents: [{ id: "advertising", name: "Advertising" }],
-} as WorkspaceSnapshot;
+const snapshot = workspaceSnapshotSchema.parse({
+  id: "workspace-a",
+  name: "Acme",
+  website: "",
+  selectedApps: [],
+  runtime: "cloud",
+  imageURL: null,
+  onboardingComplete: true,
+  conversations: [],
+  agents: [
+    {
+      id: "advertising",
+      name: "Advertising",
+      role: "Paid Acquisition",
+      status: "idle",
+    },
+  ],
+  projects: [],
+  createdAt: "2026-08-22T00:00:00.000Z",
+});
 
 function message(components: Record<string, unknown>[], body = "") {
   return conversationMessageSchema.parse({

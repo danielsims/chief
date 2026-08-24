@@ -244,7 +244,7 @@ export class PluginOAuthManager {
               ...spec.headers,
               ...(session.tokens?.access_token
                 ? { Authorization: `Bearer ${session.tokens.access_token}` }
-                : {}),
+                : undefined),
             },
           });
         }

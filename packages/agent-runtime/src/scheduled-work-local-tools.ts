@@ -1,6 +1,11 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import type { ScheduledWorkTrigger } from "@chief/channel-api";
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
 
 import type { SessionManager } from "./manager.js";
 import type { RecurringWorkRecord } from "./types.js";
@@ -31,7 +36,7 @@ function fail(message: string, status = 400): never {
 }
 
 function text(input: unknown, name: string, maximum: number) {
-  if (typeof input !== "string" || !input.trim()) fail(`${name} is required.`);
+  if (!isJsonString(input) || !input.trim()) fail(`${name} is required.`);
   return input.trim().slice(0, maximum);
 }
 
@@ -48,13 +53,13 @@ function toolPatterns(input: unknown) {
 }
 
 function timestamp(input: unknown, name: string) {
-  const parsed = typeof input === "number" ? input : Date.parse(String(input));
+  const parsed = isJsonNumber(input) ? input : Date.parse(String(input));
   if (!Number.isFinite(parsed)) fail(`${name} must be a valid timestamp.`);
   return parsed;
 }
 
 function trigger(input: unknown): ScheduledWorkTrigger {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
+  if (!input || !isJsonObject(input) || Array.isArray(input)) {
     fail("trigger must be an object.");
   }
   const value = input as Record<string, unknown>;
@@ -247,10 +252,9 @@ export async function handleScheduledWorkLocalTool(input: {
     if (!tail && request.method === "GET")
       return { handled: true, value: { scheduledWork: publicWork(existing) } };
     if (!tail && request.method === "PATCH") {
-      const expectedVersion =
-        typeof body.expectedVersion === "number"
-          ? body.expectedVersion
-          : undefined;
+      const expectedVersion = isJsonNumber(body.expectedVersion)
+        ? body.expectedVersion
+        : undefined;
       if (expectedVersion !== undefined && expectedVersion !== existing.version)
         fail("Scheduled work changed since it was read.", 409);
       const resolvedTrigger =

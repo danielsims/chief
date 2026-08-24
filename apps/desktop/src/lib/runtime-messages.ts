@@ -3,6 +3,11 @@ import type {
   ChannelEvent,
   ChiefUIMessage,
 } from "@chief/agent-runtime/types";
+import {
+  isJsonBoolean,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
 
 import { channelActionFromEvent } from "./channel-actions";
 import {
@@ -59,25 +64,25 @@ function settledParts(message: ChiefUIMessage) {
 }
 
 function isPluginSummary(value: unknown): value is AgentPluginSummary {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (!value || !isJsonObject(value) || Array.isArray(value)) return false;
   const plugin = value as Partial<AgentPluginSummary>;
   return Boolean(
-    typeof plugin.id === "string" &&
-    typeof plugin.name === "string" &&
-    typeof plugin.description === "string" &&
-    typeof plugin.category === "string" &&
-    typeof plugin.status === "string" &&
-    typeof plugin.enabled === "boolean" &&
-    typeof plugin.trusted === "boolean" &&
+    isJsonString(plugin.id) &&
+    isJsonString(plugin.name) &&
+    isJsonString(plugin.description) &&
+    isJsonString(plugin.category) &&
+    isJsonString(plugin.status) &&
+    isJsonBoolean(plugin.enabled) &&
+    isJsonBoolean(plugin.trusted) &&
     plugin.source &&
-    typeof plugin.source === "object",
+    isJsonObject(plugin.source),
   );
 }
 
 function channelEventParts(event: ChannelEvent): ChiefUIMessage["parts"] {
   if (event.kind !== 9 || !Array.isArray(event.parts)) return [];
   return event.parts.flatMap((part) => {
-    if (!part || typeof part !== "object" || Array.isArray(part)) return [];
+    if (!part || !isJsonObject(part) || Array.isArray(part)) return [];
     const candidate = part as {
       type?: unknown;
       data?: { plugins?: unknown };
@@ -299,9 +304,9 @@ export function projectChannelTimeline(
                   // visible in the channel. A delayed schedule must not sort a
                   // newly published message back at its planned run time.
                   createdAt: event.createdAt,
-                  ...(agentId ? { agentId } : {}),
-                  ...(threadRootId ? { threadRootId } : {}),
-                  ...(channelAction ? { channelAction } : {}),
+                  ...(agentId ? { agentId } : undefined),
+                  ...(threadRootId ? { threadRootId } : undefined),
+                  ...(channelAction ? { channelAction } : undefined),
                 },
               },
               eventParts,
@@ -317,9 +322,9 @@ export function projectChannelTimeline(
               ],
               metadata: {
                 createdAt: event.createdAt,
-                ...(agentId ? { agentId } : {}),
-                ...(threadRootId ? { threadRootId } : {}),
-                ...(channelAction ? { channelAction } : {}),
+                ...(agentId ? { agentId } : undefined),
+                ...(threadRootId ? { threadRootId } : undefined),
+                ...(channelAction ? { channelAction } : undefined),
               },
             },
     );
@@ -375,8 +380,10 @@ function projectDirectConversation(
         ],
         metadata: {
           createdAt: event.createdAt,
-          ...(event.actor.type === "agent" ? { agentId: event.actor.id } : {}),
-          ...(threadRootId ? { threadRootId } : {}),
+          ...(event.actor.type === "agent"
+            ? { agentId: event.actor.id }
+            : undefined),
+          ...(threadRootId ? { threadRootId } : undefined),
         },
       } satisfies ChiefUIMessage,
     ];

@@ -1,3 +1,9 @@
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
+
 import type { AuthOrganization } from "./auth/better-auth-client";
 import {
   listAuthOrganizations,
@@ -5,13 +11,13 @@ import {
 } from "./auth/better-auth-client";
 
 function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
+  return value && isJsonObject(value) && !Array.isArray(value)
+    ? (value)
     : {};
 }
 
 function text(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
+  return isJsonString(value) ? value.trim() : "";
 }
 
 /**
@@ -46,7 +52,7 @@ export function workspaceContextFromOrganization(
   if (audience) lines.push(`Ideal customer: ${audience}`);
   const success = Array.isArray(goals.success)
     ? goals.success
-        .filter((item): item is string => typeof item === "string")
+        .filter((item): item is string => isJsonString(item))
         .map((item) => item.trim())
         .filter(Boolean)
         .join(", ")
@@ -71,7 +77,7 @@ export function workspaceContextFromOrganization(
     );
   }
   const channels = Array.isArray(monitoring.channels)
-    ? monitoring.channels.filter((c): c is string => typeof c === "string")
+    ? monitoring.channels.filter((c): c is string => isJsonString(c))
     : [];
   if (channels.length > 0) {
     lines.push(`Channels being watched: ${channels.join(", ")}`);
@@ -134,9 +140,7 @@ export function workspaceContextFromOrganization(
       const [hour = "9", minute = "0"] = text(item.time).split(":");
       const frequency = text(item.frequency);
       const day =
-        typeof item.day === "number" && item.day >= 0 && item.day <= 6
-          ? item.day
-          : 1;
+        isJsonNumber(item.day) && item.day >= 0 && item.day <= 6 ? item.day : 1;
       return {
         playbookId: text(item.playbookId),
         agentId: text(item.agentId),

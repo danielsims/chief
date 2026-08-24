@@ -19,7 +19,7 @@ import type {
   WorkspaceSummary,
 } from "@chief/relay-contracts";
 import { RelayClient } from "@chief/relay-client";
-import { workspaceSnapshotSchema } from "@chief/relay-contracts";
+import { isJsonString, workspaceSnapshotSchema } from "@chief/relay-contracts";
 
 import { requestAccountAssertion } from "./auth/account-assertion";
 import { useAuth } from "./auth/auth-context";
@@ -94,7 +94,7 @@ let deviceAuthorization: string | undefined;
 
 async function signedFetch(url: URL, init: RequestInit = {}) {
   const method = init.method?.toUpperCase() ?? "GET";
-  const body = typeof init.body === "string" ? init.body : "";
+  const body = isJsonString(init.body) ? init.body : "";
   const headers = new Headers(init.headers);
   headers.set(
     "authorization",
@@ -119,7 +119,7 @@ async function bindAccount(accountToken: string) {
     deviceAuthorization?: unknown;
   };
   if (
-    typeof binding.deviceAuthorization !== "string" ||
+    !isJsonString(binding.deviceAuthorization) ||
     binding.deviceAuthorization.length < 32
   ) {
     throw new Error("The relay returned an invalid device authorization.");
@@ -364,7 +364,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
                   relayUrl: new URL(RELAY_URL).origin,
                 },
               }
-            : {}),
+            : undefined),
         });
         await connectRelay(connection);
         return;
@@ -384,7 +384,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
                 relayUrl: new URL(RELAY_URL).origin,
               },
             }
-          : {}),
+          : undefined),
       });
       connectionGeneration.current += 1;
       setRelayWorkspaceOverride(null);

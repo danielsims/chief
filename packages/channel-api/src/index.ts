@@ -23,6 +23,7 @@ export type {
   ChannelApiOperation,
   ChannelApiPermission,
   ChannelAuditAction,
+  ChannelAuditDetailValue,
   ChannelAuditEntry,
   ChannelKind,
   ChannelLifecycleState,

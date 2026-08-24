@@ -217,12 +217,11 @@ async function main() {
     process.env.CHIEF_SESSION_ID,
   );
   const baseUrl = process.env.CHIEF_LOCAL_URL ?? "http://127.0.0.1:4318";
+  const headers = new Headers({ Authorization: `Bearer ${token}` });
+  if (request.body) headers.set("Content-Type", "application/json");
   const response = await fetch(new URL(request.path, baseUrl), {
     method: request.method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(request.body ? { "Content-Type": "application/json" } : {}),
-    },
+    headers,
     body: request.body ? JSON.stringify(request.body) : undefined,
   });
   const result = await response.text();

@@ -1,3 +1,5 @@
+import { isJsonString } from "@chief/relay-contracts";
+
 /**
  * Approval policy: which tool calls run without asking and which need the
  * user's explicit approval. Follows the executor.sh semantics: reads and
@@ -90,12 +92,12 @@ export function evaluateToolUse(
     toolName === "Write" ||
     toolName === "NotebookEdit"
   ) {
-    const path = typeof i.file_path === "string" ? i.file_path : "";
+    const path = isJsonString(i.file_path) ? i.file_path : "";
     return path.startsWith(cwd) ? "allow" : "ask";
   }
 
   if (toolName === "Bash" || toolName === "bash") {
-    const command = typeof i.command === "string" ? i.command : "";
+    const command = isJsonString(i.command) ? i.command : "";
     return isSafeShellCommand(command) ? "allow" : "ask";
   }
 

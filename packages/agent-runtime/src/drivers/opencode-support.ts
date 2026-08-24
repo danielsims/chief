@@ -4,6 +4,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ChildProcess } from "node:child_process";
 
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
+
 import type { StartOptions } from "../types.js";
 
 export interface OpenCodeTerminalState {
@@ -31,25 +37,25 @@ export function findOpenCode() {
 }
 
 export function openCodeRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
+  return value && isJsonObject(value) && !Array.isArray(value)
+    ? (value)
     : {};
 }
 
 export function openCodeTextContent(value: unknown) {
-  if (typeof value === "string") return value;
+  if (isJsonString(value)) return value;
   if (Array.isArray(value)) {
     return value
       .flatMap((item) => {
         const part = openCodeRecord(item);
-        if (typeof part.text === "string") return [part.text];
+        if (isJsonString(part.text)) return [part.text];
         const nested = openCodeRecord(part.content);
-        return typeof nested.text === "string" ? [nested.text] : [];
+        return isJsonString(nested.text) ? [nested.text] : [];
       })
       .join("\n");
   }
   const item = openCodeRecord(value);
-  return typeof item.text === "string" ? item.text : "";
+  return isJsonString(item.text) ? item.text : "";
 }
 
 /**
@@ -74,10 +80,9 @@ export function openCodeConfigContent(
   if (options.access !== "full") return JSON.stringify(config);
 
   const existing = config.permission;
-  const permission: Record<string, unknown> =
-    typeof existing === "string"
-      ? { "*": existing }
-      : { ...openCodeRecord(existing) };
+  const permission: Record<string, unknown> = isJsonString(existing)
+    ? { "*": existing }
+    : { ...openCodeRecord(existing) };
   permission.external_directory = "allow";
   config.permission = permission;
   return JSON.stringify(config);
@@ -125,7 +130,7 @@ export async function initializeOpenCodeSession(
           name: server.name,
           command: server.command,
           args: server.args,
-          ...(server.cwd ? { cwd: server.cwd } : {}),
+          ...(server.cwd ? { cwd: server.cwd } : undefined),
           env: server.env ?? {},
         },
       ];
@@ -160,13 +165,13 @@ export async function initializeOpenCodeSession(
     session = openCodeRecord(await rpc("session/new", sessionParameters));
   }
   const sessionId = session.sessionId ?? session.id ?? resumeSessionId;
-  if (typeof sessionId !== "string") {
+  if (!isJsonString(sessionId)) {
     throw new Error("OpenCode returned no ACP session id.");
   }
   const currentModelId = openCodeRecord(session.models).currentModelId;
   return {
     sessionId,
-    model: typeof currentModelId === "string" ? currentModelId : options.model,
+    model: isJsonString(currentModelId) ? currentModelId : options.model,
   };
 }
 
@@ -185,7 +190,7 @@ export class OpenCodeHostServices {
   readFile(id: number | string, params: Record<string, unknown>) {
     const path = params.path ?? params.filePath;
     try {
-      if (typeof path !== "string") throw new Error("No file path provided.");
+      if (!isJsonString(path)) throw new Error("No file path provided.");
       this.options.respond(id, { content: readFileSync(path, "utf8") });
     } catch (error) {
       this.options.respond(id, {
@@ -197,8 +202,8 @@ export class OpenCodeHostServices {
   writeFile(id: number | string, params: Record<string, unknown>) {
     const path = params.path ?? params.filePath;
     try {
-      if (typeof path !== "string") throw new Error("No file path provided.");
-      if (typeof params.content !== "string") {
+      if (!isJsonString(path)) throw new Error("No file path provided.");
+      if (!isJsonString(params.content)) {
         throw new Error("No file content provided.");
       }
       writeFileSync(path, params.content, "utf8");
@@ -217,12 +222,11 @@ export class OpenCodeHostServices {
   ) {
     const requestedTerminalId = params.terminalId;
     const terminalId =
-      typeof requestedTerminalId === "string" ||
-      typeof requestedTerminalId === "number"
+      isJsonString(requestedTerminalId) || isJsonNumber(requestedTerminalId)
         ? String(requestedTerminalId)
         : `terminal-${++this.nextTerminalId}`;
     if (method === "terminal/create") {
-      if (typeof params.command !== "string") {
+      if (!isJsonString(params.command)) {
         this.options.respond(id, { error: "No command provided." });
         return;
       }
@@ -230,7 +234,7 @@ export class OpenCodeHostServices {
         ? params.args.map(openCodeArgument)
         : [];
       const child = spawn(params.command, args, {
-        cwd: typeof params.cwd === "string" ? params.cwd : this.options.cwd(),
+        cwd: isJsonString(params.cwd) ? params.cwd : this.options.cwd(),
         env: this.options.environment(),
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -311,7 +315,7 @@ export class OpenCodeHostServices {
 }
 
 function openCodeArgument(value: unknown) {
-  if (typeof value === "string") return value;
+  if (isJsonString(value)) return value;
   const serialized = JSON.stringify(value);
-  return typeof serialized === "string" ? serialized : "";
+  return isJsonString(serialized) ? serialized : "";
 }

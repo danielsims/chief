@@ -1,5 +1,8 @@
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
 
 export interface AgentMentionSegment {
   type: "mention";
@@ -19,12 +22,17 @@ export interface AgentMentionRemoval {
 }
 
 const AGENT_IDS_BY_NAME = new Map(
-  Object.entries(WORKSPACE_AGENT_IDENTITIES).flatMap(([agentId, identity]) =>
-    [identity.name, agentId, ...(agentId === "brand" ? ["Brand"] : [])].map(
-      (name) =>
-        [name.toLocaleLowerCase(), agentId as WorkspaceAgentId] as const,
-    ),
-  ),
+  Object.entries(WORKSPACE_AGENT_IDENTITIES).flatMap(([agentId, identity]) => {
+    if (!isWorkspaceAgentId(agentId)) return [];
+    return [
+      identity.name,
+      agentId,
+      ...(agentId === "brand" ? ["Brand"] : []),
+    ].map((name): [string, WorkspaceAgentId] => [
+      name.toLocaleLowerCase(),
+      agentId,
+    ]);
+  }),
 );
 
 const AGENT_MENTION_PATTERN = new RegExp(

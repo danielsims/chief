@@ -4,6 +4,8 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { isJsonObject } from "@chief/relay-contracts";
+
 import type { StartOptions } from "../types.js";
 import { AcpDriver } from "./acp.js";
 
@@ -26,8 +28,8 @@ function findCodexAcp() {
 }
 
 function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
+  return value && isJsonObject(value) && !Array.isArray(value)
+    ? (value)
     : {};
 }
 

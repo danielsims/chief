@@ -33,6 +33,7 @@ export function createChiefAuth(
       }
     : {};
   const googleConfigured = Boolean(options.google);
+  const sendOrganizationInvitation = options.sendOrganizationInvitation;
 
   return betterAuth({
     appName: "Chief",
@@ -57,25 +58,23 @@ export function createChiefAuth(
         invitationExpiresIn: 60 * 60 * 24 * 7,
         invitationLimit: 100,
         requireEmailVerificationOnInvitation: true,
-        ...(options.sendOrganizationInvitation
-          ? {
-              sendInvitationEmail: async (invitation) => {
-                await options.sendOrganizationInvitation?.({
-                  email: invitation.email,
-                  id: invitation.id,
-                  inviter: {
-                    email: invitation.inviter.user.email,
-                    name: invitation.inviter.user.name,
-                  },
-                  organization: {
-                    id: invitation.organization.id,
-                    name: invitation.organization.name,
-                  },
-                  role: invitation.role,
-                });
-              },
+        sendInvitationEmail: sendOrganizationInvitation
+          ? async (invitation) => {
+              await sendOrganizationInvitation({
+                email: invitation.email,
+                id: invitation.id,
+                inviter: {
+                  email: invitation.inviter.user.email,
+                  name: invitation.inviter.user.name,
+                },
+                organization: {
+                  id: invitation.organization.id,
+                  name: invitation.organization.name,
+                },
+                role: invitation.role,
+              });
             }
-          : {}),
+          : undefined,
       }),
       jwt({
         jwt: {

@@ -14,6 +14,7 @@ import { promisify } from "node:util";
 import { parse, stringify } from "yaml";
 
 import type { AgentPluginSummary } from "@chief/plugin-api";
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 import type {
   PluginCatalogSnapshot,
@@ -100,23 +101,23 @@ async function exists(path: string) {
 }
 
 function record(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  return Boolean(value) && isJsonObject(value) && !Array.isArray(value);
 }
 
 function portableLegacyServer(spec: Record<string, unknown>) {
-  if (typeof spec.url === "string") {
+  if (isJsonString(spec.url)) {
     return {
       type: spec.type === "sse" ? "sse" : "streamable-http",
       url: spec.url,
-      ...(spec.headers === undefined ? {} : { headers: spec.headers }),
+      ...(spec.headers === undefined ? undefined : { headers: spec.headers }),
     };
   }
   return {
     type: "stdio",
     command: spec.command,
-    ...(spec.args === undefined ? {} : { args: spec.args }),
-    ...(spec.env === undefined ? {} : { env: spec.env }),
-    ...(spec.cwd === undefined ? {} : { cwd: spec.cwd }),
+    ...(spec.args === undefined ? undefined : { args: spec.args }),
+    ...(spec.env === undefined ? undefined : { env: spec.env }),
+    ...(spec.cwd === undefined ? undefined : { cwd: spec.cwd }),
   };
 }
 
@@ -142,12 +143,12 @@ async function normalizeLegacySkills(root: string) {
       "compatibility",
       "allowed-tools",
     ]) {
-      if (typeof metadata[key] === "string") portable[key] = metadata[key];
+      if (isJsonString(metadata[key])) portable[key] = metadata[key];
     }
     if (record(metadata.metadata)) {
       const strings = Object.fromEntries(
         Object.entries(metadata.metadata).filter(
-          (entry): entry is [string, string] => typeof entry[1] === "string",
+          (entry): entry is [string, string] => isJsonString(entry[1]),
         ),
       );
       if (Object.keys(strings).length > 0) portable.metadata = strings;
@@ -182,10 +183,9 @@ export async function normalizeLegacyPackage(
     const legacyManifest = JSON.parse(
       await readFile(join(root, legacyPath), "utf8"),
     ) as Record<string, unknown>;
-    const description =
-      typeof legacyManifest.description === "string"
-        ? legacyManifest.description
-        : undefined;
+    const description = isJsonString(legacyManifest.description)
+      ? legacyManifest.description
+      : undefined;
     await writeFile(
       manifestPath,
       `${JSON.stringify({ $schema: PLUGIN_SCHEMA, name: fallbackName, description }, null, 2)}\n`,
@@ -233,8 +233,7 @@ async function materializeDiscoveredPackage(
     surfaces?: { type?: string; url?: string; name?: string }[];
   };
   const surface = document.surfaces?.find(
-    (candidate) =>
-      candidate.type === "mcp" && typeof candidate.url === "string",
+    (candidate) => candidate.type === "mcp" && isJsonString(candidate.url),
   );
   if (!surface?.url)
     throw new Error(

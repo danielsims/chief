@@ -27,7 +27,7 @@ void test("channel threads contain authored replies before specialist projection
       parts: [{ type: "text", text: "Sign-in is ready when you are." }],
       metadata: { createdAt: 200, threadRootId: "root" },
     },
-  ] as ChiefUIMessage[];
+  ] satisfies ChiefUIMessage[];
 
   const entries = conversationTimelineEntries(messages, [], new Map(), "root");
 
@@ -49,7 +49,7 @@ void test("a specialist task remains in its owning thread after failure", () => 
       parts: [{ type: "text", text: "I could not finish this run." }],
       metadata: { createdAt: 300, threadRootId: "root" },
     },
-  ] as ChiefUIMessage[];
+  ] satisfies ChiefUIMessage[];
   const task = {
     id: "prospecting-run",
     parentId: "channel:workspace:prospecting",
@@ -62,7 +62,7 @@ void test("a specialist task remains in its owning thread after failure", () => 
     attempt: 1,
     createdAt: 200,
     updatedAt: 300,
-  } as SessionRecord;
+  } satisfies SessionRecord;
 
   const entries = withSpecialistTimelineEntries(
     conversationTimelineEntries(messages, [], new Map(), "root"),
@@ -97,7 +97,7 @@ void test("a specialist file card stays in its owning thread", () => {
       },
     ],
     metadata: { createdAt: 200, threadRootId: "brand-thread" },
-  } as ChiefUIMessage;
+  } satisfies ChiefUIMessage;
 
   assert.equal(
     conversationTimelineEntries([fileMessage], [], new Map(), null).length,
@@ -130,7 +130,7 @@ void test("an answered action stays before the continuation reply it triggered",
       parts: [{ type: "text", text: "Thanks, I continued the work." }],
       metadata: { createdAt: 300 },
     },
-  ] as ChiefUIMessage[];
+  ] satisfies ChiefUIMessage[];
   const action = {
     id: "action",
     agentId: "chief",
@@ -138,7 +138,7 @@ void test("an answered action stays before the continuation reply it triggered",
     reason: "One decision is needed.",
     status: "resolved",
     createdAt: 200,
-  } as ActionItem;
+  } satisfies ActionItem;
 
   const entries = withActionTimelineEntries(
     conversationTimelineEntries(messages, [], new Map(), null),

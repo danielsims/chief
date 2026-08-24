@@ -1,5 +1,7 @@
 import type { WorkspaceSummary } from "@chief/relay-contracts";
 import {
+  isJsonObject,
+  isJsonString,
   relayDiscoverySchema,
   workspaceSummarySchema,
 } from "@chief/relay-contracts";
@@ -40,12 +42,11 @@ function readDirectory(): StoredRelayDirectory {
             .map(parseStoredRelayConnection)
             .filter((value): value is StoredRelayConnection => value !== null)
         : [];
-      const activeRelayUrl =
-        typeof parsed.activeRelayUrl === "string"
-          ? normalizedRelayOrigin(parsed.activeRelayUrl)
-          : null;
+      const activeRelayUrl = isJsonString(parsed.activeRelayUrl)
+        ? normalizedRelayOrigin(parsed.activeRelayUrl)
+        : null;
       const workspaces =
-        parsed.workspaces && typeof parsed.workspaces === "object"
+        parsed.workspaces && isJsonObject(parsed.workspaces)
           ? Object.fromEntries(
               Object.entries(parsed.workspaces).flatMap(
                 ([workspaceId, value]) => {
@@ -54,7 +55,7 @@ function readDirectory(): StoredRelayDirectory {
                       relayUrl?: unknown;
                       summary?: unknown;
                     };
-                    if (typeof record.relayUrl !== "string") return [];
+                    if (!isJsonString(record.relayUrl)) return [];
                     const summary = workspaceSummarySchema.parse(
                       record.summary,
                     );
@@ -238,13 +239,13 @@ export async function validateRelayConnection(
 function parseStoredRelayConnection(
   value: unknown,
 ): StoredRelayConnection | null {
-  if (!value || typeof value !== "object") return null;
+  if (!value || !isJsonObject(value)) return null;
   const record = value as Record<string, unknown>;
   if (
     record.version !== 1 ||
-    typeof record.relayUrl !== "string" ||
-    typeof record.authBaseUrl !== "string" ||
-    typeof record.authUiUrl !== "string"
+    !isJsonString(record.relayUrl) ||
+    !isJsonString(record.authBaseUrl) ||
+    !isJsonString(record.authUiUrl)
   ) {
     return null;
   }

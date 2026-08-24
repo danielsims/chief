@@ -1,14 +1,10 @@
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import type { McpServerSpec } from "../types.js";
 import type { ExecutorWorkspace } from "./control-plane.js";
 
-const moduleDirectory =
-  typeof __dirname === "string"
-    ? __dirname
-    : dirname(fileURLToPath(import.meta.url));
+const moduleDirectory = import.meta.dirname;
 
 export function executorBinary(): string {
   if (process.env.CHIEF_EXECUTOR_BINARY) {

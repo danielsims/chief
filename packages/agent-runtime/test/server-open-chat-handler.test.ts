@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { AgentSession } from "../src/session.js";
+import type { LiveSessionState } from "../src/server-open-chat-handler.js";
 import type { AgentEvent } from "../src/types.js";
 import {
   shouldRecoverOnboardingOnOpen,
@@ -9,13 +9,13 @@ import {
 } from "../src/server-open-chat-handler.js";
 
 function session(
-  executionOwner: AgentSession["config"]["executionOwner"],
+  executionOwner: LiveSessionState["config"]["executionOwner"],
   isBusy: boolean,
 ) {
   return {
     config: { executionOwner },
     isBusy,
-  } as AgentSession;
+  } satisfies LiveSessionState;
 }
 
 void test("opening a scheduled chat reuses its live session", () => {

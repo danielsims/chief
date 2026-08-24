@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { SessionManager } from "../src/manager.js";
+import type {
+  SpecialistFileManager,
+  SpecialistFilePart,
+} from "../src/specialist-file-publication.js";
 import type { WorkspaceFileRecord } from "../src/types.js";
 import { publishSpecialistFileToThread } from "../src/specialist-file-publication.js";
 
@@ -9,11 +12,11 @@ void test("agent-created file versions publish only in their owning threads", as
   const published: {
     id: string;
     metadata: { threadRootId?: string };
-    parts: unknown[];
+    parts: SpecialistFilePart[];
   }[] = [];
   const session = {
     recordAssistantMessage(
-      parts: unknown[],
+      parts: SpecialistFilePart[],
       metadata: { id: string; threadRootId?: string },
     ) {
       published.push({ id: metadata.id, metadata, parts });
@@ -23,7 +26,7 @@ void test("agent-created file versions publish only in their owning threads", as
     messages: () => Promise.resolve(published),
     rootChat: () => Promise.resolve({ session }),
     waitForChatPersistence: () => Promise.resolve(),
-  } as unknown as SessionManager;
+  } satisfies SpecialistFileManager;
   const file: WorkspaceFileRecord = {
     id: "report",
     name: "Research report.md",

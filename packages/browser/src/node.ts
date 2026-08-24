@@ -109,7 +109,7 @@ export class AgentBrowserSession {
               ? {
                   AGENT_BROWSER_ENCRYPTION_KEY: this.options.encryptionKey,
                 }
-              : {}),
+              : undefined),
             AGENT_BROWSER_CONFIG: this.configPath,
             AGENT_BROWSER_DEFAULT_TIMEOUT: "20000",
             AGENT_BROWSER_EXTENSIONS: "",
@@ -117,7 +117,7 @@ export class AgentBrowserSession {
             AGENT_BROWSER_IDLE_TIMEOUT_MS: "30m",
             ...(this.options.restore
               ? { AGENT_BROWSER_AUTOSAVE_INTERVAL_MS: "5000" }
-              : {}),
+              : undefined),
           },
           maxBuffer: 10 * 1024 * 1024,
           timeout,

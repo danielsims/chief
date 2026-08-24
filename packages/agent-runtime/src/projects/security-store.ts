@@ -33,7 +33,9 @@ function grantRecord(
     principalType: row.principalType,
     principalId: row.principalId,
     capability: row.capability,
-    ...(row.constraintJson ? { constraintJson: row.constraintJson } : {}),
+    ...(row.constraintJson
+      ? { constraintJson: row.constraintJson }
+      : undefined),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -46,9 +48,13 @@ function providerConnectionRecord(
     id: row.id,
     organizationId: row.organizationId,
     providerId: row.providerId,
-    ...(row.installationId ? { installationId: row.installationId } : {}),
-    ...(row.accountLabel ? { accountLabel: row.accountLabel } : {}),
-    ...(row.secretReference ? { secretReference: row.secretReference } : {}),
+    ...(row.installationId
+      ? { installationId: row.installationId }
+      : undefined),
+    ...(row.accountLabel ? { accountLabel: row.accountLabel } : undefined),
+    ...(row.secretReference
+      ? { secretReference: row.secretReference }
+      : undefined),
     status: row.status,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -75,17 +81,17 @@ function operationRecord(
   return {
     id: row.id,
     organizationId: row.organizationId,
-    ...(row.projectId ? { projectId: row.projectId } : {}),
-    ...(row.principalType ? { principalType: row.principalType } : {}),
-    ...(row.principalId ? { principalId: row.principalId } : {}),
-    ...(row.agentId ? { agentId: row.agentId } : {}),
-    ...(row.checkoutId ? { checkoutId: row.checkoutId } : {}),
-    ...(row.branch ? { branch: row.branch } : {}),
+    ...(row.projectId ? { projectId: row.projectId } : undefined),
+    ...(row.principalType ? { principalType: row.principalType } : undefined),
+    ...(row.principalId ? { principalId: row.principalId } : undefined),
+    ...(row.agentId ? { agentId: row.agentId } : undefined),
+    ...(row.checkoutId ? { checkoutId: row.checkoutId } : undefined),
+    ...(row.branch ? { branch: row.branch } : undefined),
     operation: row.operation,
     result: row.result,
-    ...(row.commitHash ? { commitHash: row.commitHash } : {}),
-    ...(row.correlationId ? { correlationId: row.correlationId } : {}),
-    ...(row.message ? { message: row.message } : {}),
+    ...(row.commitHash ? { commitHash: row.commitHash } : undefined),
+    ...(row.correlationId ? { correlationId: row.correlationId } : undefined),
+    ...(row.message ? { message: row.message } : undefined),
     createdAt: row.createdAt,
   };
 }
@@ -101,8 +107,8 @@ function accessRequestRecord(
     capabilities: projectCapabilitiesThrough(row.capability),
     status: row.status,
     requestedAt: row.requestedAt,
-    ...(row.resolvedAt ? { resolvedAt: row.resolvedAt } : {}),
-    ...(row.resolvedBy ? { resolvedBy: row.resolvedBy } : {}),
+    ...(row.resolvedAt ? { resolvedAt: row.resolvedAt } : undefined),
+    ...(row.resolvedBy ? { resolvedBy: row.resolvedBy } : undefined),
   };
 }
 

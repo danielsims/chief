@@ -1,5 +1,11 @@
 import { fileURLToPath } from "node:url";
 
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
+
 import type { RemotePluginCatalogEntry } from "./types.js";
 import { readPluginState } from "./store.js";
 
@@ -38,12 +44,12 @@ const bundledGoogleWorkspace: RemotePluginCatalogEntry = {
 };
 
 function text(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  return isJsonString(value) && value.trim() ? value.trim() : undefined;
 }
 
 function strings(value: unknown) {
   return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
+    ? value.filter((item): item is string => isJsonString(item))
     : [];
 }
 
@@ -60,13 +66,13 @@ export function parseAgentCatalog(
 ): RemotePluginCatalogEntry[] {
   if (
     !raw ||
-    typeof raw !== "object" ||
+    !isJsonObject(raw) ||
     !Array.isArray((raw as { plugins?: unknown }).plugins)
   ) {
     throw new Error("Catalog document does not contain a plugins list.");
   }
   return (raw as { plugins: unknown[] }).plugins.flatMap((candidate) => {
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate))
+    if (!candidate || !isJsonObject(candidate) || Array.isArray(candidate))
       return [];
     const item = candidate as Record<string, unknown>;
     const id = text(item.name);
@@ -76,7 +82,7 @@ export function parseAgentCatalog(
       !id ||
       !description ||
       !source ||
-      typeof source !== "object" ||
+      !isJsonObject(source) ||
       Array.isArray(source)
     )
       return [];
@@ -112,13 +118,13 @@ export function parseIntegrationsCatalog(
 ): RemotePluginCatalogEntry[] {
   if (
     !raw ||
-    typeof raw !== "object" ||
+    !isJsonObject(raw) ||
     !Array.isArray((raw as { data?: unknown }).data)
   ) {
     throw new Error("integrations.sh did not return its catalog envelope.");
   }
   return (raw as { data: unknown[] }).data.flatMap((candidate) => {
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate))
+    if (!candidate || !isJsonObject(candidate) || Array.isArray(candidate))
       return [];
     const item = candidate as Record<string, unknown>;
     if (item.kind !== "mcp") return [];
@@ -129,8 +135,7 @@ export function parseIntegrationsCatalog(
     if (!id || !PLUGIN_ID.test(id) || !name || !description || !domain)
       return [];
     const categories = strings(item.categories);
-    const popularity =
-      typeof item.popularity === "number" ? item.popularity : 0;
+    const popularity = isJsonNumber(item.popularity) ? item.popularity : 0;
     return [
       {
         id,
@@ -203,7 +208,7 @@ export async function fetchPluginCatalog(workspaceId: string, force = false) {
           };
         } catch (error) {
           return {
-            entries: [] as RemotePluginCatalogEntry[],
+            entries: [] satisfies RemotePluginCatalogEntry[],
             warning: `${source.name}: ${error instanceof Error ? error.message : String(error)}`,
           };
         }
@@ -220,7 +225,7 @@ export async function fetchPluginCatalog(workspaceId: string, force = false) {
   const next = {
     entries: mergePluginCatalogEntries(entries),
     refreshedAt: Date.now(),
-    ...(warnings.length ? { warning: warnings.join("; ") } : {}),
+    ...(warnings.length ? { warning: warnings.join("; ") } : undefined),
   };
   catalogCache.set(workspaceId, next);
   return next;

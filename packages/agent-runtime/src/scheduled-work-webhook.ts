@@ -1,5 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
+import { isJsonObject } from "@chief/relay-contracts";
+
 import type { SessionManager } from "./manager.js";
 import type { ScheduledWorkRunner } from "./scheduled-work-local-tools.js";
 
@@ -66,7 +68,7 @@ export async function handleScheduledWorkWebhook(input: {
     };
   }
   const context =
-    input.body && typeof input.body === "object" && !Array.isArray(input.body)
+    input.body && isJsonObject(input.body) && !Array.isArray(input.body)
       ? (input.body as Record<string, unknown>)
       : { payload: input.body };
   void input.runner

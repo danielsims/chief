@@ -67,7 +67,9 @@ export async function publishAgentMessage(
     payload: {
       messageId: crypto.randomUUID(),
       conversationId: message.conversationId,
-      ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
+      ...(message.threadRootId
+        ? { threadRootId: message.threadRootId }
+        : undefined),
       body: message.body,
       components: message.components ?? [],
     },

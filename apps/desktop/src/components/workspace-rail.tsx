@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
+import { isJsonString } from "@chief/relay-contracts";
 import { Popover, PopoverAnchor } from "@chief/ui/components/popover";
 import {
   Tooltip,
@@ -134,7 +135,7 @@ export function WorkspaceRail() {
                         name={organization.name}
                         logo={organization.logo}
                         website={
-                          typeof metadata.websiteUrl === "string"
+                          isJsonString(metadata.websiteUrl)
                             ? metadata.websiteUrl
                             : ""
                         }

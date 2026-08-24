@@ -1,12 +1,27 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import type { SessionManager } from "./manager.js";
 import type { RecurringWorkRecord } from "./types.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
 
+export interface RecurringWorkSettingsManager {
+  recurringWorkById(
+    workspaceId: string,
+    workId: string,
+  ): Promise<RecurringWorkRecord | undefined>;
+  saveRecurringWork(
+    workspaceId: string,
+    work: RecurringWorkRecord,
+  ): Promise<unknown>;
+  setScheduleWebhookSecretHash(
+    workspaceId: string,
+    workId: string,
+    hash: string | undefined,
+  ): Promise<unknown>;
+}
+
 /** Applies user-editable schedule fields without widening the approved grant. */
 export async function saveRecurringWorkSettings(
-  manager: SessionManager,
+  manager: RecurringWorkSettingsManager,
   workspaceId: string,
   work: RecurringWorkRecord,
 ) {
@@ -97,7 +112,7 @@ export async function saveRecurringWorkSettings(
 
 /** Rotates a webhook credential and returns its local URL exactly once. */
 export async function rotateRecurringWorkWebhook(
-  manager: SessionManager,
+  manager: RecurringWorkSettingsManager,
   workspaceId: string,
   recurringWorkId: string,
   origin: string,

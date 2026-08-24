@@ -2,6 +2,7 @@ import type {
   BrowserPresentationMode,
   BrowserRunRecord,
 } from "@chief/agent-runtime/types";
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 export interface RuntimeBrowserSession {
   runId: string;
@@ -71,23 +72,22 @@ export interface BrowserOwnerCandidate {
  * the reliable open signal. Snapshot/click/fill results do not contain it.
  */
 export function browserOpenResultContent(content: unknown): boolean {
-  const text =
-    typeof content === "string"
+  const text = isJsonString(content)
+    ? content
+    : Array.isArray(content)
       ? content
-      : Array.isArray(content)
-        ? content
-            .map((block) =>
-              block &&
-              typeof block === "object" &&
-              "text" in block &&
-              typeof (block as { text: unknown }).text === "string"
-                ? (block as { text: string }).text
-                : "",
-            )
-            .join("\n")
-        : content && typeof content === "object"
-          ? JSON.stringify(content)
-          : "";
+          .map((block) =>
+            block &&
+            isJsonObject(block) &&
+            "text" in block &&
+            isJsonString((block as { text: unknown }).text)
+              ? (block as { text: string }).text
+              : "",
+          )
+          .join("\n")
+      : content && isJsonObject(content)
+        ? JSON.stringify(content)
+        : "";
   return (
     /\bopened\s*["']?\s*:\s*true\b/i.test(text) &&
     /["']?url["']?\s*:/i.test(text)
@@ -149,10 +149,10 @@ export function upsertBrowserRun(
                 candidate.parentConversationId ?? run.parentConversationId,
               ...(durableThreadRootId
                 ? { threadRootId: durableThreadRootId }
-                : {}),
+                : undefined),
               ...(candidate.anchorMessageId
                 ? { anchorMessageId: candidate.anchorMessageId }
-                : {}),
+                : undefined),
               createdAt: candidate.createdAt,
             }
           : candidate,

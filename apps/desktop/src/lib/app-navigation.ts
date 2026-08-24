@@ -67,20 +67,20 @@ function conversationFromParams(params: URLSearchParams) {
     channelId: channelId ?? `direct:${directAgentId}`,
     ...(nonEmpty(params.get("channelSlug"))
       ? { channelSlug: nonEmpty(params.get("channelSlug")) }
-      : {}),
-    ...(directAgentId ? { directAgentId } : {}),
+      : undefined),
+    ...(directAgentId ? { directAgentId } : undefined),
     ...(nonEmpty(params.get("threadRootId") ?? params.get("thread"))
       ? {
           threadRootId: nonEmpty(
             params.get("threadRootId") ?? params.get("thread"),
           ),
         }
-      : {}),
+      : undefined),
     ...(nonEmpty(params.get("messageId") ?? params.get("message"))
       ? {
           messageId: nonEmpty(params.get("messageId") ?? params.get("message")),
         }
-      : {}),
+      : undefined),
   } satisfies ChiefNavigationDestination;
 }
 

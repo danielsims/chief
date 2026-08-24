@@ -1,3 +1,5 @@
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+
 function humanizeExecutorOperation(operation: string) {
   if (operation === "search") return "Search connected tools";
   if (operation === "describe" || operation === "tool") {
@@ -33,8 +35,8 @@ function humanizeExecutorOperation(operation: string) {
 }
 
 export function executorToolLabel(input: unknown) {
-  if (!input || typeof input !== "object") return null;
-  const code = findCodeString(input as Record<string, unknown>);
+  if (!input || !isJsonObject(input)) return null;
+  const code = findCodeString(input);
   if (code === null) return null;
   const calls: string[] = [];
   const add = (operation: string | undefined) => {
@@ -66,18 +68,18 @@ export function executorToolLabel(input: unknown) {
  */
 function findCodeString(input: Record<string, unknown>): string | null {
   const candidate = input.code;
-  if (typeof candidate === "string") {
+  if (isJsonString(candidate)) {
     if (candidate.includes("tools.") || candidate.includes('tools["')) {
       return candidate;
     }
     return null;
   }
-  if (candidate && typeof candidate === "object") {
-    const nested = findCodeString(candidate as Record<string, unknown>);
+  if (candidate && isJsonObject(candidate)) {
+    const nested = findCodeString(candidate);
     if (nested !== null) return nested;
   }
   for (const value of Object.values(input)) {
-    if (typeof value !== "string") continue;
+    if (!isJsonString(value)) continue;
     if (value.includes("tools.") || value.includes('tools["')) return value;
   }
   return null;

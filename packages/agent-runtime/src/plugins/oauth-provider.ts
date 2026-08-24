@@ -9,6 +9,8 @@ import type {
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 
+import { isJsonNumber } from "@chief/relay-contracts";
+
 import { workspaceSecrets } from "../workspace-secrets.js";
 
 export const PLUGIN_OAUTH_CALLBACK_URL =
@@ -79,7 +81,7 @@ export function oauthStateMatches(left: string, right: string) {
 
 export function accessTokenExpired(session: StoredOAuthSession) {
   return (
-    typeof session.tokens?.expires_in === "number" &&
+    isJsonNumber(session.tokens?.expires_in) &&
     session.updatedAt + session.tokens.expires_in * 1000 <= Date.now() + 30_000
   );
 }

@@ -5,8 +5,17 @@ import { RelayClientError } from "@chief/relay-client";
 
 import { workspaceChannelFromRelay } from "./relay-channel-adapter";
 
+type RelayChannelClient = Pick<
+  RelayClient,
+  | "createChannel"
+  | "listChannelMembers"
+  | "listChannelMemberships"
+  | "listChannels"
+  | "listCurrentChannelMemberships"
+>;
+
 export async function loadRelayWorkspaceChannels(
-  relay: RelayClient,
+  relay: RelayChannelClient,
   snapshot: WorkspaceSnapshot,
 ) {
   const [records, currentMemberships, allMemberships] = await Promise.all([
@@ -30,7 +39,7 @@ export async function loadRelayWorkspaceChannels(
                     (agent) => agent.id === membership.principalId,
                   )?.name,
                 }
-              : {}),
+              : undefined),
           })),
       )
     : await Promise.all(
@@ -53,7 +62,7 @@ export async function loadRelayWorkspaceChannels(
 }
 
 export async function createRelayWorkspaceChannel(
-  relay: RelayClient,
+  relay: RelayChannelClient,
   rawName: string,
 ) {
   const name = rawName.trim();

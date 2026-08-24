@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import type { JsonValue } from "@chief/relay-contracts";
 import {
   execRequestSchema,
   readExecutionFileSchema,
@@ -84,7 +85,7 @@ export function createExecutorHandler(config: ExecutorConfig) {
   };
 }
 
-function json(value: unknown, init: ResponseInit = {}) {
+function json(value: JsonValue, init: ResponseInit = {}) {
   return new Response(JSON.stringify(value), {
     ...init,
     headers: {

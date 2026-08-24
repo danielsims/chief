@@ -22,7 +22,14 @@ type PluginSnapshot = Omit<
 >;
 
 interface WorkspaceDataContext {
-  relay: RelayClient;
+  relay: Pick<
+    RelayClient,
+    | "createProject"
+    | "listProjects"
+    | "listProspects"
+    | "listWorkspaceFiles"
+    | "updateWorkspaceFile"
+  >;
   snapshot: WorkspaceSnapshot;
   emit(message: ServerMessage): void;
 }
@@ -198,13 +205,13 @@ async function registerClonedProject(
     name: requestedName?.length ? requestedName : repository.name,
     ...(message.description?.trim()
       ? { description: message.description.trim() }
-      : {}),
+      : undefined),
     repositoryKind: "cloned",
     providerId: repository.providerId,
     canonicalRemoteUrl: repository.canonicalRemoteUrl,
     ...(repository.repositoryWebUrl
       ? { repositoryWebUrl: repository.repositoryWebUrl }
-      : {}),
+      : undefined),
     defaultBranch: "main",
   });
   context.emit({
@@ -225,7 +232,7 @@ async function listWorkspaceData(context: WorkspaceDataContext) {
     prospects: prospects.map((prospect) => ({
       id: prospect.id,
       name: prospect.name,
-      ...(prospect.company ? { company: prospect.company } : {}),
+      ...(prospect.company ? { company: prospect.company } : undefined),
       source: prospect.source,
       sourceUrl: prospect.sourceUrl,
       summary: prospect.summary,
@@ -305,7 +312,7 @@ function projectRepositoryDetails(raw: string): {
     canonicalRemoteUrl: scp ? value : url.toString(),
     ...(["github", "gitlab", "bitbucket"].includes(providerId)
       ? { repositoryWebUrl: `https://${hostname}/${path}` }
-      : {}),
+      : undefined),
   };
 }
 

@@ -1,5 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+
 import type { AgentSessionCapability } from "./agent-session-capabilities.js";
 import type { AgentToolPermission, ExecutorCapability } from "./types.js";
 import {
@@ -263,7 +265,7 @@ async function readJsonBody(request: IncomingMessage) {
   if (raw.length === 0) return {};
   try {
     const value: unknown = JSON.parse(raw.toString("utf8"));
-    return value && typeof value === "object" && !Array.isArray(value)
+    return value && isJsonObject(value) && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : {};
   } catch {
@@ -272,9 +274,9 @@ async function readJsonBody(request: IncomingMessage) {
 }
 
 function requestedSession(url: URL, body: Readonly<Record<string, unknown>>) {
-  return typeof body.sessionId === "string"
+  return isJsonString(body.sessionId)
     ? body.sessionId
-    : typeof body.conversationId === "string"
+    : isJsonString(body.conversationId)
       ? body.conversationId
       : (url.searchParams.get("sessionId") ?? undefined);
 }

@@ -7,13 +7,11 @@ import * as sqliteSchema from "../src/schema/sqlite";
 
 void test("the D1 schema implements every canonical auth model", () => {
   const actual = Object.fromEntries(
-    Object.keys(authSchemaContract).map((model) => [
+    Object.entries(sqliteSchema).map(([model, schema]) => [
       model,
       {
-        table: getTableName(sqliteSchema[model as keyof typeof sqliteSchema]),
-        fields: Object.keys(
-          getTableColumns(sqliteSchema[model as keyof typeof sqliteSchema]),
-        ).sort(),
+        table: getTableName(schema),
+        fields: Object.keys(getTableColumns(schema)).sort(),
       },
     ]),
   );

@@ -280,7 +280,7 @@ export class EveRemoteDriver extends BaseDriver {
           message: safeRuntimeError(error),
           ...(isDeploymentNotFound(error)
             ? { code: "deployment_not_found" as const }
-            : {}),
+            : undefined),
         });
         this.emitEvent({ type: "status", status: "idle" });
       }

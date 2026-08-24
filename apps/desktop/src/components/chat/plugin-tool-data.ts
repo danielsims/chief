@@ -3,11 +3,12 @@ import type {
   ContentBlock,
   PluginAuthorizationAction,
 } from "@chief/agent-runtime/types";
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 type ToolResult = Extract<ContentBlock, { type: "tool_result" }>;
 
 function object(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  return Boolean(value) && isJsonObject(value) && !Array.isArray(value);
 }
 
 function parseJson(value: string) {
@@ -21,12 +22,12 @@ function parseJson(value: string) {
 export function structuredToolResult(result: ToolResult | undefined): unknown {
   if (!result) return undefined;
   const content = result.content;
-  if (typeof content === "string") return parseJson(content) ?? content;
+  if (isJsonString(content)) return parseJson(content) ?? content;
   if (object(content)) {
     for (const key of ["structuredContent", "content", "value", "result"]) {
       if (content[key] !== undefined) {
         const nested = content[key];
-        if (typeof nested === "string") return parseJson(nested) ?? nested;
+        if (isJsonString(nested)) return parseJson(nested) ?? nested;
         if (object(nested)) return nested;
       }
     }
@@ -36,7 +37,7 @@ export function structuredToolResult(result: ToolResult | undefined): unknown {
     for (const block of content) {
       if (!object(block)) continue;
       if (object(block.structuredContent)) return block.structuredContent;
-      if (typeof block.text === "string") {
+      if (isJsonString(block.text)) {
         const parsed = parseJson(block.text);
         if (parsed !== undefined) return parsed;
       }
@@ -53,11 +54,11 @@ export function pluginAuthorizationFromResult(
     !object(value) ||
     value.kind !== "plugin_authorization" ||
     value.status !== "authorization_required" ||
-    typeof value.pluginId !== "string" ||
-    typeof value.pluginName !== "string" ||
-    typeof value.description !== "string" ||
-    typeof value.provider !== "string" ||
-    typeof value.authorizationUrl !== "string"
+    !isJsonString(value.pluginId) ||
+    !isJsonString(value.pluginName) ||
+    !isJsonString(value.description) ||
+    !isJsonString(value.provider) ||
+    !isJsonString(value.authorizationUrl)
   ) {
     return undefined;
   }
@@ -79,10 +80,10 @@ export function pluginListFromResult(
   const plugins = value.plugins.filter(
     (plugin): plugin is AgentPluginSummary =>
       object(plugin) &&
-      typeof plugin.id === "string" &&
-      typeof plugin.name === "string" &&
-      typeof plugin.description === "string" &&
-      typeof plugin.status === "string",
+      isJsonString(plugin.id) &&
+      isJsonString(plugin.name) &&
+      isJsonString(plugin.description) &&
+      isJsonString(plugin.status),
   );
   return plugins.length ? plugins : undefined;
 }

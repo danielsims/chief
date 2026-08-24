@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { isJsonString } from "@chief/relay-contracts";
+
 import type { AgentDefinition, AgentEvent } from "../src/types.js";
 import { remoteHistoryContext } from "../src/drivers/remote-history.js";
 import { AgentSession } from "../src/session.js";
@@ -231,7 +233,7 @@ void test("assistant message events receive a stable id for channel mirroring", 
   );
   assert.ok(recorded, "assistant message should be recorded");
   assert.ok(
-    typeof recorded.id === "string" && recorded.id.length > 0,
+    isJsonString(recorded.id) && recorded.id.length > 0,
     "assistant message should be stamped with an id",
   );
 });
@@ -278,7 +280,7 @@ void test("send marker flushes mid-turn messages without duplicating the final",
     /On it, setting up now/,
   );
   assert.ok(
-    typeof assistant[0]?.id === "string" && assistant[0].id.length > 0,
+    isJsonString(assistant[0]?.id) && assistant[0].id.length > 0,
     "flushed message should carry an id",
   );
 });

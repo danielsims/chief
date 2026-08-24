@@ -1,19 +1,23 @@
+import { z } from "zod";
+
 export type WorkspaceRole = "owner" | "admin" | "member";
 
+const workspaceRoleSchema = z.enum(["owner", "admin", "member"]);
+const workspaceRoleInputSchema = z.union([z.string(), z.array(z.string())]);
+
 function workspaceRoles(value: unknown): WorkspaceRole[] {
-  const values = Array.isArray(value) ? value : [value];
+  const parsed = workspaceRoleInputSchema.safeParse(value);
+  if (!parsed.success) return [];
+  const values = Array.isArray(parsed.data) ? parsed.data : [parsed.data];
   return [
     ...new Set(
       values.flatMap((candidate) =>
-        typeof candidate === "string"
-          ? candidate
-              .split(",")
-              .map((role) => role.trim().toLowerCase())
-              .filter(
-                (role): role is WorkspaceRole =>
-                  role === "owner" || role === "admin" || role === "member",
-              )
-          : [],
+        candidate
+          .split(",")
+          .map((role) =>
+            workspaceRoleSchema.safeParse(role.trim().toLowerCase()),
+          )
+          .flatMap((role) => (role.success ? [role.data] : [])),
       ),
     ),
   ];

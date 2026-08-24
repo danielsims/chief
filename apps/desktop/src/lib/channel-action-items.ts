@@ -4,6 +4,7 @@ import type {
   RecurringWorkRecord,
   SessionRecord,
 } from "@chief/agent-runtime/types";
+import { isJsonString } from "@chief/relay-contracts";
 
 import type { WorkspaceAgentId } from "./workspace-channels";
 import {
@@ -104,7 +105,7 @@ function sessionThreadRootId(
   while (session && !visited.has(session.id)) {
     visited.add(session.id);
     const threadRootId = session.triggerContext?.threadRootId;
-    if (typeof threadRootId === "string" && threadRootId) return threadRootId;
+    if (isJsonString(threadRootId) && threadRootId) return threadRootId;
     session = session.parentId ? sessionsById.get(session.parentId) : undefined;
   }
 
@@ -258,7 +259,7 @@ export function directMessageAttentionTargets({
     const threadRootId =
       action.threadRootId ?? sessionThreadRootId(action.sourceId, sessionsById);
     targets.set(agentId, {
-      ...(threadRootId ? { threadRootId } : {}),
+      ...(threadRootId ? { threadRootId } : undefined),
       messageId: action.id,
     });
   }

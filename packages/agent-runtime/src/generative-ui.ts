@@ -1,3 +1,9 @@
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
+
 import type {
   AgentEvent,
   ContentBlock,
@@ -19,15 +25,15 @@ interface ReportData {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  return Boolean(value) && isJsonObject(value) && !Array.isArray(value);
 }
 
 function toolResultText(content: unknown): string {
-  if (typeof content === "string") return content;
+  if (isJsonString(content)) return content;
   if (Array.isArray(content)) {
     return content
       .map((part) =>
-        isRecord(part) && typeof part.text === "string" ? part.text : "",
+        isRecord(part) && isJsonString(part.text) ? part.text : "",
       )
       .filter(Boolean)
       .join("\n");
@@ -76,7 +82,7 @@ function parseJsonCandidates(text: string): unknown[] {
   for (const item of [...parsed]) {
     if (!isRecord(item) || !Array.isArray(item.logs)) continue;
     for (const log of item.logs) {
-      if (typeof log !== "string") continue;
+      if (!isJsonString(log)) continue;
       const loose = looseJsonParse(log);
       if (loose !== undefined) parsed.push(loose);
     }
@@ -141,16 +147,16 @@ function explicitChart(value: unknown): GenerativeChartData | null {
     value.type === "data-chart" &&
     isRecord(value.data) &&
     value.data.kind === "line" &&
-    typeof value.data.title === "string" &&
-    typeof value.data.yLabel === "string" &&
+    isJsonString(value.data.title) &&
+    isJsonString(value.data.yLabel) &&
     Array.isArray(value.data.series)
   ) {
     const series = value.data.series.flatMap((candidate, index) => {
       if (!isRecord(candidate) || !Array.isArray(candidate.points)) return [];
       const points = candidate.points.flatMap((point) => {
         if (!isRecord(point)) return [];
-        return typeof point.x === "string" &&
-          typeof point.value === "number" &&
+        return isJsonString(point.x) &&
+          isJsonNumber(point.value) &&
           Number.isFinite(point.value)
           ? [{ x: point.x, value: point.value }]
           : [];
@@ -158,14 +164,10 @@ function explicitChart(value: unknown): GenerativeChartData | null {
       if (points.length < 2) return [];
       return [
         {
-          id:
-            typeof candidate.id === "string"
-              ? candidate.id
-              : `series-${index + 1}`,
-          label:
-            typeof candidate.label === "string"
-              ? candidate.label
-              : `Series ${index + 1}`,
+          id: isJsonString(candidate.id) ? candidate.id : `series-${index + 1}`,
+          label: isJsonString(candidate.label)
+            ? candidate.label
+            : `Series ${index + 1}`,
           points,
         },
       ];
@@ -174,12 +176,10 @@ function explicitChart(value: unknown): GenerativeChartData | null {
     return {
       kind: "line",
       title: value.data.title,
-      subtitle:
-        typeof value.data.subtitle === "string"
-          ? value.data.subtitle
-          : undefined,
-      xLabel:
-        typeof value.data.xLabel === "string" ? value.data.xLabel : undefined,
+      subtitle: isJsonString(value.data.subtitle)
+        ? value.data.subtitle
+        : undefined,
+      xLabel: isJsonString(value.data.xLabel) ? value.data.xLabel : undefined,
       yLabel: value.data.yLabel,
       series,
     };
@@ -212,8 +212,8 @@ function chartFromContent(
     const points = data.rows.flatMap((row) => {
       const x = row[dimension];
       const value = row[metric];
-      return (typeof x === "string" || typeof x === "number") &&
-        typeof value === "number" &&
+      return (isJsonString(x) || isJsonNumber(x)) &&
+        isJsonNumber(value) &&
         Number.isFinite(value)
         ? [{ x: String(x), value }]
         : [];
@@ -255,10 +255,10 @@ function documentFromContent(content: unknown): GenerativeDocumentBlock | null {
     if (!isRecord(value)) return null;
     const file = isRecord(value.file) ? value.file : value;
     if (
-      typeof file.id === "string" &&
-      typeof file.name === "string" &&
-      typeof file.path === "string" &&
-      typeof file.currentVersionId === "string" &&
+      isJsonString(file.id) &&
+      isJsonString(file.name) &&
+      isJsonString(file.path) &&
+      isJsonString(file.currentVersionId) &&
       (file.kind === "document" || file.kind === "email")
     ) {
       return {

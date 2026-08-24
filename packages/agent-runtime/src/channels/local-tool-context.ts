@@ -1,10 +1,14 @@
 import type { ChannelLocalToolContext } from "../channel-local-tools.js";
 import type { ChannelEvent, WorkspaceChannel } from "../channel-types.js";
 import type { SessionManager } from "../manager.js";
+import type { ChannelStore } from "./store.js";
 import { defaultAgents, getAgent } from "../agents.js";
 
 export function createChannelLocalToolContext(input: {
-  manager: SessionManager;
+  manager: {
+    store: { channelStore(): ChannelStore };
+    raiseActionItem: SessionManager["raiseActionItem"];
+  };
   workspaceId: string;
   caller: { agentId: string; chatId: string };
   broadcastChannels: () => void | Promise<void>;

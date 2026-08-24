@@ -100,5 +100,5 @@ function rateLimitEnv(input: {
     SOCKET_TICKET_RATE_LIMITER: input.tickets ?? limiter(true),
     AUTH_REQUEST_RATE_LIMITER: input.auth ?? limiter(true),
     DEVICE_BIND_RATE_LIMITER: input.device ?? limiter(true),
-  } as unknown as Env;
+  };
 }

@@ -61,10 +61,10 @@ export function useChiefChatCore({
   const { markThreadRead, setVisibleThread } = useChannelReadState();
   const userAuthor = {
     name: user?.name.trim() ?? "You",
-    ...(user?.image ? { image: user.image } : {}),
+    ...(user?.image ? { image: user.image } : undefined),
   };
   const currentUser = user
-    ? { id: user.id, ...(user.image ? { image: user.image } : {}) }
+    ? { id: user.id, ...(user.image ? { image: user.image } : undefined) }
     : null;
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const channelReactions = useChannelReactions(
@@ -131,7 +131,9 @@ export function useChiefChatCore({
     (chat.controls.status === "running" && chat.sessionAgentId
       ? {
           agentId: chat.sessionAgentId,
-          ...(resumedThreadRootId ? { threadRootId: resumedThreadRootId } : {}),
+          ...(resumedThreadRootId
+            ? { threadRootId: resumedThreadRootId }
+            : undefined),
         }
       : null);
   const activeRootIdentity =
@@ -258,7 +260,7 @@ export function useChiefChatCore({
       routedAgentId
         ? {
             agentId: routedAgentId,
-            ...(threadRootId ? { threadRootId } : {}),
+            ...(threadRootId ? { threadRootId } : undefined),
           }
         : null,
     );

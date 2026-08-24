@@ -9,7 +9,6 @@ import type {
   ActionItem,
   AgentEvent,
   DriverType,
-  InputRequest,
   RecurringWorkRecord,
   RuntimeNotice,
   SessionArtifact,
@@ -41,6 +40,10 @@ import {
   scheduledAgentConfig,
 } from "./scheduled-agent-config.js";
 import { ScheduledChannelUnavailableError } from "./scheduled-channel-thread.js";
+import {
+  requestedInput,
+  requestedSourceRequirement,
+} from "./scheduled-work-markers.js";
 import { pauseScheduledWorkForMissingChannel } from "./scheduled-work-recovery.js";
 import { executorToolServer } from "./tools/spec.js";
 import { readWorkspaceContext } from "./workspace-context.js";
@@ -50,12 +53,6 @@ const POLL_INTERVAL_MS = 5_000;
 
 function deploymentActionId(workspaceId: string) {
   return `action-chief-deployment-required-${workspaceKey(workspaceId)}`;
-}
-
-interface SourceRequirement {
-  category: "analytics" | "ads" | "social" | "research" | "other";
-  providers: string[];
-  reason: string;
 }
 
 function lastAssistantText(events: readonly AgentEvent[]) {
@@ -69,87 +66,6 @@ function lastAssistantText(events: readonly AgentEvent[]) {
     )
     .at(-1)
     ?.slice(0, 20_000);
-}
-
-function requestedInput(summary: string | undefined): InputRequest | null {
-  const line = summary
-    ?.split("\n")
-    .find((candidate) => candidate.trim().startsWith("CHIEF_INPUT_REQUEST "));
-  if (!line) return null;
-  try {
-    const request = JSON.parse(
-      line.trim().slice("CHIEF_INPUT_REQUEST ".length),
-    ) as Partial<InputRequest>;
-    if (
-      typeof request.id !== "string" ||
-      typeof request.title !== "string" ||
-      !Array.isArray(request.fields)
-    ) {
-      return null;
-    }
-    return request as InputRequest;
-  } catch {
-    return null;
-  }
-}
-function requestedSourceRequirement(
-  summary: string | undefined,
-  work: RecurringWorkRecord,
-  fallbackReason?: string | null,
-): SourceRequirement | null {
-  const line = summary
-    ?.split("\n")
-    .find((candidate) => candidate.trim().startsWith("CHIEF_SETUP_REQUIRED "));
-  if (line) {
-    try {
-      const parsed = JSON.parse(
-        line.trim().slice("CHIEF_SETUP_REQUIRED ".length),
-      ) as Record<string, unknown>;
-      const category = ["analytics", "ads", "social", "research"].includes(
-        String(parsed.category),
-      )
-        ? (parsed.category as SourceRequirement["category"])
-        : "other";
-      const providers = Array.isArray(parsed.providers)
-        ? parsed.providers
-            .filter((provider): provider is string =>
-              Boolean(typeof provider === "string" && provider.trim()),
-            )
-            .map((provider) => provider.trim())
-            .slice(0, 8)
-        : [];
-      const reason =
-        typeof parsed.reason === "string" && parsed.reason.trim()
-          ? parsed.reason.trim()
-          : (fallbackReason ?? "A required source is not connected.");
-      return { category, providers, reason };
-    } catch {
-      /* Use fallback. */
-    }
-  }
-  if (!fallbackReason) return null;
-  if (work.agentId === "analyst") {
-    return {
-      category: "analytics",
-      providers: ["google-analytics"],
-      reason: fallbackReason,
-    };
-  }
-  if (work.agentId === "prospector") {
-    return {
-      category: "research",
-      providers: ["reddit.com", "x.com"],
-      reason: fallbackReason,
-    };
-  }
-  if (work.agentId === "content") {
-    return {
-      category: "social",
-      providers: ["x.com", "linkedin.com", "instagram.com"],
-      reason: fallbackReason,
-    };
-  }
-  return { category: "other", providers: [], reason: fallbackReason };
 }
 
 function reportedRequiredDataFailure(
@@ -931,7 +847,7 @@ export class RecurringWorkScheduler {
       );
       const sourceRequirement = inputRequest
         ? null
-        : requestedSourceRequirement(agentSummary, work, dataFailure);
+        : requestedSourceRequirement(agentSummary, work.agentId, dataFailure);
       const latestBlockedTools = blocked
         ? [
             ...new Set([

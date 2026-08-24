@@ -1,6 +1,8 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { isJsonNumber, isJsonString } from "@chief/relay-contracts";
+
 import type {
   WorkspaceOperatingMode,
   WorkspaceWaysOfWorking,
@@ -35,11 +37,11 @@ export function readWorkspaceWaysOfWorking(
     return {
       mode: parsed.mode,
       missionControlChannelId:
-        typeof parsed.missionControlChannelId === "string" &&
+        isJsonString(parsed.missionControlChannelId) &&
         parsed.missionControlChannelId
           ? parsed.missionControlChannelId
           : MISSION_CONTROL_CHANNEL_ID,
-      updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : 0,
+      updatedAt: isJsonNumber(parsed.updatedAt) ? parsed.updatedAt : 0,
     };
   } catch {
     return defaultWorkspaceWaysOfWorking;

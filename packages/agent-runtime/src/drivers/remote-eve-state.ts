@@ -1,5 +1,7 @@
 import type { InputRequest, SessionState } from "eve/client";
 
+import { isJsonNumber, isJsonObject } from "@chief/relay-contracts";
+
 export interface RemoteDriverState {
   version: 1;
   host: string;
@@ -16,13 +18,13 @@ export function savedRemoteDriverState(
   value: unknown,
   host: string,
 ): RemoteDriverState | undefined {
-  if (!value || typeof value !== "object") return undefined;
+  if (!value || !isJsonObject(value)) return undefined;
   const state = value as Partial<RemoteDriverState>;
   if (
     state.version !== 1 ||
     state.host !== host ||
     !state.session ||
-    typeof state.session.streamIndex !== "number"
+    !isJsonNumber(state.session.streamIndex)
   ) {
     return undefined;
   }
