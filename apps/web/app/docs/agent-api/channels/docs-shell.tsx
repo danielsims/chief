@@ -234,7 +234,7 @@ export function DocsShell({ model }: { model: ChannelDocsModel }) {
           <div className={styles.navScroll}>{navigation}</div>
           <div className={styles.sidebarFooter}>
             <Link href="/">← Back to Chief</Link>
-            <a href="/docs/agent-api/openapi.json">OpenAPI JSON</a>
+            <Link href="/docs/agent-api/openapi.json">OpenAPI JSON</Link>
           </div>
         </aside>
         <article className={styles.main}>

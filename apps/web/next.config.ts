@@ -5,6 +5,15 @@ const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: path.join(process.cwd(), "../.."),
   transpilePackages: ["@chief/channel-api", "@chief/ui"],
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "integrations.sh",
+        pathname: "/logo/**",
+      },
+    ],
+  },
 };
 
 export default nextConfig;
