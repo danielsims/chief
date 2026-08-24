@@ -1,9 +1,11 @@
 import { fileURLToPath } from "node:url";
 
+import type { JsonValue } from "@chief/relay-contracts";
 import {
   isJsonNumber,
-  isJsonObject,
   isJsonString,
+  parseJsonObject,
+  parseJsonValue,
 } from "@chief/relay-contracts";
 
 import type { RemotePluginCatalogEntry } from "./types.js";
@@ -43,11 +45,11 @@ const bundledGoogleWorkspace: RemotePluginCatalogEntry = {
   keywords: ["Google Workspace", "Gmail", "Google Drive", "email", "files"],
 };
 
-function text(value: unknown) {
+function text(value: JsonValue | undefined) {
   return isJsonString(value) && value.trim() ? value.trim() : undefined;
 }
 
-function strings(value: unknown) {
+function strings(value: JsonValue | undefined) {
   return Array.isArray(value)
     ? value.filter((item): item is string => isJsonString(item))
     : [];
@@ -62,31 +64,20 @@ function displayName(id: string) {
 
 export function parseAgentCatalog(
   catalogId: string,
-  raw: unknown,
+  raw: JsonValue,
 ): RemotePluginCatalogEntry[] {
-  if (
-    !raw ||
-    !isJsonObject(raw) ||
-    !Array.isArray((raw as { plugins?: unknown }).plugins)
-  ) {
+  const document = parseJsonObject(raw);
+  if (!document || !Array.isArray(document.plugins)) {
     throw new Error("Catalog document does not contain a plugins list.");
   }
-  return (raw as { plugins: unknown[] }).plugins.flatMap((candidate) => {
-    if (!candidate || !isJsonObject(candidate) || Array.isArray(candidate))
-      return [];
-    const item = candidate as Record<string, unknown>;
+  return document.plugins.flatMap((candidate) => {
+    const item = parseJsonObject(candidate);
+    if (!item) return [];
     const id = text(item.name);
     const description = text(item.description);
     const source = item.source;
-    if (
-      !id ||
-      !description ||
-      !source ||
-      !isJsonObject(source) ||
-      Array.isArray(source)
-    )
-      return [];
-    const sourceItem = source as Record<string, unknown>;
+    const sourceItem = parseJsonObject(source);
+    if (!id || !description || !sourceItem) return [];
     const url = text(sourceItem.url);
     const sha = text(sourceItem.sha);
     if (!PLUGIN_ID.test(id) || !url || !sha || !/^[a-f0-9]{40}$/i.test(sha))
@@ -114,19 +105,15 @@ export function parseAgentCatalog(
 }
 
 export function parseIntegrationsCatalog(
-  raw: unknown,
+  raw: JsonValue,
 ): RemotePluginCatalogEntry[] {
-  if (
-    !raw ||
-    !isJsonObject(raw) ||
-    !Array.isArray((raw as { data?: unknown }).data)
-  ) {
+  const document = parseJsonObject(raw);
+  if (!document || !Array.isArray(document.data)) {
     throw new Error("integrations.sh did not return its catalog envelope.");
   }
-  return (raw as { data: unknown[] }).data.flatMap((candidate) => {
-    if (!candidate || !isJsonObject(candidate) || Array.isArray(candidate))
-      return [];
-    const item = candidate as Record<string, unknown>;
+  return document.data.flatMap((candidate) => {
+    const item = parseJsonObject(candidate);
+    if (!item) return [];
     if (item.kind !== "mcp") return [];
     const id = text(item.slug);
     const name = text(item.name);
@@ -199,7 +186,11 @@ export async function fetchPluginCatalog(workspaceId: string, force = false) {
             signal: AbortSignal.timeout(12_000),
           });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const document = (await response.json()) as unknown;
+          const raw: unknown = await response.json();
+          const document = parseJsonValue(raw);
+          if (document === undefined) {
+            throw new Error("Catalog response was not valid JSON.");
+          }
           return {
             entries:
               source.format === "integrations-sh"

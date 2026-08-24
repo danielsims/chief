@@ -1,6 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
 
-import type { AgentPrincipal, WorkspaceId } from "@chief/relay-contracts";
+import type {
+  AgentPrincipal,
+  JsonObject,
+  JsonValue,
+  WorkspaceId,
+} from "@chief/relay-contracts";
 import {
   agentCellSnapshotSchema,
   agentIdSchema,
@@ -10,6 +15,8 @@ import {
   completeAgentJobSchema,
   enqueueAgentJobCommandSchema,
   isJsonString,
+  parseJsonObject,
+  parseJsonValue,
   renewAgentJobSchema,
 } from "@chief/relay-contracts";
 
@@ -318,7 +325,7 @@ export class AgentObject extends DurableObject<Env> {
     await this.scheduleNextAlarm();
   }
 
-  private broadcast(event: Record<string, unknown>) {
+  private broadcast(event: JsonObject) {
     const serialized = JSON.stringify(event);
     for (const socket of this.ctx.getWebSockets()) {
       try {
@@ -512,7 +519,7 @@ export class AgentObject extends DurableObject<Env> {
         this.env,
         job,
         context.principal,
-        result as unknown as Record<string, unknown>,
+        parseJsonObject(result) ?? {},
         (targetJob, message, commandId, pubkey) =>
           publishAgentMessage(this.env, targetJob, message, commandId, pubkey),
       );
@@ -605,7 +612,7 @@ export class AgentObject extends DurableObject<Env> {
           exportedAt: new Date().toISOString(),
           records: rows.map((row) => ({
             key: String(row.key),
-            value: JSON.parse(String(row.value_json)) as unknown,
+            value: parseStoredJson(row.value_json),
           })),
         }),
       );
@@ -697,7 +704,7 @@ export class AgentObject extends DurableObject<Env> {
     });
   }
 
-  private putCellRecord(key: string, value: unknown, updatedAt: string) {
+  private putCellRecord(key: string, value: JsonValue, updatedAt: string) {
     this.ctx.storage.sql.exec(
       `INSERT INTO cell_records (key, value_json, updated_at) VALUES (?, ?, ?)
        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json,
@@ -741,11 +748,16 @@ function hostedPrincipal(
   };
 }
 
-function safeArray(value: string): unknown[] {
+function parseStoredJson(value: string): JsonValue {
   try {
-    const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed) ? parsed : [];
+    const parsed: unknown = JSON.parse(value);
+    return parseJsonValue(parsed) ?? null;
   } catch {
-    return [];
+    return null;
   }
+}
+
+function safeArray(value: string): JsonValue[] {
+  const parsed = parseStoredJson(value);
+  return Array.isArray(parsed) ? parsed : [];
 }

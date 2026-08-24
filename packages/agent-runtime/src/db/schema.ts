@@ -16,6 +16,7 @@ import type {
   ChannelAuditAction,
   ChannelWorkstream,
 } from "@chief/channel-api";
+import type { JsonObject } from "@chief/relay-contracts";
 
 import type {
   ActionResolution,
@@ -133,9 +134,9 @@ export const sessions = sqliteTable(
       onDelete: "cascade",
     }),
     triggerId: text("trigger_id"),
-    triggerContext: text("trigger_context", { mode: "json" }).$type<
-      Record<string, unknown>
-    >(),
+    triggerContext: text("trigger_context", {
+      mode: "json",
+    }).$type<JsonObject>(),
     scheduleId: text("schedule_id").references(() => schedules.id, {
       onDelete: "cascade",
     }),

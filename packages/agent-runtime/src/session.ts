@@ -66,6 +66,7 @@ export class AgentSession extends EventEmitter {
     chatId: string,
     config: SessionConfig,
     initialEvents: AgentEvent[] = [],
+    driver: BaseDriver = createDriver(config.driver),
   ) {
     super();
     this.agent = agent;
@@ -77,7 +78,7 @@ export class AgentSession extends EventEmitter {
       config.executionOwner === "delegation"
         ? 6 * 60_000
         : 90_000);
-    this.driver = createDriver(config.driver);
+    this.driver = driver;
     this.events = initialEvents.map(withGenerativeDataParts).slice(-500);
     this.driver.on("event", (rawEvent: AgentEvent) => {
       const contextualEvent =

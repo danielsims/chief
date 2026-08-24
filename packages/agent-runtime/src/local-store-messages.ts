@@ -1,3 +1,5 @@
+import { parseJsonValue } from "@chief/relay-contracts";
+
 import type * as schema from "./db/schema.js";
 import type {
   AgentMessageMetadata,
@@ -138,7 +140,7 @@ function contentBlocks(parts: ChiefUIMessage["parts"]): ContentBlock[] {
         type: "tool_use",
         id: part.toolCallId,
         name: part.toolName,
-        input: part.input,
+        input: parseJsonValue(part.input),
       };
       if (part.state === "output-available") {
         return [
@@ -146,7 +148,7 @@ function contentBlocks(parts: ChiefUIMessage["parts"]): ContentBlock[] {
           {
             type: "tool_result",
             tool_use_id: part.toolCallId,
-            content: part.output,
+            content: parseJsonValue(part.output),
           },
         ];
       }

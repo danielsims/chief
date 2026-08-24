@@ -1,8 +1,11 @@
 import type { ScheduledWorkTrigger } from "@chief/channel-api";
+import { toJsonObject } from "@chief/relay-contracts";
 
 import type { ChannelEvent } from "./channel-types.js";
-import type { SessionManager } from "./manager.js";
-import type { ScheduledWorkRunner } from "./scheduled-work-local-tools.js";
+import type {
+  ScheduledWorkManager,
+  ScheduledWorkRunner,
+} from "./scheduled-work-runtime.js";
 import { actorPubkey } from "./channels/nip29.js";
 
 function channelId(event: ChannelEvent) {
@@ -59,7 +62,7 @@ function eventMatchesTrigger(
 export async function dispatchScheduledWorkEvent(input: {
   workspaceId: string;
   event: ChannelEvent;
-  manager: SessionManager;
+  manager: Pick<ScheduledWorkManager, "workspaceData">;
   runner: ScheduledWorkRunner;
 }) {
   if (![7, 9].includes(input.event.kind)) return;
@@ -75,7 +78,7 @@ export async function dispatchScheduledWorkEvent(input: {
         input.workspaceId,
         work.id,
         `channel-event:${input.event.id}`,
-        {
+        toJsonObject({
           type: work.trigger?.type,
           channelId: input.event.channelId,
           eventId: input.event.id,
@@ -83,7 +86,7 @@ export async function dispatchScheduledWorkEvent(input: {
           author: input.event.actor,
           content: input.event.content.slice(0, 8_000),
           createdAt: input.event.createdAt,
-        },
+        }),
       ),
     ),
   );

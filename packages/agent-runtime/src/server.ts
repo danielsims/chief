@@ -7,6 +7,7 @@ import { join } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 
+import type { JsonValue } from "@chief/relay-contracts";
 import { AgentBrowserSession } from "@chief/browser/node";
 import { renderEmailDocument } from "@chief/email/render";
 import {
@@ -19,7 +20,7 @@ import {
   redactGoogleOAuthCredentials,
   withGoogleAuthUser,
 } from "@chief/google-oauth-connector";
-import { isJsonString } from "@chief/relay-contracts";
+import { isJsonString, parseJsonValue } from "@chief/relay-contracts";
 
 import type { ChannelEvent } from "./channel-types.js";
 import type { LocalToolContext } from "./local-tools.js";
@@ -1478,10 +1479,13 @@ export function startServer(port = PORT) {
         }
         chunks.push(buffer);
       }
-      let body: unknown = {};
+      let body: JsonValue = {};
       try {
         const raw = Buffer.concat(chunks).toString("utf8");
-        body = raw ? JSON.parse(raw) : {};
+        const parsed: unknown = raw ? JSON.parse(raw) : {};
+        const value = parseJsonValue(parsed);
+        if (value === undefined) throw new Error("Invalid JSON value.");
+        body = value;
       } catch {
         res.writeHead(400, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: "Webhook payload must be JSON." }));

@@ -1,50 +1,55 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import type { ScheduledWorkTrigger } from "@chief/channel-api";
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
 import {
   isJsonNumber,
-  isJsonObject,
   isJsonString,
+  parseJsonObject,
+  toJsonObject,
 } from "@chief/relay-contracts";
 
-import type { SessionManager } from "./manager.js";
+import type {
+  ScheduledWorkManager,
+  ScheduledWorkRunner,
+} from "./scheduled-work-runtime.js";
 import type { RecurringWorkRecord } from "./types.js";
 import { nextRunAt, validateCron } from "./recurring-work.js";
 import { readWorkspaceContext } from "./workspace-context.js";
 
-export interface ScheduledWorkRunner {
-  runNow(workspaceId: string, scheduledWorkId: string): Promise<void>;
-  runTriggered(
-    workspaceId: string,
-    scheduledWorkId: string,
-    triggerId: string,
-    context: Record<string, unknown>,
-  ): Promise<void>;
-  cancelRun(runId: string): Promise<boolean>;
-}
-
 interface ScheduledWorkResult {
   handled: boolean;
-  value?: unknown;
+  value?: JsonValue;
   status?: number;
 }
 
-function fail(message: string, status = 400): never {
-  const error = new Error(message) as Error & { status?: number };
-  error.status = status;
-  throw error;
+class ScheduledWorkRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
 }
 
-function text(input: unknown, name: string, maximum: number) {
+function fail(message: string, status = 400): never {
+  throw new ScheduledWorkRequestError(message, status);
+}
+
+function text(input: JsonValue | undefined, name: string, maximum: number) {
   if (!isJsonString(input) || !input.trim()) fail(`${name} is required.`);
   return input.trim().slice(0, maximum);
 }
 
-function optionalText(input: unknown, name: string, maximum: number) {
+function optionalText(
+  input: JsonValue | undefined,
+  name: string,
+  maximum: number,
+) {
   return input === undefined ? undefined : text(input, name, maximum);
 }
 
-function toolPatterns(input: unknown) {
+function toolPatterns(input: JsonValue | undefined) {
   if (!Array.isArray(input) || input.length > 100) {
     fail("proposedToolPatterns must be a bounded array.");
   }
@@ -52,17 +57,21 @@ function toolPatterns(input: unknown) {
   return [...new Set(patterns)];
 }
 
-function timestamp(input: unknown, name: string) {
-  const parsed = isJsonNumber(input) ? input : Date.parse(String(input));
+function timestamp(input: JsonValue | undefined, name: string) {
+  const parsed = isJsonNumber(input)
+    ? input
+    : isJsonString(input)
+      ? Date.parse(input)
+      : Number.NaN;
   if (!Number.isFinite(parsed)) fail(`${name} must be a valid timestamp.`);
   return parsed;
 }
 
-function trigger(input: unknown): ScheduledWorkTrigger {
-  if (!input || !isJsonObject(input) || Array.isArray(input)) {
+function trigger(input: JsonValue | undefined): ScheduledWorkTrigger {
+  const value = parseJsonObject(input);
+  if (!value) {
     fail("trigger must be an object.");
   }
-  const value = input as Record<string, unknown>;
   const type = text(value.type, "trigger.type", 40);
   if (type === "cron") {
     const expression = text(value.expression, "trigger.expression", 120);
@@ -135,14 +144,14 @@ function automaticScheduling(workspaceId: string) {
 }
 
 function publicWork(work: RecurringWorkRecord) {
-  return { ...work, webhookSecret: undefined };
+  return toJsonObject({ ...work, webhookSecret: undefined });
 }
 
 export async function handleScheduledWorkLocalTool(input: {
   request: Request;
   workspaceId: string;
-  body: Record<string, unknown>;
-  manager: SessionManager;
+  body: JsonObject;
+  manager: ScheduledWorkManager;
   runner?: ScheduledWorkRunner;
   conversationId?: string;
   origin: string;
@@ -293,7 +302,7 @@ export async function handleScheduledWorkLocalTool(input: {
         proposedToolPatterns: proposed,
         grant: narrowedGrant,
         status: grantWidens ? "draft" : existing.status,
-        version: existing.version + 1,
+        version: (existing.version ?? 0) + 1,
         updatedAt: Date.now(),
       };
       await manager.saveRecurringWork(workspaceId, updated);
@@ -320,7 +329,7 @@ export async function handleScheduledWorkLocalTool(input: {
         ...existing,
         status: "paused" as const,
         nextAt: undefined,
-        version: existing.version + 1,
+        version: (existing.version ?? 0) + 1,
         updatedAt: Date.now(),
       };
       await manager.saveRecurringWork(workspaceId, updated);
@@ -337,7 +346,7 @@ export async function handleScheduledWorkLocalTool(input: {
         ...existing,
         ...timing(resolvedTrigger),
         status: "active" as const,
-        version: existing.version + 1,
+        version: (existing.version ?? 0) + 1,
         updatedAt: Date.now(),
       };
       await manager.saveRecurringWork(workspaceId, updated);
@@ -352,7 +361,9 @@ export async function handleScheduledWorkLocalTool(input: {
     if (tail === "runs" && request.method === "GET") {
       return {
         handled: true,
-        value: { runs: await manager.scheduleRuns(workspaceId, existing.id) },
+        value: toJsonObject({
+          runs: await manager.scheduleRuns(workspaceId, existing.id),
+        }),
       };
     }
     if (tail === "runs" && request.method === "POST") {
@@ -367,7 +378,10 @@ export async function handleScheduledWorkLocalTool(input: {
           await manager.scheduleRuns(workspaceId, existing.id)
         ).find((run) => run.triggerId === `manual:${idempotencyKey}`);
         if (prior)
-          return { handled: true, value: { run: prior, replayed: true } };
+          return {
+            handled: true,
+            value: toJsonObject({ run: prior, replayed: true }),
+          };
         void runner
           .runTriggered(workspaceId, existing.id, `manual:${idempotencyKey}`, {
             type: "manual",
@@ -391,7 +405,7 @@ export async function handleScheduledWorkLocalTool(input: {
       const run = await manager.scheduleRun(workspaceId, existing.id, runId);
       if (!run) fail("Run was not found.", 404);
       if (!runMatch[2] && request.method === "GET")
-        return { handled: true, value: { run } };
+        return { handled: true, value: toJsonObject({ run }) };
       if (runMatch[2] === "cancel" && request.method === "POST") {
         if (!runner) fail("The scheduler is not ready.", 503);
         return {
@@ -409,7 +423,10 @@ export async function handleScheduledWorkLocalTool(input: {
             workspaceId,
             existing.id,
             retryId,
-            run.triggerContext ?? { type: "retry", runId: run.id },
+            parseJsonObject(run.triggerContext) ?? {
+              type: "retry",
+              runId: run.id,
+            },
           )
           .catch((error) =>
             console.error("[scheduled-work] retry failed:", error),
@@ -453,7 +470,7 @@ export async function handleScheduledWorkLocalTool(input: {
   } catch (error) {
     return {
       handled: true,
-      status: (error as { status?: number }).status ?? 400,
+      status: error instanceof ScheduledWorkRequestError ? error.status : 400,
       value: { error: error instanceof Error ? error.message : String(error) },
     };
   }

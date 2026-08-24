@@ -1,9 +1,10 @@
 import { z } from "zod";
 
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
 import {
-  isJsonNumber,
-  isJsonObject,
-  isJsonString,
+  parseJsonNumber,
+  parseJsonObject,
+  parseJsonString,
 } from "@chief/relay-contracts";
 
 import type {
@@ -22,16 +23,19 @@ import type {
 import { redactUrlCredentials } from "./credential-broker.js";
 import { GitHubApp } from "./github-app.js";
 
-type Json = Record<string, unknown>;
-
-const jsonObjectSchema = z.record(z.string(), z.unknown());
 const repositoryListSchema = z.object({
-  repositories: z.array(jsonObjectSchema).optional(),
+  repositories: z.array(z.unknown()).optional(),
   total_count: z.number().optional(),
 });
 const checkRunsSchema = z.object({
-  check_runs: z.array(jsonObjectSchema).optional(),
+  check_runs: z.array(z.unknown()).optional(),
 });
+
+function requiredJsonObject<Input>(value: Input, source: string): JsonObject {
+  const parsed = parseJsonObject(value);
+  if (!parsed) throw new Error(`${source} returned an invalid JSON object.`);
+  return parsed;
+}
 
 interface GitHubAdapterOptions {
   appId?: string;
@@ -49,20 +53,51 @@ function parseOwnerName(repositoryId: string) {
   return { owner, name };
 }
 
-function asString(value: unknown, fallback: string) {
-  return isJsonString(value) ? value : fallback;
+function asString(value: JsonValue | undefined, fallback: string) {
+  return parseJsonString(value) ?? fallback;
 }
 
-function asNumber(value: unknown, fallback: number) {
-  return isJsonNumber(value) ? value : fallback;
+function asNumber(value: JsonValue | undefined, fallback: number) {
+  return parseJsonNumber(value) ?? fallback;
 }
 
-function asDate(value: unknown) {
-  return isJsonString(value) ? Date.parse(value) : Date.now();
+function asDate(value: JsonValue | undefined) {
+  const date = parseJsonString(value);
+  return date ? Date.parse(date) : Date.now();
 }
 
-function asBoolean(value: unknown) {
+function asBoolean(value: JsonValue | undefined) {
   return value === true || value === "true";
+}
+
+function checkStatus(
+  value: JsonValue | undefined,
+): ProviderCheckSummary["status"] {
+  switch (value) {
+    case "queued":
+    case "in_progress":
+    case "completed":
+      return value;
+    default:
+      return "queued";
+  }
+}
+
+function checkConclusion(
+  value: JsonValue | undefined,
+): ProviderCheckConclusion | undefined {
+  switch (value) {
+    case "success":
+    case "failure":
+    case "neutral":
+    case "cancelled":
+    case "skipped":
+    case "timed_out":
+    case "action_required":
+      return value;
+    default:
+      return undefined;
+  }
 }
 
 /**
@@ -133,7 +168,7 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
       await this.api(`installation/repositories?${params}`, connectionId),
     );
     const repositories = (body.repositories ?? []).map((row) =>
-      this.repository(row),
+      this.repository(requiredJsonObject(row, "GitHub")),
     );
     const total = Number(body.total_count ?? repositories.length);
     const nextCursor =
@@ -218,23 +253,22 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
         )}/check-runs?per_page=100`,
       ),
     );
-    return (body.check_runs ?? []).map((row) => ({
-      name: asString(row.name, "check"),
-      status: asString(row.status, "queued") as ProviderCheckSummary["status"],
-      ...(row.conclusion
-        ? {
-            conclusion: asString(
-              row.conclusion,
-              "success",
-            ) as ProviderCheckConclusion,
-          }
-        : undefined),
-      ...(row.started_at ? { startedAt: asDate(row.started_at) } : undefined),
-      ...(row.completed_at
-        ? { completedAt: asDate(row.completed_at) }
-        : undefined),
-      ...(row.html_url ? { url: asString(row.html_url, "") } : undefined),
-    }));
+    return (body.check_runs ?? []).map((row) => {
+      const check = requiredJsonObject(row, "GitHub");
+      const conclusion = checkConclusion(check.conclusion);
+      return {
+        name: asString(check.name, "check"),
+        status: checkStatus(check.status),
+        ...(conclusion ? { conclusion } : undefined),
+        ...(check.started_at
+          ? { startedAt: asDate(check.started_at) }
+          : undefined),
+        ...(check.completed_at
+          ? { completedAt: asDate(check.completed_at) }
+          : undefined),
+        ...(check.html_url ? { url: asString(check.html_url, "") } : undefined),
+      };
+    });
   }
 
   private async accessToken() {
@@ -249,13 +283,9 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
     );
   }
 
-  private repository(row: Json): ProviderRepository {
-    const owner = asString(
-      row.owner && isJsonObject(row.owner)
-        ? (row.owner as Json).login
-        : undefined,
-      "",
-    );
+  private repository(row: JsonObject): ProviderRepository {
+    const ownerRecord = parseJsonObject(row.owner);
+    const owner = asString(ownerRecord?.login, "");
     const name = asString(row.name, "");
     const fullName = asString(row.full_name, `${owner}/${name}`);
     const [ownerName, repoName] = fullName.split("/");
@@ -268,29 +298,23 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
       ...(row.description
         ? { description: asString(row.description, "") }
         : undefined),
-      ...(row.owner && isJsonObject(row.owner)
-        ? { avatarUrl: asString((row.owner as Json).avatar_url, "") }
+      ...(ownerRecord
+        ? { avatarUrl: asString(ownerRecord.avatar_url, "") }
         : undefined),
       cloneUrl: asString(row.clone_url, `https://github.com/${fullName}.git`),
       ...(row.html_url ? { webUrl: asString(row.html_url, "") } : undefined),
     };
   }
 
-  private pullRequest(row: Json): ProviderPullRequest {
+  private pullRequest(row: JsonObject): ProviderPullRequest {
     const merged = row.merged_at !== undefined && row.merged_at !== null;
     return {
       number: asNumber(row.number, 0),
       title: asString(row.title, ""),
       ...(row.body ? { description: asString(row.body, "") } : undefined),
       state: merged ? "merged" : row.state === "open" ? "open" : "closed",
-      headBranch: asString(
-        row.head && isJsonObject(row.head) ? (row.head as Json).ref : undefined,
-        "",
-      ),
-      baseBranch: asString(
-        row.base && isJsonObject(row.base) ? (row.base as Json).ref : undefined,
-        "",
-      ),
+      headBranch: asString(parseJsonObject(row.head)?.ref, ""),
+      baseBranch: asString(parseJsonObject(row.base)?.ref, ""),
       ...(row.html_url ? { url: asString(row.html_url, "") } : undefined),
       createdAt: row.created_at ? asDate(row.created_at) : Date.now(),
       updatedAt: row.updated_at ? asDate(row.updated_at) : Date.now(),
@@ -300,8 +324,8 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
   private async api(
     path: string,
     connectionId?: string,
-    options?: { method?: string; body?: Json },
-  ): Promise<Json> {
+    options?: { method?: string; body?: JsonObject },
+  ): Promise<JsonObject> {
     const token = await this.accessToken();
     const response = await this.request(
       `${this.apiBaseUrl}/${path.replace(/^\/+/, "")}`,
@@ -318,7 +342,7 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
     );
     const text = await response.text();
     const parsed: unknown = text ? JSON.parse(text) : {};
-    const body = jsonObjectSchema.parse(parsed);
+    const body = requiredJsonObject(parsed, "GitHub");
     if (
       response.status === 403 &&
       response.headers.get("x-ratelimit-remaining") === "0"
@@ -332,7 +356,7 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
         `GitHub returned ${response.status}`;
       throw new Error(
         redactUrlCredentials(
-          isJsonString(message) ? message : "GitHub rejected the request.",
+          parseJsonString(message) ?? "GitHub rejected the request.",
         ),
       );
     }

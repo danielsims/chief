@@ -1,4 +1,4 @@
-import type { Principal } from "@chief/relay-contracts";
+import type { JsonValue, Principal } from "@chief/relay-contracts";
 import {
   appendMessageCommandSchema,
   channelActionResultSchema,
@@ -6,9 +6,10 @@ import {
   channelMemberRemoveCommandSchema,
   channelMembersResultSchema,
   commandIdSchema,
-  isJsonObject,
+  isJsonString,
   isoDateTimeSchema,
   messageIdSchema,
+  parseJsonObject,
   principalSchema,
   workspaceIdSchema,
 } from "@chief/relay-contracts";
@@ -71,19 +72,19 @@ export class WorkspaceChannelMembership {
       );
     }
     const rows = this.store.storage.sql
-      .exec(
+      .exec<ChannelMemberRow>(
         `SELECT conversation_id, principal_kind, principal_id, role, joined_at
          FROM channel_members
          ORDER BY conversation_id, principal_kind, principal_id`,
       )
-      .toArray() as ChannelMemberRow[];
+      .toArray();
     return json({
       memberships: rows.map((row) => ({
         conversationId: String(row.conversation_id),
-        kind: String(row.principal_kind) as "user" | "agent",
-        principalId: String(row.principal_id),
-        role: String(row.role) as "owner" | "admin" | "member",
-        joinedAt: String(row.joined_at),
+        kind: row.principal_kind,
+        principalId: row.principal_id,
+        role: row.role,
+        joinedAt: row.joined_at,
       })),
     });
   }
@@ -106,7 +107,7 @@ export class WorkspaceChannelMembership {
       );
     }
     const rows = this.store.storage.sql
-      .exec(
+      .exec<ChannelMemberRow>(
         `SELECT conversation_id, principal_kind, principal_id, role, joined_at
          FROM channel_members
          WHERE principal_kind = ? AND principal_id = ?
@@ -114,14 +115,14 @@ export class WorkspaceChannelMembership {
         kind,
         id,
       )
-      .toArray() as ChannelMemberRow[];
+      .toArray();
     return json({
       memberships: rows.map((row) => ({
         conversationId: String(row.conversation_id),
-        kind: String(row.principal_kind) as "user" | "agent",
-        principalId: String(row.principal_id),
-        role: String(row.role) as "owner" | "admin" | "member",
-        joinedAt: String(row.joined_at),
+        kind: row.principal_kind,
+        principalId: row.principal_id,
+        role: row.role,
+        joinedAt: row.joined_at,
       })),
     });
   }
@@ -397,7 +398,15 @@ export class WorkspaceChannelMembership {
 function parsePendingChannelMembershipBatchEvent(
   value: string,
 ): PendingChannelMembershipBatchEvent {
-  const candidate = JSON.parse(value) as Record<string, unknown>;
+  const parsed: unknown = JSON.parse(value);
+  const candidate = parseJsonObject(parsed);
+  if (!candidate) {
+    throw new HttpError(
+      500,
+      "membership_event_invalid",
+      "The pending channel membership event is invalid.",
+    );
+  }
   if (!Array.isArray(candidate.targets)) {
     throw new HttpError(
       500,
@@ -406,14 +415,14 @@ function parsePendingChannelMembershipBatchEvent(
     );
   }
   const targets = candidate.targets.map((value) => {
-    if (!value || !isJsonObject(value)) {
+    const target = parseJsonObject(value);
+    if (!target) {
       throw new HttpError(
         500,
         "membership_event_invalid",
         "The pending channel membership event is invalid.",
       );
     }
-    const target = value as Record<string, unknown>;
     if (!isMemberKind(target.kind)) {
       throw new HttpError(
         500,
@@ -424,8 +433,8 @@ function parsePendingChannelMembershipBatchEvent(
     const kind = target.kind;
     return {
       kind,
-      id: String(target.id),
-      name: String(target.name),
+      id: isJsonString(target.id) ? target.id : "",
+      name: isJsonString(target.name) ? target.name : "",
     };
   });
   return {
@@ -455,7 +464,7 @@ function formatNameList(names: readonly string[]) {
   return `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`;
 }
 
-function isMemberKind(value: unknown): value is "user" | "agent" {
+function isMemberKind(value: JsonValue | undefined): value is "user" | "agent" {
   return value === "user" || value === "agent";
 }
 

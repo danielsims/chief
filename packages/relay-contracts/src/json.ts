@@ -1,17 +1,34 @@
 import { z } from "zod";
 
+export type JsonValue =
+  string | number | boolean | null | JsonValue[] | JsonObject;
+
+export interface JsonObject {
+  [key: string]: JsonValue;
+}
+
 /** Values that can cross the relay's JSON wire boundary without coercion. */
-export const jsonValueSchema = z.json();
+export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(jsonValueSchema),
+    z.record(z.string(), jsonValueSchema),
+  ]),
+);
 
 /** A JSON object with string keys and recursively validated JSON values. */
-export const jsonObjectSchema = z.record(z.string(), jsonValueSchema);
+export const jsonObjectSchema: z.ZodType<JsonObject> = z.record(
+  z.string(),
+  jsonValueSchema,
+);
 const jsonScalarSchema = z.union([z.string(), z.number(), z.boolean()]);
 const jsonBooleanSchema = z.boolean();
 const jsonNumberSchema = z.number();
 const jsonStringSchema = z.string();
 
-export type JsonValue = z.infer<typeof jsonValueSchema>;
-export type JsonObject = z.infer<typeof jsonObjectSchema>;
 export function parseJsonValue<Input>(value: Input): JsonValue | undefined {
   const result = jsonValueSchema.safeParse(value);
   return result.success ? result.data : undefined;

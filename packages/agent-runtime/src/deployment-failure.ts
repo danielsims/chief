@@ -21,6 +21,15 @@ export function isDeploymentNotFound(error: unknown, depth = 0): boolean {
       error.includes("DEPLOYMENT_NOT_FOUND")
     );
   }
+  if (error instanceof Error) {
+    if (
+      error.message === DEPLOYMENT_REQUIRED_MESSAGE ||
+      error.message.includes("DEPLOYMENT_NOT_FOUND")
+    ) {
+      return true;
+    }
+    return isDeploymentNotFound(error.cause, depth + 1);
+  }
   if (!isJsonObject(error)) return false;
   const value = error as {
     message?: unknown;

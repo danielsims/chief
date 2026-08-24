@@ -1,3 +1,4 @@
+import type { JsonObject } from "@chief/relay-contracts";
 import { isJsonString } from "@chief/relay-contracts";
 
 /**
@@ -78,12 +79,10 @@ function isSafeShellCommand(command: string): boolean {
 
 export function evaluateToolUse(
   toolName: string,
-  input: unknown,
+  input: JsonObject,
   cwd: string,
 ): ApprovalDecision {
   if (READ_ONLY_TOOLS.has(toolName)) return "allow";
-
-  const i = (input ?? {}) as Record<string, unknown>;
 
   // File edits inside the agent's own working directory are workspace-scoped
   // and reversible; edits anywhere else on the machine need approval.
@@ -92,12 +91,12 @@ export function evaluateToolUse(
     toolName === "Write" ||
     toolName === "NotebookEdit"
   ) {
-    const path = isJsonString(i.file_path) ? i.file_path : "";
+    const path = isJsonString(input.file_path) ? input.file_path : "";
     return path.startsWith(cwd) ? "allow" : "ask";
   }
 
   if (toolName === "Bash" || toolName === "bash") {
-    const command = isJsonString(i.command) ? i.command : "";
+    const command = isJsonString(input.command) ? input.command : "";
     return isSafeShellCommand(command) ? "allow" : "ask";
   }
 

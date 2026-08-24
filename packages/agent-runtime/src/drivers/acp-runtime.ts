@@ -1,3 +1,5 @@
+import type { JsonValue } from "@chief/relay-contracts";
+
 import type { StartOptions } from "../types.js";
 
 export interface AcpRuntimeAdapter {
@@ -11,7 +13,7 @@ export interface AcpRuntimeAdapter {
 }
 
 export interface PendingAcpRpc {
-  resolve: (value: unknown) => void;
+  resolve: (value: JsonValue | undefined) => void;
   reject: (error: Error) => void;
   timer?: NodeJS.Timeout;
 }

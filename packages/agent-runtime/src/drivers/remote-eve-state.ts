@@ -1,6 +1,10 @@
 import type { InputRequest, SessionState } from "eve/client";
 
-import { isJsonNumber, isJsonObject } from "@chief/relay-contracts";
+import {
+  isJsonNumber,
+  isJsonObject,
+  parseJsonValue,
+} from "@chief/relay-contracts";
 
 export interface RemoteDriverState {
   version: 1;
@@ -58,4 +62,4 @@ export function remoteActionName(action: RemoteAction) {
 }
 
 export const remoteResultOutput = (result: { output?: unknown }) =>
-  result.output ?? null;
+  parseJsonValue(result.output) ?? null;

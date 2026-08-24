@@ -1,10 +1,16 @@
-import type { AgentJob, AgentPrincipal } from "@chief/relay-contracts";
+import type {
+  AgentJob,
+  AgentPrincipal,
+  JsonObject,
+  JsonValue,
+} from "@chief/relay-contracts";
 import {
   channelCreateCommandSchema,
   channelMemberAddCommandSchema,
-  isJsonObject,
   isJsonString,
   messagePageSchema,
+  parseJsonObject,
+  parseJsonValue,
 } from "@chief/relay-contracts";
 
 import { publishAgentMessage } from "./agent-message-publisher";
@@ -145,12 +151,12 @@ export const hostedAgentToolDefinitions = [
   }),
 ] as const;
 
-export async function executeHostedAgentTool(
+export async function executeHostedAgentTool<Input>(
   env: Env,
   job: AgentJob,
   principal: AgentPrincipal,
   name: string,
-  rawArguments: unknown,
+  rawArguments: Input,
 ) {
   const input = objectInput(rawArguments);
   switch (name) {
@@ -214,10 +220,19 @@ export async function executeHostedAgentTool(
       ) {
         throw new Error("principalIds must contain at least one member");
       }
-      const members = input.principalIds.map((principalId) => ({
-        kind,
-        principalId: String(principalId),
-      }));
+      const members = input.principalIds.flatMap((principalId) =>
+        isJsonString(principalId)
+          ? [
+              {
+                kind,
+                principalId,
+              },
+            ]
+          : [],
+      );
+      if (members.length !== input.principalIds.length) {
+        throw new Error("principalIds must contain string member ids");
+      }
       const command = channelMemberAddCommandSchema.parse({
         commandId: await deterministicUuid(
           `${job.id}:${name}:${conversationId}:${kind}:${members.map((member) => member.principalId).join(",")}`,
@@ -380,7 +395,7 @@ async function listMessages(
   env: Env,
   job: AgentJob,
   principal: AgentPrincipal,
-  input: Record<string, unknown>,
+  input: JsonObject,
 ) {
   const conversationId = requiredString(input, "conversationId");
   const limit = Math.min(100, Math.max(1, Number(input.limit ?? 50)));
@@ -406,7 +421,7 @@ async function workspaceOperation(
   job: AgentJob,
   principal: AgentPrincipal,
   operation: string,
-  body?: unknown,
+  body?: JsonValue,
 ) {
   const response = await env.WORKSPACES.get(
     env.WORKSPACES.idFromName(job.workspaceId),
@@ -430,7 +445,10 @@ async function workspaceOperation(
   return responseJson(response, `Workspace operation ${operation} failed.`);
 }
 
-async function responseJson(response: Response, fallback: string) {
+async function responseJson(
+  response: Response,
+  fallback: string,
+): Promise<JsonValue> {
   const text = await response.text();
   if (!response.ok) {
     throw new HttpError(
@@ -439,38 +457,34 @@ async function responseJson(response: Response, fallback: string) {
       text || fallback,
     );
   }
-  return text ? (JSON.parse(text) as unknown) : { ok: true };
+  if (!text) return { ok: true };
+  const value: unknown = JSON.parse(text);
+  const parsed = parseJsonValue(value);
+  if (parsed === undefined)
+    throw new Error("Hosted tool returned invalid JSON.");
+  return parsed;
 }
 
-function tool(
-  name: string,
-  description: string,
-  parameters: Record<string, unknown>,
-) {
+function tool(name: string, description: string, parameters: JsonObject) {
   return { type: "function", function: { name, description, parameters } };
 }
 
-function objectInput(value: unknown): Record<string, unknown> {
+function objectInput<Input>(value: Input): JsonObject {
   if (isJsonString(value)) {
-    const parsed = JSON.parse(value) as unknown;
-    if (parsed && isJsonObject(parsed) && !Array.isArray(parsed)) {
-      return parsed;
-    }
+    const parsed: unknown = JSON.parse(value);
+    return parseJsonObject(parsed) ?? {};
   }
-  if (value && isJsonObject(value) && !Array.isArray(value)) {
-    return value;
-  }
-  return {};
+  return parseJsonObject(value) ?? {};
 }
 
-function requiredString(input: Record<string, unknown>, key: string) {
+function requiredString(input: JsonObject, key: string) {
   const value = input[key];
   if (!isJsonString(value) || !value.trim())
     throw new Error(`${key} is required`);
   return value.trim();
 }
 
-function optionalString(input: Record<string, unknown>, key: string) {
+function optionalString(input: JsonObject, key: string) {
   const value = input[key];
   return isJsonString(value) && value.trim() ? value.trim() : undefined;
 }

@@ -225,6 +225,7 @@ const fallbackEverydayIntegrations = (
     ["clickup.com", "ClickUp"],
     ["monday.com", "monday.com"],
     ["intercom.com", "Intercom"],
+    ["convex.dev", "Convex"],
     ["box.com", "Box"],
     ["miro.com", "Miro"],
     ["resend.com", "Resend"],
