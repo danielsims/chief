@@ -20,22 +20,6 @@ function stringList(input: unknown, name: string) {
     .map((item, index) => textValue(item, `${name}[${index}]`, 120));
 }
 
-function isPluginSummary(value: unknown): value is AgentPluginSummary {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const plugin = value as Partial<AgentPluginSummary>;
-  return Boolean(
-    typeof plugin.id === "string" &&
-    typeof plugin.name === "string" &&
-    typeof plugin.description === "string" &&
-    typeof plugin.category === "string" &&
-    typeof plugin.status === "string" &&
-    typeof plugin.enabled === "boolean" &&
-    typeof plugin.trusted === "boolean" &&
-    plugin.source &&
-    typeof plugin.source === "object",
-  );
-}
-
 function normalized(value: string) {
   return value
     .toLowerCase()
@@ -167,13 +151,8 @@ export async function postPluginRecommendation(input: {
       "plugin_recommendation_empty",
     );
   }
-  const snapshot = (await context.plugins.list(false)) as {
-    plugins?: unknown[];
-  };
-  const catalog = Array.isArray(snapshot.plugins)
-    ? snapshot.plugins.filter(isPluginSummary)
-    : [];
-  const resolved = resolvePlugins(catalog, pluginIds, services);
+  const snapshot = await context.plugins.list(false);
+  const resolved = resolvePlugins(snapshot.plugins, pluginIds, services);
   if (resolved.plugins.length === 0) {
     fail(
       "No matching plugins were found in the current catalog.",

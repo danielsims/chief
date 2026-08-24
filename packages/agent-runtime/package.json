@@ -20,6 +20,7 @@
     "build:desktop-sidecar": "node scripts/build-desktop-sidecar.mjs",
     "clean": "git clean -xdf .cache .turbo dist node_modules",
     "dev": "tsx watch src/server.ts",
+    "generate:local-tools-openapi": "tsx scripts/generate-local-tools-openapi.mts",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
     "lint": "pnpm --dir ../.. exec oxlint packages/agent-runtime",
     "smoke:convex": "tsx scripts/smoke-convex-deployment.mts",
@@ -60,7 +61,8 @@
     "vercel": "56.3.1",
     "ws": "^8.18.3",
     "yaml": "^2.9.0",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "3.25.2"
   },
   "devDependencies": {
     "@chief/prettier-config": "workspace:*",

@@ -1,9 +1,9 @@
-import type { BrowserLocalToolContext } from "./browser-local-tools.js";
 import type { ChannelLocalToolContext } from "./channel-local-tools.js";
-import type { IntegrationSetupLocalToolContext } from "./integration-setup-local-tools.js";
-import type { PluginLocalToolService } from "./plugin-local-tools.js";
-import type { ProjectLocalToolContext } from "./projects/local-tools.js";
 import type { ScheduledWorkRunner } from "./scheduled-work-local-tools.js";
+import type { BrowserLocalToolContext } from "./tools/local/toolkits/browser/context.js";
+import type { IntegrationSetupLocalToolContext } from "./tools/local/toolkits/integrations/context.js";
+import type { PluginLocalToolService } from "./tools/local/toolkits/plugins/context.js";
+import type { ProjectLocalToolContext } from "./tools/local/toolkits/projects/context.js";
 import type { WorkspaceFileRecord } from "./types.js";
 
 export type LocalToolContext = BrowserLocalToolContext & {

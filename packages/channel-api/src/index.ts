@@ -6,7 +6,6 @@ import {
 
 export { channelApiOperations, channelApiPrinciples };
 export { scheduledWorkApiOperations, scheduledWorkApiPrinciples };
-export { channelOpenApiPaths, channelOpenApiSchemas } from "./openapi";
 export {
   channelAgentPermissions,
   channelKinds,

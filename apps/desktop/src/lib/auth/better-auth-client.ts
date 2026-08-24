@@ -3,14 +3,27 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { organizationClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 
+import type { JsonObject } from "@chief/relay-contracts";
+import { toJsonObject } from "@chief/relay-contracts";
+
+import type { AuthOrganization } from "./better-auth-contracts";
 import type { OrganizationRole } from "./organization-role";
 import type { StoredSession } from "./session";
 import { AUTH_BASE_URL } from "../config";
 import { fetchWithTimeout } from "../fetch-with-timeout";
+import {
+  authOrganizationSchema,
+  authUserInfoSchema,
+  normalizeOrganizations,
+  organizationCacheSchema,
+  organizationMemberSchema,
+} from "./better-auth-contracts";
 import { primaryOrganizationRole } from "./organization-role";
 import { getStoredSession, setStoredSession } from "./session";
 
 export { AUTH_BASE_URL } from "../config";
+export type { AuthOrganization } from "./better-auth-contracts";
+export { parseOrganizationMetadata } from "./better-auth-contracts";
 
 const authClientBaseUrl = AUTH_BASE_URL;
 
@@ -25,11 +38,11 @@ const fetchImpl: typeof fetch = async (input, init) => {
   }
 
   const url =
-    typeof input === "string"
-      ? input
-      : input instanceof URL
-        ? input.toString()
-        : input.url;
+    input instanceof URL
+      ? input.toString()
+      : input instanceof Request
+        ? input.url
+        : input;
   console.log("[Auth Fetch]", init?.method ?? "GET", url);
 
   const nextInit = {
@@ -91,38 +104,25 @@ export async function validateStoredSession(
     // Any other non-2xx (5xx, gateway errors) is transient — keep the session.
     if (!response.ok) return { status: "unknown" };
 
-    const data = (await response.json()) as {
-      sub?: string;
-      name?: string;
-      email?: string;
-      email_verified?: boolean;
-      picture?: string | null;
-    } | null;
-    if (!data?.sub || !data.email) return { status: "invalid" };
+    const result = authUserInfoSchema.safeParse(await response.json());
+    if (!result.success) return { status: "invalid" };
+    const data = result.data;
+    const user: StoredSession["user"] = {
+      id: data.sub,
+      name: data.name?.trim() ?? data.email,
+      email: data.email,
+      emailVerified: data.email_verified ?? false,
+    };
+    if (data.picture) user.image = data.picture;
 
     return {
       status: "valid",
-      user: {
-        id: data.sub,
-        name: data.name?.trim() ?? data.email,
-        email: data.email,
-        emailVerified: data.email_verified ?? false,
-        ...(data.picture ? { image: data.picture } : {}),
-      },
+      user,
     };
   } catch {
     // Network/transport failure — don't sign out offline users.
     return { status: "unknown" };
   }
-}
-
-export interface AuthOrganization {
-  id: string;
-  name: string;
-  slug: string;
-  logo?: string | null;
-  /** JSON string (better-auth stores metadata stringified) or object. */
-  metadata?: string | Record<string, unknown> | null;
 }
 
 export interface AuthOrganizationMember {
@@ -145,19 +145,13 @@ export async function getActiveAuthOrganizationMember(
     { headers: { Authorization: `Bearer ${storedSession.token}` } },
   );
   if (!response.ok) return null;
-  const member = (await response.json().catch(() => null)) as {
-    id?: unknown;
-    organizationId?: unknown;
-    userId?: unknown;
-    role?: unknown;
-  } | null;
-  const role = primaryOrganizationRole(member?.role);
-  if (
-    typeof member?.id !== "string" ||
-    typeof member.userId !== "string" ||
-    member.organizationId !== expectedOrganizationId ||
-    !role
-  ) {
+  const result = organizationMemberSchema.safeParse(
+    await response.json().catch(() => null),
+  );
+  if (!result.success) return null;
+  const member = result.data;
+  const role = primaryOrganizationRole(member.role);
+  if (member.organizationId !== expectedOrganizationId || !role) {
     return null;
   }
   return {
@@ -166,46 +160,6 @@ export async function getActiveAuthOrganizationMember(
     userId: member.userId,
     role,
   };
-}
-
-function normalizeOrganizations(value: unknown): AuthOrganization[] {
-  if (Array.isArray(value)) return value as AuthOrganization[];
-  if (!value || typeof value !== "object") return [];
-
-  const record = value as Record<string, unknown>;
-  if (Array.isArray(record.organizations)) {
-    return record.organizations as AuthOrganization[];
-  }
-  if (Array.isArray(record.data)) {
-    return record.data as AuthOrganization[];
-  }
-  if (
-    record.data &&
-    typeof record.data === "object" &&
-    Array.isArray((record.data as Record<string, unknown>).organizations)
-  ) {
-    return (record.data as Record<string, unknown>)
-      .organizations as AuthOrganization[];
-  }
-
-  return [];
-}
-
-/** Parse the better-auth organization metadata field, whatever shape it has. */
-export function parseOrganizationMetadata(
-  org: AuthOrganization | undefined | null,
-): Record<string, unknown> {
-  const metadata = org?.metadata;
-  if (!metadata) return {};
-  if (typeof metadata === "object") return metadata;
-  try {
-    const parsed = JSON.parse(metadata) as unknown;
-    return parsed && typeof parsed === "object"
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
 }
 
 let organizationCache:
@@ -232,22 +186,14 @@ function restoreOrganizationCache() {
   const session = getStoredSession();
   if (!session || organizationCache?.token === session.token) return;
   try {
-    const stored = JSON.parse(
-      localStorage.getItem(ORGANIZATION_CACHE_KEY) ?? "null",
-    ) as {
-      userId?: unknown;
-      organizations?: unknown;
-      cachedAt?: unknown;
-    } | null;
-    if (
-      stored?.userId === session.user.id &&
-      Array.isArray(stored.organizations) &&
-      typeof stored.cachedAt === "number"
-    ) {
+    const result = organizationCacheSchema.safeParse(
+      JSON.parse(localStorage.getItem(ORGANIZATION_CACHE_KEY) ?? "null"),
+    );
+    if (result.success && result.data.userId === session.user.id) {
       organizationCache = {
         token: session.token,
-        organizations: stored.organizations as AuthOrganization[],
-        cachedAt: stored.cachedAt,
+        organizations: result.data.organizations,
+        cachedAt: result.data.cachedAt,
       };
     }
   } catch {
@@ -383,26 +329,34 @@ export async function setActiveAuthOrganization(
   });
 }
 
-export async function updateAuthOrganization(
+interface AuthOrganizationUpdate<Metadata> {
+  name?: string;
+  logo?: string | null;
+  metadata?: Metadata;
+}
+
+export async function updateAuthOrganization<Metadata>(
   organizationId: string,
-  data: {
-    name?: string;
-    logo?: string | null;
-    metadata?: Record<string, unknown>;
-  },
+  data: AuthOrganizationUpdate<Metadata>,
 ): Promise<void> {
   const storedSession = getStoredSession();
   if (!storedSession?.token) throw new Error("Not authenticated");
 
   const url = `${AUTH_BASE_URL}/api/auth/organization/update`;
   const fetcher = isTauri() ? tauriFetch : fetch;
+  const normalizedData: AuthOrganizationUpdate<JsonObject> = {
+    name: data.name,
+    logo: data.logo,
+    metadata:
+      data.metadata === undefined ? undefined : toJsonObject(data.metadata),
+  };
   const response = await fetcher(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${storedSession.token}`,
     },
-    body: JSON.stringify({ organizationId, data }),
+    body: JSON.stringify({ organizationId, data: normalizedData }),
   });
 
   if (!response.ok) {
@@ -412,7 +366,7 @@ export async function updateAuthOrganization(
     );
   }
   const cached = cachedAuthOrganization(organizationId);
-  if (cached) cacheOrganization({ ...cached, ...data });
+  if (cached) cacheOrganization({ ...cached, ...normalizedData });
   else invalidateOrganizationCache();
 }
 
@@ -492,8 +446,9 @@ export async function createAuthOrganization(input: {
     );
   }
 
-  const responseData = (await response.json()) as AuthOrganization | null;
-  if (!responseData) throw new Error("No organization returned");
+  const result = authOrganizationSchema.safeParse(await response.json());
+  if (!result.success) throw new Error("No organization returned");
+  const responseData = result.data;
   cacheOrganization(responseData);
   return responseData;
 }

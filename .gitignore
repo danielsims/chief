@@ -15,6 +15,7 @@ target/
 apps/mobile/.deriveddata/
 apps/mobile/.build/
 apps/relay/.wrangler/
+apps/web/generated/
 
 # tauri
 apps/desktop/src-tauri/gen/

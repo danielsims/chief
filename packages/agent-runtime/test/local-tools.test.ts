@@ -1,41 +1,55 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { SessionManager } from "../src/manager.js";
 import { handleLocalTool, localToolsOpenApi } from "../src/local-tools.js";
+import { SessionManager } from "../src/manager.js";
+import { defaultWorkspaceWaysOfWorking } from "../src/workspace-ways-of-working.js";
 
-const manager = {
-  workspaceData: () =>
-    Promise.resolve({
-      prospects: [],
-      trends: [],
-      analyticsDatasets: [],
-      drafts: [],
-      campaigns: [],
-      recurringWork: [],
-    }),
-} as unknown as SessionManager;
+function operation(
+  specification: ReturnType<typeof localToolsOpenApi>,
+  path: string,
+  method: "get" | "post" | "patch" | "delete",
+) {
+  const result = specification.paths[path]?.[method];
+  assert.ok(result, `Expected ${method.toUpperCase()} ${path} in OpenAPI.`);
+  return result;
+}
+
+const manager = new SessionManager();
+manager.workspaceData = () =>
+  Promise.resolve({
+    prospects: [],
+    trends: [],
+    analyticsDatasets: [],
+    drafts: [],
+    campaigns: [],
+    activity: [],
+    actionItems: [],
+    waysOfWorking: defaultWorkspaceWaysOfWorking,
+    recurringWork: [],
+  });
 
 void test("embedded browser tool is discoverable and dispatches safe URLs", async () => {
   const specification = localToolsOpenApi("http://127.0.0.1:4318");
   assert.equal(
-    specification.paths["/local-tools/browser/open"].post.operationId,
+    operation(specification, "/local-tools/browser/open", "post").operationId,
     "browser.open",
   );
   assert.equal(
-    specification.paths["/local-tools/browser/press"].post.operationId,
+    operation(specification, "/local-tools/browser/press", "post").operationId,
     "browser.press",
   );
   assert.equal(
-    specification.paths["/local-tools/browser/select"].post.operationId,
+    operation(specification, "/local-tools/browser/select", "post").operationId,
     "browser.select",
   );
   assert.equal(
-    specification.paths["/local-tools/browser/close"].post.operationId,
+    operation(specification, "/local-tools/browser/close", "post").operationId,
     "browser.close",
   );
   assert.equal(
-    specification.paths["/local-tools/browser/present"].post.operationId,
+    operation(specification, "/local-tools/browser/present", "post")
+      .operationId,
     "browser.present",
   );
 
@@ -168,6 +182,7 @@ void test("file writes notify the owning specialist publication hook", async () 
     path: "brand/profile.md",
     mimeType: "text/markdown",
     kind: "document" as const,
+    provider: "local" as const,
     content: "Grounded brand profile content",
     currentVersionId: "version-1",
     createdBy: "agent" as const,
@@ -177,10 +192,9 @@ void test("file writes notify the owning specialist publication hook", async () 
     updatedAt: 1,
   };
   const published: unknown[] = [];
-  const fileManager = {
-    workspaceData: () => manager.workspaceData("workspace-1"),
-    saveWorkspaceFile: () => Promise.resolve(file),
-  } as unknown as SessionManager;
+  const fileManager = new SessionManager();
+  fileManager.workspaceData = () => manager.workspaceData("workspace-1");
+  fileManager.saveWorkspaceFile = () => Promise.resolve(file);
 
   const response = await handleLocalTool(
     new Request("http://127.0.0.1:4318/local-tools/files/write", {
@@ -237,10 +251,15 @@ void test("embedded browser selects an exact visible option", async () => {
 
 void test("Google OAuth capture is host-owned and needs no download ref", async () => {
   const specification = localToolsOpenApi("http://127.0.0.1:4318");
-  assert.equal(
-    specification.paths["/local-tools/integrations/google-oauth/capture-client"]
-      .post.requestBody.content["application/json"].schema.$ref,
-    "#/components/schemas/IntegrationSetupSessionInput",
+  assert.match(
+    JSON.stringify(
+      operation(
+        specification,
+        "/local-tools/integrations/google-oauth/capture-client",
+        "post",
+      ).requestBody,
+    ),
+    /"required":\["sessionId","attemptId"\]/u,
   );
   let captured: string[] | undefined;
   const response = await handleLocalTool(
@@ -276,8 +295,11 @@ void test("Google OAuth capture is host-owned and needs no download ref", async 
 void test("generated provider credentials cross only the host-owned boundary", async () => {
   const specification = localToolsOpenApi("http://127.0.0.1:4318");
   assert.equal(
-    specification.paths["/local-tools/integrations/credential/capture"].post
-      .operationId,
+    operation(
+      specification,
+      "/local-tools/integrations/credential/capture",
+      "post",
+    ).operationId,
     "integration.captureGeneratedCredential",
   );
   let captured: string[] | undefined;
@@ -312,7 +334,7 @@ void test("generated provider credentials cross only the host-owned boundary", a
 void test("provider pages register an automatic authentication handoff", async () => {
   const specification = localToolsOpenApi("http://127.0.0.1:4318");
   assert.equal(
-    specification.paths["/local-tools/integrations/provider/open"].post
+    operation(specification, "/local-tools/integrations/provider/open", "post")
       .operationId,
     "integration.openProviderPage",
   );
