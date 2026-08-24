@@ -1,7 +1,7 @@
 /**
  * Social platforms a workspace can register a presence on. Prefixes are the
  * canonical profile URL stems shown in the PrefixedInput; the backend keeps
- * a mirror of this map (packages/backend/convex/socialAccounts.ts) to derive
+ * this map to derive
  * stored URLs server-side.
  */
 export type SocialPlatform =

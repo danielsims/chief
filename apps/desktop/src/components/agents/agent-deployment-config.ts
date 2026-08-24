@@ -3,6 +3,11 @@ import type {
   AgentDeploymentTarget,
   InputRequest,
 } from "@chief/agent-runtime/types";
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
 
 import type { AuthOrganization } from "../../lib/auth/better-auth-client";
 import { parseOrganizationMetadata } from "../../lib/auth/better-auth-client";
@@ -50,27 +55,25 @@ export function persistedDeployment(
   if (!org) return null;
   const metadata = parseOrganizationMetadata(org);
   const onboarding =
-    metadata.onboarding && typeof metadata.onboarding === "object"
+    metadata.onboarding && isJsonObject(metadata.onboarding)
       ? (metadata.onboarding as Record<string, unknown>)
       : {};
   const agentDeployments =
-    onboarding.agentDeployments &&
-    typeof onboarding.agentDeployments === "object"
+    onboarding.agentDeployments && isJsonObject(onboarding.agentDeployments)
       ? (onboarding.agentDeployments as Record<string, unknown>)
       : {};
   const raw =
     agentDeployments[agentId] ??
     (agentId === "chief" ? agentDeployments.cmo : undefined) ??
     (agentId === "chief" ? onboarding.chiefDeployment : undefined);
-  if (!raw || typeof raw !== "object") return null;
+  if (!raw || !isJsonObject(raw)) return null;
   const value = raw as Record<string, unknown>;
-  if (typeof value.url !== "string" || !value.url) return null;
+  if (!isJsonString(value.url) || !value.url) return null;
   return {
     url: value.url,
-    target: value.target === "convex" ? "convex" : "vercel",
-    deployedAt:
-      typeof value.deployedAt === "number" ? value.deployedAt : undefined,
-    model: typeof value.model === "string" ? value.model : undefined,
+    target: "vercel",
+    deployedAt: isJsonNumber(value.deployedAt) ? value.deployedAt : undefined,
+    model: isJsonString(value.model) ? value.model : undefined,
   };
 }
 

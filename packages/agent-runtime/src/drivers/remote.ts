@@ -1,6 +1,5 @@
 import type { AgentEvent, StartOptions } from "../types.js";
 import { BaseDriver } from "./base.js";
-import { ConvexRemoteDriver } from "./remote-convex.js";
 import { EveRemoteDriver } from "./remote-eve.js";
 
 export class RemoteDriver extends BaseDriver {
@@ -9,10 +8,7 @@ export class RemoteDriver extends BaseDriver {
 
   async start(options: StartOptions) {
     this.startOptions = options;
-    this.transport =
-      options.env?.CHIEF_REMOTE_AGENT_TARGET?.trim() === "convex"
-        ? new ConvexRemoteDriver()
-        : new EveRemoteDriver();
+    this.transport = new EveRemoteDriver();
     this.transport.on("event", (event: AgentEvent) => this.emitEvent(event));
     this.transport.on("state", (state) => this.emitState(state));
     await this.transport.start(options);

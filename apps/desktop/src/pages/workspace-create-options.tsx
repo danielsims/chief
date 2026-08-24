@@ -20,7 +20,6 @@ export const workspaceOnboardingApps = [
   { domain: "clickup.com", label: "ClickUp" },
   { domain: "monday.com", label: "monday.com" },
   { domain: "intercom.com", label: "Intercom" },
-  { domain: "convex.dev", label: "Convex" },
   { domain: "box.com", label: "Box" },
   { domain: "miro.com", label: "Miro" },
   { domain: "resend.com", label: "Resend" },

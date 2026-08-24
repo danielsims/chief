@@ -4,7 +4,7 @@ import test from "node:test";
 import { capabilityForWorkspace } from "../src/lib/workspace-capability.js";
 
 const capability = {
-  apiBaseUrl: "https://example.convex.site",
+  apiBaseUrl: "https://relay.example.com",
   token: "a".repeat(43),
 };
 

@@ -1,17 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, join, resolve } from "node:path";
 import type { ChildProcess } from "node:child_process";
 
 import type {
@@ -30,8 +21,6 @@ import {
   readAgentDeploymentRecord,
 } from "./agent-deployment-records.js";
 import { defaultAgents, getAgent } from "./agents.js";
-import { materializeConvexWorkspace } from "./convex-workspace.js";
-import { ConvexDeploymentProvider } from "./deployments/convex.js";
 import { DeploymentNeedsConfigurationError } from "./deployments/types.js";
 import { VercelDeploymentProvider } from "./deployments/vercel.js";
 import { materializeEveWorkspace } from "./eve-workspace.js";
@@ -120,57 +109,22 @@ function deploymentRoot(
   );
 }
 
-function templateRoot(target: AgentDeploymentTarget) {
-  const configured =
-    target === "convex"
-      ? process.env.CHIEF_CONVEX_WORKSPACE_TEMPLATE
-      : process.env.CHIEF_EVE_WORKSPACE_TEMPLATE;
+function templateRoot() {
+  const configured = process.env.CHIEF_EVE_WORKSPACE_TEMPLATE;
   if (configured) return resolve(configured);
   const runtime = process.env.CHIEF_RUNTIME_ROOT;
-  if (runtime) {
-    return join(
-      runtime,
-      target === "convex"
-        ? "convex-deployment-workspace"
-        : "deployment-workspace",
-    );
-  }
-  if (target === "convex") {
-    return resolve(
-      dirname(fileURLToPath(import.meta.url)),
-      "../templates/convex",
-    );
-  }
-  return resolve(
-    dirname(fileURLToPath(import.meta.url)),
-    "../../../apps/workspace",
-  );
+  if (runtime) return join(runtime, "deployment-workspace");
+  return resolve(import.meta.dirname, "../../../apps/workspace");
 }
 
 function runtimeModules() {
   const runtime = process.env.CHIEF_RUNTIME_ROOT;
-  if (runtime) return join(runtime, "node_modules");
-  return resolve(
-    dirname(fileURLToPath(import.meta.url)),
-    "../../../apps/workspace/node_modules",
-  );
+  return runtime
+    ? join(runtime, "node_modules")
+    : resolve(import.meta.dirname, "../../../apps/workspace/node_modules");
 }
 
-function copyTemplate(
-  source: string,
-  target: string,
-  preserveIdentity: boolean,
-  linkRuntimeDependencies: boolean,
-) {
-  const preserved = preserveIdentity
-    ? [".env.local", ".chief-convex.json"].flatMap((name) => {
-        try {
-          return [{ name, value: readFileSync(join(target, name), "utf8") }];
-        } catch {
-          return [];
-        }
-      })
-    : [];
+function copyTemplate(source: string, target: string) {
   rmSync(target, { recursive: true, force: true });
   mkdirSync(target, { recursive: true });
   const excluded = new Set([
@@ -187,12 +141,6 @@ function copyTemplate(
     recursive: true,
     filter: (path) => path === source || !excluded.has(basename(path)),
   });
-  if (linkRuntimeDependencies) {
-    symlinkSync(runtimeModules(), join(target, "node_modules"), "junction");
-  }
-  for (const { name, value } of preserved) {
-    writeFileSync(join(target, name), value, { mode: 0o600 });
-  }
 }
 
 export class AgentDeploymentManager {
@@ -201,7 +149,6 @@ export class AgentDeploymentManager {
   private canceled = new Set<string>();
   private providers = new Map<AgentDeploymentTarget, AgentDeploymentProvider>([
     ["vercel", new VercelDeploymentProvider()],
-    ["convex", new ConvexDeploymentProvider()],
   ]);
 
   constructor(
@@ -313,7 +260,7 @@ export class AgentDeploymentManager {
     try {
       const agent = getAgent(input.agentId);
       if (!agent) throw new Error("Agent is not installed in this workspace.");
-      const source = templateRoot(input.target);
+      const source = templateRoot();
       if (!existsSync(source)) {
         throw new Error(
           `The packaged ${input.target} workspace template is unavailable.`,
@@ -333,12 +280,7 @@ export class AgentDeploymentManager {
         input.agentId,
         input.target,
       );
-      copyTemplate(
-        source,
-        target,
-        input.target === "convex",
-        input.target === "convex",
-      );
+      copyTemplate(source, target);
       if (this.canceled.has(id)) throw new Error("Deployment canceled.");
       const hasAnyHostedExecutorValue = [
         environment.EXECUTOR_MCP_URL,
@@ -367,11 +309,7 @@ export class AgentDeploymentManager {
         })),
         channels: input.channels,
       };
-      if (input.target === "convex") {
-        materializeConvexWorkspace(target, workspaceInput);
-      } else {
-        materializeEveWorkspace(target, workspaceInput);
-      }
+      materializeEveWorkspace(target, workspaceInput);
 
       const routePasswordKey = agentEnvironmentKey(
         "CHIEF_EVE_ROUTE_PASSWORD",

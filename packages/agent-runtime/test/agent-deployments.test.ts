@@ -64,7 +64,7 @@ void test("remote credentials are isolated to the selected agent pack", () => {
     CHIEF_EVE_ROUTE_PASSWORD: "chief-password",
     [agentEnvironmentKey("CHIEF_REMOTE_AGENT_URL", "analyst")]:
       "https://analyst.example.com",
-    [agentEnvironmentKey("CHIEF_REMOTE_AGENT_TARGET", "analyst")]: "convex",
+    [agentEnvironmentKey("CHIEF_REMOTE_AGENT_TARGET", "analyst")]: "vercel",
     [agentEnvironmentKey("CHIEF_EVE_ROUTE_PASSWORD", "analyst")]:
       "analyst-password",
   };
@@ -80,7 +80,7 @@ void test("remote credentials are isolated to the selected agent pack", () => {
     },
     {
       url: "https://analyst.example.com",
-      target: "convex",
+      target: "vercel",
       password: "analyst-password",
     },
   );

@@ -7,7 +7,7 @@ import type {
   AgentDefinition,
   AgentDeploymentTarget,
 } from "@chief/agent-runtime/types";
-import { toJsonObject } from "@chief/relay-contracts";
+import { isJsonObject, toJsonObject } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
 import {
@@ -20,11 +20,6 @@ import { cn } from "@chief/ui/lib/utils";
 
 import type { AuthOrganization } from "../../lib/auth/better-auth-client";
 import { useAgentDeployments } from "../../lib/agent-deployments";
-import {
-  AI_GATEWAY_API_KEY,
-  AI_GATEWAY_INPUT_REQUEST,
-  AI_GATEWAY_KEYS_URL,
-} from "../../lib/ai-gateway-input";
 import { useAuth } from "../../lib/auth/auth-context";
 import {
   listAuthOrganizations,
@@ -33,7 +28,6 @@ import {
 } from "../../lib/auth/better-auth-client";
 import { playbookInstructions, PLAYBOOKS } from "../../lib/playbooks";
 import { useProviderModels, useStoredInputs } from "../../lib/runtime";
-import { ConvexLogo } from "../convex-logo";
 import {
   DEPLOYED_SLACK_KEYS,
   DEPLOYED_SLACK_REQUEST,
@@ -53,9 +47,8 @@ export function AgentDeploymentPanel({
   const { cloudOrganizationId } = useAuth();
   const deploymentState = useAgentDeployments(cloudOrganizationId);
   const [org, setOrg] = useState<AuthOrganization | null>(null);
-  const [target, setTarget] = useState<AgentDeploymentTarget>("vercel");
+  const target: AgentDeploymentTarget = "vercel";
   const [scope, setScope] = useState("");
-  const [gatewayKey, setGatewayKey] = useState("");
   const [model, setModel] = useState("");
   const [deploySlackDraft, setDeploySlack] = useState<boolean | null>(null);
   const [activateDeployment, setActivateDeployment] = useState(false);
@@ -71,19 +64,10 @@ export function AgentDeploymentPanel({
       deployment.agentId === agent.id && deployment.target === target,
   );
   const deploySlack =
-    target === "vercel" &&
-    (deploySlackDraft ??
-      Boolean(current?.channels && current.channels.length > 0));
+    deploySlackDraft ??
+    Boolean(current?.channels && current.channels.length > 0);
   const gatewayModels = useProviderModels("remote");
-  const gatewayInputs = useStoredInputs(
-    target === "convex" ? [AI_GATEWAY_API_KEY] : null,
-  );
-  const slackInputs = useStoredInputs(
-    target === "vercel" && deploySlack ? DEPLOYED_SLACK_KEYS : null,
-  );
-  const gatewayConfigured =
-    target !== "convex" ||
-    gatewayInputs.present?.has(AI_GATEWAY_API_KEY) === true;
+  const slackInputs = useStoredInputs(deploySlack ? DEPLOYED_SLACK_KEYS : null);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,8 +78,6 @@ export function AgentDeploymentPanel({
         organizations[0] ??
         null;
       setOrg(next);
-      const saved = persistedDeployment(next, agent.id);
-      if (saved) setTarget(saved.target);
     });
     return () => {
       cancelled = true;
@@ -124,10 +106,7 @@ export function AgentDeploymentPanel({
   const saved = persistedDeployment(org, agent.id);
   const running = current?.status === "running";
   const currentPhase = phaseIndex(current?.phase);
-  const projectNameValid =
-    target === "convex"
-      ? /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(projectName)
-      : /^[a-z0-9][a-z0-9._-]{0,99}$/.test(projectName);
+  const projectNameValid = /^[a-z0-9][a-z0-9._-]{0,99}$/.test(projectName);
   const effectiveModel =
     model.length > 0
       ? model
@@ -147,12 +126,11 @@ export function AgentDeploymentPanel({
     persistedUrl.current = current.url;
     const metadata = parseOrganizationMetadata(org);
     const onboarding =
-      metadata.onboarding && typeof metadata.onboarding === "object"
+      metadata.onboarding && isJsonObject(metadata.onboarding)
         ? (metadata.onboarding as Record<string, unknown>)
         : {};
     const agentDeployments =
-      onboarding.agentDeployments &&
-      typeof onboarding.agentDeployments === "object"
+      onboarding.agentDeployments && isJsonObject(onboarding.agentDeployments)
         ? (onboarding.agentDeployments as Record<string, unknown>)
         : {};
     const deploymentMetadata = {
@@ -173,14 +151,14 @@ export function AgentDeploymentPanel({
               deploymentProvider: current.target,
               cloudDeploymentUrl: current.url,
             }
-          : {}),
+          : undefined),
         agentDeployments: {
           ...agentDeployments,
           [agent.id]: deploymentMetadata,
         },
         ...(agent.id === "chief"
           ? { chiefDeployment: deploymentMetadata }
-          : {}),
+          : undefined),
       },
     };
     void updateAuthOrganization(org.id, { metadata: nextMetadata }).then(() =>
@@ -224,17 +202,7 @@ export function AgentDeploymentPanel({
           <section>
             <p className="text-xs font-medium">Deployment provider</p>
             <div className="mt-3 grid gap-2">
-              <button
-                type="button"
-                disabled={running}
-                onClick={() => setTarget("vercel")}
-                className={cn(
-                  "flex items-start gap-3 border p-3 text-left transition-colors",
-                  target === "vercel"
-                    ? "border-foreground bg-muted"
-                    : "hover:border-foreground",
-                )}
-              >
+              <div className="border-foreground bg-muted flex items-start gap-3 border p-3 text-left">
                 <Vercel size={16} className="mt-0.5" />
                 <span>
                   <span className="block text-xs font-medium">Vercel</span>
@@ -242,26 +210,7 @@ export function AgentDeploymentPanel({
                     Eve server, AI Gateway, and managed sandbox.
                   </span>
                 </span>
-              </button>
-              <button
-                type="button"
-                disabled={running}
-                onClick={() => setTarget("convex")}
-                className={cn(
-                  "flex items-start gap-3 border p-3 text-left transition-colors",
-                  target === "convex"
-                    ? "border-foreground bg-muted"
-                    : "hover:border-foreground",
-                )}
-              >
-                <ConvexLogo className="mt-0.5 size-4" />
-                <span>
-                  <span className="block text-xs font-medium">Convex</span>
-                  <span className="text-muted-foreground mt-1 block text-[10px] leading-4">
-                    Convex-native workflow state, queue, and streams.
-                  </span>
-                </span>
-              </button>
+              </div>
             </div>
           </section>
 
@@ -281,9 +230,8 @@ export function AgentDeploymentPanel({
               />
               {!projectNameValid ? (
                 <span className="text-destructive block text-[10px] leading-4">
-                  {target === "convex"
-                    ? "Use lowercase letters, numbers, and single hyphens."
-                    : "Use a lowercase letter or number first, then letters, numbers, dots, underscores, or hyphens."}
+                  Use a lowercase letter or number first, then letters, numbers,
+                  dots, underscores, or hyphens.
                 </span>
               ) : null}
             </label>
@@ -333,7 +281,7 @@ export function AgentDeploymentPanel({
               ) : null}
             </label>
             <label className="block space-y-2 text-xs">
-              <span>{target === "vercel" ? "Team slug" : "Convex team"}</span>
+              <span>Team slug</span>
               <Input
                 value={scope}
                 disabled={running}
@@ -341,90 +289,86 @@ export function AgentDeploymentPanel({
                 placeholder="Optional; uses your current account"
               />
             </label>
-            {target === "vercel" ? (
-              <div className="space-y-3 border-t pt-4">
-                <button
-                  type="button"
-                  disabled={running}
-                  onClick={() => setDeploySlack(!deploySlack)}
-                  className="flex w-full items-center justify-between text-left text-xs"
-                >
-                  <span>
-                    <span className="block">Slack via Eve</span>
-                    <span className="text-muted-foreground mt-1 block text-[10px]">
-                      Webhook channel for Vercel deployments
-                    </span>
+            <div className="space-y-3 border-t pt-4">
+              <button
+                type="button"
+                disabled={running}
+                onClick={() => setDeploySlack(!deploySlack)}
+                className="flex w-full items-center justify-between text-left text-xs"
+              >
+                <span>
+                  <span className="block">Slack via Eve</span>
+                  <span className="text-muted-foreground mt-1 block text-[10px]">
+                    Webhook channel for Vercel deployments
                   </span>
+                </span>
+                <span
+                  className={cn(
+                    "h-4 w-7 border p-0.5",
+                    deploySlack && "border-foreground",
+                  )}
+                >
                   <span
                     className={cn(
-                      "h-4 w-7 border p-0.5",
-                      deploySlack && "border-foreground",
+                      "bg-muted-foreground block size-2.5 transition-transform",
+                      deploySlack && "bg-foreground translate-x-2.5",
                     )}
-                  >
-                    <span
-                      className={cn(
-                        "bg-muted-foreground block size-2.5 transition-transform",
-                        deploySlack && "bg-foreground translate-x-2.5",
-                      )}
-                    />
-                  </span>
-                </button>
-                {deploySlack ? (
-                  slackConfigured ? (
-                    <div className="space-y-2">
-                      <p className="text-[10px] text-emerald-500">
-                        Slack bot token and signing secret are stored.
+                  />
+                </span>
+              </button>
+              {deploySlack ? (
+                slackConfigured ? (
+                  <div className="space-y-2">
+                    <p className="text-[10px] text-emerald-500">
+                      Slack bot token and signing secret are stored.
+                    </p>
+                    {current?.url ? (
+                      <p className="text-muted-foreground text-[10px] leading-4 break-all">
+                        Set Slack Events and Interactivity to{" "}
+                        {current.url.replace(/\/$/, "")}/eve/v1/slack
                       </p>
-                      {current?.url ? (
-                        <p className="text-muted-foreground text-[10px] leading-4 break-all">
-                          Set Slack Events and Interactivity to{" "}
-                          {current.url.replace(/\/$/, "")}/eve/v1/slack
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <Input
-                        type="password"
-                        value={slackBotToken}
-                        onChange={(event) =>
-                          setSlackBotToken(event.target.value)
-                        }
-                        placeholder="Slack bot token (xoxb-...)"
-                        autoComplete="off"
-                      />
-                      <Input
-                        type="password"
-                        value={slackSigningSecret}
-                        onChange={(event) =>
-                          setSlackSigningSecret(event.target.value)
-                        }
-                        placeholder="Slack signing secret"
-                        autoComplete="off"
-                      />
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={
-                          !slackBotToken || !slackSigningSecret || running
-                        }
-                        onClick={() => {
-                          slackInputs.store(DEPLOYED_SLACK_REQUEST, {
-                            botToken: slackBotToken,
-                            signingSecret: slackSigningSecret,
-                          });
-                          setSlackBotToken("");
-                          setSlackSigningSecret("");
-                        }}
-                      >
-                        Save Slack credentials
-                      </Button>
-                    </div>
-                  )
-                ) : null}
-              </div>
-            ) : null}
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Input
+                      type="password"
+                      value={slackBotToken}
+                      onChange={(event) => setSlackBotToken(event.target.value)}
+                      placeholder="Slack bot token (xoxb-...)"
+                      autoComplete="off"
+                    />
+                    <Input
+                      type="password"
+                      value={slackSigningSecret}
+                      onChange={(event) =>
+                        setSlackSigningSecret(event.target.value)
+                      }
+                      placeholder="Slack signing secret"
+                      autoComplete="off"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        !slackBotToken || !slackSigningSecret || running
+                      }
+                      onClick={() => {
+                        slackInputs.store(DEPLOYED_SLACK_REQUEST, {
+                          botToken: slackBotToken,
+                          signingSecret: slackSigningSecret,
+                        });
+                        setSlackBotToken("");
+                        setSlackSigningSecret("");
+                      }}
+                    >
+                      Save Slack credentials
+                    </Button>
+                  </div>
+                )
+              ) : null}
+            </div>
             <button
               type="button"
               disabled={running}
@@ -453,55 +397,6 @@ export function AgentDeploymentPanel({
                 />
               </span>
             </button>
-            {target === "convex" ? (
-              gatewayInputs.present === null ? (
-                <p className="text-muted-foreground text-[10px]">
-                  Checking the workspace Keychain vault...
-                </p>
-              ) : gatewayConfigured ? (
-                <p className="text-[10px] text-emerald-500">
-                  AI Gateway key stored in this workspace's Keychain vault.
-                </p>
-              ) : (
-                <div className="space-y-2 border-t pt-3">
-                  <p className="text-muted-foreground text-[10px] leading-4">
-                    Convex needs an AI Gateway API key. It stays in this
-                    workspace's macOS Keychain vault.{" "}
-                    <a
-                      href={AI_GATEWAY_KEYS_URL}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-foreground underline underline-offset-2"
-                    >
-                      Create a key in Vercel
-                    </a>
-                    .
-                  </p>
-                  <Input
-                    type="password"
-                    value={gatewayKey}
-                    disabled={running}
-                    autoComplete="off"
-                    placeholder="AI Gateway API key"
-                    onChange={(event) => setGatewayKey(event.target.value)}
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={!gatewayKey || running}
-                    onClick={() => {
-                      gatewayInputs.store(AI_GATEWAY_INPUT_REQUEST, {
-                        apiKey: gatewayKey,
-                      });
-                      setGatewayKey("");
-                    }}
-                  >
-                    Save key
-                  </Button>
-                </div>
-              )
-            ) : null}
           </section>
 
           <section className="border-t pt-5">
@@ -554,7 +449,7 @@ export function AgentDeploymentPanel({
               </p>
               <p className="text-muted-foreground mt-1 text-xs leading-5">
                 {current?.detail ??
-                  `${target === "vercel" ? "Vercel" : "Convex"} authentication opens in your browser when required.`}
+                  "Vercel authentication opens in your browser when required."}
               </p>
             </div>
             <span
@@ -615,7 +510,6 @@ export function AgentDeploymentPanel({
                 disabled={
                   !deploymentState.ready ||
                   !projectNameValid ||
-                  !gatewayConfigured ||
                   !slackConfigured ||
                   !org
                 }

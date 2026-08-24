@@ -6,7 +6,7 @@ runtime.
 
 ## Run locally
 
-Start the backend and web app first, then run from the repository root:
+Start the relay and web app first, then run from the repository root:
 
 ```bash
 pnpm desktop
@@ -22,8 +22,8 @@ Copy the sanitized example and add your own backend values:
 cp apps/desktop/.env.example apps/desktop/.env.local
 ```
 
-`VITE_CONVEX_URL` is required. `VITE_AUTH_BASE_URL` defaults to the local web
-app during development and is required for packaged builds.
+`VITE_AUTH_BASE_URL` defaults to the local web app during development and is
+required for packaged builds.
 `VITE_WORKSPACE_APP_PATH` is optional. It points local deployment work at a
 different Eve workspace.
 

@@ -1,7 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { lazy, Suspense, useEffect, useState } from "react";
 
-import { api } from "@chief/backend/convex/_generated/api";
+import { isJsonString } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 import {
   Card,
@@ -19,10 +18,8 @@ import {
   DialogTitle,
 } from "@chief/ui/components/dialog";
 import { Input } from "@chief/ui/components/input";
-import { PrefixedInput } from "@chief/ui/components/prefixed-input";
 
 import type { AuthOrganization } from "../../lib/auth/better-auth-client";
-import type { SocialPlatformDef } from "../../lib/social-platforms";
 import { InviteWorkspaceMemberCard } from "../../components/invite-workspace-member-card";
 import { OrgLogo, resolveFaviconUrl } from "../../components/org-logo";
 import { useAuth } from "../../lib/auth/auth-context";
@@ -39,11 +36,8 @@ import {
   rememberRelayWorkspaces,
 } from "../../lib/relay-connection";
 import { useRelaySession } from "../../lib/relay-session";
-import { SOCIAL_PLATFORMS } from "../../lib/social-platforms";
 
-// Vite replaces `import.meta.hot` with undefined in production. Production
-// never imports the isolated replay module, so this shortcut cannot appear in
-// releases and removing the dev module removes the feature completely.
+// Vite removes this development-only replay import from production releases.
 const DevelopmentOnboardingReplay = import.meta.hot
   ? lazy(() =>
       import("../../dev/onboarding-replay-card").then((module) => ({
@@ -70,57 +64,6 @@ function LogoPreview({
       imgClassName="h-8 w-8 object-contain"
       transparentWhenLoaded
     />
-  );
-}
-
-function SocialAccountRow({
-  def,
-  savedHandle,
-  ready,
-}: {
-  def: SocialPlatformDef;
-  savedHandle: string;
-  ready: boolean;
-}) {
-  const upsert = useMutation(api.socialAccounts.upsert);
-  const removeAccount = useMutation(api.socialAccounts.remove);
-  const [value, setValue] = useState(savedHandle);
-
-  useEffect(() => {
-    setValue(savedHandle);
-  }, [savedHandle]);
-
-  const commit = useCallback(async () => {
-    if (value === savedHandle) return;
-    try {
-      if (value) {
-        await upsert({ platform: def.platform, handle: value });
-      } else {
-        await removeAccount({ platform: def.platform });
-      }
-    } catch (error) {
-      console.error(`[Settings] Failed to save ${def.label} handle:`, error);
-      setValue(savedHandle);
-    }
-  }, [value, savedHandle, upsert, removeAccount, def]);
-
-  return (
-    <div className="flex items-center gap-3">
-      <span className="text-muted-foreground w-20 shrink-0 text-xs">
-        {def.label}
-      </span>
-      <PrefixedInput
-        prefix={def.prefix}
-        value={value}
-        onValueChange={setValue}
-        onBlur={() => void commit()}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") event.currentTarget.blur();
-        }}
-        placeholder="handle"
-        disabled={!ready}
-      />
-    </div>
   );
 }
 
@@ -229,11 +172,6 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
 export function WorkspaceSettings() {
   const { client } = useRelaySession();
   const { cloudOrganizationId } = useAuth();
-  const { isAuthenticated: convexReady } = useConvexAuth();
-  const socialAccounts = useQuery(
-    api.socialAccounts.list,
-    convexReady ? {} : "skip",
-  );
 
   const [org, setOrg] = useState<AuthOrganization | null>(null);
   const [name, setName] = useState("");
@@ -260,7 +198,7 @@ export function WorkspaceSettings() {
         setName(active.name);
         const metadata = parseOrganizationMetadata(active);
         setWebsite(
-          typeof metadata.websiteUrl === "string" ? metadata.websiteUrl : "",
+          isJsonString(metadata.websiteUrl) ? metadata.websiteUrl : "",
         );
         setLogo(active.logo ?? null);
         setLogoSource(metadata.logoSource === "upload" ? "upload" : "favicon");
@@ -367,10 +305,6 @@ export function WorkspaceSettings() {
     }
   };
 
-  const savedHandles = new Map(
-    (socialAccounts ?? []).map((account) => [account.platform, account.handle]),
-  );
-
   return (
     <>
       <Card>
@@ -472,30 +406,6 @@ export function WorkspaceSettings() {
       </Card>
 
       {org ? <InviteWorkspaceMemberCard organization={org} /> : null}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Social accounts</CardTitle>
-          <CardDescription>
-            Add the social accounts your agents write for.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {SOCIAL_PLATFORMS.map((def) => (
-            <SocialAccountRow
-              key={def.platform}
-              def={def}
-              savedHandle={savedHandles.get(def.platform) ?? ""}
-              ready={convexReady && socialAccounts !== undefined}
-            />
-          ))}
-          {!convexReady && (
-            <p className="text-muted-foreground text-xs">
-              Connecting to your workspace…
-            </p>
-          )}
-        </CardContent>
-      </Card>
 
       {org && DevelopmentOnboardingReplay ? (
         <Suspense fallback={null}>

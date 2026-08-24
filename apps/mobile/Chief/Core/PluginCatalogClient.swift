@@ -82,7 +82,6 @@ final class PluginCatalogClient {
     "clickup.com",
     "monday.com",
     "intercom.com",
-    "convex.dev",
     "box.com",
     "miro.com",
     "resend.com",

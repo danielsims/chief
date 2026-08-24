@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import type { SimpleIcon } from "simple-icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Claude, OpenAI, OpenCode, Vercel } from "@lobehub/icons";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import {
   Check,
   CheckCircle2,
@@ -30,7 +29,6 @@ import type {
   AgentPluginSummary,
   OnboardingSchedule,
 } from "@chief/agent-runtime/types";
-import { api } from "@chief/backend/convex/_generated/api";
 import {
   parseJsonObject,
   parseJsonString,
@@ -58,7 +56,6 @@ import type {
 } from "../lib/onboarding-draft";
 import type { OnboardingStep } from "../lib/onboarding-flow";
 import type { SocialPlatform } from "../lib/social-platforms";
-import { ConvexLogo } from "../components/convex-logo";
 import { IntegrationAvatarStack } from "../components/integrations/integration-avatar-stack";
 import { IntegrationChoiceCard } from "../components/integrations/integration-choice-card";
 import {
@@ -71,11 +68,6 @@ import {
   clearWorkspaceProvider,
   setWorkspaceProvider,
 } from "../lib/agent-overrides";
-import {
-  AI_GATEWAY_API_KEY,
-  AI_GATEWAY_INPUT_REQUEST,
-  AI_GATEWAY_KEYS_URL,
-} from "../lib/ai-gateway-input";
 import { useAuth } from "../lib/auth/auth-context";
 import {
   createAuthOrganization,
@@ -114,7 +106,6 @@ import {
   useAgentPreferences,
   useProviderModels,
   useRuntime,
-  useStoredInputs,
   useWorkspaceData,
 } from "../lib/runtime";
 import { usePlugins } from "../lib/runtime-plugins";
@@ -234,7 +225,6 @@ const fallbackEverydayIntegrations = (
     ["clickup.com", "ClickUp"],
     ["monday.com", "monday.com"],
     ["intercom.com", "Intercom"],
-    ["convex.dev", "Convex"],
     ["box.com", "Box"],
     ["miro.com", "Miro"],
     ["resend.com", "Resend"],
@@ -554,11 +544,9 @@ function AnswerPreview({
   if (step === "inference") {
     const label =
       draft.providerMode === "deployed"
-        ? draft.deploymentProvider === "convex"
-          ? "Convex"
-          : draft.deploymentProvider === "vercel"
-            ? "Vercel"
-            : "Cloud deployment"
+        ? draft.deploymentProvider === "vercel"
+          ? "Vercel"
+          : "Cloud deployment"
         : draft.provider === "codex"
           ? "Codex"
           : draft.provider === "claude"
@@ -709,8 +697,8 @@ function ModeControl({
             <span>
               <span className="block text-sm font-medium">Cloud workspace</span>
               <span className="text-muted-foreground mt-1 block text-xs leading-5">
-                Deploy the agent workspace to Vercel or Convex so it can
-                continue working while your Mac is offline.
+                Deploy the agent workspace so it can continue working while your
+                Mac is offline.
               </span>
             </span>
           </div>
@@ -946,23 +934,18 @@ function SocialsControl({
 function ProviderControl({
   draft,
   setField,
-  gatewayConfigured,
   deploymentReady,
-  saveGatewayKey,
   onChangeLocation,
   onContinue,
   saving,
 }: {
   draft: OnboardingDraft;
   setField: (patch: Partial<OnboardingDraft>) => void;
-  gatewayConfigured: boolean | null;
   deploymentReady: boolean;
-  saveGatewayKey: (value: string) => void;
   onChangeLocation: () => void;
   onContinue: () => void;
   saving: boolean;
 }) {
-  const [gatewayKey, setGatewayKey] = useState("");
   const optionClass = (selected: boolean) =>
     cn(
       "bg-background hover:border-foreground flex min-h-[112px] items-start gap-3 rounded-xl border p-4 text-left transition-colors",
@@ -979,11 +962,7 @@ function ProviderControl({
       <StepFrame
         onContinue={onContinue}
         saving={saving}
-        disabled={
-          !deploymentReady ||
-          !draft.deploymentProvider ||
-          (draft.deploymentProvider === "convex" && !gatewayConfigured)
-        }
+        disabled={!deploymentReady || !draft.deploymentProvider}
         continueLabel="Connect and deploy"
         actionsLeft={
           <Button type="button" variant="ghost" onClick={onChangeLocation}>
@@ -991,7 +970,7 @@ function ProviderControl({
           </Button>
         }
       >
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3">
           <button
             type="button"
             onClick={() =>
@@ -1012,84 +991,11 @@ function ProviderControl({
               </span>
             </span>
           </button>
-          <button
-            type="button"
-            onClick={() =>
-              setField({
-                providerMode: "deployed",
-                provider: "remote",
-                deploymentProvider: "convex",
-              })
-            }
-            className={optionClass(draft.deploymentProvider === "convex")}
-          >
-            <ConvexLogo size={18} className="mt-0.5 shrink-0" />
-            <span>
-              <span className="block text-sm font-medium">Convex</span>
-              <span className="text-muted-foreground mt-1 block text-xs leading-5">
-                Deploy Chief sessions and durable event streams into a dedicated
-                Convex project.
-              </span>
-            </span>
-          </button>
         </div>
         {!deploymentReady ? (
           <p className="text-muted-foreground mt-3 text-xs">
             Starting Chief's local deployment service...
           </p>
-        ) : null}
-        {draft.deploymentProvider === "convex" ? (
-          <div className="bg-background mt-3 rounded-xl border p-4">
-            {gatewayConfigured === null ? (
-              <p className="text-muted-foreground text-xs">
-                Checking this workspace's Keychain vault...
-              </p>
-            ) : gatewayConfigured ? (
-              <p className="text-xs text-emerald-500">
-                AI Gateway key stored in this workspace's Keychain vault.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                <div>
-                  <p className="text-sm font-medium">AI Gateway key</p>
-                  <p className="text-muted-foreground mt-1 text-xs leading-5">
-                    Convex needs a Vercel AI Gateway API key to run Chief's
-                    model. The value is sent straight to the local runtime and
-                    stored in macOS Keychain, never in onboarding metadata.{" "}
-                    <a
-                      href={AI_GATEWAY_KEYS_URL}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-foreground underline underline-offset-2"
-                    >
-                      Create a key in Vercel
-                    </a>
-                    .
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    type="password"
-                    value={gatewayKey}
-                    autoComplete="off"
-                    placeholder="AI Gateway API key"
-                    onChange={(event) => setGatewayKey(event.target.value)}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={!gatewayKey}
-                    onClick={() => {
-                      saveGatewayKey(gatewayKey);
-                      setGatewayKey("");
-                    }}
-                  >
-                    Save key
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
         ) : null}
       </StepFrame>
     );
@@ -1190,7 +1096,7 @@ function ReadinessRow({
 function HealthControl({
   draft,
   runtimeStatus,
-  convexReady,
+  accountReady,
   deployment,
   deploymentProvider,
   onBack,
@@ -1204,7 +1110,7 @@ function HealthControl({
 }: {
   draft: OnboardingDraft;
   runtimeStatus: "connecting" | "connected" | "disconnected";
-  convexReady: boolean;
+  accountReady: boolean;
   deployment?: AgentDeploymentRecord;
   deploymentProvider: AgentDeploymentTarget | null;
   onBack: () => void;
@@ -1221,9 +1127,7 @@ function HealthControl({
   );
   const providerLabel =
     draft.workspaceMode === "cloud"
-      ? deploymentProvider === "convex"
-        ? "Convex deployment"
-        : "Vercel deployment"
+      ? "Vercel deployment"
       : draft.provider === "codex"
         ? "Codex on this Mac"
         : draft.provider === "claude"
@@ -1285,11 +1189,7 @@ function HealthControl({
       >
         <div className="bg-background overflow-hidden rounded-xl border">
           <div className="flex items-start gap-3 border-b px-4 py-3">
-            {deploymentProvider === "convex" ? (
-              <ConvexLogo size={18} className="mt-0.5 shrink-0" />
-            ) : (
-              <Vercel size={18} className="mt-0.5 shrink-0" />
-            )}
+            <Vercel size={18} className="mt-0.5 shrink-0" />
             <span
               className={cn(
                 "mt-1.5 size-2 shrink-0 rounded-full",
@@ -1357,11 +1257,11 @@ function HealthControl({
           icon={Server}
           label="Account"
           detail={
-            convexReady
+            accountReady
               ? "Signed in and ready to save setup."
               : "Still connecting to your account."
           }
-          ready={convexReady}
+          ready={accountReady}
         />
         <ReadinessRow
           icon={Laptop}
@@ -2137,13 +2037,6 @@ export function OnboardingPage() {
   }, [plugins.plugins]);
   const agentPreferences = useAgentPreferences(cloudOrganizationId);
   const deploymentState = useAgentDeployments(cloudOrganizationId);
-  const { isAuthenticated: convexReady } = useConvexAuth();
-  const upsertSocial = useMutation(api.socialAccounts.upsert);
-  const removeSocial = useMutation(api.socialAccounts.remove);
-  const socialAccounts = useQuery(
-    api.socialAccounts.list,
-    convexReady && cloudOrganizationId ? {} : "skip",
-  );
   const [org, setOrg] = useState<AuthOrganization | null>(null);
   const [draft, setDraft] = useState<OnboardingDraft | null>(null);
   const [loading, setLoading] = useState(true);
@@ -2153,11 +2046,6 @@ export function OnboardingPage() {
   const [editingStep, setEditingStep] = useState<StepKey | null>(null);
   const currentQuestionRef = useRef<HTMLDivElement | null>(null);
   const completionStartedRef = useRef(false);
-  const gatewayInputs = useStoredInputs(
-    draft?.workspaceMode === "cloud" && draft.deploymentProvider === "convex"
-      ? [AI_GATEWAY_API_KEY]
-      : null,
-  );
   // Deep links may reopen any current onboarding step.
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -2198,21 +2086,6 @@ export function OnboardingPage() {
       JSON.stringify(draft),
     );
   }, [draft, org]);
-
-  useEffect(() => {
-    if (!socialAccounts) return;
-    const frame = window.requestAnimationFrame(() => {
-      setDraft((current) => {
-        if (!current) return current;
-        const nextSocials = { ...current.socials };
-        for (const account of socialAccounts) {
-          nextSocials[account.platform] = account.handle;
-        }
-        return { ...current, socials: nextSocials };
-      });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [socialAccounts]);
 
   const latestStep = draft?.step ?? "mode";
   const step = editingStep ?? latestStep;
@@ -2392,16 +2265,12 @@ export function OnboardingPage() {
   }, [draft, org]);
 
   const persistSocials = useCallback(async () => {
-    if (!draft || !convexReady) return;
-    await Promise.all(
-      SOCIAL_PLATFORMS.map((def) => {
-        const handle = draft.socials[def.platform]?.trim() ?? "";
-        return handle
-          ? upsertSocial({ platform: def.platform, handle })
-          : removeSocial({ platform: def.platform });
-      }),
-    );
-  }, [convexReady, draft, removeSocial, upsertSocial]);
+    if (!draft || !org) return;
+    const metadata = parseOrganizationMetadata(org);
+    await updateAuthOrganization(org.id, {
+      metadata: toJsonObject({ ...metadata, socialAccounts: draft.socials }),
+    });
+  }, [draft, org]);
 
   const persistProvider = useCallback(() => {
     if (!draft) return;
@@ -2657,19 +2526,7 @@ export function OnboardingPage() {
         <ProviderControl
           draft={draft}
           setField={setField}
-          gatewayConfigured={
-            draft.deploymentProvider === "convex"
-              ? gatewayInputs.present?.has(AI_GATEWAY_API_KEY) === true
-                ? true
-                : gatewayInputs.present === null
-                  ? null
-                  : false
-              : true
-          }
           deploymentReady={deploymentState.ready}
-          saveGatewayKey={(value) =>
-            gatewayInputs.store(AI_GATEWAY_INPUT_REQUEST, { apiKey: value })
-          }
           onChangeLocation={() =>
             setDraft((current) =>
               current ? { ...current, step: "mode" } : current,
@@ -2691,7 +2548,7 @@ export function OnboardingPage() {
         <HealthControl
           draft={draft}
           runtimeStatus={runtimeStatus}
-          convexReady={convexReady}
+          accountReady={Boolean(cloudOrganizationId)}
           deployment={deployment}
           deploymentProvider={draft.deploymentProvider}
           onRetryDeployment={startCloudDeployment}
@@ -2738,7 +2595,7 @@ export function OnboardingPage() {
           setSocial={setSocial}
           onContinue={advance}
           saving={saving}
-          ready={convexReady && socialAccounts !== undefined}
+          ready
         />
       );
     }
@@ -2827,8 +2684,6 @@ export function OnboardingPage() {
     completeOnboarding,
     changeDeploymentProvider,
     deploymentState,
-    gatewayInputs,
-    convexReady,
     draft,
     everydayIntegrations,
     org,
@@ -2841,7 +2696,6 @@ export function OnboardingPage() {
     setPluginIntegrations,
     setMonitoring,
     setSocial,
-    socialAccounts,
     startCloudDeployment,
     step,
     useLocalWorkspace,
