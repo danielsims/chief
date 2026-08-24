@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import type { JsonObject } from "@chief/relay-contracts";
+
 import type { ChannelEvent } from "./channel-types.js";
 import type { SessionManager } from "./manager.js";
 import type { AgentSession } from "./session.js";
@@ -104,7 +106,7 @@ function threadInstructions(
   work: RecurringWorkRecord,
   channelId: string,
   threadRootId: string,
-  triggerContext?: Record<string, unknown>,
+  triggerContext?: JsonObject,
 ) {
   const heartbeatOutcome =
     work.operationKey === "chief-mission-control-heartbeat"
@@ -137,7 +139,7 @@ export async function beginScheduledChannelThread(
   workspaceId: string,
   work: RecurringWorkRecord,
   broadcast: (workspaceId: string, event: ChannelEvent) => void,
-  triggerContext?: Record<string, unknown>,
+  triggerContext?: JsonObject,
 ): Promise<ScheduledChannelThread> {
   const channel = await scheduledChannel(manager, workspaceId, work);
   const assignedAgent = getAgent(work.agentId) ?? getAgent("chief");
@@ -285,7 +287,7 @@ export async function startScheduledChannelWork({
   manager: ScheduledChannelWorkManager;
   onThread?: (thread: ScheduledChannelThread) => void;
   prepareWorkspaceTools: () => Promise<ExecutorWorkspace | null>;
-  triggerContext?: Record<string, unknown>;
+  triggerContext?: JsonObject;
   work: RecurringWorkRecord;
   workspaceId: string;
 }) {

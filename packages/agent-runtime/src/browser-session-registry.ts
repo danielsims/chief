@@ -1,4 +1,5 @@
 import type { AgentBrowserSession } from "@chief/browser/node";
+import type { JsonObject } from "@chief/relay-contracts";
 import { isJsonString } from "@chief/relay-contracts";
 
 import type { BrowserRunRecord, SessionRecord } from "./types.js";
@@ -26,7 +27,7 @@ interface LegacyBrowserOwnerCandidate {
   agent: string;
   parentId?: string;
   status: SessionRecord["status"];
-  triggerContext?: Record<string, unknown>;
+  triggerContext?: JsonObject;
   createdAt: number;
 }
 

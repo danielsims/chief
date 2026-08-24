@@ -7,6 +7,7 @@ import type {
   AgentPluginSummary,
   PluginAuthorizationAction,
 } from "@chief/plugin-api";
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
 
 import type * as Artifacts from "./artifact-types.js";
 import type { ChannelServerMessage } from "./channel-types.js";
@@ -278,12 +279,12 @@ export type ContentBlock =
       type: "tool_use";
       id: string;
       name: string;
-      input: unknown;
+      input: JsonValue | undefined;
     }
   | {
       type: "tool_result";
       tool_use_id: string;
-      content: unknown;
+      content: JsonValue | undefined;
       is_error?: boolean;
     };
 
@@ -494,7 +495,7 @@ export interface SessionRecord {
   id: string;
   parentId?: string;
   triggerId?: string;
-  triggerContext?: Record<string, unknown>;
+  triggerContext?: JsonObject;
   scheduleId?: string;
   kind: "conversation" | "task";
   visibility: "user" | "private";

@@ -1,7 +1,8 @@
 import {
   isJsonNumber,
-  isJsonObject,
   isJsonString,
+  parseJsonObject,
+  parseJsonValue,
 } from "@chief/relay-contracts";
 
 import type { ContentBlock } from "../types.js";
@@ -66,6 +67,7 @@ export function codexItemToBlocks(
     case "fileChange":
     case "file_change": {
       const id = idValue(item.id, state.nextId);
+      const changes = parseJsonValue(item.changes);
       return [
         {
           type: "tool_use",
@@ -73,7 +75,7 @@ export function codexItemToBlocks(
           name: "editFile",
           input: {
             file: textValue(item.filePath ?? item.file),
-            changes: item.changes,
+            ...(changes === undefined ? undefined : { changes }),
           },
         },
         {
@@ -182,10 +184,8 @@ export function codexItemStartedToBlocks(
   return [];
 }
 
-function record(value: unknown): Record<string, unknown> | null {
-  return value && isJsonObject(value)
-    ? (value)
-    : null;
+function record(value: unknown) {
+  return parseJsonObject(value);
 }
 
 function textValue(value: unknown): string {

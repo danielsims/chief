@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import type { JsonObject } from "@chief/relay-contracts";
+
 import type { ChannelEvent } from "./channel-types.js";
 import type { SessionManager } from "./manager.js";
 import type { SpecialistOutcome } from "./specialist-outcome-state.js";
@@ -339,12 +341,15 @@ async function executeSpecialistDelegationAttempt(
     { title: input.title, triggerId: input.delegationId },
   );
   if (input.threadRootId) {
+    const triggerContext: JsonObject = { threadRootId: input.threadRootId };
+    if (input.originConversationId) {
+      triggerContext.originConversationId = input.originConversationId;
+    }
+    if (input.originThreadRootId) {
+      triggerContext.originThreadRootId = input.originThreadRootId;
+    }
     await input.manager.store.updateChatState(input.workspaceId, sessionId, {
-      triggerContext: {
-        threadRootId: input.threadRootId,
-        originConversationId: input.originConversationId,
-        originThreadRootId: input.originThreadRootId,
-      },
+      triggerContext,
     });
   }
   const eventOffset = restartInterruptedSession ? session.events.length : 0;

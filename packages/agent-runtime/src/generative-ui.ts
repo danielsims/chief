@@ -1,7 +1,9 @@
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
 import {
   isJsonNumber,
-  isJsonObject,
   isJsonString,
+  parseJsonObject,
+  parseJsonValue,
 } from "@chief/relay-contracts";
 
 import type {
@@ -19,34 +21,33 @@ interface ReportColumn {
 
 interface ReportData {
   columns: ReportColumn[];
-  rows: Record<string, unknown>[];
+  rows: JsonObject[];
   range?: { startDate?: string; endDate?: string };
   source?: { provider?: string };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && isJsonObject(value) && !Array.isArray(value);
-}
-
-function toolResultText(content: unknown): string {
+function toolResultText(content: JsonValue | undefined): string {
   if (isJsonString(content)) return content;
   if (Array.isArray(content)) {
     return content
-      .map((part) =>
-        isRecord(part) && isJsonString(part.text) ? part.text : "",
-      )
+      .map((part) => {
+        const record = parseJsonObject(part);
+        return record && isJsonString(record.text) ? record.text : "";
+      })
       .filter(Boolean)
       .join("\n");
   }
-  return isRecord(content) ? JSON.stringify(content) : "";
+  return parseJsonObject(content) ? JSON.stringify(content) : "";
 }
 
 /** Parses JSON that may sit after a prose prefix ("[log] Chart result: {…}"). */
-function looseJsonParse(text: string): unknown {
+function looseJsonParse(text: string): JsonValue | undefined {
   for (const start of [text.indexOf("{"), text.indexOf("[")]) {
     if (start < 0) continue;
     try {
-      return JSON.parse(text.slice(start));
+      const parsed: unknown = JSON.parse(text.slice(start));
+      const value = parseJsonValue(parsed);
+      if (value !== undefined) return value;
     } catch {
       // The other start may still be real JSON (e.g. "[log] {…}").
     }
@@ -54,7 +55,7 @@ function looseJsonParse(text: string): unknown {
   return undefined;
 }
 
-function parseJsonCandidates(text: string): unknown[] {
+function parseJsonCandidates(text: string): JsonValue[] {
   const candidates = new Set<string>();
   const trimmed = text.trim();
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
@@ -65,10 +66,12 @@ function parseJsonCandidates(text: string): unknown[] {
     if (log) candidates.add(log);
   }
 
-  const parsed: unknown[] = [];
+  const parsed: JsonValue[] = [];
   for (const candidate of candidates) {
     try {
-      parsed.push(JSON.parse(candidate));
+      const raw: unknown = JSON.parse(candidate);
+      const value = parseJsonValue(raw);
+      if (value !== undefined) parsed.push(value);
     } catch {
       // Tool output often mixes prose and logs. Only complete JSON records
       // are eligible to become persistent UI data parts.
@@ -80,8 +83,9 @@ function parseJsonCandidates(text: string): unknown[] {
   // agents often log a tool's return value instead of returning it — mine
   // those strings (multi-line pretty JSON included) as candidates too.
   for (const item of [...parsed]) {
-    if (!isRecord(item) || !Array.isArray(item.logs)) continue;
-    for (const log of item.logs) {
+    const record = parseJsonObject(item);
+    if (!record || !Array.isArray(record.logs)) continue;
+    for (const log of record.logs) {
       if (!isJsonString(log)) continue;
       const loose = looseJsonParse(log);
       if (loose !== undefined) parsed.push(loose);
@@ -111,7 +115,7 @@ function reportLabel(key: string, report: ReportData) {
 }
 
 function collectReports(
-  value: unknown,
+  value: JsonValue,
   key = "series",
   reports: { key: string; data: ReportData }[] = [],
 ) {
@@ -121,20 +125,67 @@ function collectReports(
     );
     return reports;
   }
-  if (!isRecord(value)) return reports;
+  const record = parseJsonObject(value);
+  if (!record) return reports;
 
-  if (Array.isArray(value.columns) && Array.isArray(value.rows)) {
-    reports.push({ key, data: value as unknown as ReportData });
+  const report = parseReport(record);
+  if (report) {
+    reports.push({ key, data: report });
     return reports;
   }
 
-  for (const [childKey, child] of Object.entries(value)) {
+  for (const [childKey, child] of Object.entries(record)) {
     collectReports(child, childKey === "data" ? key : childKey, reports);
   }
   return reports;
 }
 
-function explicitChart(value: unknown): GenerativeChartData | null {
+function parseReport(value: JsonObject): ReportData | undefined {
+  if (!Array.isArray(value.columns) || !Array.isArray(value.rows)) {
+    return undefined;
+  }
+  const columns = value.columns.flatMap((candidate) => {
+    const column = parseJsonObject(candidate);
+    if (!column) return [];
+    return [
+      {
+        kind: isJsonString(column.kind) ? column.kind : undefined,
+        name: isJsonString(column.name) ? column.name : undefined,
+      },
+    ];
+  });
+  const rows = value.rows.flatMap((candidate) => {
+    const row = parseJsonObject(candidate);
+    return row ? [row] : [];
+  });
+  if (
+    columns.length !== value.columns.length ||
+    rows.length !== value.rows.length
+  ) {
+    return undefined;
+  }
+  const range = parseJsonObject(value.range);
+  const source = parseJsonObject(value.source);
+  return {
+    columns,
+    rows,
+    range: range
+      ? {
+          startDate: isJsonString(range.startDate)
+            ? range.startDate
+            : undefined,
+          endDate: isJsonString(range.endDate) ? range.endDate : undefined,
+        }
+      : undefined,
+    source: source
+      ? {
+          provider: isJsonString(source.provider) ? source.provider : undefined,
+        }
+      : undefined,
+  };
+}
+
+function explicitChart(value: JsonValue): GenerativeChartData | null {
   if (Array.isArray(value)) {
     for (const item of value) {
       const chart = explicitChart(item);
@@ -142,20 +193,23 @@ function explicitChart(value: unknown): GenerativeChartData | null {
     }
     return null;
   }
-  if (!isRecord(value)) return null;
+  const record = parseJsonObject(value);
+  if (!record) return null;
+  const data = parseJsonObject(record.data);
   if (
-    value.type === "data-chart" &&
-    isRecord(value.data) &&
-    value.data.kind === "line" &&
-    isJsonString(value.data.title) &&
-    isJsonString(value.data.yLabel) &&
-    Array.isArray(value.data.series)
+    record.type === "data-chart" &&
+    data?.kind === "line" &&
+    isJsonString(data.title) &&
+    isJsonString(data.yLabel) &&
+    Array.isArray(data.series)
   ) {
-    const series = value.data.series.flatMap((candidate, index) => {
-      if (!isRecord(candidate) || !Array.isArray(candidate.points)) return [];
-      const points = candidate.points.flatMap((point) => {
-        if (!isRecord(point)) return [];
-        return isJsonString(point.x) &&
+    const series = data.series.flatMap((candidate, index) => {
+      const seriesRecord = parseJsonObject(candidate);
+      if (!seriesRecord || !Array.isArray(seriesRecord.points)) return [];
+      const points = seriesRecord.points.flatMap((candidatePoint) => {
+        const point = parseJsonObject(candidatePoint);
+        return point &&
+          isJsonString(point.x) &&
           isJsonNumber(point.value) &&
           Number.isFinite(point.value)
           ? [{ x: point.x, value: point.value }]
@@ -164,9 +218,11 @@ function explicitChart(value: unknown): GenerativeChartData | null {
       if (points.length < 2) return [];
       return [
         {
-          id: isJsonString(candidate.id) ? candidate.id : `series-${index + 1}`,
-          label: isJsonString(candidate.label)
-            ? candidate.label
+          id: isJsonString(seriesRecord.id)
+            ? seriesRecord.id
+            : `series-${index + 1}`,
+          label: isJsonString(seriesRecord.label)
+            ? seriesRecord.label
             : `Series ${index + 1}`,
           points,
         },
@@ -175,16 +231,14 @@ function explicitChart(value: unknown): GenerativeChartData | null {
     if (series.length === 0) return null;
     return {
       kind: "line",
-      title: value.data.title,
-      subtitle: isJsonString(value.data.subtitle)
-        ? value.data.subtitle
-        : undefined,
-      xLabel: isJsonString(value.data.xLabel) ? value.data.xLabel : undefined,
-      yLabel: value.data.yLabel,
+      title: data.title,
+      subtitle: isJsonString(data.subtitle) ? data.subtitle : undefined,
+      xLabel: isJsonString(data.xLabel) ? data.xLabel : undefined,
+      yLabel: data.yLabel,
       series,
     };
   }
-  for (const child of Object.values(value)) {
+  for (const child of Object.values(record)) {
     const chart = explicitChart(child);
     if (chart) return chart;
   }
@@ -193,7 +247,7 @@ function explicitChart(value: unknown): GenerativeChartData | null {
 
 function chartFromContent(
   toolUseId: string,
-  content: unknown,
+  content: JsonValue | undefined,
 ): GenerativeChartBlock | null {
   const candidates = parseJsonCandidates(toolResultText(content));
   for (const candidate of candidates) {
@@ -223,9 +277,11 @@ function chartFromContent(
   });
   if (chartable.length === 0) return null;
 
-  const metric = chartable[0]!.metric;
-  const dimension = chartable[0]!.dimension;
-  const provider = chartable[0]!.data.source?.provider;
+  const [firstReport] = chartable;
+  if (!firstReport) return null;
+  const metric = firstReport.metric;
+  const dimension = firstReport.dimension;
+  const provider = firstReport.data.source?.provider;
   const data: GenerativeChartData = {
     kind: "line",
     title: humanize(metric),
@@ -243,8 +299,10 @@ function chartFromContent(
   return { type: "data-chart", id: `chart-${toolUseId}`, data };
 }
 
-function documentFromContent(content: unknown): GenerativeDocumentBlock | null {
-  const visit = (value: unknown): GenerativeDocumentBlock | null => {
+function documentFromContent(
+  content: JsonValue | undefined,
+): GenerativeDocumentBlock | null {
+  const visit = (value: JsonValue): GenerativeDocumentBlock | null => {
     if (Array.isArray(value)) {
       for (const item of value) {
         const found = visit(item);
@@ -252,8 +310,9 @@ function documentFromContent(content: unknown): GenerativeDocumentBlock | null {
       }
       return null;
     }
-    if (!isRecord(value)) return null;
-    const file = isRecord(value.file) ? value.file : value;
+    const record = parseJsonObject(value);
+    if (!record) return null;
+    const file = parseJsonObject(record.file) ?? record;
     if (
       isJsonString(file.id) &&
       isJsonString(file.name) &&
@@ -273,7 +332,7 @@ function documentFromContent(content: unknown): GenerativeDocumentBlock | null {
         },
       };
     }
-    for (const child of Object.values(value)) {
+    for (const child of Object.values(record)) {
       const found = visit(child);
       if (found) return found;
     }

@@ -5,7 +5,13 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ChildProcess } from "node:child_process";
 
-import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
+import {
+  isJsonNumber,
+  isJsonString,
+  parseJsonObject,
+  parseJsonValue,
+} from "@chief/relay-contracts";
 
 import type { ContentBlock, StartOptions } from "../types.js";
 import type { AcpRuntimeAdapter, PendingAcpRpc } from "./acp-runtime.js";
@@ -29,7 +35,10 @@ export class AcpDriver extends BaseDriver {
     string,
     { rpcId: number | string; allow: string; deny: string }
   >();
-  private activeTools = new Map<string, { name: string; input: unknown }>();
+  private activeTools = new Map<
+    string,
+    { name: string; input: JsonValue | undefined }
+  >();
   private terminals = new Map<string, OpenCodeTerminalState>();
   private stream = "";
   private thinking = "";
@@ -171,12 +180,13 @@ export class AcpDriver extends BaseDriver {
     }
   }
 
-  async interrupt() {
+  interrupt(): Promise<void> {
     this.interrupted = true;
     for (const terminal of this.terminals.values()) {
       terminal.process.kill("SIGKILL");
     }
     this.process?.kill("SIGINT");
+    return Promise.resolve();
   }
 
   async restart(): Promise<void> {
@@ -200,9 +210,10 @@ export class AcpDriver extends BaseDriver {
     });
   }
 
-  async stop() {
+  stop(): Promise<void> {
     this.stopping = true;
     this.terminateProcess(`${this.runtime.name} stopped.`);
+    return Promise.resolve();
   }
 
   private terminateProcess(reason: string) {
@@ -257,13 +268,20 @@ export class AcpDriver extends BaseDriver {
     for (const line of lines) {
       if (!line.trim()) continue;
       try {
-        this.handle(JSON.parse(line) as Record<string, unknown>);
-      } catch {}
+        const parsed: unknown = JSON.parse(line);
+        const message = parseJsonObject(parsed);
+        if (message) this.handle(message);
+      } catch {
+        continue;
+      }
     }
   }
 
-  private handle(message: Record<string, unknown>) {
-    const id = message.id as number | string | undefined;
+  private handle(message: JsonObject) {
+    const id =
+      isJsonNumber(message.id) || isJsonString(message.id)
+        ? message.id
+        : undefined;
     const method = message.method;
     if (id !== undefined && !isJsonString(method)) {
       const request = this.pending.get(id);
@@ -290,7 +308,7 @@ export class AcpDriver extends BaseDriver {
     }
   }
 
-  private sessionUpdate(params: Record<string, unknown>) {
+  private sessionUpdate(params: JsonObject) {
     const update = record(params.update ?? params);
     const type = update.type ?? update.sessionUpdate;
     if (
@@ -313,7 +331,9 @@ export class AcpDriver extends BaseDriver {
       return;
     }
     if (type === "agent_thought_chunk") {
-      const text = textContent(update.content) || String(update.text ?? "");
+      const text =
+        textContent(update.content) ||
+        (isJsonString(update.text) ? update.text : "");
       this.thinking += text;
       if (text) this.emitEvent({ type: "thinkingStream", text });
       return;
@@ -328,36 +348,31 @@ export class AcpDriver extends BaseDriver {
     }
   }
 
-  private toolUpdate(update: Record<string, unknown>, eventType: string) {
+  private toolUpdate(update: JsonObject, eventType: string) {
     const nested = record(update.toolCall ?? update.tool_call ?? update.tool);
-    const id = String(
-      update.toolCallId ??
-        update.tool_call_id ??
-        update.id ??
-        nested.id ??
-        randomUUID(),
+    const id = this.identifier(
+      [update.toolCallId, update.tool_call_id, update.id, nested.id],
+      randomUUID(),
     );
-    const name = String(
-      update.title ??
-        update.name ??
-        update.toolName ??
-        nested.name ??
-        `${this.runtime.name} tool`,
+    const name = this.text(
+      [update.title, update.name, update.toolName, nested.name],
+      `${this.runtime.name} tool`,
     );
-    let input: unknown =
+    let input: JsonValue | undefined =
       update.input ?? update.rawInput ?? update.arguments ?? nested.input ?? {};
     if (isJsonString(input)) {
+      const inputText = input;
       try {
-        input = JSON.parse(input);
+        const parsed: unknown = JSON.parse(inputText);
+        input = parseJsonValue(parsed);
       } catch {
-        input = { value: input };
+        input = { value: inputText };
       }
     }
+    const inputObject = parseJsonObject(input);
     if (
-      (!input ||
-        (isJsonObject(input) &&
-          !Array.isArray(input) &&
-          Object.keys(input).length === 0)) &&
+      (input === undefined ||
+        (inputObject && Object.keys(inputObject).length === 0)) &&
       isJsonString(update.rawInput) &&
       update.rawInput.trim()
     ) {
@@ -384,7 +399,9 @@ export class AcpDriver extends BaseDriver {
         content: [...prefix, { type: "tool_use", id, name, input }],
       });
     }
-    const status = String(update.status ?? "").toLowerCase();
+    const status = (
+      isJsonString(update.status) ? update.status : ""
+    ).toLowerCase();
     const complete =
       eventType === "tool_call_end" ||
       status === "completed" ||
@@ -392,7 +409,7 @@ export class AcpDriver extends BaseDriver {
     if (!complete) return;
     const failed = status === "failed";
     const content = failed
-      ? String(update.error ?? update.message ?? "Tool call failed")
+      ? this.text([update.error, update.message], "Tool call failed")
       : textContent(update.content) ||
         (isJsonString(update.result)
           ? update.result
@@ -407,9 +424,12 @@ export class AcpDriver extends BaseDriver {
     this.activeTools.delete(id);
   }
 
-  private permission(id: number | string, params: Record<string, unknown>) {
+  private permission(id: number | string, params: JsonObject) {
     const options = Array.isArray(params.options)
-      ? params.options.map(record)
+      ? params.options.flatMap((option) => {
+          const parsed = parseJsonObject(option);
+          return parsed ? [parsed] : [];
+        })
       : [];
     const allow =
       options.find(
@@ -420,8 +440,8 @@ export class AcpDriver extends BaseDriver {
         (option) =>
           option.kind === "reject_once" || option.id === "reject-once",
       ) ?? options.at(-1);
-    const allowId = String(allow?.optionId ?? allow?.id ?? "allow-once");
-    const denyId = String(deny?.optionId ?? deny?.id ?? "reject-once");
+    const allowId = this.identifier([allow?.optionId, allow?.id], "allow-once");
+    const denyId = this.identifier([deny?.optionId, deny?.id], "reject-once");
     if (this.access === "full") {
       this.respond(id, {
         outcome: { outcome: "selected", optionId: allowId },
@@ -429,7 +449,7 @@ export class AcpDriver extends BaseDriver {
       return;
     }
     const toolCall = record(params.toolCall);
-    const toolCallId = String(toolCall.toolCallId ?? toolCall.id ?? "");
+    const toolCallId = this.identifier([toolCall.toolCallId, toolCall.id], "");
     const activeTool = this.activeTools.get(toolCallId);
     const requestId = randomUUID();
     this.permissions.set(requestId, {
@@ -442,11 +462,9 @@ export class AcpDriver extends BaseDriver {
       requestId,
       toolName:
         activeTool?.name ??
-        String(
-          toolCall.name ??
-            params.toolName ??
-            params.title ??
-            `${this.runtime.name} tool`,
+        this.text(
+          [toolCall.name, params.toolName, params.title],
+          `${this.runtime.name} tool`,
         ),
       input:
         activeTool?.input ??
@@ -458,12 +476,8 @@ export class AcpDriver extends BaseDriver {
     this.emitEvent({ type: "status", status: "waiting" });
   }
 
-  private rpc(
-    method: string,
-    params: Record<string, unknown>,
-    timeoutMs = 30_000,
-  ) {
-    return new Promise<unknown>((resolve, reject) => {
+  private rpc(method: string, params: JsonObject, timeoutMs = 30_000) {
+    return new Promise<JsonValue | undefined>((resolve, reject) => {
       if (!this.process?.stdin) {
         reject(new Error(`${this.runtime.name} is not running.`));
         return;
@@ -483,7 +497,7 @@ export class AcpDriver extends BaseDriver {
     });
   }
 
-  private respond(id: number | string, result: unknown) {
+  private respond(id: number | string, result: JsonValue | undefined) {
     this.process?.stdin?.write(
       `${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`,
     );
@@ -495,5 +509,21 @@ export class AcpDriver extends BaseDriver {
       request.reject(new Error(message));
     }
     this.pending.clear();
+  }
+
+  private identifier(
+    values: (JsonValue | undefined)[],
+    fallback: string,
+  ): string {
+    const value = values.find(
+      (candidate) => isJsonString(candidate) || isJsonNumber(candidate),
+    );
+    return isJsonString(value) || isJsonNumber(value)
+      ? String(value)
+      : fallback;
+  }
+
+  private text(values: (JsonValue | undefined)[], fallback: string): string {
+    return values.find(isJsonString) ?? fallback;
   }
 }

@@ -33,6 +33,7 @@ import type {
   RecurringWorkRecord,
   SessionRecord,
 } from "@chief/agent-runtime/types";
+import { parseJsonValue } from "@chief/relay-contracts";
 
 import type {
   RuntimeBrowserRuns,
@@ -1613,7 +1614,7 @@ export function messageBlocks(message: ChiefUIMessage): ContentBlock[] {
         type: "tool_use",
         id: part.toolCallId,
         name: part.toolName,
-        input: part.input,
+        input: parseJsonValue(part.input),
       };
       if (part.state === "output-available") {
         return [
@@ -1621,7 +1622,7 @@ export function messageBlocks(message: ChiefUIMessage): ContentBlock[] {
           {
             type: "tool_result",
             tool_use_id: part.toolCallId,
-            content: part.output,
+            content: parseJsonValue(part.output) ?? null,
           },
         ];
       }

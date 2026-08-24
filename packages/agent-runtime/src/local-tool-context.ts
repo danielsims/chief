@@ -1,5 +1,5 @@
 import type { ChannelLocalToolContext } from "./channel-local-tools.js";
-import type { ScheduledWorkRunner } from "./scheduled-work-local-tools.js";
+import type { ScheduledWorkRunner } from "./scheduled-work-runtime.js";
 import type { BrowserLocalToolContext } from "./tools/local/toolkits/browser/context.js";
 import type { IntegrationSetupLocalToolContext } from "./tools/local/toolkits/integrations/context.js";
 import type { PluginLocalToolService } from "./tools/local/toolkits/plugins/context.js";

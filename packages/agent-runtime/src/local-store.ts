@@ -30,6 +30,7 @@ import {
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
 
+import type { JsonObject } from "@chief/relay-contracts";
 import { isJsonString } from "@chief/relay-contracts";
 
 import type {
@@ -217,7 +218,7 @@ export interface LocalChatRecord {
   organizationId: string;
   parentId?: string;
   triggerId?: string;
-  triggerContext?: Record<string, unknown>;
+  triggerContext?: JsonObject;
   scheduleId?: string;
   kind: SessionRecord["kind"];
   visibility: ChatVisibility;
@@ -683,7 +684,7 @@ export class LocalStore {
       finishedAt?: number | null;
       summary?: string;
       error?: string | null;
-      triggerContext?: Record<string, unknown>;
+      triggerContext?: JsonObject;
     },
   ) {
     await this.ready;

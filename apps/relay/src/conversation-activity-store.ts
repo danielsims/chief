@@ -1,10 +1,12 @@
 import type {
   AgentActivityComponent,
-  ConversationMessage,
   Principal,
   WorkspaceId,
 } from "@chief/relay-contracts";
-import { conversationMessageSchema } from "@chief/relay-contracts";
+import {
+  conversationEventSchema,
+  conversationMessageSchema,
+} from "@chief/relay-contracts";
 
 import type { MessageRow } from "./conversation-rows";
 import { firstConversationRow, toMessage } from "./conversation-rows";
@@ -126,7 +128,7 @@ export function upsertAgentActivity(
       );
     }
 
-    const event = {
+    const event = conversationEventSchema.parse({
       eventId: crypto.randomUUID(),
       sequence: prior ? nextEventSequence() : message.sequence,
       protocolVersion: 1,
@@ -140,7 +142,7 @@ export function upsertAgentActivity(
       causationId: input.correlationId,
       occurredAt: new Date().toISOString(),
       payload: { message },
-    };
+    });
     storage.sql.exec(
       "INSERT INTO events (sequence, event_id, event_json) VALUES (?, ?, ?)",
       event.sequence,
@@ -149,12 +151,12 @@ export function upsertAgentActivity(
     );
     return {
       created: !prior,
-      message: (prior
+      message: prior
         ? toMessage({
             ...prior,
             components_json: JSON.stringify(message.components),
           })
-        : message) as ConversationMessage,
+        : message,
       event,
     };
   });

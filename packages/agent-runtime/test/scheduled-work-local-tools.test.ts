@@ -2,12 +2,19 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-import type { RecurringWorkRecord, SessionRecord } from "../src/types.js";
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
+import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
+
+import type {
+  ActionItem,
+  RecurringWorkRecord,
+  SessionRecord,
+} from "../src/types.js";
 import { handleScheduledWorkLocalTool } from "../src/scheduled-work-local-tools.js";
 import { dispatchScheduledWorkEvent } from "../src/scheduled-work-triggers.js";
 import { handleScheduledWorkWebhook } from "../src/scheduled-work-webhook.js";
 
-function request(path: string, method: string, body?: unknown) {
+function request(path: string, method: string, body?: JsonValue) {
   return new Request(`http://127.0.0.1:4318${path}`, {
     method,
     headers: body ? { "content-type": "application/json" } : undefined,
@@ -18,7 +25,7 @@ function request(path: string, method: string, body?: unknown) {
 function fixture() {
   const work = new Map<string, RecurringWorkRecord>();
   const runs = new Map<string, SessionRecord[]>();
-  const actionItems: unknown[] = [];
+  const actionItems: ActionItem[] = [];
   const webhookHashes = new Map<string, string>();
   const manager = {
     workspaceData: () => Promise.resolve({ recurringWork: [...work.values()] }),
@@ -34,7 +41,7 @@ function fixture() {
       work.set(item.id, item);
       return Promise.resolve();
     },
-    raiseActionItem: (_workspaceId: string, item: unknown) => {
+    raiseActionItem: (_workspaceId: string, item: ActionItem) => {
       actionItems.push(item);
       return Promise.resolve();
     },
@@ -59,7 +66,7 @@ function fixture() {
   const queued: {
     scheduleId: string;
     triggerId?: string;
-    context?: Record<string, unknown>;
+    context?: JsonObject;
   }[] = [];
   const runner = {
     runNow: (_workspaceId: string, scheduleId: string) => {
@@ -70,23 +77,19 @@ function fixture() {
       _workspaceId: string,
       scheduleId: string,
       triggerId: string,
-      context: Record<string, unknown>,
+      context: JsonObject,
     ) => {
       queued.push({ scheduleId, triggerId, context });
       return Promise.resolve();
     },
     cancelRun: (runId: string) => Promise.resolve(runId === "run-1"),
   };
-  const call = (
-    path: string,
-    method: string,
-    body: Record<string, unknown> = {},
-  ) =>
+  const call = (path: string, method: string, body: JsonObject = {}) =>
     handleScheduledWorkLocalTool({
       request: request(path, method, method === "GET" ? undefined : body),
       workspaceId: "workspace-a",
       body,
-      manager: manager as never,
+      manager,
       runner,
       conversationId: "conversation-a",
       origin: "http://127.0.0.1:4318",
@@ -101,6 +104,31 @@ function fixture() {
     queued,
     call,
   };
+}
+
+type ScheduledWorkToolResult = Awaited<
+  ReturnType<typeof handleScheduledWorkLocalTool>
+>;
+
+function resultObject(result: ScheduledWorkToolResult): JsonObject {
+  const value = parseJsonObject(result.value);
+  assert.ok(value);
+  return value;
+}
+
+function resultNestedObject(
+  result: ScheduledWorkToolResult,
+  key: string,
+): JsonObject {
+  const value = parseJsonObject(resultObject(result)[key]);
+  assert.ok(value);
+  return value;
+}
+
+function resultScheduledWorkId(result: ScheduledWorkToolResult): string {
+  const id = resultNestedObject(result, "scheduledWork").id;
+  assert.ok(isJsonString(id));
+  return id;
 }
 
 function storedWork(
@@ -135,9 +163,8 @@ void test("scheduled work commands are idempotent, versioned, and approval bound
     createBody,
   );
   assert.equal(created.status, undefined);
-  const scheduledWork = (
-    created.value as { scheduledWork: RecurringWorkRecord }
-  ).scheduledWork;
+  const scheduledWorkId = resultScheduledWorkId(created);
+  const scheduledWork = storedWork(state, scheduledWorkId);
   assert.equal(scheduledWork.status, "draft");
   assert.equal(scheduledWork.trigger?.type, "channel_message");
   assert.equal(state.actionItems.length, 1);
@@ -147,7 +174,7 @@ void test("scheduled work commands are idempotent, versioned, and approval bound
     "POST",
     createBody,
   );
-  assert.equal((replay.value as { replayed: boolean }).replayed, true);
+  assert.equal(resultObject(replay).replayed, true);
   assert.equal(state.work.size, 1);
 
   const stale = await state.call(
@@ -159,21 +186,16 @@ void test("scheduled work commands are idempotent, versioned, and approval bound
     },
   );
   assert.equal(stale.status, 409);
-  const updated = await state.call(
-    `/local-tools/scheduled-work/${scheduledWork.id}`,
-    "PATCH",
-    {
-      expectedVersion: 1,
-      title: "Review engineering pull requests",
-      trigger: {
-        type: "reaction_added",
-        channelId: "engineering",
-        emoji: "👀",
-      },
+  await state.call(`/local-tools/scheduled-work/${scheduledWork.id}`, "PATCH", {
+    expectedVersion: 1,
+    title: "Review engineering pull requests",
+    trigger: {
+      type: "reaction_added",
+      channelId: "engineering",
+      emoji: "👀",
     },
-  );
-  const updatedWork = (updated.value as { scheduledWork: RecurringWorkRecord })
-    .scheduledWork;
+  });
+  const updatedWork = storedWork(state, scheduledWork.id);
   assert.equal(updatedWork.version, 2);
   assert.equal(updatedWork.trigger?.type, "reaction_added");
 
@@ -191,20 +213,12 @@ void test("scheduled work commands are idempotent, versioned, and approval bound
     `/local-tools/scheduled-work/${scheduledWork.id}/pause`,
     "POST",
   );
-  assert.equal(
-    (paused.value as { scheduledWork: RecurringWorkRecord }).scheduledWork
-      .status,
-    "paused",
-  );
+  assert.equal(resultNestedObject(paused, "scheduledWork").status, "paused");
   const resumed = await state.call(
     `/local-tools/scheduled-work/${scheduledWork.id}/resume`,
     "POST",
   );
-  assert.equal(
-    (resumed.value as { scheduledWork: RecurringWorkRecord }).scheduledWork
-      .status,
-    "active",
-  );
+  assert.equal(resultNestedObject(resumed, "scheduledWork").status, "active");
 });
 
 void test("narrowing proposed tools narrows the live grant without another approval", async () => {
@@ -216,9 +230,7 @@ void test("narrowing proposed tools narrows the live grant without another appro
       "tools.github.issues.read",
     ],
   });
-  const scheduledWork = (
-    created.value as { scheduledWork: RecurringWorkRecord }
-  ).scheduledWork;
+  const scheduledWork = storedWork(state, resultScheduledWorkId(created));
   const stored = storedWork(state, scheduledWork.id);
   state.work.set(scheduledWork.id, {
     ...stored,
@@ -238,12 +250,8 @@ void test("narrowing proposed tools narrows the live grant without another appro
       proposedToolPatterns: ["tools.github.pull_requests.read"],
     },
   );
-  const result = response.value as {
-    scheduledWork: RecurringWorkRecord;
-    requiresUserApproval: boolean;
-  };
-  assert.equal(result.requiresUserApproval, false);
-  assert.deepEqual(result.scheduledWork.grant?.toolPatterns, [
+  assert.equal(resultObject(response).requiresUserApproval, false);
+  assert.deepEqual(storedWork(state, scheduledWork.id).grant?.toolPatterns, [
     "tools.github.pull_requests.read",
   ]);
 });
@@ -255,9 +263,7 @@ void test("scheduled work run commands expose history, cancellation, retry, and 
     "POST",
     createBody,
   );
-  const scheduledWork = (
-    created.value as { scheduledWork: RecurringWorkRecord }
-  ).scheduledWork;
+  const scheduledWork = storedWork(state, resultScheduledWorkId(created));
   const stored = storedWork(state, scheduledWork.id);
   state.work.set(scheduledWork.id, {
     ...stored,
@@ -289,23 +295,20 @@ void test("scheduled work run commands expose history, cancellation, retry, and 
     `/local-tools/scheduled-work/${scheduledWork.id}/runs`,
     "GET",
   );
-  assert.equal(
-    (history.value as { runs: SessionRecord[] }).runs[0]?.id,
-    "run-1",
-  );
+  const historyRuns = resultObject(history).runs;
+  assert.ok(Array.isArray(historyRuns));
+  assert.equal(parseJsonObject(historyRuns[0])?.id, "run-1");
   const details = await state.call(
     `/local-tools/scheduled-work/${scheduledWork.id}/runs/run-1`,
     "GET",
   );
-  assert.equal(
-    (details.value as { run: SessionRecord }).run.triggerContext?.eventId,
-    "event-1",
-  );
+  const detailsRun = resultNestedObject(details, "run");
+  assert.equal(parseJsonObject(detailsRun.triggerContext)?.eventId, "event-1");
   const cancelled = await state.call(
     `/local-tools/scheduled-work/${scheduledWork.id}/runs/run-1/cancel`,
     "POST",
   );
-  assert.equal((cancelled.value as { cancelled: boolean }).cancelled, true);
+  assert.equal(resultObject(cancelled).cancelled, true);
   await state.call(
     `/local-tools/scheduled-work/${scheduledWork.id}/runs/run-1/retry`,
     "POST",
@@ -331,9 +334,7 @@ void test("local webhook delivery validates its secret and deduplicates provider
     operationKey: "github-pull-request-hook",
     trigger: { type: "webhook" },
   });
-  const scheduledWork = (
-    created.value as { scheduledWork: RecurringWorkRecord }
-  ).scheduledWork;
+  const scheduledWork = storedWork(state, resultScheduledWorkId(created));
   const stored = storedWork(state, scheduledWork.id);
   state.work.set(scheduledWork.id, {
     ...stored,
@@ -353,7 +354,7 @@ void test("local webhook delivery validates its secret and deduplicates provider
     path: `/hooks/scheduled-runs/${scheduledWork.id}/wrong`,
     body: {},
     idempotencyKey: "delivery-1",
-    manager: state.manager as never,
+    manager: state.manager,
     runner: state.runner,
   });
   assert.equal(rejected.status, 404);
@@ -361,7 +362,7 @@ void test("local webhook delivery validates its secret and deduplicates provider
     path: `/hooks/scheduled-runs/${scheduledWork.id}/${secret}`,
     body: { action: "opened", pullRequest: 42 },
     idempotencyKey: "delivery-1",
-    manager: state.manager as never,
+    manager: state.manager,
     runner: state.runner,
   });
   assert.equal(accepted.status, 202);
@@ -376,7 +377,7 @@ void test("local webhook delivery validates its secret and deduplicates provider
     path: `/hooks/scheduled-runs/${scheduledWork.id}/${secret}`,
     body: {},
     idempotencyKey: "x".repeat(161),
-    manager: state.manager as never,
+    manager: state.manager,
     runner: state.runner,
   });
   assert.equal(tooLong.status, 400);
@@ -389,7 +390,7 @@ void test("local webhook delivery validates its secret and deduplicates provider
     path: `/hooks/scheduled-runs/${scheduledWork.id}/${secret}`,
     body: {},
     idempotencyKey: "delivery-2",
-    manager: state.manager as never,
+    manager: state.manager,
     runner: state.runner,
   });
   assert.equal(staleSecret.status, 404);
@@ -402,9 +403,7 @@ void test("channel triggers default to human messages and preserve the source ev
     "POST",
     createBody,
   );
-  const scheduledWork = (
-    created.value as { scheduledWork: RecurringWorkRecord }
-  ).scheduledWork;
+  const scheduledWork = storedWork(state, resultScheduledWorkId(created));
   const stored = storedWork(state, scheduledWork.id);
   state.work.set(scheduledWork.id, {
     ...stored,
@@ -429,7 +428,7 @@ void test("channel triggers default to human messages and preserve the source ev
   await dispatchScheduledWorkEvent({
     workspaceId: "workspace-a",
     event,
-    manager: state.manager as never,
+    manager: state.manager,
     runner: state.runner,
   });
   assert.equal(state.queued.at(-1)?.triggerId, "channel-event:event-human-1");
@@ -443,7 +442,7 @@ void test("channel triggers default to human messages and preserve the source ev
       id: "event-agent-1",
       actor: { type: "agent", id: "engineer", name: "Engineer" },
     },
-    manager: state.manager as never,
+    manager: state.manager,
     runner: state.runner,
   });
   assert.equal(state.queued.length, before);

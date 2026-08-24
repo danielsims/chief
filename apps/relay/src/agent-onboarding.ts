@@ -2,6 +2,7 @@ import type {
   AgentJob,
   AgentPrincipal,
   AgentPublishedMessage,
+  JsonObject,
 } from "@chief/relay-contracts";
 import {
   agentPublishedMessageSchema,
@@ -25,7 +26,7 @@ export async function publishOnboardingResult(
   env: Env,
   job: AgentJob,
   agent: AgentPrincipal,
-  rawResult: Record<string, unknown>,
+  rawResult: JsonObject,
   publishMessage: MessagePublisher,
 ) {
   const result = workspaceOnboardingResultSchema.parse(rawResult);

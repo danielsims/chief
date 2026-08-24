@@ -1,5 +1,13 @@
-import type { MessageReaction } from "@chief/relay-contracts";
-import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+import type {
+  ConversationMessage,
+  JsonValue,
+  MessageReaction,
+} from "@chief/relay-contracts";
+import {
+  conversationMessageSchema,
+  messageReactionSchema,
+  parseJsonValue,
+} from "@chief/relay-contracts";
 
 export interface MessageRow extends Record<string, SqlStorageValue> {
   message_id: string;
@@ -23,8 +31,17 @@ export interface EventRow extends Record<string, SqlStorageValue> {
   event_json: string;
 }
 
-export function toMessage(row: MessageRow) {
-  return {
+function parseStoredJson(json: string): JsonValue {
+  const value: unknown = JSON.parse(json);
+  const parsed = parseJsonValue(value);
+  if (parsed === undefined) {
+    throw new Error("Stored conversation JSON is invalid.");
+  }
+  return parsed;
+}
+
+export function toMessage(row: MessageRow): ConversationMessage {
+  return conversationMessageSchema.parse({
     id: row.message_id,
     sequence: row.sequence,
     workspaceId: row.workspace_id,
@@ -32,25 +49,22 @@ export function toMessage(row: MessageRow) {
     threadRootId: row.thread_root_id ?? undefined,
     author: { kind: row.author_kind, id: row.author_id },
     body: row.body,
-    mentions: JSON.parse(row.mentions_json) as unknown,
-    components: JSON.parse(row.components_json) as unknown,
+    mentions: parseStoredJson(row.mentions_json),
+    components: parseStoredJson(row.components_json),
     reactions: parseReactions(row.reactions_json),
     edited: Number(row.edited) === 1,
     deleted: Number(row.deleted) === 1,
     createdAt: row.created_at,
-  };
+  });
 }
 
 export function parseReactions(json: string): MessageReaction[] {
-  const parsed: unknown = JSON.parse(json);
+  const parsed = parseStoredJson(json);
   if (!Array.isArray(parsed)) return [];
-  return parsed.filter(
-    (entry): entry is MessageReaction =>
-      entry !== null &&
-      isJsonObject(entry) &&
-      isJsonString((entry as MessageReaction).emoji) &&
-      Array.isArray((entry as MessageReaction).pubkeys),
-  );
+  return parsed.flatMap((entry) => {
+    const result = messageReactionSchema.safeParse(entry);
+    return result.success ? [result.data] : [];
+  });
 }
 
 export function escapeLike(value: string) {
@@ -61,5 +75,6 @@ export function escapeLike(value: string) {
 }
 
 export function firstConversationRow<T>(cursor: Iterable<T>): T | undefined {
-  return cursor[Symbol.iterator]().next().value as T | undefined;
+  for (const row of cursor) return row;
+  return undefined;
 }

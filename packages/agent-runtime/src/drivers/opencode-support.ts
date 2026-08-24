@@ -4,10 +4,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ChildProcess } from "node:child_process";
 
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
 import {
   isJsonNumber,
-  isJsonObject,
   isJsonString,
+  parseJsonObject,
 } from "@chief/relay-contracts";
 
 import type { StartOptions } from "../types.js";
@@ -36,13 +37,11 @@ export function findOpenCode() {
   return candidates.find(existsSync) ?? "opencode";
 }
 
-export function openCodeRecord(value: unknown): Record<string, unknown> {
-  return value && isJsonObject(value) && !Array.isArray(value)
-    ? (value)
-    : {};
+export function openCodeRecord(value: JsonValue | undefined): JsonObject {
+  return parseJsonObject(value) ?? {};
 }
 
-export function openCodeTextContent(value: unknown) {
+export function openCodeTextContent(value: JsonValue | undefined) {
   if (isJsonString(value)) return value;
   if (Array.isArray(value)) {
     return value
@@ -68,10 +67,11 @@ export function openCodeConfigContent(
   options: Pick<StartOptions, "access" | "model">,
   inherited?: string,
 ) {
-  let config: Record<string, unknown> = {};
+  let config: JsonObject = {};
   if (inherited) {
     try {
-      config = openCodeRecord(JSON.parse(inherited));
+      const parsed: unknown = JSON.parse(inherited);
+      config = parseJsonObject(parsed) ?? {};
     } catch {
       // Ignore malformed ambient config rather than preventing Chief startup.
     }
@@ -80,7 +80,7 @@ export function openCodeConfigContent(
   if (options.access !== "full") return JSON.stringify(config);
 
   const existing = config.permission;
-  const permission: Record<string, unknown> = isJsonString(existing)
+  const permission: JsonObject = isJsonString(existing)
     ? { "*": existing }
     : { ...openCodeRecord(existing) };
   permission.external_directory = "allow";
@@ -91,7 +91,7 @@ export function openCodeConfigContent(
 export async function initializeOpenCodeSession(
   options: StartOptions,
   resumeSessionId: string | undefined,
-  rpc: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+  rpc: (method: string, params: JsonObject) => Promise<JsonValue | undefined>,
 ) {
   const initialized = openCodeRecord(
     await rpc("initialize", {
@@ -106,46 +106,48 @@ export async function initializeOpenCodeSession(
   const capabilities = openCodeRecord(initialized.agentCapabilities);
   const supportsStdio =
     openCodeRecord(capabilities.mcpCapabilities).stdio === true;
-  const mcpServers: Record<string, unknown>[] = (
-    options.mcpServers ?? []
-  ).flatMap((server): Record<string, unknown>[] => {
-    if (server.url) {
-      return [
-        {
-          type: "http",
-          name: server.name,
-          url: server.url,
-          headers: Object.entries(server.headers ?? {}).map(
-            ([name, value]) => ({
-              name,
-              value,
-            }),
-          ),
-        },
-      ];
-    }
-    if (supportsStdio) {
-      return [
-        {
-          name: server.name,
-          command: server.command,
-          args: server.args,
-          ...(server.cwd ? { cwd: server.cwd } : undefined),
-          env: server.env ?? {},
-        },
-      ];
-    }
-    console.error(
-      `[opencode] Dropping stdio MCP server "${server.name}" because this OpenCode version only accepts http/sse MCP over ACP.`,
-    );
-    return [];
-  });
-  const sessionParameters = {
+  const mcpServers: JsonObject[] = (options.mcpServers ?? []).flatMap(
+    (server): JsonObject[] => {
+      if (server.url) {
+        return [
+          {
+            type: "http",
+            name: server.name,
+            url: server.url,
+            headers: Object.entries(server.headers ?? {}).map(
+              ([name, value]) => ({
+                name,
+                value,
+              }),
+            ),
+          },
+        ];
+      }
+      if (supportsStdio) {
+        return [
+          {
+            name: server.name,
+            command: server.command,
+            args: server.args,
+            ...(server.cwd ? { cwd: server.cwd } : undefined),
+            env: server.env ?? {},
+          },
+        ];
+      }
+      console.error(
+        `[opencode] Dropping stdio MCP server "${server.name}" because this OpenCode version only accepts http/sse MCP over ACP.`,
+      );
+      return [];
+    },
+  );
+  const sessionParameters: JsonObject = {
     cwd: options.cwd,
-    additionalDirectories: options.additionalDirectories,
+    ...(options.additionalDirectories
+      ? { additionalDirectories: options.additionalDirectories }
+      : undefined),
     mcpServers,
   };
-  let session: Record<string, unknown>;
+  let session: JsonObject;
   if (
     resumeSessionId &&
     (capabilities.loadSession ||
@@ -178,7 +180,7 @@ export async function initializeOpenCodeSession(
 interface HostServiceOptions {
   cwd: () => string;
   environment: () => NodeJS.ProcessEnv;
-  respond: (id: number | string, result: unknown) => void;
+  respond: (id: number | string, result: JsonValue | undefined) => void;
   terminals: Map<string, OpenCodeTerminalState>;
 }
 
@@ -187,7 +189,7 @@ export class OpenCodeHostServices {
 
   constructor(private readonly options: HostServiceOptions) {}
 
-  readFile(id: number | string, params: Record<string, unknown>) {
+  readFile(id: number | string, params: JsonObject) {
     const path = params.path ?? params.filePath;
     try {
       if (!isJsonString(path)) throw new Error("No file path provided.");
@@ -199,7 +201,7 @@ export class OpenCodeHostServices {
     }
   }
 
-  writeFile(id: number | string, params: Record<string, unknown>) {
+  writeFile(id: number | string, params: JsonObject) {
     const path = params.path ?? params.filePath;
     try {
       if (!isJsonString(path)) throw new Error("No file path provided.");
@@ -215,11 +217,7 @@ export class OpenCodeHostServices {
     }
   }
 
-  terminal(
-    id: number | string,
-    method: string,
-    params: Record<string, unknown>,
-  ) {
+  terminal(id: number | string, method: string, params: JsonObject) {
     const requestedTerminalId = params.terminalId;
     const terminalId =
       isJsonString(requestedTerminalId) || isJsonNumber(requestedTerminalId)
@@ -314,7 +312,7 @@ export class OpenCodeHostServices {
   }
 }
 
-function openCodeArgument(value: unknown) {
+function openCodeArgument(value: JsonValue) {
   if (isJsonString(value)) return value;
   const serialized = JSON.stringify(value);
   return isJsonString(serialized) ? serialized : "";
