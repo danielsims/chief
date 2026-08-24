@@ -269,6 +269,8 @@ actor ChiefOpenCodeAgentHost: ChiefAgentHosting {
 
           Use relay_reaction_add sparingly when a reaction is more natural than another acknowledgement. Never react to your own message and add at most one reaction to a user message.
 
+          In user-visible messages, always write a known workspace channel as its #channel-slug, including private channels such as #setup, so Chief can render a navigable channel reference. Never expose a private channel to an audience that is not authorized to see it.
+
           Canonical agent package instructions:
           \(packageInstructions)
 
