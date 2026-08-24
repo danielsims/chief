@@ -51,6 +51,7 @@ final class AppModelAuthenticationTests: XCTestCase {
     model.completeSignIn(.fixture)
 
     XCTAssertEqual(model.phase, .launching)
+    XCTAssertFalse(model.isWorkspaceReadyForPresentation)
   }
 
   func testOnboardingDoesNotPretendSetupSucceededWhenRelayIsUnavailable() async throws {
@@ -89,6 +90,7 @@ final class AppModelAuthenticationTests: XCTestCase {
       authentication: UnusedAuthentication())
     await model.start()
     XCTAssertEqual(model.workspace?.id, existing.id)
+    XCTAssertTrue(model.isWorkspaceReadyForPresentation)
 
     model.beginWorkspaceSetup()
     XCTAssertEqual(model.phase, .onboarding)

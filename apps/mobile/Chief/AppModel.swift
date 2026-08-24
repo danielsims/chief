@@ -61,6 +61,7 @@ final class AppModel {
   private(set) var onboardingError: String?
   private(set) var workspaceSyncFailed = false
   private(set) var isSwitchingWorkspace = false
+  private(set) var isWorkspaceReadyForPresentation = false
   private var debugSkipCredentialStore = false
   private var agentLoopTask: Task<Void, Never>?
   private var workspaceLiveTask: Task<Void, Never>?
@@ -729,6 +730,7 @@ final class AppModel {
     }
     provisionIdentityIfNeeded()
     session = signedIn
+    isWorkspaceReadyForPresentation = false
     phase = .launching
     Task {
       do {
@@ -809,6 +811,7 @@ final class AppModel {
   }
 
   func hydrateWorkspace() async {
+    isWorkspaceReadyForPresentation = false
     do {
       let loaded = try await relay.loadWorkspace()
       workspace = loaded
@@ -828,11 +831,13 @@ final class AppModel {
         "hydrated workspace \(loaded.id, privacy: .public) complete=\(loaded.onboardingComplete)"
       )
       print("[Chief] hydrated workspace \(loaded.id) complete=\(loaded.onboardingComplete)")
+      await refreshCurrentChannelMemberships(for: loaded)
+      guard workspace?.id == loaded.id else { return }
+      isWorkspaceReadyForPresentation = true
       await refreshWorkspaces()
       await registerAgentKeyIfNeeded(workspaceID: loaded.id)
       await refreshAgentConfigCache(for: loaded)
       await refreshAgentJobs(for: loaded)
-      await refreshCurrentChannelMemberships(for: loaded)
       syncWorkspaceLiveStreams(for: loaded)
       await MobileNotifications.shared.requestAuthorizationIfNeeded()
       if loaded.onboardingComplete {
@@ -847,10 +852,12 @@ final class AppModel {
       // refresh it on the next request instead of bouncing a signed-in user
       // back to the sign-in screen.
       onboardingLog.warning("relay rejected workspace hydration; preserving account session")
+      isWorkspaceReadyForPresentation = workspace != nil
       phase = workspace == nil ? .onboarding : .workspace
     } catch {
       // Authentication succeeded. Keep the user in onboarding while a relay is
       // unavailable or while no workspace has been created yet.
+      isWorkspaceReadyForPresentation = workspace != nil
       phase = workspace == nil ? .onboarding : .workspace
     }
   }
@@ -1086,6 +1093,7 @@ final class AppModel {
     conversations.clearAll()
     session = nil
     workspace = nil
+    isWorkspaceReadyForPresentation = false
     membershipWorkspaceID = nil
     joinedConversationIDs = nil
     selectedConversationID = nil
@@ -1368,9 +1376,11 @@ final class AppModel {
       #endif
       selectedTab = .home
       selectedConversationID = nil
+      isWorkspaceReadyForPresentation = false
       phase = .workspace
       configureReadState(for: pending.id)
       await refreshCurrentChannelMemberships(for: pending)
+      isWorkspaceReadyForPresentation = true
       syncWorkspaceLiveStreams(for: pending)
       // Enter the relay-backed workspace immediately. Key registration still
       // completes before a cell claims work, but independent agent keys are
@@ -2514,6 +2524,7 @@ final class AppModel {
     Task { await DeviceAuthorizationVault.shared.clear(for: relayURL) }
     session = nil
     workspace = nil
+    isWorkspaceReadyForPresentation = false
     membershipWorkspaceID = nil
     joinedConversationIDs = nil
     try? workspaces.clear()
