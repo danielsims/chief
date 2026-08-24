@@ -4,6 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "generate:agent-api": "pnpm --dir ../../packages/agent-runtime generate:local-tools-openapi ../../apps/web/generated/local-tools-openapi.json",
+    "prebuild": "pnpm generate:agent-api",
+    "predev": "pnpm generate:agent-api",
+    "pretypecheck": "pnpm generate:agent-api",
     "dev": "next dev --port 3000",
     "build": "next build",
     "clean": "git clean -xdf .cache .next .turbo node_modules",

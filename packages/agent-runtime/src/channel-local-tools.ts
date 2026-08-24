@@ -2,7 +2,7 @@ import type { ChannelActorIdentity } from "@chief/channel-api";
 
 import type { ChannelEvent, WorkspaceChannel } from "./channel-types.js";
 import type { ChannelStore } from "./channels/store.js";
-import type { PluginLocalToolService } from "./plugin-local-tools.js";
+import type { PluginLocalToolService } from "./tools/local/toolkits/plugins/context.js";
 import {
   booleanQuery,
   ChannelApiFailure,
@@ -23,7 +23,7 @@ export interface ChannelLocalToolContext {
   actor: ChannelActorIdentity;
   channelStore: ChannelStore;
   availableAgentIds: readonly string[];
-  plugins?: PluginLocalToolService;
+  plugins?: Pick<PluginLocalToolService, "list">;
   onChannelsChanged?: () => void | Promise<void>;
   onChannelEvent?: (event: ChannelEvent) => void | Promise<void>;
   onAgentMentions?: (

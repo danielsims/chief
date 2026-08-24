@@ -1,9 +1,15 @@
 import type { ChannelApiOperation } from "@chief/channel-api";
 import {
   channelApiOperations,
-  channelOpenApiSchemas,
   scheduledWorkApiOperations,
 } from "@chief/channel-api";
+
+import type { JsonExample, JsonSchema } from "./generated-openapi";
+import {
+  generatedOperation,
+  parametersOf,
+  requestSchemaOf,
+} from "./generated-openapi";
 
 export interface DocField {
   name: string;
@@ -39,37 +45,6 @@ export interface ChannelDocsModel {
   models: DocModel[];
 }
 
-interface JsonSchema {
-  $ref?: string;
-  type?: string;
-  enum?: readonly unknown[];
-  format?: string;
-  description?: string;
-  properties?: Record<string, JsonSchema>;
-  required?: readonly string[];
-  items?: JsonSchema;
-}
-
-const schemas = channelOpenApiSchemas as unknown as Record<string, JsonSchema>;
-const bodySchemas: Record<string, string> = {
-  "channels.create": "ChannelCreateInput",
-  "channels.update": "ChannelUpdateInput",
-  "channels.archive": "ChannelVersionInput",
-  "channels.unarchive": "ChannelVersionInput",
-  "channels.join": "ChannelVersionInput",
-  "channels.leave": "ChannelVersionInput",
-  "channels.members.add": "ChannelMembersAddInput",
-  "channels.members.remove": "ChannelVersionInput",
-  "channels.messages.post": "ChannelMessageInput",
-  "channels.messages.update": "ChannelMessageEditInput",
-  "channels.messages.delete": "ChannelMessageDeleteInput",
-  "channels.reactions.add": "ChannelReactionInput",
-  "channels.deletion.request": "ChannelDeletionRequestInput",
-  "scheduledWork.create": "ScheduledWorkCreateInput",
-  "scheduledWork.update": "ScheduledWorkUpdateInput",
-  "scheduledWork.run": "ScheduledWorkRunInput",
-};
-
 const groupDescriptions: Record<ChannelApiOperation["group"], string> = {
   Discover: "Find existing channels before creating another.",
   Lifecycle: "Create, update, archive and restore channels.",
@@ -104,7 +79,7 @@ const fieldDescriptions: Record<string, string> = {
   approvalSummary: "Plain-language description shown before approval.",
 };
 
-const examples: Record<string, unknown> = {
+const examples: Record<string, JsonExample> = {
   expectedVersion: 3,
   name: "Feature sharing",
   description: "Build and review the new sharing flow.",
@@ -129,11 +104,6 @@ const examples: Record<string, unknown> = {
     "The feature was cancelled and the owner confirmed that its private history can be permanently removed.",
 };
 
-function resolve(schema: JsonSchema): JsonSchema {
-  if (!schema.$ref) return schema;
-  return schemas[schema.$ref.split("/").pop() ?? ""] ?? schema;
-}
-
 function typeLabel(schema: JsonSchema): string {
   if (schema.$ref) return schema.$ref.split("/").pop() ?? "object";
   if (schema.enum)
@@ -143,36 +113,34 @@ function typeLabel(schema: JsonSchema): string {
   return schema.type ?? "object";
 }
 
-function fieldsOf(schemaName?: string): DocField[] {
-  if (!schemaName) return [];
-  const schema = resolve(schemas[schemaName] ?? {});
+function fieldsOf(schema?: JsonSchema): DocField[] {
+  if (!schema) return [];
   const required = new Set(schema.required ?? []);
   return Object.entries(schema.properties ?? {}).map(([name, field]) => ({
     name,
     type: typeLabel(field),
     required: required.has(name),
-    description: resolve(field).description ?? fieldDescriptions[name],
+    description: field.description ?? fieldDescriptions[name],
   }));
 }
 
-function exampleOf(schema: JsonSchema, name?: string, depth = 0): unknown {
+function exampleOf(schema: JsonSchema, name?: string, depth = 0): JsonExample {
   if (name && examples[name] !== undefined) return examples[name];
-  const resolved = resolve(schema);
   if (depth > 5) return null;
-  if (resolved.enum) return resolved.enum[0];
-  if (resolved.type === "array") {
-    return [exampleOf(resolved.items ?? {}, name, depth + 1)];
+  if (schema.enum) return schema.enum[0] ?? null;
+  if (schema.type === "array") {
+    return [exampleOf(schema.items ?? {}, name, depth + 1)];
   }
-  if (resolved.type === "object" || resolved.properties) {
+  if (schema.type === "object" || schema.properties) {
     return Object.fromEntries(
-      Object.entries(resolved.properties ?? {}).map(([key, field]) => [
+      Object.entries(schema.properties ?? {}).map(([key, field]) => [
         key,
         exampleOf(field, key, depth + 1),
       ]),
     );
   }
-  if (resolved.type === "integer" || resolved.type === "number") return 1;
-  if (resolved.type === "boolean") return true;
+  if (schema.type === "integer" || schema.type === "number") return 1;
+  if (schema.type === "boolean") return true;
   return "string";
 }
 
@@ -324,7 +292,35 @@ const cliCommands: Record<string, string> = {
   "scheduledWork.webhook.rotate": "scheduled rotate-webhook <scheduled-work>",
 };
 
-function requestFor(operation: ChannelApiOperation, schemaName?: string) {
+const documentedModels = [
+  {
+    name: "ChannelCreateInput",
+    operationId: "channels.create",
+    description: "The validated input used to create a durable channel.",
+  },
+  {
+    name: "ChannelUpdateInput",
+    operationId: "channels.update",
+    description: "Conflict-safe channel metadata and workstream changes.",
+  },
+  {
+    name: "ChannelMembersAddInput",
+    operationId: "channels.members.add",
+    description: "Existing workspace humans or agents added to a channel.",
+  },
+  {
+    name: "ChannelMessageInput",
+    operationId: "channels.messages.post",
+    description: "A channel message with optional thread and retry identity.",
+  },
+  {
+    name: "ScheduledWorkCreateInput",
+    operationId: "scheduledWork.create",
+    description: "A proactive task, one trigger and its requested tool grant.",
+  },
+] as const;
+
+function requestFor(operation: ChannelApiOperation, schema?: JsonSchema) {
   const command = cliCommands[operation.operationId];
   if (!command) {
     return `curl http://127.0.0.1:4318${operation.path} \\
@@ -333,8 +329,8 @@ function requestFor(operation: ChannelApiOperation, schemaName?: string) {
   -d '{ "event": "pull_request.opened" }'`;
   }
   const lines = [`chief-agent ${command}`];
-  if (schemaName) {
-    const body = JSON.stringify(exampleOf(schemas[schemaName] ?? {}), null, 2)
+  if (schema) {
+    const body = JSON.stringify(exampleOf(schema), null, 2)
       .split("\n")
       .map((line, index) => (index === 0 ? line : `  ${line}`))
       .join("\n");
@@ -345,39 +341,31 @@ function requestFor(operation: ChannelApiOperation, schemaName?: string) {
 }
 
 function operationModel(operation: ChannelApiOperation): DocOperation {
-  const schemaName = bodySchemas[operation.operationId];
-  const params = [...operation.path.matchAll(/\{([^}]+)\}/g)].map(
-    ([, name]) => ({
-      name: name ?? "id",
-      type: "string",
-      required: true,
-      description:
-        name === "channelId"
-          ? "Stable channel id or slug."
-          : `Stable ${name ?? "resource"}.`,
-    }),
-  );
-  if (operation.operationId === "channels.list") {
-    params.push(
-      {
-        name: "includeArchived",
-        type: "boolean",
-        required: false,
-        description: "Include archived channels. Defaults to false.",
-      },
-      {
-        name: "query",
-        type: "string",
-        required: false,
-        description: "Search names, slugs and descriptions.",
-      },
+  const generated = generatedOperation(operation.operationId);
+  if (
+    operation.method !== generated.method ||
+    operation.path !== generated.path
+  ) {
+    throw new Error(
+      `The ${operation.operationId} reference does not match its composed local tool.`,
     );
   }
+  const schema = requestSchemaOf(operation.operationId);
+  const params = parametersOf(operation.operationId).map((parameter) => ({
+    name: parameter.name,
+    type: typeLabel(parameter.schema),
+    required: parameter.required,
+    description:
+      parameter.description ??
+      (parameter.name === "channelId"
+        ? "Stable channel id or slug."
+        : fieldDescriptions[parameter.name]),
+  }));
   return {
     ...operation,
     id: operation.operationId.replaceAll(".", "-"),
     params,
-    bodyFields: fieldsOf(schemaName),
+    bodyFields: fieldsOf(schema),
     responses: [
       { status: "200", description: "The operation completed." },
       { status: "400", description: "The request is invalid." },
@@ -388,7 +376,7 @@ function operationModel(operation: ChannelApiOperation): DocOperation {
         description: "The channel changed or is in the wrong state.",
       },
     ],
-    requestSample: requestFor(operation, schemaName),
+    requestSample: requestFor(operation, schema),
     responseSample: JSON.stringify(responseFor(operation.operationId), null, 2),
   };
 }
@@ -405,7 +393,12 @@ export function buildChannelDocsModel(): ChannelDocsModel {
     "Runs",
     "Governance",
   ];
-  const operations = [...channelApiOperations, ...scheduledWorkApiOperations];
+  const operations = [
+    ...channelApiOperations,
+    ...scheduledWorkApiOperations.filter(
+      (operation) => operation.permission !== "Webhook secret",
+    ),
+  ];
   return {
     groups: groupNames.map((name) => ({
       name,
@@ -414,30 +407,19 @@ export function buildChannelDocsModel(): ChannelDocsModel {
         .filter((operation) => operation.group === name)
         .map(operationModel),
     })),
-    models: [
-      "Channel",
-      "ChannelWorkstreamInput",
-      "ChannelAuditEntry",
-      "ScheduledWorkCreateInput",
-      "ChannelErrorResponse",
-    ].map((name) => ({
-      name,
-      description:
-        name === "Channel"
-          ? "The durable room, its policy and optional feature-work state."
-          : name === "ChannelWorkstreamInput"
-            ? "Repository and delivery state attached to a feature channel."
-            : name === "ChannelAuditEntry"
-              ? "One hash-chained lifecycle, membership, policy or message event."
-              : name === "ScheduledWorkCreateInput"
-                ? "A proactive task, one trigger and its requested tool grant."
-                : "The consistent machine-readable failure envelope.",
-      fields: fieldsOf(name),
-      sample: JSON.stringify(
-        name === "Channel" ? channelExample : exampleOf(schemas[name] ?? {}),
-        null,
-        2,
-      ),
-    })),
+    models: documentedModels.map((model) => {
+      const schema = requestSchemaOf(model.operationId);
+      if (!schema) {
+        throw new Error(
+          `The composed local tool ${model.operationId} has no request schema.`,
+        );
+      }
+      return {
+        name: model.name,
+        description: model.description,
+        fields: fieldsOf(schema),
+        sample: JSON.stringify(exampleOf(schema), null, 2),
+      };
+    }),
   };
 }

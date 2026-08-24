@@ -22,6 +22,13 @@ export function parseJsonObject<Input>(value: Input): JsonObject | undefined {
   return result.success ? result.data : undefined;
 }
 
+/** Normalize a typed domain object into its JSON wire representation. */
+export function toJsonObject<Input>(value: Input): JsonObject {
+  const result = jsonObjectSchema.safeParse(JSON.parse(JSON.stringify(value)));
+  if (!result.success) throw new Error("Value is not a JSON object.");
+  return result.data;
+}
+
 export function parseJsonScalar<Input>(
   value: Input,
 ): string | number | boolean | undefined {

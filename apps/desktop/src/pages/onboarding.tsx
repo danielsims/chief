@@ -28,10 +28,14 @@ import type {
   AgentDeploymentRecord,
   AgentDeploymentTarget,
   AgentPluginSummary,
-  DriverType,
   OnboardingSchedule,
 } from "@chief/agent-runtime/types";
 import { api } from "@chief/backend/convex/_generated/api";
+import {
+  parseJsonObject,
+  parseJsonString,
+  toJsonObject,
+} from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
 import { PrefixedInput } from "@chief/ui/components/prefixed-input";
@@ -44,8 +48,14 @@ import {
 import { SuccessCheck } from "@chief/ui/components/success-check";
 import { cn } from "@chief/ui/lib/utils";
 
-import type { AuthOrganization } from "../lib/auth/better-auth-client";
+import type { AuthOrganization } from "../lib/auth/better-auth-contracts";
 import type { IntegrationSearchResult } from "../lib/integrations";
+import type {
+  AutomationMode,
+  OnboardingAutomationItem,
+  OnboardingBrandFile,
+  OnboardingDraft,
+} from "../lib/onboarding-draft";
 import type { OnboardingStep } from "../lib/onboarding-flow";
 import type { SocialPlatform } from "../lib/social-platforms";
 import { ConvexLogo } from "../components/convex-logo";
@@ -70,10 +80,10 @@ import { useAuth } from "../lib/auth/auth-context";
 import {
   createAuthOrganization,
   listAuthOrganizations,
-  parseOrganizationMetadata,
   setActiveAuthOrganization,
   updateAuthOrganization,
 } from "../lib/auth/better-auth-client";
+import { parseOrganizationMetadata } from "../lib/auth/better-auth-contracts";
 import {
   cachedIntegrationSearch,
   searchIntegrations,
@@ -81,10 +91,17 @@ import {
 import { primeLocalIntegrationStatus } from "../lib/local-integration-status-cache";
 import { onboardingCompletionPresentation } from "../lib/onboarding-completion";
 import {
+  loadOnboardingDraft,
+  loadPendingOnboardingDraft,
+  onboardingStorageKey,
+  onboardingWorkspaceSlug,
+  pendingOnboardingStorageKey,
+} from "../lib/onboarding-draft";
+import {
+  isOnboardingStep,
   LOCAL_ONBOARDING_FALLBACK,
   nextOnboardingStep,
   ONBOARDING_STEPS,
-  resumableOnboardingStep,
 } from "../lib/onboarding-flow";
 import { buildOnboardingWorkJobs } from "../lib/onboarding-work";
 import { getPlaybook, playbookInstructions, PLAYBOOKS } from "../lib/playbooks";
@@ -104,84 +121,7 @@ import { usePlugins } from "../lib/runtime-plugins";
 import { SOCIAL_PLATFORMS } from "../lib/social-platforms";
 import { workspaceContextFromOrganization } from "../lib/workspace-context";
 
-type AutomationMode = "automatic" | "review" | "manual";
-type AutomationFrequency = "daily" | "weekly";
-
-interface OnboardingAutomationItem {
-  playbookId: string;
-  title: string;
-  agentId: string;
-  purpose: string;
-  enabled: boolean;
-  frequency: AutomationFrequency;
-  day: number;
-  time: string;
-}
-
-interface OnboardingBrandFile {
-  name: string;
-  type: string;
-  dataUrl: string;
-}
-
 type StepKey = OnboardingStep;
-
-interface OnboardingDraft {
-  workspaceMode: "local" | "cloud";
-  companyName: string;
-  websiteUrl: string;
-  socials: Partial<Record<SocialPlatform, string>>;
-  providerMode: "local" | "deployed";
-  /** Null until the user explicitly picks an agent app, never defaulted. */
-  provider: DriverType | null;
-  /** Empty means the selected agent app chooses its model automatically. */
-  model: string;
-  deploymentProvider: AgentDeploymentTarget | null;
-  cloudDeploymentUrl: string;
-  brand: {
-    mode: "research" | "upload" | "skip";
-    notes: string;
-    files: OnboardingBrandFile[];
-  };
-  goals: {
-    selling: string;
-    audience: string;
-    success: string[];
-    timeBudget: string;
-  };
-  monitoring: {
-    channels: string[];
-    details: string;
-    keywords: string;
-  };
-  plugins: {
-    integrations: IntegrationSearchResult[];
-  };
-  analytics: {
-    integrations: IntegrationSearchResult[];
-    /** Preserves an explicit opt-out separately from an unanswered step. */
-    selection: "selected" | "none" | "skipped" | null;
-  };
-  ads: {
-    integrations: IntegrationSearchResult[];
-    /** Monthly spend the agents may plan toward if the user opts in. */
-    budget: string;
-  };
-  aeo: {
-    trackAiReferrals: boolean;
-  };
-  engineering: {
-    enabled: boolean | null;
-    integrations: IntegrationSearchResult[];
-  };
-  automation: {
-    defaultsVersion: number;
-    mode: AutomationMode;
-    timezone: string;
-    plan: OnboardingAutomationItem[];
-  };
-  step: StepKey;
-}
 
 const steps = ONBOARDING_STEPS;
 
@@ -244,51 +184,6 @@ const scheduleTimeOptions = Array.from({ length: 48 }, (_, index) => {
   );
   return { value, label };
 });
-
-function defaultAutomationPlan(): OnboardingAutomationItem[] {
-  return [
-    {
-      playbookId: "buying-signals",
-      title: "Find buying signals",
-      agentId: "prospector",
-      purpose: "Surface people already describing the problem you solve.",
-      enabled: true,
-      frequency: "daily",
-      day: 1,
-      time: "09:00",
-    },
-    {
-      playbookId: "founder-content",
-      title: "Founder content",
-      agentId: "content",
-      purpose: "Turn what the company is learning into useful draft posts.",
-      enabled: true,
-      frequency: "weekly",
-      day: 2,
-      time: "10:00",
-    },
-    {
-      playbookId: "brand-content",
-      title: "Brand content",
-      agentId: "content",
-      purpose: "Draft useful brand-led posts from product and customer proof.",
-      enabled: true,
-      frequency: "weekly",
-      day: 4,
-      time: "10:00",
-    },
-    {
-      playbookId: "growth-brief",
-      title: "Growth report",
-      agentId: "analyst",
-      purpose: "Explain what changed and recommend the next action.",
-      enabled: true,
-      frequency: "weekly",
-      day: 5,
-      time: "15:00",
-    },
-  ];
-}
 
 const monitoringOptions = [
   { key: "x", label: "X", platform: "x" as const, Icon: Twitter },
@@ -432,494 +327,30 @@ function BrandIcon({
   );
 }
 
-function storageKey(orgId: string) {
-  return `chief-onboarding:${orgId}`;
-}
-
-function pendingStorageKey() {
-  return storageKey("pending");
-}
-
-function slugify(name: string): string {
-  const base = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  const suffix = Math.random().toString(36).slice(2, 8);
-  return base ? `${base}-${suffix}` : suffix;
-}
-
-function baseDraft(): OnboardingDraft {
-  return {
-    workspaceMode: "local",
-    companyName: "",
-    websiteUrl: "",
-    socials: {},
-    providerMode: "local",
-    provider: null,
-    model: "",
-    deploymentProvider: null,
-    cloudDeploymentUrl: "",
-    brand: {
-      mode: "research",
-      notes: "",
-      files: [],
-    },
-    goals: {
-      selling: "",
-      audience: "",
-      success: [],
-      timeBudget: "",
-    },
-    monitoring: {
-      channels: [],
-      details: "",
-      keywords: "",
-    },
-    plugins: {
-      integrations: [],
-    },
-    analytics: {
-      integrations: [],
-      selection: null,
-    },
-    ads: {
-      integrations: [],
-      budget: "",
-    },
-    aeo: {
-      trackAiReferrals: false,
-    },
-    engineering: {
-      enabled: null,
-      integrations: [],
-    },
-    automation: {
-      defaultsVersion: 2,
-      mode: "manual",
-      timezone:
-        Intl.DateTimeFormat().resolvedOptions().timeZone ||
-        "Australia/Brisbane",
-      plan: defaultAutomationPlan(),
-    },
-    step: "mode",
-  };
-}
-
-function normaliseChannels(value: unknown, fallback: string[]) {
-  if (Array.isArray(value)) {
-    return value.filter((item): item is string => typeof item === "string");
-  }
-  if (typeof value === "string" && value.trim()) {
-    return value
-      .split(/\n|,/)
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-  return fallback;
-}
-
-function normaliseIntegrations(value: unknown): IntegrationSearchResult[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is IntegrationSearchResult => {
-    if (!item || typeof item !== "object") return false;
-    const integration = item as Partial<IntegrationSearchResult>;
-    return (
-      typeof integration.domain === "string" &&
-      typeof integration.name === "string" &&
-      typeof integration.description === "string" &&
-      Array.isArray(integration.kinds) &&
-      typeof integration.url === "string"
-    );
-  });
-}
-
-function normaliseAutomationPlan(value: unknown): OnboardingAutomationItem[] {
-  const defaults = defaultAutomationPlan();
-  if (!Array.isArray(value)) return defaults;
-  return defaults.map((fallback) => {
-    const saved = value.find(
-      (item) =>
-        item &&
-        typeof item === "object" &&
-        (item as { playbookId?: unknown }).playbookId === fallback.playbookId,
-    ) as Partial<OnboardingAutomationItem> | undefined;
-    const savedFrequency = (saved as { frequency?: unknown } | undefined)
-      ?.frequency;
-    return {
-      ...fallback,
-      enabled:
-        typeof saved?.enabled === "boolean" ? saved.enabled : fallback.enabled,
-      frequency:
-        savedFrequency === "daily" || savedFrequency === "weekly"
-          ? savedFrequency
-          : savedFrequency === "weekdays"
-            ? "daily"
-            : fallback.frequency,
-      day:
-        typeof saved?.day === "number" && saved.day >= 0 && saved.day <= 6
-          ? saved.day
-          : fallback.day,
-      time:
-        typeof saved?.time === "string" && /^\d{2}:\d{2}$/.test(saved.time)
-          ? saved.time
-          : fallback.time,
-    };
-  });
-}
-
-function draftFromOrg(
-  org: AuthOrganization,
-  userName?: string,
-): OnboardingDraft {
-  const metadata = parseOrganizationMetadata(org);
-  const onboarding =
-    metadata.onboarding && typeof metadata.onboarding === "object"
-      ? (metadata.onboarding as Record<string, unknown>)
-      : {};
-  const goals =
-    onboarding.goals && typeof onboarding.goals === "object"
-      ? (onboarding.goals as Record<string, unknown>)
-      : {};
-  const monitoring =
-    onboarding.monitoring && typeof onboarding.monitoring === "object"
-      ? (onboarding.monitoring as Record<string, unknown>)
-      : {};
-  const plugins =
-    onboarding.plugins && typeof onboarding.plugins === "object"
-      ? (onboarding.plugins as Partial<OnboardingDraft["plugins"]>)
-      : {};
-  const analytics =
-    onboarding.analytics && typeof onboarding.analytics === "object"
-      ? (onboarding.analytics as Partial<OnboardingDraft["analytics"]>)
-      : {};
-  const ads =
-    onboarding.ads && typeof onboarding.ads === "object"
-      ? (onboarding.ads as Partial<OnboardingDraft["ads"]>)
-      : {};
-  const aeo =
-    onboarding.aeo && typeof onboarding.aeo === "object"
-      ? (onboarding.aeo as Partial<OnboardingDraft["aeo"]>)
-      : {};
-  const engineering =
-    onboarding.engineering && typeof onboarding.engineering === "object"
-      ? (onboarding.engineering as Partial<OnboardingDraft["engineering"]>)
-      : {};
-  const brand =
-    onboarding.brand && typeof onboarding.brand === "object"
-      ? (onboarding.brand as Record<string, unknown>)
-      : {};
-  const automation =
-    onboarding.automation && typeof onboarding.automation === "object"
-      ? (onboarding.automation as Partial<OnboardingDraft["automation"]>)
-      : {};
-  const provider: DriverType | null =
-    onboarding.provider === "claude" ||
-    onboarding.provider === "codex" ||
-    onboarding.provider === "opencode" ||
-    onboarding.provider === "remote" ||
-    onboarding.provider === "vercel"
-      ? onboarding.provider === "vercel"
-        ? "remote"
-        : onboarding.provider
-      : null;
-  const looksLikePersonalOrg =
-    typeof metadata.personalOrgUserId === "string" ||
-    (userName?.trim() &&
-      org.name.trim().toLowerCase() === userName.trim().toLowerCase());
-
-  return {
-    ...baseDraft(),
-    workspaceMode:
-      onboarding.workspaceMode === "cloud" ||
-      onboarding.providerMode === "deployed"
-        ? "cloud"
-        : "local",
-    companyName: looksLikePersonalOrg ? "" : org.name,
-    websiteUrl:
-      typeof metadata.websiteUrl === "string" ? metadata.websiteUrl : "",
-    providerMode: onboarding.providerMode === "deployed" ? "deployed" : "local",
-    provider,
-    model: typeof onboarding.model === "string" ? onboarding.model : "",
-    deploymentProvider:
-      onboarding.deploymentProvider === "convex"
-        ? "convex"
-        : onboarding.deploymentProvider === "vercel" ||
-            onboarding.provider === "vercel"
-          ? "vercel"
-          : null,
-    cloudDeploymentUrl:
-      typeof onboarding.cloudDeploymentUrl === "string"
-        ? onboarding.cloudDeploymentUrl
-        : "",
-    brand: {
-      mode:
-        brand.mode === "upload" || brand.mode === "skip"
-          ? brand.mode
-          : "research",
-      notes: typeof brand.notes === "string" ? brand.notes : "",
-      files: [],
-    },
-    goals: {
-      selling: typeof goals.selling === "string" ? goals.selling : "",
-      audience: typeof goals.audience === "string" ? goals.audience : "",
-      success: Array.isArray(goals.success)
-        ? goals.success.filter(
-            (item): item is string => typeof item === "string",
-          )
-        : typeof goals.success === "string"
-          ? [goals.success]
-          : [],
-      timeBudget: typeof goals.timeBudget === "string" ? goals.timeBudget : "",
-    },
-    monitoring: {
-      channels: normaliseChannels(monitoring.channels, []),
-      details: typeof monitoring.details === "string" ? monitoring.details : "",
-      keywords:
-        typeof monitoring.keywords === "string" ? monitoring.keywords : "",
-    },
-    plugins: {
-      integrations: normaliseIntegrations(plugins.integrations),
-    },
-    analytics: {
-      integrations: normaliseIntegrations(analytics.integrations),
-      selection:
-        analytics.selection === "selected" ||
-        analytics.selection === "none" ||
-        analytics.selection === "skipped"
-          ? analytics.selection
-          : null,
-    },
-    ads: {
-      integrations: normaliseIntegrations(ads.integrations),
-      budget: typeof ads.budget === "string" && ads.budget ? ads.budget : "",
-    },
-    aeo: {
-      trackAiReferrals:
-        typeof aeo.trackAiReferrals === "boolean"
-          ? aeo.trackAiReferrals
-          : false,
-    },
-    engineering: {
-      enabled:
-        typeof engineering.enabled === "boolean" ? engineering.enabled : null,
-      integrations: normaliseIntegrations(engineering.integrations),
-    },
-    automation: {
-      defaultsVersion: 2,
-      mode:
-        automation.mode === "automatic" || automation.mode === "manual"
-          ? automation.mode
-          : automation.mode === "review" && automation.defaultsVersion === 2
-            ? "review"
-            : "automatic",
-      timezone:
-        typeof automation.timezone === "string" && automation.timezone
-          ? automation.timezone
-          : baseDraft().automation.timezone,
-      plan: normaliseAutomationPlan(automation.plan),
-    },
-    step: typeof onboarding.completedAt === "string" ? "finish" : "mode",
-  };
-}
-
-function loadStoredDraft(base: OnboardingDraft, key: string): OnboardingDraft {
-  try {
-    const legacyKey = key.replace(/^chief-onboarding:/, "marketer-onboarding:");
-    const stored = localStorage.getItem(key) ?? localStorage.getItem(legacyKey);
-    if (!stored) return base;
-    if (!localStorage.getItem(key)) {
-      localStorage.setItem(key, stored);
-      localStorage.removeItem(legacyKey);
-    }
-    const parsed = JSON.parse(stored) as Partial<OnboardingDraft>;
-    const hasSetupMode =
-      parsed.workspaceMode === "local" || parsed.workspaceMode === "cloud";
-    const parsedMonitoring = parsed.monitoring as
-      Partial<OnboardingDraft["monitoring"]> | undefined;
-    const parsedPlugins = parsed.plugins as
-      Partial<OnboardingDraft["plugins"]> | undefined;
-    const parsedAnalytics = parsed.analytics as
-      Partial<OnboardingDraft["analytics"]> | undefined;
-    const parsedAds = parsed.ads as Partial<OnboardingDraft["ads"]> | undefined;
-    const parsedAeo = parsed.aeo as Partial<OnboardingDraft["aeo"]> | undefined;
-    const parsedEngineering = parsed.engineering as
-      Partial<OnboardingDraft["engineering"]> | undefined;
-    const parsedBrand = parsed.brand as
-      Partial<OnboardingDraft["brand"]> | undefined;
-    const parsedAutomation = parsed.automation as
-      Partial<OnboardingDraft["automation"]> | undefined;
-    const parsedProvider = (parsed as { provider?: unknown }).provider;
-    const storedStep = (parsed as { step?: string }).step;
-    return {
-      ...base,
-      ...parsed,
-      workspaceMode:
-        parsed.workspaceMode === "cloud" || parsed.providerMode === "deployed"
-          ? "cloud"
-          : "local",
-      companyName: parsed.companyName ?? base.companyName,
-      websiteUrl: parsed.websiteUrl ?? base.websiteUrl,
-      socials: { ...base.socials, ...(parsed.socials ?? {}) },
-      providerMode: parsed.providerMode === "deployed" ? "deployed" : "local",
-      provider:
-        parsedProvider === "claude" ||
-        parsedProvider === "codex" ||
-        parsedProvider === "opencode" ||
-        parsedProvider === "remote" ||
-        parsedProvider === "vercel"
-          ? parsedProvider === "vercel"
-            ? "remote"
-            : parsedProvider
-          : base.provider,
-      model: typeof parsed.model === "string" ? parsed.model : base.model,
-      deploymentProvider:
-        parsed.deploymentProvider === "convex"
-          ? "convex"
-          : parsed.deploymentProvider === "vercel" ||
-              parsedProvider === "vercel"
-            ? "vercel"
-            : base.deploymentProvider,
-      cloudDeploymentUrl: parsed.cloudDeploymentUrl ?? base.cloudDeploymentUrl,
-      brand: {
-        mode:
-          parsedBrand?.mode === "upload" || parsedBrand?.mode === "skip"
-            ? parsedBrand.mode
-            : base.brand.mode,
-        notes:
-          typeof parsedBrand?.notes === "string"
-            ? parsedBrand.notes
-            : base.brand.notes,
-        files: Array.isArray(parsedBrand?.files)
-          ? parsedBrand.files.filter((file): file is OnboardingBrandFile =>
-              Boolean(
-                file &&
-                typeof file.name === "string" &&
-                typeof file.type === "string" &&
-                typeof file.dataUrl === "string",
-              ),
-            )
-          : [],
-      },
-      goals: {
-        ...base.goals,
-        ...(parsed.goals ?? {}),
-        success: Array.isArray(parsed.goals?.success)
-          ? parsed.goals.success.filter(
-              (item): item is string => typeof item === "string",
-            )
-          : typeof parsed.goals?.success === "string"
-            ? [parsed.goals.success]
-            : base.goals.success,
-      },
-      monitoring: {
-        ...base.monitoring,
-        ...(parsed.monitoring ?? {}),
-        channels: normaliseChannels(
-          parsedMonitoring?.channels,
-          base.monitoring.channels,
-        ),
-      },
-      plugins: {
-        integrations: normaliseIntegrations(parsedPlugins?.integrations),
-      },
-      analytics: {
-        integrations: normaliseIntegrations(parsedAnalytics?.integrations),
-        selection:
-          parsedAnalytics?.selection === "selected" ||
-          parsedAnalytics?.selection === "none" ||
-          parsedAnalytics?.selection === "skipped"
-            ? parsedAnalytics.selection
-            : null,
-      },
-      ads: {
-        integrations: normaliseIntegrations(parsedAds?.integrations),
-        budget:
-          typeof parsedAds?.budget === "string" && parsedAds.budget
-            ? parsedAds.budget
-            : base.ads.budget,
-      },
-      aeo: {
-        ...base.aeo,
-        ...(parsedAeo ?? {}),
-        trackAiReferrals:
-          typeof parsedAeo?.trackAiReferrals === "boolean"
-            ? parsedAeo.trackAiReferrals
-            : base.aeo.trackAiReferrals,
-      },
-      engineering: {
-        enabled:
-          typeof parsedEngineering?.enabled === "boolean"
-            ? parsedEngineering.enabled
-            : base.engineering.enabled,
-        integrations: normaliseIntegrations(parsedEngineering?.integrations),
-      },
-      automation: {
-        defaultsVersion: 2,
-        mode:
-          parsedAutomation?.mode === "automatic" ||
-          parsedAutomation?.mode === "manual"
-            ? parsedAutomation.mode
-            : parsedAutomation?.mode === "review" &&
-                parsedAutomation.defaultsVersion === 2
-              ? "review"
-              : base.automation.mode,
-        timezone:
-          typeof parsedAutomation?.timezone === "string" &&
-          parsedAutomation.timezone
-            ? parsedAutomation.timezone
-            : base.automation.timezone,
-        plan: normaliseAutomationPlan(parsedAutomation?.plan),
-      },
-      step:
-        storedStep === "analyticsConnect" ||
-        storedStep === "adsConnect" ||
-        storedStep === "analytics" ||
-        storedStep === "ads" ||
-        storedStep === "adsBudget" ||
-        storedStep === "aeo" ||
-        storedStep === "engineering" ||
-        storedStep === "engineeringTools"
-          ? "plugins"
-          : parsed.step && hasSetupMode
-            ? resumableOnboardingStep(parsed.step)
-            : base.step,
-    };
-  } catch {
-    return base;
-  }
-}
-
-function loadDraft(org: AuthOrganization, userName?: string): OnboardingDraft {
-  return loadStoredDraft(draftFromOrg(org, userName), storageKey(org.id));
-}
-
-function loadPendingDraft(): OnboardingDraft {
-  return loadStoredDraft(baseDraft(), pendingStorageKey());
-}
-
 function useTypedQuestion(text: string, active: boolean) {
   const [visible, setVisible] = useState(() => (active ? "" : text));
   const [complete, setComplete] = useState(!active);
 
   useEffect(() => {
-    if (!active) {
-      setVisible(text);
-      setComplete(true);
-      return;
-    }
+    if (!active) return;
     let index = 0;
-    setVisible("");
-    setComplete(false);
-    const timer = window.setInterval(() => {
-      index += 1;
-      setVisible(text.slice(0, index));
-      if (index >= text.length) {
-        window.clearInterval(timer);
-        setComplete(true);
-      }
-    }, 18);
-    return () => window.clearInterval(timer);
+    let timer: number | undefined;
+    const frame = window.requestAnimationFrame(() => {
+      setVisible("");
+      setComplete(false);
+      timer = window.setInterval(() => {
+        index += 1;
+        setVisible(text.slice(0, index));
+        if (index >= text.length) {
+          window.clearInterval(timer);
+          setComplete(true);
+        }
+      }, 18);
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearInterval(timer);
+    };
   }, [active, text]);
 
   return { visible, complete };
@@ -983,7 +414,7 @@ function UserIndicator({
   onSignOut: () => void;
 }) {
   if (!user) return null;
-  const label = user.name?.trim() || user.email;
+  const label = user.name.trim() || user.email;
   const initial = label.charAt(0).toUpperCase();
 
   return (
@@ -1378,13 +809,20 @@ function BrandControl({
         (file) =>
           new Promise<OnboardingBrandFile>((resolve, reject) => {
             const reader = new FileReader();
-            reader.onload = () =>
+            reader.onload = () => {
+              const dataUrl = parseJsonString(reader.result);
+              if (!dataUrl) {
+                reject(new Error(`Could not read ${file.name}.`));
+                return;
+              }
               resolve({
                 name: file.name,
                 type: file.type || "application/octet-stream",
-                dataUrl: String(reader.result ?? ""),
+                dataUrl,
               });
-            reader.onerror = () => reject(reader.error);
+            };
+            reader.onerror = () =>
+              reject(reader.error ?? new Error(`Could not read ${file.name}.`));
             reader.readAsDataURL(file);
           }),
       ),
@@ -2320,7 +1758,7 @@ function AutomationControl({
                       value={item.frequency}
                       onValueChange={(value) =>
                         updateItem(item.playbookId, {
-                          frequency: value as AutomationFrequency,
+                          frequency: value === "daily" ? "daily" : "weekly",
                         })
                       }
                     >
@@ -2513,16 +1951,10 @@ function IntegrationPickerControl({
   useEffect(() => {
     let cancelled = false;
     const trimmed = query.trim();
-    if (!trimmed) {
-      setResults(
-        cachedIntegrationSearch(defaultSearchQuery) ?? fallbackIntegrations,
-      );
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setResults([]);
+    if (!trimmed) return;
     const timeout = window.setTimeout(() => {
+      setLoading(true);
+      setResults([]);
       void searchIntegrations(trimmed)
         .then((items) => {
           if (cancelled) return;
@@ -2739,10 +2171,10 @@ export function OnboardingPage() {
         null;
       setOrg(active);
       const loaded = active
-        ? loadDraft(active, user?.name)
-        : loadPendingDraft();
-      const requestedStep = searchParams.get("step") as StepKey | null;
-      if (requestedStep && steps.includes(requestedStep)) {
+        ? loadOnboardingDraft(active, user?.name)
+        : loadPendingOnboardingDraft();
+      const requestedStep = searchParams.get("step");
+      if (requestedStep && isOnboardingStep(requestedStep)) {
         setDraft({ ...loaded, step: requestedStep });
         setSearchParams({}, { replace: true });
       } else {
@@ -2762,21 +2194,24 @@ export function OnboardingPage() {
   useEffect(() => {
     if (!draft) return;
     localStorage.setItem(
-      org ? storageKey(org.id) : pendingStorageKey(),
+      org ? onboardingStorageKey(org.id) : pendingOnboardingStorageKey(),
       JSON.stringify(draft),
     );
   }, [draft, org]);
 
   useEffect(() => {
     if (!socialAccounts) return;
-    setDraft((current) => {
-      if (!current) return current;
-      const nextSocials = { ...current.socials };
-      for (const account of socialAccounts) {
-        nextSocials[account.platform] = account.handle;
-      }
-      return { ...current, socials: nextSocials };
+    const frame = window.requestAnimationFrame(() => {
+      setDraft((current) => {
+        if (!current) return current;
+        const nextSocials = { ...current.socials };
+        for (const account of socialAccounts) {
+          nextSocials[account.platform] = account.handle;
+        }
+        return { ...current, socials: nextSocials };
+      });
     });
+    return () => window.cancelAnimationFrame(frame);
   }, [socialAccounts]);
 
   const latestStep = draft?.step ?? "mode";
@@ -2877,13 +2312,10 @@ export function OnboardingPage() {
     if (!draft || org) return false;
     const created = await createAuthOrganization({
       name: "New workspace",
-      slug: slugify("chief-workspace"),
+      slug: onboardingWorkspaceSlug("chief-workspace"),
     });
     const metadata = parseOrganizationMetadata(created);
-    const onboarding =
-      metadata.onboarding && typeof metadata.onboarding === "object"
-        ? (metadata.onboarding as Record<string, unknown>)
-        : {};
+    const onboarding = parseJsonObject(metadata.onboarding) ?? {};
     await updateAuthOrganization(created.id, {
       metadata: {
         ...metadata,
@@ -2892,8 +2324,11 @@ export function OnboardingPage() {
     });
     await setActiveAuthOrganization(created.id);
     const nextDraft = { ...draft, step: "inference" as const };
-    localStorage.setItem(storageKey(created.id), JSON.stringify(nextDraft));
-    localStorage.removeItem(pendingStorageKey());
+    localStorage.setItem(
+      onboardingStorageKey(created.id),
+      JSON.stringify(nextDraft),
+    );
+    localStorage.removeItem(pendingOnboardingStorageKey());
     primeLocalIntegrationStatus(created.id, []);
     setOrg({
       ...created,
@@ -2914,44 +2349,44 @@ export function OnboardingPage() {
       if (!name) return false;
       const created = await createAuthOrganization({
         name,
-        slug: slugify(name),
-        ...(logo ? { logo } : {}),
+        slug: onboardingWorkspaceSlug(name),
+        logo,
       });
       const metadata = parseOrganizationMetadata(created);
-      const nextDraft = { ...draft, step: "inference" as StepKey };
+      const nextDraft: OnboardingDraft = { ...draft, step: "inference" };
       await updateAuthOrganization(created.id, {
         metadata: { ...metadata, websiteUrl: draft.websiteUrl.trim() },
       });
       await setActiveAuthOrganization(created.id);
-      localStorage.setItem(storageKey(created.id), JSON.stringify(nextDraft));
-      localStorage.removeItem(pendingStorageKey());
+      localStorage.setItem(
+        onboardingStorageKey(created.id),
+        JSON.stringify(nextDraft),
+      );
+      localStorage.removeItem(pendingOnboardingStorageKey());
       window.location.assign("/onboarding");
       return true;
     }
     const metadata = parseOrganizationMetadata(org);
-    const onboarding =
-      metadata.onboarding && typeof metadata.onboarding === "object"
-        ? { ...(metadata.onboarding as Record<string, unknown>) }
-        : {};
+    const onboarding = parseJsonObject(metadata.onboarding) ?? {};
     delete onboarding.provisional;
     await updateAuthOrganization(org.id, {
       name: draft.companyName.trim() || org.name,
-      ...(!org.logo && logo ? { logo } : {}),
-      metadata: {
+      logo: org.logo ?? logo,
+      metadata: toJsonObject({
         ...metadata,
         websiteUrl: draft.websiteUrl.trim(),
         onboarding,
-      },
+      }),
     });
     setOrg({
       ...org,
       name: draft.companyName.trim() || org.name,
       logo: org.logo ?? logo,
-      metadata: {
+      metadata: toJsonObject({
         ...metadata,
         websiteUrl: draft.websiteUrl.trim(),
         onboarding,
-      },
+      }),
     });
     return false;
   }, [draft, org]);
@@ -3032,10 +2467,7 @@ export function OnboardingPage() {
       await persistSocials();
       persistProvider();
       const metadata = parseOrganizationMetadata(org);
-      const persistedOnboarding =
-        metadata.onboarding && typeof metadata.onboarding === "object"
-          ? { ...(metadata.onboarding as Record<string, unknown>) }
-          : {};
+      const persistedOnboarding = parseJsonObject(metadata.onboarding) ?? {};
       delete persistedOnboarding.provisional;
       const deferredAutomation = {
         ...draft.automation,
@@ -3108,7 +2540,7 @@ export function OnboardingPage() {
           workspaceContextFromOrganization({
             ...org,
             name: draft.companyName.trim() || org.name,
-            metadata: completedMetadata,
+            metadata: toJsonObject(completedMetadata),
           }),
           draft.provider ?? undefined,
           draft.model || null,
@@ -3119,15 +2551,17 @@ export function OnboardingPage() {
           onboardingError,
         );
       }
-      localStorage.removeItem(storageKey(org.id));
+      localStorage.removeItem(onboardingStorageKey(org.id));
       window.dispatchEvent(new Event("chief:onboarding-complete"));
-      navigate("/", { replace: true });
-      void onboardingRun?.catch((onboardingError: unknown) => {
-        console.warn(
-          "[Onboarding] Mission control onboarding will retry in the background",
-          onboardingError,
-        );
-      });
+      void navigate("/", { replace: true });
+      if (onboardingRun) {
+        void onboardingRun.catch((onboardingError: Error) => {
+          console.warn(
+            "[Onboarding] Mission control onboarding will retry in the background",
+            onboardingError,
+          );
+        });
+      }
     } catch (err) {
       sessionStorage.removeItem(`chief:onboarding:${org.id}`);
       setError(err instanceof Error ? err.message : String(err));

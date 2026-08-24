@@ -7,6 +7,7 @@ import type {
   AgentDefinition,
   AgentDeploymentTarget,
 } from "@chief/agent-runtime/types";
+import { toJsonObject } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 import { Input } from "@chief/ui/components/input";
 import {
@@ -183,7 +184,7 @@ export function AgentDeploymentPanel({
       },
     };
     void updateAuthOrganization(org.id, { metadata: nextMetadata }).then(() =>
-      setOrg({ ...org, metadata: nextMetadata }),
+      setOrg({ ...org, metadata: toJsonObject(nextMetadata) }),
     );
   }, [agent.id, current, org]);
 
