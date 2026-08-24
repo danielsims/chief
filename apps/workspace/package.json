@@ -15,7 +15,7 @@
     "build:source": "pnpm generate && eve build",
     "clean": "git clean -xdf .cache .turbo dist node_modules",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
-    "lint": "eslint --flag unstable_native_nodejs_ts_config",
+    "lint": "pnpm --dir ../.. exec oxlint apps/workspace",
     "start": "eve start",
     "typecheck": "tsc --noEmit"
   },
@@ -28,12 +28,9 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@eslint/js": "^9.38.0",
     "@types/node": "^24.13.0",
-    "eslint": "^9.38.0",
     "prettier": "^3.6.2",
     "tsx": "^4.23.0",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.46.2"
+    "typescript": "^5.9.3"
   }
 }

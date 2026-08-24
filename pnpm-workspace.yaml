@@ -10,10 +10,12 @@ packageManagerStrict: true
 packageManagerStrictVersion: true
 
 catalog:
+  "@oxlint/plugins": ^1.79.0
   "@types/node": ^24.13.0
   "@types/react": ^19.1.8
   "@types/react-dom": ^19.1.6
-  eslint: ^9.38.0
+  oxlint: ^1.79.0
+  oxlint-tsgolint: ^7.0.2001
   prettier: ^3.6.2
   typescript: ^5.9.3
   zod: ^4.4.3

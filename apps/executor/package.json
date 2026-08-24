@@ -8,7 +8,7 @@
     "clean": "git clean -xdf .cache .turbo dist node_modules",
     "dev": "tsx watch src/server.ts",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
-    "lint": "eslint --flag unstable_native_nodejs_ts_config",
+    "lint": "pnpm --dir ../.. exec oxlint apps/executor",
     "start": "node dist/server.mjs",
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
@@ -19,12 +19,10 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@chief/eslint-config": "workspace:*",
     "@chief/prettier-config": "workspace:*",
     "@chief/tsconfig": "workspace:*",
     "@types/node": "catalog:",
     "esbuild": "^0.27.0",
-    "eslint": "catalog:",
     "prettier": "catalog:",
     "tsx": "^4.20.3",
     "typescript": "catalog:"

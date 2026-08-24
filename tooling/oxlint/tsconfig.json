@@ -1,0 +1,9 @@
+{
+  "extends": "@chief/tsconfig/base.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "rootDir": ".",
+    "tsBuildInfoFile": ".cache/tsbuildinfo.json"
+  },
+  "include": ["*.ts", "rules/**/*.ts"]
+}

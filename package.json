@@ -18,9 +18,9 @@
     "executor:image": "docker build --file apps/executor/Dockerfile --tag chief-executor:dev .",
     "format": "turbo run format --continue -- --cache --cache-location .cache/.prettiercache",
     "format:fix": "turbo run format --continue -- --write --cache --cache-location .cache/.prettiercache",
-    "lint": "pnpm lint:source-size && turbo run lint --continue -- --cache --cache-location .cache/.eslintcache",
+    "lint": "pnpm lint:source-size && oxlint .",
     "lint:source-size": "node tooling/scripts/check-source-file-length.mjs",
-    "lint:fix": "turbo run lint --continue -- --fix --cache --cache-location .cache/.eslintcache",
+    "lint:fix": "oxlint . --fix",
     "mobile:build": "pnpm mobile:generate && xcodebuild -project apps/mobile/ChiefMobile.xcodeproj -scheme Chief -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO",
     "mobile:generate": "cd apps/mobile && xcodegen generate",
     "mobile:test": "bash apps/mobile/scripts/test.sh",
@@ -41,9 +41,12 @@
     "desktop:dev": "bash scripts/dev-desktop.sh"
   },
   "devDependencies": {
+    "@chief/oxlint-config": "workspace:*",
     "@chief/prettier-config": "workspace:*",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.8",
+    "oxlint": "catalog:",
+    "oxlint-tsgolint": "catalog:",
     "prettier": "catalog:",
     "turbo": "^2.5.5",
     "typescript": "catalog:"
