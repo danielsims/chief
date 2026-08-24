@@ -7,6 +7,7 @@ import {
   workspaceIdSchema,
 } from "./identifiers";
 import { principalSchema } from "./identity";
+import { jsonObjectSchema } from "./json";
 
 export const protocolVersionSchema = z.literal(1);
 
@@ -42,7 +43,7 @@ export const relayErrorSchema = z.object({
     code: z.string().trim().min(1).max(64),
     message: z.string().trim().min(1).max(512),
     requestId: z.string().trim().min(1).max(128).optional(),
-    details: z.record(z.string(), z.unknown()).optional(),
+    details: jsonObjectSchema.optional(),
   }),
 });
 

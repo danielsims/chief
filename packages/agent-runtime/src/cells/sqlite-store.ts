@@ -4,6 +4,7 @@ import { and, asc, desc, eq, gt, inArray, lte, sql } from "drizzle-orm";
 import type {
   AgentAlarm,
   AgentEvent,
+  CellStateValue,
   OutboxRecord,
   OutboxRecordState,
   ProjectLease,
@@ -25,8 +26,8 @@ export interface CellPersistence {
     cellId: string,
   ): Promise<{ id: string; position: number } | undefined>;
   events(cellId: string, afterPosition?: number): Promise<AgentEvent[]>;
-  readState(cellId: string, key: string): Promise<unknown>;
-  writeState(cellId: string, key: string, value: unknown): Promise<void>;
+  readState(cellId: string, key: string): Promise<CellStateValue | undefined>;
+  writeState(cellId: string, key: string, value: CellStateValue): Promise<void>;
   listDueAlarms(cellId: string, now: number): Promise<AgentAlarm[]>;
   saveAlarm(cellId: string, alarm: AgentAlarm): Promise<void>;
   deleteAlarm(cellId: string, alarmId: string): Promise<void>;
@@ -54,9 +55,7 @@ function eventRecord(row: typeof schema.cellEvents.$inferSelect): AgentEvent {
   return {
     id: row.id,
     type: row.type,
-    ...(row.payload !== undefined && row.payload !== null
-      ? { payload: row.payload }
-      : {}),
+    payload: row.payload ?? undefined,
     idempotencyKey: row.idempotencyKey,
     createdAt: row.createdAt,
   };
@@ -69,13 +68,11 @@ function outboxRecord(
     id: row.id,
     idempotencyKey: row.idempotencyKey,
     kind: row.kind,
-    ...(row.payload !== undefined && row.payload !== null
-      ? { payload: row.payload }
-      : {}),
+    payload: row.payload ?? undefined,
     state: row.state,
     attempts: row.attempts,
-    ...(row.deliveredAt ? { deliveredAt: row.deliveredAt } : {}),
-    ...(row.lastError ? { lastError: row.lastError } : {}),
+    deliveredAt: row.deliveredAt ?? undefined,
+    lastError: row.lastError ?? undefined,
     createdAt: row.createdAt,
   };
 }
@@ -116,7 +113,7 @@ export class CellSqliteStore implements CellPersistence {
       position,
       id: event.id,
       type: event.type,
-      ...(event.payload !== undefined ? { payload: event.payload } : {}),
+      payload: event.payload,
       idempotencyKey: event.idempotencyKey,
       createdAt: event.createdAt,
     });
@@ -165,7 +162,7 @@ export class CellSqliteStore implements CellPersistence {
     return row?.value;
   }
 
-  async writeState(cellId: string, key: string, value: unknown) {
+  async writeState(cellId: string, key: string, value: CellStateValue) {
     await this.ready;
     await this.database()
       .insert(schema.cellState)
@@ -193,9 +190,7 @@ export class CellSqliteStore implements CellPersistence {
     return rows.map((row) => ({
       id: row.alarmId,
       at: row.at,
-      ...(row.payload !== undefined && row.payload !== null
-        ? { payload: row.payload }
-        : {}),
+      payload: row.payload ?? undefined,
     }));
   }
 
@@ -207,7 +202,7 @@ export class CellSqliteStore implements CellPersistence {
         cellId,
         alarmId: alarm.id,
         at: alarm.at,
-        ...(alarm.payload !== undefined ? { payload: alarm.payload } : {}),
+        payload: alarm.payload,
         createdAt: Date.now(),
       })
       .onConflictDoUpdate({
@@ -310,8 +305,8 @@ export class CellSqliteStore implements CellPersistence {
         leaseId: lease.leaseId,
         projectId: lease.projectId,
         agentId: lease.agentId,
-        ...(lease.checkoutId ? { checkoutId: lease.checkoutId } : {}),
-        ...(lease.branch ? { branch: lease.branch } : {}),
+        checkoutId: lease.checkoutId,
+        branch: lease.branch,
         expiresAt: lease.expiresAt,
         createdAt: Date.now(),
       })
@@ -335,8 +330,8 @@ export class CellSqliteStore implements CellPersistence {
           leaseId: row.leaseId,
           projectId: row.projectId,
           agentId: row.agentId,
-          ...(row.checkoutId ? { checkoutId: row.checkoutId } : {}),
-          ...(row.branch ? { branch: row.branch } : {}),
+          checkoutId: row.checkoutId ?? undefined,
+          branch: row.branch ?? undefined,
           expiresAt: row.expiresAt,
         }
       : undefined;
@@ -383,7 +378,7 @@ export class CellSqliteStore implements CellPersistence {
       id: record.id,
       idempotencyKey: record.idempotencyKey,
       kind: record.kind,
-      ...(record.payload !== undefined ? { payload: record.payload } : {}),
+      payload: record.payload,
       state: "prepared",
       attempts: 0,
       createdAt: record.createdAt,

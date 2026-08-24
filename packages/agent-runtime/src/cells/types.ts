@@ -1,12 +1,16 @@
 /** Durable agent cell contract types. The application depends on this
  * contract, never on Cloudflare, cellD, or desktop-specific APIs. */
 
+import type { JsonValue } from "@chief/relay-contracts";
+
+import type { AgentEvent as SessionAgentEvent } from "../types.js";
+
 /** One ordered event delivered to a cell. */
 export interface AgentEvent {
   /** Stable logical id. Replayed events reuse it; the cell ignores them. */
   id: string;
   type: string;
-  payload?: unknown;
+  payload?: JsonValue;
   /** Explicit idempotency key so retries do not duplicate side effects. */
   idempotencyKey: string;
   createdAt: number;
@@ -36,13 +40,13 @@ export interface AgentCellStatus {
 
 /** A small durable key-value scope owned by one cell. */
 export type CellStateValue =
-  string | number | boolean | null | unknown[] | Record<string, unknown>;
+  string | number | boolean | null | SessionAgentEvent[];
 
 /** A scheduled alarm for a cell. */
 export interface AgentAlarm {
   id: string;
   at: number;
-  payload?: unknown;
+  payload?: JsonValue;
 }
 
 /** A request to lease project access for one run. */
@@ -70,7 +74,7 @@ export interface OutboxRecord {
   id: string;
   idempotencyKey: string;
   kind: string;
-  payload?: unknown;
+  payload?: JsonValue;
   state: OutboxRecordState;
   attempts: number;
   deliveredAt?: number;
@@ -84,8 +88,8 @@ export interface AgentCell {
   readonly id: string;
   enqueue(event: AgentEvent): Promise<EnqueueResult>;
   getStatus(): Promise<AgentCellStatus>;
-  readState<T>(key: string): Promise<T | undefined>;
-  writeState<T>(key: string, value: T): Promise<void>;
+  readState(key: string): Promise<CellStateValue | undefined>;
+  writeState(key: string, value: CellStateValue): Promise<void>;
   schedule(input: AgentAlarm): Promise<void>;
   cancelAlarm(id: string): Promise<void>;
   acquireProject(input: ProjectLeaseRequest): Promise<ProjectLease>;
