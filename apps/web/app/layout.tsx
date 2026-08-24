@@ -3,9 +3,6 @@ import type { ReactNode } from "react";
 import { Inter, Lato } from "next/font/google";
 import localFont from "next/font/local";
 
-import { getToken } from "../lib/auth-server";
-import { ConvexClientProvider } from "../lib/convex";
-
 import "./globals.css";
 
 const lato = Lato({
@@ -22,7 +19,7 @@ const inter = Inter({
 });
 
 const geistPixel = localFont({
-  src: "../../desktop/src/assets/fonts/GeistPixel-Square.woff2",
+  src: "./fonts/GeistPixel-Square.woff2",
   variable: "--font-pixel",
   display: "swap",
   weight: "400 700",
@@ -58,23 +55,13 @@ export const metadata: Metadata = {
   },
 };
 
-export default async function RootLayout({
-  children,
-}: {
-  children: ReactNode;
-}) {
-  const token = await getToken();
-
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="en"
       className={`${lato.variable} ${inter.variable} ${geistPixel.variable} dark`}
     >
-      <body>
-        <ConvexClientProvider initialToken={token}>
-          {children}
-        </ConvexClientProvider>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

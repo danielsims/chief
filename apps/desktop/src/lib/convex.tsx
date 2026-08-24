@@ -9,14 +9,11 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { isTauri } from "@tauri-apps/api/core";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
 
+import { requestAccountAssertion } from "./auth/account-assertion";
 import { useAuth } from "./auth/auth-context";
-import { AUTH_BASE_URL } from "./auth/better-auth-client";
 import { CONVEX_URL } from "./config";
-import { fetchWithTimeout } from "./fetch-with-timeout";
 
 // App.tsx prevents an unconfigured build from rendering. This loopback URL
 // exists only so imports remain side-effect safe before that check runs.
@@ -39,24 +36,6 @@ function wait(ms: number, signal?: AbortSignal) {
       { once: true },
     );
   });
-}
-
-async function requestConvexAccessToken(sessionToken: string) {
-  const fetcher = isTauri() ? tauriFetch : fetch;
-  const response = await fetchWithTimeout(
-    fetcher,
-    `${AUTH_BASE_URL!}/api/auth/convex/token`,
-    { headers: { Authorization: `Bearer ${sessionToken}` } },
-  );
-
-  if (response.status === 401 || response.status === 403) return null;
-  if (!response.ok) {
-    throw new Error(`Convex token request failed (${response.status})`);
-  }
-
-  const data = (await response.json()) as { token?: string } | null;
-  if (!data?.token) throw new Error("Convex token response was empty");
-  return data.token;
 }
 
 function useConvexAuthFromDesktop() {
@@ -82,7 +61,7 @@ function useConvexAuthFromDesktop() {
       let retryMs = INITIAL_RETRY_MS;
       while (!controller.signal.aborted) {
         try {
-          const token = await requestConvexAccessToken(sessionToken);
+          const token = await requestAccountAssertion(sessionToken);
           if (controller.signal.aborted) return;
           if (token) {
             tokenRef.current = token;
@@ -108,7 +87,7 @@ function useConvexAuthFromDesktop() {
     if (!sessionToken || !cloudOrganizationId) return null;
 
     try {
-      const token = await requestConvexAccessToken(sessionToken);
+      const token = await requestAccountAssertion(sessionToken);
       if (token) {
         tokenRef.current = token;
       } else {

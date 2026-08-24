@@ -63,29 +63,19 @@ void test("keeps mission control as the stable onboarding channel", () => {
   );
 });
 
-void test("shows direct messages only after a real user conversation exists", () => {
+void test("prepopulates every agent direct message before the first turn", () => {
   assert.deepEqual(
-    directMessageIdsForChats(
-      [
-        { id: directMessageChatId("chief", "workspace-a"), lastText: "" },
-        {
-          id: directMessageChatId("analyst", "workspace-a"),
-          lastText: "Review this report",
-        },
-        { id: "unrelated", lastText: "Hello" },
-      ],
-      "workspace-a",
-    ),
-    ["analyst"],
+    directMessageIdsForChats(),
+    WORKSPACE_DIRECT_MESSAGES.map((message) => message.id),
   );
 });
 
-void test("gives every agent direct message a private stable destination", () => {
+void test("gives every agent a workspace-scoped lazy direct destination", () => {
   const chatIds = WORKSPACE_DIRECT_MESSAGES.map((message) =>
     directMessageChatId(message.id, "workspace-a"),
   );
   assert.equal(new Set(chatIds).size, WORKSPACE_DIRECT_MESSAGES.length);
-  assert.ok(chatIds.every((chatId) => chatId.startsWith("channel:")));
+  assert.ok(chatIds.every((chatId) => chatId.startsWith("dm:workspace-a:")));
   assert.ok(
     WORKSPACE_DIRECT_MESSAGES.some((message) => message.id === "engineer"),
   );

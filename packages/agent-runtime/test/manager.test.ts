@@ -284,29 +284,33 @@ void test("Google Analytics setup tools preserve the agent-driven OAuth handoff"
   const manager = new SessionManager(store);
   const calls: string[] = [];
   const context = {
-    googleAnalytics: {
-      startAuthorization: (sessionId: string, attemptId: string) => {
-        calls.push(`authorize:${sessionId}:${attemptId}`);
-        return Promise.resolve({
-          authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-          state: "state-1",
-        });
-      },
-      completeAuthorization: (
-        sessionId: string,
-        attemptId: string,
-        state?: string,
-      ) => {
-        calls.push(`complete:${sessionId}:${attemptId}:${state ?? "existing"}`);
-        return Promise.resolve({ status: "connected" });
-      },
-      selectProperty: (
-        sessionId: string,
-        attemptId: string,
-        propertyId: string,
-      ) => {
-        calls.push(`select:${sessionId}:${attemptId}:${propertyId}`);
-        return Promise.resolve({ status: "connected", propertyId });
+    integrationSetup: {
+      googleAnalytics: {
+        startAuthorization: (sessionId: string, attemptId: string) => {
+          calls.push(`authorize:${sessionId}:${attemptId}`);
+          return Promise.resolve({
+            authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+            state: "state-1",
+          });
+        },
+        completeAuthorization: (
+          sessionId: string,
+          attemptId: string,
+          state?: string,
+        ) => {
+          calls.push(
+            `complete:${sessionId}:${attemptId}:${state ?? "existing"}`,
+          );
+          return Promise.resolve({ status: "connected" });
+        },
+        selectProperty: (
+          sessionId: string,
+          attemptId: string,
+          propertyId: string,
+        ) => {
+          calls.push(`select:${sessionId}:${attemptId}:${propertyId}`);
+          return Promise.resolve({ status: "connected", propertyId });
+        },
       },
     },
   };

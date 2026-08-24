@@ -19,6 +19,10 @@ import {
 import { useConversationAuxiliaryPanelSizing } from "../components/chat/conversation-auxiliary-panel";
 import { ConversationErrorBoundary } from "../components/chat/conversation-error-boundary";
 import { ConversationHeader } from "../components/chat/conversation-header";
+import {
+  DirectMessageOpening,
+  useRequestedDirectMessage,
+} from "../components/chat/direct-message-opening";
 import { useRunningChats } from "../components/chat/use-running-chats";
 import { useAuth } from "../lib/auth/auth-context";
 import {
@@ -40,6 +44,7 @@ import {
 } from "../lib/runtime";
 import {
   channelIdFromChatId,
+  directMessageChatForAgent,
   resolvedChannelChatId,
   WORKSPACE_AGENT_IDENTITIES,
   WORKSPACE_CHANNELS,
@@ -59,6 +64,7 @@ function conversationChannelVisibility(visibility: string | undefined) {
 export function ConversationsPage() {
   const { cloudOrganizationId, user } = useAuth();
   const localChats = useLocalChats(cloudOrganizationId);
+  const startDirectMessage = localChats.startDirectMessage;
   const workspaceChannels = useWorkspaceChannels();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const [params, setParams] = useSearchParams();
@@ -102,7 +108,15 @@ export function ConversationsPage() {
         ),
       }
     : (staticRequestedChannel ?? staticChannelRequestedByChat);
-  const requestedDirectMessage = workspaceDirectMessage(params.get("dm"));
+  const requestedDirect = useRequestedDirectMessage({
+    agentId: params.get("dm"),
+    chats: localChats.chats,
+    loading: localChats.loading,
+    runtimeStatus,
+    start: startDirectMessage,
+  });
+  const requestedDirectMessage = requestedDirect.message;
+  const requestedDirectChat = requestedDirect.chat;
   const directIdentity = requestedDirectMessage
     ? WORKSPACE_AGENT_IDENTITIES[requestedDirectMessage.id]
     : null;
@@ -142,11 +156,7 @@ export function ConversationsPage() {
         localChats.chats,
       )
     : requestedDirectMessage
-      ? resolvedChannelChatId(
-          requestedDirectMessage.relayId,
-          cloudOrganizationId,
-          localChats.chats,
-        )
+      ? requestedDirect.chatId
       : requestedChatId;
   const activeChildId = params.get("child");
   const activeSetupActionId = googleAnalyticsActionIdFromChat(activeChatId);
@@ -192,11 +202,10 @@ export function ConversationsPage() {
   const activeProfileDirectMessage =
     workspaceDirectMessage(activeProfileAgentId);
   const activeProfileChatId = activeProfileDirectMessage
-    ? resolvedChannelChatId(
-        activeProfileDirectMessage.relayId,
-        cloudOrganizationId,
+    ? (directMessageChatForAgent(
         localChats.chats,
-      )
+        activeProfileDirectMessage.id,
+      )?.id ?? null)
     : null;
   const activeProfilePresence: AgentPresence = activeProfileAgentId
     ? activeProfileChatId && running[activeProfileChatId]
@@ -398,8 +407,7 @@ export function ConversationsPage() {
                     : undefined
                 }
                 destinationChannelId={
-                  requestedDirectMessage?.relayId ??
-                  activeConversationChannel?.relayId
+                  requestedDirectChat?.id ?? activeConversationChannel?.relayId
                 }
                 integrationDomain={activeSetupDomain ?? undefined}
                 activeChild={activeChild}
@@ -460,6 +468,12 @@ export function ConversationsPage() {
                 header={conversationHeader}
               />
             </ConversationErrorBoundary>
+          ) : requestedDirectMessage ? (
+            <DirectMessageOpening
+              agentId={requestedDirectMessage.id}
+              error={requestedDirect.error}
+              onRetry={requestedDirect.retry}
+            />
           ) : null}
         </div>
       </section>

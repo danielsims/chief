@@ -18,6 +18,7 @@ import {
   threadRootIdsNeedingUser,
 } from "../../lib/channel-action-items";
 import { withoutMarkerLines } from "../../lib/integration-setup";
+import { relayConversationId } from "../../lib/relay-channel-adapter";
 import { messageBlocks } from "../../lib/runtime";
 import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
 import {
@@ -25,6 +26,7 @@ import {
   ChannelMessageMeta,
 } from "./channel-message-controls";
 import { conversationVisibleBlocks } from "./conversation-visible-blocks";
+import { pluginActionContextForMessage } from "./plugin-action-context";
 import { specialistNeedsUserInThread } from "./specialist-task-display";
 import { summarizeThreadReplyCandidates } from "./thread-reply-summary";
 
@@ -40,11 +42,15 @@ type Timeline = ReturnType<typeof useChiefChatTimeline>;
 export function useChiefChatPresentation({
   channel,
   chatId,
+  destinationChannelId,
   composer,
   core,
   directAgent,
   timeline,
-}: Pick<ChiefChatProps, "channel" | "chatId" | "directAgent"> & {
+}: Pick<
+  ChiefChatProps,
+  "channel" | "chatId" | "destinationChannelId" | "directAgent"
+> & {
   composer: Composer;
   core: Core;
   timeline: Timeline;
@@ -147,6 +153,14 @@ export function useChiefChatPresentation({
       ? { id: respondingId, name: identity.name, role: identity.role }
       : undefined;
   };
+  const pluginActionContextFor = (message: ChiefUIMessage) =>
+    pluginActionContextForMessage({
+      message,
+      workspaceId: core.cloudOrganizationId,
+      conversationId: destinationChannelId ?? relayConversationId(chatId),
+      fallbackAgentId:
+        respondingAgentFor(message)?.id ?? directAgent?.id ?? "chief",
+    });
   const controlsForMessage = (message: ChiefUIMessage) => {
     if (!channel) return {};
     const replySummary = summarizeThreadReplies(
@@ -240,6 +254,7 @@ export function useChiefChatPresentation({
     activeThreadSummary,
     controlsForMessage,
     imageParts,
+    pluginActionContextFor,
     respondingAgentFor,
     threadBlocks: visibleConversationBlocks,
     visibleConversationBlocks,

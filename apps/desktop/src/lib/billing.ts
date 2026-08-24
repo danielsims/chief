@@ -2,7 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { api } from "@chief/backend/convex/_generated/api";
 
-import { AUTH_BASE_URL } from "./auth/better-auth-client";
+import { AUTH_UI_BASE_URL } from "./config";
 import { convex } from "./convex";
 
 export type BillingPlan = "monthly" | "annual";
@@ -46,8 +46,8 @@ export async function openWorkspaceCheckout(
       createCheckoutSession as never,
       {
         plan,
-        successUrl: `${AUTH_BASE_URL}/billing/return?status=success`,
-        cancelUrl: `${AUTH_BASE_URL}/billing/return?status=canceled`,
+        successUrl: `${AUTH_UI_BASE_URL}/billing/return?status=success`,
+        cancelUrl: `${AUTH_UI_BASE_URL}/billing/return?status=canceled`,
       } as never,
     )) as { url?: string } | null;
 

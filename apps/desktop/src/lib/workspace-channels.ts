@@ -62,14 +62,22 @@ export const WORKSPACE_CHANNELS = [
 ] as const;
 
 export const WORKSPACE_AGENT_IDENTITIES = {
-  chief: { name: "Chief", role: "Workspace Lead" },
-  setup: { name: "Setup", role: "Private Workspace Setup" },
-  analyst: { name: "Analyst", role: "Measurement and Reporting" },
-  ads: { name: "Advertising", role: "Paid Acquisition" },
-  content: { name: "Content", role: "Content and Creative" },
-  prospector: { name: "Prospector", role: "Research and Outreach" },
-  brand: { name: "Marketer", role: "Marketing" },
-  engineer: { name: "Engineer", role: "Product Engineering" },
+  chief: { name: "Chief", role: "Workspace Lead", color: "#ffffff" },
+  setup: { name: "Setup", role: "Private Workspace Setup", color: "#61d9a3" },
+  analyst: {
+    name: "Analyst",
+    role: "Measurement and Reporting",
+    color: "#61dbe8",
+  },
+  ads: { name: "Advertising", role: "Paid Acquisition", color: "#fa8ca8" },
+  content: { name: "Content", role: "Content and Creative", color: "#fcc24d" },
+  prospector: {
+    name: "Prospector",
+    role: "Research and Outreach",
+    color: "#7dc7fa",
+  },
+  brand: { name: "Marketer", role: "Marketing", color: "#7adb9e" },
+  engineer: { name: "Engineer", role: "Product Engineering", color: "#fa9c57" },
 } as const;
 
 export type WorkspaceAgentId = keyof typeof WORKSPACE_AGENT_IDENTITIES;
@@ -96,15 +104,15 @@ export function isSidebarPinnedItem(
 }
 
 export const WORKSPACE_DIRECT_MESSAGES = [
-  { id: "chief", relayId: "cc7d57ef-d6ea-4ebf-a987-2dc33d18c8c7" },
-  { id: "setup", relayId: "147c5d7b-8e35-43f1-94dd-230484502e81" },
-  { id: "analyst", relayId: "a644f850-6825-4a21-84cf-c1d4780875cc" },
-  { id: "ads", relayId: "af454f32-d70c-4ef0-ab73-5b78d73710ba" },
-  { id: "content", relayId: "3a9618e0-ef52-46af-988e-e19cd7111dfa" },
-  { id: "prospector", relayId: "0094ccf0-fd7e-4c8a-b0a9-648758ae31d5" },
-  { id: "brand", relayId: "16ca9ad9-7497-4cff-84f0-ff03550a88ac" },
-  { id: "engineer", relayId: "0cb9348d-a7a6-43fc-a5b7-088d40353c7c" },
-] as const satisfies readonly { id: WorkspaceAgentId; relayId: string }[];
+  { id: "chief" },
+  { id: "setup" },
+  { id: "analyst" },
+  { id: "ads" },
+  { id: "content" },
+  { id: "prospector" },
+  { id: "brand" },
+  { id: "engineer" },
+] as const satisfies readonly { id: WorkspaceAgentId }[];
 
 export type WorkspaceChannelId = string;
 
@@ -193,31 +201,26 @@ export function directMessageChatId(
   agentId: WorkspaceAgentId,
   workspaceId?: string | null,
 ) {
-  const message = workspaceDirectMessage(agentId);
-  if (!message) throw new Error("Direct message was not found.");
-  return channelChatId(message.relayId, workspaceId);
+  return workspaceId ? `dm:${workspaceId}:${agentId}` : `dm:${agentId}`;
 }
 
 export function directMessageAgentIdFromChatId(chatId: string | null) {
-  const relayId = channelIdFromChatId(chatId);
-  return (
-    WORKSPACE_DIRECT_MESSAGES.find((message) => message.relayId === relayId)
-      ?.id ?? null
-  );
+  if (!chatId?.startsWith("dm:")) return null;
+  const agentId = chatId.slice(chatId.lastIndexOf(":") + 1);
+  return Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)
+    ? (agentId as WorkspaceAgentId)
+    : null;
 }
 
-export function directMessageIdsForChats(
-  chats: readonly { id: string; lastText: string }[],
-  workspaceId?: string | null,
+export function directMessageIdsForChats() {
+  return WORKSPACE_DIRECT_MESSAGES.map((message) => message.id);
+}
+
+export function directMessageChatForAgent<Chat extends { agent: string }>(
+  chats: readonly Chat[],
+  agentId: WorkspaceAgentId,
 ) {
-  return WORKSPACE_DIRECT_MESSAGES.filter((message) =>
-    chats.some(
-      (chat) =>
-        (chat.id === directMessageChatId(message.id, workspaceId) ||
-          chat.id === directMessageChatId(message.id)) &&
-        chat.lastText.trim().length > 0,
-    ),
-  ).map((message) => message.id);
+  return chats.find((chat) => chat.agent === agentId) ?? null;
 }
 
 export function actionConversation(value: {

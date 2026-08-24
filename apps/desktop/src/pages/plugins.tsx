@@ -180,9 +180,13 @@ export function PluginsPagePreview() {
     loading: false,
     busyPluginId: null,
     refresh: () => undefined,
-    install: () => Promise.resolve(),
+    install: () => Promise.resolve(undefined),
     authorize: () => Promise.resolve(undefined),
     uninstall: () => Promise.resolve(),
+    requestAgentAction: () => ({
+      messageId: "00000000-0000-4000-8000-000000000000",
+      verb: "connect",
+    }),
   } satisfies PluginRuntimeState;
   return (
     <main className="bg-background text-foreground min-h-screen px-8 pt-3">

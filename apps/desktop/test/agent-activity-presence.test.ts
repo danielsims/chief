@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   formatAgentActivityStatus,
   mergeAgentActivityPresence,
+  taskIsActivelyWorking,
 } from "../src/components/chat/agent-activity-presence.ts";
 
 void test("activity presence preserves simultaneous agents instead of choosing the latest", () => {
@@ -38,4 +39,10 @@ void test("the same agent is shown once when a root turn and task overlap", () =
   );
 
   assert.equal(agents.length, 1);
+});
+
+void test("only running tasks keep the live activity matrix visible", () => {
+  assert.equal(taskIsActivelyWorking({ status: "running" }), true);
+  assert.equal(taskIsActivelyWorking({ status: "idle" }), false);
+  assert.equal(taskIsActivelyWorking({ status: "completed" }), false);
 });

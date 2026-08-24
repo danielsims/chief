@@ -1,5 +1,12 @@
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
-import { Children, lazy, Suspense, useMemo } from "react";
+import type { ComponentPropsWithoutRef, ReactElement, ReactNode } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  lazy,
+  Suspense,
+  useMemo,
+} from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 
@@ -18,18 +25,16 @@ import {
   splitSkillReferences,
 } from "./message-skill-chip";
 
-// Start loading as soon as the chat bundle is evaluated, but keep Streamdown's
-// parser and highlighting code out of the desktop entry chunk.
-const streamdownModule = import("streamdown");
 const Streamdown = lazy(() =>
-  streamdownModule.then((module) => ({ default: module.Streamdown })),
+  import("streamdown").then((module) => ({ default: module.Streamdown })),
 );
 
 function MarkdownLink({
   href,
   children,
+  onRepoPath,
   ...props
-}: ComponentPropsWithoutRef<"a">) {
+}: ComponentPropsWithoutRef<"a"> & { onRepoPath?: (path: string) => void }) {
   const navigation = useChiefNavigation();
   return (
     <a
@@ -42,6 +47,10 @@ function MarkdownLink({
         if (!target) return;
         if (target.kind === "app") {
           navigation.open(target.value);
+          return;
+        }
+        if (target.kind === "repoPath") {
+          onRepoPath?.(target.value);
           return;
         }
         const result =
@@ -61,10 +70,15 @@ function MarkdownLink({
 function MarkdownImage({
   src,
   alt,
+  resolveImageSrc,
   ...props
-}: ComponentPropsWithoutRef<"img">) {
-  const target = src ? markdownLinkTarget(src) : null;
-  const resolved = target?.kind === "path" ? convertFileSrc(target.value) : src;
+}: ComponentPropsWithoutRef<"img"> & {
+  resolveImageSrc?: (src: string) => string;
+}) {
+  const source = src ? (resolveImageSrc?.(src) ?? src) : src;
+  const target = source ? markdownLinkTarget(source) : null;
+  const resolved =
+    target?.kind === "path" ? convertFileSrc(target.value) : source;
   return (
     <img
       {...props}
@@ -81,7 +95,7 @@ function highlightReferences(
   channels: readonly ChannelReferenceTarget[],
   onOpenChannel?: (channelId: string) => void,
   onOpenMention?: (agentId: WorkspaceAgentId) => void,
-) {
+): ReactNode {
   return Children.map(children, (child) =>
     typeof child === "string"
       ? splitSkillReferences(child).map((segment, index) =>
@@ -101,7 +115,18 @@ function highlightReferences(
             />
           ),
         )
-      : child,
+      : isValidElement<{ children?: ReactNode }>(child) &&
+          child.type !== "code" &&
+          child.type !== "a"
+        ? cloneElement(child as ReactElement<{ children?: ReactNode }>, {
+            children: highlightReferences(
+              child.props.children,
+              channels,
+              onOpenChannel,
+              onOpenMention,
+            ),
+          })
+        : child,
   );
 }
 
@@ -111,18 +136,26 @@ export function StreamingMarkdown({
   channels = [],
   onOpenChannel,
   onOpenMention,
+  resolveImageSrc,
+  onRepoPath,
 }: {
   children: string;
   streaming?: boolean;
   channels?: readonly ChannelReferenceTarget[];
   onOpenChannel?: (channelId: string) => void;
   onOpenMention?: (agentId: WorkspaceAgentId) => void;
+  resolveImageSrc?: (src: string) => string;
+  onRepoPath?: (path: string) => void;
 }) {
   const { inlineText } = messageSkill(children);
   const components = useMemo(
     () => ({
-      a: MarkdownLink,
-      img: MarkdownImage,
+      a: (props: ComponentPropsWithoutRef<"a">) => (
+        <MarkdownLink {...props} onRepoPath={onRepoPath} />
+      ),
+      img: (props: ComponentPropsWithoutRef<"img">) => (
+        <MarkdownImage {...props} resolveImageSrc={resolveImageSrc} />
+      ),
       p: ({
         children: paragraphChildren,
         ...props
@@ -150,7 +183,7 @@ export function StreamingMarkdown({
         </li>
       ),
     }),
-    [channels, onOpenChannel, onOpenMention],
+    [channels, onOpenChannel, onOpenMention, onRepoPath, resolveImageSrc],
   );
   return (
     <div className="max-w-full min-w-0 overflow-hidden [overflow-wrap:anywhere] [&_a]:break-all [&_code]:break-all [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">

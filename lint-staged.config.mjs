@@ -2,6 +2,7 @@ import path from "node:path";
 
 const workspaceDirectories = [
   "apps/desktop",
+  "apps/relay",
   "apps/web",
   "apps/workspace",
   "packages/agent-runtime",
@@ -27,7 +28,7 @@ function lintWorkspaceFiles(files) {
 
     if (workspaceFiles.length === 0) return [];
 
-    return `pnpm --dir ${quote(directory)} exec eslint --fix --no-warn-ignored ${workspaceFiles.map(quote).join(" ")}`;
+    return `pnpm --dir ${quote(directory)} exec eslint --flag unstable_native_nodejs_ts_config --fix --no-warn-ignored ${workspaceFiles.map(quote).join(" ")}`;
   });
 }
 

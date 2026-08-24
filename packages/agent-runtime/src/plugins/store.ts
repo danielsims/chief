@@ -3,7 +3,7 @@ import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { PluginInstallRecord, PluginWorkspaceState } from "./types.js";
-import { workspaceRoot } from "../workspace-secrets.js";
+import { workspaceKey, workspaceRoot } from "../workspace-secrets.js";
 import { loadAgentPlugin } from "./loader.js";
 
 const DEFAULT_CATALOGS = [
@@ -27,6 +27,8 @@ const DEFAULT_CATALOGS = [
 ] as const;
 
 export function pluginsRoot(workspaceId: string) {
+  const sharedRoot = process.env.CHIEF_PLUGIN_ROOT?.trim();
+  if (sharedRoot) return join(sharedRoot, workspaceKey(workspaceId));
   return join(workspaceRoot(workspaceId), "plugins");
 }
 

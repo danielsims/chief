@@ -3,16 +3,13 @@ import { z } from "zod/v4";
 
 export const env = createEnv({
   server: {
+    CHIEF_RELAY_URL: z
+      .url()
+      .default("https://chief-relay.danielsims-browser-ui.workers.dev"),
     GITHUB_TOKEN: z.string().min(1).optional(),
   },
-  client: {
-    NEXT_PUBLIC_CONVEX_SITE_URL: z.url().optional(),
-    NEXT_PUBLIC_CONVEX_URL: z.url(),
-  },
-  experimental__runtimeEnv: {
-    NEXT_PUBLIC_CONVEX_SITE_URL: process.env.NEXT_PUBLIC_CONVEX_SITE_URL,
-    NEXT_PUBLIC_CONVEX_URL: process.env.NEXT_PUBLIC_CONVEX_URL,
-  },
+  client: {},
+  experimental__runtimeEnv: {},
   emptyStringAsUndefined: true,
   skipValidation:
     Boolean(process.env.CI) || process.env.npm_lifecycle_event === "lint",

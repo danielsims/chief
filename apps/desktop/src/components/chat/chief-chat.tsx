@@ -202,6 +202,7 @@ export function ChiefChat({
     activeThreadSummary,
     controlsForMessage,
     imageParts,
+    pluginActionContextFor,
     respondingAgentFor,
     threadBlocks,
     visibleConversationBlocks,
@@ -210,6 +211,7 @@ export function ChiefChat({
     chatId,
     composer: composerState,
     core,
+    destinationChannelId,
     directAgent,
     timeline: timelineState,
   });
@@ -350,6 +352,7 @@ export function ChiefChat({
                           channelReferences={channelReferences}
                           onOpenChannel={onOpenChannel}
                           onOpenTask={onOpenChild}
+                          pluginActionContext={pluginActionContextFor(message)}
                         />
                       </ChiefMessage>
                     );
@@ -394,7 +397,6 @@ export function ChiefChat({
               ) : null}
               <div ref={bottomRef} />
             </div>
-
             <div
               ref={pictureInPictureComposerRef}
               className="relative mx-auto w-full max-w-3xl"
@@ -488,6 +490,7 @@ export function ChiefChat({
             profileOpen,
           }}
           respondingAgentFor={respondingAgentFor}
+          pluginActionContextFor={pluginActionContextFor}
           threadBlocks={threadBlocks}
           timeline={timelineState}
         />

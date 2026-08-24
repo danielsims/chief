@@ -257,10 +257,12 @@ void test("Google OAuth capture is host-owned and needs no download ref", async 
     "workspace-1",
     manager,
     {
-      googleOAuth: {
-        captureClient: (sessionId, attemptId) => {
-          captured = [sessionId, attemptId];
-          return Promise.resolve({ status: "configured" });
+      integrationSetup: {
+        googleOAuth: {
+          captureClient: (sessionId, attemptId) => {
+            captured = [sessionId, attemptId];
+            return Promise.resolve({ status: "configured" });
+          },
         },
       },
     },
@@ -293,9 +295,11 @@ void test("generated provider credentials cross only the host-owned boundary", a
     "workspace-1",
     manager,
     {
-      captureGeneratedCredential: (sessionId, attemptId) => {
-        captured = [sessionId, attemptId];
-        return Promise.resolve({ status: "configured" });
+      integrationSetup: {
+        captureGeneratedCredential: (sessionId, attemptId) => {
+          captured = [sessionId, attemptId];
+          return Promise.resolve({ status: "configured" });
+        },
       },
     },
   );
@@ -328,9 +332,11 @@ void test("provider pages register an automatic authentication handoff", async (
     "workspace-1",
     manager,
     {
-      openProviderPage: (sessionId, attemptId, url) => {
-        opened = [sessionId, attemptId, url];
-        return Promise.resolve({ status: "authentication-required" });
+      integrationSetup: {
+        openProviderPage: (sessionId, attemptId, url) => {
+          opened = [sessionId, attemptId, url];
+          return Promise.resolve({ status: "authentication-required" });
+        },
       },
     },
   );

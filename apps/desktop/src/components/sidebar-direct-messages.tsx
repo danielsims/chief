@@ -198,7 +198,7 @@ export function SidebarDirectMessages({
         aria-expanded={!collapsed}
         className="text-sidebar-muted hover:text-sidebar-foreground group flex h-8 w-full items-center gap-1.5 px-2 text-left text-xs font-semibold transition-colors"
       >
-        <span>Direct messages</span>
+        <span>DMs</span>
         <ChevronDown
           size={13}
           className={cn(

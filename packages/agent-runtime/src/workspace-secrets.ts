@@ -29,6 +29,8 @@ export function workspaceKey(workspaceId: string): string {
 }
 
 export function workspaceRoot(workspaceId: string): string {
+  const cellRoot = process.env.CHIEF_CELL_ROOT?.trim();
+  if (cellRoot) return join(cellRoot, "workspace");
   const key = workspaceKey(workspaceId);
   const current = join(homedir(), ".chief", "workspaces", key);
   const legacy = join(homedir(), ".marketer", "workspaces", key);

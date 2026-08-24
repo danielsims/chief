@@ -11,6 +11,15 @@ import type {
 import type * as Artifacts from "./artifact-types.js";
 import type { ChannelServerMessage } from "./channel-types.js";
 import type { IntegrationSetupPhase } from "./integration-setup-recipes.js";
+import type {
+  ProjectAccessRequestRecord,
+  ProjectBranchComparison,
+  ProjectCommitDetail,
+  ProjectRecord,
+  ProjectRepositoryBrowserSnapshot,
+  ProjectRepositorySnapshot,
+  ProviderPullRequest,
+} from "./project-types.js";
 
 export type {
   AgentPluginSummary,
@@ -27,6 +36,7 @@ export type {
   BrowserAutomationResult,
   BrowserPageSnapshot,
 } from "./browser-types.js";
+export type * from "./project-types.js";
 
 export interface GenerativeChartPoint {
   x: string;
@@ -164,6 +174,12 @@ export interface GenerativeDocumentData {
 
 export interface GenerativePluginRecommendationsData {
   plugins: AgentPluginSummary[];
+  authorizations?: PluginAuthorizationAction[];
+  workspaceId?: string;
+  conversationId?: string;
+  threadRootId?: string;
+  agentId?: string;
+  recommendationId?: string;
 }
 
 /**
@@ -274,6 +290,9 @@ export type ContentBlock =
 export type AgentEvent =
   | { type: "init"; sessionId: string; model?: string }
   | { type: "stream"; text: string }
+  /** Provider reasoning delta. Transient by design: cells project it to the
+   * relay, while session history stores only the completed thinking block. */
+  | { type: "thinkingStream"; text: string }
   | {
       type: "toolProgress";
       toolUseId: string;
@@ -569,6 +588,8 @@ export interface AgentPreference {
 export type AgentToolPermission =
   | "workspace.read"
   | "workspace.write"
+  | "projects.read"
+  | "projects.write"
   | "channels.read"
   | "channels.create"
   | "channels.update"
@@ -857,6 +878,65 @@ export interface IntegrationSetupProgress {
 
 export type ServerMessage =
   | { type: "agents"; agents: AgentDefinition[] }
+  | {
+      type: "projects";
+      workspaceId: string;
+      projects: ProjectRepositorySnapshot[];
+    }
+  | {
+      type: "projectSaved";
+      workspaceId: string;
+      requestId: string;
+      project: ProjectRecord;
+    }
+  | {
+      type: "projectBrowser";
+      workspaceId: string;
+      requestId: string;
+      browser: ProjectRepositoryBrowserSnapshot;
+    }
+  | {
+      type: "projectCommit";
+      workspaceId: string;
+      requestId: string;
+      detail: ProjectCommitDetail;
+    }
+  | {
+      type: "projectComparison";
+      workspaceId: string;
+      requestId: string;
+      comparison: ProjectBranchComparison;
+    }
+  | {
+      type: "projectPublished";
+      workspaceId: string;
+      requestId: string;
+      checkoutId: string;
+      branch: string;
+      head: string;
+    }
+  | {
+      type: "projectCheckoutDiscarded";
+      workspaceId: string;
+      requestId: string;
+      checkoutId: string;
+    }
+  | {
+      type: "projectPullRequestCreated";
+      workspaceId: string;
+      requestId: string;
+      pullRequest: ProviderPullRequest;
+    }
+  | {
+      type: "projectAccessRequests";
+      workspaceId: string;
+      requests: ProjectAccessRequestRecord[];
+    }
+  | {
+      type: "projectAccessRequestResolved";
+      workspaceId: string;
+      requestId: string;
+    }
   | ChannelServerMessage
   | { type: "models"; driver: DriverType; models: ProviderModelOption[] }
   | Artifacts.ArtifactsMessage

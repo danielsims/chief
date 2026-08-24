@@ -49,3 +49,14 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+  self-host-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build relay image
+        run: docker build --file apps/relay/Dockerfile --tag chief-relay:ci .
+
+      - name: Build web image
+        run: docker build --file apps/web/Dockerfile --tag chief-web:ci .

@@ -434,8 +434,8 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       interval: "5 sec", // CLI polls every 5 seconds
       userCodeLength: 8, // e.g., "ABCD-1234"
       validateClient: (clientId) => {
-        // Only allow our CLI client
-        return clientId === "chief-cli";
+        // Native/headless clients exchange codes, never tokens, through the browser.
+        return clientId === "chief-cli" || clientId === "chief-mobile";
       },
     }),
   ];

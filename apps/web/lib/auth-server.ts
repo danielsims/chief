@@ -1,80 +1,130 @@
-import { convexBetterAuthNextJs } from "@convex-dev/better-auth/nextjs";
-
 import { env } from "./env";
 
-// Derive the site URL from the Convex URL if not provided
-// The site URL is the HTTP endpoints URL (*.convex.site), derived from the deployment URL
-// Handle undefined during CI builds where env validation is skipped
-const convexUrl = env.NEXT_PUBLIC_CONVEX_URL;
-const convexSiteUrl =
-  env.NEXT_PUBLIC_CONVEX_SITE_URL ??
-  (convexUrl ? convexUrl.replace(".convex.cloud", ".convex.site") : "");
+const forwardedRequestHeaders = new Set([
+  "accept",
+  "accept-language",
+  "authorization",
+  "content-type",
+  "cookie",
+  "origin",
+  "referer",
+  "user-agent",
+]);
 
-const auth = convexBetterAuthNextJs({
-  convexUrl,
-  convexSiteUrl,
-});
+// The server-side Fetch implementation transparently decodes compressed relay
+// bodies but retains the original representation headers. Forwarding those
+// headers would tell native clients to decode an already-decoded body.
+const decodedRepresentationHeaders = [
+  "content-encoding",
+  "content-length",
+  "transfer-encoding",
+] as const;
 
-export const {
-  handler,
-  preloadAuthQuery,
-  fetchAuthQuery,
-  fetchAuthMutation,
-  fetchAuthAction,
-} = auth;
-
-// Next.js signals control flow with special errors carrying a digest — e.g.
-// headers() throws DynamicServerError during static prerendering to mark the
-// route dynamic, and redirect()/notFound() throw NEXT_-prefixed digests.
-// These must propagate: swallowing them prerenders routes as signed-out
-// static pages and breaks the build.
-function isNextControlFlowError(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const digest = (error as { digest?: unknown }).digest;
-  return (
-    typeof digest === "string" &&
-    (digest === "DYNAMIC_SERVER_USAGE" || digest.startsWith("NEXT_"))
+/**
+ * Fixed-origin auth proxy. The relay owns Better Auth and its D1 database;
+ * this route only keeps browser cookies first-party to heychief.sh. It cannot
+ * proxy arbitrary hosts and does not persist account or session state.
+ */
+export async function proxyRelayAuth(request: Request) {
+  const source = new URL(request.url);
+  const target = new URL(
+    `${source.pathname}${source.search}`,
+    env.CHIEF_RELAY_URL,
   );
-}
-
-// auth.getToken() / auth.isAuthenticated() resolve auth state by fetching the
-// Convex-hosted token route. Auth-level failures (expired or invalid session,
-// 401, 5xx) come back as an empty token without throwing, so anything thrown
-// here is transport-level — network down, DNS, timeout, or a non-JSON
-// response — never "signed in but errored". Fail closed as signed out rather
-// than crashing the route, and log the cause so the failure stays observable.
-// Never log cookies, tokens, or headers here.
-function logTokenFetchFailure(helper: string, error: unknown) {
-  const detail =
-    error instanceof Error
-      ? `${error.name}: ${error.message}${
-          error.cause instanceof Error
-            ? ` (cause: ${error.cause.name}: ${error.cause.message})`
-            : ""
-        }`
-      : String(error);
-
-  console.error(
-    `[auth] ${helper} could not resolve an authentication token; treating request as signed out. ${detail}`,
-  );
-}
-
-export async function isAuthenticated() {
-  try {
-    return await auth.isAuthenticated();
-  } catch (error) {
-    if (isNextControlFlowError(error)) throw error;
-    logTokenFetchFailure("isAuthenticated", error);
-    return false;
+  const headers = new Headers();
+  for (const [name, value] of request.headers) {
+    if (forwardedRequestHeaders.has(name.toLowerCase())) {
+      headers.set(name, value);
+    }
   }
+  headers.set("x-forwarded-host", source.host);
+  headers.set("x-forwarded-proto", source.protocol.replace(":", ""));
+
+  const response = await fetch(target, {
+    method: request.method,
+    headers,
+    body:
+      request.method === "GET" || request.method === "HEAD"
+        ? undefined
+        : await request.arrayBuffer(),
+    redirect: "manual",
+  });
+
+  // Better Auth returns its redirect envelope as JSON when the request has
+  // traversed the first-party proxy. OAuth authorize is a browser navigation,
+  // so translate that envelope back into an HTTP redirect after validating the
+  // destination against Chief's registered web and native callback surfaces.
+  if (
+    source.pathname === "/api/auth/oauth2/authorize" &&
+    response.ok &&
+    response.headers.get("content-type")?.includes("application/json")
+  ) {
+    const payload = (await response
+      .clone()
+      .json()
+      .catch(() => null)) as {
+      redirect?: unknown;
+      url?: unknown;
+    } | null;
+    const destination =
+      payload?.redirect === true && typeof payload.url === "string"
+        ? safeAuthorizationRedirect(payload.url, source.origin)
+        : null;
+    if (destination) {
+      return new Response(null, {
+        status: 302,
+        headers: {
+          "cache-control": "no-store",
+          location: destination,
+        },
+      });
+    }
+  }
+
+  const responseHeaders = new Headers(response.headers);
+  for (const name of decodedRepresentationHeaders) {
+    responseHeaders.delete(name);
+  }
+  responseHeaders.set("cache-control", "no-store");
+
+  // Materialize the already-decoded auth payload. On hosted runtimes the
+  // upstream ReadableStream can retain compression metadata even after the
+  // public headers are sanitized, causing the edge to re-emit a stale `br`
+  // marker around plain JSON.
+  return new Response(await response.arrayBuffer(), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: responseHeaders,
+  });
 }
 
-export async function getToken() {
+function safeAuthorizationRedirect(value: string, webOrigin: string) {
   try {
-    return await auth.getToken();
-  } catch (error) {
-    if (isNextControlFlowError(error)) throw error;
-    logTokenFetchFailure("getToken", error);
-    return undefined;
+    const destination = new URL(value);
+    if (destination.protocol === "https:" && destination.origin === webOrigin) {
+      return destination.toString();
+    }
+    if (
+      destination.protocol === "chief-desktop:" &&
+      destination.host === "" &&
+      destination.pathname === "/auth"
+    ) {
+      return destination.toString();
+    }
+    if (
+      destination.protocol === "chief-mobile:" &&
+      destination.hostname === "auth" &&
+      (destination.pathname === "" || destination.pathname === "/")
+    ) {
+      return destination.toString();
+    }
+  } catch {
+    // Better Auth owns error reporting; an invalid redirect is never followed.
   }
+  return null;
 }
+
+export const handler = {
+  GET: proxyRelayAuth,
+  POST: proxyRelayAuth,
+};
