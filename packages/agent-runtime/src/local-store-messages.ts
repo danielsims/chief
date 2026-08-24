@@ -47,14 +47,16 @@ function eventMessage(event: AgentEvent) {
               type: "channel" as const,
               ...(event.threadRootId
                 ? { threadRootId: event.threadRootId }
-                : {}),
-              ...(event.mentions?.length ? { mentions: event.mentions } : {}),
+                : undefined),
+              ...(event.mentions?.length
+                ? { mentions: event.mentions }
+                : undefined),
               ...(event.channelAction
                 ? { channelAction: event.channelAction }
-                : {}),
+                : undefined),
             } satisfies AgentMessageMetadata,
           }
-        : {}),
+        : undefined),
     } as const;
   }
   if (
@@ -92,16 +94,23 @@ function uiParts(blocks: ContentBlock[]): ChiefUIMessage["parts"] {
           input: block.input,
         };
       case "tool_result":
-        return {
-          type: "dynamic-tool",
-          toolName: "tool",
-          toolCallId: block.tool_use_id,
-          state: block.is_error ? "output-error" : "output-available",
-          input: undefined,
-          ...(block.is_error
-            ? { errorText: String(block.content) }
-            : { output: block.content }),
-        } as ChiefUIMessage["parts"][number];
+        return block.is_error
+          ? {
+              type: "dynamic-tool",
+              toolName: "tool",
+              toolCallId: block.tool_use_id,
+              state: "output-error",
+              input: undefined,
+              errorText: String(block.content),
+            }
+          : {
+              type: "dynamic-tool",
+              toolName: "tool",
+              toolCallId: block.tool_use_id,
+              state: "output-available",
+              input: undefined,
+              output: block.content,
+            };
       default:
         return block;
     }
@@ -329,13 +338,13 @@ function agentEvent(message: LocalMessage): AgentEvent | undefined {
       content: contentBlocks(message.parts as ChiefUIMessage["parts"]),
       ...(message.metadata.threadRootId
         ? { threadRootId: message.metadata.threadRootId }
-        : {}),
+        : undefined),
       ...(message.metadata.mentions?.length
         ? { mentions: message.metadata.mentions }
-        : {}),
+        : undefined),
       ...(message.metadata.channelAction
         ? { channelAction: message.metadata.channelAction }
-        : {}),
+        : undefined),
     };
   }
   if (message.metadata) return message.metadata;

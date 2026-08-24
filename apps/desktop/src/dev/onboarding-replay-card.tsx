@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { isJsonObject } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 import {
   Card,
@@ -36,7 +37,7 @@ export function DevelopmentOnboardingReplay({
     try {
       const metadata = parseOrganizationMetadata(organization);
       const savedOnboarding =
-        metadata.onboarding && typeof metadata.onboarding === "object"
+        metadata.onboarding && isJsonObject(metadata.onboarding)
           ? { ...(metadata.onboarding as Record<string, unknown>) }
           : {};
       delete savedOnboarding.completedAt;

@@ -2,17 +2,25 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createChannelLocalToolContext } from "../src/channels/local-tool-context.js";
+import { ChannelStore } from "../src/channels/store.js";
+
+function channelStore() {
+  return new ChannelStore(() => {
+    throw new Error("database should not be read by this test");
+  }, Promise.resolve());
+}
+
+function manager(store = channelStore()) {
+  return {
+    store: { channelStore: () => store },
+    raiseActionItem: () => Promise.resolve(),
+  };
+}
 
 void test("channel commands retain the authenticated execution identity", async () => {
-  const channelStore = {};
-  const manager = {
-    activeAgentSession: () => {
-      throw new Error("authenticated callers must not be re-resolved");
-    },
-    store: { channelStore: () => channelStore },
-  };
+  const store = channelStore();
   const context = await createChannelLocalToolContext({
-    manager: manager as never,
+    manager: manager(store),
     workspaceId: "workspace-a",
     caller: { chatId: "live-session", agentId: "engineer" },
     broadcastChannels: () => undefined,
@@ -27,18 +35,12 @@ void test("channel commands retain the authenticated execution identity", async 
     id: "engineer",
     name: "Engineer",
   });
-  assert.equal(context.channelStore, channelStore);
+  assert.equal(context.channelStore, store);
 });
 
 void test("concurrent specialists cannot replace the capability-bound caller", async () => {
   const context = await createChannelLocalToolContext({
-    manager: {
-      activeAgentSession: () => ({
-        chatId: "specialist-session",
-        agentId: "brand",
-      }),
-      store: { channelStore: () => ({}) },
-    } as never,
+    manager: manager(),
     workspaceId: "workspace-a",
     caller: { chatId: "mission-session", agentId: "chief" },
     broadcastChannels: () => undefined,

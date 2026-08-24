@@ -5,6 +5,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import type {
   ChannelActorIdentity,
   ChannelAuditAction,
+  ChannelAuditDetailValue,
   ChannelAuditEntry,
 } from "@chief/channel-api";
 
@@ -238,7 +239,7 @@ export abstract class ChannelHistoryStore {
     channelId: string,
     action: ChannelAuditAction,
     actor: ChannelActorIdentity,
-    detail: Record<string, unknown> = {},
+    detail: Record<string, ChannelAuditDetailValue> = {},
   ) {
     const key = `${workspaceId}\0${channelId}`;
     const previous = this.auditQueues.get(key) ?? Promise.resolve();

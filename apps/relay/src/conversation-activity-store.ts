@@ -86,7 +86,9 @@ export function upsertAgentActivity(
       id: input.messageId,
       workspaceId: input.workspaceId,
       conversationId: input.conversationId,
-      ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
+      ...(input.threadRootId
+        ? { threadRootId: input.threadRootId }
+        : undefined),
       author: { kind: "agent", id: input.actor.agentId },
       body: "",
       mentions: [],

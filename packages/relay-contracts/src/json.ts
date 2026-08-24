@@ -50,3 +50,19 @@ export function parseJsonNumber<Input>(value: Input): number | undefined {
   const result = jsonNumberSchema.safeParse(value);
   return result.success ? result.data : undefined;
 }
+
+export function isJsonString<Input>(value: Input): value is Input & string {
+  return parseJsonString(value) !== undefined;
+}
+
+export function isJsonBoolean<Input>(value: Input): value is Input & boolean {
+  return parseJsonBoolean(value) !== undefined;
+}
+
+export function isJsonNumber<Input>(value: Input): value is Input & number {
+  return parseJsonNumber(value) !== undefined;
+}
+
+export function isJsonObject<Input>(value: Input): value is Input & JsonObject {
+  return parseJsonObject(value) !== undefined;
+}

@@ -13,6 +13,7 @@ import {
 } from "recharts";
 
 import type { ActionItem } from "@chief/agent-runtime/types";
+import { isJsonString } from "@chief/relay-contracts";
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import { cn } from "@chief/ui/lib/utils";
 
@@ -142,9 +143,7 @@ export function WorkspaceIndicator({
       <OrgLogo
         name={organization.name}
         logo={organization.logo}
-        website={
-          typeof metadata.websiteUrl === "string" ? metadata.websiteUrl : ""
-        }
+        website={isJsonString(metadata.websiteUrl) ? metadata.websiteUrl : ""}
         className="size-6 shrink-0 text-xs"
         transparentWhenLoaded
       />

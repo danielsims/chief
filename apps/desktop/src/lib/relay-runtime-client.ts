@@ -5,7 +5,7 @@ import type {
   ClientMessage,
   ServerMessage,
 } from "@chief/agent-runtime/types";
-import type { RelayClient, WorkspaceSubscription } from "@chief/relay-client";
+import type { WorkspaceSubscription } from "@chief/relay-client";
 import type {
   ConversationEvent,
   ConversationMessage,
@@ -16,6 +16,7 @@ import {
   appendMessageCommandSchema,
 } from "@chief/relay-contracts";
 
+import type { RelayRuntimeRelay } from "./relay-runtime-relay";
 import type {
   RuntimeConnectionStatus,
   RuntimeMessageListener,
@@ -62,7 +63,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
   private closed = false;
 
   constructor(
-    private readonly relay: RelayClient,
+    private readonly relay: RelayRuntimeRelay,
     snapshot: WorkspaceSnapshot,
   ) {
     this.snapshot = snapshot;
@@ -264,7 +265,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
       workspaceId: this.snapshot.id,
       chatId,
       visibility: "user",
-      ...(agentId ? { agentId } : {}),
+      ...(agentId ? { agentId } : undefined),
     });
     this.emit({
       type: "history",
@@ -408,7 +409,9 @@ export class RelayRuntimeClient implements RuntimeTransport {
       payload: {
         messageId: message.messageId,
         conversationId,
-        ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
+        ...(message.threadRootId
+          ? { threadRootId: message.threadRootId }
+          : undefined),
         body: message.text,
         mentions: message.mentions ?? [],
         components: message.components ?? [],
@@ -464,8 +467,8 @@ export class RelayRuntimeClient implements RuntimeTransport {
     this.emit({
       type: "error",
       message: publicRelayErrorMessage(error),
-      ...(chatId ? { chatId } : {}),
-      ...(requestId ? { requestId } : {}),
+      ...(chatId ? { chatId } : undefined),
+      ...(requestId ? { requestId } : undefined),
     });
   }
 

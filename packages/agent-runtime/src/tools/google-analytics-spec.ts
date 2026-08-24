@@ -1,3 +1,5 @@
+import { isJsonObject } from "@chief/relay-contracts";
+
 export const GOOGLE_ANALYTICS_INTEGRATION = "google_analytics";
 export const GOOGLE_ANALYTICS_CONNECTION = "main";
 export const GOOGLE_ANALYTICS_OAUTH_CLIENT = "chief_google_analytics";
@@ -50,24 +52,24 @@ export function googleAnalyticsSpecOverrides() {
 
 /** Repairs reserved Google resource names lost by the APIs.guru conversion. */
 export function prepareGoogleAnalyticsSpec(source: unknown) {
-  if (!source || typeof source !== "object") {
+  if (!source || !isJsonObject(source)) {
     throw new Error("Google Analytics returned an invalid OpenAPI document.");
   }
   const spec = structuredClone(source) as Record<string, unknown>;
   const paths =
-    spec.paths && typeof spec.paths === "object"
+    spec.paths && isJsonObject(spec.paths)
       ? (spec.paths as Record<string, Record<string, unknown>>)
       : {};
   spec.paths = paths;
   for (const pathItem of Object.values(paths)) {
     for (const operation of [pathItem, ...Object.values(pathItem)]) {
-      if (!operation || typeof operation !== "object") continue;
+      if (!operation || !isJsonObject(operation)) continue;
       const parameters = (operation as { parameters?: unknown }).parameters;
       if (!Array.isArray(parameters)) continue;
       for (const parameter of parameters) {
         if (
           parameter &&
-          typeof parameter === "object" &&
+          isJsonObject(parameter) &&
           (parameter as { in?: unknown }).in === "path"
         ) {
           (parameter as { allowReserved?: boolean }).allowReserved = true;

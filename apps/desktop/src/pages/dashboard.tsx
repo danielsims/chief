@@ -18,6 +18,7 @@ import type {
   AnalyticsDatasetPeriod,
   SessionRecord,
 } from "@chief/agent-runtime/types";
+import { isJsonString } from "@chief/relay-contracts";
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import { cn } from "@chief/ui/lib/utils";
 
@@ -182,15 +183,13 @@ function percentageChange(current?: number, previous?: number) {
 }
 
 function normalizedMetricKey(value: unknown) {
-  return typeof value === "string"
+  return isJsonString(value)
     ? value.toLowerCase().replace(/[^a-z0-9]/g, "")
     : "";
 }
 
 function metricLabel(value: unknown, fallback: string) {
-  return typeof value === "string" && value.trim()
-    ? value.toLowerCase()
-    : fallback;
+  return isJsonString(value) && value.trim() ? value.toLowerCase() : fallback;
 }
 
 function periodMetric(

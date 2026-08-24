@@ -28,7 +28,7 @@ function enqueuePersistence(operation: () => Promise<void>) {
 }
 
 function notifySessionChanged() {
-  if (typeof window !== "undefined") {
+  if (globalThis.window !== undefined) {
     queueMicrotask(() =>
       window.dispatchEvent(new Event(AUTH_SESSION_CHANGED_EVENT)),
     );

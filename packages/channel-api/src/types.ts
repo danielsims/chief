@@ -68,12 +68,20 @@ export type ChannelAuditAction =
   | "reaction.removed"
   | "policy.updated";
 
+export type ChannelAuditDetailValue =
+  | boolean
+  | number
+  | string
+  | null
+  | ChannelAuditDetailValue[]
+  | { [key: string]: ChannelAuditDetailValue };
+
 export interface ChannelAuditEntry {
   id: string;
   channelId: string;
   action: ChannelAuditAction;
   actor: ChannelActorIdentity;
-  detail: Record<string, unknown>;
+  detail: Record<string, ChannelAuditDetailValue>;
   sequence: number;
   previousHash?: string;
   hash: string;

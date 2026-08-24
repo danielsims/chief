@@ -2,6 +2,7 @@ import { startTransition, useCallback, useEffect, useMemo } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { defaultAgents } from "@chief/agent-runtime/agent-roster";
+import { isJsonObject } from "@chief/relay-contracts";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { AgentPresence } from "../components/chat/agent-profile-panel";
@@ -143,10 +144,7 @@ export function ConversationsPage() {
     params.get("channel") === null;
   const activeConversationChannel =
     requestedChannel ?? (isDefaultChannelRoute ? activeChannel : undefined);
-  const navigationState =
-    typeof location.state === "object" && location.state !== null
-      ? (location.state as { focusComposerFor?: unknown })
-      : null;
+  const navigationState = isJsonObject(location.state) ? location.state : null;
   const focusComposer =
     navigationState?.focusComposerFor === activeConversationChannel?.id;
   const activeChatId = activeConversationChannel

@@ -21,7 +21,7 @@ const documentMessage = (
 ): ChiefUIMessage => ({
   id,
   role: "assistant",
-  ...(threadRootId ? { metadata: { createdAt: 1, threadRootId } } : {}),
+  ...(threadRootId ? { metadata: { createdAt: 1, threadRootId } } : undefined),
   parts: [
     {
       type: "data-document",

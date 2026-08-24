@@ -4,6 +4,7 @@ import type { AuthenticatedIdentity } from "@chief/relay-contracts";
 import {
   commandIdSchema,
   createWorkspaceCommandSchema,
+  isJsonString,
   switchWorkspaceCommandSchema,
   workspaceIdSchema,
 } from "@chief/relay-contracts";
@@ -222,11 +223,9 @@ export class AccountObject extends DurableObject<Env> {
     const input = (await parseJson(request)) as Record<string, unknown>;
     const workspaceId = workspaceIdSchema.parse(input.workspaceId);
     const operationId = commandIdSchema.parse(input.operationId);
-    const name = typeof input.name === "string" ? input.name.trim() : "";
-    const website =
-      typeof input.website === "string" ? input.website.trim() : "";
-    const createdAt =
-      typeof input.createdAt === "string" ? input.createdAt : "";
+    const name = isJsonString(input.name) ? input.name.trim() : "";
+    const website = isJsonString(input.website) ? input.website.trim() : "";
+    const createdAt = isJsonString(input.createdAt) ? input.createdAt : "";
     if (!name || name.length > 120 || website.length > 2_048) {
       return relayError(
         400,

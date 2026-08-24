@@ -9,6 +9,7 @@ import type {
   TrendRecord,
   WorkspaceWaysOfWorking,
 } from "@chief/agent-runtime/types";
+import { isJsonObject } from "@chief/relay-contracts";
 
 export interface WorkspaceDataState {
   prospects: ProspectRecord[];
@@ -48,9 +49,7 @@ function arrayValue<T>(value: unknown): T[] {
 /** Keep older runtime snapshots from leaking missing collections into React. */
 export function normalizeWorkspaceData(value: unknown): WorkspaceDataState {
   const snapshot =
-    value && typeof value === "object"
-      ? (value as Record<string, unknown>)
-      : {};
+    value && isJsonObject(value) ? (value as Record<string, unknown>) : {};
   return {
     prospects: arrayValue<ProspectRecord>(snapshot.prospects),
     trends: arrayValue<TrendRecord>(snapshot.trends),
@@ -61,10 +60,7 @@ export function normalizeWorkspaceData(value: unknown): WorkspaceDataState {
     activity: arrayValue<SessionRecord>(snapshot.activity),
     actionItems: arrayValue<ActionItem>(snapshot.actionItems),
     waysOfWorking: (() => {
-      if (
-        !snapshot.waysOfWorking ||
-        typeof snapshot.waysOfWorking !== "object"
-      ) {
+      if (!snapshot.waysOfWorking || !isJsonObject(snapshot.waysOfWorking)) {
         return emptyWorkspaceData.waysOfWorking;
       }
       const value = snapshot.waysOfWorking as Partial<WorkspaceWaysOfWorking>;

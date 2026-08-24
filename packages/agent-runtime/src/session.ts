@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+
 import type { BaseDriver } from "./drivers/base.js";
 import type {
   AccessMode,
@@ -160,8 +162,8 @@ export class AgentSession extends EventEmitter {
           enriched.type === "exit"
         ) {
           this.status = enriched.type === "error" ? "error" : "idle";
-          // Some providers report completion before emitting their final
-          // assistant message. Keep the turn owner after a successful result so
+          // Some providers finish before their final assistant message. Keep the
+          // turn owner after a successful result so
           // that late content remains attached to the channel thread that
           // started it; the next user prompt replaces this context atomically.
           if (enriched.type !== "result") this.activeReplyContext = undefined;
@@ -179,7 +181,7 @@ export class AgentSession extends EventEmitter {
   get isBusy() {
     const driverInFlight =
       this.driverState !== null &&
-      typeof this.driverState === "object" &&
+      isJsonObject(this.driverState) &&
       "inFlight" in this.driverState &&
       this.driverState.inFlight === true;
     return (
@@ -192,10 +194,8 @@ export class AgentSession extends EventEmitter {
       this.activeReplyContext?.explicitThreadRootId ?? this.lastThreadRootId
     );
   }
-  /** The most recent channel thread this session replied in, retained across
-   * turn boundaries and driver restarts so a continuation (for example after
-   * browser sign-in) keeps streaming into the same thread instead of landing
-   * in the main timeline.
+  /** The latest channel thread this session replied in, retained across turn
+   * boundaries and restarts so continuations keep streaming into that thread.
    */
   private lastThreadRootId: string | undefined;
 
@@ -468,10 +468,9 @@ export class AgentSession extends EventEmitter {
       type: "message",
       id: options.id,
       role: "assistant",
-      content:
-        typeof content === "string"
-          ? [{ type: "text", text: content }]
-          : content,
+      content: isJsonString(content)
+        ? [{ type: "text", text: content }]
+        : content,
       threadRootId: options.threadRootId,
       mentions: options.mentions,
     });

@@ -103,15 +103,15 @@ export function readWorkspaceLogs(
     workspaceId: workspaceIdSchema.parse(String(row.workspace_id)),
     type: String(row.type) as LogRecord["type"],
     operation: String(row.operation),
-    ...(row.deployment ? { deployment: String(row.deployment) } : {}),
-    ...(row.agent_id ? { agentId: String(row.agent_id) } : {}),
+    ...(row.deployment ? { deployment: String(row.deployment) } : undefined),
+    ...(row.agent_id ? { agentId: String(row.agent_id) } : undefined),
     ...(row.conversation_id
       ? { conversationId: String(row.conversation_id) }
-      : {}),
+      : undefined),
     message: String(row.message),
     ...(row.payload_json
       ? { metadata: parseStoredJson(String(row.payload_json)) }
-      : {}),
+      : undefined),
     createdAt: String(row.created_at),
   }));
   const last = rows.at(-1);
@@ -119,7 +119,7 @@ export function readWorkspaceLogs(
     rows.length === limit && last ? String(last.sequence) : undefined;
   return logPageSchema.parse({
     logs,
-    ...(nextCursor ? { nextCursor } : {}),
+    ...(nextCursor ? { nextCursor } : undefined),
   });
 }
 

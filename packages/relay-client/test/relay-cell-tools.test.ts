@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { isJsonString } from "@chief/relay-contracts";
+
 import { RelayClient } from "../src/relay-client";
 
 const timestamp = "2026-08-21T00:00:00.000Z";
@@ -51,7 +53,7 @@ void test("exposes the shared cell read and conversation tool routes", async () 
     getAuthorization: () => Promise.resolve("Nostr signed-request"),
     fetch: (input, init) => {
       const url = new URL(
-        typeof input === "string"
+        isJsonString(input)
           ? input
           : input instanceof URL
             ? input.toString()
@@ -60,7 +62,7 @@ void test("exposes the shared cell read and conversation tool routes", async () 
       requests.push({
         method: init?.method ?? "GET",
         url: `${url.pathname}${url.search}`,
-        body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+        body: isJsonString(init?.body) ? JSON.parse(init.body) : null,
       });
       if (url.pathname.endsWith("/data/brand-profile")) {
         return Promise.resolve(

@@ -25,7 +25,8 @@
     "@better-auth/oauth-provider": "1.6.16",
     "@better-fetch/fetch": "1.2.2",
     "better-auth": "1.6.16",
-    "drizzle-orm": "0.45.2"
+    "drizzle-orm": "0.45.2",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@chief/prettier-config": "workspace:*",

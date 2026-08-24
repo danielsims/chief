@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { agentIdSchema } from "@chief/relay-contracts";
+import { agentIdSchema, isJsonString } from "@chief/relay-contracts";
 
 import { RelayClient } from "../src/relay-client";
 
@@ -12,8 +12,9 @@ void test("starts a direct message using the versioned command envelope", async 
     workspaceId: "workspace-a",
     getAuthorization: () => Promise.resolve("Nostr signed-request"),
     fetch: (_input, init) => {
-      requestBody =
-        typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+      requestBody = isJsonString(init?.body)
+        ? JSON.parse(init.body)
+        : undefined;
       return Promise.resolve(
         Response.json({
           conversation: {

@@ -7,6 +7,7 @@ import type {
   ContentBlock,
   SessionRecord,
 } from "@chief/agent-runtime/types";
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { RelayPluginActionContext } from "../../lib/runtime-plugins";
@@ -22,21 +23,21 @@ import { StreamingMarkdown } from "./streaming-markdown";
 const MAX_RESULT_CHARS = 3000;
 
 function toolResultText(content: unknown): string {
-  if (typeof content === "string") return content;
+  if (isJsonString(content)) return content;
   if (Array.isArray(content)) {
     return content
       .map((block) =>
         block &&
-        typeof block === "object" &&
+        isJsonObject(block) &&
         "text" in block &&
-        typeof (block as { text: unknown }).text === "string"
+        isJsonString((block as { text: unknown }).text)
           ? (block as { text: string }).text
           : "",
       )
       .filter(Boolean)
       .join("\n");
   }
-  if (content && typeof content === "object") {
+  if (content && isJsonObject(content)) {
     return JSON.stringify(content, null, 2);
   }
   return "";
@@ -64,10 +65,10 @@ function canonicalTool(name: string) {
 }
 
 function skillName(input: unknown) {
-  if (!input || typeof input !== "object") return null;
+  if (!input || !isJsonObject(input)) return null;
   const value = input as Record<string, unknown>;
   for (const key of ["name", "skill", "skillName"]) {
-    if (typeof value[key] === "string" && value[key]) return value[key];
+    if (isJsonString(value[key]) && value[key]) return value[key];
   }
   return null;
 }
@@ -100,7 +101,7 @@ export function toolSummary(input: unknown): string {
     "url",
     "code",
   ]) {
-    if (typeof value[key] === "string" && value[key]) {
+    if (isJsonString(value[key]) && value[key]) {
       const text = String(value[key]);
       return text.length > 90 ? `${text.slice(0, 90)}…` : text;
     }
@@ -137,7 +138,7 @@ function ToolCard({
     result && !result.is_error && /\bwarn(?:ing)?\b/i.test(output),
   );
   const input =
-    block.input && typeof block.input === "object"
+    block.input && isJsonObject(block.input)
       ? JSON.stringify(block.input, null, 2)
       : String(block.input ?? "");
 
@@ -314,7 +315,7 @@ export function Blocks({
                   conversationId: data.conversationId,
                   ...(data.threadRootId
                     ? { threadRootId: data.threadRootId }
-                    : {}),
+                    : undefined),
                   agentId: data.agentId,
                   recommendationId: data.recommendationId,
                 }

@@ -46,10 +46,17 @@ type Message = Extract<ClientMessage, { type: "openChat" }>;
 const DRIVER_TYPES = new Set<DriverType>(["codex", "opencode", "remote"]);
 
 /** Opening a timeline reuses non-interactive work instead of taking its lane. */
+export interface LiveSessionState {
+  isBusy: boolean;
+  config: {
+    executionOwner?: AgentSession["config"]["executionOwner"];
+  };
+}
+
 export function shouldReuseLiveSessionOnOpen(
-  session: AgentSession | undefined,
+  session: LiveSessionState | undefined,
   claimedOwner?: "interactive" | "schedule" | "channel",
-): session is AgentSession {
+): session is LiveSessionState {
   return Boolean(
     session &&
     (session.isBusy ||

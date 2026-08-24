@@ -1,3 +1,5 @@
+import { isJsonString } from "@chief/relay-contracts";
+
 /** Keeps the owning thread durable while nested conversation panels open. */
 export function withConversationThread(
   current: URLSearchParams,
@@ -65,7 +67,7 @@ export function withOwnedConversationChild(
     next.set("chat", parentId);
   }
   const threadRootId = child.triggerContext?.threadRootId;
-  if (typeof threadRootId === "string" && threadRootId) {
+  if (isJsonString(threadRootId) && threadRootId) {
     next.set("thread", threadRootId);
   } else {
     next.delete("thread");

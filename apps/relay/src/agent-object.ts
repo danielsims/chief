@@ -9,6 +9,7 @@ import {
   claimAgentJobSchema,
   completeAgentJobSchema,
   enqueueAgentJobCommandSchema,
+  isJsonString,
   renewAgentJobSchema,
 } from "@chief/relay-contracts";
 
@@ -636,10 +637,9 @@ export class AgentObject extends DurableObject<Env> {
     result: ReturnType<typeof agentJobCompletionResultSchema.parse>,
     agent?: { id: string; name: string; role: string },
   ) {
-    const conversationId =
-      typeof job.payload.conversationId === "string"
-        ? job.payload.conversationId
-        : "mission-control";
+    const conversationId = isJsonString(job.payload.conversationId)
+      ? job.payload.conversationId
+      : "mission-control";
     const key = `conversation:${conversationId}:messages`;
     const row = firstRow<{ value_json: string }>(
       this.ctx.storage.sql.exec(
@@ -649,10 +649,9 @@ export class AgentObject extends DurableObject<Env> {
     );
     const messages = row ? safeArray(row.value_json) : [];
     const at = Date.now();
-    const instruction =
-      typeof job.payload.instruction === "string"
-        ? job.payload.instruction
-        : job.kind;
+    const instruction = isJsonString(job.payload.instruction)
+      ? job.payload.instruction
+      : job.kind;
     const answer =
       result.publishedMessage?.body ?? result.openingMessage ?? "Completed.";
     messages.push({ role: "user", content: instruction, at, conversationId });

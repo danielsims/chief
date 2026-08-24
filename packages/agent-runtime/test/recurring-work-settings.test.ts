@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { SessionManager } from "../src/manager.js";
+import type { RecurringWorkSettingsManager } from "../src/recurring-work-settings.js";
 import type { RecurringWorkRecord } from "../src/types.js";
 import {
   rotateRecurringWorkWebhook,
@@ -48,7 +48,7 @@ function fixture(initial = scheduledWork()) {
       webhookHash = hash;
       return Promise.resolve();
     },
-  } as unknown as SessionManager;
+  } satisfies RecurringWorkSettingsManager;
   return {
     manager,
     work: () => work,

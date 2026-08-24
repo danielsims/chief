@@ -2,6 +2,8 @@ import type { AgentJob, AgentPrincipal } from "@chief/relay-contracts";
 import {
   channelCreateCommandSchema,
   channelMemberAddCommandSchema,
+  isJsonObject,
+  isJsonString,
   messagePageSchema,
 } from "@chief/relay-contracts";
 
@@ -166,7 +168,11 @@ export async function executeHostedAgentTool(
       await publishAgentMessage(
         env,
         job,
-        { conversationId, body, ...(threadRootId ? { threadRootId } : {}) },
+        {
+          conversationId,
+          body,
+          ...(threadRootId ? { threadRootId } : undefined),
+        },
         await deterministicUuid(`${job.id}:${name}:${idempotencyKey}`),
       );
       return { ok: true, conversationId, threadRootId: threadRootId ?? null };
@@ -249,7 +255,7 @@ export async function executeHostedAgentTool(
         job,
         {
           conversationId,
-          ...(threadRootId ? { threadRootId } : {}),
+          ...(threadRootId ? { threadRootId } : undefined),
           body:
             optionalString(input, "rationale") ??
             "Here are the plugins I recommend.",
@@ -263,7 +269,7 @@ export async function executeHostedAgentTool(
               payload: {
                 workspaceId: job.workspaceId,
                 conversationId,
-                ...(threadRootId ? { threadRootId } : {}),
+                ...(threadRootId ? { threadRootId } : undefined),
                 agentId: job.agentId,
                 pluginId: plugin.id,
                 name: plugin.name,
@@ -274,7 +280,7 @@ export async function executeHostedAgentTool(
                 enabled: false,
                 trusted: false,
                 domain: plugin.domain,
-                ...(plugin.iconUrl ? { iconUrl: plugin.iconUrl } : {}),
+                ...(plugin.iconUrl ? { iconUrl: plugin.iconUrl } : undefined),
               },
             })),
           ),
@@ -342,7 +348,7 @@ async function hostedPluginCatalog(): Promise<HostedPlugin[]> {
           ),
           category: entry.categories?.[0] ?? "Integration",
           domain: entry.domain,
-          ...(entry.icon ? { iconUrl: entry.icon } : {}),
+          ...(entry.icon ? { iconUrl: entry.icon } : undefined),
           status: "available" as const,
           enabled: false as const,
           trusted: false as const,
@@ -410,9 +416,9 @@ async function workspaceOperation(
         method: "POST",
         headers: {
           "x-chief-internal-operation": operation,
-          ...(body ? { "content-type": "application/json" } : {}),
+          ...(body ? { "content-type": "application/json" } : undefined),
         },
-        ...(body ? { body: JSON.stringify(body) } : {}),
+        ...(body ? { body: JSON.stringify(body) } : undefined),
       }),
       {
         principal,
@@ -445,28 +451,28 @@ function tool(
 }
 
 function objectInput(value: unknown): Record<string, unknown> {
-  if (typeof value === "string") {
+  if (isJsonString(value)) {
     const parsed = JSON.parse(value) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
+    if (parsed && isJsonObject(parsed) && !Array.isArray(parsed)) {
+      return parsed;
     }
   }
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
+  if (value && isJsonObject(value) && !Array.isArray(value)) {
+    return value;
   }
   return {};
 }
 
 function requiredString(input: Record<string, unknown>, key: string) {
   const value = input[key];
-  if (typeof value !== "string" || !value.trim())
+  if (!isJsonString(value) || !value.trim())
     throw new Error(`${key} is required`);
   return value.trim();
 }
 
 function optionalString(input: Record<string, unknown>, key: string) {
   const value = input[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  return isJsonString(value) && value.trim() ? value.trim() : undefined;
 }
 
 async function deterministicUuid(value: string) {

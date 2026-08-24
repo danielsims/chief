@@ -1,3 +1,5 @@
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+
 export const MISSION_CONTROL_CHANNEL_ID = "mission-control";
 export const MISSION_CONTROL_CHANNEL_RELAY_ID =
   "ce83fa02-5d8d-4fc1-9e31-f670676b0741";
@@ -82,6 +84,10 @@ export const WORKSPACE_AGENT_IDENTITIES = {
 
 export type WorkspaceAgentId = keyof typeof WORKSPACE_AGENT_IDENTITIES;
 
+export function isWorkspaceAgentId(value: string): value is WorkspaceAgentId {
+  return Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, value);
+}
+
 export type SidebarPinnedItem =
   | { kind: "channel"; id: WorkspaceChannelId }
   | { kind: "agent"; id: WorkspaceAgentId };
@@ -93,9 +99,9 @@ export function sidebarPinnedItemKey(item: SidebarPinnedItem) {
 export function isSidebarPinnedItem(
   value: unknown,
 ): value is SidebarPinnedItem {
-  if (!value || typeof value !== "object") return false;
+  if (!value || !isJsonObject(value)) return false;
   const item = value as Partial<SidebarPinnedItem>;
-  if (typeof item.id !== "string") return false;
+  if (!isJsonString(item.id)) return false;
   return (
     item.kind === "channel" ||
     (item.kind === "agent" &&
@@ -207,9 +213,7 @@ export function directMessageChatId(
 export function directMessageAgentIdFromChatId(chatId: string | null) {
   if (!chatId?.startsWith("dm:")) return null;
   const agentId = chatId.slice(chatId.lastIndexOf(":") + 1);
-  return Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)
-    ? (agentId as WorkspaceAgentId)
-    : null;
+  return isWorkspaceAgentId(agentId) ? agentId : null;
 }
 
 export function directMessageIdsForChats() {

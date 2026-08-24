@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import test from "node:test";
 
+import { isJsonObject } from "@chief/relay-contracts";
+
 import {
   guardedRequestHandler,
   localToolRequest,
@@ -52,7 +54,7 @@ void test("an async request failure returns 500 without closing the server", asy
   );
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
-  assert.ok(address && typeof address === "object");
+  assert.ok(address && isJsonObject(address));
 
   try {
     for (let requestIndex = 0; requestIndex < 2; requestIndex += 1) {

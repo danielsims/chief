@@ -1,4 +1,5 @@
 import type { ChannelEvent } from "@chief/agent-runtime/types";
+import { isJsonString } from "@chief/relay-contracts";
 
 import type {
   ChannelReadStateBlob,
@@ -16,7 +17,7 @@ export function recordSeenChannelEvent(seen: Set<string>, eventId: string) {
   seen.add(eventId);
   if (seen.size <= MAX_SEEN_LIVE_EVENTS) return;
   const oldest = seen.values().next().value;
-  if (typeof oldest === "string") seen.delete(oldest);
+  if (isJsonString(oldest)) seen.delete(oldest);
 }
 
 function storageKey(workspaceId: string, readerId: string) {

@@ -183,7 +183,7 @@ export function useChiefChatPresentation({
               id: "current-user",
               kind: "user",
               name: userAuthor.name,
-              ...(userAuthor.image ? { image: userAuthor.image } : {}),
+              ...(userAuthor.image ? { image: userAuthor.image } : undefined),
             },
           ];
         }

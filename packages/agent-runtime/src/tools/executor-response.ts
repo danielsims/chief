@@ -1,3 +1,5 @@
+import { isJsonObject } from "@chief/relay-contracts";
+
 interface ExecutionResponse {
   status: string;
   isError?: boolean;
@@ -14,7 +16,7 @@ export function executorStructuredResult(response: ExecutionResponse): unknown {
   if (response.isError) throw new Error(response.text);
   if (
     response.structured &&
-    typeof response.structured === "object" &&
+    isJsonObject(response.structured) &&
     Object.prototype.hasOwnProperty.call(response.structured, "result")
   ) {
     return (response.structured as { result: unknown }).result;

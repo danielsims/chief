@@ -97,7 +97,7 @@ export function createGoogleDesktopOAuthIdentity(
     tokenUrl: GOOGLE_OAUTH_TOKEN_URL,
     clientId,
     clientSecret: requiredString(values.clientSecret, "client_secret"),
-    ...(projectId ? { projectId } : {}),
+    ...(projectId ? { projectId } : undefined),
   };
 }
 

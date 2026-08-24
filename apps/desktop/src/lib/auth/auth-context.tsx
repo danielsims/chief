@@ -18,6 +18,8 @@ import {
 } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
+import { isJsonNumber } from "@chief/relay-contracts";
+
 import type { StoredRelayConnection } from "../relay-connection";
 import type { OrganizationRole } from "./organization-role";
 import type { StoredSession } from "./session";
@@ -195,7 +197,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const refreshExpiredSession = () => {
       if (
         document.visibilityState === "visible" &&
-        typeof storedSession?.expiresAt === "number" &&
+        isJsonNumber(storedSession?.expiresAt) &&
         storedSession.expiresAt <= Date.now() + 60_000
       ) {
         setValidationTrigger((current) => current + 1);
@@ -335,7 +337,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const existing = await loadSessionForRelay(connection.relayUrl);
       const reusable =
         existing &&
-        (typeof existing.expiresAt !== "number" ||
+        (!isJsonNumber(existing.expiresAt) ||
           existing.expiresAt > Date.now() + 60_000 ||
           Boolean(existing.refreshToken));
       if (reusable) {
@@ -443,7 +445,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 async function validateOrRefreshSession(session: StoredSession) {
   const shouldRefresh =
     Boolean(session.refreshToken) &&
-    typeof session.expiresAt === "number" &&
+    isJsonNumber(session.expiresAt) &&
     session.expiresAt <= Date.now() + 60_000;
   if (shouldRefresh) {
     try {

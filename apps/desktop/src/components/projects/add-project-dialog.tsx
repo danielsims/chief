@@ -3,6 +3,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderGit2 } from "lucide-react";
 
+import { isJsonString } from "@chief/relay-contracts";
 import { Button } from "@chief/ui/components/button";
 import {
   Dialog,
@@ -43,7 +44,7 @@ export function AddProjectDialog({
       multiple: false,
       title: "Choose a Git repository",
     });
-    if (typeof selected === "string") setPath(selected);
+    if (isJsonString(selected)) setPath(selected);
   };
 
   const submit = async () => {

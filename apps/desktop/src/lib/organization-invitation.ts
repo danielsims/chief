@@ -1,3 +1,5 @@
+import { isJsonString } from "@chief/relay-contracts";
+
 export const pendingOrganizationInvitationKey =
   "chief.pending-organization-invitation.v1";
 
@@ -41,8 +43,8 @@ export function readPendingOrganizationInvitation() {
     ) as Partial<PendingOrganizationInvitation> | null;
     if (
       !parsed ||
-      typeof parsed.relayUrl !== "string" ||
-      typeof parsed.workspaceId !== "string"
+      !isJsonString(parsed.relayUrl) ||
+      !isJsonString(parsed.workspaceId)
     ) {
       return null;
     }

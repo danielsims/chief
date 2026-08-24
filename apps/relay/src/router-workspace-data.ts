@@ -67,11 +67,11 @@ export async function routeWorkspaceDataRequest(
           "x-chief-internal-operation": operation,
           ...(file?.[2]
             ? { "x-chief-workspace-file-id": decodeURIComponent(file[2]) }
-            : {}),
+            : undefined),
           ...(project?.[2]
             ? { "x-chief-project-id": decodeURIComponent(project[2]) }
-            : {}),
-          ...(body ? { "content-type": "application/json" } : {}),
+            : undefined),
+          ...(body ? { "content-type": "application/json" } : undefined),
         },
         body,
       }),

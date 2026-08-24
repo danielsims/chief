@@ -9,6 +9,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+
 import type { PreparedIntegrationSetup } from "../integration-setup-recipes.js";
 import type { AgentToolPermission, ExecutorCapability } from "../types.js";
 import {
@@ -258,7 +260,7 @@ export async function request<T>(
     ...init,
     headers: {
       Authorization: authorization,
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(init?.body ? { "Content-Type": "application/json" } : undefined),
       ...(init?.headers ?? {}),
     },
   });
@@ -272,11 +274,11 @@ export async function request<T>(
 }
 export { readManifest };
 function executorToolData(value: unknown): unknown {
-  if (!value || typeof value !== "object") return value;
+  if (!value || !isJsonObject(value)) return value;
   const envelope = value as { ok?: unknown; data?: unknown; error?: unknown };
   if (envelope.ok === false) {
     throw new Error(
-      typeof envelope.error === "string"
+      isJsonString(envelope.error)
         ? envelope.error
         : JSON.stringify(envelope.error ?? "Local connection tool failed."),
     );

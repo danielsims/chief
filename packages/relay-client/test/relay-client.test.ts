@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { workspaceIdSchema } from "@chief/relay-contracts";
+import { isJsonString, workspaceIdSchema } from "@chief/relay-contracts";
 
 import { RelayClient } from "../src/relay-client";
 
@@ -28,12 +28,11 @@ void test("scopes NIP-98 requests to one workspace and keeps authorization out o
   }[] = [];
   let socketUrl = "";
   const fetcher: typeof fetch = (input, init) => {
-    const url =
-      typeof input === "string"
-        ? input
-        : input instanceof URL
-          ? input.toString()
-          : input.url;
+    const url = isJsonString(input)
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input.url;
     const headers = new Headers(init?.headers);
     requests.push({
       url,
@@ -115,7 +114,7 @@ void test("loads the current and workspace channel rosters from relay membership
     getAuthorization: () => Promise.resolve("Nostr signed-request"),
     fetch: (input) => {
       const url = new URL(
-        typeof input === "string"
+        isJsonString(input)
           ? input
           : input instanceof URL
             ? input.toString()
@@ -150,7 +149,7 @@ void test("scopes per-agent configuration to the selected workspace", async () =
     getAuthorization: () => Promise.resolve("Nostr signed-request"),
     fetch: (input, init) => {
       const url = new URL(
-        typeof input === "string"
+        isJsonString(input)
           ? input
           : input instanceof URL
             ? input.toString()
@@ -159,7 +158,7 @@ void test("scopes per-agent configuration to the selected workspace", async () =
       requests.push({
         method: init?.method ?? "GET",
         path: url.pathname,
-        body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+        body: isJsonString(init?.body) ? JSON.parse(init.body) : null,
       });
       return Promise.resolve(
         url.pathname.endsWith("/keys")
@@ -207,7 +206,7 @@ void test("renews socket tickets and catches up from the durable cursor after re
   const received: number[] = [];
   const fetcher: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string"
+      isJsonString(input)
         ? input
         : input instanceof URL
           ? input.toString()
@@ -274,7 +273,7 @@ void test("does not retry a terminal authorization failure after a live disconne
   const errors: string[] = [];
   const fetcher: typeof fetch = (input) => {
     const url = new URL(
-      typeof input === "string"
+      isJsonString(input)
         ? input
         : input instanceof URL
           ? input.toString()
@@ -343,7 +342,7 @@ void test("multiplexes workspace conversations over one cursor-resumable socket"
     getAuthorization: () => Promise.resolve("Nostr signed-request"),
     fetch: (input) => {
       const url = new URL(
-        typeof input === "string"
+        isJsonString(input)
           ? input
           : input instanceof URL
             ? input.toString()

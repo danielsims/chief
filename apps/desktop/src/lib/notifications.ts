@@ -6,6 +6,8 @@ import {
   requestPermission,
 } from "@tauri-apps/plugin-notification";
 
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+
 import type { MessageNavigationTarget } from "./app-navigation";
 import {
   chiefDeepLinkUrl,
@@ -58,17 +60,17 @@ let pendingActivationDrain: Promise<void> | null = null;
 const NATIVE_NOTIFICATION_ACTION = "chief-notification-activated";
 
 function activateTarget(target: unknown) {
-  if (typeof target === "string") {
+  if (isJsonString(target)) {
     navigateApp(target);
-  } else if (target && typeof target === "object") {
+  } else if (target && isJsonObject(target)) {
     const candidate = target as Partial<DesktopNotificationTarget>;
-    if (candidate.kind === "route" && typeof candidate.route === "string") {
+    if (candidate.kind === "route" && isJsonString(candidate.route)) {
       navigateApp(candidate.route);
     } else if (
       candidate.kind === "message" &&
       candidate.message &&
-      typeof candidate.message.channelId === "string" &&
-      typeof candidate.message.messageId === "string"
+      isJsonString(candidate.message.channelId) &&
+      isJsonString(candidate.message.messageId)
     ) {
       dispatchChiefNavigation(messageDestination(candidate.message));
     } else {
@@ -130,7 +132,7 @@ function showWebNotification(
 }
 
 function hasNotificationApi() {
-  return typeof window !== "undefined" && "Notification" in window;
+  return globalThis.window !== undefined && "Notification" in window;
 }
 
 function ensurePermission(): Promise<boolean> {

@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type {
   Client,
   InArgs,
@@ -30,6 +29,8 @@ import {
 } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
+
+import { isJsonString } from "@chief/relay-contracts";
 
 import type {
   ActionItem,
@@ -88,10 +89,7 @@ const RESTART_RETRY_SUMMARY =
 
 class ScheduleSessionClaimConflict extends Error {}
 
-const moduleDirectory =
-  typeof __dirname === "string"
-    ? __dirname
-    : dirname(fileURLToPath(import.meta.url));
+const moduleDirectory = import.meta.dirname;
 
 const CHIEF_DATABASE_PATH = join(homedir(), ".chief", "chief.sqlite");
 
@@ -115,7 +113,7 @@ function serializeLocalClient(client: Client): Client {
   function execute(sql: string, args?: InArgs): Promise<ResultSet>;
   function execute(statement: InStatement | string, args?: InArgs) {
     return enqueue(() =>
-      typeof statement === "string"
+      isJsonString(statement)
         ? client.execute(statement, args)
         : client.execute(statement),
     );
@@ -417,19 +415,19 @@ export class LocalStore {
       .set({
         ...(patch.anchorMessageId !== undefined
           ? { anchorMessageId: patch.anchorMessageId }
-          : {}),
+          : undefined),
         ...(patch.conversationId !== undefined
           ? { conversationId: patch.conversationId }
-          : {}),
+          : undefined),
         ...(patch.parentConversationId !== undefined
           ? { parentConversationId: patch.parentConversationId }
-          : {}),
-        ...(patch.status !== undefined ? { status: patch.status } : {}),
+          : undefined),
+        ...(patch.status !== undefined ? { status: patch.status } : undefined),
         ...(patch.threadRootId !== undefined
           ? { threadRootId: patch.threadRootId }
-          : {}),
-        ...(patch.title !== undefined ? { title: patch.title } : {}),
-        ...(patch.url !== undefined ? { url: patch.url } : {}),
+          : undefined),
+        ...(patch.title !== undefined ? { title: patch.title } : undefined),
+        ...(patch.url !== undefined ? { url: patch.url } : undefined),
         updatedAt: Date.now(),
       })
       .where(
@@ -461,13 +459,11 @@ export class LocalStore {
       id: run.id,
       workspaceId: run.organizationId,
       conversationId: run.conversationId,
-      ...(run.parentConversationId
-        ? { parentConversationId: run.parentConversationId }
-        : {}),
-      ...(run.threadRootId ? { threadRootId: run.threadRootId } : {}),
-      ...(run.anchorMessageId ? { anchorMessageId: run.anchorMessageId } : {}),
+      parentConversationId: run.parentConversationId ?? undefined,
+      threadRootId: run.threadRootId ?? undefined,
+      anchorMessageId: run.anchorMessageId ?? undefined,
       url: run.url,
-      ...(run.title ? { title: run.title } : {}),
+      title: run.title ?? undefined,
       status: run.status,
       createdAt: run.createdAt,
       updatedAt: run.updatedAt,
@@ -486,13 +482,11 @@ export class LocalStore {
       id: run.id,
       workspaceId: run.organizationId,
       conversationId: run.conversationId,
-      ...(run.parentConversationId
-        ? { parentConversationId: run.parentConversationId }
-        : {}),
-      ...(run.threadRootId ? { threadRootId: run.threadRootId } : {}),
-      ...(run.anchorMessageId ? { anchorMessageId: run.anchorMessageId } : {}),
+      parentConversationId: run.parentConversationId ?? undefined,
+      threadRootId: run.threadRootId ?? undefined,
+      anchorMessageId: run.anchorMessageId ?? undefined,
       url: run.url,
-      ...(run.title ? { title: run.title } : {}),
+      title: run.title ?? undefined,
       status: run.status,
       createdAt: run.createdAt,
       updatedAt: run.updatedAt,
@@ -761,13 +755,13 @@ export class LocalStore {
             ? {
                 ...(message.metadata.threadRootId
                   ? { threadRootId: message.metadata.threadRootId }
-                  : {}),
+                  : undefined),
                 ...(message.metadata.mentions?.length
                   ? { mentions: message.metadata.mentions }
-                  : {}),
+                  : undefined),
                 ...(message.metadata.channelAction
                   ? { channelAction: message.metadata.channelAction }
-                  : {}),
+                  : undefined),
               }
             : message.metadata
               ? { event: message.metadata }
@@ -946,39 +940,41 @@ export class LocalStore {
         .set({
           ...(titleOverride || !stored?.title
             ? { title: (titleOverride ?? firstText).slice(0, 72) }
-            : {}),
+            : undefined),
           lastText: lastText.slice(0, 200),
           provider: context.driver,
           model: context.model,
           ...(context.providerState !== undefined
             ? { providerState: context.providerState }
-            : {}),
+            : undefined),
           ...(context.eveState !== undefined
             ? { eveState: context.eveState }
-            : {}),
-          ...(status && !stored?.scheduleId ? { status } : {}),
+            : undefined),
+          ...(status && !stored?.scheduleId ? { status } : undefined),
           ...(context.scheduledFor !== undefined
             ? { scheduledFor: context.scheduledFor }
-            : {}),
+            : undefined),
           ...(context.startedAt !== undefined
             ? { startedAt: context.startedAt }
-            : {}),
+            : undefined),
           ...(context.finishedAt !== undefined
             ? { finishedAt: context.finishedAt }
-            : {}),
+            : undefined),
           ...(context.attempt !== undefined
             ? { attempt: context.attempt }
-            : {}),
+            : undefined),
           ...(context.summary !== undefined
             ? { summary: context.summary }
-            : {}),
-          ...(context.error !== undefined ? { error: context.error } : {}),
+            : undefined),
+          ...(context.error !== undefined
+            ? { error: context.error }
+            : undefined),
           ...(context.artifacts !== undefined
             ? { artifacts: context.artifacts }
-            : {}),
+            : undefined),
           ...(context.blockedTools !== undefined
             ? { blockedTools: context.blockedTools }
-            : {}),
+            : undefined),
           updatedAt: now,
         })
         .where(
@@ -1022,7 +1018,7 @@ export class LocalStore {
         const id =
           candidates.find(
             (candidate): candidate is string =>
-              typeof candidate === "string" && !usedMessageIds.has(candidate),
+              isJsonString(candidate) && !usedMessageIds.has(candidate),
           ) ?? randomUUID();
         usedMessageIds.add(id);
         return {
@@ -1794,9 +1790,9 @@ export class LocalStore {
       title: item.title,
       reason: item.reason,
       sourceId: item.sourceId ?? undefined,
-      ...(item.threadRootId ? { threadRootId: item.threadRootId } : {}),
-      ...(item.request ? { request: item.request } : {}),
-      ...(item.resolution ? { resolution: item.resolution } : {}),
+      ...(item.threadRootId ? { threadRootId: item.threadRootId } : undefined),
+      ...(item.request ? { request: item.request } : undefined),
+      ...(item.resolution ? { resolution: item.resolution } : undefined),
       status: item.status,
       createdAt: item.createdAt,
     } satisfies ActionItem;

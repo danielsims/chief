@@ -7,6 +7,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { createClient } from "@libsql/client";
 
+import { isJsonNumber, isJsonString } from "@chief/relay-contracts";
+
 import type { LocalMessage } from "../src/local-store.js";
 import { LocalStore } from "../src/local-store.js";
 
@@ -311,7 +313,7 @@ void test("transcript conversion keeps durable message IDs across saves", async 
     assert.equal(secondUiMessage.metadata.threadRootId, "client-message-id");
     assert.deepEqual(secondUiMessage.metadata.mentions, ["analyst"]);
     assert.deepEqual(resultUiMessage.metadata.event, result);
-    assert.equal(typeof resultUiMessage.metadata.createdAt, "number");
+    assert.ok(isJsonNumber(resultUiMessage.metadata.createdAt));
     const transcript = await store.transcript("workspace", "root");
     assert.deepEqual(
       transcript.flatMap((event) =>
@@ -550,7 +552,7 @@ void test("baseline contains only the required singular one-word tables", async 
     );
     assert.deepEqual(
       result.rows.map((row) => {
-        assert.equal(typeof row.name, "string");
+        assert.ok(isJsonString(row.name));
         return row.name;
       }),
       [

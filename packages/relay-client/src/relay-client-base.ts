@@ -29,6 +29,7 @@ import {
   channelMemberAddCommandSchema,
   conversationIdSchema,
   imageAssetDeleteResultSchema,
+  isJsonString,
   organizationWorkspaceJoinResultSchema,
   prospectSaveSchema,
   prospectSchema,
@@ -479,7 +480,7 @@ export class RelayClientBase {
     const headers = new Headers(init.headers);
     if (authenticated) {
       const method = init.method?.toUpperCase() ?? "GET";
-      const body = typeof init.body === "string" ? init.body : "";
+      const body = isJsonString(init.body) ? init.body : "";
       if (!this.options.getAuthorization) {
         throw new Error("Relay authorization is not configured.");
       }

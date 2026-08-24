@@ -11,6 +11,8 @@ import type {
   WorkspaceSnapshot,
 } from "@chief/relay-contracts";
 import {
+  isJsonObject,
+  isJsonString,
   pluginAuthorizationPayloadSchema,
   pluginRecommendationPayloadSchema,
 } from "@chief/relay-contracts";
@@ -41,10 +43,9 @@ export function agentRunEvent(message: ConversationMessage) {
     if (error) {
       return {
         type: "error" as const,
-        message:
-          typeof error.payload.message === "string"
-            ? error.payload.message
-            : "The agent run was interrupted.",
+        message: isJsonString(error.payload.message)
+          ? error.payload.message
+          : "The agent run was interrupted.",
       };
     }
     return { type: "status" as const, status: "running" as const };
@@ -62,9 +63,13 @@ export function toChiefMessage(message: ConversationMessage): ChiefUIMessage {
       createdAt: Date.parse(message.createdAt),
       ...(message.author.kind === "agent"
         ? { agentId: message.author.id }
-        : {}),
-      ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
-      ...(message.mentions.length > 0 ? { mentions: message.mentions } : {}),
+        : undefined),
+      ...(message.threadRootId
+        ? { threadRootId: message.threadRootId }
+        : undefined),
+      ...(message.mentions.length > 0
+        ? { mentions: message.mentions }
+        : undefined),
     },
     parts: [
       { type: "text", text: message.deleted ? "" : message.body },
@@ -194,9 +199,9 @@ function pluginRecommendationParts(
         enabled: value.enabled,
         trusted: value.trusted,
         source,
-        ...(value.homepage ? { homepage: value.homepage } : {}),
-        ...(value.iconUrl ? { iconUrl: value.iconUrl } : {}),
-        ...(value.domain ? { domains: [value.domain] } : {}),
+        ...(value.homepage ? { homepage: value.homepage } : undefined),
+        ...(value.iconUrl ? { iconUrl: value.iconUrl } : undefined),
+        ...(value.domain ? { domains: [value.domain] } : undefined),
       } satisfies AgentPluginSummary,
     ];
   });
@@ -243,10 +248,12 @@ function pluginRecommendationParts(
       type: "data-plugin-recommendations",
       data: {
         plugins,
-        ...(authorizations.length > 0 ? { authorizations } : {}),
+        ...(authorizations.length > 0 ? { authorizations } : undefined),
         workspaceId: message.workspaceId,
         conversationId: message.conversationId,
-        ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
+        ...(message.threadRootId
+          ? { threadRootId: message.threadRootId }
+          : undefined),
         agentId: message.author.id,
         recommendationId: message.id,
       },
@@ -297,10 +304,9 @@ function activityParts(
             toolName: block.name,
             input: block.input,
             state: "output-error",
-            errorText:
-              typeof result.content === "string"
-                ? result.content
-                : JSON.stringify(result.content),
+            errorText: isJsonString(result.content)
+              ? result.content
+              : JSON.stringify(result.content),
           }
         : {
             type: "dynamic-tool",
@@ -321,13 +327,13 @@ function componentActivityBlocks(component: MessageComponent): ContentBlock[] {
   }
   if (component.kind === "thinking") {
     const text = component.payload.text;
-    return typeof text === "string" && text.trim()
+    return isJsonString(text) && text.trim()
       ? [{ type: "thinking", thinking: text }]
       : [];
   }
   if (component.kind !== "tool") return [];
   const name = component.payload.name;
-  if (typeof name !== "string" || !name.trim()) return [];
+  if (!isJsonString(name) || !name.trim()) return [];
   const id = component.id;
   const use: ContentBlock = {
     type: "tool_use",
@@ -344,20 +350,20 @@ function componentActivityBlocks(component: MessageComponent): ContentBlock[] {
       tool_use_id: id,
       content:
         component.payload.output ?? component.payload.error ?? "Completed",
-      ...(component.payload.error ? { is_error: true } : {}),
+      ...(component.payload.error ? { is_error: true } : undefined),
     },
   ];
 }
 
 function isContentBlock(value: unknown): value is ContentBlock {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (!value || !isJsonObject(value) || Array.isArray(value)) return false;
   const block = value as Record<string, unknown>;
-  if (block.type === "thinking") return typeof block.thinking === "string";
+  if (block.type === "thinking") return isJsonString(block.thinking);
   if (block.type === "tool_use") {
-    return typeof block.id === "string" && typeof block.name === "string";
+    return isJsonString(block.id) && isJsonString(block.name);
   }
   if (block.type === "tool_result") {
-    return typeof block.tool_use_id === "string";
+    return isJsonString(block.tool_use_id);
   }
   return false;
 }

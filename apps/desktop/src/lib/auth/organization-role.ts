@@ -1,10 +1,12 @@
+import { isJsonString } from "@chief/relay-contracts";
+
 export type OrganizationRole = "owner" | "admin" | "member";
 
 /** Better Auth supports comma-separated roles when dynamic access control is enabled. */
 export function organizationRoles(value: unknown): OrganizationRole[] {
   const values = Array.isArray(value) ? value : [value];
   const roles = values.flatMap((candidate) =>
-    typeof candidate === "string" ? candidate.split(",") : [],
+    isJsonString(candidate) ? candidate.split(",") : [],
   );
   return [...new Set(roles.map((role) => role.trim().toLowerCase()))].filter(
     (role): role is OrganizationRole =>

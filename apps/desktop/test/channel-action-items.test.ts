@@ -56,6 +56,27 @@ function session(
   };
 }
 
+function recurringWork(
+  id: string,
+  conversationId: string,
+): RecurringWorkRecord {
+  return {
+    id,
+    conversationId,
+    agentId: "chief",
+    title: "Weekly review",
+    instructions: "Review the workspace.",
+    cron: "0 9 * * 1",
+    timezone: "UTC",
+    status: "active",
+    placement: "local",
+    approvalSummary: "Review the workspace.",
+    proposedToolPatterns: [],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
 void test("marks the channel that owns an open specialist action", () => {
   const result = channelIdsNeedingUser({
     actionItems: [action("specialist-a")],
@@ -104,16 +125,13 @@ void test("does not infer attention from a waiting session", () => {
 });
 
 void test("maps scheduled actions through their durable conversation", () => {
-  const recurringWork = [
-    {
-      id: "weekly-review",
-      conversationId: "channel:workspace-a:mission-control",
-    } as RecurringWorkRecord,
+  const recurringWorkItems = [
+    recurringWork("weekly-review", "channel:workspace-a:mission-control"),
   ];
   const result = channelIdsNeedingUser({
     actionItems: [action("automation-weekly-review")],
     sessions: [],
-    recurringWork,
+    recurringWork: recurringWorkItems,
     channelIds: ["mission-control"],
   });
 

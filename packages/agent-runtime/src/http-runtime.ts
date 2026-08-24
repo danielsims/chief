@@ -4,6 +4,8 @@ import type {
   ServerResponse,
 } from "node:http";
 
+import { isJsonString } from "@chief/relay-contracts";
+
 type AsyncRequestHandler = (
   request: IncomingMessage,
   response: ServerResponse,
@@ -22,12 +24,12 @@ export function localToolRequest(input: {
     method,
     headers: Object.fromEntries(
       Object.entries(input.headers).flatMap(([key, value]) =>
-        typeof value === "string" ? [[key, value]] : [],
+        isJsonString(value) ? [[key, value]] : [],
       ),
     ),
     ...(supportsBody && Object.keys(input.body).length > 0
       ? { body: JSON.stringify(input.body) }
-      : {}),
+      : undefined),
   });
 }
 
@@ -63,7 +65,9 @@ export function guardedRequestHandler(
       response.end(
         JSON.stringify({
           error: message,
-          ...(error instanceof Error ? { code: "local_tool_failed" } : {}),
+          ...(error instanceof Error
+            ? { code: "local_tool_failed" }
+            : undefined),
         }),
       );
     });

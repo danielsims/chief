@@ -10,6 +10,8 @@ import {
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 
+import { isJsonString } from "@chief/relay-contracts";
+
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { ChannelReferenceTarget } from "./channel-reference-parser";
 import { normalizeChiefNavigationLinks } from "../../lib/app-navigation";
@@ -97,7 +99,7 @@ function highlightReferences(
   onOpenMention?: (agentId: WorkspaceAgentId) => void,
 ): ReactNode {
   return Children.map(children, (child) =>
-    typeof child === "string"
+    isJsonString(child)
       ? splitSkillReferences(child).map((segment, index) =>
           segment.type === "skill" ? (
             <MessageSkillChip

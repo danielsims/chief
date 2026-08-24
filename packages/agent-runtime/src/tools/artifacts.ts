@@ -1,3 +1,9 @@
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
+
 import type {
   ArtifactsMessage,
   ExecutorArtifactSummary,
@@ -25,22 +31,22 @@ export async function listExecutorArtifacts(
     throw new Error("The local artifact service returned an invalid list.");
   }
   return rows.flatMap((row): ExecutorArtifactSummary[] => {
-    if (!row || typeof row !== "object") return [];
+    if (!row || !isJsonObject(row)) return [];
     const value = row as Record<string, unknown>;
     if (
-      typeof value.id !== "string" ||
-      typeof value.title !== "string" ||
-      typeof value.createdAt !== "number" ||
-      typeof value.updatedAt !== "number"
+      !isJsonString(value.id) ||
+      !isJsonString(value.title) ||
+      !isJsonNumber(value.createdAt) ||
+      !isJsonNumber(value.updatedAt)
     ) {
       return [];
     }
     const previewValue = value.preview;
     const preview =
       previewValue &&
-      typeof previewValue === "object" &&
+      isJsonObject(previewValue) &&
       (previewValue as Record<string, unknown>).kind === "layout" &&
-      typeof (previewValue as Record<string, unknown>).markup === "string"
+      isJsonString((previewValue as Record<string, unknown>).markup)
         ? {
             kind: "layout" as const,
             markup: (previewValue as Record<string, unknown>).markup as string,
@@ -50,8 +56,7 @@ export async function listExecutorArtifacts(
       {
         id: value.id,
         title: value.title,
-        description:
-          typeof value.description === "string" ? value.description : null,
+        description: isJsonString(value.description) ? value.description : null,
         preview,
         createdAt: value.createdAt,
         updatedAt: value.updatedAt,

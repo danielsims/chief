@@ -1,10 +1,48 @@
 import { createHash } from "node:crypto";
 
-import type { SessionManager } from "./manager.js";
 import type { WorkspaceFileRecord } from "./types.js";
 
+interface SpecialistFileMessage {
+  metadata?: { threadRootId?: string };
+  parts: readonly { type: string; id?: string }[];
+}
+
+export interface SpecialistFilePart {
+  type: "data-document";
+  id: string;
+  data: {
+    fileId: string;
+    title: string;
+    path: string;
+    kind: WorkspaceFileRecord["kind"];
+    versionId: string;
+  };
+}
+
+export interface SpecialistFileManager {
+  messages(
+    workspaceId: string,
+    conversationId: string,
+  ): Promise<readonly SpecialistFileMessage[]>;
+  rootChat(
+    workspaceId: string,
+    conversationId: string,
+  ): Promise<{
+    session?: {
+      recordAssistantMessage(
+        parts: SpecialistFilePart[],
+        metadata: { id: string; threadRootId?: string },
+      ): unknown;
+    };
+  }>;
+  waitForChatPersistence(
+    workspaceId: string,
+    conversationId: string,
+  ): Promise<unknown>;
+}
+
 interface SpecialistFileContext {
-  manager: SessionManager;
+  manager: SpecialistFileManager;
   workspaceId: string;
   conversationId: string;
   threadRootId?: string;

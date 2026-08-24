@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import { play } from "cuelume";
 
 import type { ChannelEvent } from "@chief/agent-runtime/types";
+import { isJsonBoolean, isJsonObject } from "@chief/relay-contracts";
 
 import { observedChannelMessage } from "./channel-read-state";
 
@@ -43,17 +44,15 @@ export function isNotificationSound(
 export function parseNotificationSoundPreferences(
   value: unknown,
 ): NotificationSoundPreferences {
-  if (!value || typeof value !== "object") return DEFAULT_PREFERENCES;
+  if (!value || !isJsonObject(value)) return DEFAULT_PREFERENCES;
   const candidate = value as Partial<NotificationSoundPreferences>;
   return {
-    desktopEnabled:
-      typeof candidate.desktopEnabled === "boolean"
-        ? candidate.desktopEnabled
-        : DEFAULT_PREFERENCES.desktopEnabled,
-    enabled:
-      typeof candidate.enabled === "boolean"
-        ? candidate.enabled
-        : DEFAULT_PREFERENCES.enabled,
+    desktopEnabled: isJsonBoolean(candidate.desktopEnabled)
+      ? candidate.desktopEnabled
+      : DEFAULT_PREFERENCES.desktopEnabled,
+    enabled: isJsonBoolean(candidate.enabled)
+      ? candidate.enabled
+      : DEFAULT_PREFERENCES.enabled,
     sound: isNotificationSound(candidate.sound)
       ? candidate.sound
       : DEFAULT_PREFERENCES.sound,

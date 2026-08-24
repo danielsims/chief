@@ -2,13 +2,14 @@ import type {
   DriverType,
   ProviderModelOption,
 } from "@chief/agent-runtime/types";
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 const STORAGE_PREFIX = "chief:provider-models:";
 
 function isProviderModelOption(value: unknown): value is ProviderModelOption {
-  if (!value || typeof value !== "object") return false;
+  if (!value || !isJsonObject(value)) return false;
   const option = value as Partial<ProviderModelOption>;
-  return typeof option.value === "string" && typeof option.label === "string";
+  return isJsonString(option.value) && isJsonString(option.label);
 }
 
 export function readCachedProviderModels(

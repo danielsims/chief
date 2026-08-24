@@ -2,6 +2,9 @@ import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { z } from "zod";
+
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 import type * as schema from "./db/schema.js";
 import type {
@@ -12,6 +15,7 @@ import type {
 import { sessionRecord } from "./local-store-messages.js";
 
 const CHIEF_KEYCHAIN_SERVICE = "com.danielsims.chief.local-database";
+const bigintSchema = z.bigint();
 
 function diagnosticSessionRecord(
   row: typeof schema.sessions.$inferSelect,
@@ -44,9 +48,10 @@ function redactString(value: string) {
 }
 
 function redactSecrets(value: unknown, seen = new WeakSet<object>()): unknown {
-  if (typeof value === "bigint") return value.toString();
-  if (typeof value === "string") return redactString(value);
-  if (!value || typeof value !== "object") return value;
+  const bigint = bigintSchema.safeParse(value);
+  if (bigint.success) return bigint.data.toString();
+  if (isJsonString(value)) return redactString(value);
+  if (!value || !isJsonObject(value)) return value;
   if (seen.has(value)) return "[CIRCULAR]";
   seen.add(value);
   if (Array.isArray(value)) {

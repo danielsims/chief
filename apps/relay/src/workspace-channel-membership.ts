@@ -6,6 +6,7 @@ import {
   channelMemberRemoveCommandSchema,
   channelMembersResultSchema,
   commandIdSchema,
+  isJsonObject,
   isoDateTimeSchema,
   messageIdSchema,
   principalSchema,
@@ -405,7 +406,7 @@ function parsePendingChannelMembershipBatchEvent(
     );
   }
   const targets = candidate.targets.map((value) => {
-    if (!value || typeof value !== "object") {
+    if (!value || !isJsonObject(value)) {
       throw new HttpError(
         500,
         "membership_event_invalid",

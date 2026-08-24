@@ -7,6 +7,8 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+
 import type { AgentQuestion, ContentBlock, StartOptions } from "../types.js";
 import { evaluateToolUse } from "../approvals.js";
 import { BaseDriver } from "./base.js";
@@ -15,22 +17,21 @@ import { agentEnvironment } from "./environment.js";
 function parseQuestions(input: Record<string, unknown>): AgentQuestion[] {
   if (!Array.isArray(input.questions)) return [];
   return input.questions.flatMap((candidate) => {
-    if (!candidate || typeof candidate !== "object") return [];
+    if (!candidate || !isJsonObject(candidate)) return [];
     const item = candidate as Record<string, unknown>;
-    if (typeof item.question !== "string" || !Array.isArray(item.options)) {
+    if (!isJsonString(item.question) || !Array.isArray(item.options)) {
       return [];
     }
     const options = item.options.flatMap((option) => {
-      if (!option || typeof option !== "object") return [];
+      if (!option || !isJsonObject(option)) return [];
       const record = option as Record<string, unknown>;
-      return typeof record.label === "string"
+      return isJsonString(record.label)
         ? [
             {
               label: record.label,
-              description:
-                typeof record.description === "string"
-                  ? record.description
-                  : undefined,
+              description: isJsonString(record.description)
+                ? record.description
+                : undefined,
             },
           ]
         : [];
@@ -39,7 +40,7 @@ function parseQuestions(input: Record<string, unknown>): AgentQuestion[] {
     return [
       {
         question: item.question,
-        header: typeof item.header === "string" ? item.header : undefined,
+        header: isJsonString(item.header) ? item.header : undefined,
         multiSelect: item.multiSelect === true,
         options,
       },
@@ -115,7 +116,7 @@ export class ClaudeDriver extends BaseDriver {
                   type: "stdio" as const,
                   command: server.command,
                   args: server.args,
-                  ...(server.cwd ? { cwd: server.cwd } : {}),
+                  ...(server.cwd ? { cwd: server.cwd } : undefined),
                   env: server.env ?? {},
                 },
           ]),

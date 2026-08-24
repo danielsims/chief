@@ -165,7 +165,12 @@ void test("creates independent physical sessions for independent run ids", () =>
   const created: string[] = [];
   const registry = new BrowserSessionRegistry((_workspaceId, browserRunId) => {
     created.push(browserRunId);
-    return { id: browserRunId } as unknown as AgentBrowserSession;
+    return {
+      id: browserRunId,
+      close: () => Promise.resolve(),
+      clearSavedState: () => Promise.resolve(),
+      setViewport: () => Promise.resolve(),
+    };
   });
   const first = registry.session("workspace", "browser-run-a");
   const second = registry.session("workspace", "browser-run-b");
@@ -184,7 +189,8 @@ void test("reset closes a browser and clears only its saved state", async () => 
       calls.push("clear");
       return Promise.resolve();
     },
-  } as unknown as AgentBrowserSession;
+    setViewport: () => Promise.resolve(),
+  };
   const registry = new BrowserSessionRegistry(() => session);
   registry.session("workspace", "conversation");
   await registry.reset("workspace", "conversation");
@@ -194,11 +200,13 @@ void test("reset closes a browser and clears only its saved state", async () => 
 void test("deduplicates an already applied browser viewport", async () => {
   const viewports: [number, number][] = [];
   const session = {
+    close: () => Promise.resolve(),
+    clearSavedState: () => Promise.resolve(),
     setViewport: (width: number, height: number) => {
       viewports.push([width, height]);
       return Promise.resolve();
     },
-  } as AgentBrowserSession;
+  };
   const registry = new BrowserSessionRegistry(() => session);
 
   await registry.resize("workspace", "conversation", {

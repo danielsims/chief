@@ -1,6 +1,8 @@
 import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+
 import type {
   LoadedAgentPlugin,
   PortableMcpServer,
@@ -29,7 +31,7 @@ const REMOTE_KEYS = new Set(["type", "url", "headers"]);
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 
 function object(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  return Boolean(value) && isJsonObject(value) && !Array.isArray(value);
 }
 
 function inside(root: string, candidate: string) {
@@ -56,7 +58,7 @@ async function jsonFile(path: string): Promise<unknown> {
 function validateAuthor(value: unknown) {
   if (!object(value)) throw new Error("plugin.json author must be an object.");
   for (const [key, item] of Object.entries(value)) {
-    if (!["name", "email", "url"].includes(key) || typeof item !== "string") {
+    if (!["name", "email", "url"].includes(key) || !isJsonString(item)) {
       throw new Error(
         "plugin.json author may contain only name, email, and url strings.",
       );
@@ -71,7 +73,7 @@ function validateManifest(raw: unknown, diagnostics: string[]) {
       `plugin.json targets an unsupported schema: ${String(raw.$schema)}`,
     );
   }
-  if (typeof raw.name !== "string" || !NAME.test(raw.name)) {
+  if (!isJsonString(raw.name) || !NAME.test(raw.name)) {
     throw new Error("plugin.json has an invalid portable plugin name.");
   }
   for (const key of Object.keys(raw)) {
@@ -85,7 +87,7 @@ function validateManifest(raw: unknown, diagnostics: string[]) {
     "repository",
     "license",
   ] as const) {
-    if (raw[key] !== undefined && typeof raw[key] !== "string") {
+    if (raw[key] !== undefined && !isJsonString(raw[key])) {
       throw new Error(`plugin.json field ${key} must be a string.`);
     }
   }
@@ -93,7 +95,7 @@ function validateManifest(raw: unknown, diagnostics: string[]) {
   if (
     raw.keywords !== undefined &&
     (!Array.isArray(raw.keywords) ||
-      raw.keywords.some((item) => typeof item !== "string"))
+      raw.keywords.some((item) => !isJsonString(item)))
   ) {
     throw new Error("plugin.json keywords must be a list of strings.");
   }
@@ -137,7 +139,7 @@ async function validateStdio(
   root: string,
 ) {
   assertClosed(raw, STDIO_KEYS, name);
-  if (typeof raw.command !== "string" || raw.command.length === 0) {
+  if (!isJsonString(raw.command) || raw.command.length === 0) {
     throw new Error(`${name}.command must be one executable token.`);
   }
   const pluginCommand = raw.command.startsWith("./");
@@ -155,20 +157,19 @@ async function validateStdio(
   }
   if (
     raw.args !== undefined &&
-    (!Array.isArray(raw.args) ||
-      raw.args.some((arg) => typeof arg !== "string"))
+    (!Array.isArray(raw.args) || raw.args.some((arg) => !isJsonString(arg)))
   ) {
     throw new Error(`${name}.args must be a list of strings.`);
   }
   if (raw.cwd !== undefined) {
-    if (typeof raw.cwd !== "string")
+    if (!isJsonString(raw.cwd))
       throw new Error(`${name}.cwd must be a string.`);
     configuredPath(root, raw.cwd, `${name}.cwd`);
   }
   if (raw.env !== undefined) {
     if (
       !object(raw.env) ||
-      Object.values(raw.env).some((value) => typeof value !== "string")
+      Object.values(raw.env).some((value) => !isJsonString(value))
     ) {
       throw new Error(`${name}.env must contain string values.`);
     }
@@ -200,7 +201,7 @@ function validateHeaders(name: string, value: unknown) {
     if (
       !HEADER_NAME.test(header) ||
       seen.has(normalized) ||
-      typeof item !== "string" ||
+      !isJsonString(item) ||
       /[\r\n\0]/.test(item)
     ) {
       throw new Error(
@@ -222,7 +223,7 @@ function validateHeaders(name: string, value: unknown) {
 
 function validateRemote(name: string, raw: Record<string, unknown>) {
   assertClosed(raw, REMOTE_KEYS, name);
-  if (typeof raw.url !== "string") throw new Error(`${name}.url is required.`);
+  if (!isJsonString(raw.url)) throw new Error(`${name}.url is required.`);
   const url = new URL(raw.url);
   if (
     !["http:", "https:"].includes(url.protocol) ||

@@ -38,11 +38,11 @@ export class ProjectCheckoutService extends ProjectServiceBase {
     } = {},
   ) {
     super(persistence, {
-      ...(options.root ? { root: options.root } : {}),
+      ...(options.root ? { root: options.root } : undefined),
       ...(options.authorization
         ? { authorization: options.authorization }
-        : {}),
-      ...(options.broker ? { broker: options.broker } : {}),
+        : undefined),
+      ...(options.broker ? { broker: options.broker } : undefined),
     });
     this.checkoutsRoot = join(this.root, "checkouts");
   }
@@ -104,7 +104,7 @@ export class ProjectCheckoutService extends ProjectServiceBase {
         runtimeId,
         agentId: input.agentId,
         agentIdentity: `${agentId}@chief`,
-        ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+        ...(input.sessionId ? { sessionId: input.sessionId } : undefined),
         strategy: "worktree",
         path,
         branch,

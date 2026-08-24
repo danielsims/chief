@@ -5,6 +5,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ChildProcess } from "node:child_process";
 
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+
 import type { ContentBlock, StartOptions } from "../types.js";
 import type { AcpRuntimeAdapter, PendingAcpRpc } from "./acp-runtime.js";
 import type { OpenCodeTerminalState } from "./opencode-support.js";
@@ -256,27 +258,25 @@ export class AcpDriver extends BaseDriver {
       if (!line.trim()) continue;
       try {
         this.handle(JSON.parse(line) as Record<string, unknown>);
-      } catch {
-        // Adapter diagnostics occasionally share stdout with ACP.
-      }
+      } catch {}
     }
   }
 
   private handle(message: Record<string, unknown>) {
     const id = message.id as number | string | undefined;
     const method = message.method;
-    if (id !== undefined && typeof method !== "string") {
+    if (id !== undefined && !isJsonString(method)) {
       const request = this.pending.get(id);
       if (!request) return;
       this.pending.delete(id);
       if (request.timer) clearTimeout(request.timer);
       const error = record(message.error);
-      if (typeof error.message === "string") {
+      if (isJsonString(error.message)) {
         request.reject(new Error(error.message));
       } else request.resolve(message.result);
       return;
     }
-    if (typeof method !== "string") return;
+    if (!isJsonString(method)) return;
     const params = record(message.params);
     if (method === "session/update") this.sessionUpdate(params);
     else if (method === "session/request_permission" && id !== undefined) {
@@ -346,7 +346,7 @@ export class AcpDriver extends BaseDriver {
     );
     let input: unknown =
       update.input ?? update.rawInput ?? update.arguments ?? nested.input ?? {};
-    if (typeof input === "string") {
+    if (isJsonString(input)) {
       try {
         input = JSON.parse(input);
       } catch {
@@ -355,10 +355,10 @@ export class AcpDriver extends BaseDriver {
     }
     if (
       (!input ||
-        (typeof input === "object" &&
+        (isJsonObject(input) &&
           !Array.isArray(input) &&
           Object.keys(input).length === 0)) &&
-      typeof update.rawInput === "string" &&
+      isJsonString(update.rawInput) &&
       update.rawInput.trim()
     ) {
       input = { code: update.rawInput };
@@ -394,7 +394,7 @@ export class AcpDriver extends BaseDriver {
     const content = failed
       ? String(update.error ?? update.message ?? "Tool call failed")
       : textContent(update.content) ||
-        (typeof update.result === "string"
+        (isJsonString(update.result)
           ? update.result
           : JSON.stringify(update.result ?? update.output ?? "Completed"));
     this.emitEvent({

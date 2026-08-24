@@ -3,7 +3,10 @@ import { HttpError } from "./http";
 const SOCKET_TICKET_SUFFIX = "/socket-tickets";
 const DEVICE_BIND_PATH = "/v1/identity/device";
 
-export async function enforceEdgeRequestLimit(env: Env, request: Request) {
+export async function enforceEdgeRequestLimit(
+  env: Pick<Env, "EDGE_REQUEST_RATE_LIMITER">,
+  request: Request,
+) {
   const key = edgeKey(request);
   await requireAllowance(env.EDGE_REQUEST_RATE_LIMITER, key);
 }
@@ -11,7 +14,7 @@ export async function enforceEdgeRequestLimit(env: Env, request: Request) {
 /** Protects the unauthenticated database-backed surfaces before Better Auth or
  * device binding can perform any D1 or Durable Object work. */
 export async function enforcePublicIdentityRequestLimit(
-  env: Env,
+  env: Pick<Env, "AUTH_REQUEST_RATE_LIMITER" | "DEVICE_BIND_RATE_LIMITER">,
   request: Request,
 ) {
   const pathname = new URL(request.url).pathname;
@@ -25,7 +28,10 @@ export async function enforcePublicIdentityRequestLimit(
 }
 
 export async function enforceIdentityRequestLimits(
-  env: Env,
+  env: Pick<
+    Env,
+    "IDENTITY_REQUEST_RATE_LIMITER" | "SOCKET_TICKET_RATE_LIMITER"
+  >,
   request: Request,
   pubkey: string,
 ) {

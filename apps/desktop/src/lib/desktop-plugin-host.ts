@@ -1,6 +1,8 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
+import { isJsonString } from "@chief/relay-contracts";
+
 const PLUGIN_HOST_URL = "http://127.0.0.1:4318";
 
 let tokenPromise: Promise<string> | null = null;
@@ -65,7 +67,7 @@ export async function requestDesktopPluginHost<T>(
   const result = (await response.json()) as T & { error?: unknown };
   if (!response.ok) {
     throw new Error(
-      typeof result.error === "string"
+      isJsonString(result.error)
         ? result.error
         : `Plugin host returned HTTP ${response.status}.`,
     );

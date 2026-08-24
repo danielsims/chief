@@ -134,7 +134,7 @@ export function useProjects() {
           workspaceId: cloudOrganizationId,
           requestId,
           path,
-          ...(name?.trim() ? { name: name.trim() } : {}),
+          ...(name?.trim() ? { name: name.trim() } : undefined),
           executorCapability: capability,
         });
         return await saved;
@@ -161,7 +161,7 @@ export function useProjects() {
           workspaceId: cloudOrganizationId,
           requestId,
           remoteUrl,
-          ...(name?.trim() ? { name: name.trim() } : {}),
+          ...(name?.trim() ? { name: name.trim() } : undefined),
           executorCapability: capability,
         });
         return await saved;
@@ -242,7 +242,7 @@ export function useProjectBrowser(
       requestId,
       projectId,
       ref,
-      ...(path ? { path } : {}),
+      ...(path ? { path } : undefined),
       executorCapability: capability,
     });
   }, [capability, client, cloudOrganizationId, key, path, projectId, ref]);

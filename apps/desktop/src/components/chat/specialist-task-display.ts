@@ -1,3 +1,5 @@
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+
 interface SpecialistTask {
   id: string;
   agent: string;
@@ -39,10 +41,10 @@ export function specialistNeedsUserInThread(
 }
 
 function delegationIds(input: unknown) {
-  if (!input || typeof input !== "object") return undefined;
+  if (!input || !isJsonObject(input)) return undefined;
   const value = input as Record<string, unknown>;
-  if (typeof value.delegationId === "string") return [value.delegationId];
-  if (typeof value.code !== "string") return undefined;
+  if (isJsonString(value.delegationId)) return [value.delegationId];
+  if (!isJsonString(value.code)) return undefined;
   return Array.from(
     value.code.matchAll(/delegationId\s*:\s*["']([^"']+)["']/g),
     (match) => match[1],
@@ -50,16 +52,13 @@ function delegationIds(input: unknown) {
 }
 
 function delegatedAgentIds(input: unknown) {
-  if (!input || typeof input !== "object") return undefined;
+  if (!input || !isJsonObject(input)) return undefined;
   const value = input as Record<string, unknown>;
-  if (
-    typeof value.agentId === "string" &&
-    typeof value.delegationId === "string"
-  ) {
+  if (isJsonString(value.agentId) && isJsonString(value.delegationId)) {
     return [value.agentId];
   }
   if (
-    typeof value.code !== "string" ||
+    !isJsonString(value.code) ||
     !value.code.includes("specialistsDelegate")
   ) {
     return undefined;

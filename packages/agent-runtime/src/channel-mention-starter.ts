@@ -57,8 +57,10 @@ async function appendOnce(input: {
     actor: input.actor,
     content: input.content,
     sourceId: input.sourceId,
-    ...(input.threadRootId ? { threadRootId: input.threadRootId } : {}),
-    ...(input.channelAction ? { channelAction: input.channelAction } : {}),
+    ...(input.threadRootId ? { threadRootId: input.threadRootId } : undefined),
+    ...(input.channelAction
+      ? { channelAction: input.channelAction }
+      : undefined),
   });
   await store.appendEvent(input.workspaceId, event);
   await input.onChannelEvent?.(event);

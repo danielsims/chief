@@ -1,3 +1,5 @@
+import { isJsonNumber, isJsonString } from "@chief/relay-contracts";
+
 import type { RecurringWorkRecord } from "./types.js";
 
 export const TRANSIENT_RETRY_DELAY_MS = 30_000;
@@ -16,7 +18,7 @@ function errorChain(error: unknown) {
       current = current.cause;
     } else {
       messages.push(
-        typeof current === "string" || typeof current === "number"
+        isJsonString(current) || isJsonNumber(current)
           ? `${current}`
           : "Unknown runtime error",
       );

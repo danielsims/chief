@@ -1,4 +1,9 @@
 import type { ChannelWorkstream } from "@chief/channel-api";
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
 
 export class ChannelApiFailure extends Error {
   constructor(
@@ -15,7 +20,7 @@ export function fail(message: string, status: number, code: string): never {
 }
 
 export function textValue(input: unknown, name: string, maximum: number) {
-  if (typeof input !== "string" || !input.trim()) {
+  if (!isJsonString(input) || !input.trim()) {
     fail(`${name} is required.`, 400, "invalid_input");
   }
   return input.trim().slice(0, maximum);
@@ -23,7 +28,7 @@ export function textValue(input: unknown, name: string, maximum: number) {
 
 export function optionalText(input: unknown, name: string, maximum: number) {
   if (input === undefined) return undefined;
-  if (typeof input !== "string") {
+  if (!isJsonString(input)) {
     fail(`${name} must be a string.`, 400, "invalid_input");
   }
   return input.trim().slice(0, maximum);
@@ -32,7 +37,7 @@ export function optionalText(input: unknown, name: string, maximum: number) {
 export function expectedVersion(body: Record<string, unknown>) {
   if (body.expectedVersion === undefined) return undefined;
   if (
-    typeof body.expectedVersion !== "number" ||
+    !isJsonNumber(body.expectedVersion) ||
     !Number.isInteger(body.expectedVersion) ||
     body.expectedVersion < 1
   ) {
@@ -52,7 +57,7 @@ export function workstreamInput(
   fallback?: ChannelWorkstream,
 ): ChannelWorkstream | undefined {
   if (input === undefined) return fallback;
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
+  if (!input || !isJsonObject(input) || Array.isArray(input)) {
     fail("workstream must be an object.", 400, "invalid_input");
   }
   const raw = input as Record<string, unknown>;
@@ -64,7 +69,7 @@ export function workstreamInput(
     "cancelled",
   ];
   const status = raw.status ?? fallback?.status ?? "planned";
-  if (typeof status !== "string" || !allowedStatuses.includes(status)) {
+  if (!isJsonString(status) || !allowedStatuses.includes(status)) {
     fail("workstream.status is invalid.", 400, "invalid_input");
   }
   const pullRequestUrls =

@@ -1,3 +1,5 @@
+import { isJsonString } from "@chief/relay-contracts";
+
 import type {
   AgentEvent,
   ChatExecutionSelection,
@@ -155,7 +157,7 @@ async function storeInputValues(
   const saved: string[] = [];
   for (const field of request.fields) {
     const value = values[field.key];
-    if (typeof value !== "string" || value.length === 0) continue;
+    if (!isJsonString(value) || value.length === 0) continue;
     if ("file" in field.save) {
       saved.push(
         await workspaceSecrets.storeFile(workspaceId, field.save.file, value),

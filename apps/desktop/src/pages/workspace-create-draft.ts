@@ -1,3 +1,5 @@
+import { isJsonString } from "@chief/relay-contracts";
+
 export type WorkspaceInferenceProvider = "claude" | "codex" | "opencode" | null;
 
 const createDraftVersion = 1;
@@ -30,11 +32,11 @@ export function readCreateWorkspaceDraft(
       step === undefined ||
       step < 0 ||
       step > 3 ||
-      typeof value.name !== "string" ||
-      typeof value.website !== "string" ||
-      typeof value.model !== "string" ||
+      !isJsonString(value.name) ||
+      !isJsonString(value.website) ||
+      !isJsonString(value.model) ||
       !Array.isArray(value.selectedApps) ||
-      !value.selectedApps.every((app) => typeof app === "string") ||
+      !value.selectedApps.every((app) => isJsonString(app)) ||
       ![null, "claude", "codex", "opencode"].includes(value.provider ?? null)
     ) {
       return null;

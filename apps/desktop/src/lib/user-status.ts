@@ -1,9 +1,12 @@
 import { useCallback, useSyncExternalStore } from "react";
+import { z } from "zod";
 
 export interface UserStatus {
   emoji: string;
   text: string;
 }
+
+const userStatusSchema = z.object({ emoji: z.string(), text: z.string() });
 
 const statusCache = new Map<string, UserStatus | null>();
 const statusListeners = new Map<string, Set<() => void>>();
@@ -18,13 +21,8 @@ function readStatus(key: string) {
     const value = JSON.parse(
       window.localStorage.getItem(key) ?? "null",
     ) as unknown;
-    const status =
-      value &&
-      typeof value === "object" &&
-      typeof (value as Partial<UserStatus>).text === "string" &&
-      typeof (value as Partial<UserStatus>).emoji === "string"
-        ? (value as UserStatus)
-        : null;
+    const parsed = userStatusSchema.safeParse(value);
+    const status = parsed.success ? parsed.data : null;
     statusCache.set(key, status);
     return status;
   } catch {

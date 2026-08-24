@@ -2,6 +2,12 @@ import { schnorr } from "@noble/curves/secp256k1.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
+
 import { AuthenticationError } from "./auth";
 
 /**
@@ -186,24 +192,24 @@ function tag(tags: readonly string[][], key: string): string | undefined {
 }
 
 function parseNip98Event(value: unknown): Nip98Event {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (!value || !isJsonObject(value) || Array.isArray(value)) {
     throw new AuthenticationError("The Nostr event must be an object.");
   }
   const event = value as Record<string, unknown>;
   if (
-    typeof event.id !== "string" ||
-    typeof event.pubkey !== "string" ||
-    typeof event.content !== "string" ||
-    typeof event.kind !== "number" ||
-    typeof event.created_at !== "number" ||
-    typeof event.sig !== "string" ||
+    !isJsonString(event.id) ||
+    !isJsonString(event.pubkey) ||
+    !isJsonString(event.content) ||
+    !isJsonNumber(event.kind) ||
+    !isJsonNumber(event.created_at) ||
+    !isJsonString(event.sig) ||
     !Array.isArray(event.tags) ||
     !event.tags.every(
       (entry) =>
         Array.isArray(entry) &&
         entry.length > 0 &&
         entry.length <= 4 &&
-        entry.every((part) => typeof part === "string" && part.length <= 8_192),
+        entry.every((part) => isJsonString(part) && part.length <= 8_192),
     ) ||
     event.tags.length > 32
   ) {

@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router";
 
+import { isJsonString } from "@chief/relay-contracts";
 import {
   Popover,
   PopoverAnchor,
@@ -177,7 +178,7 @@ export function SidebarProfileMenu() {
                         name={organization.name}
                         logo={organization.logo}
                         website={
-                          typeof metadata.websiteUrl === "string"
+                          isJsonString(metadata.websiteUrl)
                             ? metadata.websiteUrl
                             : ""
                         }

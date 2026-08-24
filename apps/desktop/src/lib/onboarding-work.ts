@@ -1,4 +1,5 @@
 import type { OnboardingWorkJob } from "@chief/agent-runtime/types";
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 import type { IntegrationSearchResult } from "./integrations";
 import { onboardingScopedId } from "./onboarding-ids";
@@ -128,15 +129,15 @@ export function buildOnboardingWorkJobs(
 }
 
 function integrations(value: unknown): IntegrationSearchResult[] {
-  if (!value || typeof value !== "object") return [];
+  if (!value || !isJsonObject(value)) return [];
   const candidates = (value as { integrations?: unknown }).integrations;
   if (!Array.isArray(candidates)) return [];
   return candidates.filter((item): item is IntegrationSearchResult =>
     Boolean(
       item &&
-      typeof item === "object" &&
-      typeof (item as { domain?: unknown }).domain === "string" &&
-      typeof (item as { name?: unknown }).name === "string",
+      isJsonObject(item) &&
+      isJsonString((item as { domain?: unknown }).domain) &&
+      isJsonString((item as { name?: unknown }).name),
     ),
   );
 }
@@ -148,11 +149,11 @@ export function onboardingWorkFromMetadata(
   onboarding: Record<string, unknown>,
 ): OnboardingWorkJob[] {
   const brand =
-    onboarding.brand && typeof onboarding.brand === "object"
+    onboarding.brand && isJsonObject(onboarding.brand)
       ? (onboarding.brand as Record<string, unknown>)
       : {};
   const automation =
-    onboarding.automation && typeof onboarding.automation === "object"
+    onboarding.automation && isJsonObject(onboarding.automation)
       ? (onboarding.automation as Record<string, unknown>)
       : {};
   const selectedPlugins = integrations(onboarding.plugins);
@@ -165,19 +166,18 @@ export function onboardingWorkFromMetadata(
     workspaceId,
     companyName,
     websiteUrl,
-    timezone:
-      typeof automation.timezone === "string"
-        ? automation.timezone
-        : Intl.DateTimeFormat().resolvedOptions().timeZone,
+    timezone: isJsonString(automation.timezone)
+      ? automation.timezone
+      : Intl.DateTimeFormat().resolvedOptions().timeZone,
     brand: {
-      mode: typeof brand.mode === "string" ? brand.mode : "skip",
-      notes: typeof brand.notes === "string" ? brand.notes : "",
+      mode: isJsonString(brand.mode) ? brand.mode : "skip",
+      notes: isJsonString(brand.notes) ? brand.notes : "",
       files: Array.isArray(brand.files)
         ? brand.files.flatMap((file) =>
             file &&
-            typeof file === "object" &&
-            typeof (file as { name?: unknown }).name === "string" &&
-            typeof (file as { type?: unknown }).type === "string"
+            isJsonObject(file) &&
+            isJsonString((file as { name?: unknown }).name) &&
+            isJsonString((file as { type?: unknown }).type)
               ? [
                   {
                     name: (file as { name: string }).name,

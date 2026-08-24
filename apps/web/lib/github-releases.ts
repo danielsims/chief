@@ -20,7 +20,7 @@ export function githubHeaders(accept: string) {
     "User-Agent": "Chief release service",
     ...(env.GITHUB_TOKEN
       ? { Authorization: `Bearer ${env.GITHUB_TOKEN}` }
-      : {}),
+      : undefined),
   };
 }
 

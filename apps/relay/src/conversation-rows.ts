@@ -1,4 +1,5 @@
 import type { MessageReaction } from "@chief/relay-contracts";
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 export interface MessageRow extends Record<string, SqlStorageValue> {
   message_id: string;
@@ -46,8 +47,8 @@ export function parseReactions(json: string): MessageReaction[] {
   return parsed.filter(
     (entry): entry is MessageReaction =>
       entry !== null &&
-      typeof entry === "object" &&
-      typeof (entry as MessageReaction).emoji === "string" &&
+      isJsonObject(entry) &&
+      isJsonString((entry as MessageReaction).emoji) &&
       Array.isArray((entry as MessageReaction).pubkeys),
   );
 }

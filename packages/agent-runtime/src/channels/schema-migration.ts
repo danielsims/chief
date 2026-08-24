@@ -1,5 +1,7 @@
 import type { Client } from "@libsql/client";
 
+import { isJsonString } from "@chief/relay-contracts";
+
 import * as schema from "../db/schema.js";
 import { MISSION_CONTROL_CHANNEL_ID } from "./nip29.js";
 
@@ -47,9 +49,7 @@ async function addMissingColumns(
 ) {
   const result = await client.execute(`PRAGMA table_info(${table})`);
   const existing = new Set(
-    result.rows.flatMap((row) =>
-      typeof row.name === "string" ? [row.name] : [],
-    ),
+    result.rows.flatMap((row) => (isJsonString(row.name) ? [row.name] : [])),
   );
   for (const [name, definition] of columns) {
     if (existing.has(name)) continue;

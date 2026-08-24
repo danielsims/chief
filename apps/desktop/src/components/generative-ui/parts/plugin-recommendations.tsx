@@ -17,7 +17,9 @@ function PluginRecommendationsPart({
       ? {
           workspaceId: data.workspaceId,
           conversationId: data.conversationId,
-          ...(data.threadRootId ? { threadRootId: data.threadRootId } : {}),
+          ...(data.threadRootId
+            ? { threadRootId: data.threadRootId }
+            : undefined),
           agentId: data.agentId,
           recommendationId: data.recommendationId,
         }

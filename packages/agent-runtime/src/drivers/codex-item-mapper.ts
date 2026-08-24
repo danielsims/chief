@@ -1,3 +1,9 @@
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
+
 import type { ContentBlock } from "../types.js";
 
 export interface CodexItemMappingState {
@@ -14,25 +20,23 @@ export function codexItemToBlocks(
     case "agentMessage":
     case "agent_message": {
       const streamed = state.takeStream();
-      const text =
-        typeof item.text === "string"
-          ? item.text
-          : typeof item.content === "string"
-            ? item.content
-            : streamed;
+      const text = isJsonString(item.text)
+        ? item.text
+        : isJsonString(item.content)
+          ? item.content
+          : streamed;
       return text ? [{ type: "text", text }] : [];
     }
     case "reasoning": {
-      const text =
-        typeof item.text === "string"
-          ? item.text
-          : typeof item.summary === "string"
+      const text = isJsonString(item.text)
+        ? item.text
+        : isJsonString(item.summary)
+          ? item.summary
+          : Array.isArray(item.summary)
             ? item.summary
-            : Array.isArray(item.summary)
-              ? item.summary
-                  .map((part) => textValue(record(part)?.text))
-                  .join("\n")
-              : "";
+                .map((part) => textValue(record(part)?.text))
+                .join("\n")
+            : "";
       return text ? [{ type: "thinking", thinking: text }] : [];
     }
     case "commandExecution":
@@ -54,8 +58,8 @@ export function codexItemToBlocks(
           tool_use_id: id,
           content: output.trim()
             ? output
-            : `Command completed${typeof exitCode === "number" ? ` with exit code ${exitCode}` : ""}.`,
-          is_error: typeof exitCode === "number" && exitCode !== 0,
+            : `Command completed${isJsonNumber(exitCode) ? ` with exit code ${exitCode}` : ""}.`,
+          is_error: isJsonNumber(exitCode) && exitCode !== 0,
         },
       ];
     }
@@ -179,17 +183,17 @@ export function codexItemStartedToBlocks(
 }
 
 function record(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object"
-    ? (value as Record<string, unknown>)
+  return value && isJsonObject(value)
+    ? (value)
     : null;
 }
 
 function textValue(value: unknown): string {
-  return typeof value === "string" ? value : "";
+  return isJsonString(value) ? value : "";
 }
 
 function idValue(value: unknown, fallback: () => string): string {
-  return typeof value === "string" || typeof value === "number"
+  return isJsonString(value) || isJsonNumber(value)
     ? String(value)
     : fallback();
 }
@@ -204,7 +208,7 @@ export function codexMcpResultText(item: Record<string, unknown>): string {
     .flatMap((part) => {
       const value = record(part);
       if (!value) return [];
-      if (value.type === "text" && typeof value.text === "string") {
+      if (value.type === "text" && isJsonString(value.text)) {
         return [value.text];
       }
       if (value.type === "resource" || value.type === "resource_link") {

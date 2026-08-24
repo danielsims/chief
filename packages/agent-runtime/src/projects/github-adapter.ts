@@ -1,3 +1,11 @@
+import { z } from "zod";
+
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
+
 import type {
   CredentialRequest,
   ProjectProviderAdapter,
@@ -16,6 +24,15 @@ import { GitHubApp } from "./github-app.js";
 
 type Json = Record<string, unknown>;
 
+const jsonObjectSchema = z.record(z.string(), z.unknown());
+const repositoryListSchema = z.object({
+  repositories: z.array(jsonObjectSchema).optional(),
+  total_count: z.number().optional(),
+});
+const checkRunsSchema = z.object({
+  check_runs: z.array(jsonObjectSchema).optional(),
+});
+
 interface GitHubAdapterOptions {
   appId?: string;
   privateKey?: string;
@@ -33,15 +50,15 @@ function parseOwnerName(repositoryId: string) {
 }
 
 function asString(value: unknown, fallback: string) {
-  return typeof value === "string" ? value : fallback;
+  return isJsonString(value) ? value : fallback;
 }
 
 function asNumber(value: unknown, fallback: number) {
-  return typeof value === "number" ? value : fallback;
+  return isJsonNumber(value) ? value : fallback;
 }
 
 function asDate(value: unknown) {
-  return typeof value === "string" ? Date.parse(value) : Date.now();
+  return isJsonString(value) ? Date.parse(value) : Date.now();
 }
 
 function asBoolean(value: unknown) {
@@ -112,10 +129,9 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
     const params = new URLSearchParams({ per_page: "100" });
     if (query?.trim()) params.set("q", `fork:true ${query.trim()}`);
     if (cursor) params.set("page", cursor);
-    const body = await this.api<{
-      repositories?: Json[];
-      total_count?: number;
-    }>(`installation/repositories?${params}`, connectionId);
+    const body = repositoryListSchema.parse(
+      await this.api(`installation/repositories?${params}`, connectionId),
+    );
     const repositories = (body.repositories ?? []).map((row) =>
       this.repository(row),
     );
@@ -125,13 +141,13 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
       (Number(cursor ?? 1) * 100 < total || total === 0)
         ? String(Number(cursor ?? 1) + 1)
         : undefined;
-    return { repositories, ...(nextCursor ? { nextCursor } : {}) };
+    return { repositories, ...(nextCursor ? { nextCursor } : undefined) };
   }
 
   async getRepository(connectionId: string, repositoryId: string) {
     const parsed = parseOwnerName(repositoryId);
     if (!parsed) throw new Error("Use a repository id like owner/name.");
-    const body = await this.api<Json>(
+    const body = await this.api(
       `repos/${parsed.owner}/${parsed.name}`,
       connectionId,
     );
@@ -155,14 +171,14 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
   ) {
     const parsed = parseOwnerName(input.repositoryId);
     if (!parsed) throw new Error("Use a repository id like owner/name.");
-    const body = await this.api<Json>(
+    const body = await this.api(
       `repos/${parsed.owner}/${parsed.name}/pulls`,
       connectionId,
       {
         method: "POST",
         body: {
           title: input.title,
-          ...(input.description ? { body: input.description } : {}),
+          ...(input.description ? { body: input.description } : undefined),
           head: input.headBranch,
           base: input.baseBranch,
         },
@@ -177,15 +193,15 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
   ) {
     const parsed = parseOwnerName(input.repositoryId);
     if (!parsed) throw new Error("Use a repository id like owner/name.");
-    const body = await this.api<Json>(
+    const body = await this.api(
       `repos/${parsed.owner}/${parsed.name}/pulls/${input.number}`,
       connectionId,
       {
         method: "PATCH",
         body: {
-          ...(input.title ? { title: input.title } : {}),
-          ...(input.description ? { body: input.description } : {}),
-          ...(input.state ? { state: input.state } : {}),
+          ...(input.title ? { title: input.title } : undefined),
+          ...(input.description ? { body: input.description } : undefined),
+          ...(input.state ? { state: input.state } : undefined),
         },
       },
     );
@@ -195,10 +211,12 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
   async getChecks(input: ProviderRefInput): Promise<ProviderCheckSummary[]> {
     const parsed = parseOwnerName(input.repositoryId);
     if (!parsed) throw new Error("Use a repository id like owner/name.");
-    const body = await this.api<{ check_runs?: Json[] }>(
-      `repos/${parsed.owner}/${parsed.name}/commits/${encodeURIComponent(
-        input.ref,
-      )}/check-runs?per_page=100`,
+    const body = checkRunsSchema.parse(
+      await this.api(
+        `repos/${parsed.owner}/${parsed.name}/commits/${encodeURIComponent(
+          input.ref,
+        )}/check-runs?per_page=100`,
+      ),
     );
     return (body.check_runs ?? []).map((row) => ({
       name: asString(row.name, "check"),
@@ -210,10 +228,12 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
               "success",
             ) as ProviderCheckConclusion,
           }
-        : {}),
-      ...(row.started_at ? { startedAt: asDate(row.started_at) } : {}),
-      ...(row.completed_at ? { completedAt: asDate(row.completed_at) } : {}),
-      ...(row.html_url ? { url: asString(row.html_url, "") } : {}),
+        : undefined),
+      ...(row.started_at ? { startedAt: asDate(row.started_at) } : undefined),
+      ...(row.completed_at
+        ? { completedAt: asDate(row.completed_at) }
+        : undefined),
+      ...(row.html_url ? { url: asString(row.html_url, "") } : undefined),
     }));
   }
 
@@ -231,7 +251,7 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
 
   private repository(row: Json): ProviderRepository {
     const owner = asString(
-      row.owner && typeof row.owner === "object"
+      row.owner && isJsonObject(row.owner)
         ? (row.owner as Json).login
         : undefined,
       "",
@@ -247,12 +267,12 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
       private: asBoolean(row.private),
       ...(row.description
         ? { description: asString(row.description, "") }
-        : {}),
-      ...(row.owner && typeof row.owner === "object"
+        : undefined),
+      ...(row.owner && isJsonObject(row.owner)
         ? { avatarUrl: asString((row.owner as Json).avatar_url, "") }
-        : {}),
+        : undefined),
       cloneUrl: asString(row.clone_url, `https://github.com/${fullName}.git`),
-      ...(row.html_url ? { webUrl: asString(row.html_url, "") } : {}),
+      ...(row.html_url ? { webUrl: asString(row.html_url, "") } : undefined),
     };
   }
 
@@ -261,31 +281,27 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
     return {
       number: asNumber(row.number, 0),
       title: asString(row.title, ""),
-      ...(row.body ? { description: asString(row.body, "") } : {}),
+      ...(row.body ? { description: asString(row.body, "") } : undefined),
       state: merged ? "merged" : row.state === "open" ? "open" : "closed",
       headBranch: asString(
-        row.head && typeof row.head === "object"
-          ? (row.head as Json).ref
-          : undefined,
+        row.head && isJsonObject(row.head) ? (row.head as Json).ref : undefined,
         "",
       ),
       baseBranch: asString(
-        row.base && typeof row.base === "object"
-          ? (row.base as Json).ref
-          : undefined,
+        row.base && isJsonObject(row.base) ? (row.base as Json).ref : undefined,
         "",
       ),
-      ...(row.html_url ? { url: asString(row.html_url, "") } : {}),
+      ...(row.html_url ? { url: asString(row.html_url, "") } : undefined),
       createdAt: row.created_at ? asDate(row.created_at) : Date.now(),
       updatedAt: row.updated_at ? asDate(row.updated_at) : Date.now(),
     };
   }
 
-  private async api<T>(
+  private async api(
     path: string,
     connectionId?: string,
     options?: { method?: string; body?: Json },
-  ): Promise<T> {
+  ): Promise<Json> {
     const token = await this.accessToken();
     const response = await this.request(
       `${this.apiBaseUrl}/${path.replace(/^\/+/, "")}`,
@@ -297,11 +313,12 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
           "User-Agent": "chief",
           "X-GitHub-Api-Version": "2022-11-28",
         },
-        ...(options?.body ? { body: JSON.stringify(options.body) } : {}),
+        ...(options?.body ? { body: JSON.stringify(options.body) } : undefined),
       },
     );
     const text = await response.text();
-    const body = text ? (JSON.parse(text) as T) : ({} as T);
+    const parsed: unknown = text ? JSON.parse(text) : {};
+    const body = jsonObjectSchema.parse(parsed);
     if (
       response.status === 403 &&
       response.headers.get("x-ratelimit-remaining") === "0"
@@ -310,14 +327,12 @@ export class GitHubProjectProviderAdapter implements ProjectProviderAdapter {
     }
     if (!response.ok) {
       const message =
-        (body as Json).message ??
-        (body as Json).documentation_url ??
+        body.message ??
+        body.documentation_url ??
         `GitHub returned ${response.status}`;
       throw new Error(
         redactUrlCredentials(
-          typeof message === "string"
-            ? message
-            : "GitHub rejected the request.",
+          isJsonString(message) ? message : "GitHub rejected the request.",
         ),
       );
     }

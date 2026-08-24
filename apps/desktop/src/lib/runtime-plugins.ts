@@ -283,7 +283,9 @@ export function usePlugins() {
         chatId: context.conversationId,
         messageId,
         text: `Approved: ${verb} ${plugin.name}.`,
-        ...(context.threadRootId ? { threadRootId: context.threadRootId } : {}),
+        ...(context.threadRootId
+          ? { threadRootId: context.threadRootId }
+          : undefined),
         mentions: [context.agentId],
         components: [
           {
@@ -295,7 +297,7 @@ export function usePlugins() {
               conversationId: context.conversationId,
               ...(context.threadRootId
                 ? { threadRootId: context.threadRootId }
-                : {}),
+                : undefined),
               targetAgentId: context.agentId,
               recommendationId: context.recommendationId,
               pluginId: plugin.id,
