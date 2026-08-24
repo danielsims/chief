@@ -117,7 +117,7 @@ export function useChannelEvents(channelId: string | null) {
   return { events, loaded: eventsLoaded };
 }
 
-export function useWorkspaceChannels() {
+export function useWorkspaceChannelsState() {
   const { client, status } = useRuntime();
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
   const { sessionToken } = useAuth();
@@ -204,6 +204,15 @@ export function useWorkspaceChannels() {
           window.clearTimeout(pending.timeout);
           pendingCreates.current.delete(message.requestId);
           pending.resolve(message.channel.id);
+        }
+      }
+      if (message.type === "error" && message.requestId) {
+        const pending = pendingCreates.current.get(message.requestId);
+        if (pending) {
+          window.clearTimeout(pending.timeout);
+          pendingCreates.current.delete(message.requestId);
+          pending.resolve(null);
+          toast.error(message.message);
         }
       }
       if (

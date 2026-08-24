@@ -18,16 +18,29 @@ import {
 } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
+import type { StoredRelayConnection } from "../relay-connection";
 import type { OrganizationRole } from "./organization-role";
 import type { StoredSession } from "./session";
 import {
   AUTH_BASE_URL,
+  AUTH_UI_BASE_URL,
+  CHIEF_CLOUD_RELAY_URL,
+  RELAY_URL,
+} from "../config";
+import {
+  activateKnownRelay,
+  rememberRelayConnection,
+  saveStoredRelayConnection,
+} from "../relay-connection";
+import { useRelayWorkspaceOverride } from "../relay-workspace-override";
+import {
   authClient,
   getActiveAuthOrganizationMember,
   updateAuthUser,
   validateStoredSession,
 } from "./better-auth-client";
-import { pollForDesktopPkce, setupAuthDeepLink } from "./client";
+import { refreshOAuthSession, setupAuthDeepLink } from "./client";
+import { shouldInvalidateOAuthSession } from "./oauth-token-error";
 import {
   generateCodeChallenge,
   generateCodeVerifier,
@@ -38,7 +51,10 @@ import {
   AUTH_SESSION_CHANGED_EVENT,
   clearStoredSession,
   getStoredSession,
+  hydrateStoredSession,
+  loadSessionForRelay,
   setStoredSession,
+  storeSessionForRelay,
 } from "./session";
 
 interface AuthState {
@@ -58,21 +74,24 @@ interface AuthState {
   /** Last sign-in failure, surfaced on the splash screen. */
   authError: string | null;
   signIn: () => void;
+  connectRelay: (connection: StoredRelayConnection) => Promise<void>;
   signOut: () => void;
   invalidateSession: () => void;
   updateProfileImage: (image: string | null) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
+const noAuthAction = () => undefined;
+const noAsyncAuthAction = () => Promise.resolve();
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [isLoading, setIsLoading] = useState(() =>
-    Boolean(getStoredSession()?.token),
-  );
+  const [isLoading, setIsLoading] = useState(true);
+  const [sessionHydrated, setSessionHydrated] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [validationTrigger, setValidationTrigger] = useState(0);
   const [storedSession, setStoredSessionState] = useState<StoredSession | null>(
-    () => getStoredSession(),
+    null,
   );
   const [organizationMembership, setOrganizationMembership] = useState<{
     organizationId: string;
@@ -85,6 +104,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const syncStoredSession = () => setStoredSessionState(getStoredSession());
     window.addEventListener(AUTH_SESSION_CHANGED_EVENT, syncStoredSession);
+    void hydrateStoredSession()
+      .then((session) => {
+        setStoredSessionState(session);
+        setSessionHydrated(true);
+        if (!session) setIsLoading(false);
+      })
+      .catch((error: unknown) => {
+        console.error("[Auth] Could not load the secure OAuth session:", error);
+        setAuthError(
+          "Chief could not read your secure sign-in. Sign in again.",
+        );
+        setSessionHydrated(true);
+        setIsLoading(false);
+      });
     return () =>
       window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, syncStoredSession);
   }, []);
@@ -102,22 +135,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Deep link handler — receives chief-desktop:///auth#token=xxx
   // from the success page, exchanges the PKCE code for a session token.
-  const completeDesktopAuth = useCallback((storedSession: StoredSession) => {
-    if (authFlowCompletedRef.current) return;
-    authFlowCompletedRef.current = true;
-    authFlowCleanupRef.current?.();
-    authFlowCleanupRef.current = null;
-    console.log("[Auth] Desktop session received");
-    setStoredSession(storedSession);
-    setStoredSessionState(storedSession);
-    setAuthError(null);
-    setIsSigningIn(false);
-    setIsLoading(false);
-    // A fresh sign-in always lands on the dashboard. The webview URL still
-    // holds whatever route the user signed out from (e.g. /settings), and
-    // the router would otherwise restore it when it remounts.
-    window.history.replaceState(null, "", "/");
-  }, []);
+  const completeDesktopAuth = useCallback(
+    async (storedSession: StoredSession, relayOrigin: string) => {
+      if (authFlowCompletedRef.current) return;
+      authFlowCompletedRef.current = true;
+      authFlowCleanupRef.current?.();
+      authFlowCleanupRef.current = null;
+      console.log("[Auth] Desktop session received");
+      await storeSessionForRelay(relayOrigin, storedSession);
+
+      if (new URL(relayOrigin).origin !== new URL(RELAY_URL).origin) {
+        if (
+          new URL(relayOrigin).origin === new URL(CHIEF_CLOUD_RELAY_URL).origin
+        ) {
+          saveStoredRelayConnection(null);
+        } else {
+          activateKnownRelay(relayOrigin);
+        }
+        window.location.assign("/");
+        return;
+      }
+
+      setStoredSessionState(storedSession);
+      setAuthError(null);
+      setIsSigningIn(false);
+      setIsLoading(false);
+      // A fresh sign-in always lands on the dashboard. The webview URL still
+      // holds whatever route the user signed out from (e.g. /settings), and
+      // the router would otherwise restore it when it remounts.
+      window.history.replaceState(null, "", "/");
+    },
+    [],
+  );
 
   const failDesktopAuth = useCallback((err: unknown) => {
     // A late failure from the losing delivery path (poll vs deep link)
@@ -142,6 +191,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => cleanup?.();
   }, [completeDesktopAuth, failDesktopAuth]);
 
+  useEffect(() => {
+    const refreshExpiredSession = () => {
+      if (
+        document.visibilityState === "visible" &&
+        typeof storedSession?.expiresAt === "number" &&
+        storedSession.expiresAt <= Date.now() + 60_000
+      ) {
+        setValidationTrigger((current) => current + 1);
+      }
+    };
+    window.addEventListener("focus", refreshExpiredSession);
+    document.addEventListener("visibilitychange", refreshExpiredSession);
+    return () => {
+      window.removeEventListener("focus", refreshExpiredSession);
+      document.removeEventListener("visibilitychange", refreshExpiredSession);
+    };
+  }, [storedSession?.expiresAt]);
+
   // Validate the cached session against the server once when it changes (app
   // launch, and again right after sign-in). The localStorage session can
   // outlive the server-side session — it expires, or a backend auth deploy
@@ -150,6 +217,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // token (NOT polling); when the server rejects the token we sign out locally
   // so the user gets a clear re-login prompt instead of a half-broken session.
   useEffect(() => {
+    if (!sessionHydrated) return;
     const token = storedSession?.token;
     if (!token) {
       setIsLoading(false);
@@ -157,27 +225,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     let cancelled = false;
-    setIsLoading(true);
-    void validateStoredSession(token).then((result) => {
+    // Only the first hydration blocks the application shell. A focus-triggered
+    // refresh must keep the authenticated tree mounted so returning to Chief
+    // never resets navigation, scroll position, or arrival animations.
+    setIsLoading(false);
+    void validateOrRefreshSession(storedSession).then((result) => {
       if (cancelled) return;
-      if (result.status === "invalid") {
+      if (!result) {
         console.warn("[Auth] Stored session rejected by server, signing out");
         invalidateSession();
-        return;
-      }
-      if (result.status !== "valid") {
-        setIsLoading(false);
         return;
       }
 
       setStoredSessionState((current) => {
         if (!current || current.token !== token) return current;
-        const next = {
-          ...current,
-          user: result.user,
-          organizationId: result.organizationId ?? current.organizationId,
-          lastValidated: Date.now(),
-        };
+        const next = result;
         setStoredSession(next);
         return next;
       });
@@ -186,7 +248,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [invalidateSession, storedSession?.token]);
+    // The access token is the validation identity. Depending on the whole
+    // session would retrigger after updating lastValidated with the same token.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    invalidateSession,
+    sessionHydrated,
+    storedSession?.token,
+    validationTrigger,
+  ]);
 
   useEffect(() => {
     const organizationId = storedSession?.organizationId;
@@ -213,40 +283,78 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // ─── Actions ─────────────────────────────────────────────────────────
 
-  const signIn = useCallback(async () => {
-    console.log("[Auth] signIn called, starting PKCE flow");
-    setIsSigningIn(true);
-    setAuthError(null);
-    authFlowCleanupRef.current?.();
-    authFlowCleanupRef.current = null;
-    authFlowCompletedRef.current = false;
-    try {
+  const startRelayAuthorization = useCallback(
+    async (connection?: StoredRelayConnection) => {
+      const relayOrigin = connection?.relayUrl ?? RELAY_URL;
+      const authBaseUrl = connection?.authBaseUrl ?? AUTH_BASE_URL;
+      const authUiUrl = connection?.authUiUrl ?? AUTH_UI_BASE_URL;
+      console.log("[Auth] signIn called, starting PKCE flow");
+      setIsSigningIn(true);
+      setAuthError(null);
+      authFlowCleanupRef.current?.();
+      authFlowCleanupRef.current = null;
+      authFlowCompletedRef.current = false;
       const state = generateState();
       const codeVerifier = generateCodeVerifier();
       const codeChallenge = await generateCodeChallenge(codeVerifier);
 
-      storePkceVerifier(state, codeVerifier);
-
-      authFlowCleanupRef.current = await pollForDesktopPkce(state, {
-        onSession: completeDesktopAuth,
-        onError: failDesktopAuth,
+      await storePkceVerifier(state, codeVerifier, {
+        relayOrigin,
+        authBaseUrl,
       });
 
-      const signInUrl = new URL(`${AUTH_BASE_URL}/sign-in`);
+      const signInUrl = new URL("/api/auth/oauth2/authorize", authUiUrl);
       signInUrl.searchParams.set("client_id", "chief-desktop");
+      signInUrl.searchParams.set("redirect_uri", "chief-desktop:///auth");
+      signInUrl.searchParams.set("response_type", "code");
+      signInUrl.searchParams.set(
+        "scope",
+        "openid profile email offline_access",
+      );
       signInUrl.searchParams.set("code_challenge", codeChallenge);
       signInUrl.searchParams.set("code_challenge_method", "S256");
       signInUrl.searchParams.set("state", state);
+      signInUrl.searchParams.set("resource", authBaseUrl);
 
       console.log(
         "[Auth] Opening browser for PKCE OAuth:",
         signInUrl.toString().substring(0, 100) + "...",
       );
       await openUrl(signInUrl.toString());
-    } catch (err) {
-      failDesktopAuth(err);
-    }
-  }, [completeDesktopAuth, failDesktopAuth]);
+    },
+    [],
+  );
+
+  const signIn = useCallback(() => {
+    void startRelayAuthorization().catch(failDesktopAuth);
+  }, [failDesktopAuth, startRelayAuthorization]);
+
+  const connectRelay = useCallback(
+    async (connection: StoredRelayConnection) => {
+      rememberRelayConnection(connection);
+      const existing = await loadSessionForRelay(connection.relayUrl);
+      const reusable =
+        existing &&
+        (typeof existing.expiresAt !== "number" ||
+          existing.expiresAt > Date.now() + 60_000 ||
+          Boolean(existing.refreshToken));
+      if (reusable) {
+        // A stored refresh token is enough to switch relays. Let the normal
+        // startup validation refresh it in place instead of opening a new
+        // browser authorization flow while the user is simply pressing Back.
+        activateKnownRelay(connection.relayUrl);
+        window.location.assign("/");
+        return;
+      }
+      try {
+        await startRelayAuthorization(connection);
+      } catch (error) {
+        failDesktopAuth(error);
+        throw error;
+      }
+    },
+    [failDesktopAuth, startRelayAuthorization],
+  );
 
   const signOut = useCallback(() => {
     authFlowCleanupRef.current?.();
@@ -309,12 +417,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       organizationRole,
       authError,
       signIn,
+      connectRelay,
       signOut,
       invalidateSession,
       updateProfileImage,
     }),
     [
       authError,
+      connectRelay,
       isLoading,
       isSigningIn,
       invalidateSession,
@@ -330,8 +440,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+async function validateOrRefreshSession(session: StoredSession) {
+  const shouldRefresh =
+    Boolean(session.refreshToken) &&
+    typeof session.expiresAt === "number" &&
+    session.expiresAt <= Date.now() + 60_000;
+  if (shouldRefresh) {
+    try {
+      return await refreshOAuthSession(session);
+    } catch (error) {
+      return shouldInvalidateOAuthSession(error) ? null : session;
+    }
+  }
+  const validation = await validateStoredSession(session.token);
+  if (validation.status === "valid") {
+    return {
+      ...session,
+      user: validation.user,
+      organizationId: validation.organizationId ?? session.organizationId,
+      lastValidated: Date.now(),
+    };
+  }
+  if (validation.status === "unknown") return session;
+  if (!session.refreshToken) return null;
+  try {
+    return await refreshOAuthSession(session);
+  } catch (error) {
+    return shouldInvalidateOAuthSession(error) ? null : session;
+  }
+}
+
 export function useAuth(): AuthState {
   const ctx = useContext(AuthContext);
+  const relayWorkspaceId = useRelayWorkspaceOverride();
   if (!ctx) {
     return {
       isLoading: false,
@@ -342,11 +483,14 @@ export function useAuth(): AuthState {
       cloudOrganizationId: null,
       organizationRole: null,
       authError: null,
-      signIn: () => {},
-      signOut: () => {},
-      invalidateSession: () => {},
-      updateProfileImage: async () => {},
+      signIn: noAuthAction,
+      connectRelay: noAsyncAuthAction,
+      signOut: noAuthAction,
+      invalidateSession: noAuthAction,
+      updateProfileImage: noAsyncAuthAction,
     };
   }
-  return ctx;
+  return relayWorkspaceId
+    ? { ...ctx, cloudOrganizationId: relayWorkspaceId }
+    : ctx;
 }

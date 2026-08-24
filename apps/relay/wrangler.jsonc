@@ -1,0 +1,91 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "chief-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-17",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "WORKSPACES", "class_name": "WorkspaceObject" },
+      { "name": "ACCOUNTS", "class_name": "AccountObject" },
+      { "name": "CONVERSATIONS", "class_name": "ConversationObject" },
+      { "name": "AGENTS", "class_name": "AgentObject" },
+      { "name": "METRICS", "class_name": "AnalyticsObject" },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "WorkspaceObject",
+        "ConversationObject",
+        "AgentObject",
+      ],
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["AccountObject"],
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["AnalyticsObject"],
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["IdentityObject"],
+    },
+    {
+      "tag": "v5",
+      "deleted_classes": ["IdentityObject"],
+    },
+  ],
+  "r2_buckets": [
+    { "binding": "ARTIFACTS", "bucket_name": "chief-relay-artifacts" },
+  ],
+  "d1_databases": [
+    {
+      "binding": "AUTH_DB",
+      "database_name": "chief-relay-auth",
+      "database_id": "86b1e10c-f1b2-4772-bc3a-c7b07d7e751b",
+      "migrations_dir": "../../packages/auth/migrations",
+    },
+  ],
+  "ai": { "binding": "AI" },
+  "ratelimits": [
+    {
+      "name": "EDGE_REQUEST_RATE_LIMITER",
+      "namespace_id": "23001",
+      "simple": { "limit": 600, "period": 60 },
+    },
+    {
+      "name": "IDENTITY_REQUEST_RATE_LIMITER",
+      "namespace_id": "23002",
+      "simple": { "limit": 300, "period": 60 },
+    },
+    {
+      "name": "SOCKET_TICKET_RATE_LIMITER",
+      "namespace_id": "23003",
+      "simple": { "limit": 20, "period": 60 },
+    },
+    {
+      "name": "AUTH_REQUEST_RATE_LIMITER",
+      "namespace_id": "23004",
+      "simple": { "limit": 120, "period": 60 },
+    },
+    {
+      "name": "DEVICE_BIND_RATE_LIMITER",
+      "namespace_id": "23005",
+      "simple": { "limit": 30, "period": 60 },
+    },
+  ],
+  "vars": {
+    "RELAY_DEPLOYMENT": "chief-cloud",
+    "HOSTED_CELL_ENABLED": "true",
+    "HOSTED_CELL_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    "ACCOUNT_IDENTITY_MODE": "chief-account",
+    "AUTH_BASE_URL": "https://chief-relay.danielsims-browser-ui.workers.dev",
+    "AUTH_UI_ORIGIN": "https://heychief.sh",
+    "AUTH_GOOGLE_REDIRECT_URI": "https://heychief.sh/api/auth/callback/google",
+  },
+  "observability": { "enabled": true },
+}

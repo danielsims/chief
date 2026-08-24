@@ -1,6 +1,5 @@
 import type { ErrorInfo, ReactNode } from "react";
-import { Component, lazy, Suspense, useEffect, useState } from "react";
-import { useConvexAuth } from "convex/react";
+import { Component, lazy, Suspense } from "react";
 import {
   BrowserRouter,
   Navigate,
@@ -19,15 +18,18 @@ import { Layout } from "./components/layout";
 import { PageTitle } from "./components/page-title";
 import { AgentConfigProvider } from "./lib/agent-config";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
-import {
-  listAuthOrganizations,
-  parseOrganizationMetadata,
-} from "./lib/auth/better-auth-client";
 import { ChannelReadStateProvider } from "./lib/channel-read-state-context";
-import { missingDesktopConfiguration } from "./lib/config";
+import { missingDesktopConfiguration, RELAY_URL } from "./lib/config";
 import { ConvexClientProvider } from "./lib/convex";
+import { RelaySessionProvider, useRelaySession } from "./lib/relay-session";
 import { RuntimeProvider } from "./lib/runtime";
 import { ThemeProvider, useTheme } from "./lib/theme";
+import { WorkspaceChannelsProvider } from "./lib/workspace-channels-context";
+import {
+  isExplicitWorkspaceEntry,
+  pendingCreateRelayKey,
+  shouldResumeWorkspaceCreate,
+} from "./lib/workspace-entry";
 import { AgentsPage } from "./pages/agents";
 import { AnalyticsPage } from "./pages/analytics";
 import { ArtifactsPage } from "./pages/artifacts";
@@ -39,6 +41,7 @@ import { OnboardingPage } from "./pages/onboarding";
 import { ProspectsPage } from "./pages/prospects";
 import { SchedulePage } from "./pages/schedule";
 import { AppearanceSettings } from "./pages/settings/appearance";
+import { ConnectionSettings } from "./pages/settings/connection";
 import { DiagnosticsSettings } from "./pages/settings/diagnostics";
 import { EnvironmentSettings } from "./pages/settings/environment";
 import { SettingsLayout } from "./pages/settings/layout";
@@ -58,6 +61,11 @@ const PluginsPage = lazy(() =>
 const PluginsPagePreview = lazy(() =>
   import("./pages/plugins").then((module) => ({
     default: module.PluginsPagePreview,
+  })),
+);
+const ProjectsPage = lazy(() =>
+  import("./pages/projects").then((module) => ({
+    default: module.ProjectsPage,
   })),
 );
 
@@ -84,75 +92,60 @@ function ConfigurationRequired() {
 
 function OnboardingGate({ children }: { children: ReactNode }) {
   const location = useLocation();
-  const { cloudOrganizationId } = useAuth();
-  const { isAuthenticated: convexReady } = useConvexAuth();
-  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    let retryTimer: number | undefined;
-    // No reset here: keep the last onboarding decision mounted while the
-    // fresh answer loads. Only the first resolution shows the entry state.
-    const resolveOnboarding = async () => {
-      try {
-        const orgs = await listAuthOrganizations(false, { throwOnError: true });
-        if (cancelled) return;
-        const active =
-          orgs.find((candidate) => candidate.id === cloudOrganizationId) ??
-          orgs[0] ??
-          null;
-        if (!active) {
-          setNeedsOnboarding(true);
-          return;
-        }
-        const metadata = parseOrganizationMetadata(active);
-        const onboarding =
-          metadata.onboarding && typeof metadata.onboarding === "object"
-            ? (metadata.onboarding as Record<string, unknown>)
-            : {};
-        setNeedsOnboarding(typeof onboarding.completedAt !== "string");
-      } catch (error) {
-        if (cancelled) return;
-        console.warn("[Auth] Workspace metadata unavailable; retrying", error);
-        // A server-issued active organization is enough to keep an existing
-        // workspace usable while its metadata is revalidated in the background.
-        if (cloudOrganizationId) setNeedsOnboarding(false);
-        retryTimer = window.setTimeout(() => {
-          void resolveOnboarding();
-        }, 3_000);
-      }
-    };
-    void resolveOnboarding();
-    return () => {
-      cancelled = true;
-      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
-    };
-  }, [cloudOrganizationId]);
+  const relay = useRelaySession();
+  const resumesWorkspaceCreate = shouldResumeWorkspaceCreate(
+    window.sessionStorage.getItem(pendingCreateRelayKey),
+    RELAY_URL,
+  );
 
-  useEffect(() => {
-    const complete = () => setNeedsOnboarding(false);
-    window.addEventListener("chief:onboarding-complete", complete);
-    return () => {
-      window.removeEventListener("chief:onboarding-complete", complete);
-    };
-  }, []);
-
-  if (location.pathname === "/workspaces/new") {
-    return children;
-  }
-
-  if (needsOnboarding === null || (cloudOrganizationId && !convexReady)) {
+  if (relay.loading) {
     return <EntryState />;
   }
 
-  if (location.pathname === "/onboarding") {
-    return needsOnboarding ? children : <Navigate to="/" replace />;
+  if (!relay.snapshot && relay.error) {
+    return <RelayUnavailableState />;
   }
 
-  if (needsOnboarding) {
-    return <Navigate to="/onboarding" replace />;
+  if (resumesWorkspaceCreate && location.pathname !== "/workspaces/new") {
+    return <Navigate to="/workspaces/new?intent=add" replace />;
   }
 
-  return children;
+  if (location.pathname === "/workspaces/new") {
+    if (relay.snapshot && !isExplicitWorkspaceEntry(location.search)) {
+      return <Navigate to="/" replace />;
+    }
+    return children;
+  }
+
+  if (!relay.snapshot) {
+    return <Navigate to="/workspaces/new" replace />;
+  }
+
+  return location.pathname === "/onboarding" ? (
+    <Navigate to="/" replace />
+  ) : (
+    children
+  );
+}
+
+function RelayUnavailableState() {
+  const relay = useRelaySession();
+  return (
+    <main className="bg-background text-foreground flex min-h-screen items-center justify-center px-6">
+      <section className="bg-card w-full max-w-md rounded-xl border p-8">
+        <PageTitle>Workspace unavailable</PageTitle>
+        <p className="text-muted-foreground mt-3 text-sm leading-6">
+          Chief can’t connect to the server that runs this workspace. Go back
+          and use another workspace until it’s online again.
+        </p>
+        <div className="mt-6">
+          <Button onClick={() => void relay.returnToPreviousWorkspace()}>
+            Back
+          </Button>
+        </div>
+      </section>
+    </main>
+  );
 }
 
 class AppErrorBoundary extends Component<
@@ -278,74 +271,91 @@ function AuthenticatedApp() {
       <AgentConfigProvider>
         <BrowserRouter>
           <ChiefNavigationProvider>
-            <ChannelReadStateProvider>
-              <OnboardingGate>
-                <Routes>
-                  <Route
-                    path="workspaces/new"
-                    element={<CreateWorkspacePage />}
-                  />
-                  <Route path="onboarding" element={<OnboardingPage />} />
-                  <Route element={<Layout />}>
-                    <Route index element={<DashboardPage />} />
-                    <Route path="inbox" element={<InboxPage />} />
-                    <Route path="analytics" element={<AnalyticsPage />} />
-                    <Route path="artifacts" element={<ArtifactsPage />} />
-                    <Route path="campaigns" element={<CampaignsPage />} />
-                    <Route path="schedule" element={<SchedulePage />} />
-                    <Route path="prospects" element={<ProspectsPage />} />
-                    <Route path="trending" element={<TrendingPage />} />
+            <WorkspaceChannelsProvider>
+              <ChannelReadStateProvider>
+                <OnboardingGate>
+                  <Routes>
                     <Route
-                      path="conversations"
-                      element={<ConversationsPage />}
+                      path="workspaces/new"
+                      element={<CreateWorkspacePage />}
                     />
-                    <Route path="agents" element={<AgentsPage />} />
-                    <Route
-                      path="plugins"
-                      element={
-                        <Suspense fallback={null}>
-                          <PluginsPage />
-                        </Suspense>
-                      }
-                    />
-                    <Route path="files" element={<WorkspaceFilesPage />} />
-                    <Route
-                      path="files/:fileId"
-                      element={<WorkspaceFilePage />}
-                    />
-                    <Route path="settings" element={<SettingsLayout />}>
+                    <Route path="onboarding" element={<OnboardingPage />} />
+                    <Route element={<Layout />}>
+                      <Route index element={<DashboardPage />} />
+                      <Route path="inbox" element={<InboxPage />} />
+                      <Route path="analytics" element={<AnalyticsPage />} />
+                      <Route path="artifacts" element={<ArtifactsPage />} />
+                      <Route path="campaigns" element={<CampaignsPage />} />
+                      <Route path="schedule" element={<SchedulePage />} />
+                      <Route path="prospects" element={<ProspectsPage />} />
+                      <Route path="trending" element={<TrendingPage />} />
                       <Route
-                        index
-                        element={<Navigate to="/settings/profile" replace />}
+                        path="conversations"
+                        element={<ConversationsPage />}
                       />
-                      <Route path="profile" element={<ProfileSettings />} />
-                      <Route path="workspace" element={<WorkspaceSettings />} />
-                      <Route path="missions" element={<MissionsSettings />} />
+                      <Route path="agents" element={<AgentsPage />} />
                       <Route
-                        path="appearance"
-                        element={<AppearanceSettings />}
+                        path="projects/:projectId?"
+                        element={
+                          <Suspense fallback={null}>
+                            <ProjectsPage />
+                          </Suspense>
+                        }
                       />
                       <Route
-                        path="notifications"
-                        element={<NotificationsSettings />}
+                        path="plugins"
+                        element={
+                          <Suspense fallback={null}>
+                            <PluginsPage />
+                          </Suspense>
+                        }
                       />
+                      <Route path="files" element={<WorkspaceFilesPage />} />
                       <Route
-                        path="diagnostics"
-                        element={<DiagnosticsSettings />}
+                        path="files/:fileId"
+                        element={<WorkspaceFilePage />}
                       />
-                      <Route
-                        path="environment"
-                        element={<EnvironmentSettings />}
-                      />
-                      <Route
-                        path="integrations/*"
-                        element={<Navigate to="/plugins" replace />}
-                      />
+                      <Route path="settings" element={<SettingsLayout />}>
+                        <Route
+                          index
+                          element={<Navigate to="/settings/profile" replace />}
+                        />
+                        <Route path="profile" element={<ProfileSettings />} />
+                        <Route
+                          path="workspace"
+                          element={<WorkspaceSettings />}
+                        />
+                        <Route
+                          path="connection"
+                          element={<ConnectionSettings />}
+                        />
+                        <Route path="missions" element={<MissionsSettings />} />
+                        <Route
+                          path="appearance"
+                          element={<AppearanceSettings />}
+                        />
+                        <Route
+                          path="notifications"
+                          element={<NotificationsSettings />}
+                        />
+                        <Route
+                          path="diagnostics"
+                          element={<DiagnosticsSettings />}
+                        />
+                        <Route
+                          path="environment"
+                          element={<EnvironmentSettings />}
+                        />
+                        <Route
+                          path="integrations/*"
+                          element={<Navigate to="/plugins" replace />}
+                        />
+                      </Route>
                     </Route>
-                  </Route>
-                </Routes>
-              </OnboardingGate>
-            </ChannelReadStateProvider>
+                  </Routes>
+                </OnboardingGate>
+              </ChannelReadStateProvider>
+            </WorkspaceChannelsProvider>
           </ChiefNavigationProvider>
         </BrowserRouter>
       </AgentConfigProvider>
@@ -364,7 +374,9 @@ export default function App() {
         <AuthProvider>
           <AuthSessionBoundary>
             <ConvexClientProvider>
-              <AuthenticatedApp />
+              <RelaySessionProvider>
+                <AuthenticatedApp />
+              </RelaySessionProvider>
             </ConvexClientProvider>
           </AuthSessionBoundary>
         </AuthProvider>

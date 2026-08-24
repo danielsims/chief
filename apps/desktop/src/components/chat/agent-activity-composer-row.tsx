@@ -1,7 +1,15 @@
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 
+import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { AgentActivityPresence } from "./agent-activity-presence";
+import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
 import { formatAgentActivityStatus } from "./agent-activity-presence";
+
+function activityColor(agentId: string) {
+  return Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)
+    ? WORKSPACE_AGENT_IDENTITIES[agentId as WorkspaceAgentId].color
+    : "currentColor";
+}
 
 export function AgentActivityComposerRow({
   agents,
@@ -44,7 +52,8 @@ export function AgentActivityComposerRow({
           {visibleAgents.slice(0, 2).map((agent) => (
             <span
               key={agent.id}
-              className="bg-muted/35 ring-background grid size-[18px] place-items-center rounded-md ring-1"
+              className="ring-background grid size-[18px] place-items-center rounded-md bg-current/10 text-current ring-1"
+              style={{ color: activityColor(agent.id) }}
             >
               <MatrixLoader ariaLabel={`${agent.label} is working`} size={13} />
             </span>

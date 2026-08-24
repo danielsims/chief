@@ -13,13 +13,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@convex-dev/better-auth": "^0.12.3",
-    "@chief/backend": "workspace:*",
     "@chief/channel-api": "workspace:*",
     "@chief/ui": "workspace:*",
     "@t3-oss/env-nextjs": "^0.13.8",
     "better-auth": "1.6.16",
-    "convex": "^1.31.6",
     "next": "^15.4.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

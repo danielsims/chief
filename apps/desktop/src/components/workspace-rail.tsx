@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { Popover, PopoverAnchor } from "@chief/ui/components/popover";
@@ -11,12 +11,11 @@ import { cn } from "@chief/ui/lib/utils";
 
 import type { AuthOrganization } from "../lib/auth/better-auth-client";
 import { useAuth } from "../lib/auth/auth-context";
-import {
-  listAuthOrganizations,
-  parseOrganizationMetadata,
-  setActiveAuthOrganization,
-} from "../lib/auth/better-auth-client";
+import { parseOrganizationMetadata } from "../lib/auth/better-auth-client";
 import { useChannelReadState } from "../lib/channel-read-state-context";
+import { CHIEF_CLOUD_RELAY_URL } from "../lib/config";
+import { relayForWorkspace } from "../lib/relay-connection";
+import { useRelaySession } from "../lib/relay-session";
 import { activeFirstOrganizations } from "../lib/workspace-organizations";
 import { OrgLogo } from "./org-logo";
 import {
@@ -25,45 +24,35 @@ import {
 } from "./workspace-action-menu";
 
 export function WorkspaceRail() {
-  const { cloudOrganizationId, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const { workspaceUnreadCounts } = useChannelReadState();
-  const [organizations, setOrganizations] = useState<AuthOrganization[] | null>(
-    null,
+  const relay = useRelaySession();
+  const cloudOrganizationId = relay.snapshot?.id ?? null;
+  const organizations = useMemo(
+    () => relay.workspaces.map(relayWorkspaceOrganization),
+    [relay.workspaces],
   );
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
   const [workspaceMenuId, setWorkspaceMenuId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    let cancelled = false;
-    void listAuthOrganizations(true).then((next) => {
-      if (!cancelled) {
-        setOrganizations(next);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [isAuthenticated]);
-
   const orderedOrganizations = useMemo(
-    () => activeFirstOrganizations(organizations ?? [], cloudOrganizationId),
+    () => activeFirstOrganizations(organizations, cloudOrganizationId),
     [cloudOrganizationId, organizations],
   );
   const switchWorkspace = useCallback(
     async (organization: AuthOrganization) => {
       if (organization.id === cloudOrganizationId || switchingTo) return;
       setSwitchingTo(organization.id);
+      void navigate("/", { replace: true });
       try {
-        await setActiveAuthOrganization(organization.id);
-        window.location.assign("/");
+        await relay.switchWorkspace(organization.id);
       } catch (error) {
         console.error("[Workspace] Switch failed:", error);
         setSwitchingTo(null);
       }
     },
-    [cloudOrganizationId, switchingTo],
+    [cloudOrganizationId, navigate, relay, switchingTo],
   );
   const openWorkspaceSettings = useCallback(
     async (organization: AuthOrganization) => {
@@ -75,14 +64,14 @@ export function WorkspaceRail() {
       if (switchingTo) return;
       setSwitchingTo(organization.id);
       try {
-        await setActiveAuthOrganization(organization.id);
-        window.location.assign("/settings/workspace");
+        await relay.switchWorkspace(organization.id);
+        void navigate("/settings/workspace", { replace: true });
       } catch (error) {
         console.error("[Workspace] Switch failed:", error);
         setSwitchingTo(null);
       }
     },
-    [cloudOrganizationId, navigate, switchingTo],
+    [cloudOrganizationId, navigate, relay, switchingTo],
   );
 
   if (!isAuthenticated) {
@@ -96,16 +85,13 @@ export function WorkspaceRail() {
     >
       <div className="h-10 shrink-0" data-tauri-drag-region />
       <div className="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-y-auto px-1.5 pt-1">
-        {organizations === null ? (
-          <span
-            aria-hidden
-            className="bg-sidebar-accent size-8 shrink-0 animate-pulse rounded-[11px]"
-          />
-        ) : null}
         {orderedOrganizations.map((organization) => {
           const active = organization.id === cloudOrganizationId;
           const metadata = parseOrganizationMetadata(organization);
           const unreadCount = workspaceUnreadCounts.get(organization.id) ?? 0;
+          const relayUrl =
+            relayForWorkspace(organization.id) ??
+            new URL(CHIEF_CLOUD_RELAY_URL).origin;
           return (
             <Popover
               key={organization.id}
@@ -173,13 +159,14 @@ export function WorkspaceRail() {
                 </TooltipContent>
               </Tooltip>
               <WorkspaceActionsPopover
-                primaryLabel="Workspace settings"
+                primaryLabel={active ? "Workspace settings" : "Open workspace"}
                 primaryDisabled={switchingTo !== null}
-                onPrimaryAction={() => void openWorkspaceSettings(organization)}
-                onAddWorkspace={() => {
-                  setWorkspaceMenuId(null);
-                  void navigate("/workspaces/new");
+                onPrimaryAction={() => {
+                  if (active) void openWorkspaceSettings(organization);
+                  else void switchWorkspace(organization);
                 }}
+                workspaceName={organization.name}
+                relayUrl={relayUrl}
               />
             </Popover>
           );
@@ -187,4 +174,16 @@ export function WorkspaceRail() {
       </div>
     </nav>
   );
+}
+
+function relayWorkspaceOrganization(
+  workspace: ReturnType<typeof useRelaySession>["workspaces"][number],
+): AuthOrganization {
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    slug: workspace.id,
+    logo: workspace.imageURL,
+    metadata: { websiteUrl: workspace.website },
+  };
 }

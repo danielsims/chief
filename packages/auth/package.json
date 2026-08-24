@@ -1,0 +1,43 @@
+{
+  "name": "@chief/auth",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./credential": "./src/credential.ts",
+    "./d1": "./src/d1.ts",
+    "./d1-organizations": "./src/d1-organizations.ts",
+    "./origins": "./src/origins.ts",
+    "./schema/contract": "./src/schema/contract.ts",
+    "./schema/sqlite": "./src/schema/sqlite/index.ts"
+  },
+  "scripts": {
+    "clean": "git clean -xdf .cache .turbo dist node_modules",
+    "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
+    "generate": "pnpm --package drizzle-kit@0.31.8 --package drizzle-orm@0.45.2 dlx drizzle-kit generate --config drizzle.config.ts",
+    "lint": "eslint --flag unstable_native_nodejs_ts_config",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@better-auth/drizzle-adapter": "1.6.16",
+    "@better-auth/oauth-provider": "1.6.16",
+    "@better-fetch/fetch": "1.2.2",
+    "better-auth": "1.6.16",
+    "drizzle-orm": "0.45.2"
+  },
+  "devDependencies": {
+    "@chief/eslint-config": "workspace:*",
+    "@chief/prettier-config": "workspace:*",
+    "@chief/tsconfig": "workspace:*",
+    "@cloudflare/workers-types": "^5.20260821.1",
+    "@types/node": "catalog:",
+    "drizzle-kit": "0.31.8",
+    "eslint": "catalog:",
+    "prettier": "catalog:",
+    "tsx": "^4.20.3",
+    "typescript": "catalog:"
+  },
+  "prettier": "@chief/prettier-config"
+}

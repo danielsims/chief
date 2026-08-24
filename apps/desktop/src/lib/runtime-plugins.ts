@@ -17,6 +17,14 @@ export interface PluginState {
   warning?: string;
 }
 
+export interface RelayPluginActionContext {
+  workspaceId: string;
+  conversationId: string;
+  threadRootId?: string;
+  agentId: string;
+  recommendationId: string;
+}
+
 const cache = new Map<string, PluginState>();
 
 function requestId() {
@@ -132,7 +140,7 @@ export function usePlugins() {
           requestId: requestId(),
           executorCapability: capability,
         });
-        await completed;
+        return await completed;
       } finally {
         setBusyPluginId(null);
       }
@@ -193,14 +201,41 @@ export function usePlugins() {
     async (pluginId: string) => {
       setBusyPluginId(pluginId);
       try {
-        const action = await authorizationAction(pluginId);
-        if (action) await openUrl(action.authorizationUrl);
-        return action;
+        let lastAction: PluginAuthorizationAction | undefined;
+        for (let serverIndex = 0; serverIndex < 8; serverIndex += 1) {
+          const action = await authorizationAction(pluginId);
+          if (!action) return lastAction;
+          lastAction = action;
+          await openUrl(action.authorizationUrl);
+          const completed = waitForPlugin(
+            pluginId,
+            (plugin) =>
+              plugin.status === "authorization_required" ||
+              plugin.status === "connected" ||
+              plugin.status === "failed" ||
+              plugin.status === "reconnect",
+            120_000,
+          );
+          const refreshTimer = window.setInterval(() => refresh(), 1_000);
+          try {
+            const plugin = await completed;
+            if (plugin.status === "connected") return lastAction;
+            if (plugin.status !== "authorization_required") {
+              throw new Error(
+                plugin.diagnostics?.at(-1) ??
+                  "Chief could not finish the provider connection.",
+              );
+            }
+          } finally {
+            window.clearInterval(refreshTimer);
+          }
+        }
+        throw new Error("This plugin publishes too many provider connections.");
       } finally {
         setBusyPluginId(null);
       }
     },
-    [authorizationAction],
+    [authorizationAction, refresh, waitForPlugin],
   );
 
   const uninstall = useCallback(
@@ -227,6 +262,56 @@ export function usePlugins() {
     [capability, client, cloudOrganizationId, waitForPlugin],
   );
 
+  const requestAgentAction = useCallback(
+    (
+      plugin: AgentPluginSummary,
+      action: "install" | "authorize" | "uninstall",
+      context: RelayPluginActionContext,
+    ) => {
+      if (
+        !cloudOrganizationId ||
+        !capability ||
+        context.workspaceId !== cloudOrganizationId
+      ) {
+        throw new Error("Workspace authorization is not ready.");
+      }
+      const messageId = crypto.randomUUID();
+      const verb = action === "uninstall" ? "disconnect" : "connect";
+      client.send({
+        type: "sendMessage",
+        workspaceId: cloudOrganizationId,
+        chatId: context.conversationId,
+        messageId,
+        text: `Approved: ${verb} ${plugin.name}.`,
+        ...(context.threadRootId ? { threadRootId: context.threadRootId } : {}),
+        mentions: [context.agentId],
+        components: [
+          {
+            id: crypto.randomUUID(),
+            kind: "plugin.action",
+            version: 1,
+            payload: {
+              workspaceId: context.workspaceId,
+              conversationId: context.conversationId,
+              ...(context.threadRootId
+                ? { threadRootId: context.threadRootId }
+                : {}),
+              targetAgentId: context.agentId,
+              recommendationId: context.recommendationId,
+              pluginId: plugin.id,
+              pluginName: plugin.name,
+              action,
+            },
+          },
+        ],
+        senderName: "You",
+        executorCapability: capability,
+      });
+      return { messageId, verb };
+    },
+    [capability, client, cloudOrganizationId],
+  );
+
   return {
     ...state,
     loading: !state,
@@ -235,6 +320,7 @@ export function usePlugins() {
     install,
     authorize,
     uninstall,
+    requestAgentAction,
   };
 }
 

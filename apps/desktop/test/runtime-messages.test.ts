@@ -336,7 +336,14 @@ void test("hides intentional cancellation and internal runtime failures", () => 
     "Browser session failed",
   );
 });
-
+void test("replaces internal identifier validation details with a useful relay error", () => {
+  const validationError =
+    '[{"origin":"string","code":"invalid_format","message":"Identifiers may only contain letters, numbers, dots, underscores, and hyphens."}]';
+  assert.equal(
+    visibleRuntimeError(validationError),
+    "Chief couldn't route this conversation through the relay. Reopen the channel and try again.",
+  );
+});
 const streamed = (text: string): ChiefUIMessage => ({
   id: "stream:chat",
   role: "assistant",
@@ -418,7 +425,7 @@ const toolMessage = (
   ],
 });
 
-void test("drops replayed threadless copies that reuse tool call ids", () => {
+void test("keeps distinct messages that reuse tool call ids", () => {
   const messages = [
     toolMessage("original", "call_x", "root-1"),
     toolMessage("replayed", "call_x"),
@@ -426,7 +433,7 @@ void test("drops replayed threadless copies that reuse tool call ids", () => {
 
   assert.deepEqual(
     dropReplayedToolMessages(messages).map((m) => m.id),
-    ["original"],
+    ["original", "replayed"],
   );
 });
 
@@ -454,7 +461,7 @@ void test("thread-attached copies are never treated as replays", () => {
   );
 });
 
-void test("drops identical threadless text copies as replays", () => {
+void test("keeps consecutive messages with identical text", () => {
   const messages: ChiefUIMessage[] = [
     { id: "a", role: "assistant", parts: [{ type: "text", text: "Hello" }] },
     { id: "b", role: "assistant", parts: [{ type: "text", text: "Hello" }] },
@@ -462,32 +469,32 @@ void test("drops identical threadless text copies as replays", () => {
 
   assert.deepEqual(
     dropReplayedToolMessages(messages).map((m) => m.id),
-    ["a"],
+    ["a", "b"],
   );
 });
 
-void test("drops replayed threadless text copies but keeps live messages", () => {
-  const live: ChiefUIMessage = {
-    id: "optimistic",
-    role: "user",
-    parts: [{ type: "text", text: "@Chief set up GitHub" }],
-  };
-  const replayed: ChiefUIMessage = {
-    id: "replayed",
-    role: "assistant",
-    parts: [{ type: "text", text: "Checking GitHub." }],
-  };
+void test("deduplicates only by message id and keeps the newest projection", () => {
   const original: ChiefUIMessage = {
-    id: "original",
+    id: "same-message",
     role: "assistant",
-    metadata: { createdAt: 1, threadRootId: "root-1" },
-    parts: [{ type: "text", text: "Checking GitHub." }],
+    parts: [{ type: "text", text: "Checking…" }],
+  };
+  const updated: ChiefUIMessage = {
+    id: "same-message",
+    role: "assistant",
+    parts: [{ type: "text", text: "Done." }],
+  };
+  const repeatedContent: ChiefUIMessage = {
+    id: "different-message",
+    role: "assistant",
+    parts: [{ type: "text", text: "Done." }],
   };
 
-  const result = dropReplayedMessages([original, replayed, live]);
+  const result = dropReplayedMessages([original, updated, repeatedContent]);
 
   assert.deepEqual(
     result.map((m) => m.id),
-    ["original", "optimistic"],
+    ["same-message", "different-message"],
   );
+  assert.deepEqual(result[0]?.parts, updated.parts);
 });

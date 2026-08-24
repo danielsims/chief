@@ -39,7 +39,6 @@ export function useChiefChatComposer({
     chatReady,
     childSessions,
     controls,
-    driver,
     messages,
     runtimeStatus,
     send,
@@ -225,7 +224,6 @@ export function useChiefChatComposer({
     if (
       (initialPrompt !== undefined || initialAttachments.length > 0) &&
       !sentInitial.current &&
-      driver &&
       chatReady &&
       runtimeStatus === "connected"
     ) {
@@ -237,10 +235,10 @@ export function useChiefChatComposer({
       }, 400);
       return () => clearTimeout(timer);
     }
-  }, [initialPrompt, initialAttachments, runtimeStatus, driver, chatReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialPrompt, initialAttachments, runtimeStatus, chatReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = () => {
-    if (!driver || !chatReady) return;
+    if (!chatReady) return;
     const text = draft.trim();
     if (!text && imageAttachments.length === 0) return;
     if (composerOpen && approveAfterCreation) {

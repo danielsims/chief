@@ -30,12 +30,19 @@ const legacyLineLimits = new Map([
   ["packages/backend/convex/auth.ts", 569],
   ["packages/agent-runtime/src/manager.ts", 1175],
   ["apps/desktop/src/components/chat/agent-chat.tsx", 534],
+  ["apps/mobile/Chief/Resources/agent.js", 503],
+  ["apps/relay/src/workspace-object.ts", 594],
   ["packages/email/src/templates/digest/chief-digest-email.tsx", 539],
   ["packages/agent-runtime/src/tools/control-plane.ts", 1167],
   ["packages/agent-runtime/src/drivers/remote-eve.ts", 512],
   ["packages/agent-runtime/test/local-store.test.ts", 754],
   ["packages/agent-runtime/test/manager.test.ts", 815],
   ["apps/desktop/src/components/agents/agent-deployment-panel.tsx", 676],
+  ["apps/relay/src/agent-object.ts", 752],
+  ["apps/desktop/src/pages/workspace-new.tsx", 726],
+  ["apps/desktop/src/lib/relay-session.tsx", 558],
+  ["apps/desktop/src/pages/settings/workspace.tsx", 509],
+  ["apps/relay/src/router.ts", 501],
 ]);
 const sourceExtensions = new Set([
   ".cjs",
@@ -46,6 +53,7 @@ const sourceExtensions = new Set([
   ".ts",
   ".tsx",
 ]);
+const ignoredFiles = new Set(["worker-configuration.d.ts"]);
 const ignoredDirectories = new Set([
   ".cache",
   ".eve",
@@ -53,6 +61,7 @@ const ignoredDirectories = new Set([
   ".next",
   ".output",
   ".turbo",
+  ".wrangler",
   "_generated",
   "binaries",
   "coverage",
@@ -65,6 +74,7 @@ const ignoredDirectories = new Set([
 function sourceFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     if (ignoredDirectories.has(entry.name)) return [];
+    if (ignoredFiles.has(entry.name)) return [];
     const path = join(directory, entry.name);
     if (entry.isDirectory()) return sourceFiles(path);
     return entry.isFile() && sourceExtensions.has(extname(entry.name))

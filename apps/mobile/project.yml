@@ -1,0 +1,150 @@
+name: ChiefMobile
+options:
+  bundleIdPrefix: sh.heychief
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+packages:
+  P256K:
+    path: Chief/Vendored/swift-secp256k1
+  BrowserUI:
+    path: ../../../browser-ui
+  MCP:
+    url: https://github.com/modelcontextprotocol/swift-sdk.git
+    from: 0.11.0
+settings:
+  base:
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+    SWIFT_VERSION: 6.0
+    ENABLE_USER_SCRIPT_SANDBOXING: true
+targets:
+  Chief:
+    type: application
+    platform: iOS
+    info:
+      path: Chief/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Chief
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSApplicationCategoryType: public.app-category.business
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+        UIApplicationSupportsIndirectInputEvents: true
+        UILaunchScreen: {}
+        NSSupportsLiveActivities: true
+        BGTaskSchedulerPermittedIdentifiers:
+          - "$(PRODUCT_BUNDLE_IDENTIFIER).agent.*"
+        UIBackgroundModes:
+          - processing
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Editor
+            CFBundleURLName: sh.heychief.mobile
+            CFBundleURLSchemes:
+              - chief-mobile
+    sources:
+      - path: Chief
+        excludes:
+          - Resources
+          - Vendored/lib
+          - Vendored/CelldKit/agent.js
+          - Vendored/swift-secp256k1
+      - path: Chief/Resources
+        buildPhase: resources
+        excludes:
+          - Info.plist
+      - path: ../../packages/agent-runtime/src/agents
+        type: folder
+        buildPhase: resources
+      - path: Chief/Vendored/CelldC
+        headerVisibility: public
+        createIntermediateGroups: true
+      - path: Chief/Vendored/CelldKit/CelldC.swift
+      - path: Chief/Vendored/CelldKit/ChiefCellRuntime.swift
+      - path: Chief/Vendored/CelldKit/ChiefOpenCodeAgentHost.swift
+    dependencies:
+      - target: ChiefAgentActivityWidget
+      - package: P256K
+      - package: BrowserUI
+        product: BrowserUI
+      - package: BrowserUI
+        product: BrowserUIWebKit
+      - package: MCP
+        product: MCP
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: sh.heychief.mobile
+        PRODUCT_NAME: Chief
+        DEVELOPMENT_TEAM: XMMXB25823
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        LIBRARY_SEARCH_PATHS:
+          - "$(SRCROOT)/Chief/Vendored/lib"
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-lworker_core"
+          - "-lc++"
+        ENABLE_BITCODE: NO
+        DEAD_CODE_STRIPPING: YES
+        CLANG_ENABLE_MODULES: YES
+        SWIFT_OBJC_BRIDGING_HEADER: Chief/Vendored/CelldC/Chief-Bridging-Header.h
+        OTHER_SWIFT_FLAGS:
+          - "-DCELL_RUNTIME"
+        TARGETED_DEVICE_FAMILY: 1
+    scheme:
+      testTargets:
+        - ChiefTests
+        - ChiefUITests
+  ChiefAgentActivityWidget:
+    type: app-extension
+    platform: iOS
+    info:
+      path: ChiefAgentActivityWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Agent Activity
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    sources:
+      - path: ChiefAgentActivityWidget
+      - path: Chief/Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: sh.heychief.mobile.AgentActivityWidget
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 0.1.0
+        DEVELOPMENT_TEAM: XMMXB25823
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+        TARGETED_DEVICE_FAMILY: 1
+  ChiefTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ChiefTests
+    dependencies:
+      - target: Chief
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: sh.heychief.mobile.tests
+        DEVELOPMENT_TEAM: XMMXB25823
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: true
+  ChiefUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: ChiefUITests
+    dependencies:
+      - target: Chief
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: sh.heychief.mobile.uitests
+        DEVELOPMENT_TEAM: XMMXB25823
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: true

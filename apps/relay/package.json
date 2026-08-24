@@ -1,0 +1,38 @@
+{
+  "name": "@chief/relay",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "clean": "git clean -xdf .cache .turbo dist node_modules .wrangler",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
+    "lint": "eslint --flag unstable_native_nodejs_ts_config",
+    "test": "vitest run",
+    "types": "wrangler types --strict-vars false",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@chief/auth": "workspace:*",
+    "@chief/email": "workspace:*",
+    "@chief/relay-contracts": "workspace:*",
+    "@noble/curves": "^2.3.0",
+    "@noble/hashes": "^2.3.0",
+    "jose": "^6.2.3",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@chief/eslint-config": "workspace:*",
+    "@chief/prettier-config": "workspace:*",
+    "@chief/tsconfig": "workspace:*",
+    "@cloudflare/vitest-pool-workers": "^0.21.3",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
+    "prettier": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.34.0"
+  },
+  "prettier": "@chief/prettier-config"
+}

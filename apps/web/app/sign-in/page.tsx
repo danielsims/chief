@@ -2,7 +2,6 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useConvexAuth } from "convex/react";
 
 import { Button } from "@chief/ui/components/button";
 
@@ -12,33 +11,42 @@ import { GoogleLogo } from "./google-logo";
 function SignInContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // Redirect away only when Convex has accepted our token, the same source
-  // of truth the protected layouts use for their redirect to /sign-in. Using
-  // the Better Auth session here instead caused an infinite redirect loop
-  // whenever a session existed but a Convex token could not be minted.
-  const { isAuthenticated, isLoading } = useConvexAuth();
+  const { data: session, isPending: isLoading } = authClient.useSession();
+  const isAuthenticated = Boolean(session?.user);
   // Which provider button was clicked. Shows a spinner on that button until
   // the browser redirects (or the attempt fails). Ready for more providers.
   const [loadingProvider, setLoadingProvider] = useState<string | null>(null);
 
   // Get the callback URL from query params, default to home
-  const callbackUrl = searchParams.get("callbackUrl") ?? "/";
+  const callbackUrl = safeLocalPath(searchParams.get("callbackUrl"));
+  const shouldSwitchAccount = searchParams.get("switchAccount") === "1";
 
   // Desktop PKCE params, present when the desktop app opens this page
   const clientId = searchParams.get("client_id");
-  const codeChallenge = searchParams.get("code_challenge");
-  const codeChallengeMethod = searchParams.get("code_challenge_method");
-  const state = searchParams.get("state");
   const isDesktopFlow = clientId === "chief-desktop";
+  const isNativeOAuthFlow =
+    (clientId === "chief-desktop" || clientId === "chief-mobile") &&
+    Boolean(searchParams.get("sig"));
+  const authorizationCallback = isNativeOAuthFlow
+    ? `/api/auth/oauth2/authorize?${searchParams.toString()}`
+    : callbackUrl;
 
-  // Redirect if already logged in (only for web flow)
+  // A signed-in user can continue immediately. Native flows return to the
+  // relay's signed authorize request; ordinary web flows return locally.
   useEffect(() => {
-    if (isAuthenticated && !isDesktopFlow) {
-      router.replace(callbackUrl);
+    if (isAuthenticated && !shouldSwitchAccount) {
+      router.replace(isNativeOAuthFlow ? authorizationCallback : callbackUrl);
     }
-  }, [isAuthenticated, router, callbackUrl, isDesktopFlow]);
+  }, [
+    authorizationCallback,
+    callbackUrl,
+    isAuthenticated,
+    isNativeOAuthFlow,
+    router,
+    shouldSwitchAccount,
+  ]);
 
-  if (isAuthenticated && !isDesktopFlow) {
+  if (isAuthenticated && !shouldSwitchAccount) {
     return null;
   }
 
@@ -46,71 +54,29 @@ function SignInContent() {
     if (loadingProvider) return;
     setLoadingProvider("google");
 
-    if (isDesktopFlow && codeChallenge && state) {
-      // Desktop PKCE flow: call signIn.social with PKCE params as query string
-      // so the server after-hook can read them and store in the transfer cookie.
-      // We construct the URL directly to ensure the PKCE params are in the query string.
-      const successUrl = `/auth/success?redirectTo=${encodeURIComponent("chief-desktop://")}`;
-
-      const params = new URLSearchParams({
-        client_id: clientId,
-        code_challenge: codeChallenge,
-        code_challenge_method: codeChallengeMethod ?? "S256",
-        state,
+    try {
+      // Native entry deliberately stops on this page. Only the user's explicit
+      // provider click clears a previous browser session and opens Google's
+      // account picker; arriving here must never simulate that click.
+      if (shouldSwitchAccount && isAuthenticated) {
+        await authClient.signOut();
+      }
+      await authClient.signIn.social({
+        provider: "google",
+        callbackURL: new URL(
+          authorizationCallback,
+          window.location.origin,
+        ).toString(),
       });
-
-      const response = await fetch(
-        `/api/auth/sign-in/social?${params.toString()}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            provider: "google",
-            callbackURL: successUrl,
-          }),
-          credentials: "include",
-          redirect: "manual",
-        },
-      );
-
-      // BetterAuth returns a redirect URL, so follow it
-      if (response.status === 200) {
-        const data = (await response.json()) as {
-          url?: string;
-          redirect?: boolean;
-        };
-        if (data.url) {
-          window.location.href = data.url;
-          return;
-        }
-      }
-
-      // Fallback: if response is a redirect, follow the Location header
-      const location = response.headers.get("Location");
-      if (location) {
-        window.location.href = location;
-        return;
-      }
-
-      console.error("[SignIn] Desktop PKCE flow failed:", response.status);
+    } catch (error) {
+      console.error("[SignIn] Google sign-in failed:", error);
       setLoadingProvider(null);
-    } else {
-      // Standard web flow
-      try {
-        await authClient.signIn.social({
-          provider: "google",
-          callbackURL: callbackUrl,
-        });
-      } catch (error) {
-        console.error("[SignIn] Google sign-in failed:", error);
-        setLoadingProvider(null);
-      }
     }
   };
 
   return (
     <main className="bg-background text-foreground flex min-h-screen w-full flex-col">
-      <header className="p-8">
+      <header className="px-6 pt-6">
         <img
           alt="Chief"
           className="h-8 w-8"
@@ -118,18 +84,24 @@ function SignInContent() {
         />
       </header>
 
-      <div className="flex flex-1 items-center justify-center px-8 pb-24">
+      <div className="flex flex-1 items-center justify-center px-8 pb-20">
         <div className="mx-auto flex w-full max-w-sm flex-col text-center">
           <h1 className="text-3xl leading-tight font-normal">
-            {isDesktopFlow ? "Connect the desktop app" : "Sign in to Chief"}
+            {shouldSwitchAccount
+              ? "Choose your account"
+              : isDesktopFlow
+                ? "Connect the desktop app"
+                : "Sign in to Chief"}
           </h1>
           <p className="text-muted-foreground mt-4 text-sm leading-relaxed">
-            {isDesktopFlow
-              ? "You'll be sent back to the app after signing in."
-              : "Sign in to continue to your workspace."}
+            {shouldSwitchAccount
+              ? "Choose a sign-in option to continue to Chief."
+              : isDesktopFlow
+                ? "You'll be sent back to the app after signing in."
+                : "Sign in to continue to your workspace."}
           </p>
           <Button
-            className="mt-12 h-11 w-full"
+            className="mt-8 h-11 w-full"
             variant="outline"
             onClick={handleGoogleSignIn}
             disabled={isLoading || loadingProvider !== null}
@@ -142,15 +114,16 @@ function SignInContent() {
             ) : (
               <GoogleLogo className="mr-2 h-4 w-4" />
             )}
-            {isLoading ? "Loading…" : "Continue with Google"}
+            {isLoading ? "Loading…" : "Sign in with Google"}
           </Button>
-          <p className="text-muted-foreground/60 mt-6 text-xs leading-relaxed">
-            Your data and agents stay on your machine.
-          </p>
         </div>
       </div>
     </main>
   );
+}
+
+function safeLocalPath(value: string | null) {
+  return value?.startsWith("/") && !value.startsWith("//") ? value : "/";
 }
 
 export default function SignInPage() {

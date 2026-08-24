@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import {
-  createContext,
   useCallback,
   useContext,
   useEffect,
@@ -10,11 +9,11 @@ import {
 } from "react";
 import { useLocation } from "react-router";
 
-import type { ChannelInboxMessage } from "./channel-inbox";
 import type {
   ChannelReadStateBlob,
   ObservedChannelMessage,
 } from "./channel-read-state";
+import type { ChannelReadStateValue } from "./channel-read-state-context-value";
 import { useAuth } from "./auth/auth-context";
 import { channelForConversationRoute } from "./channel-conversation-route";
 import { channelInboxMessages } from "./channel-inbox";
@@ -26,6 +25,7 @@ import {
   threadContextKey,
   unreadCountsByChannel,
 } from "./channel-read-state";
+import { ChannelReadStateContext } from "./channel-read-state-context-value";
 import {
   channelMessagesFrom,
   channelSourceAliasesFrom,
@@ -44,19 +44,6 @@ import {
 } from "./runtime";
 import * as cache from "./workspace-conversation-cache";
 import { useWorkspaceUnreadCounts } from "./workspace-unread-counts";
-
-interface ChannelReadStateValue {
-  inboxMessages: readonly ChannelInboxMessage[];
-  unreadChannelCounts: ReadonlyMap<string, number>;
-  workspaceUnreadCounts: ReadonlyMap<string, number>;
-  markChannelRead: (channelId: string) => void;
-  markThreadRead: (channelId: string, rootId: string) => void;
-  setVisibleThread: (channelId: string, rootId: string | null) => void;
-}
-
-const ChannelReadStateContext = createContext<ChannelReadStateValue | null>(
-  null,
-);
 
 export function ChannelReadStateProvider({
   children,
@@ -103,6 +90,10 @@ function ScopedChannelReadStateProvider({
   const { capability } = useWorkspaceCapability();
   const { client, status } = useRuntime();
   const { channels } = useWorkspaceChannels();
+  const joinedChannels = useMemo(
+    () => channels.filter(({ userIds }) => userIds.includes("workspace-owner")),
+    [channels],
+  );
   const location = useLocation();
   const [readMarkers, setReadMarkers] = useState(() =>
     readChannelState(workspaceId, readerId),
@@ -302,7 +293,10 @@ function ScopedChannelReadStateProvider({
       // Notification delivery and read-state hydration have separate
       // deduplication. A live event may already exist in a history snapshot,
       // but it still deserves exactly one notification attempt.
-      if (!notifiedLiveEventsRef.current.has(observed.id)) {
+      if (
+        observed.createdAt > startedAt &&
+        !notifiedLiveEventsRef.current.has(observed.id)
+      ) {
         recordSeenChannelEvent(notifiedLiveEventsRef.current, observed.id);
         notifyForMessage(observed, title, content);
       }
@@ -417,7 +411,7 @@ function ScopedChannelReadStateProvider({
       );
     });
 
-    for (const channel of channels) {
+    for (const channel of joinedChannels) {
       client.send({
         type: "listChannelEvents",
         workspaceId,
@@ -431,7 +425,7 @@ function ScopedChannelReadStateProvider({
   }, [
     capability,
     canonicalRootId,
-    channels,
+    joinedChannels,
     client,
     startedAt,
     status,

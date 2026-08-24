@@ -12,6 +12,7 @@ import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { ChiefChatProps } from "./chief-chat-types";
 import type { useChiefChatComposer } from "./use-chief-chat-composer";
 import type { useChiefChatCore } from "./use-chief-chat-core";
+import type { useChiefChatPresentation } from "./use-chief-chat-presentation";
 import type { useChiefChatTimeline } from "./use-chief-chat-timeline";
 import { messageBlocks } from "../../lib/runtime";
 import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
@@ -81,6 +82,7 @@ export function ChiefChatAuxiliaryPanels({
   imageParts,
   props,
   respondingAgentFor,
+  pluginActionContextFor,
   threadBlocks,
   timeline,
 }: {
@@ -104,6 +106,9 @@ export function ChiefChatAuxiliaryPanels({
   respondingAgentFor: (
     message: ChiefUIMessage,
   ) => { id: WorkspaceAgentId; name: string; role: string } | undefined;
+  pluginActionContextFor: ReturnType<
+    typeof useChiefChatPresentation
+  >["pluginActionContextFor"];
   threadBlocks: (message: ChiefUIMessage) => ContentBlock[];
   timeline: Timeline;
 }) {
@@ -224,7 +229,6 @@ export function ChiefChatAuxiliaryPanels({
     setActivityOpen(false);
     onCloseChild?.(activeChildThreadRootId ?? undefined);
   };
-
   if (activeChild && !profileOpen) {
     return (
       <ConversationAuxiliaryPanel
@@ -391,6 +395,7 @@ export function ChiefChatAuxiliaryPanels({
                       channelReferences={channelReferences}
                       onOpenChannel={onOpenChannel}
                       onOpenTask={onOpenChild}
+                      pluginActionContext={pluginActionContextFor(message)}
                     />
                   </ChiefMessage>
                 );

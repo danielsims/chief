@@ -1,0 +1,31 @@
+# Vercel deploys apps/web. Exclude local build products and unrelated runtime
+# applications so the CLI never scans multi-gigabyte Xcode, Rust, or Eve state.
+.git/
+.turbo/
+**/.cache/
+**/.deriveddata/
+**/.eve/
+**/.next/
+**/.output/
+**/.workflow-data/
+**/build/
+**/dist/
+**/node_modules/
+**/target/
+
+apps/desktop/
+apps/executor/
+apps/mobile/
+apps/relay/
+apps/workspace/
+
+packages/agent-runtime/
+packages/auth/
+packages/backend/
+packages/browser/
+packages/buzz-team/
+packages/email/
+packages/google-oauth-connector/
+packages/plugin-api/
+packages/relay-client/
+packages/relay-contracts/

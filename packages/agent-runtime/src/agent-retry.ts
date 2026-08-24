@@ -17,6 +17,7 @@ export function retryableAgentFailure(error: unknown) {
 export function agentEventProducedOutput(event: AgentEvent) {
   return (
     (event.type === "stream" && event.text.length > 0) ||
+    (event.type === "thinkingStream" && event.text.length > 0) ||
     (event.type === "message" &&
       event.role === "assistant" &&
       event.content.length > 0) ||

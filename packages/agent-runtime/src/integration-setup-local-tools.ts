@@ -68,6 +68,29 @@ export const integrationSetupOpenApiSchemas = {
 } as const;
 
 export interface IntegrationSetupLocalToolContext {
+  googleOAuth?: {
+    provisionClient?: (
+      sessionId: string,
+      attemptId: string,
+    ) => Promise<unknown>;
+    captureClient?: (sessionId: string, attemptId: string) => Promise<unknown>;
+  };
+  googleAnalytics?: {
+    startAuthorization: (
+      sessionId: string,
+      attemptId: string,
+    ) => Promise<{ authorizationUrl: string; state: string }>;
+    completeAuthorization: (
+      sessionId: string,
+      attemptId: string,
+      state?: string,
+    ) => Promise<unknown>;
+    selectProperty: (
+      sessionId: string,
+      attemptId: string,
+      propertyId: string,
+    ) => Promise<unknown>;
+  };
   openIntegrationHandoff?: (
     sessionId: string,
     attemptId: string,

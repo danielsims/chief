@@ -23,16 +23,22 @@ import { PrefixedInput } from "@chief/ui/components/prefixed-input";
 
 import type { AuthOrganization } from "../../lib/auth/better-auth-client";
 import type { SocialPlatformDef } from "../../lib/social-platforms";
+import { InviteWorkspaceMemberCard } from "../../components/invite-workspace-member-card";
 import { OrgLogo, resolveFaviconUrl } from "../../components/org-logo";
 import { useAuth } from "../../lib/auth/auth-context";
 import {
-  deleteAuthOrganization,
   listAuthOrganizations,
   parseOrganizationMetadata,
   setActiveAuthOrganization,
   updateAuthOrganization,
 } from "../../lib/auth/better-auth-client";
+import { RELAY_URL } from "../../lib/config";
 import { removeImageAsset, uploadImageAsset } from "../../lib/image-upload";
+import {
+  relayForWorkspace,
+  rememberRelayWorkspaces,
+} from "../../lib/relay-connection";
+import { useRelaySession } from "../../lib/relay-session";
 import { SOCIAL_PLATFORMS } from "../../lib/social-platforms";
 
 // Vite replaces `import.meta.hot` with undefined in production. Production
@@ -119,7 +125,7 @@ function SocialAccountRow({
 }
 
 function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
-  const { signOut } = useAuth();
+  const { client, switchWorkspace, workspaces } = useRelaySession();
   const [open, setOpen] = useState(false);
   const [confirmation, setConfirmation] = useState("");
   const [deleting, setDeleting] = useState(false);
@@ -129,17 +135,29 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
     setDeleting(true);
     setError(null);
     try {
-      await deleteAuthOrganization(org.id);
-      const remaining = (await listAuthOrganizations()).filter(
-        (candidate) => candidate.id !== org.id,
-      );
-      const [nextOrganization] = remaining;
-      if (nextOrganization) {
-        await setActiveAuthOrganization(nextOrganization.id);
+      if (!client) throw new Error("Chief is not connected to the relay.");
+      await client.deleteWorkspace(org.id);
+
+      const remainingOnRelay = await client.listWorkspaces();
+      rememberRelayWorkspaces(RELAY_URL, remainingOnRelay);
+      const [nextOnRelay] = remainingOnRelay;
+      if (nextOnRelay) {
+        await setActiveAuthOrganization(nextOnRelay.id);
+        await client.switchWorkspace(nextOnRelay.id);
         window.location.assign("/");
-      } else {
-        signOut();
+        return;
       }
+
+      const fallback = workspaces.find(
+        (workspace) =>
+          workspace.id !== org.id &&
+          relayForWorkspace(workspace.id) !== new URL(RELAY_URL).origin,
+      );
+      if (fallback) {
+        await switchWorkspace(fallback.id);
+        return;
+      }
+      window.location.assign("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setDeleting(false);
@@ -209,6 +227,7 @@ function DeleteWorkspaceCard({ org }: { org: AuthOrganization }) {
 }
 
 export function WorkspaceSettings() {
+  const { client } = useRelaySession();
   const { cloudOrganizationId } = useAuth();
   const { isAuthenticated: convexReady } = useConvexAuth();
   const socialAccounts = useQuery(
@@ -299,7 +318,8 @@ export function WorkspaceSettings() {
     setLogoError(null);
     try {
       if (!org) return;
-      const nextLogo = await uploadImageAsset(file, "workspace");
+      if (!client) throw new Error("Chief is not connected to the relay.");
+      const nextLogo = await uploadImageAsset(file, "workspace", client);
       const metadata = parseOrganizationMetadata(org);
       await updateAuthOrganization(org.id, {
         logo: nextLogo,
@@ -331,7 +351,7 @@ export function WorkspaceSettings() {
         logo: nextLogo,
         metadata: { ...metadata, logoSource: "favicon" },
       });
-      await removeImageAsset("workspace");
+      if (client) await removeImageAsset("workspace", client);
       setOrg({
         ...org,
         logo: nextLogo,
@@ -450,6 +470,8 @@ export function WorkspaceSettings() {
           </div>
         </CardContent>
       </Card>
+
+      {org ? <InviteWorkspaceMemberCard organization={org} /> : null}
 
       <Card>
         <CardHeader>

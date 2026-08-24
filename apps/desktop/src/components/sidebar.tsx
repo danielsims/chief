@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   BarChart3,
   CalendarClock,
+  FolderGit2,
   FolderOpen,
   Inbox,
   LayoutGrid,
@@ -31,10 +32,12 @@ import { useChannelReadState } from "../lib/channel-read-state-context";
 import { useChiefNavigation } from "../lib/chief-navigation-context";
 import {
   useLocalChats,
+  useRuntime,
   useWorkspaceChannels,
   useWorkspaceData,
 } from "../lib/runtime";
 import {
+  directMessageChatForAgent,
   directMessageIdsForChats,
   isSidebarPinnedItem,
   sidebarPinnedItemKey,
@@ -51,6 +54,7 @@ const PRIMARY_ITEMS = [
   { to: "/", label: "Overview", icon: LayoutGrid },
   { to: "/inbox", label: "Inbox", icon: Inbox },
   { to: "/schedule", label: "Schedule", icon: CalendarClock },
+  { to: "/projects", label: "Projects", icon: FolderGit2 },
   { to: "/agents", label: "Agents", icon: Network },
   { to: "/plugins", label: "Plugins", icon: Plug },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
@@ -137,6 +141,7 @@ export function Sidebar({
 }) {
   const { cloudOrganizationId, organizationRole } = useAuth();
   const localChats = useLocalChats(cloudOrganizationId);
+  const { agents: runtimeAgents } = useRuntime();
   const workspaceChannels = useWorkspaceChannels();
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const { unreadChannelCounts } = useChannelReadState();
@@ -253,10 +258,12 @@ export function Sidebar({
       channel.userIds.includes("workspace-owner") &&
       !leftIds.includes(channel.id),
   );
-  const directMessageIds = useMemo(
-    () => directMessageIdsForChats(localChats.chats, cloudOrganizationId),
-    [cloudOrganizationId, localChats.chats],
-  );
+  const directMessageIds = useMemo(() => {
+    const available = new Set(runtimeAgents.map((agent) => agent.id));
+    return runtimeAgents.length > 0
+      ? directMessageIdsForChats().filter((agentId) => available.has(agentId))
+      : directMessageIdsForChats();
+  }, [runtimeAgents]);
   const directAttentionTargets = useMemo(
     () =>
       directMessageAttentionTargets({
@@ -264,18 +271,22 @@ export function Sidebar({
         sessions: workspaceData.activity,
         recurringWork: workspaceData.recurringWork,
         directMessageIds,
+        directMessageChats: localChats.chats,
       }),
     [
       directMessageIds,
       workspaceData.actionItems,
       workspaceData.activity,
       workspaceData.recurringWork,
+      localChats.chats,
     ],
   );
   const unreadDirectMessageCounts = new Map(
     WORKSPACE_DIRECT_MESSAGES.map((message) => [
       message.id,
-      unreadChannelCounts.get(message.relayId) ?? 0,
+      unreadChannelCounts.get(
+        directMessageChatForAgent(localChats.chats, message.id)?.id ?? "",
+      ) ?? 0,
     ]),
   );
   const inboxUnreadCount = [...unreadChannelCounts.values()].reduce(
@@ -413,11 +424,9 @@ export function Sidebar({
           unreadDirectMessageCounts={unreadDirectMessageCounts}
           onOpen={openChannel}
           onOpenDirectMessage={(agentId: WorkspaceAgentId, target) => {
-            const directMessage = workspaceDirectMessage(agentId);
-            if (!directMessage) return;
             chiefNavigation.open({
               kind: "conversation",
-              channelId: directMessage.relayId,
+              channelId: `direct:${agentId}`,
               directAgentId: agentId,
               ...target,
             });
