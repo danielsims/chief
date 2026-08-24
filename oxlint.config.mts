@@ -52,5 +52,11 @@ export default defineConfig({
       excludeFiles: ["tooling/oxlint/**"],
       rules: qualityRules,
     },
+    {
+      files: ["**/*.{test,spec}.{ts,tsx}", "**/test/**/*.{ts,tsx}"],
+      rules: {
+        "chief/require-assertion-justification": "off",
+      },
+    },
   ],
 });

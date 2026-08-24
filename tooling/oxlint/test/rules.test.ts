@@ -81,7 +81,17 @@ tester.run("no-broad-object-parameters", rule("no-broad-object-parameters"), {
 });
 
 tester.run("no-unknown-parameters", rule("no-unknown-parameters"), {
-  valid: [{ code: "function read(value: Workspace) {}", filename: "case.ts" }],
+  valid: [
+    { code: "function read(value: Workspace) {}", filename: "case.ts" },
+    {
+      code: "promise.catch((reason: unknown) => report(reason));",
+      filename: "case.ts",
+    },
+    {
+      code: "function parseWorkspace(value: unknown): Workspace { return workspace; }",
+      filename: "case.ts",
+    },
+  ],
   invalid: [
     {
       code: "function read(value: unknown) {}",
