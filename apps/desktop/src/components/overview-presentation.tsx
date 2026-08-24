@@ -13,7 +13,11 @@ import {
 } from "recharts";
 
 import type { ActionItem } from "@chief/agent-runtime/types";
-import { isJsonString } from "@chief/relay-contracts";
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import { cn } from "@chief/ui/lib/utils";
 
@@ -51,6 +55,17 @@ function chartPointLabel(value: string) {
   }).format(new Date(Number(year), Number(month) - 1, Number(day)));
 }
 
+function parseChartPoint(
+  value: unknown,
+): { x?: string; value?: number } | null {
+  if (!isJsonObject(value)) return null;
+  const x = isJsonString(value.x) ? value.x : undefined;
+  const pointValue = isJsonNumber(value.value) ? value.value : undefined;
+  return x === undefined && pointValue === undefined
+    ? null
+    : { x, value: pointValue };
+}
+
 export function AnalyticsChart({
   label,
   points,
@@ -73,8 +88,7 @@ export function AnalyticsChart({
           <RechartsTooltip
             allowEscapeViewBox={{ x: true, y: true }}
             content={({ active, payload }) => {
-              const point = payload[0]?.payload as
-                { x?: string; value?: number } | undefined;
+              const point = parseChartPoint(payload[0]?.payload);
               if (!active || point?.value === undefined) return null;
               return (
                 <div className="border-border bg-popover text-popover-foreground min-w-28 border px-2.5 py-2 shadow-lg">

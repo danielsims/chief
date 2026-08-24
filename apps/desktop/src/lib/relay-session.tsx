@@ -8,8 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { invoke, isTauri } from "@tauri-apps/api/core";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { invoke } from "@tauri-apps/api/core";
 
 import type {
   CreateWorkspaceCommand,
@@ -19,9 +18,7 @@ import type {
   WorkspaceSummary,
 } from "@chief/relay-contracts";
 import { RelayClient } from "@chief/relay-client";
-import { isJsonString, workspaceSnapshotSchema } from "@chief/relay-contracts";
 
-import { requestAccountAssertion } from "./auth/account-assertion";
 import { useAuth } from "./auth/auth-context";
 import {
   CHIEF_CLOUD_AUTH_BASE_URL,
@@ -30,7 +27,6 @@ import {
   RELAY_URL,
 } from "./config";
 import { ensureDesktopCells } from "./desktop-cell-runtime";
-import { fetchWithTimeout } from "./fetch-with-timeout";
 import {
   clearPendingOrganizationInvitation,
   readPendingOrganizationInvitation,
@@ -42,7 +38,11 @@ import {
   rememberRelayWorkspaces,
   resolveRelayConnection,
 } from "./relay-connection";
-import { relayResponseError, RelaySessionError } from "./relay-response-error";
+import {
+  activeRelayWorkspace,
+  connectBoundRelayDevice,
+  relaySessionTransport,
+} from "./relay-session-api";
 import { setRelayWorkspaceOverride } from "./relay-workspace-override";
 import {
   clearWorkspaceSwitch,
@@ -76,78 +76,6 @@ interface RelaySessionValue {
 
 const RelaySessionContext = createContext<RelaySessionValue | null>(null);
 
-async function authorization(input: {
-  url: string;
-  method: string;
-  body: string;
-}) {
-  if (!isTauri()) {
-    throw new Error("Relay device signing requires the Chief desktop app.");
-  }
-  return invoke<string>("relay_nip98_authorization", input);
-}
-
-const relayFetch: typeof fetch = (input, init) =>
-  fetchWithTimeout(isTauri() ? tauriFetch : fetch, input, init);
-
-let deviceAuthorization: string | undefined;
-
-async function signedFetch(url: URL, init: RequestInit = {}) {
-  const method = init.method?.toUpperCase() ?? "GET";
-  const body = isJsonString(init.body) ? init.body : "";
-  const headers = new Headers(init.headers);
-  headers.set(
-    "authorization",
-    await authorization({ url: url.toString(), method, body }),
-  );
-  if (deviceAuthorization) {
-    headers.set("x-chief-device-authorization", deviceAuthorization);
-  }
-  return relayFetch(url, { ...init, headers });
-}
-
-async function bindAccount(accountToken: string) {
-  const url = new URL("/v1/identity/device", RELAY_URL);
-  const body = JSON.stringify({ accountToken });
-  const response = await signedFetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body,
-  });
-  if (!response.ok) throw await relayResponseError(response);
-  const binding = (await response.json()) as {
-    deviceAuthorization?: unknown;
-  };
-  if (
-    !isJsonString(binding.deviceAuthorization) ||
-    binding.deviceAuthorization.length < 32
-  ) {
-    throw new Error("The relay returned an invalid device authorization.");
-  }
-  deviceAuthorization = binding.deviceAuthorization;
-}
-
-async function activeWorkspace() {
-  const response = await signedFetch(new URL("/v1/me/workspace", RELAY_URL));
-  if (response.status === 204) return null;
-  if (!response.ok) throw await relayResponseError(response);
-  return workspaceSnapshotSchema.parse(await response.json());
-}
-
-async function connectBoundDevice(sessionToken: string) {
-  try {
-    return await activeWorkspace();
-  } catch (error) {
-    if (!(error instanceof RelaySessionError) || error.status !== 401) {
-      throw error;
-    }
-  }
-  const accountAssertion = await requestAccountAssertion(sessionToken);
-  if (!accountAssertion) return undefined;
-  await bindAccount(accountAssertion);
-  return activeWorkspace();
-}
-
 export function RelaySessionProvider({ children }: { children: ReactNode }) {
   const { connectRelay, invalidateSession, sessionToken } = useAuth();
   const connectionGeneration = useRef(0);
@@ -172,7 +100,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       const generation = ++connectionGeneration.current;
       let accountClient: RelayClient | null = null;
       if (!sessionToken) {
-        deviceAuthorization = undefined;
+        relaySessionTransport.resetDeviceAuthorization();
         setRelayWorkspaceOverride(null);
         setState({
           client: null,
@@ -206,11 +134,11 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
         // to another workspace on this same relay.
         accountClient = new RelayClient({
           relayUrl: RELAY_URL,
-          getAuthorization: authorization,
-          getDeviceAuthorization: () => deviceAuthorization,
-          fetch: relayFetch,
+          getAuthorization: relaySessionTransport.authorization,
+          getDeviceAuthorization: relaySessionTransport.getDeviceAuthorization,
+          fetch: relaySessionTransport.fetch,
         });
-        let snapshot = await connectBoundDevice(sessionToken);
+        let snapshot = await connectBoundRelayDevice(sessionToken);
         if (snapshot === undefined) {
           invalidateSession();
           return;
@@ -225,20 +153,21 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
           );
           await accountClient.switchWorkspace(joined.workspaceId);
           clearPendingOrganizationInvitation();
-          snapshot = await activeWorkspace();
+          snapshot = await activeRelayWorkspace();
         }
         const pendingWorkspace = pendingWorkspaceSwitch();
         if (pendingWorkspace?.relayUrl === new URL(RELAY_URL).origin) {
           await accountClient.switchWorkspace(pendingWorkspace.workspaceId);
-          snapshot = await activeWorkspace();
+          snapshot = await activeRelayWorkspace();
         }
         const client = snapshot
           ? new RelayClient({
               relayUrl: RELAY_URL,
               workspaceId: snapshot.id,
-              getAuthorization: authorization,
-              getDeviceAuthorization: () => deviceAuthorization,
-              fetch: relayFetch,
+              getAuthorization: relaySessionTransport.authorization,
+              getDeviceAuthorization:
+                relaySessionTransport.getDeviceAuthorization,
+              fetch: relaySessionTransport.fetch,
             })
           : accountClient;
         const cellsStarted = snapshot
@@ -403,7 +332,7 @@ export function RelaySessionProvider({ children }: { children: ReactNode }) {
       }
       await connect();
     },
-    [connect, connectRelay, state.client, state.snapshot?.id],
+    [connect, connectRelay, state.client, state.snapshot],
   );
 
   const recoveryWorkspace = useMemo(() => {

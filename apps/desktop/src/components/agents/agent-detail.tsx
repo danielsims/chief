@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Cloud, MessageCircle, X } from "lucide-react";
+import { MessageCircle, X } from "lucide-react";
 import { Link } from "react-router";
 
 import type {
@@ -91,7 +91,6 @@ export function AgentDetail({
   ready,
   onSave,
   onClose,
-  onDeploy,
   onUpdateChannelAgents,
 }: {
   agent: AgentDefinition;
@@ -102,7 +101,6 @@ export function AgentDetail({
   ready: boolean;
   onSave: (preference: AgentPreference) => void;
   onClose?: () => void;
-  onDeploy?: () => void;
   onUpdateChannelAgents: (channelId: string, agentIds: string[]) => void;
 }) {
   const [activeTab, setActiveTab] = useState<DetailTab>("configuration");
@@ -202,12 +200,6 @@ export function AgentDetail({
               <MessageCircle size={13} />
               Message
             </Button>
-            {onDeploy ? (
-              <Button variant="outline" size="sm" onClick={onDeploy}>
-                <Cloud size={13} />
-                Deploy
-              </Button>
-            ) : null}
             {onClose ? (
               <button
                 type="button"
@@ -238,9 +230,9 @@ export function AgentDetail({
             <Select
               value={driver ?? undefined}
               disabled={!ready}
-              onValueChange={(value) =>
-                save({ driver: value as DriverType, model: "" })
-              }
+              onValueChange={(value) => {
+                if (isDriverType(value)) save({ driver: value, model: "" });
+              }}
             >
               <SelectTrigger className="bg-background/70 h-9 w-auto min-w-40 rounded-xl px-2.5 text-xs">
                 {meta ? (
@@ -374,4 +366,7 @@ export function AgentDetail({
       </div>
     </div>
   );
+}
+function isDriverType(value: string): value is DriverType {
+  return ["claude", "codex", "opencode", "remote"].includes(value);
 }

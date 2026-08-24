@@ -10,9 +10,10 @@ import type {
   DriverType,
 } from "@chief/agent-runtime/types";
 
-import type { AgentOverride } from "./agent-overrides";
+import type { AgentOverride, AgentOverrides } from "./agent-overrides";
 import {
   getAgentOverride,
+  getAgentOverrides,
   getToolApprovals,
   getWorkspaceProvider,
   onAgentOverridesChange,
@@ -49,12 +50,30 @@ const AgentConfigContext = createContext<AgentConfigValue | null>(null);
 export function AgentConfigProvider({ children }: { children: ReactNode }) {
   const { cloudOrganizationId } = useAuth();
   const preferences = useAgentPreferences(cloudOrganizationId);
-  // Local mirror writes (settings saves, onboarding) re-render consumers.
-  const [localVersion, setLocalVersion] = useState(0);
-  useEffect(
-    () => onAgentOverridesChange(() => setLocalVersion((v) => v + 1)),
-    [],
-  );
+  const [localConfig, setLocalConfig] = useState<{
+    overrides: AgentOverrides;
+    approvals: AgentApprovalMode;
+    provider: DriverType | null;
+  }>(() => ({
+    overrides: {},
+    approvals: "auto",
+    provider: null,
+  }));
+  useEffect(() => {
+    const syncLocalConfig = () => {
+      if (!cloudOrganizationId) {
+        setLocalConfig({ overrides: {}, approvals: "auto", provider: null });
+        return;
+      }
+      setLocalConfig({
+        overrides: getAgentOverrides(cloudOrganizationId),
+        approvals: getToolApprovals(cloudOrganizationId),
+        provider: getWorkspaceProvider(cloudOrganizationId),
+      });
+    };
+    syncLocalConfig();
+    return onAgentOverridesChange(syncLocalConfig);
+  }, [cloudOrganizationId]);
 
   // Hydrate the synchronous localStorage mirror from the runtime database as
   // soon as preferences load, app-wide — previously this only happened when
@@ -68,8 +87,8 @@ export function AgentConfigProvider({ children }: { children: ReactNode }) {
       if (preference.driver && local.driver !== preference.driver) {
         patch.driver = preference.driver;
       }
-      if ((preference.model || undefined) !== local.model) {
-        patch.model = preference.model || undefined;
+      if ((preference.model ?? undefined) !== local.model) {
+        patch.model = preference.model ?? undefined;
       }
       if (local.enabled !== preference.enabled) {
         patch.enabled = preference.enabled;
@@ -113,16 +132,11 @@ export function AgentConfigProvider({ children }: { children: ReactNode }) {
       ready: !loading,
       forAgent: (agentId: string): ResolvedAgentConfig => {
         const durable = byId.get(agentId);
-        const mirror = getAgentOverride(cloudOrganizationId, agentId);
+        const mirror = localConfig.overrides[agentId] ?? {};
         const approvals =
-          durable?.approvals ??
-          mirror.approvals ??
-          getToolApprovals(cloudOrganizationId);
+          durable?.approvals ?? mirror.approvals ?? localConfig.approvals;
         return {
-          driver:
-            durable?.driver ??
-            mirror.driver ??
-            getWorkspaceProvider(cloudOrganizationId),
+          driver: durable?.driver ?? mirror.driver ?? localConfig.provider,
           model: durable?.model ?? mirror.model ?? "",
           enabled: durable?.enabled ?? mirror.enabled ?? true,
           approvals,
@@ -134,9 +148,7 @@ export function AgentConfigProvider({ children }: { children: ReactNode }) {
       },
       savePreference: save,
     };
-    // localVersion invalidates the localStorage reads inside forAgent.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cloudOrganizationId, durablePreferences, loading, save, localVersion]);
+  }, [durablePreferences, loading, save, localConfig]);
 
   return (
     <AgentConfigContext.Provider value={value}>

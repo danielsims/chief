@@ -30,7 +30,7 @@ export function readChannelState(workspaceId: string, readerId: string) {
       JSON.parse(
         window.localStorage.getItem(storageKey(workspaceId, readerId)) ??
           "null",
-      ) as unknown,
+      ),
     );
   } catch {
     return EMPTY_CHANNEL_READ_STATE;

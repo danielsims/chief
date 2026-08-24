@@ -1,6 +1,8 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { z } from "zod";
 
+import { parseJsonValue } from "@chief/relay-contracts";
+
 export interface UserStatus {
   emoji: string;
   text: string;
@@ -18,9 +20,9 @@ function storageKey(workspaceId: string | null, userId: string | null) {
 function readStatus(key: string) {
   if (statusCache.has(key)) return statusCache.get(key) ?? null;
   try {
-    const value = JSON.parse(
-      window.localStorage.getItem(key) ?? "null",
-    ) as unknown;
+    const value = parseJsonValue(
+      JSON.parse(window.localStorage.getItem(key) ?? "null"),
+    );
     const parsed = userStatusSchema.safeParse(value);
     const status = parsed.success ? parsed.data : null;
     statusCache.set(key, status);

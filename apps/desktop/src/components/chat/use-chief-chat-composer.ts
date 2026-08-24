@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from "react";
 
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { ChiefChatProps } from "./chief-chat-types";
@@ -143,6 +149,25 @@ export function useChiefChatComposer({
   const mainHasEnteredRef = useRef(false);
   const threadHasEnteredRef = useRef(false);
   const sentInitial = useRef(false);
+  const approveRecurringWork = useEffectEvent(
+    (proposed: (typeof workspaceData.recurringWork)[number]) => {
+      workspaceData.saveRecurringWork({
+        ...proposed,
+        status: "active",
+        grant: {
+          version: 1,
+          approvedAt: Date.now(),
+          toolPatterns: proposed.proposedToolPatterns,
+        },
+        updatedAt: Date.now(),
+      });
+    },
+  );
+  const sendInitialPrompt = useEffectEvent(() => {
+    sentInitial.current = true;
+    send(initialPrompt ?? "", undefined, [], initialAttachments);
+    onInitialPromptSent?.();
+  });
 
   useEffect(() => {
     mainHasEnteredRef.current = false;
@@ -178,17 +203,7 @@ export function useChiefChatComposer({
     );
     if (!proposed) return;
     autoApproveRef.current = null;
-    workspaceData.saveRecurringWork({
-      ...proposed,
-      status: "active",
-      grant: {
-        version: 1,
-        approvedAt: Date.now(),
-        toolPatterns: proposed.proposedToolPatterns,
-      },
-      updatedAt: Date.now(),
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    approveRecurringWork(proposed);
   }, [workspaceData.recurringWork]);
 
   useEffect(() => {
@@ -229,13 +244,11 @@ export function useChiefChatComposer({
     ) {
       const timer = setTimeout(() => {
         if (sentInitial.current) return;
-        sentInitial.current = true;
-        send(initialPrompt ?? "", undefined, [], initialAttachments);
-        onInitialPromptSent?.();
+        sendInitialPrompt();
       }, 400);
       return () => clearTimeout(timer);
     }
-  }, [initialPrompt, initialAttachments, runtimeStatus, chatReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialPrompt, initialAttachments, runtimeStatus, chatReady]);
 
   const submit = () => {
     if (!chatReady) return;

@@ -10,13 +10,14 @@ import { ProjectCard } from "../components/projects/project-card";
 import { ProjectDetail } from "../components/projects/project-detail";
 import { useProjectAccessRequests } from "../lib/runtime-project-actions";
 import { useProjects } from "../lib/runtime-projects";
-import { WORKSPACE_AGENT_IDENTITIES } from "../lib/workspace-channels";
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../lib/workspace-channels";
 
 function projectAgentName(agentId: string) {
-  return Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)
-    ? WORKSPACE_AGENT_IDENTITIES[
-        agentId as keyof typeof WORKSPACE_AGENT_IDENTITIES
-      ].name
+  return isWorkspaceAgentId(agentId)
+    ? WORKSPACE_AGENT_IDENTITIES[agentId].name
     : agentId.replace(/^./u, (first) => first.toLocaleUpperCase());
 }
 
@@ -39,8 +40,8 @@ function projectRequestCapabilities(request: {
 }) {
   if (request.capabilities?.length) return request.capabilities;
   const level = request.capability
-    ? projectCapabilityOrder.indexOf(
-        request.capability as (typeof projectCapabilityOrder)[number],
+    ? projectCapabilityOrder.findIndex(
+        (capability) => capability === request.capability,
       )
     : -1;
   return level >= 0 ? projectCapabilityOrder.slice(0, level + 1) : [];

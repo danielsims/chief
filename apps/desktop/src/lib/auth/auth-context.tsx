@@ -1,17 +1,9 @@
-/**
- * Desktop Auth Context
- *
- * Uses PKCE-based authentication flow:
- * - Generates PKCE challenge and opens system browser
- * - Deep link handler or dev-mode polling receives authorization code
- * - Exchanges code for session token via /desktop/token endpoint
- */
-
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -95,6 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [storedSession, setStoredSessionState] = useState<StoredSession | null>(
     null,
   );
+  const currentStoredSession = useEffectEvent(() => storedSession);
   const [organizationMembership, setOrganizationMembership] = useState<{
     organizationId: string;
     role: OrganizationRole;
@@ -110,7 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .then((session) => {
         setStoredSessionState(session);
         setSessionHydrated(true);
-        if (!session) setIsLoading(false);
+        setIsLoading(false);
       })
       .catch((error: unknown) => {
         console.error("[Auth] Could not load the secure OAuth session:", error);
@@ -170,7 +163,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  const failDesktopAuth = useCallback((err: unknown) => {
+  const failDesktopAuth = useCallback((err: Error) => {
     // A late failure from the losing delivery path (poll vs deep link)
     // must not clobber an already-completed sign-in.
     if (authFlowCompletedRef.current) return;
@@ -211,27 +204,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [storedSession?.expiresAt]);
 
-  // Validate the cached session against the server once when it changes (app
-  // launch, and again right after sign-in). The localStorage session can
-  // outlive the server-side session — it expires, or a backend auth deploy
-  // invalidates old tokens. Without this the app shows a signed-in UI while
-  // every authenticated cloud call silently 401s. This is a single request per
-  // token (NOT polling); when the server rejects the token we sign out locally
-  // so the user gets a clear re-login prompt instead of a half-broken session.
   useEffect(() => {
     if (!sessionHydrated) return;
-    const token = storedSession?.token;
-    if (!token) {
-      setIsLoading(false);
-      return;
-    }
+    const session = currentStoredSession();
+    if (!session) return;
+    const token = session.token;
 
     let cancelled = false;
-    // Only the first hydration blocks the application shell. A focus-triggered
-    // refresh must keep the authenticated tree mounted so returning to Chief
-    // never resets navigation, scroll position, or arrival animations.
-    setIsLoading(false);
-    void validateOrRefreshSession(storedSession).then((result) => {
+    void validateOrRefreshSession(session).then((result) => {
       if (cancelled) return;
       if (!result) {
         console.warn("[Auth] Stored session rejected by server, signing out");
@@ -245,14 +225,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setStoredSession(next);
         return next;
       });
-      setIsLoading(false);
     });
     return () => {
       cancelled = true;
     };
-    // The access token is the validation identity. Depending on the whole
-    // session would retrigger after updating lastValidated with the same token.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     invalidateSession,
     sessionHydrated,
@@ -328,7 +304,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const signIn = useCallback(() => {
-    void startRelayAuthorization().catch(failDesktopAuth);
+    void startRelayAuthorization().catch((error) =>
+      failDesktopAuth(parseAuthError(error)),
+    );
   }, [failDesktopAuth, startRelayAuthorization]);
 
   const connectRelay = useCallback(
@@ -351,7 +329,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         await startRelayAuthorization(connection);
       } catch (error) {
-        failDesktopAuth(error);
+        failDesktopAuth(parseAuthError(error));
         throw error;
       }
     },
@@ -451,7 +429,9 @@ async function validateOrRefreshSession(session: StoredSession) {
     try {
       return await refreshOAuthSession(session);
     } catch (error) {
-      return shouldInvalidateOAuthSession(error) ? null : session;
+      return shouldInvalidateOAuthSession(parseAuthError(error))
+        ? null
+        : session;
     }
   }
   const validation = await validateStoredSession(session.token);
@@ -468,8 +448,12 @@ async function validateOrRefreshSession(session: StoredSession) {
   try {
     return await refreshOAuthSession(session);
   } catch (error) {
-    return shouldInvalidateOAuthSession(error) ? null : session;
+    return shouldInvalidateOAuthSession(parseAuthError(error)) ? null : session;
   }
+}
+
+function parseAuthError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }
 
 export function useAuth(): AuthState {

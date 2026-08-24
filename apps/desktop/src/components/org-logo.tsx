@@ -27,6 +27,34 @@ export function OrgLogo({
   imgClassName?: string;
   transparentWhenLoaded?: boolean;
 }) {
+  return (
+    <OrgLogoImage
+      key={`${logo ?? ""}\u0000${website ?? ""}`}
+      name={name}
+      logo={logo}
+      website={website}
+      className={className}
+      imgClassName={imgClassName}
+      transparentWhenLoaded={transparentWhenLoaded}
+    />
+  );
+}
+
+function OrgLogoImage({
+  name,
+  logo,
+  website,
+  className,
+  imgClassName,
+  transparentWhenLoaded = false,
+}: {
+  name: string;
+  logo?: string | null;
+  website?: string | null;
+  className?: string;
+  imgClassName?: string;
+  transparentWhenLoaded?: boolean;
+}) {
   const candidates = useMemo(() => {
     const siteCandidates = faviconCandidates(website ?? "");
     return Array.from(
@@ -50,11 +78,6 @@ export function OrgLogo({
   const [loaded, setLoaded] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
   const candidate = candidates[candidateIndex];
-  useEffect(() => {
-    setCandidateIndex(0);
-    setLoaded(false);
-  }, [logo, website]);
-
   useEffect(() => {
     const image = imageRef.current;
     if (!image || !candidate) return;

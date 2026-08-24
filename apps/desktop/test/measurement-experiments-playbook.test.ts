@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getPlaybook } from "../src/lib/playbooks.js";
+import { getPlaybook } from "../src/lib/playbook-prompts.js";
 
 void test("measurement work stays with Setup and requires reviewable changes", () => {
   const playbook = getPlaybook("measurement-experiments");

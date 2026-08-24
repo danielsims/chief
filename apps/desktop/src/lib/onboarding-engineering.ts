@@ -2,7 +2,12 @@ import type {
   ActionItem,
   LocalIntegrationStatus,
 } from "@chief/agent-runtime/types";
-import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+import type { JsonObject } from "@chief/relay-contracts";
+import {
+  isJsonObject,
+  isJsonString,
+  parseJsonObject,
+} from "@chief/relay-contracts";
 
 import type { CatalogIntegration } from "./integration-catalog";
 import { ENGINEERING_INTEGRATIONS } from "./integration-catalog";
@@ -10,7 +15,7 @@ import { ENGINEERING_INTEGRATIONS } from "./integration-catalog";
 const ACTION_PREFIX = "onboarding-engineering-";
 
 interface OrganizationWithMetadata {
-  metadata?: string | Record<string, unknown> | null;
+  metadata?: string | JsonObject | null;
 }
 
 function organizationMetadata(organization: OrganizationWithMetadata) {
@@ -19,8 +24,7 @@ function organizationMetadata(organization: OrganizationWithMetadata) {
   if (isJsonObject(metadata)) return metadata;
   if (!isJsonString(metadata)) return {};
   try {
-    const parsed: unknown = JSON.parse(metadata);
-    return parsed && isJsonObject(parsed) ? parsed : {};
+    return parseJsonObject(JSON.parse(metadata)) ?? {};
   } catch {
     return {};
   }
@@ -71,17 +75,16 @@ export function selectedGoogleAnalyticsDuringOnboarding(
   if (!organization) return false;
   const onboarding = organizationMetadata(organization).onboarding;
   if (!onboarding || !isJsonObject(onboarding)) return false;
-  const analytics = (onboarding as Record<string, unknown>).analytics;
+  const analytics = onboarding.analytics;
   if (!analytics || !isJsonObject(analytics)) return false;
-  const integrations = (analytics as Record<string, unknown>).integrations;
+  const integrations = analytics.integrations;
   return (
     Array.isArray(integrations) &&
     integrations.some(
       (integration) =>
         integration !== null &&
         isJsonObject(integration) &&
-        (integration as Record<string, unknown>).domain ===
-          "analytics.googleapis.com",
+        integration.domain === "analytics.googleapis.com",
     )
   );
 }

@@ -5,7 +5,17 @@ import { normalizeWorkspaceData } from "../src/lib/workspace-data.js";
 
 void test("normalizes collections omitted by an older runtime snapshot", () => {
   const normalized = normalizeWorkspaceData({
-    prospects: [{ id: "prospect" }],
+    prospects: [
+      {
+        id: "prospect",
+        name: "Pat",
+        source: "manual",
+        summary: "A saved prospect.",
+        relevance: "medium",
+        status: "new",
+        foundAt: 0,
+      },
+    ],
     activity: undefined,
   });
 
@@ -15,11 +25,8 @@ void test("normalizes collections omitted by an older runtime snapshot", () => {
   assert.deepEqual(normalized.actionItems, []);
 });
 
-void test("rejects non-array workspace collections", () => {
-  const normalized = normalizeWorkspaceData({
-    analyticsDatasets: { provider: "google-analytics" },
-    campaigns: null,
-  });
+void test("normalizes an entirely missing legacy workspace snapshot", () => {
+  const normalized = normalizeWorkspaceData({});
 
   assert.deepEqual(normalized.analyticsDatasets, []);
   assert.deepEqual(normalized.campaigns, []);

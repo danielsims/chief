@@ -1,9 +1,6 @@
 import { z } from "zod";
 
-import type {
-  AgentDeploymentTarget,
-  DriverType,
-} from "@chief/agent-runtime/types";
+import type { DriverType } from "@chief/agent-runtime/types";
 
 import type { AuthOrganization } from "./auth/better-auth-contracts";
 import type { IntegrationSearchResult } from "./integrations";
@@ -33,15 +30,12 @@ export interface OnboardingBrandFile {
 }
 
 export interface OnboardingDraft {
-  workspaceMode: "local" | "cloud";
   companyName: string;
   websiteUrl: string;
   socials: Partial<Record<SocialPlatform, string>>;
-  providerMode: "local" | "deployed";
+  providerMode: "local";
   provider: DriverType | null;
   model: string;
-  deploymentProvider: AgentDeploymentTarget | null;
-  cloudDeploymentUrl: string;
   brand: {
     mode: "research" | "upload" | "skip";
     notes: string;
@@ -235,15 +229,12 @@ function localTimezone() {
 
 export function baseOnboardingDraft(): OnboardingDraft {
   return {
-    workspaceMode: "local",
     companyName: "",
     websiteUrl: "",
     socials: {},
     providerMode: "local",
     provider: null,
     model: "",
-    deploymentProvider: null,
-    cloudDeploymentUrl: "",
     brand: { mode: "research", notes: "", files: [] },
     goals: { selling: "", audience: "", success: [], timeBudget: "" },
     monitoring: { channels: [], details: "", keywords: "" },
@@ -297,7 +288,7 @@ function provider(
   value: z.output<typeof providerSchema>,
   fallback: DriverType | null,
 ) {
-  if (value === "vercel") return "remote";
+  if (value === "vercel" || value === "remote") return fallback;
   return value ?? fallback;
 }
 
@@ -339,21 +330,12 @@ function mergeDraft(
   ]).has(parsed.step ?? "");
   return {
     ...base,
-    workspaceMode:
-      parsed.workspaceMode === "cloud" || parsed.providerMode === "deployed"
-        ? "cloud"
-        : "local",
     companyName: parsed.companyName ?? base.companyName,
     websiteUrl: parsed.websiteUrl ?? base.websiteUrl,
     socials: { ...base.socials, ...parsed.socials },
-    providerMode: parsed.providerMode === "deployed" ? "deployed" : "local",
+    providerMode: "local",
     provider: provider(parsed.provider, base.provider),
     model: parsed.model ?? base.model,
-    deploymentProvider:
-      parsed.deploymentProvider === "vercel" || parsed.provider === "vercel"
-        ? "vercel"
-        : base.deploymentProvider,
-    cloudDeploymentUrl: parsed.cloudDeploymentUrl ?? base.cloudDeploymentUrl,
     brand: {
       mode: parsed.brand?.mode ?? base.brand.mode,
       notes: parsed.brand?.notes ?? base.brand.notes,

@@ -41,12 +41,3 @@ export function resumableOnboardingStep(step: string): OnboardingStep {
 export function nextOnboardingStep(step: OnboardingStep) {
   return ONBOARDING_STEPS[ONBOARDING_STEPS.indexOf(step) + 1] ?? "finish";
 }
-
-export const LOCAL_ONBOARDING_FALLBACK = {
-  workspaceMode: "local",
-  providerMode: "local",
-  provider: null,
-  deploymentProvider: null,
-  cloudDeploymentUrl: "",
-  step: "inference",
-} as const;

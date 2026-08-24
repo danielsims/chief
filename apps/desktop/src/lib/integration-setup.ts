@@ -2,6 +2,8 @@
 // agent, and parsing of the machine-readable lines it emits (verified
 // results, structured input requests).
 
+import { z } from "zod";
+
 import type {
   ActionItem,
   ChiefUIMessage,
@@ -13,7 +15,6 @@ import {
   googleAnalyticsActionIdFromChat,
   isOnboardingGoogleAnalyticsAction,
 } from "@chief/agent-runtime/integration-requests";
-import { isJsonString } from "@chief/relay-contracts";
 
 export { GOOGLE_ANALYTICS_OAUTH_INPUT_REQUEST } from "@chief/agent-runtime/integration-requests";
 export {
@@ -67,8 +68,59 @@ export interface SetupResult {
   /** Up to 14 daily points of a headline metric, for the live data preview. */
   series?: { date: string; value: number }[];
   metricLabel?: string;
-  [key: string]: unknown;
 }
+
+const setupResultSchema: z.ZodType<SetupResult> = z.object({
+  provider: z.string(),
+  status: z.string(),
+  displayName: z.string().optional(),
+  externalId: z.string().optional(),
+  propertyId: z.string().optional(),
+  propertyName: z.string().optional(),
+  accountName: z.string().optional(),
+  series: z.array(z.object({ date: z.string(), value: z.number() })).optional(),
+  metricLabel: z.string().optional(),
+});
+
+const inputRequestSchema: z.ZodType<InputRequest> = z.object({
+  id: z.string(),
+  title: z.string(),
+  reason: z.string().optional(),
+  steps: z
+    .array(z.object({ text: z.string(), url: z.string().optional() }))
+    .optional(),
+  questions: z
+    .array(
+      z.object({
+        question: z.string(),
+        header: z.string().optional(),
+        multiSelect: z.boolean().optional(),
+        allowFreeform: z.boolean().optional(),
+        dismissible: z.boolean().optional(),
+        options: z.array(
+          z.object({
+            label: z.string(),
+            description: z.string().optional(),
+            allowsFreeText: z.boolean().optional(),
+          }),
+        ),
+      }),
+    )
+    .optional(),
+  fields: z.array(
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      type: z.enum(["text", "secret", "multiline"]).optional(),
+      save: z.union([
+        z.object({ file: z.string() }),
+        z.object({ envKey: z.string() }),
+        z.object({ contextKey: z.string() }),
+      ]),
+    }),
+  ),
+  contextAuthorization: z.string().optional(),
+});
 
 export interface SetupIntegration {
   domain: string;
@@ -127,12 +179,10 @@ export function parseSetupResult(text: string): SetupResult | null {
     .find((l) => l.startsWith(SETUP_RESULT_MARKER));
   if (!line) return null;
   try {
-    const parsed = JSON.parse(
-      line.slice(SETUP_RESULT_MARKER.length).trim(),
-    ) as SetupResult;
-    return isJsonString(parsed.provider) && isJsonString(parsed.status)
-      ? parsed
-      : null;
+    const parsed = setupResultSchema.safeParse(
+      JSON.parse(line.slice(SETUP_RESULT_MARKER.length).trim()),
+    );
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
@@ -237,18 +287,10 @@ export function parseInputRequest(text: string): InputRequest | null {
     .find((l) => l.startsWith(INPUT_REQUEST_MARKER));
   if (!line) return null;
   try {
-    const parsed = JSON.parse(
-      line.slice(INPUT_REQUEST_MARKER.length).trim(),
-    ) as InputRequest;
-    if (
-      !isJsonString(parsed.id) ||
-      !isJsonString(parsed.title) ||
-      !Array.isArray(parsed.fields) ||
-      parsed.fields.some((f) => !isJsonString(f.key) || !isJsonString(f.label))
-    ) {
-      return null;
-    }
-    return parsed;
+    const parsed = inputRequestSchema.safeParse(
+      JSON.parse(line.slice(INPUT_REQUEST_MARKER.length).trim()),
+    );
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
@@ -310,9 +352,8 @@ export function persistSetupResult(
       category?: string;
       displayName?: string;
       externalId?: string;
-    }) => Promise<unknown>;
+    }) => Promise<void>;
   },
-  _category?: string,
 ): Promise<void> {
   if (result.status !== "connected") {
     return Promise.reject(

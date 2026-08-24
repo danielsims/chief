@@ -82,7 +82,7 @@ export function UpdateAvailable() {
   useEffect(() => {
     if (!canCheckForUpdates()) return;
 
-    void runCheck();
+    const initialCheck = window.setTimeout(() => void runCheck(), 0);
     const interval = window.setInterval(
       () => void runCheck(),
       CHECK_INTERVAL_MS,
@@ -98,6 +98,7 @@ export function UpdateAvailable() {
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
+      window.clearTimeout(initialCheck);
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };

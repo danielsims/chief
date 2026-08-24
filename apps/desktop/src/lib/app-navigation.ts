@@ -53,9 +53,14 @@ function nonEmpty(value: string | null | undefined) {
 }
 
 function viewForRoute(pathname: string) {
-  return (Object.entries(CHIEF_VIEW_ROUTES) as [ChiefView, string][]).find(
-    ([, route]) => route === pathname,
-  )?.[0];
+  for (const [view, route] of Object.entries(CHIEF_VIEW_ROUTES)) {
+    if (route === pathname && isChiefView(view)) return view;
+  }
+  return null;
+}
+
+function isChiefView(value: string): value is ChiefView {
+  return Object.hasOwn(CHIEF_VIEW_ROUTES, value);
 }
 
 function conversationFromParams(params: URLSearchParams) {
@@ -143,8 +148,8 @@ export function parseChiefDeepLink(
   if (parts[1] === "conversation") {
     return conversationFromParams(url.searchParams);
   }
-  const view = parts[1] as ChiefView;
-  return view in CHIEF_VIEW_ROUTES ? { kind: "view", view } : null;
+  const view = parts[1];
+  return view && isChiefView(view) ? { kind: "view", view } : null;
 }
 
 export function parseChiefNavigationHref(

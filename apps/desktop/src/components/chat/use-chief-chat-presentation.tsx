@@ -4,8 +4,8 @@ import type {
   ChiefUIMessage,
   MessageAttachment,
 } from "@chief/agent-runtime/types";
+import { isJsonString } from "@chief/relay-contracts";
 
-import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { ThreadParticipant } from "./channel-message-controls";
 import type { ChiefChatProps } from "./chief-chat-types";
 import type { useChiefChatComposer } from "./use-chief-chat-composer";
@@ -20,7 +20,10 @@ import {
 import { withoutMarkerLines } from "../../lib/integration-setup";
 import { relayConversationId } from "../../lib/relay-channel-adapter";
 import { messageBlocks } from "../../lib/runtime";
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
 import {
   ChannelMessageActions,
   ChannelMessageMeta,
@@ -139,13 +142,12 @@ export function useChiefChatPresentation({
   const respondingAgentFor = (message: ChiefUIMessage) => {
     if (directAgent) return directAgent;
     const authoredId = message.metadata?.agentId;
-    const respondingId = (
-      authoredId && Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, authoredId)
+    const respondingId =
+      isJsonString(authoredId) && isWorkspaceAgentId(authoredId)
         ? authoredId
-        : message.metadata?.mentions?.find((agentId) =>
-            Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId),
-          )
-    ) as WorkspaceAgentId | undefined;
+        : message.metadata?.mentions?.find(
+            (agentId) => isJsonString(agentId) && isWorkspaceAgentId(agentId),
+          );
     const identity = respondingId
       ? WORKSPACE_AGENT_IDENTITIES[respondingId]
       : undefined;

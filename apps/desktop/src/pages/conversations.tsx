@@ -2,7 +2,7 @@ import { startTransition, useCallback, useEffect, useMemo } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 
 import { defaultAgents } from "@chief/agent-runtime/agent-roster";
-import { isJsonObject } from "@chief/relay-contracts";
+import { isJsonNumber, isJsonObject } from "@chief/relay-contracts";
 import { cn } from "@chief/ui/lib/utils";
 
 import type { AgentPresence } from "../components/chat/agent-profile-panel";
@@ -70,9 +70,13 @@ export function ConversationsPage() {
   const workspaceData = useWorkspaceData(cloudOrganizationId);
   const [params, setParams] = useSearchParams();
   const location = useLocation();
-  const chiefNavigationRequestId = (
-    location.state as { chiefNavigationRequestId?: number } | null
-  )?.chiefNavigationRequestId;
+  const locationState: unknown = location.state;
+  const navigationState = isJsonObject(locationState) ? locationState : null;
+  const chiefNavigationRequestId = isJsonNumber(
+    navigationState?.chiefNavigationRequestId,
+  )
+    ? navigationState.chiefNavigationRequestId
+    : undefined;
   const navigate = useNavigate();
   const handoffId = params.get("handoff");
   const initialHandoff = useMemo(() => composerHandoff(handoffId), [handoffId]);
@@ -144,7 +148,6 @@ export function ConversationsPage() {
     params.get("channel") === null;
   const activeConversationChannel =
     requestedChannel ?? (isDefaultChannelRoute ? activeChannel : undefined);
-  const navigationState = isJsonObject(location.state) ? location.state : null;
   const focusComposer =
     navigationState?.focusComposerFor === activeConversationChannel?.id;
   const activeChatId = activeConversationChannel
@@ -316,9 +319,7 @@ export function ConversationsPage() {
         }
         return next;
       },
-      // Keep the explicit navigation identity while swapping internal panels.
-      // Dropping it changes ChiefChat's key and replays the whole conversation.
-      { state: location.state as unknown },
+      { state: navigationState },
     );
   };
   const continueArtifact = (artifact: { id: string; title: string }) => {

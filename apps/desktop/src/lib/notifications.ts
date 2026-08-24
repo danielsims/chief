@@ -6,6 +6,7 @@ import {
   requestPermission,
 } from "@tauri-apps/plugin-notification";
 
+import type { JsonValue } from "@chief/relay-contracts";
 import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 import type { MessageNavigationTarget } from "./app-navigation";
@@ -59,20 +60,33 @@ let actionListener: Promise<void> | null = null;
 let pendingActivationDrain: Promise<void> | null = null;
 const NATIVE_NOTIFICATION_ACTION = "chief-notification-activated";
 
-function activateTarget(target: unknown) {
+function activateTarget(target: JsonValue | DesktopNotificationTarget) {
   if (isJsonString(target)) {
     navigateApp(target);
-  } else if (target && isJsonObject(target)) {
-    const candidate = target as Partial<DesktopNotificationTarget>;
+  } else if (isJsonObject(target)) {
+    const candidate = target;
     if (candidate.kind === "route" && isJsonString(candidate.route)) {
       navigateApp(candidate.route);
     } else if (
       candidate.kind === "message" &&
-      candidate.message &&
+      isJsonObject(candidate.message) &&
       isJsonString(candidate.message.channelId) &&
       isJsonString(candidate.message.messageId)
     ) {
-      dispatchChiefNavigation(messageDestination(candidate.message));
+      const message: MessageNavigationTarget = {
+        channelId: candidate.message.channelId,
+        messageId: candidate.message.messageId,
+      };
+      if (isJsonString(candidate.message.channelSlug)) {
+        message.channelSlug = candidate.message.channelSlug;
+      }
+      if (isJsonString(candidate.message.directAgentId)) {
+        message.directAgentId = candidate.message.directAgentId;
+      }
+      if (isJsonString(candidate.message.threadRootId)) {
+        message.threadRootId = candidate.message.threadRootId;
+      }
+      dispatchChiefNavigation(messageDestination(message));
     } else {
       return;
     }
@@ -94,7 +108,7 @@ function activateTarget(target: unknown) {
 
 function drainPendingActivation() {
   if (!isTauri()) return Promise.resolve();
-  pendingActivationDrain ??= invoke<unknown>(
+  pendingActivationDrain ??= invoke<JsonValue | null>(
     "take_pending_notification_activation",
   )
     .then((target) => activateTarget(target))
@@ -132,7 +146,7 @@ function showWebNotification(
 }
 
 function hasNotificationApi() {
-  return globalThis.window !== undefined && "Notification" in window;
+  return "Notification" in window;
 }
 
 function ensurePermission(): Promise<boolean> {

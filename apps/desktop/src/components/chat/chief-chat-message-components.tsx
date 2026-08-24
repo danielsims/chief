@@ -8,6 +8,7 @@ import type {
   ContentBlock,
   SessionRecord,
 } from "@chief/agent-runtime/types";
+import type { JsonValue } from "@chief/relay-contracts";
 import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 import type { RelayPluginActionContext } from "../../lib/runtime-plugins";
@@ -19,7 +20,10 @@ import {
   channelMembershipTargetNames,
   formatMembershipTargets,
 } from "../../lib/channel-actions";
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
 import { MessageTimestamp } from "./chat-date-time";
 import { Blocks } from "./message-blocks";
@@ -195,9 +199,9 @@ function browserOpenBlockIn(
   );
 }
 
-function browserToolCode(input: unknown): string | null {
+function browserToolCode(input: JsonValue | undefined): string | null {
   if (!input || !isJsonObject(input)) return null;
-  const candidate = (input as Record<string, unknown>).code;
+  const candidate = input.code;
   if (isJsonString(candidate)) {
     if (candidate.includes("tools.") || candidate.includes('tools["')) {
       return candidate;
@@ -208,7 +212,7 @@ function browserToolCode(input: unknown): string | null {
     const nested = browserToolCode(candidate);
     if (nested !== null) return nested;
   }
-  for (const value of Object.values(input as Record<string, unknown>)) {
+  for (const value of Object.values(input)) {
     if (!isJsonString(value)) continue;
     if (value.includes("tools.") || value.includes('tools["')) return value;
     const nested = browserToolCode(value);
@@ -238,7 +242,7 @@ function ChiefMessage({
   metadata?: ReactNode;
   timestamp?: number;
 }) {
-  const identity = agent ?? {
+  const identity: { name: string; role: string } = agent ?? {
     name: "Chief",
     role: "Workspace Lead",
   };
@@ -299,8 +303,9 @@ function ChannelMembershipMessage({
   timestamp?: number;
 }) {
   const targetNames = channelMembershipTargetNames(action, (agentId) => {
-    if (!Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)) return agentId;
-    return WORKSPACE_AGENT_IDENTITIES[agentId as WorkspaceAgentId].name;
+    return isWorkspaceAgentId(agentId)
+      ? WORKSPACE_AGENT_IDENTITIES[agentId].name
+      : agentId;
   });
   const actorIsAgent = action.actorType === "agent";
   return (

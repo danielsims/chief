@@ -1,11 +1,15 @@
 import { createContext, useContext } from "react";
 
+import type { JsonValue } from "@chief/relay-contracts";
+
 import type { ChiefNavigationDestination } from "./app-navigation";
+
+export type ChiefNavigationState = Record<string, JsonValue>;
 
 export interface ChiefNavigationApi {
   open: (
     destination: ChiefNavigationDestination,
-    options?: { replace?: boolean; state?: Record<string, unknown> },
+    options?: { replace?: boolean; state?: ChiefNavigationState },
   ) => void;
 }
 

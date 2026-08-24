@@ -1,3 +1,4 @@
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
 import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 function humanizeExecutorOperation(operation: string) {
@@ -34,7 +35,7 @@ function humanizeExecutorOperation(operation: string) {
     .replace(/^./, (character) => character.toUpperCase());
 }
 
-export function executorToolLabel(input: unknown) {
+export function executorToolLabel(input: JsonValue | undefined) {
   if (!input || !isJsonObject(input)) return null;
   const code = findCodeString(input);
   if (code === null) return null;
@@ -66,7 +67,7 @@ export function executorToolLabel(input: unknown) {
  * or as a JSON-encoded string. Walk the object once to find a string that
  * contains a `tools.` call and return it.
  */
-function findCodeString(input: Record<string, unknown>): string | null {
+function findCodeString(input: JsonObject): string | null {
   const candidate = input.code;
   if (isJsonString(candidate)) {
     if (candidate.includes("tools.") || candidate.includes('tools["')) {

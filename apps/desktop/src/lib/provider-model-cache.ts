@@ -2,14 +2,20 @@ import type {
   DriverType,
   ProviderModelOption,
 } from "@chief/agent-runtime/types";
-import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+import type { JsonValue } from "@chief/relay-contracts";
+import {
+  isJsonObject,
+  isJsonString,
+  parseJsonValue,
+} from "@chief/relay-contracts";
 
 const STORAGE_PREFIX = "chief:provider-models:";
 
-function isProviderModelOption(value: unknown): value is ProviderModelOption {
-  if (!value || !isJsonObject(value)) return false;
-  const option = value as Partial<ProviderModelOption>;
-  return isJsonString(option.value) && isJsonString(option.label);
+function providerModelOption(value: JsonValue): ProviderModelOption | null {
+  if (!isJsonObject(value)) return null;
+  const option = value;
+  if (!isJsonString(option.value) || !isJsonString(option.label)) return null;
+  return { value: option.value, label: option.label };
 }
 
 export function readCachedProviderModels(
@@ -18,8 +24,13 @@ export function readCachedProviderModels(
   try {
     const stored = window.localStorage.getItem(`${STORAGE_PREFIX}${driver}`);
     if (!stored) return [];
-    const parsed = JSON.parse(stored) as unknown;
-    return Array.isArray(parsed) ? parsed.filter(isProviderModelOption) : [];
+    const parsed = parseJsonValue(JSON.parse(stored));
+    return Array.isArray(parsed)
+      ? parsed.flatMap((value) => {
+          const option = providerModelOption(value);
+          return option ? [option] : [];
+        })
+      : [];
   } catch {
     return [];
   }

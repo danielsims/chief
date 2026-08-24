@@ -8,6 +8,14 @@
 
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
+import {
+  isJsonBoolean,
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+  parseJsonValue,
+} from "@chief/relay-contracts";
+
 import { RELAY_URL } from "../config";
 
 const SESSION_KEY = "chief-auth-session";
@@ -28,11 +36,9 @@ function enqueuePersistence(operation: () => Promise<void>) {
 }
 
 function notifySessionChanged() {
-  if (globalThis.window !== undefined) {
-    queueMicrotask(() =>
-      window.dispatchEvent(new Event(AUTH_SESSION_CHANGED_EVENT)),
-    );
-  }
+  queueMicrotask(() =>
+    window.dispatchEvent(new Event(AUTH_SESSION_CHANGED_EVENT)),
+  );
 }
 
 export interface StoredSession {
@@ -169,13 +175,44 @@ async function withTimeout<T>(
 }
 
 function parseSession(raw: string | null): StoredSession | null {
-  if (!raw) return null;
-  try {
-    const session = JSON.parse(raw) as StoredSession;
-    return session.token && session.user?.id && session.user.email
-      ? session
-      : null;
-  } catch {
+  const value = raw ? parseJsonValue(raw) : null;
+  if (!isJsonObject(value) || !isJsonObject(value.user)) return null;
+  const { user } = value;
+  if (
+    !isJsonString(value.token) ||
+    !isJsonNumber(value.lastValidated) ||
+    !isJsonString(user.id) ||
+    !isJsonString(user.name) ||
+    !isJsonString(user.email) ||
+    !isJsonBoolean(user.emailVerified)
+  ) {
     return null;
   }
+  if (
+    (value.refreshToken !== undefined && !isJsonString(value.refreshToken)) ||
+    (value.expiresAt !== undefined && !isJsonNumber(value.expiresAt)) ||
+    (value.organizationId !== undefined &&
+      !isJsonString(value.organizationId)) ||
+    (user.image !== undefined && !isJsonString(user.image))
+  ) {
+    return null;
+  }
+  const session: StoredSession = {
+    token: value.token,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      emailVerified: user.emailVerified,
+    },
+    lastValidated: value.lastValidated,
+  };
+  if (value.refreshToken !== undefined)
+    session.refreshToken = value.refreshToken;
+  if (value.expiresAt !== undefined) session.expiresAt = value.expiresAt;
+  if (user.image !== undefined) session.user.image = user.image;
+  if (value.organizationId !== undefined) {
+    session.organizationId = value.organizationId;
+  }
+  return session;
 }

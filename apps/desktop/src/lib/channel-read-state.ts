@@ -81,7 +81,7 @@ export function observedChannelMessage(
 
 export function parseChannelReadState(value: unknown): ChannelReadStateBlob {
   if (!value || !isJsonObject(value)) return EMPTY_CHANNEL_READ_STATE;
-  const candidate = value as Partial<ChannelReadStateBlob>;
+  const candidate = value;
   if (candidate.v !== 1 || !candidate.contexts) {
     return EMPTY_CHANNEL_READ_STATE;
   }

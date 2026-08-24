@@ -11,14 +11,12 @@ import { useTheme } from "../../lib/theme";
 
 function BrowserSessionViewerImpl({
   className,
-  onCloseViewer,
   operating,
   pictureInPictureAvoidRefs,
   pictureInPictureContainerRef,
   runId,
 }: {
   className?: string;
-  onCloseViewer?: () => void;
   operating: boolean;
   pictureInPictureAvoidRefs?: readonly RefObject<HTMLElement | null>[];
   pictureInPictureContainerRef?: RefObject<HTMLElement | null>;
@@ -75,10 +73,7 @@ function BrowserSessionViewerImpl({
       </BrowserDisplayTrigger>
       <BrowserDisplayTrigger
         aria-label="Close browser viewer"
-        onClick={() => {
-          closeBrowser(runId);
-          onCloseViewer?.();
-        }}
+        onClick={() => closeBrowser(runId)}
         title="Close browser viewer"
       >
         <X aria-hidden />
@@ -143,6 +138,5 @@ export const BrowserSessionViewer = memo(
     prev.operating === next.operating &&
     prev.pictureInPictureAvoidRefs === next.pictureInPictureAvoidRefs &&
     prev.pictureInPictureContainerRef === next.pictureInPictureContainerRef &&
-    prev.className === next.className &&
-    prev.onCloseViewer === next.onCloseViewer,
+    prev.className === next.className,
 );

@@ -363,8 +363,9 @@ export function featuredPluginOptions(
 }
 
 function categoryRank(plugin: AgentPluginSummary) {
-  const index = PLUGIN_CATEGORY_ORDER.indexOf(
-    pluginCategoryLabel(plugin) as (typeof PLUGIN_CATEGORY_ORDER)[number],
+  const label = pluginCategoryLabel(plugin);
+  const index = PLUGIN_CATEGORY_ORDER.findIndex(
+    (category) => category === label,
   );
   return index >= 0 ? index : PLUGIN_CATEGORY_ORDER.length;
 }

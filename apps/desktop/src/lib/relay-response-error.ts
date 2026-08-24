@@ -1,3 +1,9 @@
+import {
+  isJsonObject,
+  isJsonString,
+  parseJsonValue,
+} from "@chief/relay-contracts";
+
 export class RelaySessionError extends Error {
   constructor(
     message: string,
@@ -14,14 +20,16 @@ export function relayResponseError(
   return response
     .json()
     .catch(() => null)
-    .then((value: unknown) => {
-      const body = value as {
-        error?: { code?: string; message?: string };
-      } | null;
+    .then((value) => {
+      const body = parseJsonValue(value);
+      const error =
+        isJsonObject(body) && isJsonObject(body.error) ? body.error : undefined;
       return new RelaySessionError(
-        body?.error?.message ?? `Relay request failed (${response.status}).`,
+        isJsonString(error?.message)
+          ? error.message
+          : `Relay request failed (${response.status}).`,
         response.status,
-        body?.error?.code,
+        isJsonString(error?.code) ? error.code : undefined,
       );
     });
 }

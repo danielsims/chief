@@ -1,3 +1,4 @@
+import type { JsonObject } from "@chief/relay-contracts";
 import { isJsonString } from "@chief/relay-contracts";
 
 /** Keeps the owning thread durable while nested conversation panels open. */
@@ -38,7 +39,7 @@ export function withOwnedConversationChild(
   child: {
     id: string;
     parentId?: string;
-    triggerContext?: Record<string, unknown>;
+    triggerContext?: JsonObject;
   },
   channels: readonly {
     id: string;
@@ -83,7 +84,7 @@ export function withResolvedConversationChild(
   sessions: readonly {
     id: string;
     parentId?: string;
-    triggerContext?: Record<string, unknown>;
+    triggerContext?: JsonObject;
   }[],
   channels: readonly {
     id: string;

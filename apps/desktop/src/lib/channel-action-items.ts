@@ -10,7 +10,7 @@ import type { WorkspaceAgentId } from "./workspace-channels";
 import {
   channelIdFromChatId,
   directMessageAgentIdFromChatId,
-  WORKSPACE_AGENT_IDENTITIES,
+  isWorkspaceAgentId,
   WORKSPACE_CHANNELS,
 } from "./workspace-channels";
 
@@ -59,9 +59,7 @@ function directAgentIdFromConversationId(
   if (directAgentId) return directAgentId;
   if (!conversationId?.startsWith("dm:")) return null;
   const candidate = conversationId.slice(conversationId.lastIndexOf(":") + 1);
-  return Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, candidate)
-    ? (candidate as WorkspaceAgentId)
-    : null;
+  return isWorkspaceAgentId(candidate) ? candidate : null;
 }
 
 function sessionDirectAgentId(
@@ -227,8 +225,8 @@ export function directMessageAttentionTargets({
   const availableIds = new Set(directMessageIds);
   const directAgentsByConversationId = new Map<string, WorkspaceAgentId>();
   for (const chat of directMessageChats) {
-    if (Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, chat.agent)) {
-      directAgentsByConversationId.set(chat.id, chat.agent as WorkspaceAgentId);
+    if (isWorkspaceAgentId(chat.agent)) {
+      directAgentsByConversationId.set(chat.id, chat.agent);
     }
   }
   const sessionsById = new Map(

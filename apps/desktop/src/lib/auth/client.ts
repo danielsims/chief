@@ -1,5 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { z } from "zod";
 
 import { isJsonNumber } from "@chief/relay-contracts";
 
@@ -12,6 +13,7 @@ import {
   parseOrganizationInvitationUrl,
   storePendingOrganizationInvitation,
 } from "../organization-invitation";
+import { authUserInfoSchema } from "./better-auth-contracts";
 import { oauthIssuerMatches } from "./oauth-issuer";
 import { OAuthTokenError } from "./oauth-token-error";
 import { clearPkceVerifier, getPkceAttempt } from "./pkce";
@@ -19,17 +21,23 @@ import { clearPkceVerifier, getPkceAttempt } from "./pkce";
 export const DEEP_LINK_SCHEME = "chief-desktop";
 const CLIENT_ID = "chief-desktop";
 const REDIRECT_URI = "chief-desktop:///auth";
+const oauthTokenSchema = z.object({
+  access_token: z.string(),
+  expires_in: z.number().optional(),
+  refresh_token: z.string().optional(),
+  token_type: z.string(),
+});
 
 let isTauriEnv: boolean | null = null;
 
-async function checkIsTauri() {
-  if (isTauriEnv !== null) return isTauriEnv;
+function checkIsTauri(): Promise<boolean> {
+  if (isTauriEnv !== null) return Promise.resolve(isTauriEnv);
   try {
     isTauriEnv = isTauri();
   } catch {
     isTauriEnv = false;
   }
-  return isTauriEnv;
+  return Promise.resolve(isTauriEnv);
 }
 
 async function nativeFetch() {
@@ -55,7 +63,7 @@ interface SetupOptions {
     session: StoredSession,
     relayOrigin: string,
   ) => void | Promise<void>;
-  onError?: (error: unknown) => void;
+  onError?: (error: Error) => void;
 }
 
 /** Register the operating-system callback for the OAuth 2.1 authorization code flow. */
@@ -180,8 +188,12 @@ async function handleDeepLink(
     void activateAppWindow();
     await options.onSession(session, attempt.relayOrigin);
   } catch (error) {
-    options.onError?.(error);
+    options.onError?.(parseAuthError(error));
   }
+}
+
+function parseAuthError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }
 
 async function exchangeAuthorizationCode(code: string, attempt: PkceAttempt) {
@@ -205,13 +217,8 @@ async function exchangeAuthorizationCode(code: string, attempt: PkceAttempt) {
       response.status,
     );
   }
-  const token = (await response.json()) as {
-    access_token?: string;
-    expires_in?: number;
-    refresh_token?: string;
-    token_type?: string;
-  };
-  if (!token.access_token || token.token_type?.toLowerCase() !== "bearer") {
+  const token = oauthTokenSchema.parse(await response.json());
+  if (token.token_type.toLowerCase() !== "bearer") {
     throw new Error("The relay returned an invalid access token response.");
   }
   const user = await fetchUserInfo(token.access_token, attempt.authBaseUrl);
@@ -252,13 +259,8 @@ export async function refreshOAuthSession(
       response.status,
     );
   }
-  const token = (await response.json()) as {
-    access_token?: string;
-    expires_in?: number;
-    refresh_token?: string;
-    token_type?: string;
-  };
-  if (!token.access_token || token.token_type?.toLowerCase() !== "bearer") {
+  const token = oauthTokenSchema.parse(await response.json());
+  if (token.token_type.toLowerCase() !== "bearer") {
     throw new Error("The relay returned an invalid refresh response.");
   }
   const user = await fetchUserInfo(token.access_token);
@@ -285,19 +287,10 @@ async function fetchUserInfo(accessToken: string, authBaseUrl = AUTH_BASE_URL) {
       response.status,
     );
   }
-  const data = (await response.json()) as {
-    sub?: string;
-    name?: string;
-    email?: string;
-    email_verified?: boolean;
-    picture?: string | null;
-  };
-  if (!data.sub || !data.email) {
-    throw new Error("The relay returned incomplete user information.");
-  }
+  const data = authUserInfoSchema.parse(await response.json());
   return {
     id: data.sub,
-    name: data.name?.trim() || data.email,
+    name: data.name?.trim() ?? data.email,
     email: data.email,
     emailVerified: data.email_verified ?? false,
     ...(data.picture ? { image: data.picture } : undefined),

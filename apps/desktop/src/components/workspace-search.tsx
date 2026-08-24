@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router";
 
+import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 import {
   Dialog,
   DialogContent,
@@ -85,6 +86,14 @@ const GROUP_LABELS: Record<SearchItem["kind"], string> = {
 interface ChannelSearchScope {
   channelId: string;
   channelLabel: string;
+}
+
+function parseChannelSearchScope(value: unknown): ChannelSearchScope | null {
+  if (!isJsonObject(value)) return null;
+  if (!isJsonString(value.channelId) || !isJsonString(value.channelLabel)) {
+    return null;
+  }
+  return { channelId: value.channelId, channelLabel: value.channelLabel };
 }
 
 const OPEN_WORKSPACE_SEARCH_EVENT = "chief:open-workspace-search";
@@ -221,8 +230,8 @@ export function WorkspaceSearch() {
 
   useEffect(() => {
     const openSearch = (event: Event) => {
-      const customEvent = event as CustomEvent<ChannelSearchScope | undefined>;
-      setChannelScope(customEvent.detail ?? null);
+      if (!(event instanceof CustomEvent)) return;
+      setChannelScope(parseChannelSearchScope(event.detail));
       setQuery("");
       setActiveIndex(0);
       setOpen(true);

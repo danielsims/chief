@@ -1,4 +1,5 @@
 import type { OnboardingSchedule } from "@chief/agent-runtime/types";
+import type { JsonValue } from "@chief/relay-contracts";
 import {
   isJsonBoolean,
   isJsonNumber,
@@ -7,7 +8,7 @@ import {
 } from "@chief/relay-contracts";
 
 import { onboardingScopedId } from "./onboarding-ids";
-import { getPlaybook, playbookInstructions } from "./playbooks";
+import { getPlaybook, playbookInstructions } from "./playbook-prompts";
 
 export interface StarterScheduleItem {
   playbookId: string;
@@ -110,10 +111,10 @@ export function buildOnboardingSchedules(
 }
 
 export function onboardingSchedulePlanFromMetadata(
-  value: unknown,
+  value: JsonValue,
 ): StarterSchedulePlan | null {
-  if (!value || !isJsonObject(value)) return null;
-  const automation = value as Partial<StarterSchedulePlan>;
+  if (!isJsonObject(value)) return null;
+  const automation = value;
   if (
     automation.mode !== "automatic" &&
     automation.mode !== "review" &&
@@ -126,8 +127,8 @@ export function onboardingSchedulePlanFromMetadata(
   }
   if (!Array.isArray(automation.plan)) return null;
   const plan = automation.plan.flatMap((item) => {
-    if (!item || !isJsonObject(item)) return [];
-    const candidate = item as unknown as Record<string, unknown>;
+    if (!isJsonObject(item)) return [];
+    const candidate = item;
     const frequency =
       candidate.frequency === "weekdays" ? "daily" : candidate.frequency;
     if (

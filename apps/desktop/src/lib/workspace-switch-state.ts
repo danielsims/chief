@@ -1,5 +1,5 @@
 import type { WorkspaceSummary } from "@chief/relay-contracts";
-import { isJsonString } from "@chief/relay-contracts";
+import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
 import { relayForWorkspace } from "./relay-connection";
 
@@ -21,9 +21,9 @@ function readSwitch(key: string): StoredWorkspaceSwitch | null {
   const raw = storage.getItem(key);
   if (!raw) return null;
   try {
-    const value = JSON.parse(raw) as Partial<StoredWorkspaceSwitch>;
+    const value = parseJsonObject(JSON.parse(raw));
     if (
-      value.version === 2 &&
+      value?.version === 2 &&
       isJsonString(value.workspaceId) &&
       isJsonString(value.relayUrl)
     ) {
