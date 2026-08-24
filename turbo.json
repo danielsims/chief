@@ -49,8 +49,7 @@
       "outputs": [".cache/.prettiercache"]
     },
     "lint": {
-      "dependsOn": ["topo", "^build"],
-      "outputs": [".cache/.eslintcache"]
+      "outputs": []
     },
     "test": {
       "dependsOn": ["topo", "^build"],

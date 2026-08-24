@@ -15,7 +15,7 @@ WORKDIR /source
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY .gitignore ./
 COPY patches ./patches
-COPY tooling/eslint/package.json ./tooling/eslint/package.json
+COPY tooling/oxlint/package.json ./tooling/oxlint/package.json
 COPY tooling/prettier/package.json ./tooling/prettier/package.json
 COPY tooling/typescript/package.json ./tooling/typescript/package.json
 COPY packages/channel-api/package.json ./packages/channel-api/package.json
@@ -26,7 +26,7 @@ RUN --mount=type=cache,id=chief-web-pnpm,target=/pnpm/store \
   pnpm config set store-dir /pnpm/store \
   && pnpm install --frozen-lockfile --filter @chief/web...
 
-COPY tooling/eslint ./tooling/eslint
+COPY tooling/oxlint ./tooling/oxlint
 COPY tooling/prettier ./tooling/prettier
 COPY tooling/typescript ./tooling/typescript
 COPY packages/channel-api ./packages/channel-api

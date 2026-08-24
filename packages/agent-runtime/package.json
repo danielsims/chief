@@ -21,7 +21,7 @@
     "clean": "git clean -xdf .cache .turbo dist node_modules",
     "dev": "tsx watch src/server.ts",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path ../../.prettierignore",
-    "lint": "eslint --flag unstable_native_nodejs_ts_config",
+    "lint": "pnpm --dir ../.. exec oxlint packages/agent-runtime",
     "smoke:convex": "tsx scripts/smoke-convex-deployment.mts",
     "smoke:agent-live": "CHIEF_LIVE_MODEL=opencode-go/deepseek-v4-flash tsx scripts/smoke-live-channel-agent.mts",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
@@ -63,14 +63,12 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@chief/eslint-config": "workspace:*",
     "@chief/prettier-config": "workspace:*",
     "@chief/tsconfig": "workspace:*",
     "@types/node": "catalog:",
     "@types/ws": "^8.18.1",
     "drizzle-kit": "1.0.0-rc.4",
     "esbuild": "0.27.0",
-    "eslint": "catalog:",
     "prettier": "catalog:",
     "tar": "^7.5.20",
     "tsx": "^4.20.3",

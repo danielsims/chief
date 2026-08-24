@@ -8,7 +8,7 @@ RUN corepack enable
 WORKDIR /source
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY tooling/eslint ./tooling/eslint
+COPY tooling/oxlint ./tooling/oxlint
 COPY tooling/prettier ./tooling/prettier
 COPY tooling/typescript ./tooling/typescript
 COPY packages/relay-contracts ./packages/relay-contracts
