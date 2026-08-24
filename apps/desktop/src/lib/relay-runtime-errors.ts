@@ -1,4 +1,8 @@
-export function publicRelayErrorMessage(error: unknown) {
+export function parseRelayError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
+}
+
+export function parsePublicRelayErrorMessage(error: Error) {
   if (
     error instanceof Error &&
     error.message.includes("Identifiers may only contain")

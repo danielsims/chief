@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/refs -- Dnd Kit exposes stable ref callbacks and reactive drag state through hook return objects. */
 import type { CollisionDetection, DragEndEvent } from "@dnd-kit/core";
 import type { ReactNode } from "react";
 import { useState } from "react";
@@ -40,6 +39,7 @@ import type {
 } from "../lib/workspace-channels";
 import type { SidebarChannel } from "./channel-browser-dialog";
 import {
+  isSidebarPinnedItem,
   placeSidebarPinnedItem,
   sidebarPinnedItemKey,
   WORKSPACE_AGENT_IDENTITIES,
@@ -199,15 +199,22 @@ export function SidebarChannels({
       coordinateGetter: sortableKeyboardCoordinates,
     }),
   );
-  const pinnedDrop = useDroppable({ id: "pinned-drop" });
+  const { isOver: isPinnedDropOver, setNodeRef: setPinnedDropNodeRef } =
+    useDroppable({ id: "pinned-drop" });
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     setDraggingItem(null);
     if (!over) return;
-    const item = active.data.current?.pin as SidebarPinnedItem | undefined;
-    if (!item) return;
-    const overItem = over.data.current?.pin as SidebarPinnedItem | undefined;
-    onPinnedChange(placeSidebarPinnedItem(pinnedItems, item, overItem ?? null));
+    const item: unknown = active.data.current?.pin;
+    if (!isSidebarPinnedItem(item)) return;
+    const overItem: unknown = over.data.current?.pin;
+    onPinnedChange(
+      placeSidebarPinnedItem(
+        pinnedItems,
+        item,
+        isSidebarPinnedItem(overItem) ? overItem : null,
+      ),
+    );
     setPinnedCollapsed(false);
   };
 
@@ -240,18 +247,18 @@ export function SidebarChannels({
       sensors={sensors}
       collisionDetection={pinnedCollisionDetection}
       onDragStart={({ active }) => {
-        const item = active.data.current?.pin as SidebarPinnedItem | undefined;
-        setDraggingItem(item ?? null);
+        const item: unknown = active.data.current?.pin;
+        setDraggingItem(isSidebarPinnedItem(item) ? item : null);
       }}
       onDragCancel={() => setDraggingItem(null)}
       onDragEnd={onDragEnd}
     >
       {pinnedItems.length > 0 ? (
         <section
-          ref={pinnedDrop.setNodeRef}
+          ref={setPinnedDropNodeRef}
           className={cn(
             "mt-3 rounded-lg px-0.5 transition-colors",
-            pinnedDrop.isOver && "bg-sidebar-accent/45",
+            isPinnedDropOver && "bg-sidebar-accent/45",
           )}
         >
           <GroupLabel
@@ -264,7 +271,7 @@ export function SidebarChannels({
             <div
               className={cn(
                 "min-h-2 rounded-lg py-0.5 transition-shadow",
-                pinnedDrop.isOver &&
+                isPinnedDropOver &&
                   "shadow-[inset_0_1px_0_var(--sidebar-foreground)]",
               )}
             >

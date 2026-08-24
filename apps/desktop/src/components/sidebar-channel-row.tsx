@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/refs -- Dnd Kit exposes stable ref callbacks and reactive drag state through hook return objects. */
 import { useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { useSortable } from "@dnd-kit/sortable";
@@ -72,32 +71,55 @@ export function ChannelRow({
     data: { pin: item },
     disabled: dragKind !== "sortable",
   });
-  const drag = dragKind === "sortable" ? sortable : source;
-  const style =
-    dragKind === "sortable"
-      ? {
-          transform: CSS.Transform.toString(sortable.transform),
-          transition: sortable.transition,
-        }
-      : undefined;
+  const {
+    attributes: sourceAttributes,
+    isDragging: sourceIsDragging,
+    listeners: sourceListeners,
+    setActivatorNodeRef: setSourceActivatorNodeRef,
+    setNodeRef: setSourceNodeRef,
+  } = source;
+  const {
+    attributes: sortableAttributes,
+    isDragging: sortableIsDragging,
+    isOver: sortableIsOver,
+    listeners: sortableListeners,
+    setActivatorNodeRef: setSortableActivatorNodeRef,
+    setNodeRef: setSortableNodeRef,
+    transform: sortableTransform,
+    transition: sortableTransition,
+  } = sortable;
+  const isSortable = dragKind === "sortable";
+  const setNodeRef = isSortable ? setSortableNodeRef : setSourceNodeRef;
+  const setActivatorNodeRef = isSortable
+    ? setSortableActivatorNodeRef
+    : setSourceActivatorNodeRef;
+  const dragAttributes = isSortable ? sortableAttributes : sourceAttributes;
+  const dragListeners = isSortable ? sortableListeners : sourceListeners;
+  const isDragging = isSortable ? sortableIsDragging : sourceIsDragging;
+  const style = isSortable
+    ? {
+        transform: CSS.Transform.toString(sortableTransform),
+        transition: sortableTransition,
+      }
+    : undefined;
 
   return (
     <div
-      ref={drag.setNodeRef}
+      ref={setNodeRef}
       style={style}
       className={cn(
         "group/channel relative touch-none select-none",
-        sortable.isOver &&
+        sortableIsOver &&
           "before:bg-sidebar-foreground before:absolute before:-top-px before:right-2 before:left-2 before:z-10 before:h-px",
-        drag.isDragging && "z-20 opacity-45",
+        isDragging && "z-20 opacity-45",
       )}
     >
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <button
-            ref={drag.setActivatorNodeRef}
-            {...drag.attributes}
-            {...drag.listeners}
+            ref={setActivatorNodeRef}
+            {...dragAttributes}
+            {...dragListeners}
             type="button"
             onClick={onOpen}
             aria-current={active ? "page" : undefined}
@@ -112,7 +134,7 @@ export function ChannelRow({
               !active &&
                 unreadCount > 0 &&
                 "text-sidebar-foreground font-semibold",
-              drag.isDragging && "cursor-grabbing",
+              isDragging && "cursor-grabbing",
             )}
           >
             {channel.visibility === "private" ? (

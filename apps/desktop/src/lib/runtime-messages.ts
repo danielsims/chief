@@ -65,7 +65,7 @@ function settledParts(message: ChiefUIMessage) {
 
 function isPluginSummary(value: unknown): value is AgentPluginSummary {
   if (!value || !isJsonObject(value) || Array.isArray(value)) return false;
-  const plugin = value as Partial<AgentPluginSummary>;
+  const plugin = value;
   return Boolean(
     isJsonString(plugin.id) &&
     isJsonString(plugin.name) &&
@@ -83,17 +83,21 @@ function channelEventParts(event: ChannelEvent): ChiefUIMessage["parts"] {
   if (event.kind !== 9 || !Array.isArray(event.parts)) return [];
   return event.parts.flatMap((part) => {
     if (!part || !isJsonObject(part) || Array.isArray(part)) return [];
-    const candidate = part as {
-      type?: unknown;
-      data?: { plugins?: unknown };
-    };
+    const candidate = part;
+    const data = candidate.data;
     if (
       candidate.type !== "data-plugin-recommendations" ||
-      !Array.isArray(candidate.data?.plugins)
+      !data ||
+      !isJsonObject(data) ||
+      !Array.isArray(data.plugins)
     ) {
       return [];
     }
-    const plugins = candidate.data.plugins.filter(isPluginSummary).slice(0, 8);
+    const plugins: AgentPluginSummary[] = [];
+    for (const plugin of data.plugins) {
+      if (isPluginSummary(plugin)) plugins.push(plugin);
+      if (plugins.length === 8) break;
+    }
     return plugins.length > 0
       ? [{ type: "data-plugin-recommendations", data: { plugins } } as const]
       : [];

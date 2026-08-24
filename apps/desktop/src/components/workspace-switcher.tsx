@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Check, Plus } from "lucide-react";
 import { useNavigate } from "react-router";
 
+import { isJsonString } from "@chief/relay-contracts";
 import {
   Popover,
   PopoverContent,
@@ -22,6 +23,11 @@ import {
   setActiveAuthOrganization,
 } from "../lib/auth/better-auth-client";
 import { OrgLogo } from "./org-logo";
+
+function organizationWebsite(organization: AuthOrganization) {
+  const websiteUrl = parseOrganizationMetadata(organization).websiteUrl;
+  return isJsonString(websiteUrl) ? websiteUrl : "";
+}
 
 export function WorkspaceSwitcher({
   variant = "default",
@@ -91,9 +97,7 @@ export function WorkspaceSwitcher({
               <OrgLogo
                 name={activeOrg.name}
                 logo={activeOrg.logo}
-                website={String(
-                  parseOrganizationMetadata(activeOrg).websiteUrl ?? "",
-                )}
+                website={organizationWebsite(activeOrg)}
                 className="h-full w-full text-base"
               />
             ) : (
@@ -136,9 +140,7 @@ export function WorkspaceSwitcher({
                     <OrgLogo
                       name={org.name}
                       logo={org.logo}
-                      website={String(
-                        parseOrganizationMetadata(org).websiteUrl ?? "",
-                      )}
+                      website={organizationWebsite(org)}
                       className="h-6 w-6 shrink-0 text-xs"
                     />
                     <span className="min-w-0 flex-1 truncate">{org.name}</span>
@@ -159,7 +161,7 @@ export function WorkspaceSwitcher({
             type="button"
             onClick={() => {
               setOpen(false);
-              navigate("/workspaces/new?intent=add");
+              void navigate("/workspaces/new?intent=add");
             }}
             className="text-muted-foreground hover:bg-accent hover:text-foreground flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors"
           >

@@ -1,4 +1,4 @@
-import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
 
 export const MISSION_CONTROL_CHANNEL_ID = "mission-control";
 export const MISSION_CONTROL_CHANNEL_RELAY_ID =
@@ -99,8 +99,8 @@ export function sidebarPinnedItemKey(item: SidebarPinnedItem) {
 export function isSidebarPinnedItem(
   value: unknown,
 ): value is SidebarPinnedItem {
-  if (!value || !isJsonObject(value)) return false;
-  const item = value as Partial<SidebarPinnedItem>;
+  const item = parseJsonObject(value);
+  if (!item) return false;
   if (!isJsonString(item.id)) return false;
   return (
     item.kind === "channel" ||

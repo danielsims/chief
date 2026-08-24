@@ -2,7 +2,10 @@ import { useMemo } from "react";
 
 import type { SessionRecord } from "@chief/agent-runtime/types";
 
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
 import {
   formatAgentActivityStatus,
   mergeAgentActivityPresence,
@@ -10,10 +13,8 @@ import {
 } from "./agent-activity-presence";
 
 function activityAgentName(agentId: string) {
-  return Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)
-    ? WORKSPACE_AGENT_IDENTITIES[
-        agentId as keyof typeof WORKSPACE_AGENT_IDENTITIES
-      ].name
+  return isWorkspaceAgentId(agentId)
+    ? WORKSPACE_AGENT_IDENTITIES[agentId].name
     : agentId;
 }
 

@@ -357,7 +357,7 @@ function componentActivityBlocks(component: MessageComponent): ContentBlock[] {
 
 function isContentBlock(value: unknown): value is ContentBlock {
   if (!value || !isJsonObject(value) || Array.isArray(value)) return false;
-  const block = value as Record<string, unknown>;
+  const block = value;
   if (block.type === "thinking") return isJsonString(block.thinking);
   if (block.type === "tool_use") {
     return isJsonString(block.id) && isJsonString(block.name);

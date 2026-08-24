@@ -7,6 +7,7 @@ import type {
   ContentBlock,
   SessionRecord,
 } from "@chief/agent-runtime/types";
+import type { JsonValue } from "@chief/relay-contracts";
 import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 import { cn } from "@chief/ui/lib/utils";
 
@@ -22,16 +23,18 @@ import { StreamingMarkdown } from "./streaming-markdown";
 
 const MAX_RESULT_CHARS = 3000;
 
-function toolResultText(content: unknown): string {
+function jsonText(value: JsonValue | undefined): string {
+  if (isJsonString(value)) return value;
+  return value === undefined ? "" : JSON.stringify(value);
+}
+
+function toolResultText(content: JsonValue | undefined): string {
   if (isJsonString(content)) return content;
   if (Array.isArray(content)) {
     return content
       .map((block) =>
-        block &&
-        isJsonObject(block) &&
-        "text" in block &&
-        isJsonString((block as { text: unknown }).text)
-          ? (block as { text: string }).text
+        block && isJsonObject(block) && isJsonString(block.text)
+          ? block.text
           : "",
       )
       .filter(Boolean)
@@ -64,16 +67,15 @@ function canonicalTool(name: string) {
   return "tool";
 }
 
-function skillName(input: unknown) {
+function skillName(input: JsonValue | undefined) {
   if (!input || !isJsonObject(input)) return null;
-  const value = input as Record<string, unknown>;
   for (const key of ["name", "skill", "skillName"]) {
-    if (isJsonString(value[key]) && value[key]) return value[key];
+    if (isJsonString(input[key]) && input[key]) return input[key];
   }
   return null;
 }
 
-export function toolPresentation(name: string, input: unknown) {
+export function toolPresentation(name: string, input: JsonValue | undefined) {
   const kind = canonicalTool(name);
   if (kind === "skill") return skillName(input) ?? "Skill";
   if (kind === "integration") {
@@ -89,8 +91,8 @@ export function toolPresentation(name: string, input: unknown) {
   return executorToolLabel(input) ?? name.replace(/_/g, " ");
 }
 
-export function toolSummary(input: unknown): string {
-  const value = (input ?? {}) as Record<string, unknown>;
+export function toolSummary(input: JsonValue | undefined): string {
+  const value = isJsonObject(input) ? input : {};
   for (const key of [
     "description",
     "file_path",
@@ -140,7 +142,7 @@ function ToolCard({
   const input =
     block.input && isJsonObject(block.input)
       ? JSON.stringify(block.input, null, 2)
-      : String(block.input ?? "");
+      : jsonText(block.input);
 
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -443,7 +445,7 @@ export function Blocks({
                 key={index}
                 className={cn(
                   "bg-card/50 text-muted-foreground max-h-56 max-w-full overflow-auto border px-3 py-2 font-mono text-[11px] leading-5 [overflow-wrap:anywhere] break-all whitespace-pre-wrap",
-                  block.is_error && "border-red-500/40 text-red-500",
+                  "border-red-500/40 text-red-500",
                 )}
               >
                 {text.length > MAX_RESULT_CHARS

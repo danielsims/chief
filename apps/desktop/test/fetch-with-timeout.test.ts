@@ -14,7 +14,7 @@ void test("settles when a native fetch ignores its abort signal", async () => {
 
   await assert.rejects(
     fetchWithTimeout(fetcher, "https://relay.example.com", {}, 5),
-    (error: unknown) =>
+    (error: Error) =>
       error instanceof DOMException && error.name === "TimeoutError",
   );
   assert.equal(aborted, true);

@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 
-import { isJsonString } from "@chief/relay-contracts";
+import { isJsonString, parseJsonValue } from "@chief/relay-contracts";
 import { cn } from "@chief/ui/lib/utils";
 
 import type {
@@ -72,9 +72,9 @@ function pinnedStorageKey(workspaceId: string | null) {
 
 function readPinnedItems(workspaceId: string | null): SidebarPinnedItem[] {
   try {
-    const stored = JSON.parse(
+    const stored = parseJsonValue(
       window.localStorage.getItem(pinnedStorageKey(workspaceId)) ?? "[]",
-    ) as unknown;
+    );
     if (!Array.isArray(stored)) return [];
     return stored.flatMap((value): SidebarPinnedItem[] => {
       if (isJsonString(value)) return [{ kind: "channel", id: value }];
@@ -91,9 +91,9 @@ function leftStorageKey(workspaceId: string | null) {
 
 function readLeftChannels(workspaceId: string | null): WorkspaceChannelId[] {
   try {
-    const stored = JSON.parse(
+    const stored = parseJsonValue(
       window.localStorage.getItem(leftStorageKey(workspaceId)) ?? "[]",
-    ) as unknown;
+    );
     if (!Array.isArray(stored)) return [];
     return stored.filter((value): value is string => isJsonString(value));
   } catch {

@@ -20,7 +20,10 @@ import { cn } from "@chief/ui/lib/utils";
 import type { WorkspaceAgentId } from "../../lib/workspace-channels";
 import type { AgentPresence } from "./agent-profile-panel";
 import type { ConversationProfileSelection } from "./conversation-profile";
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
 import { ChannelArtifactsMenu } from "../channel-artifacts-menu";
 import { AgentPresenceAvatar } from "./agent-profile-panel";
@@ -224,6 +227,9 @@ function ChannelMembersMenu({
   user: ConversationHeaderProps["user"];
   onOpenProfile: ConversationHeaderProps["onOpenProfile"];
 }) {
+  const agents = channel.agentIds.flatMap((agentId) =>
+    isWorkspaceAgentId(agentId) ? [agentId] : [],
+  );
   const [open, setOpen] = useState(false);
   const selectProfile = (selection: ConversationProfileSelection) => {
     setOpen(false);
@@ -247,12 +253,10 @@ function ChannelMembersMenu({
                 className="ring-card size-4 rounded-full object-cover ring-1"
               />
             ) : null}
-            {channel.agentIds.slice(0, 3).map((agentId) => (
+            {agents.slice(0, 3).map((agentId) => (
               <AgentAvatar
                 key={agentId}
-                label={
-                  WORKSPACE_AGENT_IDENTITIES[agentId as WorkspaceAgentId].name
-                }
+                label={WORKSPACE_AGENT_IDENTITIES[agentId].name}
                 className="ring-card size-4 ring-1"
               />
             ))}
@@ -295,9 +299,8 @@ function ChannelMembersMenu({
               </span>
             </span>
           </button>
-          {channel.agentIds.map((agentId) => {
-            const identity =
-              WORKSPACE_AGENT_IDENTITIES[agentId as WorkspaceAgentId];
+          {agents.map((agentId) => {
+            const identity = WORKSPACE_AGENT_IDENTITIES[agentId];
             return (
               <button
                 key={agentId}
@@ -305,7 +308,7 @@ function ChannelMembersMenu({
                 onClick={() =>
                   selectProfile({
                     kind: "agent",
-                    agentId: agentId as WorkspaceAgentId,
+                    agentId,
                   })
                 }
                 className="hover:bg-accent flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors"

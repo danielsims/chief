@@ -7,7 +7,7 @@ export class ConversationErrorBoundary extends Component<
   { children: ReactNode; resetKey: string },
   { error: Error | null }
 > {
-  state = { error: null as Error | null };
+  state: { error: Error | null } = { error: null };
 
   static getDerivedStateFromError(error: Error) {
     return { error };

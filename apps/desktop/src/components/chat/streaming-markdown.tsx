@@ -1,4 +1,4 @@
-import type { ComponentPropsWithoutRef, ReactElement, ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import {
   Children,
   cloneElement,
@@ -120,7 +120,7 @@ function highlightReferences(
       : isValidElement<{ children?: ReactNode }>(child) &&
           child.type !== "code" &&
           child.type !== "a"
-        ? cloneElement(child as ReactElement<{ children?: ReactNode }>, {
+        ? cloneElement(child, {
             children: highlightReferences(
               child.props.children,
               channels,

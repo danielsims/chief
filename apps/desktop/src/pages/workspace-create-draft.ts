@@ -1,4 +1,8 @@
-import { isJsonString } from "@chief/relay-contracts";
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+} from "@chief/relay-contracts";
 
 export type WorkspaceInferenceProvider = "claude" | "codex" | "opencode" | null;
 
@@ -22,14 +26,15 @@ export function readCreateWorkspaceDraft(
   key: string,
 ): CreateWorkspaceDraft | null {
   try {
-    const value = JSON.parse(
+    const value: unknown = JSON.parse(
       window.localStorage.getItem(key) ?? "null",
-    ) as Partial<CreateWorkspaceDraft> | null;
-    const step = value?.step;
+    );
+    if (!isJsonObject(value)) return null;
+    const step = value.step;
     if (
-      value?.version !== createDraftVersion ||
+      value.version !== createDraftVersion ||
+      !isJsonNumber(step) ||
       !Number.isInteger(step) ||
-      step === undefined ||
       step < 0 ||
       step > 3 ||
       !isJsonString(value.name) ||
@@ -37,7 +42,11 @@ export function readCreateWorkspaceDraft(
       !isJsonString(value.model) ||
       !Array.isArray(value.selectedApps) ||
       !value.selectedApps.every((app) => isJsonString(app)) ||
-      ![null, "claude", "codex", "opencode"].includes(value.provider ?? null)
+      (value.provider !== undefined &&
+        value.provider !== null &&
+        value.provider !== "claude" &&
+        value.provider !== "codex" &&
+        value.provider !== "opencode")
     ) {
       return null;
     }
@@ -46,7 +55,12 @@ export function readCreateWorkspaceDraft(
       step,
       name: value.name,
       website: value.website,
-      provider: value.provider ?? null,
+      provider:
+        value.provider === "claude" ||
+        value.provider === "codex" ||
+        value.provider === "opencode"
+          ? value.provider
+          : null,
       model: value.model,
       selectedApps: value.selectedApps,
     };

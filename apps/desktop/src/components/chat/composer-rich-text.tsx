@@ -8,6 +8,9 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "tiptap-markdown";
+import { z } from "zod";
+
+import { isJsonString } from "@chief/relay-contracts";
 
 import type { ComposerFormat } from "./composer-editing";
 import {
@@ -39,10 +42,21 @@ export interface ComposerRichTextState {
 }
 
 function markdownFromEditor(editor: Editor) {
-  const storage = editor.storage as {
-    markdown?: { getMarkdown: () => string };
-  };
-  return storage.markdown?.getMarkdown() ?? "";
+  return parseMarkdown(editor.storage);
+}
+
+const markdownStorageSchema = z.object({
+  markdown: z.object({ getMarkdown: z.function() }).optional(),
+});
+
+function parseMarkdown(value: unknown): string {
+  const parsed = markdownStorageSchema.safeParse(value);
+  const getMarkdown = parsed.success
+    ? parsed.data.markdown?.getMarkdown
+    : undefined;
+  if (!getMarkdown) return "";
+  const result = getMarkdown();
+  return isJsonString(result) ? result : "";
 }
 
 function textBeforeSelection(editor: Editor) {
@@ -214,9 +228,11 @@ export const ComposerRichText = forwardRef<
   const onKeyDownRef = useRef(onKeyDown);
   const onStateChangeRef = useRef(onStateChange);
   const onValueChangeRef = useRef(onValueChange);
-  onKeyDownRef.current = onKeyDown;
-  onStateChangeRef.current = onStateChange;
-  onValueChangeRef.current = onValueChange;
+  useEffect(() => {
+    onKeyDownRef.current = onKeyDown;
+    onStateChangeRef.current = onStateChange;
+    onValueChangeRef.current = onValueChange;
+  }, [onKeyDown, onStateChange, onValueChange]);
 
   const editor = useEditor({
     extensions: [

@@ -278,7 +278,7 @@ export function WorkspaceSettings() {
     }
   };
 
-  const useWebsiteIcon = async () => {
+  const applyWebsiteIcon = async () => {
     if (!org) return;
     setProcessingLogo(true);
     setLogoError(null);
@@ -343,7 +343,7 @@ export function WorkspaceSettings() {
                     variant="ghost"
                     size="sm"
                     disabled={processingLogo}
-                    onClick={() => void useWebsiteIcon()}
+                    onClick={() => void applyWebsiteIcon()}
                   >
                     Use website icon
                   </Button>

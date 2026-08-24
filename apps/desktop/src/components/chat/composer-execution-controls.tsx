@@ -14,6 +14,10 @@ import { useProviderModels } from "../../lib/runtime";
 
 const CHAT_PROVIDERS: DriverType[] = ["claude", "codex", "opencode", "remote"];
 
+function isChatProvider(value: string): value is DriverType {
+  return CHAT_PROVIDERS.some((provider) => provider === value);
+}
+
 export function ComposerExecutionControls({
   execution,
   disabled,
@@ -38,9 +42,9 @@ export function ComposerExecutionControls({
       <Select
         value={driver ?? undefined}
         disabled={disabled}
-        onValueChange={(value) =>
-          onExecutionChange?.({ driver: value as DriverType })
-        }
+        onValueChange={(value) => {
+          if (isChatProvider(value)) onExecutionChange?.({ driver: value });
+        }}
       >
         <SelectTrigger className="text-muted-foreground hover:text-foreground data-[state=open]:text-foreground h-6 w-auto gap-1.5 border-transparent px-1 text-xs">
           {activeMeta ? (

@@ -2,8 +2,10 @@ import type { SessionRecord } from "@chief/agent-runtime/types";
 import { MatrixLoader } from "@chief/ui/components/matrix-loader";
 import { cn } from "@chief/ui/lib/utils";
 
-import type { WorkspaceAgentId } from "../../lib/workspace-channels";
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
 import { AgentAvatar } from "../agent-avatar";
 
 const AGENT_WORKING_COLOR: Record<string, string> = {
@@ -44,8 +46,8 @@ export function SpecialistStatusIndicator({
       />
     );
   }
-  const identity = Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agent)
-    ? WORKSPACE_AGENT_IDENTITIES[agent as WorkspaceAgentId]
+  const identity = isWorkspaceAgentId(agent)
+    ? WORKSPACE_AGENT_IDENTITIES[agent]
     : undefined;
   return (
     <AgentAvatar

@@ -9,7 +9,7 @@ function warmEmojiIndex() {
   if (warmStarted) return;
   warmStarted = true;
   const warm = () => void init({ data });
-  if (globalThis.window !== undefined && "requestIdleCallback" in window) {
+  if ("requestIdleCallback" in window) {
     window.requestIdleCallback(warm, { timeout: 1_500 });
   } else {
     globalThis.setTimeout(warm, 250);

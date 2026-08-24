@@ -16,8 +16,8 @@ export function EmojiAutocomplete({
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const activeItem = listRef.current?.children[selectedIndex] as
-      HTMLElement | undefined;
+    const candidate = listRef.current?.children[selectedIndex];
+    const activeItem = candidate instanceof HTMLElement ? candidate : null;
     activeItem?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 

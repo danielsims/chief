@@ -28,7 +28,10 @@ import {
   createRelayWorkspaceChannel,
   loadRelayWorkspaceChannels,
 } from "./relay-runtime-channels";
-import { publicRelayErrorMessage } from "./relay-runtime-errors";
+import {
+  parsePublicRelayErrorMessage,
+  parseRelayError,
+} from "./relay-runtime-errors";
 import {
   agentForDirect,
   agentRunEvent,
@@ -82,9 +85,9 @@ export class RelayRuntimeClient implements RuntimeTransport {
         this.emit({ type: "agents", agents: this.agentDefinitions() });
         this.statusListener("connected");
       })
-      .catch((error: unknown) => {
+      .catch((error) => {
         this.statusListener("disconnected");
-        this.emitError(error);
+        this.recordError(parseRelayError(error));
       });
   }
 
@@ -106,10 +109,10 @@ export class RelayRuntimeClient implements RuntimeTransport {
   }
 
   send(message: ClientMessage) {
-    void this.route(message).catch((error: unknown) => {
+    void this.route(message).catch((error) => {
       const chatId = "chatId" in message ? message.chatId : undefined;
       const requestId = "requestId" in message ? message.requestId : undefined;
-      this.emitError(error, chatId, requestId);
+      this.recordError(parseRelayError(error), chatId, requestId);
     });
   }
 
@@ -172,7 +175,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
         await this.appendMessage(message);
         return;
       default:
-        this.emitError(
+        this.recordError(
           new Error(`Relay command ${message.type} is not implemented.`),
           "chatId" in message ? message.chatId : undefined,
         );
@@ -318,7 +321,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
       conversationIds: [...this.subscribedConversationIds],
       after: this.workspaceCursor,
       onEvent: (event) => this.handleWorkspaceEvent(event),
-      onError: (error) => this.emitError(error),
+      onError: (error) => this.recordError(parseRelayError(error)),
     });
     this.pendingWorkspaceSubscription = subscriptionPromise;
     try {
@@ -362,7 +365,7 @@ export class RelayRuntimeClient implements RuntimeTransport {
         event.type === "conversation.message.deleted"
       ) {
         void this.openChannelEvents(message.conversationId).catch((error) =>
-          this.emitError(error),
+          this.recordError(parseRelayError(error)),
         );
       } else {
         this.emit({
@@ -462,11 +465,11 @@ export class RelayRuntimeClient implements RuntimeTransport {
     for (const listener of this.listeners) listener(message);
   }
 
-  private emitError(error: unknown, chatId?: string, requestId?: string) {
+  private recordError(error: Error, chatId?: string, requestId?: string) {
     console.error("[Chief relay] Runtime request failed", error);
     this.emit({
       type: "error",
-      message: publicRelayErrorMessage(error),
+      message: parsePublicRelayErrorMessage(error),
       ...(chatId ? { chatId } : undefined),
       ...(requestId ? { requestId } : undefined),
     });

@@ -1,4 +1,5 @@
 import data from "@emoji-mart/data";
+import { z } from "zod";
 
 export interface EmojiOption {
   emoji: string;
@@ -42,37 +43,39 @@ export const EMOJI_OPTIONS: readonly EmojiOption[] = [
   { emoji: "✨", shortcode: "sparkles", keywords: "new magic polish" },
 ];
 
-interface EmojiMartData {
-  emojis?: Record<
-    string,
-    {
-      id?: string;
-      name?: string;
-      keywords?: string[];
-      skins?: { native?: string }[];
-    }
-  >;
-}
+const emojiMartDataSchema = z.object({
+  emojis: z.record(
+    z.string(),
+    z.object({
+      id: z.string().optional(),
+      name: z.string().optional(),
+      keywords: z.array(z.string()).optional(),
+      skins: z.array(z.object({ native: z.string().optional() })).optional(),
+    }),
+  ),
+});
 
 let completeEmojiIndex: readonly EmojiOption[] | undefined;
 
 function allEmoji() {
   if (completeEmojiIndex) return completeEmojiIndex;
-  completeEmojiIndex = Object.entries(
-    (data as EmojiMartData).emojis ?? {},
-  ).flatMap(([fallbackShortcode, emoji]) => {
-    const native = emoji.skins?.[0]?.native;
-    if (!native) return [];
-    const shortcode = emoji.id ?? fallbackShortcode;
-    return [
-      {
-        emoji: native,
-        shortcode,
-        name: emoji.name ?? shortcode,
-        keywords: (emoji.keywords ?? []).join(" "),
-      },
-    ];
-  });
+  const parsed = emojiMartDataSchema.safeParse(data);
+  if (!parsed.success) return [];
+  completeEmojiIndex = Object.entries(parsed.data.emojis).flatMap(
+    ([fallbackShortcode, emoji]) => {
+      const native = emoji.skins?.[0]?.native;
+      if (!native) return [];
+      const shortcode = emoji.id ?? fallbackShortcode;
+      return [
+        {
+          emoji: native,
+          shortcode,
+          name: emoji.name ?? shortcode,
+          keywords: (emoji.keywords ?? []).join(" "),
+        },
+      ];
+    },
+  );
   return completeEmojiIndex;
 }
 

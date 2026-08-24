@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import type { MessageComponent } from "@chief/relay-contracts";
 import {
   conversationMessageSchema,
   workspaceSnapshotSchema,
@@ -34,7 +35,7 @@ const snapshot = workspaceSnapshotSchema.parse({
   createdAt: "2026-08-22T00:00:00.000Z",
 });
 
-function message(components: Record<string, unknown>[], body = "") {
+function message(components: MessageComponent[], body = "") {
   return conversationMessageSchema.parse({
     id: body ? "message-1" : "activity-1",
     workspaceId: "workspace-a",

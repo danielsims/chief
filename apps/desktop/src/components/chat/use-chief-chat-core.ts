@@ -20,7 +20,10 @@ import {
   useRuntime,
   useWorkspaceData,
 } from "../../lib/runtime";
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
 import { channelActivityState } from "./channel-activity-state";
 import { channelRecipients } from "./channel-thread-audience";
 import { conversationActivityTurns } from "./conversation-activity-history";
@@ -137,11 +140,8 @@ export function useChiefChatCore({
         }
       : null);
   const activeRootIdentity =
-    visibleActiveRootTurn &&
-    Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, visibleActiveRootTurn.agentId)
-      ? WORKSPACE_AGENT_IDENTITIES[
-          visibleActiveRootTurn.agentId as keyof typeof WORKSPACE_AGENT_IDENTITIES
-        ]
+    visibleActiveRootTurn && isWorkspaceAgentId(visibleActiveRootTurn.agentId)
+      ? WORKSPACE_AGENT_IDENTITIES[visibleActiveRootTurn.agentId]
       : undefined;
   const activityAgentLabel =
     activeRootIdentity?.name ?? directAgent?.name ?? "Chief";

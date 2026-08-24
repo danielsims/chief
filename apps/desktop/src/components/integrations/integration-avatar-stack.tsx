@@ -1,4 +1,4 @@
-import type { IntegrationDependency } from "../../lib/playbooks";
+import type { IntegrationDependency } from "../../lib/playbook-types";
 import { integrationLogoUrl } from "../../lib/integrations";
 
 export function IntegrationAvatarStack({

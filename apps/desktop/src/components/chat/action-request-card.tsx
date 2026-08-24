@@ -4,15 +4,16 @@ import {
   isQuestionActionRequest,
   simpleDecisionQuestion,
 } from "../../lib/input-request-presentation";
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
 import { AttentionPill } from "../attention-pill";
 import { InputRequestSection } from "../integrations/input-request-section";
 
 function actionAgentName(agentId: string) {
-  return Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)
-    ? WORKSPACE_AGENT_IDENTITIES[
-        agentId as keyof typeof WORKSPACE_AGENT_IDENTITIES
-      ].name
+  return isWorkspaceAgentId(agentId)
+    ? WORKSPACE_AGENT_IDENTITIES[agentId].name
     : agentId;
 }
 

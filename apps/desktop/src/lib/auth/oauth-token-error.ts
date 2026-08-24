@@ -10,7 +10,7 @@ export class OAuthTokenError extends Error {
 /** Only an explicit client rejection invalidates the durable login. Network
  * failures and server outages preserve the rotating refresh credential so a
  * later foreground refresh can resume the same account securely. */
-export function shouldInvalidateOAuthSession(error: unknown) {
+export function shouldInvalidateOAuthSession(error: Error) {
   return (
     error instanceof OAuthTokenError &&
     error.status !== undefined &&

@@ -1,7 +1,8 @@
+import type { JsonObject } from "@chief/relay-contracts";
 import {
   isJsonNumber,
-  isJsonObject,
   isJsonString,
+  parseJsonObject,
 } from "@chief/relay-contracts";
 
 import type { AuthOrganization } from "./auth/better-auth-client";
@@ -10,10 +11,8 @@ import {
   parseOrganizationMetadata,
 } from "./auth/better-auth-client";
 
-function record(value: unknown): Record<string, unknown> {
-  return value && isJsonObject(value) && !Array.isArray(value)
-    ? (value)
-    : {};
+function record(value: unknown): JsonObject {
+  return parseJsonObject(value) ?? {};
 }
 
 function text(value: unknown): string {

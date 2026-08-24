@@ -1,19 +1,25 @@
-import { isJsonString } from "@chief/relay-contracts";
+import { isJsonObject } from "@chief/relay-contracts";
 
 import { env } from "../env";
 import { readStoredRelayConnection } from "./relay-connection";
 
-function readOptionalValue(value: unknown): string | undefined {
-  return isJsonString(value) && value.trim() ? value.trim() : undefined;
+declare global {
+  var __AUTH_BASE_URL__: string | undefined;
 }
 
-const injectedAuthBaseUrl = readOptionalValue(
-  (globalThis as unknown as { __AUTH_BASE_URL__?: string }).__AUTH_BASE_URL__,
-);
+function readOptionalValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+function developmentMode(meta: { readonly env?: unknown }): boolean {
+  return isJsonObject(meta.env) && meta.env.DEV === true;
+}
+
+const injectedAuthBaseUrl = readOptionalValue(globalThis.__AUTH_BASE_URL__);
 
 const storedConnection = readStoredRelayConnection();
-const isDevelopment =
-  (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV === true;
+const isDevelopment = developmentMode(import.meta);
 
 export const CHIEF_CLOUD_RELAY_URL =
   env.VITE_CHIEF_RELAY_URL ??

@@ -15,7 +15,10 @@ import type { useChiefChatCore } from "./use-chief-chat-core";
 import type { useChiefChatPresentation } from "./use-chief-chat-presentation";
 import type { useChiefChatTimeline } from "./use-chief-chat-timeline";
 import { messageBlocks } from "../../lib/runtime";
-import { WORKSPACE_AGENT_IDENTITIES } from "../../lib/workspace-channels";
+import {
+  isWorkspaceAgentId,
+  WORKSPACE_AGENT_IDENTITIES,
+} from "../../lib/workspace-channels";
 import { TimelineActionRequestCard } from "./action-request-card";
 import { AgentActivityComposerRow } from "./agent-activity-composer-row";
 import { AgentActivityPanel } from "./agent-activity-panel";
@@ -57,10 +60,8 @@ type Composer = ReturnType<typeof useChiefChatComposer>;
 type Timeline = ReturnType<typeof useChiefChatTimeline>;
 
 function activityAgentName(agentId: string) {
-  return Object.hasOwn(WORKSPACE_AGENT_IDENTITIES, agentId)
-    ? WORKSPACE_AGENT_IDENTITIES[
-        agentId as keyof typeof WORKSPACE_AGENT_IDENTITIES
-      ].name
+  return isWorkspaceAgentId(agentId)
+    ? WORKSPACE_AGENT_IDENTITIES[agentId].name
     : agentId;
 }
 
@@ -493,8 +494,7 @@ export function ChiefChatAuxiliaryPanels({
   ) : null;
 }
 
-function messageText(message: ChiefUIMessage) {
-  return messageBlocks(message)
+const messageText = (message: ChiefUIMessage) =>
+  messageBlocks(message)
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("\n");
-}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ArrowUpDown, MessageSquareText, Plus, Search } from "lucide-react";
 import { useNavigate } from "react-router";
 
@@ -28,6 +28,10 @@ const statuses: { value: CampaignStatus; label: string }[] = [
   { value: "paused", label: "Paused" },
   { value: "completed", label: "Completed" },
 ];
+
+function isCampaignStatus(value: string): value is CampaignStatus {
+  return statuses.some((status) => status.value === value);
+}
 
 const statusTone: Record<CampaignStatus, string> = {
   draft: "bg-sky-500",
@@ -66,7 +70,10 @@ function CampaignStatusControl({
       <select
         aria-label={`Status for ${campaign.name}`}
         value={campaign.status}
-        onChange={(event) => onChange(event.target.value as CampaignStatus)}
+        onChange={(event) => {
+          if (isCampaignStatus(event.target.value))
+            onChange(event.target.value);
+        }}
         className="cursor-pointer appearance-none bg-transparent pr-4 text-xs outline-none"
       >
         {statuses.map((status) => (
@@ -105,20 +112,23 @@ export function CampaignsPage() {
 
   const planCampaign = () => {
     const conversation = createChat("Plan a campaign");
-    navigate(
+    void navigate(
       `/conversations?chat=${conversation.id}&draft=${encodeURIComponent(
         "Help me plan a paid campaign. Consult the Ads Manager specialist. Start with the objective, audience, channel and budget, then save a draft campaign for my review. Do not launch anything without my approval.",
       )}`,
     );
   };
 
-  const updateStatus = (campaign: CampaignRecord, next: CampaignStatus) => {
-    workspace.saveCampaign({
-      ...campaign,
-      status: next,
-      updatedAt: Date.now(),
-    });
-  };
+  const updateStatus = useCallback(
+    (campaign: CampaignRecord, next: CampaignStatus) => {
+      workspace.saveCampaign({
+        ...campaign,
+        status: next,
+        updatedAt: Date.now(),
+      });
+    },
+    [workspace],
+  );
 
   return (
     <div className="-mx-8 -mb-8 min-h-[calc(100vh-48px)]">
@@ -151,9 +161,10 @@ export function CampaignsPage() {
           <div className="flex min-h-14 flex-wrap items-center gap-2 border-b px-3 py-2">
             <Select
               value={status}
-              onValueChange={(value) =>
-                setStatus(value as CampaignStatus | "all")
-              }
+              onValueChange={(value) => {
+                if (value === "all" || isCampaignStatus(value))
+                  setStatus(value);
+              }}
             >
               <SelectTrigger
                 aria-label="Filter campaigns by status"

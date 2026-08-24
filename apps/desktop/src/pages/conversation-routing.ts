@@ -3,17 +3,17 @@ import type { DriverType } from "@chief/agent-runtime/types";
 import type { WorkspaceAgentId } from "../lib/workspace-channels";
 import { WORKSPACE_AGENT_IDENTITIES } from "../lib/workspace-channels";
 
-const CHAT_DRIVERS = new Set<DriverType>([
-  "claude",
-  "codex",
-  "opencode",
-  "remote",
-]);
+function isDriverType(value: string): value is DriverType {
+  return (
+    value === "claude" ||
+    value === "codex" ||
+    value === "opencode" ||
+    value === "remote"
+  );
+}
 
 export function requestedDriver(value: string | null): DriverType | undefined {
-  return value && CHAT_DRIVERS.has(value as DriverType)
-    ? (value as DriverType)
-    : undefined;
+  return value && isDriverType(value) ? value : undefined;
 }
 
 export function isWorkspaceAgentId(

@@ -2,6 +2,8 @@ import type { WorkspaceSummary } from "@chief/relay-contracts";
 import {
   isJsonObject,
   isJsonString,
+  parseJsonObject,
+  parseJsonValue,
   relayDiscoverySchema,
   workspaceSummarySchema,
 } from "@chief/relay-contracts";
@@ -36,7 +38,7 @@ function readDirectory(): StoredRelayDirectory {
   try {
     const raw = globalThis.localStorage.getItem(storageKey);
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<StoredRelayDirectory>;
+      const parsed = parseJsonObject(JSON.parse(raw)) ?? {};
       const connections = Array.isArray(parsed.connections)
         ? parsed.connections
             .map(parseStoredRelayConnection)
@@ -51,19 +53,14 @@ function readDirectory(): StoredRelayDirectory {
               Object.entries(parsed.workspaces).flatMap(
                 ([workspaceId, value]) => {
                   try {
-                    const record = value as {
-                      relayUrl?: unknown;
-                      summary?: unknown;
-                    };
-                    if (!isJsonString(record.relayUrl)) return [];
-                    const summary = workspaceSummarySchema.parse(
-                      record.summary,
-                    );
+                    if (!isJsonObject(value)) return [];
+                    if (!isJsonString(value.relayUrl)) return [];
+                    const summary = workspaceSummarySchema.parse(value.summary);
                     return [
                       [
                         workspaceId,
                         {
-                          relayUrl: normalizedRelayOrigin(record.relayUrl),
+                          relayUrl: normalizedRelayOrigin(value.relayUrl),
                           summary,
                         },
                       ],
@@ -79,9 +76,7 @@ function readDirectory(): StoredRelayDirectory {
     }
     const legacy = globalThis.localStorage.getItem(legacyStorageKey);
     if (legacy) {
-      const connection = parseStoredRelayConnection(
-        JSON.parse(legacy) as unknown,
-      );
+      const connection = parseStoredRelayConnection(parseJsonValue(legacy));
       if (connection) {
         const migrated = {
           ...emptyDirectory(),
@@ -240,7 +235,7 @@ function parseStoredRelayConnection(
   value: unknown,
 ): StoredRelayConnection | null {
   if (!value || !isJsonObject(value)) return null;
-  const record = value as Record<string, unknown>;
+  const record = value;
   if (
     record.version !== 1 ||
     !isJsonString(record.relayUrl) ||

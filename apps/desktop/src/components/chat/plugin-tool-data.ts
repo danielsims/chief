@@ -3,23 +3,32 @@ import type {
   ContentBlock,
   PluginAuthorizationAction,
 } from "@chief/agent-runtime/types";
-import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
+import {
+  isJsonBoolean,
+  isJsonObject,
+  isJsonString,
+  parseJsonValue,
+} from "@chief/relay-contracts";
 
 type ToolResult = Extract<ContentBlock, { type: "tool_result" }>;
 
-function object(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && isJsonObject(value) && !Array.isArray(value);
+function object(value: JsonValue | undefined): value is JsonObject {
+  return isJsonObject(value) && !Array.isArray(value);
 }
 
-function parseJson(value: string) {
+function parseJson(value: string): JsonValue | undefined {
   try {
-    return JSON.parse(value) as unknown;
+    const parsed: unknown = JSON.parse(value);
+    return parseJsonValue(parsed);
   } catch {
     return undefined;
   }
 }
 
-export function structuredToolResult(result: ToolResult | undefined): unknown {
+export function structuredToolResult(
+  result: ToolResult | undefined,
+): JsonValue | undefined {
   if (!result) return undefined;
   const content = result.content;
   if (isJsonString(content)) return parseJson(content) ?? content;
@@ -69,7 +78,15 @@ export function pluginAuthorizationFromResult(
   } catch {
     return undefined;
   }
-  return value as unknown as PluginAuthorizationAction;
+  return {
+    kind: "plugin_authorization",
+    status: "authorization_required",
+    pluginId: value.pluginId,
+    pluginName: value.pluginName,
+    description: value.description,
+    provider: value.provider,
+    authorizationUrl: value.authorizationUrl,
+  };
 }
 
 export function pluginListFromResult(
@@ -77,15 +94,89 @@ export function pluginListFromResult(
 ): AgentPluginSummary[] | undefined {
   const value = structuredToolResult(result);
   if (!object(value) || !Array.isArray(value.plugins)) return undefined;
-  const plugins = value.plugins.filter(
-    (plugin): plugin is AgentPluginSummary =>
-      object(plugin) &&
-      isJsonString(plugin.id) &&
-      isJsonString(plugin.name) &&
-      isJsonString(plugin.description) &&
-      isJsonString(plugin.status),
-  );
+  const plugins = value.plugins.flatMap((plugin) => {
+    const summary = pluginSummary(plugin);
+    return summary ? [summary] : [];
+  });
   return plugins.length ? plugins : undefined;
+}
+
+function pluginSummary(value: JsonValue): AgentPluginSummary | undefined {
+  if (
+    !object(value) ||
+    !isJsonString(value.id) ||
+    !isJsonString(value.name) ||
+    !isJsonString(value.description) ||
+    !isJsonString(value.category) ||
+    !isJsonString(value.status) ||
+    !isPluginStatus(value.status) ||
+    !isJsonBoolean(value.enabled) ||
+    !isJsonBoolean(value.trusted)
+  ) {
+    return undefined;
+  }
+  const source = pluginSource(value.source);
+  if (!source) return undefined;
+  return {
+    id: value.id,
+    name: value.name,
+    description: value.description,
+    category: value.category,
+    status: value.status,
+    enabled: value.enabled,
+    trusted: value.trusted,
+    source,
+  };
+}
+
+function isPluginStatus(value: string): value is AgentPluginSummary["status"] {
+  return [
+    "available",
+    "installed",
+    "authorization_required",
+    "waiting",
+    "connected",
+    "failed",
+    "reconnect",
+    "error",
+  ].includes(value);
+}
+
+function pluginSource(
+  value: JsonValue | undefined,
+): AgentPluginSummary["source"] | undefined {
+  if (!object(value) || !isJsonString(value.type)) return undefined;
+  if (value.type === "bundled" && isJsonString(value.path)) {
+    return { type: "bundled", path: value.path };
+  }
+  if (
+    value.type === "git" &&
+    isJsonString(value.url) &&
+    isJsonString(value.sha) &&
+    (value.path === undefined || isJsonString(value.path))
+  ) {
+    const source: AgentPluginSummary["source"] = {
+      type: "git",
+      url: value.url,
+      sha: value.sha,
+    };
+    if (value.path !== undefined) source.path = value.path;
+    return source;
+  }
+  if (
+    value.type === "discovery" &&
+    isJsonString(value.registry) &&
+    isJsonString(value.domain)
+  ) {
+    return {
+      type: "discovery",
+      registry: value.registry,
+      domain: value.domain,
+    };
+  }
+  return value.type === "setup" && isJsonString(value.domain)
+    ? { type: "setup", domain: value.domain }
+    : undefined;
 }
 
 export function isPluginTool(name: string) {

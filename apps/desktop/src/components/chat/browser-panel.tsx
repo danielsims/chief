@@ -1,14 +1,6 @@
-import type { ErrorInfo, ReactNode, Ref, RefObject } from "react";
-import {
-  Component,
-  lazy,
-  memo,
-  Suspense,
-  useLayoutEffect,
-  useState,
-} from "react";
+import type { ErrorInfo, ReactNode, RefObject } from "react";
+import { Component, lazy, memo, Suspense, useState } from "react";
 import { ArrowRight, Globe2 } from "lucide-react";
-import { createPortal } from "react-dom";
 
 import type { BrowserRunRecord } from "@chief/agent-runtime/types";
 import { cn } from "@chief/ui/lib/utils";
@@ -31,7 +23,7 @@ class BrowserSessionErrorBoundary extends Component<
   { children: ReactNode; className?: string; resetKey?: string },
   { error: Error | null }
 > {
-  state = { error: null as Error | null };
+  state: { error: Error | null } = { error: null };
 
   static getDerivedStateFromError(error: Error) {
     return { error };
@@ -90,14 +82,12 @@ function BrowserSessionLoading({ className }: { className?: string }) {
 
 function SafeBrowserSessionViewer({
   className,
-  onCloseViewer,
   operating,
   pictureInPictureAvoidRefs,
   pictureInPictureContainerRef,
   runId,
 }: {
   className?: string;
-  onCloseViewer?: () => void;
   operating: boolean;
   pictureInPictureAvoidRefs?: readonly RefObject<HTMLElement | null>[];
   pictureInPictureContainerRef?: RefObject<HTMLElement | null>;
@@ -108,7 +98,6 @@ function SafeBrowserSessionViewer({
       <Suspense fallback={<BrowserSessionLoading className={className} />}>
         <BrowserSessionViewer
           className={className}
-          onCloseViewer={onCloseViewer}
           operating={operating}
           pictureInPictureAvoidRefs={pictureInPictureAvoidRefs}
           pictureInPictureContainerRef={pictureInPictureContainerRef}
@@ -195,21 +184,15 @@ function BrowserSessionCard({
 }
 
 function BrowserSessionAttachmentContent({
-  detached = false,
-  onOpenPanel,
   operating = false,
   pictureInPictureAvoidRefs,
   pictureInPictureContainerRef,
   run,
-  targetRef,
 }: {
-  detached?: boolean;
-  onOpenPanel?: () => void;
   operating?: boolean;
   pictureInPictureAvoidRefs?: readonly RefObject<HTMLElement | null>[];
   pictureInPictureContainerRef?: RefObject<HTMLElement | null>;
   run: BrowserRunRecord;
-  targetRef?: Ref<HTMLDivElement>;
 }) {
   const { browserSessions, openBrowser } = useRuntime();
   const session = browserSessions[run.id];
@@ -227,17 +210,14 @@ function BrowserSessionAttachmentContent({
           : undefined),
       });
     }
-    onOpenPanel?.();
   };
 
-  if (!session || session.status === "complete" || detached) {
+  if (!session || session.status === "complete") {
     return (
       <BrowserSessionCard
         detail={browserDomain(url)}
         onClick={viewSession}
-        title={
-          detached ? "Browser open in side panel" : "Browsing session complete"
-        }
+        title="Browsing session complete"
         url={url}
       />
     );
@@ -245,31 +225,14 @@ function BrowserSessionAttachmentContent({
 
   return (
     <div className="chief-browser-attachment mt-1 w-full max-w-[64rem] min-w-0 overflow-visible">
-      <div
-        className={cn(
-          "chief-browser-attachment-shell",
-          targetRef
-            ? "bg-muted/45 overflow-hidden rounded-2xl p-1 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_7%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--background)_70%,transparent)]"
-            : "overflow-visible",
-        )}
-      >
-        {targetRef ? (
-          <div
-            ref={targetRef}
-            className={cn(
-              "chief-browser-viewport-target",
-              INLINE_BROWSER_VIEWPORT_CLASS,
-            )}
-          />
-        ) : (
-          <SafeBrowserSessionViewer
-            className={INLINE_BROWSER_VIEWPORT_CLASS}
-            operating={operating}
-            pictureInPictureAvoidRefs={pictureInPictureAvoidRefs}
-            pictureInPictureContainerRef={pictureInPictureContainerRef}
-            runId={run.id}
-          />
-        )}
+      <div className="chief-browser-attachment-shell overflow-visible">
+        <SafeBrowserSessionViewer
+          className={INLINE_BROWSER_VIEWPORT_CLASS}
+          operating={operating}
+          pictureInPictureAvoidRefs={pictureInPictureAvoidRefs}
+          pictureInPictureContainerRef={pictureInPictureContainerRef}
+          runId={run.id}
+        />
       </div>
     </div>
   );
@@ -297,62 +260,13 @@ export const BrowserSessionAttachment = memo(
   BrowserSessionAttachmentImpl,
   (prev, next) => {
     if (prev.operating !== next.operating) return false;
-    if (prev.detached !== next.detached) return false;
     const prevRun = prev.run.id;
     const nextRun = next.run.id;
     if (prevRun !== nextRun) return false;
-    if (prev.onOpenPanel !== next.onOpenPanel) return false;
     if (prev.pictureInPictureAvoidRefs !== next.pictureInPictureAvoidRefs)
       return false;
     if (prev.pictureInPictureContainerRef !== next.pictureInPictureContainerRef)
       return false;
-    if (prev.targetRef !== next.targetRef) return false;
     return true;
   },
 );
-
-export function BrowserSessionPortal({
-  fullscreenTarget,
-  onCloseViewer,
-  operating = false,
-  panelOpen = false,
-  runId,
-}: {
-  fullscreenTarget: HTMLElement | null;
-  onCloseViewer?: () => void;
-  operating?: boolean;
-  panelOpen?: boolean;
-  runId: string;
-}) {
-  const [dock] = useState(() => {
-    const element = document.createElement("div");
-    element.className =
-      "chief-browser-dock h-full min-h-0 w-full overflow-hidden";
-    return element;
-  });
-
-  useLayoutEffect(() => {
-    if (fullscreenTarget) fullscreenTarget.appendChild(dock);
-    return () => {
-      if (dock.parentElement === fullscreenTarget) dock.remove();
-    };
-  }, [dock, fullscreenTarget]);
-
-  return createPortal(
-    <BrowserSessionErrorBoundary
-      className="h-full rounded-none"
-      resetKey={runId}
-    >
-      <SafeBrowserSessionViewer
-        className={cn(
-          "h-full min-h-0",
-          panelOpen ? "rounded-none" : "rounded-xl",
-        )}
-        onCloseViewer={onCloseViewer}
-        operating={operating}
-        runId={runId}
-      />
-    </BrowserSessionErrorBoundary>,
-    dock,
-  );
-}

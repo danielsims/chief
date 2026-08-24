@@ -1,4 +1,10 @@
-import { isJsonObject, isJsonString } from "@chief/relay-contracts";
+import type { JsonValue } from "@chief/relay-contracts";
+import {
+  isJsonObject,
+  isJsonString,
+  parseJsonString,
+  parseJsonValue,
+} from "@chief/relay-contracts";
 
 import type { PendingApproval } from "../../lib/runtime";
 
@@ -13,14 +19,12 @@ export interface ApprovalPresentation {
   denyLabel: string;
 }
 
-function record(value: unknown): Record<string, unknown> {
-  return value && isJsonObject(value) && !Array.isArray(value)
-    ? (value)
-    : {};
+function record(value: JsonValue | undefined): Record<string, JsonValue> {
+  return value && isJsonObject(value) && !Array.isArray(value) ? value : {};
 }
 
 function firstString(
-  value: unknown,
+  value: JsonValue | undefined,
   keys: readonly string[],
   depth = 0,
 ): string | undefined {
@@ -47,17 +51,18 @@ function firstString(
 
 const SECRET_KEY = /authorization|cookie|credential|password|secret|token/i;
 
-function safeApprovalValue(value: unknown, depth = 0): unknown {
+function safeApprovalValue(value: JsonValue | undefined, depth = 0): JsonValue {
   if (depth > 3) return "…";
-  if (isJsonString(value)) {
-    return value.length > 500 ? `${value.slice(0, 500)}…` : value;
+  const text = parseJsonString(value);
+  if (text !== undefined) {
+    return text.length > 500 ? `${text.slice(0, 500)}…` : text;
   }
-  if (!value || !isJsonObject(value)) return value;
+  if (!value || !isJsonObject(value)) return value ?? null;
   if (Array.isArray(value)) {
     return value.slice(0, 6).map((item) => safeApprovalValue(item, depth + 1));
   }
   return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
+    Object.entries(value)
       .filter(
         ([key]) => !["threadId", "turnId", "requestedSchema"].includes(key),
       )
@@ -71,7 +76,7 @@ function safeApprovalValue(value: unknown, depth = 0): unknown {
   );
 }
 
-function fallbackDetail(input: unknown) {
+function fallbackDetail(input: JsonValue | undefined) {
   const detail = JSON.stringify(safeApprovalValue(input), null, 2);
   return detail && detail !== "{}" ? detail.slice(0, 1_200) : undefined;
 }
@@ -89,7 +94,7 @@ function friendlyToolName(toolName: string) {
 export function approvalPresentation(
   approval: Pick<PendingApproval, "input" | "toolName">,
 ): ApprovalPresentation {
-  const input = record(approval.input);
+  const input = record(parseJsonValue(approval.input));
   const meta = record(input._meta);
   const approvalKind = isJsonString(meta.codex_approval_kind)
     ? meta.codex_approval_kind

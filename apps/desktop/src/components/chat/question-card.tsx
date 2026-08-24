@@ -139,8 +139,10 @@ export function QuestionCard({
   const [states, setStates] = useState<QuestionAnswerState[]>(() =>
     pending.questions.map(() => ({ selected: new Set<string>(), other: "" })),
   );
+  const stateAt = (index: number) =>
+    states[index] ?? { selected: new Set<string>(), other: "" };
   const answers = pending.questions.map((question, index) =>
-    answerText(question, states[index]!),
+    answerText(question, stateAt(index)),
   );
   const complete = answers.every((answer) => answer.length > 0);
 
@@ -150,7 +152,7 @@ export function QuestionCard({
         <QuestionBlock
           key={`${pending.requestId}-${index}`}
           question={question}
-          state={states[index]!}
+          state={stateAt(index)}
           onChange={(next) =>
             setStates((current) =>
               current.map((state, i) => (i === index ? next : state)),
@@ -180,7 +182,7 @@ export function QuestionCard({
               Object.fromEntries(
                 pending.questions.map((question, index) => [
                   question.question,
-                  answers[index]!,
+                  answers[index] ?? "",
                 ]),
               ),
             )

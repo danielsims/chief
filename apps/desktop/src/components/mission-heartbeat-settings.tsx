@@ -14,6 +14,17 @@ import {
 } from "@chief/ui/components/select";
 
 type HeartbeatMode = "hourly" | "daily" | "weekly" | "custom" | "webhook";
+const HEARTBEAT_MODES: readonly HeartbeatMode[] = [
+  "hourly",
+  "daily",
+  "weekly",
+  "custom",
+  "webhook",
+];
+
+function isHeartbeatMode(value: string): value is HeartbeatMode {
+  return HEARTBEAT_MODES.some((mode) => mode === value);
+}
 
 const WEEKDAYS = [
   { value: "1", label: "Monday" },
@@ -203,7 +214,9 @@ export function MissionHeartbeatSettings({
       <div className="mt-4 flex flex-wrap gap-2">
         <Select
           value={mode}
-          onValueChange={(value) => setMode(value as HeartbeatMode)}
+          onValueChange={(value) => {
+            if (isHeartbeatMode(value)) setMode(value);
+          }}
         >
           <SelectTrigger className="bg-muted/55 h-10 min-w-36 rounded-xl border-0 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--foreground)_8%,transparent)]">
             {

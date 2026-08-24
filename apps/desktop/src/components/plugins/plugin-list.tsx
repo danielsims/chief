@@ -87,11 +87,11 @@ function groupPlugins(
     groups.set(label, [...(groups.get(label) ?? []), plugin]);
   }
   return [...groups.entries()].sort(([left], [right]) => {
-    const leftIndex = PLUGIN_CATEGORY_ORDER.indexOf(
-      left as (typeof PLUGIN_CATEGORY_ORDER)[number],
+    const leftIndex = PLUGIN_CATEGORY_ORDER.findIndex(
+      (category) => category === left,
     );
-    const rightIndex = PLUGIN_CATEGORY_ORDER.indexOf(
-      right as (typeof PLUGIN_CATEGORY_ORDER)[number],
+    const rightIndex = PLUGIN_CATEGORY_ORDER.findIndex(
+      (category) => category === right,
     );
     if (leftIndex >= 0 || rightIndex >= 0) {
       return (
@@ -256,7 +256,7 @@ export function PluginList({ plugins }: { plugins: PluginRuntimeState }) {
   );
   const yoursGrouped = useMemo(() => groupPlugins(yours, false), [yours]);
 
-  const run = useCallback(async (action: () => Promise<unknown>) => {
+  const run = useCallback(async (action: () => Promise<void>) => {
     try {
       await action();
     } catch (error) {
@@ -281,7 +281,9 @@ export function PluginList({ plugins }: { plugins: PluginRuntimeState }) {
   );
   const authorize = useCallback(
     (plugin: AgentPluginSummary) => {
-      void run(() => plugins.authorize(plugin.id));
+      void run(async () => {
+        await plugins.authorize(plugin.id);
+      });
     },
     [plugins, run],
   );

@@ -2,6 +2,7 @@ import type {
   BrowserPresentationMode,
   BrowserRunRecord,
 } from "@chief/agent-runtime/types";
+import type { JsonValue } from "@chief/relay-contracts";
 import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 export interface RuntimeBrowserSession {
@@ -71,7 +72,9 @@ export interface BrowserOwnerCandidate {
  * input is often empty, so the result body — `{ opened: true, url: ... }` — is
  * the reliable open signal. Snapshot/click/fill results do not contain it.
  */
-export function browserOpenResultContent(content: unknown): boolean {
+export function browserOpenResultContent(
+  content: JsonValue | undefined,
+): boolean {
   const text = isJsonString(content)
     ? content
     : Array.isArray(content)
@@ -80,8 +83,8 @@ export function browserOpenResultContent(content: unknown): boolean {
             block &&
             isJsonObject(block) &&
             "text" in block &&
-            isJsonString((block as { text: unknown }).text)
-              ? (block as { text: string }).text
+            isJsonString(block.text)
+              ? block.text
               : "",
           )
           .join("\n")
