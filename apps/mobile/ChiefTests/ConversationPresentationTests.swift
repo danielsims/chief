@@ -199,6 +199,18 @@ final class ConversationPresentationTests: XCTestCase {
     XCTAssertEqual(MessageReferenceParser.skillIDs(in: source), ["find-buying-signals"])
   }
 
+  func testMobileAgentContextRequiresNavigableChannelReferences() {
+    let context = AgentWorkspaceContext(
+      name: "Apple",
+      website: nil,
+      selectedApps: []
+    )
+
+    XCTAssertTrue(context.systemPrompt.contains("always write a known workspace channel"))
+    XCTAssertTrue(context.systemPrompt.contains("#channel-slug"))
+    XCTAssertTrue(context.systemPrompt.contains("private channels such as #setup"))
+  }
+
   private func message(
     id: String,
     author: ConversationMessage.Author,

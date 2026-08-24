@@ -28,6 +28,11 @@ void test("every agent receives the mission-cell operating model", () => {
     const instructions = composeWorkspaceInstructions(agent.instructions);
     assert.match(instructions, /subject channel as its mission cell/u);
     assert.match(instructions, /private #setup channel/u);
+    assert.match(
+      instructions,
+      /always write a known workspace channel as its/u,
+    );
+    assert.match(instructions, /#channel-slug/u);
     assert.match(instructions, /localTools\.pluginsList/u);
     assert.match(
       instructions,

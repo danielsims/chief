@@ -36,6 +36,7 @@ struct AgentWorkspaceContext: Sendable {
       \(site)
       \(apps)
       Treat this onboarding context as authoritative for this workspace and keep it isolated from every other workspace. Never ask for information this context already answers.
+      In user-visible messages, always write a known workspace channel as its #channel-slug, including private channels such as #setup, so Chief can render a navigable channel reference. Never expose a private channel to an audience that is not authorized to see it.
       Setup intentionally did not collect a full positioning, audience, voice, or customer brief. Research the supplied website and first-party evidence before asking anything. If one genuinely missing answer would materially change the work, ask one focused question in your own channel after completing every safe independent step. Do not turn onboarding into an intake questionnaire.
       """
   }
