@@ -1,4 +1,8 @@
-import type { AgentJob, AgentPrincipal } from "@chief/relay-contracts";
+import type {
+  AgentJob,
+  AgentPrincipal,
+  JsonObject,
+} from "@chief/relay-contracts";
 import { appendMessageCommandSchema } from "@chief/relay-contracts";
 
 import { HttpError } from "./http";
@@ -17,7 +21,7 @@ export async function publishAgentMessage(
       id: string;
       kind: string;
       version: number;
-      payload: Record<string, unknown>;
+      payload: JsonObject;
     }[];
   },
   commandId: string,

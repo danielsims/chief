@@ -4,6 +4,7 @@ import type {
   ChannelDetail,
   ChannelRecord,
   CreateWorkspaceCommand,
+  JsonValue,
   Prospect,
   RelayDiscovery,
   RelayProject,
@@ -31,6 +32,7 @@ import {
   imageAssetDeleteResultSchema,
   isJsonString,
   organizationWorkspaceJoinResultSchema,
+  parseJsonValue,
   prospectSaveSchema,
   prospectSchema,
   prospectsResultSchema,
@@ -53,14 +55,14 @@ import {
   workspaceSwitchResultSchema,
 } from "@chief/relay-contracts";
 
-import type { RelayClientOptions } from "./relay-client-options";
+import type { RelayClientOptions, RelaySocket } from "./relay-client-options";
 import { normalizedRelayOrigin, RelayClientError } from "./relay-client-error";
 
 export class RelayClientBase {
   readonly workspaceId: WorkspaceId | null;
   protected readonly relayUrl: string;
   private readonly fetcher: typeof globalThis.fetch;
-  protected readonly createWebSocket: (url: string) => WebSocket;
+  protected readonly createWebSocket: (url: string) => RelaySocket;
   private discoveryRequest: Promise<RelayDiscovery> | null = null;
 
   constructor(protected readonly options: RelayClientOptions) {
@@ -88,23 +90,18 @@ export class RelayClientBase {
       workspaceSnapshotSchema,
     );
   }
-
   async uploadProfileImage(input: AttachmentUploadPayload) {
     return this.uploadImage(new URL("/v1/me/avatar", this.relayUrl), input);
   }
-
   async deleteProfileImage() {
     return this.deleteImage(new URL("/v1/me/avatar", this.relayUrl));
   }
-
   async uploadWorkspaceImage(input: AttachmentUploadPayload) {
     return this.uploadImage(this.workspaceUrl("logo"), input);
   }
-
   async deleteWorkspaceImage() {
     return this.deleteImage(this.workspaceUrl("logo"));
   }
-
   async listWorkspaces(): Promise<WorkspaceSummary[]> {
     return (
       await this.fetchJson(
@@ -113,7 +110,6 @@ export class RelayClientBase {
       )
     ).workspaces;
   }
-
   async createWorkspace(command: CreateWorkspaceCommand) {
     return await this.fetchJson(
       new URL("/v1/workspaces", this.relayUrl),
@@ -126,7 +122,6 @@ export class RelayClientBase {
       },
     );
   }
-
   async switchWorkspace(workspaceId: WorkspaceId | string) {
     const id = workspaceIdSchema.parse(workspaceId);
     return await this.fetchJson(
@@ -136,7 +131,6 @@ export class RelayClientBase {
       { method: "POST" },
     );
   }
-
   async deleteWorkspace(workspaceId: WorkspaceId | string) {
     const id = workspaceIdSchema.parse(workspaceId);
     return await this.fetchJson(
@@ -408,7 +402,9 @@ export class RelayClientBase {
     ).prospects;
   }
 
-  async saveProspect(input: unknown): Promise<Prospect> {
+  async saveProspect(
+    input: Parameters<typeof prospectSaveSchema.parse>[0],
+  ): Promise<Prospect> {
     return await this.fetchJson(
       this.workspaceUrl("data/prospects"),
       // The relay returns the saved prospect record directly.
@@ -463,13 +459,17 @@ export class RelayClientBase {
 
   protected async fetchJson<T>(
     url: URL | string,
-    schema: { parse: (value: unknown) => T },
+    schema: {
+      parse: (value: JsonValue) => T;
+    },
     authenticated = true,
     init: RequestInit = {},
   ) {
     const response = await this.fetchResponse(url, authenticated, init);
     if (!response.ok) throw await RelayClientError.fromResponse(response);
-    return schema.parse(await response.json());
+    const value = parseJsonValue(await response.json());
+    if (value === undefined) throw new Error("Relay returned invalid JSON.");
+    return schema.parse(value);
   }
 
   protected async fetchResponse(

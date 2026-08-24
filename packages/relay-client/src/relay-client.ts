@@ -9,6 +9,7 @@ import type {
   ConversationEvent,
   DirectParticipant,
   DirectStartResult,
+  JsonObject,
   LogBatch,
   LogPage,
   MessageComponent,
@@ -166,7 +167,10 @@ export class RelayClient extends RelayClientBase {
     command: {
       leaseToken: string;
       outcome:
-        | { status: "completed"; result?: Record<string, unknown> }
+        | {
+            status: "completed";
+            result?: JsonObject;
+          }
         | { status: "failed"; error: string; retryAt?: string };
     },
   ) {

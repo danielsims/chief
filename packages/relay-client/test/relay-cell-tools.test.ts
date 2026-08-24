@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import type { JsonValue } from "@chief/relay-contracts";
 import { isJsonString } from "@chief/relay-contracts";
 
 import { RelayClient } from "../src/relay-client";
@@ -180,7 +181,7 @@ void test("exposes the shared cell read and conversation tool routes", async () 
   ]);
 });
 
-function jsonResponse(value: unknown, status = 200) {
+function jsonResponse(value: JsonValue, status = 200) {
   return new Response(JSON.stringify(value), {
     status,
     headers: { "content-type": "application/json" },

@@ -99,8 +99,10 @@ export function defaultAgentConfigFor(agentId: string) {
   });
 }
 
-export function effectiveAgentConfigFor(agentId: string, input: unknown) {
-  const config = agentConfigSchema.parse(input);
+export function effectiveAgentConfigFor(
+  agentId: string,
+  config: ReturnType<typeof agentConfigSchema.parse>,
+) {
   const permissions = new Set(config.toolPermissions);
   let capabilities = config.capabilities;
   // Owner-facing clients expose one understandable `workspace.write` switch.

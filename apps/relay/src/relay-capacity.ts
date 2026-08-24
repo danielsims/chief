@@ -4,13 +4,10 @@ const durableObjectFreeTierMessage =
   "Exceeded allowed volume of requests in Durable Objects free tier";
 
 export function relayCapacityResponse(
-  error: unknown,
+  error: Error | undefined,
   requestId?: string,
 ): Response | undefined {
-  if (
-    !(error instanceof Error) ||
-    !error.message.includes(durableObjectFreeTierMessage)
-  ) {
+  if (!error?.message.includes(durableObjectFreeTierMessage)) {
     return undefined;
   }
   return relayError(

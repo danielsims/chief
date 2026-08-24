@@ -2,6 +2,8 @@ import { createExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
+import { relayDiscoverySchema } from "@chief/relay-contracts";
+
 import worker from "../src/index";
 
 describe("public relay routes", () => {
@@ -19,12 +21,13 @@ describe("public relay routes", () => {
   it("publishes portable discovery", async () => {
     const response = await worker.fetch(
       new Request("https://relay.test/.well-known/chief-relay"),
-      Object.assign(Object.create(relayEnv()), {
+      {
+        ...relayEnv(),
         RELAY_PUBLIC_URL: undefined,
-      }) as Parameters<typeof worker.fetch>[1],
+      },
       createExecutionContext(),
     );
-    const body = (await response.json()) as Record<string, unknown>;
+    const body = relayDiscoverySchema.parse(await response.json());
 
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
@@ -40,13 +43,13 @@ describe("public relay routes", () => {
       new Request("http://relay-tunnel.example/.well-known/chief-relay", {
         headers: { "x-forwarded-proto": "https" },
       }),
-      Object.assign(Object.create(relayEnv()), {
+      {
+        ...relayEnv(),
         RELAY_PUBLIC_URL: undefined,
-      }) as Parameters<typeof worker.fetch>[1],
+      },
       createExecutionContext(),
     );
-    const body = (await response.json()) as Record<string, unknown>;
-
+    const body = relayDiscoverySchema.parse(await response.json());
     expect(body).toMatchObject({
       apiBaseUrl: "https://relay-tunnel.example/v1",
       websocketUrl: "wss://relay-tunnel.example/v1/connect",
@@ -54,6 +57,14 @@ describe("public relay routes", () => {
   });
 });
 
-function relayEnv(): Parameters<typeof worker.fetch>[1] {
-  return env as unknown as Parameters<typeof worker.fetch>[1];
+function relayEnv(): Env {
+  return {
+    ...env,
+    BETTER_AUTH_SECRET: "test-auth-secret",
+    BOOTSTRAP_TOKEN_SHA256: "test-bootstrap-token",
+    CLOUDFLARE_ACCOUNT_ID: "test-account",
+    CLOUDFLARE_EMAIL_API_TOKEN: "test-email-token",
+    EMAIL_FROM_ADDRESS: "test@example.test",
+    EMAIL_FROM_NAME: "Chief Test",
+  };
 }

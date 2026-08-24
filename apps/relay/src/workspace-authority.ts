@@ -6,8 +6,10 @@ import type {
   WorkspaceId,
 } from "@chief/relay-contracts";
 import {
+  commandIdSchema,
   hexPubkeySchema,
   organizationWorkspaceJoinResultSchema,
+  parseJsonObject,
   workspaceInviteClaimResultSchema,
 } from "@chief/relay-contracts";
 
@@ -128,10 +130,14 @@ export async function activeManagedWorkspace(
     ),
   );
   if (!response.ok) return response;
-  const snapshot = JSON.parse(await response.text()) as {
-    onboardingComplete?: unknown;
-    [key: string]: unknown;
-  };
+  const snapshot = parseJsonObject(JSON.parse(await response.text()));
+  if (!snapshot) {
+    throw new HttpError(
+      502,
+      "invalid_workspace_snapshot",
+      "The workspace returned an invalid snapshot.",
+    );
+  }
   snapshot.runtime = entry.command?.runtime ?? null;
   if (snapshot.onboardingComplete === false && entry.command) {
     // Unit-level authority calls retain deterministic repair coverage. Public
@@ -226,7 +232,9 @@ export async function claimWorkspaceInvite(
     identity: input.identity,
     workspaceId: result.workspaceId,
   });
-  const command = JSON.parse(body) as { commandId: string };
+  const operationId = commandIdSchema.parse(
+    parseJsonObject(JSON.parse(body))?.commandId,
+  );
   const directoryResponse = await accountStub(env, input.identity.userId).fetch(
     withTrustedAccountIdentity(input.identity, {
       method: "POST",
@@ -236,7 +244,7 @@ export async function claimWorkspaceInvite(
       },
       body: JSON.stringify({
         workspaceId: result.workspaceId,
-        operationId: command.commandId,
+        operationId,
         name: result.workspaceName,
         website: result.website,
         createdAt: new Date().toISOString(),

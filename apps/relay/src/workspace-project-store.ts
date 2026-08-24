@@ -1,4 +1,5 @@
 import {
+  parseJsonObject,
   relayProjectCreateSchema,
   relayProjectDeleteResultSchema,
   relayProjectSchema,
@@ -183,7 +184,8 @@ function syncSnapshotProjects(
     storage.sql.exec("SELECT snapshot_json FROM workspace WHERE singleton = 1"),
   );
   if (!row?.snapshot_json) return;
-  const snapshot = JSON.parse(row.snapshot_json) as Record<string, unknown>;
+  const snapshot = parseJsonObject(JSON.parse(row.snapshot_json));
+  if (!snapshot) return;
   snapshot.projects = workspaceProjects(storage, workspaceId);
   storage.sql.exec(
     "UPDATE workspace SET snapshot_json = ? WHERE singleton = 1",
@@ -192,5 +194,6 @@ function syncSnapshotProjects(
 }
 
 function firstRow<T>(cursor: Iterable<T>): T | undefined {
-  return cursor[Symbol.iterator]().next().value as T | undefined;
+  const next = cursor[Symbol.iterator]().next();
+  return next.done ? undefined : next.value;
 }

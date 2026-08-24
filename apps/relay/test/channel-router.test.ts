@@ -1,7 +1,6 @@
 import { schnorr } from "@noble/curves/secp256k1.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { createExecutionContext } from "cloudflare:test";
-import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -14,6 +13,7 @@ import worker from "../src/index";
 import { computeNostrEventId, sha256PayloadTag } from "../src/nip98";
 import { createManagedWorkspace } from "../src/workspace-authority";
 import { channelEnvelope } from "./channel-test-helpers";
+import { relayTestEnv } from "./helpers";
 
 const secretKey = schnorr.utils.randomSecretKey();
 const pubkey = bytesToHex(schnorr.getPublicKey(secretKey));
@@ -79,7 +79,7 @@ describe("channel HTTP surface", () => {
 });
 
 async function setupWorkspace() {
-  const relay = env as unknown as Parameters<typeof createManagedWorkspace>[0];
+  const relay = relayTestEnv();
   const command = createWorkspaceCommandSchema.parse({
     commandId: crypto.randomUUID(),
     name: "Router channel test",
@@ -116,7 +116,6 @@ function signedRequest(url: string, method: string, body?: string) {
   if (body !== undefined) headers["content-type"] = "application/json";
   return new Request(url, { method, headers, body });
 }
-
 function relayEnv(): Parameters<typeof worker.fetch>[1] {
-  return env as unknown as Parameters<typeof worker.fetch>[1];
+  return relayTestEnv();
 }

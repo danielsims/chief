@@ -7,11 +7,16 @@ import { AuthenticationError } from "./auth";
 
 export const deviceAuthorizationHeader = "x-chief-device-authorization";
 
+export interface DeviceAuthorizationEnvironment {
+  AUTH_BASE_URL: string;
+  BETTER_AUTH_SECRET: string;
+}
+
 const audience = "chief-relay-device";
 const tokenLifetimeSeconds = 24 * 60 * 60;
 
 export async function issueDeviceAuthorization(
-  env: Env,
+  env: DeviceAuthorizationEnvironment,
   input: { pubkey: HexPubkey; userId: UserId },
 ) {
   const issuedAt = Math.floor(Date.now() / 1_000);
@@ -31,7 +36,7 @@ export async function issueDeviceAuthorization(
 }
 
 export async function verifyDeviceAuthorization(
-  env: Env,
+  env: DeviceAuthorizationEnvironment,
   token: string,
   expectedPubkey: HexPubkey,
 ) {
@@ -89,13 +94,13 @@ function isCanonicalCompactJws(token: string) {
   );
 }
 
-async function signingKey(env: Env) {
+async function signingKey(env: DeviceAuthorizationEnvironment) {
   const material = new TextEncoder().encode(
     `chief-device-authorization-v1\0${env.BETTER_AUTH_SECRET}`,
   );
   return new Uint8Array(await crypto.subtle.digest("SHA-256", material));
 }
 
-function issuer(env: Env) {
+function issuer(env: DeviceAuthorizationEnvironment) {
   return env.AUTH_BASE_URL.replace(/\/$/u, "");
 }

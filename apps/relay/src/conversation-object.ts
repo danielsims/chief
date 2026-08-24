@@ -1,6 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
 
-import type { Principal, WorkspaceId } from "@chief/relay-contracts";
+import type {
+  JsonObject,
+  Principal,
+  WorkspaceId,
+} from "@chief/relay-contracts";
 import {
   appendMessageCommandSchema,
   deleteMessageResultSchema,
@@ -420,7 +424,7 @@ export class ConversationObject extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  private broadcast(event: Record<string, unknown>) {
+  private broadcast(event: JsonObject) {
     const serialized = JSON.stringify(event);
     for (const socket of this.ctx.getWebSockets()) {
       try {
@@ -432,7 +436,7 @@ export class ConversationObject extends DurableObject<Env> {
   }
 
   private publishWorkspaceEvent(
-    event: Record<string, unknown>,
+    event: JsonObject,
     principal: Principal,
     workspaceId: WorkspaceId,
     conversationId: string,

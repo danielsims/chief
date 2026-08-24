@@ -1,8 +1,11 @@
+import { z } from "zod";
+
 import type { AuthenticatedIdentity, Principal } from "@chief/relay-contracts";
 import {
   agentConfigSchema,
   agentIdSchema,
   hexPubkeySchema,
+  isJsonObject,
   registerAgentKeyCommandSchema,
   updateWorkspaceMemberRoleCommandSchema,
   updateWorkspaceMemberRoleResultSchema,
@@ -32,6 +35,21 @@ interface AgentKeyRow extends Record<string, SqlStorageValue> {
   pubkey: string;
   created_at: string;
 }
+
+const agentKeyRowSchema = z.object({
+  agent_id: z.string(),
+  pubkey: z.string(),
+});
+
+const memberListRowSchema = z.object({
+  principal_kind: z.union([
+    z.literal("user"),
+    z.literal("agent"),
+    z.literal("service"),
+  ]),
+  principal_id: z.string(),
+  role: z.union([z.literal("owner"), z.literal("admin"), z.literal("member")]),
+});
 
 export class WorkspaceAccessService {
   private readonly channels: WorkspaceChannelStore;
@@ -175,7 +193,8 @@ export class WorkspaceAccessService {
   agentKeys() {
     const rows = this.storage.sql
       .exec("SELECT agent_id, pubkey FROM agent_keys ORDER BY agent_id")
-      .toArray() as AgentKeyRow[];
+      .toArray()
+      .map((row) => agentKeyRowSchema.parse(row));
     return json({
       agents: rows.map((row) => ({
         agentId: agentIdSchema.parse(String(row.agent_id)),
@@ -192,7 +211,8 @@ export class WorkspaceAccessService {
       .exec(
         "SELECT principal_kind, principal_id, role FROM members ORDER BY principal_kind, principal_id",
       )
-      .toArray() as MemberRow[];
+      .toArray()
+      .map((row) => memberListRowSchema.parse(row));
     return json(
       workspaceMemberListSchema.parse({
         members: rows.map((row) => ({
@@ -282,7 +302,10 @@ export class WorkspaceAccessService {
     }
     return json({
       agentId: agentIdSchema.parse(row.agent_id),
-      config: effectiveAgentConfigFor(agentId, JSON.parse(row.config_json)),
+      config: effectiveAgentConfigFor(
+        agentId,
+        agentConfigSchema.parse(JSON.parse(row.config_json)),
+      ),
       updatedAt: row.updated_at,
     });
   }
@@ -290,10 +313,9 @@ export class WorkspaceAccessService {
   async agentConfigSet(request: Request) {
     const context = readTrustedContext(request);
     this.requireAgentConfigAccess(context.principal, true);
-    const input = (await parseJson(request)) as {
-      agentId?: unknown;
-      config?: unknown;
-    };
+    const input = await parseJson(request);
+    if (!isJsonObject(input))
+      throw new HttpError(400, "invalid_request", "Expected a JSON object.");
     const agentId = agentIdSchema.parse(input.agentId);
     const parsedConfig = agentConfigSchema.parse(input.config);
     const config = JSON.stringify(parsedConfig);
@@ -307,7 +329,7 @@ export class WorkspaceAccessService {
       config,
       updatedAt,
     );
-    return json({ agentId, config: JSON.parse(config) as unknown, updatedAt });
+    return json({ agentId, config: parsedConfig, updatedAt });
   }
 
   authorizeConversation(request: Request) {

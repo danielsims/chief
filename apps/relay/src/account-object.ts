@@ -4,6 +4,7 @@ import type { AuthenticatedIdentity } from "@chief/relay-contracts";
 import {
   commandIdSchema,
   createWorkspaceCommandSchema,
+  isJsonObject,
   isJsonString,
   switchWorkspaceCommandSchema,
   workspaceIdSchema,
@@ -220,12 +221,16 @@ export class AccountObject extends DurableObject<Env> {
     request: Request,
     identity: Extract<AuthenticatedIdentity, { kind: "user" }>,
   ) {
-    const input = (await parseJson(request)) as Record<string, unknown>;
-    const workspaceId = workspaceIdSchema.parse(input.workspaceId);
-    const operationId = commandIdSchema.parse(input.operationId);
-    const name = isJsonString(input.name) ? input.name.trim() : "";
-    const website = isJsonString(input.website) ? input.website.trim() : "";
-    const createdAt = isJsonString(input.createdAt) ? input.createdAt : "";
+    const input = parseJson(request).then((value) => {
+      if (!isJsonObject(value)) throw new Error("Expected a JSON object.");
+      return value;
+    });
+    const body = await input;
+    const workspaceId = workspaceIdSchema.parse(body.workspaceId);
+    const operationId = commandIdSchema.parse(body.operationId);
+    const name = isJsonString(body.name) ? body.name.trim() : "";
+    const website = isJsonString(body.website) ? body.website.trim() : "";
+    const createdAt = isJsonString(body.createdAt) ? body.createdAt : "";
     if (!name || name.length > 120 || website.length > 2_048) {
       return relayError(
         400,
@@ -267,7 +272,8 @@ export class AccountObject extends DurableObject<Env> {
   }
 
   private async remove(request: Request) {
-    const input = (await parseJson(request)) as Record<string, unknown>;
+    const input = await parseJson(request);
+    if (!isJsonObject(input)) throw new Error("Expected a JSON object.");
     const workspaceId = workspaceIdSchema.parse(input.workspaceId);
     const existing = firstRow<DirectoryRow>(
       this.ctx.storage.sql.exec(
@@ -404,5 +410,6 @@ function migrateLegacyDirectory(storage: DurableObjectStorage) {
 }
 
 function firstRow<T>(cursor: Iterable<T>): T | undefined {
-  return cursor[Symbol.iterator]().next().value as T | undefined;
+  const next = cursor[Symbol.iterator]().next();
+  return next.done ? undefined : next.value;
 }

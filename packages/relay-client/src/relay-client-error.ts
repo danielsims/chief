@@ -1,3 +1,5 @@
+import { isJsonString, parseJsonObject } from "@chief/relay-contracts";
+
 export class RelayClientError extends Error {
   constructor(
     message: string,
@@ -8,13 +10,14 @@ export class RelayClientError extends Error {
   }
 
   static async fromResponse(response: Response) {
-    const body = (await response.json().catch(() => null)) as {
-      error?: { code?: string; message?: string };
-    } | null;
+    const body = parseJsonObject(await response.json().catch(() => null));
+    const details = parseJsonObject(body?.error);
     return new RelayClientError(
-      body?.error?.message ?? `Relay request failed with ${response.status}.`,
+      isJsonString(details?.message)
+        ? details.message
+        : `Relay request failed with ${response.status}.`,
       response.status,
-      body?.error?.code,
+      isJsonString(details?.code) ? details.code : undefined,
     );
   }
 }

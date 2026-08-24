@@ -26,11 +26,35 @@ import {
 import { hexKey } from "./helpers";
 import { performChiefDelegation } from "./managed-workspace-test-helpers";
 
+type RelayTestEnvironment = Parameters<typeof createManagedWorkspace>[0];
+
+function relayEnvironment(): RelayTestEnvironment {
+  return {
+    ...env,
+    BETTER_AUTH_SECRET: "test-auth-secret",
+    BOOTSTRAP_TOKEN_SHA256: "test-bootstrap-token",
+    CLOUDFLARE_ACCOUNT_ID: "test-account",
+    CLOUDFLARE_EMAIL_API_TOKEN: "test-email-token",
+    EMAIL_FROM_ADDRESS: "test@example.test",
+    EMAIL_FROM_NAME: "Chief Test",
+  };
+}
+
+function workspaceCommand(commandId: string, name: string) {
+  return createWorkspaceCommandSchema.parse({
+    commandId,
+    name,
+    website: "https://heychief.sh",
+    runtime: "phone" as const,
+    inferenceProvider: "openCodeGo",
+    inferenceModel: "deepseek-v4-flash",
+    selectedApps: [],
+  });
+}
+
 describe("managed workspace onboarding", () => {
   it("repairs a missing Chief onboarding job when an incomplete workspace opens", async () => {
-    const relay = env as unknown as Parameters<
-      typeof createManagedWorkspace
-    >[0];
+    const relay = relayEnvironment();
     const identity = {
       kind: "user" as const,
       userId: userIdSchema.parse("repair-owner"),
@@ -183,9 +207,7 @@ describe("managed workspace onboarding", () => {
   });
 
   it("creates an account workspace and durably queues Chief setup", async () => {
-    const relay = env as unknown as Parameters<
-      typeof createManagedWorkspace
-    >[0];
+    const relay = relayEnvironment();
     const identity = {
       kind: "user" as const,
       userId: userIdSchema.parse("managed-owner"),
@@ -381,9 +403,7 @@ describe("managed workspace onboarding", () => {
   });
 
   it("lists multiple workspaces and switches the active one", async () => {
-    const relay = env as unknown as Parameters<
-      typeof createManagedWorkspace
-    >[0];
+    const relay = relayEnvironment();
     const identity = {
       kind: "user" as const,
       userId: userIdSchema.parse("multi-owner"),
@@ -393,15 +413,7 @@ describe("managed workspace onboarding", () => {
       createManagedWorkspace(
         relay,
         identity,
-        createWorkspaceCommandSchema.parse({
-          commandId,
-          name,
-          website: "https://heychief.sh",
-          runtime: "phone" as const,
-          inferenceProvider: "openCodeGo",
-          inferenceModel: "deepseek-v4-flash",
-          selectedApps: [],
-        }),
+        workspaceCommand(commandId, name),
       );
 
     const first = await make("fca0ea44-e52b-48c6-9ad7-000000000001", "Alpha");
@@ -443,9 +455,7 @@ describe("managed workspace onboarding", () => {
     expect(activeSnapshot.id).toBe(alphaId);
   });
   it("keeps active workspace selection independent for each signed-in device", async () => {
-    const relay = env as unknown as Parameters<
-      typeof createManagedWorkspace
-    >[0];
+    const relay = relayEnvironment();
     const userId = userIdSchema.parse("multi-device-owner");
     const phone = {
       kind: "user" as const,
@@ -458,20 +468,7 @@ describe("managed workspace onboarding", () => {
       pubkey: hexKey("multi-device-owner-desktop"),
     };
     const make = (commandId: string, name: string) =>
-      createManagedWorkspace(
-        relay,
-        phone,
-        createWorkspaceCommandSchema.parse({
-          commandId,
-          name,
-          website: "https://heychief.sh",
-          runtime: "phone" as const,
-          inferenceProvider: "openCodeGo",
-          inferenceModel: "deepseek-v4-flash",
-          selectedApps: [],
-        }),
-      );
-
+      createManagedWorkspace(relay, phone, workspaceCommand(commandId, name));
     const alpha = workspaceSnapshotSchema.parse(
       await (
         await make("fca0ea44-e52b-48c6-9ad7-000000000011", "Alpha")
@@ -488,7 +485,6 @@ describe("managed workspace onboarding", () => {
       workspaceListResultSchema
         .parse(await (await listManagedWorkspaces(relay, identity)).json())
         .workspaces.find((item) => item.isActive)?.id;
-
     expect(await activeId(desktop)).toBe(beta.id);
     await switchManagedWorkspace(relay, phone, alpha.id);
 
