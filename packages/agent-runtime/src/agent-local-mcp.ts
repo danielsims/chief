@@ -6,11 +6,18 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
+import {
+  parseJsonObject,
+  parseJsonScalar,
+  parseJsonString,
+  parseJsonValue,
+} from "@chief/relay-contracts";
+
 import type { AgentSessionCapability } from "./agent-session-capabilities.js";
+import type { localToolsOpenApi } from "./local-tools.js";
 import type { McpServerSpec } from "./types.js";
 import { permissionForLocalTool } from "./agent-tool-permissions.js";
-
-type JsonObject = Record<string, unknown>;
 
 interface LocalOperation {
   description: string;
@@ -27,23 +34,24 @@ function operationName(operationId: string) {
     .join("")}`;
 }
 
-function object(value: unknown): JsonObject {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonObject)
-    : {};
+type LocalToolsOpenApi = ReturnType<typeof localToolsOpenApi>;
+
+function object<Input>(value: Input): JsonObject {
+  return parseJsonObject(value) ?? {};
 }
 
 function resolveSchema(
-  value: unknown,
+  value: JsonValue | undefined,
   schemas: JsonObject,
   resolving = new Set<string>(),
-): unknown {
+): JsonValue {
+  if (value === undefined) return {};
   if (Array.isArray(value)) {
     return value.map((item) => resolveSchema(item, schemas, resolving));
   }
-  if (!value || typeof value !== "object") return value;
-  const record = value as JsonObject;
-  const reference = typeof record.$ref === "string" ? record.$ref : undefined;
+  const record = parseJsonObject(value);
+  if (!record) return value;
+  const reference = parseJsonString(record.$ref);
   const prefix = "#/components/schemas/";
   if (reference?.startsWith(prefix)) {
     const name = reference.slice(prefix.length);
@@ -71,25 +79,20 @@ function operationInputSchema(
     object(object(operation.requestBody).content)["application/json"],
   );
   const resolvedBody = resolveSchema(media.schema, schemas);
-  const body =
-    resolvedBody &&
-    typeof resolvedBody === "object" &&
-    !Array.isArray(resolvedBody)
-      ? (resolvedBody as JsonObject)
-      : {};
+  const body = parseJsonObject(resolvedBody) ?? {};
   const pathParameters = Array.isArray(pathItem.parameters)
-    ? (pathItem.parameters as unknown[])
+    ? pathItem.parameters
     : [];
   const operationParameters = Array.isArray(operation.parameters)
-    ? (operation.parameters as unknown[])
+    ? operation.parameters
     : [];
   const parameters = [...pathParameters, ...operationParameters];
   const parameterProperties: JsonObject = {};
   const parameterRequired: string[] = [];
   for (const value of parameters) {
     const parameter = object(value);
-    const name = typeof parameter.name === "string" ? parameter.name : "";
-    const location = typeof parameter.in === "string" ? parameter.in : "";
+    const name = parseJsonString(parameter.name) ?? "";
+    const location = parseJsonString(parameter.in) ?? "";
     if (!name || (location !== "path" && location !== "query")) continue;
     parameterProperties[name] = resolveSchema(parameter.schema, schemas);
     if (location === "path" || parameter.required === true) {
@@ -102,49 +105,53 @@ function operationInputSchema(
   };
   const required = [
     ...(Array.isArray(body.required)
-      ? body.required.filter(
-          (value): value is string => typeof value === "string",
-        )
+      ? body.required.flatMap((value) => {
+          const parsed = parseJsonString(value);
+          return parsed === undefined ? [] : [parsed];
+        })
       : []),
     ...parameterRequired,
   ];
-  return {
+  const schema: JsonObject = {
     ...body,
     type: "object",
     properties,
-    ...(required.length > 0 ? { required: [...new Set(required)] } : {}),
-    ...(body.additionalProperties === undefined
-      ? { additionalProperties: false }
-      : {}),
-  } satisfies JsonObject;
+  };
+  if (required.length > 0) schema.required = [...new Set(required)];
+  if (body.additionalProperties === undefined) {
+    schema.additionalProperties = false;
+  }
+  return schema;
 }
 
-export function agentLocalOperations(openApi: unknown) {
+export function agentLocalOperations<Input>(openApi: Input) {
   const specification = object(openApi);
   const paths = object(specification.paths);
   const schemas = object(object(specification.components).schemas);
   const operations = new Map<string, LocalOperation>();
   for (const [path, pathValue] of Object.entries(paths)) {
     const pathItem = object(pathValue);
-    for (const method of ["get", "post", "patch", "delete"] as const) {
-      const operation = object(pathItem[method]);
-      const operationId = operation.operationId;
-      if (typeof operationId !== "string" || !operationId) continue;
+    for (const method of [
+      { key: "get", value: "GET" },
+      { key: "post", value: "POST" },
+      { key: "patch", value: "PATCH" },
+      { key: "delete", value: "DELETE" },
+    ] as const) {
+      const operation = object(pathItem[method.key]);
+      const operationId = parseJsonString(operation.operationId);
+      if (!operationId) continue;
       const inputSchema = operationInputSchema(pathItem, operation, schemas);
+      const description =
+        parseJsonString(operation.description) ??
+        parseJsonString(operation.summary) ??
+        operationId;
+      const title = parseJsonString(operation.summary) ?? operationId;
       operations.set(operationName(operationId), {
-        description:
-          typeof operation.description === "string"
-            ? operation.description
-            : typeof operation.summary === "string"
-              ? operation.summary
-              : operationId,
+        description,
         inputSchema,
-        method: method.toUpperCase() as LocalOperation["method"],
+        method: method.value,
         path,
-        title:
-          typeof operation.summary === "string"
-            ? operation.summary
-            : operationId,
+        title,
       });
     }
   }
@@ -155,17 +162,21 @@ function bearerToken(authorization: string | undefined) {
   return /^Bearer (.+)$/.exec(authorization ?? "")?.[1];
 }
 
-function readBody(request: IncomingMessage): Promise<unknown> {
+function readBody(request: IncomingMessage): Promise<JsonValue | undefined> {
   return new Promise((resolve, reject) => {
     const chunks: Uint8Array[] = [];
-    request.on("data", (chunk: unknown) => {
-      if (typeof chunk === "string") chunks.push(Buffer.from(chunk));
-      else if (chunk instanceof Uint8Array) chunks.push(chunk);
+    request.on("data", (chunk: string | Uint8Array) => {
+      if (chunk instanceof Uint8Array) chunks.push(chunk);
+      else chunks.push(Buffer.from(chunk));
     });
     request.on("end", () => {
       if (chunks.length === 0) return resolve(undefined);
       try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+        const parsed = parseJsonValue(
+          JSON.parse(Buffer.concat(chunks).toString("utf8")),
+        );
+        if (parsed === undefined) throw new Error("Unable to parse JSON.");
+        resolve(parsed);
       } catch (error) {
         reject(
           error instanceof Error ? error : new Error("Unable to parse JSON."),
@@ -197,21 +208,18 @@ function requestUrl(
   path = path.replace(/\{([^}]+)\}/g, (_match, key: string) => {
     const value = remaining[key];
     delete remaining[key];
-    const serialized =
-      typeof value === "string" ||
-      typeof value === "number" ||
-      typeof value === "boolean"
-        ? String(value)
-        : "";
+    const scalar = parseJsonScalar(value);
+    const serialized = scalar === undefined ? "" : String(scalar);
     return encodeURIComponent(serialized);
   });
   const url = new URL(path, origin);
   if (operation.method === "GET") {
     for (const [key, value] of Object.entries(remaining)) {
-      if (value === undefined || value === null) continue;
+      if (value === null) continue;
+      const text = parseJsonString(value);
       url.searchParams.set(
         key,
-        typeof value === "string" ? value : JSON.stringify(value),
+        text ?? parseJsonString(JSON.stringify(value)) ?? "",
       );
     }
   }
@@ -225,7 +233,7 @@ function requestUrl(
  */
 export function createAgentLocalMcpHandler(dependencies: {
   authenticate(token: string): AgentSessionCapability | undefined;
-  openApi(): unknown;
+  openApi(): LocalToolsOpenApi;
   origin: string;
 }) {
   return async (request: IncomingMessage, response: ServerResponse) => {
@@ -286,18 +294,18 @@ export function createAgentLocalMcpHandler(dependencies: {
       }
       const args = object(toolRequest.params.arguments);
       const target = requestUrl(dependencies.origin, operation, args);
-      const result = await fetch(target.url, {
+      const headers: Record<string, string> = {
+        authorization: `Bearer ${token}`,
+      };
+      const init: RequestInit = {
         method: operation.method,
-        headers: {
-          authorization: `Bearer ${token}`,
-          ...(operation.method !== "GET"
-            ? { "content-type": "application/json" }
-            : {}),
-        },
-        ...(operation.method !== "GET"
-          ? { body: JSON.stringify(target.remaining) }
-          : {}),
-      });
+        headers,
+      };
+      if (operation.method !== "GET") {
+        headers["content-type"] = "application/json";
+        init.body = JSON.stringify(target.remaining);
+      }
+      const result = await fetch(target.url, init);
       const content = await result.text();
       return {
         isError: !result.ok,

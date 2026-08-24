@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/require-await -- sync implementation of an async interface */
 import { randomUUID } from "node:crypto";
 
 import type { CellPersistence, EnqueueOutcome } from "./sqlite-store.js";
@@ -7,6 +6,7 @@ import type {
   AgentCell,
   AgentCellStatus,
   AgentEvent,
+  CellStateValue,
   EnqueueResult,
   OutboxRecord,
   OutboxRecordState,
@@ -23,11 +23,19 @@ const DEFAULT_PROJECT_LEASE_TTL_MS = 15 * 60_000;
  * implements it during local conformance runs. Full repository contents never
  * live here — only small durable coordination state.
  */
+type CellKVRecord =
+  | { kind: "events"; value: AgentEvent[] }
+  | { kind: "state"; value: Record<string, CellStateValue> }
+  | { kind: "alarms"; value: AgentAlarm[] }
+  | { kind: "lease"; value: RunLeaseState }
+  | { kind: "projectLeases"; value: ProjectLease[] }
+  | { kind: "outbox"; value: OutboxRecord[] };
+
 export interface CellKVStore {
-  get<T = unknown>(key: string): Promise<T | undefined>;
-  put<T = unknown>(key: string, value: T): Promise<void>;
+  get(key: string): Promise<CellKVRecord | undefined>;
+  put(key: string, record: CellKVRecord): Promise<void>;
   delete(key: string): Promise<void>;
-  list(): Promise<{ key: string; value: unknown }[]>;
+  list(): Promise<{ key: string; value: CellKVRecord }[]>;
 }
 
 function keysOf(cellId: string) {
@@ -45,9 +53,33 @@ function keysOf(cellId: string) {
 export class CellStoragePersistence implements CellPersistence {
   constructor(private readonly storage: CellKVStore) {}
 
+  private async storedEvents(cellId: string) {
+    const record = await this.storage.get(keysOf(cellId).events);
+    return record?.kind === "events" ? record.value : [];
+  }
+
+  private async storedState(cellId: string) {
+    const record = await this.storage.get(keysOf(cellId).state);
+    return record?.kind === "state" ? record.value : {};
+  }
+
+  private async storedAlarms(cellId: string) {
+    const record = await this.storage.get(keysOf(cellId).alarms);
+    return record?.kind === "alarms" ? record.value : [];
+  }
+
+  private async storedProjectLeases(cellId: string) {
+    const record = await this.storage.get(keysOf(cellId).projectLeases);
+    return record?.kind === "projectLeases" ? record.value : [];
+  }
+
+  private async storedOutbox(cellId: string) {
+    const record = await this.storage.get(keysOf(cellId).outbox);
+    return record?.kind === "outbox" ? record.value : [];
+  }
+
   async enqueue(cellId: string, event: AgentEvent): Promise<EnqueueOutcome> {
-    const events =
-      (await this.storage.get<AgentEvent[]>(keysOf(cellId).events)) ?? [];
+    const events = await this.storedEvents(cellId);
     const existing = events.find(
       (candidate) => candidate.idempotencyKey === event.idempotencyKey,
     );
@@ -55,64 +87,65 @@ export class CellStoragePersistence implements CellPersistence {
       return { duplicate: true, position: events.indexOf(existing) + 1 };
     }
     events.push(event);
-    await this.storage.put(keysOf(cellId).events, events);
+    await this.storage.put(keysOf(cellId).events, {
+      kind: "events",
+      value: events,
+    });
     return { duplicate: false, position: events.length };
   }
 
   async lastEvent(cellId: string) {
-    const events =
-      (await this.storage.get<AgentEvent[]>(keysOf(cellId).events)) ?? [];
+    const events = await this.storedEvents(cellId);
     const last = events.at(-1);
     return last ? { id: last.id, position: events.length } : undefined;
   }
 
   async events(cellId: string, afterPosition?: number) {
-    const events =
-      (await this.storage.get<AgentEvent[]>(keysOf(cellId).events)) ?? [];
+    const events = await this.storedEvents(cellId);
     return afterPosition ? events.slice(afterPosition) : [...events];
   }
 
   async readState(cellId: string, key: string) {
-    const state =
-      (await this.storage.get<Record<string, unknown>>(keysOf(cellId).state)) ??
-      {};
+    const state = await this.storedState(cellId);
     return state[key];
   }
 
-  async writeState(cellId: string, key: string, value: unknown) {
-    const state =
-      (await this.storage.get<Record<string, unknown>>(keysOf(cellId).state)) ??
-      {};
+  async writeState(cellId: string, key: string, value: CellStateValue) {
+    const state = await this.storedState(cellId);
     state[key] = value;
-    await this.storage.put(keysOf(cellId).state, state);
+    await this.storage.put(keysOf(cellId).state, {
+      kind: "state",
+      value: state,
+    });
   }
 
   async listDueAlarms(cellId: string, now: number) {
-    const alarms =
-      (await this.storage.get<AgentAlarm[]>(keysOf(cellId).alarms)) ?? [];
+    const alarms = await this.storedAlarms(cellId);
     return alarms.filter((alarm) => alarm.at <= now);
   }
 
   async saveAlarm(cellId: string, alarm: AgentAlarm) {
-    const alarms =
-      (await this.storage.get<AgentAlarm[]>(keysOf(cellId).alarms)) ?? [];
+    const alarms = await this.storedAlarms(cellId);
     const index = alarms.findIndex((candidate) => candidate.id === alarm.id);
     if (index >= 0) alarms[index] = alarm;
     else alarms.push(alarm);
-    await this.storage.put(keysOf(cellId).alarms, alarms);
+    await this.storage.put(keysOf(cellId).alarms, {
+      kind: "alarms",
+      value: alarms,
+    });
   }
 
   async deleteAlarm(cellId: string, alarmId: string) {
-    const alarms =
-      (await this.storage.get<AgentAlarm[]>(keysOf(cellId).alarms)) ?? [];
-    await this.storage.put(
-      keysOf(cellId).alarms,
-      alarms.filter((alarm) => alarm.id !== alarmId),
-    );
+    const alarms = await this.storedAlarms(cellId);
+    await this.storage.put(keysOf(cellId).alarms, {
+      kind: "alarms",
+      value: alarms.filter((alarm) => alarm.id !== alarmId),
+    });
   }
 
   async acquireLease(cellId: string, lease: RunLeaseState) {
-    const current = await this.storage.get<RunLeaseState>(keysOf(cellId).lease);
+    const record = await this.storage.get(keysOf(cellId).lease);
+    const current = record?.kind === "lease" ? record.value : undefined;
     if (
       current &&
       current.expiresAt > Date.now() &&
@@ -120,12 +153,16 @@ export class CellStoragePersistence implements CellPersistence {
     ) {
       return false;
     }
-    await this.storage.put(keysOf(cellId).lease, lease);
+    await this.storage.put(keysOf(cellId).lease, {
+      kind: "lease",
+      value: lease,
+    });
     return true;
   }
 
   async lease(cellId: string) {
-    return this.storage.get<RunLeaseState>(keysOf(cellId).lease);
+    const record = await this.storage.get(keysOf(cellId).lease);
+    return record?.kind === "lease" ? record.value : undefined;
   }
 
   async releaseLease(cellId: string, runId: string) {
@@ -138,13 +175,7 @@ export class CellStoragePersistence implements CellPersistence {
   async expireLeases(now: number) {
     let removed = 0;
     for (const item of await this.storage.list()) {
-      const value = item.value as RunLeaseState | undefined;
-      if (
-        value &&
-        typeof value === "object" &&
-        "expiresAt" in value &&
-        (value as { expiresAt: number }).expiresAt <= now
-      ) {
+      if (item.value.kind === "lease" && item.value.value.expiresAt <= now) {
         await this.storage.delete(item.key);
         removed += 1;
       }
@@ -153,47 +184,48 @@ export class CellStoragePersistence implements CellPersistence {
   }
 
   async saveProjectLease(cellId: string, lease: ProjectLease) {
-    const leases =
-      (await this.storage.get<ProjectLease[]>(keysOf(cellId).projectLeases)) ??
-      [];
+    const leases = await this.storedProjectLeases(cellId);
     leases.push(lease);
-    await this.storage.put(keysOf(cellId).projectLeases, leases);
+    await this.storage.put(keysOf(cellId).projectLeases, {
+      kind: "projectLeases",
+      value: leases,
+    });
   }
 
   async projectLease(cellId: string, leaseId: string) {
-    const leases =
-      (await this.storage.get<ProjectLease[]>(keysOf(cellId).projectLeases)) ??
-      [];
+    const leases = await this.storedProjectLeases(cellId);
     return leases.find((lease) => lease.leaseId === leaseId);
   }
 
   async releaseProjectLease(cellId: string, leaseId: string) {
-    const leases =
-      (await this.storage.get<ProjectLease[]>(keysOf(cellId).projectLeases)) ??
-      [];
-    await this.storage.put(
-      keysOf(cellId).projectLeases,
-      leases.filter((lease) => lease.leaseId !== leaseId),
-    );
+    const leases = await this.storedProjectLeases(cellId);
+    await this.storage.put(keysOf(cellId).projectLeases, {
+      kind: "projectLeases",
+      value: leases.filter((lease) => lease.leaseId !== leaseId),
+    });
   }
 
   async cleanExpiredProjectLeases(now: number) {
     let removed = 0;
     for (const item of await this.storage.list()) {
       if (!item.key.endsWith("\0projectLeases")) continue;
-      const leases = item.value as ProjectLease[] | undefined;
-      if (!Array.isArray(leases)) continue;
+      if (item.value.kind !== "projectLeases") continue;
+      const leases = item.value.value;
       const remaining = leases.filter((lease) => lease.expiresAt > now);
       removed += leases.length - remaining.length;
       if (remaining.length === 0) await this.storage.delete(item.key);
-      else await this.storage.put(item.key, remaining);
+      else {
+        await this.storage.put(item.key, {
+          kind: "projectLeases",
+          value: remaining,
+        });
+      }
     }
     return removed;
   }
 
   async prepareOutbox(cellId: string, record: OutboxRecord) {
-    const records =
-      (await this.storage.get<OutboxRecord[]>(keysOf(cellId).outbox)) ?? [];
+    const records = await this.storedOutbox(cellId);
     if (
       records.some(
         (candidate) => candidate.idempotencyKey === record.idempotencyKey,
@@ -202,7 +234,10 @@ export class CellStoragePersistence implements CellPersistence {
       return false;
     }
     records.push(record);
-    await this.storage.put(keysOf(cellId).outbox, records);
+    await this.storage.put(keysOf(cellId).outbox, {
+      kind: "outbox",
+      value: records,
+    });
     return true;
   }
 
@@ -211,20 +246,21 @@ export class CellStoragePersistence implements CellPersistence {
   }
 
   async markOutboxFailed(cellId: string, id: string, error: string) {
-    const records =
-      (await this.storage.get<OutboxRecord[]>(keysOf(cellId).outbox)) ?? [];
+    const records = await this.storedOutbox(cellId);
     const record = records.find((candidate) => candidate.id === id);
     if (record) {
       record.state = "failed";
       record.attempts += 1;
       record.lastError = error.slice(0, 240);
     }
-    await this.storage.put(keysOf(cellId).outbox, records);
+    await this.storage.put(keysOf(cellId).outbox, {
+      kind: "outbox",
+      value: records,
+    });
   }
 
   async listOutbox(cellId: string, states?: OutboxRecordState[]) {
-    const records =
-      (await this.storage.get<OutboxRecord[]>(keysOf(cellId).outbox)) ?? [];
+    const records = await this.storedOutbox(cellId);
     return states?.length
       ? records.filter((record) => states.includes(record.state))
       : [...records];
@@ -235,35 +271,41 @@ export class CellStoragePersistence implements CellPersistence {
     id: string,
     state: OutboxRecordState,
   ) {
-    const records =
-      (await this.storage.get<OutboxRecord[]>(keysOf(cellId).outbox)) ?? [];
+    const records = await this.storedOutbox(cellId);
     const record = records.find((candidate) => candidate.id === id);
     if (record) {
       record.state = state;
       if (state === "delivered") record.deliveredAt = Date.now();
     }
-    await this.storage.put(keysOf(cellId).outbox, records);
+    await this.storage.put(keysOf(cellId).outbox, {
+      kind: "outbox",
+      value: records,
+    });
   }
 }
 
 /** A memory CellKVStore used for local conformance and as a DO-storage stand-in. */
 export class MemoryCellKVStore implements CellKVStore {
-  private readonly data = new Map<string, unknown>();
+  private readonly data = new Map<string, CellKVRecord>();
 
-  async get<T>(key: string): Promise<T | undefined> {
-    return this.data.get(key) as T | undefined;
+  get(key: string): Promise<CellKVRecord | undefined> {
+    return Promise.resolve(this.data.get(key));
   }
 
-  async put<T>(key: string, value: T): Promise<void> {
-    this.data.set(key, value);
+  put(key: string, record: CellKVRecord): Promise<void> {
+    this.data.set(key, record);
+    return Promise.resolve();
   }
 
-  async delete(key: string): Promise<void> {
+  delete(key: string): Promise<void> {
     this.data.delete(key);
+    return Promise.resolve();
   }
 
-  async list() {
-    return [...this.data.entries()].map(([key, value]) => ({ key, value }));
+  list() {
+    return Promise.resolve(
+      [...this.data.entries()].map(([key, value]) => ({ key, value })),
+    );
   }
 }
 
@@ -296,17 +338,17 @@ export class CloudflareCell implements AgentCell {
     const liveLease = lease && lease.expiresAt > Date.now() ? lease : undefined;
     return {
       state: liveLease ? "running" : "idle",
-      ...(lastEvent ? { lastEventId: lastEvent.id } : {}),
-      ...(lastEvent ? { lastEventPosition: lastEvent.position } : {}),
-      ...(liveLease ? { lease: liveLease } : {}),
+      lastEventId: lastEvent?.id,
+      lastEventPosition: lastEvent?.position,
+      lease: liveLease,
     };
   }
 
-  async readState<T>(key: string): Promise<T | undefined> {
-    return (await this.persistence.readState(this.id, key)) as T | undefined;
+  async readState(key: string) {
+    return await this.persistence.readState(this.id, key);
   }
 
-  async writeState<T>(key: string, value: T): Promise<void> {
+  async writeState(key: string, value: CellStateValue): Promise<void> {
     await this.persistence.writeState(this.id, key, value);
   }
 
@@ -323,7 +365,7 @@ export class CloudflareCell implements AgentCell {
       leaseId: randomUUID(),
       projectId: input.projectId,
       agentId: input.agentId,
-      ...(input.baseRef ? { branch: input.baseRef } : {}),
+      branch: input.baseRef,
       expiresAt: Date.now() + (input.ttlMs ?? DEFAULT_PROJECT_LEASE_TTL_MS),
     };
     await this.persistence.saveProjectLease(this.id, lease);

@@ -10,6 +10,7 @@ import {
   messageIdSchema,
   workspaceIdSchema,
 } from "./identifiers";
+import { jsonObjectSchema, jsonValueSchema } from "./json";
 
 export const agentConfigSchema = z
   .object({
@@ -93,7 +94,7 @@ export const agentJobSchema = z.object({
   agentId: agentIdSchema,
   agentPubkey: hexPubkeySchema.optional(),
   kind: z.string().trim().min(1).max(128),
-  payload: z.record(z.string(), z.unknown()),
+  payload: jsonObjectSchema,
   status: z.enum(["pending", "leased", "completed", "failed"]),
   attempt: z.int().nonnegative(),
   // Kept on the durable job so an authorized workspace owner can understand
@@ -149,7 +150,7 @@ export const agentCellSnapshotSchema = z
         z
           .object({
             key: z.string().trim().min(1).max(320),
-            value: z.unknown(),
+            value: jsonValueSchema,
           })
           .strict(),
       )
@@ -192,7 +193,7 @@ export const agentPublishedMessageSchema = z
           id: z.string().trim().min(1).max(128),
           kind: z.string().trim().min(1).max(64),
           version: z.int().positive(),
-          payload: z.record(z.string(), z.unknown()),
+          payload: jsonObjectSchema,
         }),
       )
       .max(32)

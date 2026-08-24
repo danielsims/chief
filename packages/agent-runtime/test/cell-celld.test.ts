@@ -51,9 +51,9 @@ void test("the cellD adapter enforces its documented platform limits", async () 
       30_000,
       "background execution is best-effort and time-bounded",
     );
-    await cell.writeState("big", { blob: "x".repeat(1024) });
-    const value = await cell.readState<{ blob: string }>("big");
-    assert.equal(value?.blob.length, 1024);
+    await cell.writeState("big", "x".repeat(1024));
+    const value = await cell.readState("big");
+    assert.equal(value, "x".repeat(1024));
     assert.equal((await cell.getStatus()).state, "idle");
   } finally {
     rmSync(directory, { recursive: true, force: true });

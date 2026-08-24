@@ -1,29 +1,30 @@
-import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { createServer } from "node:http";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import type { IncomingMessage } from "node:http";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import type { AgentConfig } from "@chief/relay-contracts";
+import type { AgentConfig, JsonObject } from "@chief/relay-contracts";
 import { AgentBrowserSession } from "@chief/browser/node";
 import { createNip98Authorization, RelayClient } from "@chief/relay-client";
-import { appendMessageCommandSchema } from "@chief/relay-contracts";
+import {
+  agentConfigSchema,
+  appendMessageCommandSchema,
+  parseJsonNumber,
+  parseJsonObject,
+  parseJsonString,
+} from "@chief/relay-contracts";
 
-import type { McpServerSpec } from "./types.js";
 import { cellToolDiagnostic } from "./relay-cell-diagnostics.js";
+import { startRelayCellMcpHttpTransport } from "./relay-cell-http-server.js";
 import { callPluginTool } from "./relay-cell-plugin-tools.js";
 import {
   relayCellToolDefinitions as toolDefinitions,
   relayCellToolRequirements as toolRequirements,
 } from "./relay-cell-tool-definitions.js";
-
-type JsonObject = Record<string, unknown>;
 
 function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim();
@@ -32,7 +33,9 @@ function requiredEnvironment(name: string) {
 }
 
 function parseConfig(): AgentConfig {
-  return JSON.parse(requiredEnvironment("CHIEF_AGENT_CONFIG")) as AgentConfig;
+  return agentConfigSchema.parse(
+    JSON.parse(requiredEnvironment("CHIEF_AGENT_CONFIG")),
+  );
 }
 
 function relayClient() {
@@ -48,23 +51,23 @@ function relayClient() {
 
 export const relayCellToolNames = Object.keys(toolRequirements);
 
-function object(value: unknown): JsonObject {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonObject)
-    : {};
+function object<Input>(value: Input): JsonObject {
+  return parseJsonObject(value) ?? {};
 }
 
 function string(input: JsonObject, key: string) {
   const value = input[key];
-  if (typeof value !== "string" || !value.trim()) {
+  const parsed = parseJsonString(value)?.trim();
+  if (!parsed) {
     throw new Error(`${key} is required.`);
   }
-  return value.trim();
+  return parsed;
 }
 
 function optionalString(input: JsonObject, key: string) {
   const value = input[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  const parsed = parseJsonString(value)?.trim();
+  return parsed === "" ? undefined : parsed;
 }
 
 function inferredMentions(body: string) {
@@ -149,9 +152,9 @@ async function callBrowserTool(name: string, input: JsonObject) {
   }
   if (name === "browser_scroll") {
     const direction = string(input, "direction");
-    const rawAmount = input.amount;
+    const rawAmount = parseJsonNumber(input.amount);
     const amount =
-      typeof rawAmount === "number" && Number.isInteger(rawAmount)
+      rawAmount !== undefined && Number.isInteger(rawAmount)
         ? Math.min(10_000, Math.max(1, rawAmount))
         : 800;
     const x =
@@ -172,7 +175,7 @@ async function callBrowserTool(name: string, input: JsonObject) {
   throw new Error("Unknown browser tool.");
 }
 
-async function callRelayTool(name: string, rawInput: unknown) {
+async function callRelayTool<Input>(name: string, rawInput: Input) {
   const client = relayClient();
   const agentId = requiredEnvironment("CHIEF_AGENT_ID");
   const input = object(rawInput);
@@ -181,17 +184,19 @@ async function callRelayTool(name: string, rawInput: unknown) {
     return { channels: await client.listChannels() };
   }
   if (name === "relay_messages_list") {
+    const after = parseJsonNumber(input.after);
     return await client.listMessages(string(input, "conversationId"), {
-      ...(typeof input.after === "number" ? { after: input.after } : {}),
+      after,
       limit: 200,
     });
   }
   if (name === "relay_thread_replies") {
+    const after = parseJsonNumber(input.after);
     return await client.listThreadReplies(
       string(input, "conversationId"),
       string(input, "rootMessageId"),
       {
-        ...(typeof input.after === "number" ? { after: input.after } : {}),
+        after,
         limit: 200,
       },
     );
@@ -227,14 +232,13 @@ async function callRelayTool(name: string, rawInput: unknown) {
       throw new Error("kind must be user or agent.");
     }
     const principalId = optionalString(input, "principalId");
-    const principalIds = [
-      ...(Array.isArray(input.principalIds)
-        ? input.principalIds.filter(
-            (value): value is string => typeof value === "string" && !!value,
-          )
-        : []),
-      ...(principalId ? [principalId] : []),
-    ];
+    const principalIds = Array.isArray(input.principalIds)
+      ? input.principalIds.flatMap((value) => {
+          const parsed = parseJsonString(value)?.trim();
+          return parsed ? [parsed] : [];
+        })
+      : [];
+    if (principalId) principalIds.push(principalId);
     const uniqueIds = [...new Set(principalIds)];
     if (uniqueIds.length === 0)
       throw new Error("At least one principal is required.");
@@ -267,7 +271,7 @@ async function callRelayTool(name: string, rawInput: unknown) {
       payload: {
         messageId: randomUUID(),
         conversationId,
-        ...(threadRootId ? { threadRootId } : {}),
+        threadRootId,
         body,
         mentions: inferredMentions(body),
         components: [],
@@ -290,9 +294,10 @@ async function callRelayTool(name: string, rawInput: unknown) {
     return await client.saveBrandProfile({
       markdown: string(input, "markdown"),
       sourceUrls: Array.isArray(input.sourceUrls)
-        ? input.sourceUrls.filter(
-            (value): value is string => typeof value === "string",
-          )
+        ? input.sourceUrls.flatMap((value) => {
+            const parsed = parseJsonString(value);
+            return parsed === undefined ? [] : [parsed];
+          })
         : [],
       conversationId: string(input, "conversationId"),
     });
@@ -305,18 +310,16 @@ async function callRelayTool(name: string, rawInput: unknown) {
     return { files: await client.listWorkspaceFiles() };
   }
   if (name === "workspace_files_save") {
+    const id = optionalString(input, "id");
+    const expectedVersion = parseJsonNumber(input.expectedVersion);
     return await client.saveWorkspaceFile({
-      ...(optionalString(input, "id")
-        ? { id: optionalString(input, "id") }
-        : {}),
+      id,
       path: string(input, "path"),
       title: string(input, "title"),
       mimeType: string(input, "mimeType"),
       content: string(input, "content"),
       conversationId: string(input, "conversationId"),
-      ...(typeof input.expectedVersion === "number"
-        ? { expectedVersion: input.expectedVersion }
-        : {}),
+      expectedVersion,
     });
   }
   if (name === "relay_projects_list") {
@@ -391,85 +394,6 @@ export async function runRelayCellMcpServer() {
   await server.connect(new StdioServerTransport());
 }
 
-function authorized(header: string | undefined, token: string) {
-  const presented = Buffer.from(header ?? "");
-  const expected = Buffer.from(`Bearer ${token}`);
-  return (
-    presented.length === expected.length && timingSafeEqual(presented, expected)
-  );
-}
-
-async function requestBody(request: IncomingMessage) {
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for await (const chunk of request as AsyncIterable<Uint8Array>) {
-    const buffer = Buffer.from(chunk);
-    size += buffer.length;
-    if (size > 1_000_000) throw new Error("MCP request is too large.");
-    chunks.push(buffer);
-  }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
-}
-
-export async function startRelayCellMcpHttpServer(): Promise<{
-  spec: McpServerSpec;
-  close: () => Promise<void>;
-}> {
-  const token = randomBytes(32).toString("base64url");
-  const httpServer = createServer((request, response) => {
-    void (async () => {
-      if (
-        request.method !== "POST" ||
-        request.url !== "/mcp" ||
-        !authorized(request.headers.authorization, token)
-      ) {
-        response.writeHead(404).end();
-        return;
-      }
-      const body = await requestBody(request);
-      const server = buildRelayCellMcpServer();
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: undefined,
-      });
-      response.on("close", () => {
-        void transport.close();
-        void server.close();
-      });
-      await server.connect(transport);
-      await transport.handleRequest(request, response, body);
-    })().catch(() => {
-      if (!response.headersSent) {
-        response
-          .writeHead(400, { "content-type": "application/json" })
-          .end('{"error":"Invalid MCP request."}');
-      } else {
-        response.end();
-      }
-    });
-  });
-  await new Promise<void>((resolve, reject) => {
-    httpServer.once("error", reject);
-    httpServer.listen(0, "127.0.0.1", () => {
-      httpServer.off("error", reject);
-      resolve();
-    });
-  });
-  const address = httpServer.address();
-  if (!address || typeof address === "string") {
-    httpServer.close();
-    throw new Error("Could not bind the cell tool endpoint.");
-  }
-  return {
-    spec: {
-      name: "chief_relay",
-      command: "",
-      args: [],
-      url: `http://127.0.0.1:${address.port}/mcp`,
-      headers: { Authorization: `Bearer ${token}` },
-    },
-    close: () =>
-      new Promise<void>((resolve, reject) => {
-        httpServer.close((error) => (error ? reject(error) : resolve()));
-      }),
-  };
+export function startRelayCellMcpHttpServer() {
+  return startRelayCellMcpHttpTransport(buildRelayCellMcpServer);
 }

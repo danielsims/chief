@@ -6,6 +6,11 @@ import WebSocket from "ws";
 
 import type { AgentConfig, AgentJob } from "@chief/relay-contracts";
 import { createNip98Authorization, RelayClient } from "@chief/relay-client";
+import {
+  agentConfigSchema,
+  parseJsonObject,
+  parseJsonString,
+} from "@chief/relay-contracts";
 
 import type { AgentEvent, DriverType } from "./types.js";
 import { agentSkillById } from "./agent-skills.js";
@@ -37,7 +42,9 @@ function requiredEnvironment(name: string) {
 }
 
 function parseConfig(): AgentConfig {
-  return JSON.parse(requiredEnvironment("CHIEF_AGENT_CONFIG")) as AgentConfig;
+  return agentConfigSchema.parse(
+    JSON.parse(requiredEnvironment("CHIEF_AGENT_CONFIG")),
+  );
 }
 
 function relayClient() {
@@ -53,13 +60,19 @@ function relayClient() {
 
 function workspaceContext(job: AgentJob) {
   const payload = job.payload;
+  const name = parseJsonString(payload.name);
+  const website = parseJsonString(payload.website);
+  const selectedApps = Array.isArray(payload.selectedApps)
+    ? payload.selectedApps.flatMap((value) => {
+        const app = parseJsonString(value);
+        return app === undefined ? [] : [app];
+      })
+    : [];
   return [
-    typeof payload.name === "string" ? `Workspace: ${payload.name}` : undefined,
-    typeof payload.website === "string" && payload.website
-      ? `Website: ${payload.website}`
-      : undefined,
-    Array.isArray(payload.selectedApps) && payload.selectedApps.length > 0
-      ? `Selected apps (relevance only): ${payload.selectedApps.join(", ")}`
+    name ? `Workspace: ${name}` : undefined,
+    website ? `Website: ${website}` : undefined,
+    selectedApps.length > 0
+      ? `Selected apps (relevance only): ${selectedApps.join(", ")}`
       : undefined,
   ]
     .filter(Boolean)
@@ -92,12 +105,9 @@ function postedFinalToOrigin(
           ) {
             return false;
           }
-          const input = block.input as Record<string, unknown> | undefined;
+          const input = parseJsonObject(block.input);
           if (input?.conversationId !== conversationId) return false;
-          const key =
-            typeof input.idempotencyKey === "string"
-              ? input.idempotencyKey
-              : "";
+          const key = parseJsonString(input.idempotencyKey) ?? "";
           return key.includes("result") || key.includes("handoff");
         })
       : false,
@@ -108,15 +118,12 @@ async function executeJob(
   cell: DesktopAgentCell,
   client: RelayClient,
   config: AgentConfig,
-  lease: Awaited<ReturnType<RelayClient["claimAgentJob"]>> & {},
+  lease: NonNullable<Awaited<ReturnType<RelayClient["claimAgentJob"]>>>,
 ) {
   const agentId = requiredEnvironment("CHIEF_AGENT_ID");
   const job = lease.job;
   const conversationId = jobConversationId(job);
-  const instruction =
-    typeof job.payload.instruction === "string"
-      ? job.payload.instruction.trim()
-      : "";
+  const instruction = parseJsonString(job.payload.instruction)?.trim() ?? "";
   if (!instruction) throw new Error("The durable job has no instruction.");
   await cell.enqueue({
     id: job.id,
@@ -146,10 +153,7 @@ async function executeJob(
     relayId: requiredEnvironment("CHIEF_RELAY_URL"),
     workspaceId: job.workspaceId,
     conversationId,
-    threadRootId:
-      typeof job.payload.threadRootId === "string"
-        ? job.payload.threadRootId
-        : undefined,
+    threadRootId: parseJsonString(job.payload.threadRootId),
     agentId,
     cellId: cell.id,
     jobId: job.id,
@@ -162,13 +166,10 @@ async function executeJob(
   try {
     const definition = getAgent(agentId);
     if (!definition) throw new Error(`Unknown agent ${agentId}.`);
-    const skillId = job.payload.skillId;
-    const activeSkill =
-      typeof skillId === "string"
-        ? agentSkillById(agentId, skillId)
-        : undefined;
-    const priorEvents =
-      (await cell.readState<AgentEvent[]>(`events:${conversationId}`)) ?? [];
+    const skillId = parseJsonString(job.payload.skillId);
+    const activeSkill = skillId ? agentSkillById(agentId, skillId) : undefined;
+    const storedEvents = await cell.readState(`events:${conversationId}`);
+    const priorEvents = Array.isArray(storedEvents) ? storedEvents : [];
     const turnStart = priorEvents.length;
     process.env.CHIEF_CONVERSATION_ID = conversationId;
     relayMcp = await startRelayCellMcpHttpServer();
@@ -206,9 +207,7 @@ async function executeJob(
     const activityPublisher = new RelayActivityPublisher(
       client,
       conversationId,
-      typeof job.payload.threadRootId === "string"
-        ? job.payload.threadRootId
-        : undefined,
+      parseJsonString(job.payload.threadRootId),
       {
         ...activityContext,
         providerSessionId: () => agentSession.sessionId,
@@ -233,7 +232,9 @@ async function executeJob(
     mkdirSync(cellDirectory, { recursive: true, mode: 0o700 });
     await agentSession.start(
       cellDirectory,
-      await cell.readState<string>(`providerSession:${conversationId}`),
+      parseJsonString(
+        await cell.readState(`providerSession:${conversationId}`),
+      ),
     );
     await agentSession.sendPrompt(instruction, job.id, false, {
       privateInstructions: [
@@ -339,10 +340,9 @@ function normalizeDriver(driver: string): DriverType {
 }
 
 function jobConversationId(job: AgentJob) {
-  const value = job.payload.conversationId;
-  return typeof value === "string" && value.trim()
-    ? value.trim()
-    : "mission-control";
+  return (
+    parseJsonString(job.payload.conversationId)?.trim() ?? "mission-control"
+  );
 }
 
 async function drainMailbox(

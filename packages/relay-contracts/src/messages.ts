@@ -11,6 +11,7 @@ import {
   workspaceIdSchema,
 } from "./identifiers";
 import { principalSchema } from "./identity";
+import { jsonObjectSchema } from "./json";
 
 export const messageAuthorSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("user"), id: userIdSchema }),
@@ -98,7 +99,7 @@ export const messageComponentSchema = z
     id: z.string().trim().min(1).max(128),
     kind: z.string().trim().min(1).max(64),
     version: z.int().positive(),
-    payload: z.record(z.string(), z.unknown()),
+    payload: jsonObjectSchema,
   })
   .strict()
   .superRefine((component, context) => {
