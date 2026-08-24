@@ -274,10 +274,10 @@ export class AgentObject extends DurableObject<Env> {
         },
       );
       if (claimResponse.status === 204) return;
-      const lease = (await claimResponse.json()) as {
+      const lease: {
         job: ReturnType<typeof agentJobSchema.parse>;
         leaseToken: string;
-      };
+      } = await claimResponse.json();
       try {
         const result = await runHostedAgentJob(
           this.env,

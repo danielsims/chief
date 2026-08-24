@@ -309,34 +309,38 @@ interface HostedPlugin {
   trusted: false;
 }
 
+interface HostedPluginCatalogDocument {
+  data?: {
+    slug?: string;
+    name?: string;
+    domain?: string;
+    description?: string;
+    icon?: string;
+    kind?: string;
+    categories?: string[];
+  }[];
+}
+
 async function hostedPluginCatalog(): Promise<HostedPlugin[]> {
   const response = await fetch("https://integrations.sh/api.json", {
     headers: { accept: "application/json" },
   });
   if (!response.ok) throw new Error("The plugin catalog is unavailable.");
-  const document = (await response.json()) as {
-    data?: Array<{
-      slug?: string;
-      name?: string;
-      domain?: string;
-      description?: string;
-      icon?: string;
-      kind?: string;
-      categories?: string[];
-    }>;
-  };
+  const document: HostedPluginCatalogDocument = await response.json();
   return (document.data ?? [])
     .flatMap((entry) => {
       if (entry.kind !== "mcp" || !entry.slug || !entry.name || !entry.domain)
         return [];
+      const description = entry.description?.trim();
       return [
         {
           id: entry.slug,
           name: entry.name,
-          description:
-            entry.description?.trim() ||
+          description: nonEmptyOr(
+            description,
             `Connect ${entry.name} to your Chief agents.`,
-          category: entry.categories?.[0] || "Integration",
+          ),
+          category: entry.categories?.[0] ?? "Integration",
           domain: entry.domain,
           ...(entry.icon ? { iconUrl: entry.icon } : {}),
           status: "available" as const,
@@ -346,6 +350,11 @@ async function hostedPluginCatalog(): Promise<HostedPlugin[]> {
       ];
     })
     .slice(0, 60);
+}
+
+function nonEmptyOr(value: string | undefined, fallback: string) {
+  if (value === undefined || value.length === 0) return fallback;
+  return value;
 }
 
 export async function recentConversationMessages(
