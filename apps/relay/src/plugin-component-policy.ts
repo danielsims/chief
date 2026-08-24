@@ -1,4 +1,8 @@
-import type { Principal, WorkspaceId } from "@chief/relay-contracts";
+import type {
+  JsonObject,
+  Principal,
+  WorkspaceId,
+} from "@chief/relay-contracts";
 import {
   pluginActionPayloadSchema,
   pluginAuthorizationPayloadSchema,
@@ -10,7 +14,7 @@ import { HttpError } from "./http";
 export function validatePluginComponentPlacement(
   components: readonly {
     kind: string;
-    payload: Record<string, unknown>;
+    payload: JsonObject;
   }[],
   principal: Principal,
   workspaceId: WorkspaceId,

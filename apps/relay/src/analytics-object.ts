@@ -1,14 +1,12 @@
 import { DurableObject } from "cloudflare:workers";
+import { z } from "zod";
 
 import { isJsonObject, isJsonString } from "@chief/relay-contracts";
 
 import { json, relayError } from "./http";
 import { readTrustedIdentity } from "./internal-context";
 
-interface MetricRow extends Record<string, SqlStorageValue> {
-  dimension: string;
-  count: number;
-}
+const metricRowSchema = z.object({ dimension: z.string(), count: z.number() });
 
 /**
  * SQLite-backed product-owner metrics store. Records traffic counters
@@ -50,10 +48,7 @@ export class AnalyticsObject extends DurableObject<Env> {
   /** Increment per-day counters for a set of dimensions. */
   private async record(request: Request) {
     const parsed: unknown = await request.json();
-    const body =
-      parsed !== null && isJsonObject(parsed)
-        ? (parsed as Record<string, unknown>)
-        : {};
+    const body = parsed !== null && isJsonObject(parsed) ? parsed : {};
     const at = isJsonString(body.at) ? body.at : undefined;
     const day = (at ?? new Date().toISOString()).slice(0, 10);
     const dimensions = Array.isArray(body.dimensions) ? body.dimensions : [];
@@ -85,7 +80,8 @@ export class AnalyticsObject extends DurableObject<Env> {
          WHERE day >= ? GROUP BY dimension ORDER BY dimension`,
         since,
       )
-      .toArray() as MetricRow[];
+      .toArray()
+      .map((row) => metricRowSchema.parse(row));
     return json({
       metrics: rows.map((row) => ({
         dimension: String(row.dimension),

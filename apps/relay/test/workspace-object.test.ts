@@ -1,10 +1,9 @@
-import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
 import { userIdSchema, workspaceIdSchema } from "@chief/relay-contracts";
 
 import { withTrustedIdentity } from "../src/internal-context";
-import { hexKey } from "./helpers";
+import { hexKey, relayTestEnv } from "./helpers";
 
 const workspaceId = workspaceIdSchema.parse("workspace-authority-test");
 const ownerId = userIdSchema.parse("owner-user");
@@ -220,8 +219,7 @@ describe("WorkspaceObject", () => {
 });
 
 function workspaceStub() {
-  const workspaces = (env as unknown as { WORKSPACES: DurableObjectNamespace })
-    .WORKSPACES;
+  const { WORKSPACES: workspaces } = relayTestEnv();
   return workspaces.get(workspaces.idFromName(workspaceId));
 }
 

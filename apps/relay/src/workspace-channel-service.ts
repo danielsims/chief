@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import type { channelArchiveCommandSchema } from "@chief/relay-contracts";
 import {
   channelActionResultSchema,
@@ -24,6 +26,15 @@ import {
   parseChannelId,
   principalKindId,
 } from "./workspace-channel-store";
+
+const channelListRowSchema = z.object({
+  conversation_id: z.string(),
+  workspace_id: z.string(),
+  name: z.string(),
+  is_private: z.number(),
+  archived: z.number(),
+  created_at: z.string(),
+});
 
 export class WorkspaceChannelService {
   constructor(private readonly store: WorkspaceChannelStore) {}
@@ -114,7 +125,8 @@ export class WorkspaceChannelService {
         kind,
         id,
       )
-      .toArray() as ChannelRow[];
+      .toArray()
+      .map((row) => channelListRowSchema.parse(row));
     return json(
       channelListResultSchema.parse({
         channels: rows.map(channelRecordFromRow),

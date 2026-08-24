@@ -47,7 +47,6 @@ describe("workspace channels", () => {
     expect(await second.json()).toMatchObject({
       conversation: { id: firstBody.conversation.id, kind: "direct" },
     });
-
     const channels = await rpc(ctx, owner, "channels-list");
     const channelBody = (await channels.json()) as {
       channels: Array<{ id: string }>;

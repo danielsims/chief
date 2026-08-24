@@ -1,4 +1,3 @@
-import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -14,13 +13,11 @@ import {
   deleteManagedWorkspace,
   listManagedWorkspaces,
 } from "../src/workspace-authority";
-import { hexKey } from "./helpers";
+import { hexKey, relayTestEnv } from "./helpers";
 
 describe("managed workspace deletion", () => {
   it("removes an owner's workspace from durable storage and their directory", async () => {
-    const relay = env as unknown as Parameters<
-      typeof createManagedWorkspace
-    >[0];
+    const relay = relayTestEnv();
     const identity = {
       kind: "user" as const,
       userId: userIdSchema.parse("delete-owner"),

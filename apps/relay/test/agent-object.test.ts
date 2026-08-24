@@ -1,6 +1,6 @@
-import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
+import type { JsonObject } from "@chief/relay-contracts";
 import {
   agentIdSchema,
   agentJobListSchema,
@@ -9,7 +9,7 @@ import {
 } from "@chief/relay-contracts";
 
 import { withTrustedContext } from "../src/internal-context";
-import { hexKey } from "./helpers";
+import { hexKey, relayTestEnv } from "./helpers";
 
 const workspaceId = workspaceIdSchema.parse("agent-queue-test");
 const agentId = agentIdSchema.parse("engineer");
@@ -254,11 +254,11 @@ describe("AgentObject", () => {
 });
 
 function agentStub() {
-  const agents = (env as unknown as { AGENTS: DurableObjectNamespace }).AGENTS;
+  const { AGENTS: agents } = relayTestEnv();
   return agents.get(agents.idFromName(`${workspaceId}:${agentId}`));
 }
 
-function post(stub: DurableObjectStub, operation: string, body: unknown) {
+function post(stub: DurableObjectStub, operation: string, body: JsonObject) {
   const request = withTrustedContext(
     new Request(`https://relay.test/internal/${operation}`, {
       method: "POST",
@@ -284,7 +284,7 @@ function ownerRequest(
   stub: DurableObjectStub,
   path: string,
   method: "GET" | "POST" | "PUT",
-  body?: unknown,
+  body?: JsonObject,
 ) {
   return stub.fetch(
     withTrustedContext(

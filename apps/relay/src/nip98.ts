@@ -2,10 +2,12 @@ import { schnorr } from "@noble/curves/secp256k1.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 
+import type { JsonValue } from "@chief/relay-contracts";
 import {
   isJsonNumber,
   isJsonObject,
   isJsonString,
+  parseJsonObject,
 } from "@chief/relay-contracts";
 
 import { AuthenticationError } from "./auth";
@@ -67,7 +69,7 @@ export function verifyNip98Auth(
   const encoded = authorization.slice(5).trim();
   let event: Nip98Event;
   try {
-    event = parseNip98Event(JSON.parse(decodeBase64(encoded)));
+    event = parseNip98Event(parseJsonObject(JSON.parse(decodeBase64(encoded))));
   } catch {
     throw new AuthenticationError("The Nostr event is not valid base64 JSON.");
   }
@@ -191,11 +193,13 @@ function tag(tags: readonly string[][], key: string): string | undefined {
   return matches[0]?.[1];
 }
 
-function parseNip98Event(value: unknown): Nip98Event {
+function parseNip98Event(
+  value: ReturnType<typeof parseJsonObject>,
+): Nip98Event {
   if (!value || !isJsonObject(value) || Array.isArray(value)) {
     throw new AuthenticationError("The Nostr event must be an object.");
   }
-  const event = value as Record<string, unknown>;
+  const event = value;
   if (
     !isJsonString(event.id) ||
     !isJsonString(event.pubkey) ||
@@ -204,18 +208,29 @@ function parseNip98Event(value: unknown): Nip98Event {
     !isJsonNumber(event.created_at) ||
     !isJsonString(event.sig) ||
     !Array.isArray(event.tags) ||
-    !event.tags.every(
-      (entry) =>
-        Array.isArray(entry) &&
-        entry.length > 0 &&
-        entry.length <= 4 &&
-        entry.every((part) => isJsonString(part) && part.length <= 8_192),
-    ) ||
+    !event.tags.every(isNip98Tag) ||
     event.tags.length > 32
   ) {
     throw new AuthenticationError("The Nostr event shape is invalid.");
   }
-  return event as unknown as Nip98Event;
+  return {
+    id: event.id,
+    pubkey: event.pubkey,
+    content: event.content,
+    kind: event.kind,
+    created_at: event.created_at,
+    tags: event.tags,
+    sig: event.sig,
+  };
+}
+
+function isNip98Tag(value: JsonValue): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.length <= 4 &&
+    value.every((part) => isJsonString(part) && part.length <= 8_192)
+  );
 }
 
 /** Decode a base64 (or base64url) encoded value into its UTF-8 string. */

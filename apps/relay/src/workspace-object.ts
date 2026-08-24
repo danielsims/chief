@@ -1,10 +1,15 @@
 import { DurableObject } from "cloudflare:workers";
 
-import type { ConversationEvent, Principal } from "@chief/relay-contracts";
+import type {
+  ConversationEvent,
+  JsonValue,
+  Principal,
+} from "@chief/relay-contracts";
 import {
   conversationEventSchema,
   conversationIdSchema,
   isJsonString,
+  parseJsonObject,
   principalSchema,
   workspaceSocketTicketSchema,
 } from "@chief/relay-contracts";
@@ -247,11 +252,11 @@ export class WorkspaceObject extends DurableObject<Env> {
       return;
     }
     try {
-      const input = JSON.parse(message) as {
-        type?: unknown;
-        conversationIds?: unknown;
-        after?: unknown;
-      };
+      const input = parseJsonObject(JSON.parse(message));
+      if (!input) {
+        socket.close(1008, "Invalid workspace message");
+        return;
+      }
       if (input.type !== "workspace.subscribe") {
         socket.close(1008, "Invalid workspace message");
         return;
@@ -405,7 +410,8 @@ function consumeSocketAllowance(
 function workspaceSocketAttachment(
   socket: WebSocket,
 ): WorkspaceSocketAttachment {
-  const value = socket.deserializeAttachment() as WorkspaceSocketAttachment;
+  const value = parseJsonObject(socket.deserializeAttachment());
+  if (!value) throw new Error("Workspace socket attachment is invalid.");
   return {
     principal: principalSchema.parse(value.principal),
     conversationIds: Array.isArray(value.conversationIds)
@@ -414,7 +420,9 @@ function workspaceSocketAttachment(
     cursor:
       value.cursor === null ||
       (Number.isInteger(value.cursor) && Number(value.cursor) >= 0)
-        ? value.cursor
+        ? value.cursor === null
+          ? null
+          : Number(value.cursor)
         : null,
     subscribed: value.subscribed === true,
     messageWindowStartedAt: validTimestamp(value.messageWindowStartedAt),
@@ -426,13 +434,13 @@ function workspaceSocketAttachment(
   };
 }
 
-function validTimestamp(value: unknown) {
+function validTimestamp(value: JsonValue | undefined) {
   return Number.isSafeInteger(value) && Number(value) >= 0
     ? Number(value)
     : Date.now();
 }
 
-function validCount(value: unknown) {
+function validCount(value: JsonValue | undefined) {
   return Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : 0;
 }
 

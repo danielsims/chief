@@ -1,25 +1,27 @@
-import type {
-  LogBatch,
-  LogPage,
-  LogRecord,
-  WorkspaceId,
-} from "@chief/relay-contracts";
-import { logPageSchema, workspaceIdSchema } from "@chief/relay-contracts";
+import { z } from "zod";
 
-interface LogRow extends Record<string, SqlStorageValue> {
-  sequence: number;
-  workspace_id: string;
-  log_id: string;
-  correlation_id: string;
-  type: LogRecord["type"];
-  operation: string;
-  deployment: string | null;
-  agent_id: string | null;
-  conversation_id: string | null;
-  message: string;
-  payload_json: string | null;
-  created_at: string;
-}
+import type { LogBatch, LogPage, WorkspaceId } from "@chief/relay-contracts";
+import {
+  logPageSchema,
+  logTypeSchema,
+  parseJsonValue,
+  workspaceIdSchema,
+} from "@chief/relay-contracts";
+
+const storedLogRowSchema = z.object({
+  sequence: z.number().int(),
+  workspace_id: z.string(),
+  log_id: z.string(),
+  correlation_id: z.string(),
+  type: logTypeSchema,
+  operation: z.string(),
+  deployment: z.string().nullable(),
+  agent_id: z.string().nullable(),
+  conversation_id: z.string().nullable(),
+  message: z.string(),
+  payload_json: z.string().nullable(),
+  created_at: z.string(),
+});
 
 export function initializeWorkspaceLog(storage: DurableObjectStorage) {
   storage.sql.exec(`
@@ -96,12 +98,14 @@ export function readWorkspaceLogs(
           workspaceId,
           limit,
         )
-  ).toArray() as LogRow[];
+  )
+    .toArray()
+    .map((row) => storedLogRowSchema.parse(row));
   const logs = rows.map((row) => ({
     id: String(row.log_id),
     correlationId: String(row.correlation_id),
     workspaceId: workspaceIdSchema.parse(String(row.workspace_id)),
-    type: String(row.type) as LogRecord["type"],
+    type: row.type,
     operation: String(row.operation),
     ...(row.deployment ? { deployment: String(row.deployment) } : undefined),
     ...(row.agent_id ? { agentId: String(row.agent_id) } : undefined),
@@ -123,6 +127,6 @@ export function readWorkspaceLogs(
   });
 }
 
-function parseStoredJson(value: string): unknown {
-  return JSON.parse(value) as unknown;
+function parseStoredJson(value: string) {
+  return parseJsonValue(JSON.parse(value)) ?? null;
 }

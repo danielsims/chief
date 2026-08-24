@@ -1,5 +1,10 @@
 import type { WorkspaceId } from "@chief/relay-contracts";
 
+export type RelaySocket = Pick<
+  WebSocket,
+  "readyState" | "addEventListener" | "close" | "send"
+>;
+
 export interface RelayClientOptions {
   relayUrl: string;
   workspaceId?: WorkspaceId | string;
@@ -11,5 +16,5 @@ export interface RelayClientOptions {
   getDeviceAuthorization?: () =>
     string | undefined | Promise<string | undefined>;
   fetch?: typeof globalThis.fetch;
-  createWebSocket?: (url: string) => WebSocket;
+  createWebSocket?: (url: string) => RelaySocket;
 }

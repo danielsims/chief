@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { JsonObject } from "@chief/relay-contracts";
 import { agentIdSchema } from "@chief/relay-contracts";
 
 import { withTrustedContext } from "../src/internal-context";
@@ -225,7 +226,7 @@ function rpc(
   ctx: Awaited<ReturnType<typeof setupChannelTest>>,
   principal: Parameters<typeof withTrustedContext>[1]["principal"],
   operation: string,
-  body?: unknown,
+  body?: JsonObject,
   extraHeaders?: Record<string, string>,
 ) {
   const headers = new Headers({
@@ -245,8 +246,6 @@ function rpc(
       workspaceId: ctx.workspaceId,
     },
   );
-  const workspaces = (
-    ctx.env as unknown as { WORKSPACES: DurableObjectNamespace }
-  ).WORKSPACES;
+  const { WORKSPACES: workspaces } = ctx.env;
   return workspaces.get(workspaces.idFromName(ctx.workspaceId)).fetch(request);
 }

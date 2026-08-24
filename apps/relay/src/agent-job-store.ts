@@ -28,7 +28,8 @@ export function initializeAgentJobs(storage: DurableObjectStorage) {
 }
 
 export function firstAgentRow<T>(cursor: Iterable<T>): T | undefined {
-  return cursor[Symbol.iterator]().next().value as T | undefined;
+  const next = cursor[Symbol.iterator]().next();
+  return next.done ? undefined : next.value;
 }
 
 export function actorPubkey(principal: Principal): string | undefined {

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isJsonString, workspaceIdSchema } from "@chief/relay-contracts";
+import type { JsonObject } from "@chief/relay-contracts";
+import {
+  isJsonString,
+  parseJsonObject,
+  workspaceIdSchema,
+} from "@chief/relay-contracts";
 
 import { RelayClient } from "../src/relay-client";
 
@@ -67,7 +72,7 @@ void test("scopes NIP-98 requests to one workspace and keeps authorization out o
     fetch: fetcher,
     createWebSocket: (url) => {
       socketUrl = url;
-      return new FakeWebSocket() as unknown as WebSocket;
+      return new FakeWebSocket();
     },
   });
 
@@ -248,7 +253,7 @@ void test("renews socket tickets and catches up from the durable cursor after re
     createWebSocket: () => {
       const socket = new FakeWebSocket();
       sockets.push(socket);
-      return socket as unknown as WebSocket;
+      return socket;
     },
   });
 
@@ -315,7 +320,7 @@ void test("does not retry a terminal authorization failure after a live disconne
     createWebSocket: () => {
       const socket = new FakeWebSocket();
       sockets.push(socket);
-      return socket as unknown as WebSocket;
+      return socket;
     },
   });
 
@@ -369,7 +374,7 @@ void test("multiplexes workspace conversations over one cursor-resumable socket"
     createWebSocket: () => {
       const socket = new FakeWebSocket();
       sockets.push(socket);
-      return socket as unknown as WebSocket;
+      return socket;
     },
   });
 
@@ -382,7 +387,7 @@ void test("multiplexes workspace conversations over one cursor-resumable socket"
 
   assert.equal(sockets.length, 1);
   assert.deepEqual(
-    sockets[0]?.sent.map((value) => JSON.parse(value) as unknown),
+    sockets[0]?.sent.map((value) => parseJsonObject(JSON.parse(value)) ?? {}),
     [
       {
         type: "workspace.subscribe",
@@ -427,7 +432,7 @@ class FakeWebSocket extends EventTarget {
     this.sent.push(value);
   }
 
-  receive(value: unknown) {
+  receive(value: JsonObject) {
     this.dispatchEvent(
       new MessageEvent("message", { data: JSON.stringify(value) }),
     );
@@ -469,7 +474,7 @@ function conversationEvent(sequence: number) {
   };
 }
 
-function jsonResponse(value: unknown, status = 200) {
+function jsonResponse(value: JsonObject, status = 200) {
   return new Response(JSON.stringify(value), {
     status,
     headers: { "content-type": "application/json" },

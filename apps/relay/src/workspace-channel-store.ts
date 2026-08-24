@@ -1,5 +1,8 @@
+import { z } from "zod";
+
 import type { Principal, WorkspaceSnapshot } from "@chief/relay-contracts";
 import {
+  agentConfigSchema,
   channelDetailSchema,
   channelRecordSchema,
   conversationIdSchema,
@@ -13,6 +16,14 @@ import {
   effectiveAgentConfigFor,
   hasAgentPermission,
 } from "./workspace-agent-config";
+
+const channelMemberRowSchema = z.object({
+  conversation_id: z.string(),
+  principal_kind: z.union([z.literal("user"), z.literal("agent")]),
+  principal_id: z.string(),
+  role: z.union([z.literal("owner"), z.literal("admin"), z.literal("member")]),
+  joined_at: z.string(),
+});
 
 export interface MemberRow extends Record<string, SqlStorageValue> {
   principal_kind: "user" | "agent" | "service";
@@ -124,7 +135,10 @@ export class WorkspaceChannelStore {
       ),
     );
     return row
-      ? effectiveAgentConfigFor(agentId, JSON.parse(row.config_json))
+      ? effectiveAgentConfigFor(
+          agentId,
+          agentConfigSchema.parse(JSON.parse(row.config_json)),
+        )
       : defaultAgentConfigFor(agentId);
   }
 
@@ -272,7 +286,8 @@ export class WorkspaceChannelStore {
          WHERE conversation_id = ? ORDER BY joined_at ASC, principal_id ASC`,
         conversationId,
       )
-      .toArray() as ChannelMemberRow[];
+      .toArray()
+      .map((row) => channelMemberRowSchema.parse(row));
     const names = this.principalNames();
     return rows.map((row) => ({
       kind: row.principal_kind,
@@ -426,7 +441,17 @@ export function principalKindId(principal: Principal) {
   return { kind: "service" as const, id: principal.service };
 }
 
-export function channelRecordFromRow(row: ChannelRow) {
+export function channelRecordFromRow(
+  row: Pick<
+    ChannelRow,
+    | "conversation_id"
+    | "workspace_id"
+    | "name"
+    | "is_private"
+    | "archived"
+    | "created_at"
+  >,
+) {
   return {
     id: conversationIdSchema.parse(String(row.conversation_id)),
     workspaceId: workspaceIdSchema.parse(String(row.workspace_id)),
@@ -449,5 +474,6 @@ export function parseChannelId(value: string | null) {
 }
 
 export function firstRow<T>(cursor: Iterable<T>): T | undefined {
-  return cursor[Symbol.iterator]().next().value as T | undefined;
+  const next = cursor[Symbol.iterator]().next();
+  return next.done ? undefined : next.value;
 }

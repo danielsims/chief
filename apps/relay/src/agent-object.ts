@@ -16,7 +16,6 @@ import {
   enqueueAgentJobCommandSchema,
   isJsonString,
   parseJsonObject,
-  parseJsonValue,
   renewAgentJobSchema,
 } from "@chief/relay-contracts";
 
@@ -34,6 +33,11 @@ import {
   createAgentMailboxSocketTicket,
 } from "./agent-mailbox";
 import { publishAgentMessage } from "./agent-message-publisher";
+import {
+  hostedPrincipal,
+  parseStoredJson,
+  safeJsonArray,
+} from "./agent-object-values";
 import { publishOnboardingResult } from "./agent-onboarding";
 import {
   loadAgentHostingContext,
@@ -654,7 +658,7 @@ export class AgentObject extends DurableObject<Env> {
         key,
       ),
     );
-    const messages = row ? safeArray(row.value_json) : [];
+    const messages = row ? safeJsonArray(row.value_json) : [];
     const at = Date.now();
     const instruction = isJsonString(job.payload.instruction)
       ? job.payload.instruction
@@ -674,7 +678,7 @@ export class AgentObject extends DurableObject<Env> {
         "SELECT value_json FROM cell_records WHERE key = 'agent:work-journal'",
       ),
     );
-    const journal = journalRow ? safeArray(journalRow.value_json) : [];
+    const journal = journalRow ? safeJsonArray(journalRow.value_json) : [];
     journal.push({
       conversationId,
       user: instruction.slice(0, 1_000),
@@ -734,30 +738,4 @@ export class AgentObject extends DurableObject<Env> {
     this.broadcastAvailable(job, now);
     return json({ job });
   }
-}
-
-function hostedPrincipal(
-  job: ReturnType<typeof agentJobSchema.parse>,
-): AgentPrincipal {
-  return {
-    kind: "agent",
-    agentId: job.agentId,
-    pubkey: job.agentPubkey?.toLowerCase() ?? "0".repeat(64),
-    workspaceId: job.workspaceId,
-    role: "member",
-  };
-}
-
-function parseStoredJson(value: string): JsonValue {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return parseJsonValue(parsed) ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function safeArray(value: string): JsonValue[] {
-  const parsed = parseStoredJson(value);
-  return Array.isArray(parsed) ? parsed : [];
 }

@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { expect } from "vitest";
 
-import type { WorkspaceId } from "@chief/relay-contracts";
+import type { JsonObject, WorkspaceId } from "@chief/relay-contracts";
 import {
   agentIdSchema,
   createWorkspaceCommandSchema,
@@ -35,7 +35,15 @@ export interface ChannelTestContext {
 }
 
 export async function setupChannelTest(): Promise<ChannelTestContext> {
-  const relay = env as unknown as Parameters<typeof createManagedWorkspace>[0];
+  const relay: Parameters<typeof createManagedWorkspace>[0] = {
+    ...env,
+    BETTER_AUTH_SECRET: "test-auth-secret",
+    BOOTSTRAP_TOKEN_SHA256: "test-bootstrap-token",
+    CLOUDFLARE_ACCOUNT_ID: "test-account",
+    CLOUDFLARE_EMAIL_API_TOKEN: "test-email-token",
+    EMAIL_FROM_ADDRESS: "test@example.test",
+    EMAIL_FROM_NAME: "Chief Test",
+  };
   const identity = {
     kind: "user" as const,
     userId: ownerId,
@@ -71,7 +79,7 @@ export function channelRpc(
   ctx: ChannelTestContext,
   principal: Parameters<typeof withTrustedContext>[1]["principal"],
   operation: string,
-  body?: unknown,
+  body?: JsonObject,
   query?: string,
   requiredPermission:
     "messages.read" | "messages.send" | "messages.manage" = "messages.read",
@@ -98,11 +106,9 @@ export function channelRpc(
 export function dispatchTestMessage(
   ctx: ChannelTestContext,
   principal: Parameters<typeof withTrustedContext>[1]["principal"],
-  message: Record<string, unknown> & { conversationId: string },
+  message: JsonObject & { conversationId: string },
 ) {
-  const workspaces = (
-    ctx.env as unknown as { WORKSPACES: DurableObjectNamespace }
-  ).WORKSPACES;
+  const workspaces = ctx.env.WORKSPACES;
   return workspaces.get(workspaces.idFromName(ctx.workspaceId)).fetch(
     withTrustedContext(
       new Request("https://workspace.internal/agent-message-dispatch", {
@@ -172,9 +178,7 @@ export async function testConversationMessages(
   principal: Parameters<typeof withTrustedContext>[1]["principal"],
   conversationId: string,
 ) {
-  const conversations = (
-    ctx.env as unknown as { CONVERSATIONS: DurableObjectNamespace }
-  ).CONVERSATIONS;
+  const conversations = ctx.env.CONVERSATIONS;
   const stub = conversations.get(
     conversations.idFromName(`${ctx.workspaceId}:${conversationId}`),
   );
@@ -193,13 +197,13 @@ export async function testConversationMessages(
     messages: Array<{
       author: { kind: string; id: string };
       body: string;
-      components: Array<{ kind: string; payload: Record<string, unknown> }>;
+      components: Array<{ kind: string; payload: JsonObject }>;
     }>;
   };
   return page.messages;
 }
 
-export function channelEnvelope(payload: Record<string, unknown>) {
+export function channelEnvelope(payload: JsonObject) {
   return {
     commandId: crypto.randomUUID(),
     protocolVersion: 1,
@@ -209,8 +213,6 @@ export function channelEnvelope(payload: Record<string, unknown>) {
 }
 
 function workspaceStub(ctx: ChannelTestContext) {
-  const workspaces = (
-    ctx.env as unknown as { WORKSPACES: DurableObjectNamespace }
-  ).WORKSPACES;
+  const workspaces = ctx.env.WORKSPACES;
   return workspaces.get(workspaces.idFromName(ctx.workspaceId));
 }

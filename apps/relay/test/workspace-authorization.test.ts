@@ -169,10 +169,17 @@ describe("workspace authorization", () => {
   });
 });
 
-function chiefAccountEnv() {
-  return Object.assign(Object.create(env as unknown as Env), {
-    ACCOUNT_IDENTITY_MODE: "chief-account" as const,
-  }) as Env;
+function chiefAccountEnv(): Env {
+  return {
+    ...env,
+    ACCOUNT_IDENTITY_MODE: "chief-account",
+    BETTER_AUTH_SECRET: "test-auth-secret",
+    BOOTSTRAP_TOKEN_SHA256: "test-bootstrap-token",
+    CLOUDFLARE_ACCOUNT_ID: "test-account",
+    CLOUDFLARE_EMAIL_API_TOKEN: "test-email-token",
+    EMAIL_FROM_ADDRESS: "test@example.test",
+    EMAIL_FROM_NAME: "Chief Test",
+  };
 }
 
 function insertUser(database: D1Database, id: string) {

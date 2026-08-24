@@ -1,4 +1,3 @@
-import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,7 +7,7 @@ import {
 } from "@chief/relay-contracts";
 
 import { withTrustedContext } from "../src/internal-context";
-import { hexKey } from "./helpers";
+import { hexKey, relayTestEnv } from "./helpers";
 
 const workspaceId = workspaceIdSchema.parse("workspace-a");
 const conversationId = "general";
@@ -105,9 +104,7 @@ describe("message edit and delete", () => {
 });
 
 function conversationStub() {
-  const conversations = (
-    env as unknown as { CONVERSATIONS: DurableObjectNamespace }
-  ).CONVERSATIONS;
+  const { CONVERSATIONS: conversations } = relayTestEnv();
   const id = conversations.idFromName(`${workspaceId}:${conversationId}`);
   return conversations.get(id);
 }
@@ -177,7 +174,7 @@ async function listEvents(stub: DurableObjectStub) {
   return (await response.json()) as {
     events: Array<{
       type: string;
-      payload: { message: Record<string, unknown> };
+      payload: { message: Record<string, string | boolean> };
     }>;
   };
 }

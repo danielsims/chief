@@ -126,7 +126,10 @@ export async function routeRelayRequest(
           ? { name: error.name, message: error.message, stack: error.stack }
           : String(error),
     });
-    const capacityResponse = relayCapacityResponse(error, requestId);
+    const capacityResponse = relayCapacityResponse(
+      error instanceof Error ? error : undefined,
+      requestId,
+    );
     if (capacityResponse) return capacityResponse;
     return relayError(
       400,
@@ -479,23 +482,19 @@ function conversationPermission(
 ): "messages.read" | "messages.send" | "messages.manage" {
   if (request.method === "GET") return "messages.read";
   const path = new URL(request.url).pathname;
-  if (path.endsWith("/activity")) return "messages.send";
-  if (path.endsWith("/edit") || request.method === "DELETE") {
-    return "messages.manage";
-  }
-  return "messages.send";
+  return path.endsWith("/edit") || request.method === "DELETE"
+    ? "messages.manage"
+    : "messages.send";
 }
 
-function conversationStub(
+const conversationStub = (
   env: Env,
   workspaceId: string,
   conversationId: string,
-) {
-  return env.CONVERSATIONS.get(
+) =>
+  env.CONVERSATIONS.get(
     env.CONVERSATIONS.idFromName(`${workspaceId}:${conversationId}`),
   );
-}
 
-function parseWorkspaceId(value: string | undefined) {
-  return workspaceIdSchema.parse(decodeURIComponent(value ?? ""));
-}
+const parseWorkspaceId = (value: string | undefined) =>
+  workspaceIdSchema.parse(decodeURIComponent(value ?? ""));

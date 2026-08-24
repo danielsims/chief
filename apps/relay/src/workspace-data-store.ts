@@ -3,6 +3,7 @@ import {
   brandProfileResultSchema,
   brandProfileSaveSchema,
   brandProfileSchema,
+  parseJsonValue,
   prospectSaveSchema,
   prospectSchema,
   prospectsResultSchema,
@@ -358,7 +359,7 @@ async function updateFile(storage: DurableObjectStorage, request: Request) {
 function brandFromRow(row: BrandRow) {
   return {
     markdown: row.markdown,
-    sourceUrls: JSON.parse(row.source_urls_json) as unknown,
+    sourceUrls: parseJsonValue(JSON.parse(row.source_urls_json)) ?? [],
     version: row.version,
     authorAgentId: row.author_agent_id,
     updatedAt: row.updated_at,
@@ -381,5 +382,6 @@ function fileFromRow(row: FileRow) {
 }
 
 function firstRow<T>(cursor: Iterable<T>): T | undefined {
-  return cursor[Symbol.iterator]().next().value as T | undefined;
+  const next = cursor[Symbol.iterator]().next();
+  return next.done ? undefined : next.value;
 }

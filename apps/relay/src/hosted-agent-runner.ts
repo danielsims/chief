@@ -3,12 +3,14 @@ import type {
   AgentJobCompletionResult,
   AgentPrincipal,
   ConversationMessage,
+  JsonObject,
 } from "@chief/relay-contracts";
 import {
   conversationIdSchema,
   isJsonObject,
   isJsonString,
   messageIdSchema,
+  parseJsonObject,
 } from "@chief/relay-contracts";
 
 import {
@@ -32,10 +34,13 @@ interface HostingContext {
   config?: { enabled: boolean };
 }
 
-type ChatMessage = Record<string, unknown> & {
+interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content?: string | null;
-};
+  tool_calls?: ToolCall[];
+  tool_call_id?: string;
+  name?: string;
+}
 
 export async function loadAgentHostingContext(
   env: Env,
@@ -94,18 +99,15 @@ export async function runHostedAgentJob(
 
   let finalText = "";
   for (let round = 0; round < 12; round += 1) {
-    const response = await env.AI.run(
-      env.HOSTED_CELL_MODEL ?? "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-      {
-        messages,
-        tools: hostedAgentToolDefinitions,
-        tool_choice: "auto",
-        parallel_tool_calls: false,
-        max_tokens: 1_500,
-        temperature: 0.3,
-      },
-    );
-    const assistant = firstAssistantMessage(response);
+    const response = await env.AI.run(env.HOSTED_CELL_MODEL, {
+      messages,
+      tools: hostedAgentToolDefinitions,
+      tool_choice: "auto",
+      parallel_tool_calls: false,
+      max_tokens: 1_500,
+      temperature: 0.3,
+    });
+    const assistant = firstAssistantMessage(parseJsonObject(response));
     messages.push({
       role: "assistant",
       content: assistant.content,
@@ -196,32 +198,31 @@ function nonEmptyOr(value: string | undefined, fallback: string) {
 interface ToolCall {
   id: string;
   type: "function";
-  function: { name: string; arguments: string | Record<string, unknown> };
+  function: { name: string; arguments: string | JsonObject };
 }
 
-function firstAssistantMessage(raw: unknown): {
+function firstAssistantMessage(raw: JsonObject | undefined): {
   content: string | null;
   toolCalls: ToolCall[];
 } {
-  const value = raw as {
-    choices?: {
-      message?: { content?: unknown; tool_calls?: unknown };
-    }[];
-  };
-  const message = value.choices?.[0]?.message;
+  const choices = Array.isArray(raw?.choices) ? raw.choices : [];
+  const choice = choices[0];
+  const message =
+    isJsonObject(choice) && isJsonObject(choice.message)
+      ? choice.message
+      : undefined;
   const content = isJsonString(message?.content) ? message.content : null;
   const calls = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
   const toolCalls = calls.flatMap((entry) => {
-    const call = entry as {
-      id?: unknown;
-      type?: unknown;
-      function?: { name?: unknown; arguments?: unknown };
-    };
+    if (!isJsonObject(entry)) return [];
+    const call = entry;
+    const fnValue = call.function;
+    if (!isJsonObject(fnValue)) return [];
+    const fn = fnValue;
     if (
       !isJsonString(call.id) ||
-      !isJsonString(call.function?.name) ||
-      (!isJsonString(call.function.arguments) &&
-        (!call.function.arguments || !isJsonObject(call.function.arguments)))
+      !isJsonString(fn.name) ||
+      (!isJsonString(fn.arguments) && !isJsonObject(fn.arguments))
     ) {
       return [];
     }
@@ -230,8 +231,8 @@ function firstAssistantMessage(raw: unknown): {
         id: call.id,
         type: "function" as const,
         function: {
-          name: call.function.name,
-          arguments: call.function.arguments,
+          name: fn.name,
+          arguments: fn.arguments,
         },
       },
     ];

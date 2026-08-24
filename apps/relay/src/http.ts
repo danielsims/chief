@@ -1,6 +1,7 @@
-import { relayErrorSchema } from "@chief/relay-contracts";
+import type { JsonObject, JsonValue } from "@chief/relay-contracts";
+import { parseJsonValue, relayErrorSchema } from "@chief/relay-contracts";
 
-export function json(value: unknown, init: ResponseInit = {}) {
+export function json<T>(value: T, init: ResponseInit = {}) {
   const headers = new Headers(init.headers);
   headers.set("content-type", "application/json; charset=utf-8");
   headers.set("cache-control", "no-store");
@@ -12,7 +13,7 @@ export function relayError(
   code: string,
   message: string,
   requestId?: string,
-  details?: Record<string, unknown>,
+  details?: JsonObject,
   headers?: HeadersInit,
 ) {
   const body = relayErrorSchema.parse({
@@ -21,13 +22,17 @@ export function relayError(
   return json(body, { status, headers });
 }
 
-export async function parseJson(request: Request): Promise<unknown> {
+export async function parseJson(request: Request): Promise<JsonValue> {
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes("application/json")) {
     throw new HttpError(415, "unsupported_media_type", "Expected JSON.");
   }
   try {
-    return await request.json();
+    const value = parseJsonValue(await request.json());
+    if (value === undefined) {
+      throw new HttpError(400, "invalid_json", "The request body is not JSON.");
+    }
+    return value;
   } catch {
     throw new HttpError(
       400,
@@ -42,7 +47,7 @@ export class HttpError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
-    readonly details?: Record<string, unknown>,
+    readonly details?: JsonObject,
   ) {
     super(message);
   }
