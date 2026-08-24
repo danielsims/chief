@@ -12,7 +12,6 @@ import {
   useState,
 } from "react";
 import { useChat } from "@ai-sdk/react";
-import { useMutation } from "convex/react";
 import { toast } from "sonner";
 
 import type {
@@ -34,7 +33,6 @@ import type {
   RecurringWorkRecord,
   SessionRecord,
 } from "@chief/agent-runtime/types";
-import { api } from "@chief/backend/convex/_generated/api";
 
 import type {
   RuntimeBrowserRuns,
@@ -214,7 +212,6 @@ const RuntimeContext = createContext<RuntimeContextValue | null>(null);
 export function RuntimeProvider({ children }: { children: ReactNode }) {
   const { cloudOrganizationId, capability } = useWorkspaceCapability();
   const relaySession = useRelaySession();
-  const markIntegrationConnected = useMutation(api.integrations.markConnected);
   const client = useMemo<RuntimeTransport>(() => {
     if (relaySession.client && relaySession.snapshot) {
       return new RelayRuntimeClient(relaySession.client, relaySession.snapshot);
@@ -281,7 +278,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       const pending = {
         workspaceId: cloudOrganizationId,
         conversationId,
-        ...(threadRootId ? { threadRootId } : {}),
+        ...(threadRootId ? { threadRootId } : undefined),
         url,
       };
       if (runId) {
@@ -313,7 +310,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         ...pending,
         ...(options?.browserRunId
           ? { browserRunId: options.browserRunId }
-          : {}),
+          : undefined),
         ...BROWSER_VIEWPORT,
       });
     },
@@ -432,7 +429,9 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         const owner = {
           workspaceId: msg.workspaceId,
           conversationId: msg.conversationId,
-          ...(msg.threadRootId ? { threadRootId: msg.threadRootId } : {}),
+          ...(msg.threadRootId
+            ? { threadRootId: msg.threadRootId }
+            : undefined),
         };
         browserOwners.set(msg.browserRunId, owner);
         setBrowserSessions((current) => {
@@ -467,11 +466,13 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
             conversationId: msg.conversationId,
             ...(msg.parentConversationId
               ? { parentConversationId: msg.parentConversationId }
-              : {}),
-            ...(msg.threadRootId ? { threadRootId: msg.threadRootId } : {}),
+              : undefined),
+            ...(msg.threadRootId
+              ? { threadRootId: msg.threadRootId }
+              : undefined),
             ...(msg.anchorMessageId
               ? { anchorMessageId: msg.anchorMessageId }
-              : {}),
+              : undefined),
             url: msg.url,
             status: "active",
             createdAt:
@@ -547,7 +548,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
           byConversation: {
             ...(current?.workspaceId === msg.workspaceId
               ? current.byConversation
-              : {}),
+              : undefined),
             [msg.conversationId]: msg.progress,
           },
         }));
@@ -561,18 +562,6 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
             closeBrowser(runId);
           }
         }
-        void markIntegrationConnected({
-          provider: msg.provider,
-          category: msg.category,
-          displayName: msg.displayName,
-          externalId: msg.externalId,
-        }).catch((error: unknown) =>
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : "Chief could not save the verified integration.",
-          ),
-        );
       }
       if (
         msg.type === "runtimeNotice" &&
@@ -613,13 +602,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       browserCursorTimers.clear();
       browserOwners.clear();
     };
-  }, [
-    client,
-    closeBrowser,
-    cloudOrganizationId,
-    completeBrowser,
-    markIntegrationConnected,
-  ]);
+  }, [client, closeBrowser, cloudOrganizationId, completeBrowser]);
 
   useEffect(() => {
     if (status !== "connected" || !cloudOrganizationId || !capability) return;
@@ -2103,9 +2086,11 @@ function useRuntimeChat(
           createdAt: Date.now(),
           ...(context?.threadRootId
             ? { threadRootId: context.threadRootId }
-            : {}),
-          ...(context?.mentions?.length ? { mentions: context.mentions } : {}),
-          ...(context?.interruptActive ? { interruptActive: true } : {}),
+            : undefined),
+          ...(context?.mentions?.length
+            ? { mentions: context.mentions }
+            : undefined),
+          ...(context?.interruptActive ? { interruptActive: true } : undefined),
         },
         files: attachments?.map((attachment) => ({
           type: "file" as const,

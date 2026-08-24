@@ -20,7 +20,6 @@ import { AgentConfigProvider } from "./lib/agent-config";
 import { AuthProvider, useAuth } from "./lib/auth/auth-context";
 import { ChannelReadStateProvider } from "./lib/channel-read-state-context";
 import { missingDesktopConfiguration, RELAY_URL } from "./lib/config";
-import { ConvexClientProvider } from "./lib/convex";
 import { RelaySessionProvider, useRelaySession } from "./lib/relay-session";
 import { RuntimeProvider } from "./lib/runtime";
 import { ThemeProvider, useTheme } from "./lib/theme";
@@ -373,11 +372,9 @@ export default function App() {
       <ThemeProvider>
         <AuthProvider>
           <AuthSessionBoundary>
-            <ConvexClientProvider>
-              <RelaySessionProvider>
-                <AuthenticatedApp />
-              </RelaySessionProvider>
-            </ConvexClientProvider>
+            <RelaySessionProvider>
+              <AuthenticatedApp />
+            </RelaySessionProvider>
           </AuthSessionBoundary>
         </AuthProvider>
       </ThemeProvider>

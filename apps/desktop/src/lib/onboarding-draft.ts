@@ -125,7 +125,7 @@ const onboardingDataSchema = z.object({
   providerMode: z.enum(["local", "deployed"]).optional(),
   provider: providerSchema,
   model: z.string().optional(),
-  deploymentProvider: z.enum(["convex", "vercel"]).optional(),
+  deploymentProvider: z.literal("vercel").optional(),
   cloudDeploymentUrl: z.string().optional(),
   brand: z
     .object({
@@ -350,11 +350,9 @@ function mergeDraft(
     provider: provider(parsed.provider, base.provider),
     model: parsed.model ?? base.model,
     deploymentProvider:
-      parsed.deploymentProvider === "convex"
-        ? "convex"
-        : parsed.deploymentProvider === "vercel" || parsed.provider === "vercel"
-          ? "vercel"
-          : base.deploymentProvider,
+      parsed.deploymentProvider === "vercel" || parsed.provider === "vercel"
+        ? "vercel"
+        : base.deploymentProvider,
     cloudDeploymentUrl: parsed.cloudDeploymentUrl ?? base.cloudDeploymentUrl,
     brand: {
       mode: parsed.brand?.mode ?? base.brand.mode,

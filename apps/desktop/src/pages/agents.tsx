@@ -1,7 +1,6 @@
 /* eslint-disable max-lines */
 
 import { useState } from "react";
-import { useConvexAuth, useQuery } from "convex/react";
 import { ChevronRight, X } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -10,7 +9,6 @@ import type {
   AgentPreference,
 } from "@chief/agent-runtime/types";
 import { defaultAgents } from "@chief/agent-runtime/agent-roster";
-import { api } from "@chief/backend/convex/_generated/api";
 import { Button } from "@chief/ui/components/button";
 import {
   Select,
@@ -33,6 +31,7 @@ import { PlaybookDocument } from "../components/playbooks/playbook-document";
 import { getWorkspaceProvider } from "../lib/agent-overrides";
 import { useAuth } from "../lib/auth/auth-context";
 import { createChat } from "../lib/chat-log";
+import { useLocalIntegrationStatus } from "../lib/local-integration-status";
 import {
   PLAYBOOK_CATEGORIES,
   playbookRunPrompt,
@@ -236,10 +235,6 @@ function AvailableAgentDetail({
   );
 }
 
-// Last resolved integrations, so revisiting the page renders the access
-// section in the first frame instead of popping it in after the query.
-let integrationsCache: AgentIntegrationOption[] | undefined;
-
 function PlaybooksCatalogue() {
   const navigate = useNavigate();
   const [category, setCategory] = useState<PlaybookCategory | "All">("All");
@@ -379,18 +374,13 @@ export function AgentsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { agents: runtimeAgents } = useRuntime();
   const { cloudOrganizationId } = useAuth();
-  const convexAuth = useConvexAuth();
-  const connectedIntegrations = useQuery(
-    api.integrations.listConnected,
-    convexAuth.isAuthenticated && cloudOrganizationId ? {} : "skip",
-  );
-  if (connectedIntegrations !== undefined) {
-    integrationsCache = connectedIntegrations.map((integration) => ({
+  const { integrations: localIntegrations } = useLocalIntegrationStatus();
+  const integrations: AgentIntegrationOption[] = (localIntegrations ?? [])
+    .filter((integration) => integration.status === "connected")
+    .map((integration) => ({
       provider: integration.provider,
-      displayName: integration.displayName,
+      displayName: integration.displayName ?? integration.provider,
     }));
-  }
-  const integrations: AgentIntegrationOption[] = integrationsCache ?? [];
   const agents = runtimeAgents.length > 0 ? runtimeAgents : defaultAgents;
   const agentPreferences = useAgentPreferences(cloudOrganizationId);
   const workspaceChannels = useWorkspaceChannels();

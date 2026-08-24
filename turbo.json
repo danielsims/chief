@@ -7,7 +7,6 @@
     "CHIEF_*",
     "CLOUDFLARE_*",
     "CODEX_PATH",
-    "CONVEX_SITE_URL",
     "DEV",
     "EXECUTOR_*",
     "GOOGLE_*",
@@ -17,6 +16,7 @@
     "OPENCODE_PATH",
     "STRIPE_*",
     "TAURI_*",
+    "VERCEL",
     "VITE_*",
     "WORKSPACE_MODEL",
     "XDG_CACHE_HOME"

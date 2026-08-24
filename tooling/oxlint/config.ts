@@ -124,7 +124,6 @@ export const chiefIgnorePatterns = [
   "apps/workspace/.eve/**",
   "apps/workspace/.workflow-data/**",
   "packages/agent-runtime/scripts/**",
-  "packages/agent-runtime/templates/**/convex/_generated/**",
 ];
 
 export const chiefEnvironments = {

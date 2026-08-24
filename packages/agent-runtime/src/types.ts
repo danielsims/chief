@@ -759,7 +759,7 @@ export interface LocalIntegrationStatus {
   needsCredentials?: boolean;
 }
 
-export type AgentDeploymentTarget = "vercel" | "convex";
+export type AgentDeploymentTarget = "vercel";
 
 export type AgentDeploymentPhase =
   | "authenticating"

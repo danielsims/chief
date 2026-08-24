@@ -1,8 +1,10 @@
+import { isJsonString } from "@chief/relay-contracts";
+
 import { env } from "../env";
 import { readStoredRelayConnection } from "./relay-connection";
 
 function readOptionalValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  return isJsonString(value) && value.trim() ? value.trim() : undefined;
 }
 
 const injectedAuthBaseUrl = readOptionalValue(
@@ -28,8 +30,6 @@ export const CHIEF_CLOUD_AUTH_UI_URL =
   injectedAuthBaseUrl ??
   (isDevelopment ? "http://localhost:3000" : "https://heychief.sh");
 
-export const CONVEX_URL = env.VITE_CONVEX_URL;
-
 export const AUTH_UI_BASE_URL =
   storedConnection?.authUiUrl ?? CHIEF_CLOUD_AUTH_UI_URL;
 
@@ -41,6 +41,5 @@ export const AUTH_BASE_URL =
 export const USING_CUSTOM_RELAY = storedConnection !== null;
 
 export const missingDesktopConfiguration = [
-  !CONVEX_URL ? "VITE_CONVEX_URL" : null,
   !AUTH_UI_BASE_URL ? "VITE_AUTH_UI_URL" : null,
 ].filter((value): value is string => value !== null);
