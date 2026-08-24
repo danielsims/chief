@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { StoredOAuthSession } from "../src/plugins/oauth-provider";
-import { oauthConnectionStatus } from "../src/plugins/oauth-provider";
+import {
+  oauthConnectionStatus,
+  requiresConfiguredOAuthClient,
+} from "../src/plugins/oauth-provider";
 
 function session(
   overrides: Partial<StoredOAuthSession> = {},
@@ -40,5 +43,45 @@ void test("an expired server makes the whole plugin reconnect", () => {
       }),
     ]),
     "reconnect",
+  );
+});
+
+void test("an authorization server without registration requests a configured client", () => {
+  const googleLike = session({
+    authorizedWithoutTokens: false,
+    discovery: {
+      authorizationServerUrl: "https://accounts.example.com",
+      authorizationServerMetadata: {
+        issuer: "https://accounts.example.com",
+        authorization_endpoint: "https://accounts.example.com/authorize",
+        token_endpoint: "https://accounts.example.com/token",
+        response_types_supported: ["code"],
+      },
+    },
+  });
+
+  assert.equal(requiresConfiguredOAuthClient(googleLike), true);
+  assert.equal(
+    requiresConfiguredOAuthClient({
+      ...googleLike,
+      clientInformation: { client_id: "configured-client" },
+    }),
+    false,
+  );
+  assert.equal(
+    requiresConfiguredOAuthClient({
+      ...googleLike,
+      discovery: {
+        authorizationServerUrl: "https://accounts.example.com",
+        authorizationServerMetadata: {
+          issuer: "https://accounts.example.com",
+          authorization_endpoint: "https://accounts.example.com/authorize",
+          token_endpoint: "https://accounts.example.com/token",
+          response_types_supported: ["code"],
+          registration_endpoint: "https://accounts.example.com/register",
+        },
+      },
+    }),
+    false,
   );
 });

@@ -8,15 +8,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import type { AgentPluginSummary } from "@chief/agent-runtime/types";
+import type {
+  AgentPluginSummary,
+  PluginAuthorizationAction,
+} from "@chief/agent-runtime/types";
 import { Button } from "@chief/ui/components/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@chief/ui/components/dialog";
 import { Input } from "@chief/ui/components/input";
 import {
   Popover,
@@ -36,11 +32,17 @@ import {
 } from "../../lib/plugin-presentation";
 import { ProviderLogo } from "../provider-logo";
 import { PluginAction } from "./plugin-action";
+import { PluginOAuthClientDialog } from "./plugin-oauth-client-dialog";
+import { PluginTrustDialog } from "./plugin-trust-dialog";
 
 type PluginView = "all" | "yours";
 type TypeFilter = "all" | "connectors" | "skills";
 type StatusFilter = "all" | "connected" | "attention" | "available";
 type PluginGroup = [string, AgentPluginSummary[]];
+type OAuthClientAction = Extract<
+  PluginAuthorizationAction,
+  { kind: "plugin_oauth_client" }
+>;
 
 function belongsToStatus(plugin: AgentPluginSummary, status: StatusFilter) {
   if (status === "all") return true;
@@ -176,44 +178,6 @@ function FilterOption({
   );
 }
 
-function PluginTrustDialog({
-  plugin,
-  open,
-  onOpenChange,
-  onConfirm,
-}: {
-  plugin: AgentPluginSummary | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md rounded-2xl">
-        <DialogHeader>
-          <DialogTitle>Add {plugin?.name ?? "plugin"}?</DialogTitle>
-          <DialogDescription className="leading-5">
-            This installs a pinned third-party package and enables its portable
-            skills and MCP servers for agents in this workspace. Review the
-            source before trusting it.
-          </DialogDescription>
-        </DialogHeader>
-        {plugin?.repository ? (
-          <p className="bg-muted text-muted-foreground truncate rounded-lg px-3 py-2 font-mono text-[11px]">
-            {plugin.repository}
-          </p>
-        ) : null}
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={onConfirm}>Add plugin</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export function PluginList({ plugins }: { plugins: PluginRuntimeState }) {
   const [view, setView] = useState<PluginView>("all");
   const [query, setQuery] = useState("");
@@ -221,6 +185,8 @@ export function PluginList({ plugins }: { plugins: PluginRuntimeState }) {
   const [status, setStatus] = useState<StatusFilter>("all");
   const [trustCandidate, setTrustCandidate] =
     useState<AgentPluginSummary | null>(null);
+  const [oauthClientAction, setOAuthClientAction] =
+    useState<OAuthClientAction | null>(null);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
   const matching = useMemo(() => {
     const matching = (plugins.plugins ?? []).filter((plugin) => {
@@ -273,7 +239,10 @@ export function PluginList({ plugins }: { plugins: PluginRuntimeState }) {
       void run(async () => {
         const installed = await plugins.install(plugin.id, true);
         if (installed?.status === "authorization_required") {
-          await plugins.authorize(plugin.id);
+          const action = await plugins.authorize(plugin.id);
+          if (action?.kind === "plugin_oauth_client") {
+            setOAuthClientAction(action);
+          }
         }
       });
     },
@@ -282,7 +251,10 @@ export function PluginList({ plugins }: { plugins: PluginRuntimeState }) {
   const authorize = useCallback(
     (plugin: AgentPluginSummary) => {
       void run(async () => {
-        await plugins.authorize(plugin.id);
+        const action = await plugins.authorize(plugin.id);
+        if (action?.kind === "plugin_oauth_client") {
+          setOAuthClientAction(action);
+        }
       });
     },
     [plugins, run],
@@ -451,11 +423,37 @@ export function PluginList({ plugins }: { plugins: PluginRuntimeState }) {
           void run(async () => {
             const installed = await plugins.install(plugin.id, true);
             if (installed?.status === "authorization_required") {
-              await plugins.authorize(plugin.id);
+              const action = await plugins.authorize(plugin.id);
+              if (action?.kind === "plugin_oauth_client") {
+                setOAuthClientAction(action);
+              }
             }
           });
         }}
       />
+      {oauthClientAction ? (
+        <PluginOAuthClientDialog
+          key={`${oauthClientAction.pluginId}:${oauthClientAction.serverName}`}
+          action={oauthClientAction}
+          busy={plugins.busyPluginId === oauthClientAction.pluginId}
+          onClose={() => setOAuthClientAction(null)}
+          onSubmit={(input) => {
+            const current = oauthClientAction;
+            setOAuthClientAction(null);
+            return run(async () => {
+              try {
+                const action = await plugins.authorize(current.pluginId, input);
+                if (action?.kind === "plugin_oauth_client") {
+                  setOAuthClientAction(action);
+                }
+              } catch (error) {
+                setOAuthClientAction(current);
+                throw error;
+              }
+            });
+          }}
+        />
+      ) : null}
     </>
   );
 }

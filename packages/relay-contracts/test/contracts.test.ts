@@ -192,6 +192,29 @@ void test("plugin authorization components reject unsafe callback URLs", () => {
   );
 });
 
+void test("plugin authorization components accept generic OAuth clients", () => {
+  const component = {
+    id: "plugin-auth-1",
+    kind: "plugin.authorization",
+    version: 1,
+    payload: {
+      workspaceId: "workspace-1",
+      conversationId: "analytics",
+      agentId: "analyst",
+      pluginId: "analytics",
+      pluginName: "Analytics",
+      description: "Authorize analytics administration.",
+      provider: "analytics.example.com",
+      kind: "plugin_oauth_client",
+      serverName: "analytics-mcp",
+      callbackUrl: "http://127.0.0.1:4318/plugins/oauth/callback",
+      status: "client_configuration_required",
+    },
+  } as const;
+
+  assert.equal(messageComponentSchema.safeParse(component).success, true);
+});
+
 void test("relay discovery is portable across hosting providers", () => {
   const discovery = relayDiscoverySchema.parse({
     protocol: "chief-relay",

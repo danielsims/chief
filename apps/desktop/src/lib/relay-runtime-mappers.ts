@@ -213,15 +213,27 @@ function pluginRecommendationParts(
     if (!parsed.success) return [];
     const value = parsed.data;
     return [
-      {
-        kind: "plugin_authorization",
-        pluginId: value.pluginId,
-        pluginName: value.pluginName,
-        description: value.description,
-        provider: value.provider,
-        authorizationUrl: value.authorizationUrl,
-        status: value.status,
-      } satisfies PluginAuthorizationAction,
+      (value.status === "authorization_required"
+        ? {
+            kind: "plugin_authorization",
+            pluginId: value.pluginId,
+            pluginName: value.pluginName,
+            description: value.description,
+            provider: value.provider,
+            authorizationUrl: value.authorizationUrl,
+            status: value.status,
+          }
+        : {
+            kind: value.kind,
+            pluginId: value.pluginId,
+            pluginName: value.pluginName,
+            description: value.description,
+            provider: value.provider,
+            serverName: value.serverName,
+            callbackUrl: value.callbackUrl,
+            setupUrl: value.setupUrl,
+            status: value.status,
+          }) satisfies PluginAuthorizationAction,
     ];
   });
   const authorizationPlugins = authorizations.map(

@@ -162,18 +162,16 @@ export async function callPluginTool(
       conversationId,
       threadRootId,
       agentId,
-      pluginId: authorization.pluginId,
-      pluginName: authorization.pluginName,
-      description: authorization.description,
-      provider: authorization.provider,
-      authorizationUrl: authorization.authorizationUrl,
-      status: authorization.status,
+      ...authorization,
     };
     const message = {
       messageId: commandId,
       conversationId,
       threadRootId,
-      body: `Authorize ${authorization.pluginName} to continue.`,
+      body:
+        authorization.kind === "plugin_oauth_client"
+          ? `Configure an OAuth client for ${authorization.pluginName} to continue.`
+          : `Authorize ${authorization.pluginName} to continue.`,
       mentions: [],
       components: [
         {

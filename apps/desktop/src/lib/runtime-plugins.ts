@@ -25,6 +25,12 @@ export interface RelayPluginActionContext {
   recommendationId: string;
 }
 
+export interface PluginOAuthClientInput {
+  serverName: string;
+  clientId: string;
+  clientSecret?: string;
+}
+
 const cache = new Map<string, PluginState>();
 
 function requestId() {
@@ -149,7 +155,7 @@ export function usePlugins() {
   );
 
   const authorizationAction = useCallback(
-    (pluginId: string) =>
+    (pluginId: string, oauthClient?: PluginOAuthClientInput) =>
       new Promise<PluginAuthorizationAction | undefined>((resolve, reject) => {
         if (!cloudOrganizationId || !capability) {
           reject(new Error("Workspace authorization is not ready."));
@@ -191,6 +197,7 @@ export function usePlugins() {
           workspaceId: cloudOrganizationId,
           pluginId,
           requestId: id,
+          oauthClient,
           executorCapability: capability,
         });
       }),
@@ -198,14 +205,18 @@ export function usePlugins() {
   );
 
   const authorize = useCallback(
-    async (pluginId: string) => {
+    async (pluginId: string, oauthClient?: PluginOAuthClientInput) => {
       setBusyPluginId(pluginId);
       try {
         let lastAction: PluginAuthorizationAction | undefined;
         for (let serverIndex = 0; serverIndex < 8; serverIndex += 1) {
-          const action = await authorizationAction(pluginId);
+          const action = await authorizationAction(
+            pluginId,
+            serverIndex === 0 ? oauthClient : undefined,
+          );
           if (!action) return lastAction;
           lastAction = action;
+          if (action.kind === "plugin_oauth_client") return action;
           await openUrl(action.authorizationUrl);
           const completed = waitForPlugin(
             pluginId,

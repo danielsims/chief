@@ -69,30 +69,47 @@ export const pluginActionPayloadSchema = z
   })
   .strict();
 
-export const pluginAuthorizationPayloadSchema = z
-  .object({
-    workspaceId: workspaceIdSchema,
-    conversationId: conversationIdSchema,
-    threadRootId: messageIdSchema.optional(),
-    agentId: agentIdSchema,
-    pluginId: z.string().trim().min(1).max(128),
-    pluginName: z.string().trim().min(1).max(256),
-    description: z.string().trim().min(1).max(2_000),
-    provider: z.string().trim().min(1).max(256),
-    authorizationUrl: z
-      .url()
-      .max(2_048)
-      .refine((value) => {
-        const url = new URL(value);
-        return (
-          url.protocol === "https:" ||
-          (url.protocol === "http:" &&
-            ["127.0.0.1", "localhost"].includes(url.hostname))
-        );
-      }, "Authorization URLs must use HTTPS or a loopback callback."),
-    status: z.literal("authorization_required"),
-  })
-  .strict();
+const pluginAuthorizationPayloadBaseSchema = z.object({
+  workspaceId: workspaceIdSchema,
+  conversationId: conversationIdSchema,
+  threadRootId: messageIdSchema.optional(),
+  agentId: agentIdSchema,
+  pluginId: z.string().trim().min(1).max(128),
+  pluginName: z.string().trim().min(1).max(256),
+  description: z.string().trim().min(1).max(2_000),
+  provider: z.string().trim().min(1).max(256),
+});
+
+const externalUrlSchema = z
+  .url()
+  .max(2_048)
+  .refine((value) => {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" ||
+      (url.protocol === "http:" &&
+        ["127.0.0.1", "localhost"].includes(url.hostname))
+    );
+  }, "URLs must use HTTPS or a loopback address.");
+
+export const pluginAuthorizationPayloadSchema = z.union([
+  pluginAuthorizationPayloadBaseSchema
+    .extend({
+      kind: z.literal("plugin_authorization").optional(),
+      authorizationUrl: externalUrlSchema,
+      status: z.literal("authorization_required"),
+    })
+    .strict(),
+  pluginAuthorizationPayloadBaseSchema
+    .extend({
+      kind: z.literal("plugin_oauth_client"),
+      serverName: z.string().trim().min(1).max(256),
+      callbackUrl: externalUrlSchema,
+      setupUrl: externalUrlSchema.optional(),
+      status: z.literal("client_configuration_required"),
+    })
+    .strict(),
+]);
 
 export const messageComponentSchema = z
   .object({

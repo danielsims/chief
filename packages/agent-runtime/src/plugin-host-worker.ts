@@ -97,6 +97,27 @@ if (process.env.CHIEF_PLUGIN_HOST_SMOKE !== "1") {
         return;
       }
       if (url.pathname === "/plugins/authorize") {
+        const oauthClient = parseJsonObject(input.oauthClient);
+        if (input.oauthClient !== undefined && !oauthClient) {
+          throw new Error("oauthClient must be an object.");
+        }
+        if (oauthClient) {
+          await plugins.configureOAuthClient(workspaceId, pluginId, {
+            serverName: parseRequiredString(
+              oauthClient.serverName,
+              "serverName",
+            ),
+            clientId: parseRequiredString(oauthClient.clientId, "clientId"),
+            ...(oauthClient.clientSecret === undefined
+              ? undefined
+              : {
+                  clientSecret: parseRequiredString(
+                    oauthClient.clientSecret,
+                    "clientSecret",
+                  ),
+                }),
+          });
+        }
         const action = await plugins.authorize(workspaceId, pluginId);
         sendJson(response, 200, {
           action,

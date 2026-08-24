@@ -332,6 +332,11 @@ export type ClientMessage =
       workspaceId: string;
       pluginId: string;
       requestId: string;
+      oauthClient?: {
+        serverName: string;
+        clientId: string;
+        clientSecret?: string;
+      };
       executorCapability: ExecutorCapability;
     }
   | {
